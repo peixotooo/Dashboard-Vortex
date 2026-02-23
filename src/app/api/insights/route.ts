@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callTool } from "@/lib/mcp-client";
+import { getInsights, comparePerformance } from "@/lib/meta-api";
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,20 +10,17 @@ export async function GET(request: NextRequest) {
     const breakdowns = searchParams.get("breakdowns") || "";
     const fields = searchParams.get("fields") || "";
 
-    const args: Record<string, unknown> = {
+    const result = await getInsights({
       object_id,
       level,
       date_preset,
-    };
-
-    if (breakdowns) args.breakdowns = breakdowns.split(",");
-    if (fields) args.fields = fields.split(",");
-
-    const result = await callTool("get_insights", args);
+      breakdowns: breakdowns ? breakdowns.split(",") : undefined,
+      fields: fields ? fields.split(",") : undefined,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, insights: [] }, { status: 500 });
   }
 }
 
@@ -32,11 +29,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, ...args } = body;
 
-    let tool = "get_insights";
-    if (action === "compare") tool = "compare_performance";
-    else if (action === "export") tool = "export_insights";
+    let result;
+    if (action === "compare") {
+      result = await comparePerformance(args);
+    } else {
+      result = await getInsights(args);
+    }
 
-    const result = await callTool(tool, args);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

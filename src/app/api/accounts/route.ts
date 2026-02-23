@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { callTool } from "@/lib/mcp-client";
+import { getAdAccounts } from "@/lib/meta-api";
 
 export async function GET() {
   try {
-    const result = await callTool("get_ad_accounts");
+    const result = await getAdAccounts();
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

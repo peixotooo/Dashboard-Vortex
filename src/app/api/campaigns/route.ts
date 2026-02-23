@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callTool } from "@/lib/mcp-client";
+import {
+  listCampaigns,
+  createCampaign,
+  pauseCampaign,
+  resumeCampaign,
+  deleteCampaign,
+  updateCampaign,
+} from "@/lib/meta-api";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
     const status = searchParams.get("status") || "";
-    const limit = searchParams.get("limit") || "25";
+    const limit = parseInt(searchParams.get("limit") || "25");
 
-    const args: Record<string, unknown> = { limit: parseInt(limit) };
-    if (account_id) args.account_id = account_id;
-    if (status) args.status_filter = status;
-
-    const result = await callTool("list_campaigns", args);
+    const result = await listCampaigns({ account_id, status_filter: status, limit });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, campaigns: [] }, { status: 500 });
   }
 }
 
@@ -25,13 +28,24 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, ...args } = body;
 
-    let tool = "create_campaign";
-    if (action === "pause") tool = "pause_campaign";
-    else if (action === "resume") tool = "resume_campaign";
-    else if (action === "delete") tool = "delete_campaign";
-    else if (action === "update") tool = "update_campaign";
+    let result;
+    switch (action) {
+      case "pause":
+        result = await pauseCampaign(args);
+        break;
+      case "resume":
+        result = await resumeCampaign(args);
+        break;
+      case "delete":
+        result = await deleteCampaign(args);
+        break;
+      case "update":
+        result = await updateCampaign(args);
+        break;
+      default:
+        result = await createCampaign(args);
+    }
 
-    const result = await callTool(tool, args);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
