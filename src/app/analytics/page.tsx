@@ -95,7 +95,7 @@ export default function AnalyticsPage() {
         Object.entries(aggregated).map(([name, values]) => ({
           name,
           ...values,
-          spend: values.spend / 100,
+          spend: parseFloat(values.spend.toFixed(2)),
         }))
       );
     } catch {
@@ -113,7 +113,7 @@ export default function AnalyticsPage() {
     date: row.date_start?.slice(5) || "",
     impressions: parseFloat(row.impressions || "0"),
     clicks: parseFloat(row.clicks || "0"),
-    spend: parseFloat(row.spend || "0") / 100,
+    spend: parseFloat(row.spend || "0"),
     ctr: parseFloat(row.ctr || "0"),
   }));
 

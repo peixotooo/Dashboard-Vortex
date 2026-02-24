@@ -3,12 +3,12 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatNumber, formatPercent, getStatusBadgeClasses } from "@/lib/utils";
+import { formatCurrency, formatBudget, formatNumber, formatPercent, getStatusBadgeClasses } from "@/lib/utils";
 
 interface Column {
   key: string;
   label: string;
-  format?: "currency" | "number" | "percent" | "status" | "text";
+  format?: "currency" | "budget" | "number" | "percent" | "status" | "text";
   align?: "left" | "right" | "center";
 }
 
@@ -27,6 +27,8 @@ function formatCell(value: unknown, format?: string): React.ReactNode {
   switch (format) {
     case "currency":
       return formatCurrency(strValue);
+    case "budget":
+      return formatBudget(strValue);
     case "number":
       return formatNumber(strValue);
     case "percent":

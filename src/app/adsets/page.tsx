@@ -286,7 +286,7 @@ export default function AdSetsPage() {
           { key: "status", label: "Status", format: "status" },
           { key: "effective_status", label: "Status Efetivo", format: "status" },
           { key: "optimization_goal", label: "Otimização" },
-          { key: "daily_budget", label: "Orçamento/dia", format: "currency", align: "right" },
+          { key: "daily_budget", label: "Orçamento/dia", format: "budget", align: "right" },
           { key: "billing_event", label: "Cobrança" },
         ]}
         data={adSets}

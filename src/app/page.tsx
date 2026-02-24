@@ -79,7 +79,7 @@ export default function OverviewPage() {
 
             return {
               date: row.date_start?.slice(5) || "",
-              spend: (spend / 100).toFixed(2),
+              spend: parseFloat(spend.toFixed(2)),
               impressions,
               clicks,
             };
@@ -202,7 +202,7 @@ export default function OverviewPage() {
           { key: "name", label: "Nome" },
           { key: "status", label: "Status", format: "status" },
           { key: "objective", label: "Objetivo" },
-          { key: "daily_budget", label: "Orçamento Diário", format: "currency", align: "right" },
+          { key: "daily_budget", label: "Orçamento Diário", format: "budget", align: "right" },
         ]}
         data={data.topCampaigns}
         loading={loading}

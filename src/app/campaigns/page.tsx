@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getStatusBadgeClasses, formatCurrency } from "@/lib/utils";
+import { getStatusBadgeClasses, formatBudget } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import type { Campaign } from "@/lib/types";
 
@@ -312,9 +312,9 @@ export default function CampaignsPage() {
                         </td>
                         <td className="px-4 py-3 text-right text-sm">
                           {campaign.daily_budget
-                            ? `${formatCurrency(campaign.daily_budget)}/dia`
+                            ? `${formatBudget(campaign.daily_budget)}/dia`
                             : campaign.lifetime_budget
-                            ? formatCurrency(campaign.lifetime_budget)
+                            ? formatBudget(campaign.lifetime_budget)
                             : "-"}
                         </td>
                         <td className="px-4 py-3 text-right">

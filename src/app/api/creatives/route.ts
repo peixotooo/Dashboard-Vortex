@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listCreatives } from "@/lib/meta-api";
+import { listCreatives, getCreativeDetails } from "@/lib/meta-api";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,6 +17,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
+    if (body.action === "details" && body.creative_id) {
+      const result = await getCreativeDetails({
+        creative_id: body.creative_id,
+        account_id: body.account_id,
+      });
+      return NextResponse.json(result);
+    }
+
     const result = await listCreatives({ account_id: body.account_id });
     return NextResponse.json(result);
   } catch (error) {

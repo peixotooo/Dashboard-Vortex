@@ -11,7 +11,17 @@ export function formatCurrency(value: number | string, currency = "BRL"): string
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency,
-  }).format(num / 100); // Meta API returns values in cents
+  }).format(num);
+}
+
+// For Meta API budget fields that return values in cents (daily_budget, lifetime_budget)
+export function formatBudget(value: number | string, currency = "BRL"): string {
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return "R$ 0,00";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency,
+  }).format(num / 100);
 }
 
 export function formatNumber(value: number | string): string {

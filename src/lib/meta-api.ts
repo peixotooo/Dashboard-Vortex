@@ -371,6 +371,73 @@ export async function listCreatives(args: { account_id?: string }): Promise<unkn
   return { creatives: result.data || [] };
 }
 
+export async function getCreativeDetails(args: { creative_id: string; account_id?: string }): Promise<unknown> {
+  const creative = await graphRequest(`/${args.creative_id}`, {
+    fields: "id,name,title,body,image_url,video_id,call_to_action_type,status,thumbnail_url,object_story_spec",
+  });
+
+  let ads: unknown[] = [];
+  let adInsights: unknown[] = [];
+  try {
+    let accountId = args.account_id || "";
+    if (!accountId) {
+      const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
+      if (accounts.accounts.length > 0) accountId = accounts.accounts[0].id;
+    }
+    if (accountId && !accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+    if (accountId) {
+      const adsData = await graphRequest(`/${accountId}/ads`, {
+        fields: "id,name,status,campaign_id,adset_id,campaign{name},adset{name}",
+        filtering: JSON.stringify([
+          { field: "creative.id", operator: "EQUAL", value: args.creative_id },
+        ]),
+        limit: "10",
+      });
+      ads = (adsData as { data?: unknown[] }).data || [];
+
+      if (ads.length > 0) {
+        const adIds = (ads as Array<{ id: string }>).map((a) => a.id);
+        const insightsPromises = adIds.slice(0, 3).map((adId) =>
+          graphRequest(`/${adId}/insights`, {
+            fields: "impressions,clicks,spend,ctr,cpc,reach",
+            date_preset: "last_30d",
+          }).catch(() => ({ data: [] }))
+        );
+        const insightsResults = await Promise.all(insightsPromises);
+        adInsights = insightsResults.flatMap((r) => (r as { data?: unknown[] }).data || []);
+      }
+    }
+  } catch {
+    // Non-critical
+  }
+
+  let totalImpressions = 0;
+  let totalClicks = 0;
+  let totalSpend = 0;
+  let totalReach = 0;
+
+  (adInsights as Array<Record<string, string>>).forEach((row) => {
+    totalImpressions += parseFloat(row.impressions || "0");
+    totalClicks += parseFloat(row.clicks || "0");
+    totalSpend += parseFloat(row.spend || "0");
+    totalReach += parseFloat(row.reach || "0");
+  });
+
+  return {
+    creative,
+    ads,
+    metrics: {
+      impressions: totalImpressions,
+      clicks: totalClicks,
+      spend: totalSpend,
+      reach: totalReach,
+      ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+      cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+    },
+  };
+}
+
 // ============ Auth & Health ============
 
 export async function getTokenInfo(): Promise<unknown> {
