@@ -20,9 +20,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
+import { useAccount } from "@/lib/account-context";
 import type { Ad, Campaign } from "@/lib/types";
 
 export default function AdsPage() {
+  const { accountId } = useAccount();
   const [ads, setAds] = useState<Ad[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,12 +39,12 @@ export default function AdsPage() {
   });
 
   const fetchAds = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
-      const params = selectedCampaign
-        ? `?campaign_id=${selectedCampaign}`
-        : "";
-      const res = await fetch(`/api/ads${params}`);
+      const params = new URLSearchParams({ account_id: accountId });
+      if (selectedCampaign) params.set("campaign_id", selectedCampaign);
+      const res = await fetch(`/api/ads?${params}`);
       const data = await res.json();
       setAds(data.ads || []);
     } catch {
@@ -50,16 +52,17 @@ export default function AdsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCampaign]);
+  }, [selectedCampaign, accountId]);
 
   useEffect(() => {
     fetchAds();
   }, [fetchAds]);
 
   useEffect(() => {
+    if (!accountId) return;
     async function fetchCampaigns() {
       try {
-        const res = await fetch("/api/campaigns?limit=100");
+        const res = await fetch(`/api/campaigns?account_id=${accountId}&limit=100`);
         const data = await res.json();
         setCampaigns(data.campaigns || []);
       } catch {
@@ -67,7 +70,7 @@ export default function AdsPage() {
       }
     }
     fetchCampaigns();
-  }, []);
+  }, [accountId]);
 
   async function handleCreate() {
     if (!newAd.name || !newAd.adset_id || !newAd.creative_id) return;

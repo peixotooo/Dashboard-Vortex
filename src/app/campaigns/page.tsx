@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getStatusBadgeClasses, formatCurrency } from "@/lib/utils";
+import { useAccount } from "@/lib/account-context";
 import type { Campaign } from "@/lib/types";
 
 const objectives = [
@@ -34,6 +35,7 @@ const objectives = [
 ];
 
 export default function CampaignsPage() {
+  const { accountId } = useAccount();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -47,9 +49,10 @@ export default function CampaignsPage() {
   const [filter, setFilter] = useState("");
 
   const fetchCampaigns = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/campaigns?limit=50");
+      const res = await fetch(`/api/campaigns?account_id=${accountId}&limit=50`);
       const data = await res.json();
       setCampaigns(data.campaigns || []);
     } catch {
@@ -57,7 +60,7 @@ export default function CampaignsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [accountId]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -92,6 +95,7 @@ export default function CampaignsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "create",
+          account_id: accountId,
           name: newCampaign.name,
           objective: newCampaign.objective,
           daily_budget: newCampaign.daily_budget

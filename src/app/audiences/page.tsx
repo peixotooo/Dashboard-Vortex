@@ -23,9 +23,11 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/utils";
+import { useAccount } from "@/lib/account-context";
 import type { Audience } from "@/lib/types";
 
 export default function AudiencesPage() {
+  const { accountId } = useAccount();
   const [audiences, setAudiences] = useState<Audience[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -57,9 +59,10 @@ export default function AudiencesPage() {
   const [estimateResult, setEstimateResult] = useState<string | null>(null);
 
   const fetchAudiences = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/audiences");
+      const res = await fetch(`/api/audiences?account_id=${accountId}`);
       const data = await res.json();
       setAudiences(data.audiences || []);
     } catch {
@@ -67,7 +70,7 @@ export default function AudiencesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [accountId]);
 
   useEffect(() => {
     fetchAudiences();
@@ -80,7 +83,7 @@ export default function AudiencesPage() {
       await fetch("/api/audiences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "custom", ...customForm }),
+        body: JSON.stringify({ type: "custom", account_id: accountId, ...customForm }),
       });
       setCreateOpen(false);
       await fetchAudiences();
@@ -100,6 +103,7 @@ export default function AudiencesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "lookalike",
+          account_id: accountId,
           name: lookalikeForm.name,
           source_audience_id: lookalikeForm.source_audience_id,
           country: lookalikeForm.country,
@@ -122,6 +126,7 @@ export default function AudiencesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "estimate",
+          account_id: accountId,
           targeting: {
             age_min: parseInt(estimateForm.age_min),
             age_max: parseInt(estimateForm.age_max),

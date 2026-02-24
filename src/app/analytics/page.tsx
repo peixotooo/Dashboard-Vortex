@@ -27,6 +27,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { TrendChart } from "@/components/dashboard/trend-chart";
+import { useAccount } from "@/lib/account-context";
 import type { DatePreset, BreakdownType, InsightMetrics } from "@/lib/types";
 
 const COLORS = ["#1877f2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#f97316", "#ec4899"];
@@ -48,6 +49,7 @@ const tooltipStyle = {
 };
 
 export default function AnalyticsPage() {
+  const { accountId } = useAccount();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [breakdown, setBreakdown] = useState<BreakdownType>("age");
   const [loading, setLoading] = useState(true);
@@ -57,14 +59,15 @@ export default function AnalyticsPage() {
   >([]);
 
   const fetchInsights = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
       const [trendRes, breakdownRes] = await Promise.all([
         fetch(
-          `/api/insights?level=account&date_preset=${datePreset}&fields=impressions,clicks,spend,ctr,cpc`
+          `/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&fields=impressions,clicks,spend,ctr,cpc`
         ),
         fetch(
-          `/api/insights?level=account&date_preset=${datePreset}&breakdowns=${breakdown}&fields=impressions,clicks,spend`
+          `/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&breakdowns=${breakdown}&fields=impressions,clicks,spend`
         ),
       ]);
 
@@ -100,7 +103,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [datePreset, breakdown]);
+  }, [datePreset, breakdown, accountId]);
 
   useEffect(() => {
     fetchInsights();

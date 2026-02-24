@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { AccountProvider } from "@/lib/account-context";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
@@ -16,6 +17,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className="min-h-screen bg-background antialiased">
+        <AccountProvider>
         <Sidebar
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -32,6 +34,7 @@ export default function RootLayout({
         >
           {children}
         </main>
+        </AccountProvider>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   Select,
   SelectContent,
@@ -8,30 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AdAccount } from "@/lib/types";
+import { useAccount } from "@/lib/account-context";
 
 export function AccountSelector() {
-  const [accounts, setAccounts] = useState<AdAccount[]>([]);
-  const [selected, setSelected] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch("/api/accounts");
-        const data = await res.json();
-        if (data.accounts && data.accounts.length > 0) {
-          setAccounts(data.accounts);
-          setSelected(data.accounts[0].id);
-        }
-      } catch {
-        // Will show empty state
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAccounts();
-  }, []);
+  const { accountId, setAccountId, accounts, loading } = useAccount();
 
   if (loading) {
     return (
@@ -48,7 +28,7 @@ export function AccountSelector() {
   }
 
   return (
-    <Select value={selected} onValueChange={setSelected}>
+    <Select value={accountId} onValueChange={setAccountId}>
       <SelectTrigger className="w-48">
         <SelectValue placeholder="Selecione a conta" />
       </SelectTrigger>

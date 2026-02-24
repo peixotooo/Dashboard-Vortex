@@ -12,9 +12,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { useAccount } from "@/lib/account-context";
 import type { Creative } from "@/lib/types";
 
 export default function CreativesPage() {
+  const { accountId } = useAccount();
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
@@ -22,9 +24,10 @@ export default function CreativesPage() {
   const [validating, setValidating] = useState(false);
 
   const fetchCreatives = useCallback(async () => {
+    if (!accountId) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/creatives");
+      const res = await fetch(`/api/creatives?account_id=${accountId}`);
       const data = await res.json();
       setCreatives(data.creatives || []);
     } catch {
@@ -32,7 +35,7 @@ export default function CreativesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [accountId]);
 
   useEffect(() => {
     fetchCreatives();

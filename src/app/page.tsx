@@ -14,6 +14,7 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { useAccount } from "@/lib/account-context";
 import type { DatePreset } from "@/lib/types";
 
 interface OverviewData {
@@ -28,6 +29,7 @@ interface OverviewData {
 }
 
 export default function OverviewPage() {
+  const { accountId } = useAccount();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OverviewData>({
@@ -42,13 +44,15 @@ export default function OverviewPage() {
   });
 
   useEffect(() => {
+    if (!accountId) return;
+
     async function fetchData() {
       setLoading(true);
       try {
         // Fetch account insights
         const [insightsRes, campaignsRes] = await Promise.all([
-          fetch(`/api/insights?level=account&date_preset=${datePreset}`),
-          fetch("/api/campaigns?limit=5"),
+          fetch(`/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}`),
+          fetch(`/api/campaigns?account_id=${accountId}&limit=5`),
         ]);
 
         const insightsData = await insightsRes.json();
@@ -109,7 +113,7 @@ export default function OverviewPage() {
     }
 
     fetchData();
-  }, [datePreset]);
+  }, [datePreset, accountId]);
 
   return (
     <div className="space-y-6">
