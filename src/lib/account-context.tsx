@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { useWorkspace } from "@/lib/workspace-context";
 import type { AdAccount } from "@/lib/types";
 
 interface AccountContextType {
@@ -22,27 +23,44 @@ export function useAccount() {
 }
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
+  const { workspace } = useWorkspace();
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
   const [accountId, setAccountId] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch("/api/accounts");
-        const data = await res.json();
-        if (data.accounts && data.accounts.length > 0) {
-          setAccounts(data.accounts);
+  const fetchAccounts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (workspace?.id) {
+        headers["x-workspace-id"] = workspace.id;
+      }
+
+      const res = await fetch("/api/accounts", { headers });
+      const data = await res.json();
+      if (data.accounts && data.accounts.length > 0) {
+        setAccounts(data.accounts);
+        // Keep current selection if still valid
+        const currentValid = data.accounts.find(
+          (a: AdAccount) => a.id === accountId
+        );
+        if (!currentValid) {
           setAccountId(data.accounts[0].id);
         }
-      } catch {
-        // Will show empty state
-      } finally {
-        setLoading(false);
+      } else {
+        setAccounts([]);
+        setAccountId("");
       }
+    } catch {
+      // Will show empty state
+    } finally {
+      setLoading(false);
     }
+  }, [workspace?.id, accountId]);
+
+  useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [fetchAccounts]);
 
   return (
     <AccountContext.Provider value={{ accountId, setAccountId, accounts, loading }}>

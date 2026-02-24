@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { DatePreset } from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -42,6 +43,55 @@ export function formatCompact(value: number | string): string {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
   return num.toFixed(0);
+}
+
+export function getPreviousPeriodDates(preset: DatePreset): { since: string; until: string } {
+  const today = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
+  function subtractDays(date: Date, days: number): Date {
+    const d = new Date(date);
+    d.setDate(d.getDate() - days);
+    return d;
+  }
+
+  switch (preset) {
+    case "today": {
+      const yesterday = subtractDays(today, 1);
+      return { since: fmt(yesterday), until: fmt(yesterday) };
+    }
+    case "yesterday": {
+      const d = subtractDays(today, 2);
+      return { since: fmt(d), until: fmt(d) };
+    }
+    case "last_7d": {
+      return { since: fmt(subtractDays(today, 14)), until: fmt(subtractDays(today, 8)) };
+    }
+    case "last_14d": {
+      return { since: fmt(subtractDays(today, 28)), until: fmt(subtractDays(today, 15)) };
+    }
+    case "last_30d": {
+      return { since: fmt(subtractDays(today, 60)), until: fmt(subtractDays(today, 31)) };
+    }
+    case "last_90d": {
+      return { since: fmt(subtractDays(today, 180)), until: fmt(subtractDays(today, 91)) };
+    }
+    case "this_month": {
+      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastMonthEnd = subtractDays(firstOfMonth, 1);
+      return { since: fmt(lastMonth), until: fmt(lastMonthEnd) };
+    }
+    case "last_month": {
+      const firstOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const twoMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+      const twoMonthsAgoEnd = subtractDays(firstOfLastMonth, 1);
+      return { since: fmt(twoMonthsAgo), until: fmt(twoMonthsAgoEnd) };
+    }
+    default: {
+      return { since: fmt(subtractDays(today, 60)), until: fmt(subtractDays(today, 31)) };
+    }
+  }
 }
 
 export function getStatusColor(status: string): string {

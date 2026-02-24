@@ -17,6 +17,15 @@ import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import type { DatePreset } from "@/lib/types";
 
+interface ComparisonData {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  ctr: number;
+  cpc: number;
+}
+
 interface OverviewData {
   spend: number;
   impressions: number;
@@ -26,6 +35,7 @@ interface OverviewData {
   reach: number;
   trendData: Array<Record<string, unknown>>;
   topCampaigns: Array<Record<string, unknown>>;
+  comparison: ComparisonData | null;
 }
 
 export default function OverviewPage() {
@@ -41,6 +51,7 @@ export default function OverviewPage() {
     reach: 0,
     trendData: [],
     topCampaigns: [],
+    comparison: null,
   });
 
   useEffect(() => {
@@ -51,7 +62,7 @@ export default function OverviewPage() {
       try {
         // Fetch account insights
         const [insightsRes, campaignsRes] = await Promise.all([
-          fetch(`/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}`),
+          fetch(`/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&include_comparison=true`),
           fetch(`/api/campaigns?account_id=${accountId}&limit=5`),
         ]);
 
@@ -104,6 +115,7 @@ export default function OverviewPage() {
           reach: totalReach,
           trendData,
           topCampaigns: campaigns,
+          comparison: insightsData.comparison || null,
         });
       } catch {
         // Keep default empty state
@@ -114,6 +126,13 @@ export default function OverviewPage() {
 
     fetchData();
   }, [datePreset, accountId]);
+
+  function calcChange(current: number, previous: number | undefined): number | undefined {
+    if (previous === undefined || previous === 0) return undefined;
+    return ((current - previous) / previous) * 100;
+  }
+
+  const comp = data.comparison;
 
   return (
     <div className="space-y-6">
@@ -133,6 +152,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Investimento"
           value={formatCurrency(data.spend)}
+          change={calcChange(data.spend, comp?.spend)}
           icon={DollarSign}
           iconColor="text-success"
           loading={loading}
@@ -140,6 +160,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Impressões"
           value={formatNumber(data.impressions)}
+          change={calcChange(data.impressions, comp?.impressions)}
           icon={Eye}
           iconColor="text-info"
           loading={loading}
@@ -147,6 +168,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Cliques"
           value={formatNumber(data.clicks)}
+          change={calcChange(data.clicks, comp?.clicks)}
           icon={MousePointerClick}
           iconColor="text-primary"
           loading={loading}
@@ -154,6 +176,7 @@ export default function OverviewPage() {
         <KpiCard
           title="CTR"
           value={formatPercent(data.ctr)}
+          change={calcChange(data.ctr, comp?.ctr)}
           icon={Target}
           iconColor="text-warning"
           loading={loading}
@@ -161,6 +184,7 @@ export default function OverviewPage() {
         <KpiCard
           title="CPC"
           value={formatCurrency(data.cpc)}
+          change={calcChange(data.cpc, comp?.cpc)}
           icon={TrendingUp}
           iconColor="text-destructive"
           loading={loading}
@@ -168,6 +192,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Alcance"
           value={formatNumber(data.reach)}
+          change={calcChange(data.reach, comp?.reach)}
           icon={BarChart3}
           iconColor="text-purple-400"
           loading={loading}

@@ -5,22 +5,26 @@ import {
   createLookalikeAudience,
   estimateAudienceSize,
 } from "@/lib/meta-api";
+import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request).catch(() => {});
+
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
 
     const result = await listAudiences({ account_id });
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message, audiences: [] }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request).catch(() => {});
+
     const body = await request.json();
     const { type, ...args } = body;
 
@@ -38,7 +42,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

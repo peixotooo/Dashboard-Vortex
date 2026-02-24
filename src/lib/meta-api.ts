@@ -1,7 +1,15 @@
 const API_VERSION = process.env.META_API_VERSION || "v23.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
+// Token can be passed explicitly or fallback to env var
+let _contextToken: string | null = null;
+
+export function setContextToken(token: string) {
+  _contextToken = token;
+}
+
 function getToken(): string {
+  if (_contextToken) return _contextToken;
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) throw new Error("META_ACCESS_TOKEN not configured");
   return token;
@@ -13,8 +21,9 @@ async function graphRequest(
   method: "GET" | "POST" | "DELETE" = "GET",
   body?: Record<string, unknown>
 ): Promise<unknown> {
+  const token = getToken();
   const url = new URL(`${BASE_URL}${path}`);
-  params.access_token = getToken();
+  params.access_token = token;
 
   if (method === "GET") {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -24,10 +33,10 @@ async function graphRequest(
 
   if (method === "POST" && body) {
     options.headers = { "Content-Type": "application/json" };
-    options.body = JSON.stringify({ ...body, access_token: getToken() });
+    options.body = JSON.stringify({ ...body, access_token: token });
   } else if (method === "POST") {
     const formData = new URLSearchParams();
-    formData.set("access_token", getToken());
+    formData.set("access_token", token);
     Object.entries(params).forEach(([k, v]) => {
       if (k !== "access_token") formData.set(k, v);
     });
@@ -233,9 +242,11 @@ export async function getInsights(args: {
   object_id?: string;
   level?: string;
   date_preset?: string;
+  time_range?: { since: string; until: string };
   fields?: string[];
   breakdowns?: string[];
   limit?: number;
+  time_increment?: string;
 }): Promise<unknown> {
   let objectId = args.object_id || "";
   if (!objectId) {
@@ -246,10 +257,16 @@ export async function getInsights(args: {
 
   const params: Record<string, string> = {
     fields: (args.fields || ["impressions", "clicks", "spend", "reach", "frequency", "ctr", "cpc", "cpm"]).join(","),
-    date_preset: args.date_preset || "last_30d",
-    time_increment: "1",
+    time_increment: args.time_increment || "1",
     limit: String(args.limit || 100),
   };
+
+  if (args.time_range) {
+    params.time_range = JSON.stringify(args.time_range);
+  } else {
+    params.date_preset = args.date_preset || "last_30d";
+  }
+
   if (args.level) params.level = args.level;
   if (args.breakdowns) params.breakdowns = args.breakdowns.join(",");
 
