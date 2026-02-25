@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
@@ -54,7 +54,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
 
   const fetchWorkspaces = useCallback(async () => {
     if (!user || !isConfigured) {
@@ -63,10 +63,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
-      const { data } = await supabase
+      const supabase = supabaseRef.current;
+      const { data, error } = await supabase
         .from("workspaces")
         .select("*")
         .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Workspace fetch error:", error);
+      }
 
       const ws = (data || []) as Workspace[];
       setWorkspaces(ws);
@@ -77,26 +82,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const validSaved = ws.find((w) => w.id === savedId);
         setWorkspaceId(validSaved ? savedId! : ws[0].id);
       }
-    } catch {
-      // Keep empty
+    } catch (err) {
+      console.error("Workspace fetch exception:", err);
     } finally {
       setLoading(false);
     }
-  }, [user, isConfigured, supabase, workspaceId]);
+  }, [user, isConfigured, workspaceId]);
 
   const fetchMembers = useCallback(async () => {
     if (!workspaceId) return;
     try {
-      const { data } = await supabase
+      const supabase = supabaseRef.current;
+      const { data, error } = await supabase
         .from("workspace_members")
         .select("*, profile:profiles(full_name)")
         .eq("workspace_id", workspaceId);
 
+      if (error) {
+        console.error("Members fetch error:", error);
+      }
+
       setMembers((data || []) as WorkspaceMember[]);
-    } catch {
-      // Keep empty
+    } catch (err) {
+      console.error("Members fetch exception:", err);
     }
-  }, [workspaceId, supabase]);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchWorkspaces();
