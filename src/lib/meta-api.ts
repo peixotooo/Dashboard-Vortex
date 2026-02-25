@@ -58,6 +58,14 @@ async function graphRequest(
 
 // ============ Ad Accounts ============
 
+export async function getAdAccountPixels(accountId: string): Promise<unknown> {
+  const data = await graphRequest(`/${accountId}/adspixels`, {
+    fields: "id,name",
+  });
+  const result = data as { data?: unknown[] };
+  return { pixels: result.data || [] };
+}
+
 export async function getPages(): Promise<unknown> {
   const data = await graphRequest("/me/accounts", {
     fields: "id,name,category,access_token",
@@ -194,9 +202,24 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
   };
 
   if (params.optimization_goal === "OFFSITE_CONVERSIONS") {
+    let pixelId = process.env.META_PIXEL_ID || "";
+    if (!pixelId) {
+      try {
+        const pixelsRes = (await getAdAccountPixels(accountId)) as { pixels: Array<{ id: string }> };
+        if (pixelsRes.pixels.length > 0) {
+          pixelId = pixelsRes.pixels[0].id;
+        } else {
+          // Meta API will reject this without a pixel
+          throw new Error("No pixel found for OFFSITE_CONVERSIONS on this ad account.");
+        }
+      } catch (err) {
+        throw new Error("Failed to fetch pixel: " + (err as Error).message);
+      }
+    }
+
     params.destination_type = "WEBSITE";
     params.promoted_object = JSON.stringify({
-      pixel_id: process.env.META_PIXEL_ID || "123456789", // Fallback if no env
+      pixel_id: pixelId,
       custom_event_type: "PURCHASE"
     });
   }
