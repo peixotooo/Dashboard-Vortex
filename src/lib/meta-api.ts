@@ -58,6 +58,15 @@ async function graphRequest(
 
 // ============ Ad Accounts ============
 
+export async function getPages(): Promise<unknown> {
+  const data = await graphRequest("/me/accounts", {
+    fields: "id,name,category,access_token",
+    limit: "50",
+  });
+  const result = data as { data?: unknown[] };
+  return { pages: result.data || [] };
+}
+
 export async function getAdAccounts(): Promise<unknown> {
   const data = await graphRequest("/me/adaccounts", {
     fields: "id,account_id,name,account_status,currency,timezone_name,business_name,amount_spent",
@@ -183,6 +192,15 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
     billing_event: String(args.billing_event || "IMPRESSIONS"),
     status: String(args.status || "PAUSED"),
   };
+
+  if (params.optimization_goal === "OFFSITE_CONVERSIONS") {
+    params.destination_type = "WEBSITE";
+    params.promoted_object = JSON.stringify({
+      pixel_id: process.env.META_PIXEL_ID || "123456789", // Fallback if no env
+      custom_event_type: "PURCHASE"
+    });
+  }
+
   if (args.daily_budget) params.daily_budget = String(args.daily_budget);
   if (args.targeting) params.targeting = JSON.stringify(args.targeting);
 
@@ -408,7 +426,20 @@ export async function createAdCreative(args: Record<string, unknown>): Promise<u
     name: String(args.name || ""),
   };
 
-  const pageId = process.env.META_PAGE_ID || args.page_id || "";
+  let pageId = process.env.META_PAGE_ID || args.page_id || "";
+
+  if (!pageId) {
+    // Try to get the first page the user manages
+    try {
+      const pagesRes = (await getPages()) as { pages: Array<{ id: string }> };
+      if (pagesRes.pages.length > 0) {
+        pageId = pagesRes.pages[0].id;
+      }
+    } catch {
+      // Keep empty if fails
+    }
+  }
+
   const linkUrl = process.env.META_DEFAULT_LINK || args.link || "https://example.com";
 
   if (pageId) {
