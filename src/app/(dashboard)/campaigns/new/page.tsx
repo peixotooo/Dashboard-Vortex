@@ -30,7 +30,7 @@ const OPTIMIZATION_GOALS = [
     { value: "IMPRESSIONS", label: "Impressões" },
     { value: "REACH", label: "Alcance" },
     { value: "LEAD_GENERATION", label: "Geração de Cadastro" },
-    { value: "CONVERSIONS", label: "Conversões" },
+    { value: "OFFSITE_CONVERSIONS", label: "Conversões" },
 ];
 
 export default function NewCampaignWizard() {
