@@ -6,14 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import Link from "next/link";
 import {
   Select,
   SelectContent,
@@ -39,13 +32,6 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newCampaign, setNewCampaign] = useState({
-    name: "",
-    objective: "OUTCOME_TRAFFIC",
-    daily_budget: "",
-    status: "PAUSED",
-  });
   const [filter, setFilter] = useState("");
 
   const fetchCampaigns = useCallback(async () => {
@@ -85,41 +71,6 @@ export default function CampaignsPage() {
     }
   }
 
-  async function handleCreate() {
-    if (!newCampaign.name) return;
-
-    setActionLoading("create");
-    try {
-      await fetch("/api/campaigns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          account_id: accountId,
-          name: newCampaign.name,
-          objective: newCampaign.objective,
-          daily_budget: newCampaign.daily_budget
-            ? parseInt(newCampaign.daily_budget) * 100
-            : undefined,
-          status: newCampaign.status,
-          special_ad_categories: ["NONE"],
-        }),
-      });
-      setCreateOpen(false);
-      setNewCampaign({
-        name: "",
-        objective: "OUTCOME_TRAFFIC",
-        daily_budget: "",
-        status: "PAUSED",
-      });
-      await fetchCampaigns();
-    } catch {
-      // Error handling
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
   const filtered = campaigns.filter((c) =>
     c.name?.toLowerCase().includes(filter.toLowerCase())
   );
@@ -135,98 +86,12 @@ export default function CampaignsPage() {
           </p>
         </div>
 
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Campanha
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Criar Campanha</DialogTitle>
-              <DialogDescription>
-                Configure os detalhes da nova campanha
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 mt-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block">Nome</label>
-                <Input
-                  value={newCampaign.name}
-                  onChange={(e) =>
-                    setNewCampaign({ ...newCampaign, name: e.target.value })
-                  }
-                  placeholder="Nome da campanha"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  Objetivo
-                </label>
-                <Select
-                  value={newCampaign.objective}
-                  onValueChange={(v) =>
-                    setNewCampaign({ ...newCampaign, objective: v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {objectives.map((obj) => (
-                      <SelectItem key={obj.value} value={obj.value}>
-                        {obj.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  Orçamento Diário (R$)
-                </label>
-                <Input
-                  type="number"
-                  value={newCampaign.daily_budget}
-                  onChange={(e) =>
-                    setNewCampaign({
-                      ...newCampaign,
-                      daily_budget: e.target.value,
-                    })
-                  }
-                  placeholder="50.00"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  Status Inicial
-                </label>
-                <Select
-                  value={newCampaign.status}
-                  onValueChange={(v) =>
-                    setNewCampaign({ ...newCampaign, status: v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PAUSED">Pausada</SelectItem>
-                    <SelectItem value="ACTIVE">Ativa</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                onClick={handleCreate}
-                disabled={!newCampaign.name || actionLoading === "create"}
-                className="w-full"
-              >
-                {actionLoading === "create" ? "Criando..." : "Criar Campanha"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button asChild>
+          <Link href="/campaigns/new">
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Campanha
+          </Link>
+        </Button>
       </div>
 
       {/* Filter */}
@@ -314,8 +179,8 @@ export default function CampaignsPage() {
                           {campaign.daily_budget
                             ? `${formatBudget(campaign.daily_budget)}/dia`
                             : campaign.lifetime_budget
-                            ? formatBudget(campaign.lifetime_budget)
-                            : "-"}
+                              ? formatBudget(campaign.lifetime_budget)
+                              : "-"}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">

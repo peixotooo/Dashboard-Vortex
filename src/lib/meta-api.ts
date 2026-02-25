@@ -371,6 +371,67 @@ export async function estimateAudienceSize(args: { targeting: Record<string, unk
 
 // ============ Creatives ============
 
+export async function uploadAdImage(formData: FormData): Promise<unknown> {
+  let accountId = formData.get("account_id") as string || "";
+  if (!accountId) {
+    const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
+    if (accounts.accounts.length === 0) throw new Error("No ad accounts found");
+    accountId = accounts.accounts[0].id;
+  }
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  const token = getToken();
+  formData.set("access_token", token);
+  formData.delete("account_id");
+
+  const options: RequestInit = {
+    method: "POST",
+    body: formData,
+  };
+
+  const res = await fetch(`${BASE_URL}/${accountId}/adimages`, options);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  return data;
+}
+
+export async function createAdCreative(args: Record<string, unknown>): Promise<unknown> {
+  let accountId = (args.account_id as string) || "";
+  if (!accountId) {
+    const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
+    if (accounts.accounts.length === 0) throw new Error("No ad accounts found");
+    accountId = accounts.accounts[0].id;
+  }
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  const params: Record<string, string> = {
+    name: String(args.name || ""),
+  };
+
+  const pageId = process.env.META_PAGE_ID || args.page_id || "";
+  const linkUrl = process.env.META_DEFAULT_LINK || args.link || "https://example.com";
+
+  if (pageId) {
+    params.object_story_spec = JSON.stringify({
+      page_id: String(pageId),
+      link_data: {
+        image_hash: String(args.image_hash || ""),
+        link: String(linkUrl),
+        message: String(args.body || ""),
+        name: String(args.title || ""),
+      }
+    });
+  } else {
+    // Basic fallback if no page is associated
+    params.title = String(args.title || "");
+    params.body = String(args.body || "");
+    params.image_hash = String(args.image_hash || "");
+  }
+
+  return graphRequest(`/${accountId}/adcreatives`, params, "POST");
+}
+
+
 export async function listCreatives(args: { account_id?: string }): Promise<unknown> {
   let accountId = args.account_id || "";
   if (!accountId) {

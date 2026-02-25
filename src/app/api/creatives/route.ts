@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listCreatives, getCreativeDetails } from "@/lib/meta-api";
+import { listCreatives, getCreativeDetails, createAdCreative } from "@/lib/meta-api";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    await getAuthenticatedContext(request).catch(() => { });
 
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    await getAuthenticatedContext(request).catch(() => { });
 
     const body = await request.json();
 
@@ -27,6 +27,12 @@ export async function POST(request: NextRequest) {
         creative_id: body.creative_id,
         account_id: body.account_id,
       });
+      return NextResponse.json(result);
+    }
+
+    if (body.action === "create" || Object.keys(body).length > 2) {
+      // If we're passing fields for creation (name, title, body, image_hash...)
+      const result = await createAdCreative(body);
       return NextResponse.json(result);
     }
 
