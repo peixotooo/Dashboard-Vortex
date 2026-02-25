@@ -7,6 +7,7 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
+  email text,
   avatar_url text,
   created_at timestamptz default now()
 );
@@ -29,8 +30,8 @@ create policy "Users can insert own profile"
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, full_name)
-  values (new.id, new.raw_user_meta_data->>'full_name');
+  insert into public.profiles (id, full_name, email)
+  values (new.id, new.raw_user_meta_data->>'full_name', new.email);
   return new;
 end;
 $$ language plpgsql security definer;
@@ -71,9 +72,14 @@ create policy "Members can view workspace"
     )
   );
 
-create policy "Owners can update workspace"
+create policy "Owners and admins can update workspace"
   on public.workspaces for update
-  using (owner_id = auth.uid());
+  using (
+    id in (
+      select workspace_id from public.workspace_members
+      where user_id = auth.uid() and role in ('owner', 'admin')
+    )
+  );
 
 create policy "Any user can create workspace"
   on public.workspaces for insert
@@ -167,6 +173,7 @@ create table if not exists public.meta_accounts (
   connection_id uuid not null references public.meta_connections(id) on delete cascade,
   account_id text not null,
   account_name text,
+  is_default boolean not null default false,
   created_at timestamptz default now()
 );
 
@@ -196,6 +203,28 @@ create policy "Admins and owners can delete accounts"
     workspace_id in (
       select workspace_id from public.workspace_members
       where user_id = auth.uid() and role in ('owner', 'admin')
+    )
+  );
+
+create policy "Admins and owners can update accounts"
+  on public.meta_accounts for update
+  using (
+    workspace_id in (
+      select workspace_id from public.workspace_members
+      where user_id = auth.uid() and role in ('owner', 'admin')
+    )
+  );
+
+-- Policy: members can view profiles of workspace colleagues
+create policy "Members can view workspace member profiles"
+  on public.profiles for select
+  using (
+    id in (
+      select wm.user_id from public.workspace_members wm
+      where wm.workspace_id in (
+        select workspace_id from public.workspace_members
+        where user_id = auth.uid()
+      )
     )
   );
 

@@ -40,11 +40,18 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.accounts && data.accounts.length > 0) {
         setAccounts(data.accounts);
-        // Keep current selection if still valid
+
+        // Select default account if available, otherwise keep current or pick first
+        const defaultAccount = data.accounts.find(
+          (a: AdAccount & { is_default?: boolean }) => a.is_default
+        );
         const currentValid = data.accounts.find(
           (a: AdAccount) => a.id === accountId
         );
-        if (!currentValid) {
+
+        if (defaultAccount && !currentValid) {
+          setAccountId(defaultAccount.id);
+        } else if (!currentValid) {
           setAccountId(data.accounts[0].id);
         }
       } else {
