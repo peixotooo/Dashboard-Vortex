@@ -225,7 +225,16 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
   }
 
   if (args.daily_budget) params.daily_budget = String(args.daily_budget);
-  if (args.targeting) params.targeting = JSON.stringify(args.targeting);
+
+  const defaultTargeting = {
+    geo_locations: {
+      countries: ["BR"]
+    },
+    age_min: 18,
+    age_max: 65
+  };
+
+  params.targeting = JSON.stringify(args.targeting || defaultTargeting);
 
   return graphRequest(`/${accountId}/adsets`, params, "POST");
 }
