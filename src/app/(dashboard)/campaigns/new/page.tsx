@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ArrowLeft, CheckCircle2, Loader2, Image as ImageIcon, Upload } from "lucide-react";
+import { ChevronRight, ArrowLeft, CheckCircle2, Loader2, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,20 @@ const OPTIMIZATION_GOALS = [
     { value: "OFFSITE_CONVERSIONS", label: "Conversões" },
 ];
 
+const CTA_OPTIONS = [
+    { value: "LEARN_MORE", label: "Saiba Mais" },
+    { value: "SHOP_NOW", label: "Comprar Agora" },
+    { value: "SIGN_UP", label: "Cadastre-se" },
+    { value: "SUBSCRIBE", label: "Assinar" },
+    { value: "CONTACT_US", label: "Fale Conosco" },
+    { value: "DOWNLOAD", label: "Baixar" },
+    { value: "GET_OFFER", label: "Obter Oferta" },
+    { value: "BOOK_TRAVEL", label: "Reservar" },
+    { value: "WHATSAPP_MESSAGE", label: "WhatsApp" },
+];
+
+const DEFAULT_URL_TAGS = "utm_source={{site_source_name}}&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.name}}&utm_term={{adset.name}}";
+
 export default function NewCampaignWizard() {
     const router = useRouter();
     const { accountId } = useAccount();
@@ -57,6 +71,10 @@ export default function NewCampaignWizard() {
         status: "PAUSED",
     });
 
+    // Instagram accounts
+    const [instagramAccounts, setInstagramAccounts] = useState<Array<{ id: string; username: string; profile_pic?: string }>>([]);
+    const [instagramAccountId, setInstagramAccountId] = useState("");
+
     // Step 3: Ad & Creative state
     const [adData, setAdData] = useState({
         name: "",
@@ -65,8 +83,29 @@ export default function NewCampaignWizard() {
         link: "",
         status: "PAUSED",
     });
+    const [callToAction, setCallToAction] = useState("LEARN_MORE");
+    const [urlTags, setUrlTags] = useState(DEFAULT_URL_TAGS);
     const [mediaFile, setMediaFile] = useState<File | null>(null);
     const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+
+    // Fetch Instagram accounts when accountId is available
+    const fetchInstagramAccounts = useCallback(async () => {
+        if (!accountId) return;
+        try {
+            const res = await fetch(`/api/instagram-accounts?account_id=${encodeURIComponent(accountId)}`);
+            const data = await res.json();
+            if (data.instagram_accounts && data.instagram_accounts.length > 0) {
+                setInstagramAccounts(data.instagram_accounts);
+                setInstagramAccountId(data.instagram_accounts[0].id);
+            }
+        } catch {
+            // Non-critical — Instagram account is optional
+        }
+    }, [accountId]);
+
+    useEffect(() => {
+        fetchInstagramAccounts();
+    }, [fetchInstagramAccounts]);
 
     const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -150,18 +189,23 @@ export default function NewCampaignWizard() {
             }
 
             // 4. Create Creative
+            const creativePayload: Record<string, unknown> = {
+                action: "create",
+                account_id: accountId,
+                name: `${adData.name} - Creative`,
+                title: adData.title,
+                body: adData.body,
+                image_hash: imageHash,
+                link: adData.link,
+                call_to_action: callToAction,
+            };
+            if (instagramAccountId) {
+                creativePayload.instagram_actor_id = instagramAccountId;
+            }
             const creativeRes = await fetch("/api/creatives", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    action: "create",
-                    account_id: accountId,
-                    name: `${adData.name} - Creative`,
-                    title: adData.title,
-                    body: adData.body,
-                    image_hash: imageHash,
-                    link: adData.link,
-                }),
+                body: JSON.stringify(creativePayload),
             });
             const creativeResult = await creativeRes.json();
             if (creativeResult.error) throw new Error(creativeResult.error);
@@ -176,6 +220,7 @@ export default function NewCampaignWizard() {
                     name: adData.name,
                     status: adData.status,
                     creative: { creative_id: newCreativeId },
+                    url_tags: urlTags || undefined,
                 }),
             });
             const adResult = await adRes.json();
@@ -326,19 +371,40 @@ export default function NewCampaignWizard() {
                                 />
                             </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Meta de Otimização</label>
-                                <Select
-                                    value={adSetData.optimization_goal}
-                                    onValueChange={(v) => setAdSetData({ ...adSetData, optimization_goal: v })}
-                                >
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {OPTIMIZATION_GOALS.map(goal => (
-                                            <SelectItem key={goal.value} value={goal.value}>{goal.label}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Meta de Otimização</label>
+                                    <Select
+                                        value={adSetData.optimization_goal}
+                                        onValueChange={(v) => setAdSetData({ ...adSetData, optimization_goal: v })}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {OPTIMIZATION_GOALS.map(goal => (
+                                                <SelectItem key={goal.value} value={goal.value}>{goal.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Conta do Instagram</label>
+                                    {instagramAccounts.length > 0 ? (
+                                        <Select
+                                            value={instagramAccountId}
+                                            onValueChange={setInstagramAccountId}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
+                                            <SelectContent>
+                                                {instagramAccounts.map(acc => (
+                                                    <SelectItem key={acc.id} value={acc.id}>@{acc.username}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground pt-2">Nenhuma conta Instagram vinculada a esta conta de anúncios.</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -358,13 +424,29 @@ export default function NewCampaignWizard() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-4">
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium">URL de Destino *</label>
+                                        <label className="text-sm font-medium">Destino: Site (URL) *</label>
                                         <Input
                                             type="url"
                                             placeholder="https://seusite.com.br/oferta"
                                             value={adData.link}
                                             onChange={(e) => setAdData({ ...adData, link: e.target.value })}
                                         />
+                                        <p className="text-xs text-muted-foreground">URL da página de destino do anúncio</p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Botão de Ação (CTA)</label>
+                                        <Select
+                                            value={callToAction}
+                                            onValueChange={setCallToAction}
+                                        >
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {CTA_OPTIONS.map(cta => (
+                                                    <SelectItem key={cta.value} value={cta.value}>{cta.label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
 
                                     <div className="space-y-2">
@@ -387,40 +469,55 @@ export default function NewCampaignWizard() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Upload de Mídia (Imagem) *</label>
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Upload de Mídia (Imagem) *</label>
 
-                                    <div className={`
-                    border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center
-                    transition-colors relative overflow-hidden h-48 bg-muted/20
-                    ${mediaPreview ? 'border-primary/50 bg-primary/5' : 'border-muted-foreground/20 hover:border-primary/50'}
-                  `}>
-                                        {mediaPreview ? (
-                                            <div className="absolute inset-0 w-full h-full">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img
-                                                    src={mediaPreview}
-                                                    alt="Preview"
-                                                    className="w-full h-full object-contain"
-                                                />
-                                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                                    <Button variant="secondary" size="sm" className="pointer-events-none">Trocar Imagem</Button>
+                                        <div className={`
+                        border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center
+                        transition-colors relative overflow-hidden h-48 bg-muted/20
+                        ${mediaPreview ? 'border-primary/50 bg-primary/5' : 'border-muted-foreground/20 hover:border-primary/50'}
+                      `}>
+                                            {mediaPreview ? (
+                                                <div className="absolute inset-0 w-full h-full">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={mediaPreview}
+                                                        alt="Preview"
+                                                        className="w-full h-full object-contain"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                                        <Button variant="secondary" size="sm" className="pointer-events-none">Trocar Imagem</Button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <ImageIcon className="w-10 h-10 text-muted-foreground mb-4" />
-                                                <p className="text-sm font-medium mb-1">Arraste uma imagem ou clique para selecionar</p>
-                                                <p className="text-xs text-muted-foreground">JPG, PNG (Máx 8MB)</p>
-                                            </>
-                                        )}
+                                            ) : (
+                                                <>
+                                                    <ImageIcon className="w-10 h-10 text-muted-foreground mb-4" />
+                                                    <p className="text-sm font-medium mb-1">Arraste uma imagem ou clique para selecionar</p>
+                                                    <p className="text-xs text-muted-foreground">JPG, PNG (Máx 8MB)</p>
+                                                </>
+                                            )}
 
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                            onChange={handleMediaChange}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                onChange={handleMediaChange}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Parâmetros de URL (UTM)</label>
+                                        <Textarea
+                                            placeholder="utm_source={{site_source_name}}&utm_medium=paid..."
+                                            className="resize-none h-20 font-mono text-xs"
+                                            value={urlTags}
+                                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setUrlTags(e.target.value)}
                                         />
+                                        <p className="text-xs text-muted-foreground">
+                                            Variáveis da Meta: {"{{campaign.name}}"}, {"{{adset.name}}"}, {"{{ad.name}}"}, {"{{site_source_name}}"}, {"{{placement}}"}
+                                        </p>
                                     </div>
                                 </div>
                             </div>

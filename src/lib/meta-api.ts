@@ -86,6 +86,18 @@ async function getUserId(): Promise<string> {
   }
 }
 
+// ============ Instagram Accounts ============
+
+export async function getInstagramAccounts(accountId: string): Promise<unknown> {
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+  const data = await graphRequest(`/${accountId}/instagram_accounts`, {
+    fields: "id,username,profile_pic",
+    limit: "50",
+  });
+  const result = data as { data?: unknown[] };
+  return { instagram_accounts: result.data || [] };
+}
+
 // ============ Ad Accounts ============
 
 export async function getAdAccountPixels(accountId: string): Promise<unknown> {
@@ -344,6 +356,7 @@ export async function createAd(args: Record<string, unknown>): Promise<unknown> 
     status: String(args.status || "PAUSED"),
   };
   if (args.creative) params.creative = JSON.stringify(args.creative);
+  if (args.url_tags) params.url_tags = String(args.url_tags);
 
   return graphRequest(`/${accountId}/ads`, params, "POST");
 }
@@ -563,15 +576,27 @@ export async function createAdCreative(args: Record<string, unknown>): Promise<u
     );
   }
 
-  params.object_story_spec = JSON.stringify({
+  const linkData: Record<string, unknown> = {
+    image_hash: String(args.image_hash || ""),
+    link: String(linkUrl),
+    message: String(args.body || ""),
+    name: String(args.title || ""),
+    call_to_action: {
+      type: String(args.call_to_action || "LEARN_MORE"),
+      value: { link: String(linkUrl) },
+    },
+  };
+
+  const storySpec: Record<string, unknown> = {
     page_id: String(pageId),
-    link_data: {
-      image_hash: String(args.image_hash || ""),
-      link: String(linkUrl),
-      message: String(args.body || ""),
-      name: String(args.title || ""),
-    }
-  });
+    link_data: linkData,
+  };
+
+  if (args.instagram_actor_id) {
+    storySpec.instagram_actor_id = String(args.instagram_actor_id);
+  }
+
+  params.object_story_spec = JSON.stringify(storySpec);
 
   return graphRequest(`/${accountId}/adcreatives`, params, "POST");
 }
