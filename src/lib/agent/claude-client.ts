@@ -1,0 +1,148 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { buildSystemPrompt, type AccountContext } from "./system-prompt";
+import { AGENT_TOOLS } from "./tool-definitions";
+import { executeToolCall } from "./tool-executor";
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY || "",
+});
+
+function selectModel(message: string): string {
+  const complexPatterns =
+    /cri(a|e|ar)|analis|otimiz|estratégia|sugest|configur|segmenta|público/i;
+  return complexPatterns.test(message)
+    ? "claude-sonnet-4-5-20250929"
+    : "claude-haiku-4-5-20251001";
+}
+
+export interface AgentMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AgentStreamParams {
+  message: string;
+  history: AgentMessage[];
+  accountId: string;
+  accountContext: AccountContext;
+}
+
+export function createAgentStream(params: AgentStreamParams): ReadableStream {
+  const { message, history, accountId, accountContext } = params;
+
+  const encoder = new TextEncoder();
+
+  function sendEvent(
+    controller: ReadableStreamDefaultController,
+    data: Record<string, unknown>
+  ) {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  }
+
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        const systemPrompt = buildSystemPrompt(accountContext);
+        const model = selectModel(message);
+
+        // Build messages array for Anthropic API
+        const messages: Anthropic.Messages.MessageParam[] = [];
+
+        for (const msg of history.slice(-20)) {
+          messages.push({
+            role: msg.role,
+            content: msg.content,
+          });
+        }
+        messages.push({ role: "user", content: message });
+
+        sendEvent(controller, { type: "model", model });
+
+        // Agentic loop — keep calling Claude until we get a final text response
+        let continueLoop = true;
+
+        while (continueLoop) {
+          const response = await anthropic.messages.create({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            tools: AGENT_TOOLS,
+            messages,
+          });
+
+          // Process response content blocks
+          let hasToolUse = false;
+
+          for (const block of response.content) {
+            if (block.type === "text") {
+              sendEvent(controller, { type: "text", content: block.text });
+            } else if (block.type === "tool_use") {
+              hasToolUse = true;
+
+              sendEvent(controller, {
+                type: "tool_use",
+                name: block.name,
+                input: block.input,
+              });
+
+              // Execute the tool
+              let toolResult: unknown;
+              try {
+                toolResult = await executeToolCall(
+                  block.name,
+                  block.input as Record<string, unknown>,
+                  accountId
+                );
+              } catch (err) {
+                toolResult = {
+                  error:
+                    err instanceof Error ? err.message : "Erro ao executar tool",
+                };
+              }
+
+              sendEvent(controller, {
+                type: "tool_result",
+                name: block.name,
+                result: toolResult,
+              });
+
+              // Add assistant message + tool result to continue the conversation
+              messages.push({
+                role: "assistant",
+                content: response.content,
+              });
+              messages.push({
+                role: "user",
+                content: [
+                  {
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content: JSON.stringify(toolResult),
+                  },
+                ],
+              });
+            }
+          }
+
+          // If no tool was used, we're done
+          if (!hasToolUse) {
+            continueLoop = false;
+          }
+
+          // Safety: stop after end_turn
+          if (response.stop_reason === "end_turn") {
+            continueLoop = false;
+          }
+        }
+
+        sendEvent(controller, { type: "done" });
+        controller.close();
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Erro desconhecido";
+        sendEvent(controller, { type: "error", message: errorMessage });
+        controller.close();
+      }
+    },
+  });
+}

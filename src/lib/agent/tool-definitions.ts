@@ -1,0 +1,241 @@
+import type Anthropic from "@anthropic-ai/sdk";
+
+type Tool = Anthropic.Messages.Tool;
+
+export const AGENT_TOOLS: Tool[] = [
+  {
+    name: "get_account_overview",
+    description:
+      "Obtém resumo geral da conta de anúncios do Meta. Inclui gasto total, campanhas ativas, impressões, cliques. Use quando o usuário perguntar sobre o estado da conta ou pedir um resumo.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date_range: {
+          type: "string",
+          enum: ["today", "yesterday", "last_7d", "last_30d", "this_month"],
+          description: "Período para os dados agregados",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "list_campaigns",
+    description:
+      "Lista campanhas da conta de anúncios. Pode filtrar por status. Use quando o usuário perguntar 'quais campanhas estão rodando', 'me mostra as campanhas', etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status_filter: {
+          type: "string",
+          enum: ["ACTIVE", "PAUSED"],
+          description: "Filtrar por status da campanha (omitir para todas)",
+        },
+        limit: {
+          type: "number",
+          description: "Número máximo de campanhas retornadas",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_campaign_metrics",
+    description:
+      "Obtém métricas de performance de uma campanha específica. Inclui gastos, impressões, cliques, CPC, CPM, CTR, reach, frequency. Use quando o usuário perguntar 'como está a campanha X'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: {
+          type: "string",
+          description: "ID da campanha no Meta Ads",
+        },
+        date_range: {
+          type: "string",
+          enum: [
+            "today",
+            "yesterday",
+            "last_7d",
+            "last_14d",
+            "last_30d",
+            "this_month",
+            "last_month",
+          ],
+          description: "Período das métricas",
+        },
+        breakdown: {
+          type: "string",
+          enum: ["age", "gender", "placement", "device_platform", "country"],
+          description: "Segmentação dos dados (opcional)",
+        },
+      },
+      required: ["campaign_id", "date_range"],
+    },
+  },
+  {
+    name: "create_campaign",
+    description:
+      "Cria uma nova campanha no Meta Ads. IMPORTANTE: Sempre mostre um resumo detalhado ao usuário e peça confirmação ANTES de executar esta tool. Nunca crie campanhas sem confirmação explícita.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Nome da campanha" },
+        objective: {
+          type: "string",
+          enum: [
+            "OUTCOME_AWARENESS",
+            "OUTCOME_ENGAGEMENT",
+            "OUTCOME_TRAFFIC",
+            "OUTCOME_LEADS",
+            "OUTCOME_APP_PROMOTION",
+            "OUTCOME_SALES",
+          ],
+          description: "Objetivo da campanha",
+        },
+        status: {
+          type: "string",
+          enum: ["ACTIVE", "PAUSED"],
+          description: "Status inicial da campanha",
+        },
+      },
+      required: ["name", "objective"],
+    },
+  },
+  {
+    name: "update_campaign",
+    description:
+      "Atualiza configurações de uma campanha existente. Pode alterar nome, budget, status. Mostre alterações propostas e peça confirmação.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: {
+          type: "string",
+          description: "ID da campanha a ser atualizada",
+        },
+        name: { type: "string", description: "Novo nome (opcional)" },
+        status: {
+          type: "string",
+          enum: ["ACTIVE", "PAUSED"],
+          description: "Novo status (opcional)",
+        },
+        daily_budget: {
+          type: "number",
+          description: "Novo orçamento diário em centavos (opcional)",
+        },
+      },
+      required: ["campaign_id"],
+    },
+  },
+  {
+    name: "pause_campaign",
+    description:
+      "Pausa uma campanha ativa. Peça confirmação antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: { type: "string", description: "ID da campanha" },
+      },
+      required: ["campaign_id"],
+    },
+  },
+  {
+    name: "resume_campaign",
+    description:
+      "Reativa uma campanha pausada. Peça confirmação antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: { type: "string", description: "ID da campanha" },
+      },
+      required: ["campaign_id"],
+    },
+  },
+  {
+    name: "create_adset",
+    description:
+      "Cria um novo conjunto de anúncios (Ad Set) dentro de uma campanha. Define segmentação, orçamento e otimização. Peça confirmação antes de executar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: {
+          type: "string",
+          description: "ID da campanha pai",
+        },
+        name: { type: "string", description: "Nome do conjunto de anúncios" },
+        daily_budget: {
+          type: "number",
+          description: "Orçamento diário em centavos de Real (ex: 10000 = R$100)",
+        },
+        optimization_goal: {
+          type: "string",
+          enum: [
+            "LINK_CLICKS",
+            "LANDING_PAGE_VIEWS",
+            "IMPRESSIONS",
+            "REACH",
+            "OFFSITE_CONVERSIONS",
+            "LEAD_GENERATION",
+          ],
+          description: "Meta de otimização",
+        },
+        targeting: {
+          type: "object",
+          description: "Configurações de segmentação",
+          properties: {
+            age_min: { type: "number" },
+            age_max: { type: "number" },
+            genders: {
+              type: "array",
+              items: { type: "number" },
+              description: "0=todos, 1=masculino, 2=feminino",
+            },
+            geo_locations: {
+              type: "object",
+              properties: {
+                countries: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        status: {
+          type: "string",
+          enum: ["ACTIVE", "PAUSED"],
+          description: "Status inicial",
+        },
+      },
+      required: ["campaign_id", "name", "optimization_goal"],
+    },
+  },
+  {
+    name: "analyze_performance",
+    description:
+      "Analisa a performance de uma campanha e gera sugestões de otimização. Use quando o usuário pedir análise, sugestões de melhoria, ou perguntar 'o que posso melhorar'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        campaign_id: {
+          type: "string",
+          description: "ID da campanha a analisar",
+        },
+        date_range: {
+          type: "string",
+          enum: ["last_7d", "last_14d", "last_30d"],
+        },
+      },
+      required: ["campaign_id"],
+    },
+  },
+  {
+    name: "list_custom_audiences",
+    description:
+      "Lista públicos personalizados e lookalike disponíveis na conta. Use quando o usuário quiser usar audiências existentes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+];

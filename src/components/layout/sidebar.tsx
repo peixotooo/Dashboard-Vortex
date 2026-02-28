@@ -14,11 +14,13 @@ import {
   Settings,
   ChevronLeft,
   Zap,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/agent", label: "Agente IA", icon: MessageSquare },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/adsets", label: "Ad Sets", icon: Layers },
   { href: "/ads", label: "Ads", icon: FileText },
