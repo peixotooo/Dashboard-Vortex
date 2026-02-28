@@ -56,6 +56,36 @@ async function graphRequest(
   return data;
 }
 
+// ============ User Identity ============
+
+let _cachedUserId: string | null = null;
+
+async function getUserId(): Promise<string> {
+  if (_cachedUserId) return _cachedUserId;
+  try {
+    // Try /me first
+    const data = (await graphRequest("/me", { fields: "id" })) as { id: string };
+    _cachedUserId = data.id;
+    return data.id;
+  } catch {
+    // If /me fails (some token types), use debug_token to get user_id
+    const token = getToken();
+    const appId = process.env.META_APP_ID || "";
+    const appSecret = process.env.META_APP_SECRET || "";
+    if (appId && appSecret) {
+      const res = await fetch(
+        `${BASE_URL}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${appId}|${appSecret}`
+      );
+      const data = await res.json();
+      if (data.data?.user_id) {
+        _cachedUserId = data.data.user_id;
+        return data.data.user_id;
+      }
+    }
+    throw new Error("Unable to determine user identity. Check your access token.");
+  }
+}
+
 // ============ Ad Accounts ============
 
 export async function getAdAccountPixels(accountId: string): Promise<unknown> {
@@ -67,7 +97,8 @@ export async function getAdAccountPixels(accountId: string): Promise<unknown> {
 }
 
 export async function getPages(): Promise<unknown> {
-  const data = await graphRequest("/me/accounts", {
+  const userId = await getUserId();
+  const data = await graphRequest(`/${userId}/accounts`, {
     fields: "id,name,category,access_token",
     limit: "50",
   });
@@ -76,7 +107,8 @@ export async function getPages(): Promise<unknown> {
 }
 
 export async function getAdAccounts(): Promise<unknown> {
-  const data = await graphRequest("/me/adaccounts", {
+  const userId = await getUserId();
+  const data = await graphRequest(`/${userId}/adaccounts`, {
     fields: "id,account_id,name,account_status,currency,timezone_name,business_name,amount_spent",
     limit: "50",
   });
@@ -128,11 +160,16 @@ export async function createCampaign(args: Record<string, unknown>): Promise<unk
     name: String(args.name || ""),
     objective: String(args.objective || "OUTCOME_TRAFFIC"),
     status: String(args.status || "PAUSED"),
-    special_ad_categories: JSON.stringify(args.special_ad_categories || ["NONE"]),
+    special_ad_categories: JSON.stringify(args.special_ad_categories || []),
   };
   if (args.daily_budget) params.daily_budget = String(args.daily_budget);
   if (args.lifetime_budget) params.lifetime_budget = String(args.lifetime_budget);
   if (args.bid_strategy) params.bid_strategy = String(args.bid_strategy);
+
+  // Meta requires this field when the campaign does not use CBO (no campaign-level budget)
+  if (!args.daily_budget && !args.lifetime_budget) {
+    params.is_adset_budget_sharing_enabled = "false";
+  }
 
   return graphRequest(`/${accountId}/campaigns`, params, "POST");
 }
@@ -209,7 +246,6 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
         if (pixelsRes.pixels.length > 0) {
           pixelId = pixelsRes.pixels[0].id;
         } else {
-          // Meta API will reject this without a pixel
           throw new Error("No pixel found for OFFSITE_CONVERSIONS on this ad account.");
         }
       } catch (err) {
@@ -224,7 +260,30 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
     });
   }
 
+  // Set destination_type for optimization goals that require it
+  if (args.destination_type) {
+    params.destination_type = String(args.destination_type);
+  } else if (!params.destination_type) {
+    const goalsRequiringWebsite = ["LINK_CLICKS", "LANDING_PAGE_VIEWS", "IMPRESSIONS", "REACH"];
+    if (goalsRequiringWebsite.includes(params.optimization_goal)) {
+      params.destination_type = "WEBSITE";
+    }
+  }
+
   if (args.daily_budget) params.daily_budget = String(args.daily_budget);
+
+  // bid_amount is required by Meta for most bid strategies
+  if (args.bid_amount) {
+    params.bid_amount = String(args.bid_amount);
+  } else if (!args.bid_amount) {
+    // Default bid amount (in cents) — Meta requires this field
+    params.bid_amount = String(args.daily_budget ? Math.round(Number(args.daily_budget) * 0.1) : 500);
+  }
+
+  // start_time prevents validation errors for some objective/goal combinations
+  if (args.start_time) {
+    params.start_time = String(args.start_time);
+  }
 
   const defaultTargeting = {
     geo_locations: {
@@ -235,6 +294,9 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
   };
 
   params.targeting = JSON.stringify(args.targeting || defaultTargeting);
+
+  // Force billing_event to IMPRESSIONS (LINK_CLICKS is deprecated)
+  params.billing_event = "IMPRESSIONS";
 
   return graphRequest(`/${accountId}/adsets`, params, "POST");
 }
@@ -458,7 +520,7 @@ export async function createAdCreative(args: Record<string, unknown>): Promise<u
     name: String(args.name || ""),
   };
 
-  let pageId = process.env.META_PAGE_ID || args.page_id || "";
+  let pageId = (args.page_id as string) || process.env.META_PAGE_ID || "";
 
   if (!pageId) {
     // Try to get the first page the user manages
@@ -468,28 +530,48 @@ export async function createAdCreative(args: Record<string, unknown>): Promise<u
         pageId = pagesRes.pages[0].id;
       }
     } catch {
-      // Keep empty if fails
+      // Continue — will try promote_pages next
     }
   }
 
-  const linkUrl = process.env.META_DEFAULT_LINK || args.link || "https://example.com";
-
-  if (pageId) {
-    params.object_story_spec = JSON.stringify({
-      page_id: String(pageId),
-      link_data: {
-        image_hash: String(args.image_hash || ""),
-        link: String(linkUrl),
-        message: String(args.body || ""),
-        name: String(args.title || ""),
+  // If still no page, try to find one from account's existing creatives
+  if (!pageId) {
+    try {
+      const creativesRes = await graphRequest(`/${accountId}/adcreatives`, {
+        fields: "object_story_spec",
+        limit: "1",
+      }) as { data?: Array<{ object_story_spec?: { page_id?: string } }> };
+      if (creativesRes.data && creativesRes.data.length > 0 && creativesRes.data[0].object_story_spec?.page_id) {
+        pageId = creativesRes.data[0].object_story_spec.page_id;
       }
-    });
-  } else {
-    // Basic fallback if no page is associated
-    params.title = String(args.title || "");
-    params.body = String(args.body || "");
-    params.image_hash = String(args.image_hash || "");
+    } catch {
+      // Continue
+    }
   }
+
+  if (!pageId) {
+    throw new Error(
+      "No Facebook Page found. A page_id is required to create an ad creative. " +
+      "Set META_PAGE_ID in your environment variables or pass page_id in the request."
+    );
+  }
+
+  const linkUrl = (args.link as string) || process.env.META_DEFAULT_LINK || "";
+  if (!linkUrl) {
+    throw new Error(
+      "No destination URL provided. Pass a 'link' parameter or set META_DEFAULT_LINK in your environment variables."
+    );
+  }
+
+  params.object_story_spec = JSON.stringify({
+    page_id: String(pageId),
+    link_data: {
+      image_hash: String(args.image_hash || ""),
+      link: String(linkUrl),
+      message: String(args.body || ""),
+      name: String(args.title || ""),
+    }
+  });
 
   return graphRequest(`/${accountId}/adcreatives`, params, "POST");
 }
@@ -590,7 +672,8 @@ export async function getTokenInfo(): Promise<unknown> {
 
 export async function healthCheck(): Promise<unknown> {
   try {
-    const data = await graphRequest("/me", { fields: "id,name" });
+    const userId = await getUserId();
+    const data = await graphRequest(`/${userId}`, { fields: "id,name" });
     return { status: "ok", api_connected: true, ...(data as Record<string, unknown>) };
   } catch (error) {
     return {

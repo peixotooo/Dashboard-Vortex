@@ -62,6 +62,7 @@ export default function NewCampaignWizard() {
         name: "",
         title: "",
         body: "",
+        link: "",
         status: "PAUSED",
     });
     const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -99,9 +100,8 @@ export default function NewCampaignWizard() {
                     account_id: accountId,
                     name: campaignData.name,
                     objective: campaignData.objective,
-                    daily_budget: campaignData.daily_budget ? parseInt(campaignData.daily_budget) * 100 : undefined,
                     status: campaignData.status,
-                    special_ad_categories: ["NONE"],
+                    special_ad_categories: [],
                 }),
             });
             const campaignResult = await campaignRes.json();
@@ -116,8 +116,11 @@ export default function NewCampaignWizard() {
                     campaign_id: newCampaignId,
                     name: adSetData.name,
                     optimization_goal: adSetData.optimization_goal,
-                    billing_event: adSetData.billing_event,
+                    billing_event: "IMPRESSIONS",
                     status: adSetData.status,
+                    daily_budget: campaignData.daily_budget
+                        ? Math.round(parseFloat(campaignData.daily_budget) * 100)
+                        : 5000,
                 }),
             });
             const adSetResult = await adSetRes.json();
@@ -129,7 +132,7 @@ export default function NewCampaignWizard() {
             // 3. Upload Media (if provided)
             if (mediaFile) {
                 const formData = new FormData();
-                formData.append("file", mediaFile);
+                formData.append("filename", mediaFile);
                 formData.append("account_id", accountId);
 
                 const mediaRes = await fetch("/api/media", {
@@ -151,11 +154,13 @@ export default function NewCampaignWizard() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    action: "create",
                     account_id: accountId,
                     name: `${adData.name} - Creative`,
                     title: adData.title,
                     body: adData.body,
                     image_hash: imageHash,
+                    link: adData.link,
                 }),
             });
             const creativeResult = await creativeRes.json();
@@ -188,7 +193,7 @@ export default function NewCampaignWizard() {
 
     const isStep1Valid = campaignData.name.trim() !== "";
     const isStep2Valid = adSetData.name.trim() !== "";
-    const isStep3Valid = adData.name.trim() !== "" && mediaFile !== null;
+    const isStep3Valid = adData.name.trim() !== "" && adData.link.trim() !== "" && mediaFile !== null;
 
     return (
         <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -321,35 +326,19 @@ export default function NewCampaignWizard() {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Meta de Otimização</label>
-                                    <Select
-                                        value={adSetData.optimization_goal}
-                                        onValueChange={(v) => setAdSetData({ ...adSetData, optimization_goal: v })}
-                                    >
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            {OPTIMIZATION_GOALS.map(goal => (
-                                                <SelectItem key={goal.value} value={goal.value}>{goal.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Evento de Cobrança</label>
-                                    <Select
-                                        value={adSetData.billing_event}
-                                        onValueChange={(v) => setAdSetData({ ...adSetData, billing_event: v })}
-                                    >
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="IMPRESSIONS">Impressões</SelectItem>
-                                            <SelectItem value="LINK_CLICKS">Cliques no Link (CPC)</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Meta de Otimização</label>
+                                <Select
+                                    value={adSetData.optimization_goal}
+                                    onValueChange={(v) => setAdSetData({ ...adSetData, optimization_goal: v })}
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {OPTIMIZATION_GOALS.map(goal => (
+                                            <SelectItem key={goal.value} value={goal.value}>{goal.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     )}
@@ -368,6 +357,16 @@ export default function NewCampaignWizard() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">URL de Destino *</label>
+                                        <Input
+                                            type="url"
+                                            placeholder="https://seusite.com.br/oferta"
+                                            value={adData.link}
+                                            onChange={(e) => setAdData({ ...adData, link: e.target.value })}
+                                        />
+                                    </div>
+
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Título Curto</label>
                                         <Input
