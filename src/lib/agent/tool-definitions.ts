@@ -477,8 +477,8 @@ export function getToolsForAgent(agentSlug?: string): Tool[] {
   if (!agentSlug || agentSlug === "vortex") {
     return [...META_TOOLS, ...MEMORY_TOOLS];
   }
-  // Lucas (media buyer) gets Team + Meta tools
-  if (agentSlug === "paid-ads") {
+  // Marcos (CMO) and paid-ads specialist get Team + Meta tools
+  if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
     return [...TEAM_TOOLS, ...META_TOOLS];
   }
   // Other team agents get only Team tools

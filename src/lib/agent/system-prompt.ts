@@ -26,11 +26,11 @@ export function buildSystemPrompt(parts: SystemPromptParts): string {
     projectContext,
   } = parts;
 
-  // Team agents don't need Meta Ads context (except Lucas)
+  // Team agents don't need Meta Ads context (except CMO and paid-ads)
   const isTeamAgent = agentSlug && agentSlug !== "vortex";
-  const isLucas = agentSlug === "paid-ads";
+  const hasMetaAccess = agentSlug === "paid-ads" || agentSlug === "coordenador";
 
-  const metaContext = (isTeamAgent && !isLucas)
+  const metaContext = (isTeamAgent && !hasMetaAccess)
     ? ""
     : `\n## Contexto Atual da Conta
 - Nome: ${ctx.account_name}
@@ -65,7 +65,7 @@ ${projectContext}`
 - Use **update_task** para atualizar status de tarefas
 - Use **save_deliverable** para salvar entregas formatadas (copy, calendario, auditoria, estrategia, etc.)
 - Sempre salve entregas usando save_deliverable para que fiquem visiveis no dashboard${
-        isLucas
+        hasMetaAccess
           ? `\n\n## Ferramentas de Meta Ads
 - Voce tem acesso DIRETO a conta de anuncios do usuario via Meta Marketing API
 - Use as ferramentas de Meta Ads para criar, gerenciar e analisar campanhas
