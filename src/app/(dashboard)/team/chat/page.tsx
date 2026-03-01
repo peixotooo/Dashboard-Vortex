@@ -41,12 +41,22 @@ const TOOL_LABELS: Record<string, string> = {
   save_deliverable: "Salvando Entrega",
   save_memory: "Salvando Memória",
   recall_memory: "Consultando Memória",
+  get_account_overview: "Resumo da Conta",
+  list_campaigns: "Listando Campanhas",
+  get_campaign_metrics: "Buscando Métricas",
+  create_campaign: "Criando Campanha",
+  update_campaign: "Atualizando Campanha",
+  pause_campaign: "Pausando Campanha",
+  resume_campaign: "Reativando Campanha",
+  create_adset: "Criando Ad Set",
+  analyze_performance: "Analisando Performance",
+  list_custom_audiences: "Listando Audiências",
 };
 
 export default function TeamChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { accountId } = useAccount();
+  const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -152,6 +162,12 @@ export default function TeamChatPage() {
             message: text.trim(),
             history,
             accountId,
+            accountContext: {
+              account_name: (accounts as Array<{ id: string; name?: string; currency?: string; timezone_name?: string }>)?.find((a) => a.id === accountId)?.name || "Conta Meta",
+              account_id: accountId,
+              currency: (accounts as Array<{ id: string; currency?: string }>)?.find((a) => a.id === accountId)?.currency || "BRL",
+              timezone: (accounts as Array<{ id: string; timezone_name?: string }>)?.find((a) => a.id === accountId)?.timezone_name || "America/Sao_Paulo",
+            },
             conversationId,
             agentId: selectedAgent.id,
           }),

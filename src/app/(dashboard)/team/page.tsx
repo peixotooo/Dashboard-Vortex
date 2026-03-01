@@ -8,6 +8,7 @@ import {
   FileOutput,
   Loader2,
   Crown,
+  Settings,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,12 +97,19 @@ export default function TeamPage() {
                   {coordinator.description}
                 </p>
               </div>
-              <Link href={`/team/chat?agent=${coordinator.slug}`}>
-                <Button>
-                  <MessageSquare className="h-4 w-4 mr-2" />
-                  Conversar
-                </Button>
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link href={`/team/agents/${coordinator.slug}/settings`}>
+                  <Button variant="outline" size="icon">
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link href={`/team/chat?agent=${coordinator.slug}`}>
+                  <Button>
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Conversar
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -141,11 +149,16 @@ export default function TeamPage() {
                 </span>
               </div>
 
-              <div className="mt-4">
-                <Link href={`/team/chat?agent=${agent.slug}`}>
+              <div className="flex gap-2 mt-4">
+                <Link href={`/team/chat?agent=${agent.slug}`} className="flex-1">
                   <Button variant="outline" size="sm" className="w-full">
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Conversar
+                  </Button>
+                </Link>
+                <Link href={`/team/agents/${agent.slug}/settings`}>
+                  <Button variant="outline" size="icon" className="h-8 w-8 shrink-0">
+                    <Settings className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
               </div>

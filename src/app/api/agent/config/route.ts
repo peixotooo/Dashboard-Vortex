@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { loadDocument, upsertDocument } from "@/lib/agent/memory";
+import { loadDocument, upsertDocument, loadAgentDocument, upsertAgentDocument } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -29,7 +29,24 @@ export async function GET(request: NextRequest) {
 
     const accountId = new URL(request.url).searchParams.get("account_id") || "";
     const docType = new URL(request.url).searchParams.get("doc_type") as string | null;
+    const agentId = new URL(request.url).searchParams.get("agent_id");
     const validDocTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;
+
+    // Team agent mode — only soul + agent_rules
+    if (agentId) {
+      if (docType) {
+        if (docType !== "soul" && docType !== "agent_rules") {
+          return NextResponse.json({ error: "Invalid doc_type for agent" }, { status: 400 });
+        }
+        const doc = await loadAgentDocument(supabase, workspaceId, agentId, docType);
+        return NextResponse.json({ document: doc });
+      }
+      const [soul, agentRules] = await Promise.all([
+        loadAgentDocument(supabase, workspaceId, agentId, "soul"),
+        loadAgentDocument(supabase, workspaceId, agentId, "agent_rules"),
+      ]);
+      return NextResponse.json({ soul, agent_rules: agentRules });
+    }
 
     if (docType) {
       if (!validDocTypes.includes(docType as typeof validDocTypes[number])) {
@@ -77,10 +94,19 @@ export async function PUT(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { doc_type, content } = body as { doc_type: string; content: string };
+    const { doc_type, content, agent_id } = body as { doc_type: string; content: string; agent_id?: string };
 
     if (!doc_type || content === undefined) {
       return NextResponse.json({ error: "doc_type and content are required" }, { status: 400 });
+    }
+
+    // Team agent document save
+    if (agent_id) {
+      if (doc_type !== "soul" && doc_type !== "agent_rules") {
+        return NextResponse.json({ error: "Invalid doc_type for agent" }, { status: 400 });
+      }
+      const doc = await upsertAgentDocument(supabase, workspaceId, agent_id, doc_type as "soul" | "agent_rules", content);
+      return NextResponse.json({ document: doc });
     }
 
     const validTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;

@@ -533,6 +533,51 @@ export async function loadAgentDocument(
   return data || null;
 }
 
+export async function upsertAgentDocument(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  agentId: string,
+  docType: "soul" | "agent_rules",
+  content: string
+): Promise<AgentDocument> {
+  const { data: existing } = await supabase
+    .from("agent_documents")
+    .select("id, version")
+    .eq("workspace_id", workspaceId)
+    .eq("agent_id", agentId)
+    .eq("doc_type", docType)
+    .single();
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("agent_documents")
+      .update({
+        content,
+        version: existing.version + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update agent document: ${error.message}`);
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("agent_documents")
+    .insert({
+      workspace_id: workspaceId,
+      account_id: null,
+      agent_id: agentId,
+      doc_type: docType,
+      content,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create agent document: ${error.message}`);
+  return data;
+}
+
 // --- Project Context (shared across all agents) ---
 
 export async function loadProjectContext(

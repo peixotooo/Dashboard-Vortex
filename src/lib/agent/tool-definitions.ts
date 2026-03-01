@@ -441,9 +441,14 @@ export const AGENT_TOOLS: Tool[] = [...META_TOOLS, ...MEMORY_TOOLS, ...TEAM_TOOL
 // --- Per-agent tool selection ---
 
 export function getToolsForAgent(agentSlug?: string): Tool[] {
-  const isTeamAgent = agentSlug && agentSlug !== "vortex";
-  if (isTeamAgent) {
-    return TEAM_TOOLS;
+  // Vortex (default) gets Meta + Memory tools
+  if (!agentSlug || agentSlug === "vortex") {
+    return [...META_TOOLS, ...MEMORY_TOOLS];
   }
-  return [...META_TOOLS, ...MEMORY_TOOLS];
+  // Lucas (media buyer) gets Team + Meta tools
+  if (agentSlug === "lucas") {
+    return [...TEAM_TOOLS, ...META_TOOLS];
+  }
+  // Other team agents get only Team tools
+  return TEAM_TOOLS;
 }

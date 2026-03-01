@@ -26,10 +26,11 @@ export function buildSystemPrompt(parts: SystemPromptParts): string {
     projectContext,
   } = parts;
 
-  // Team agents don't need Meta Ads context
+  // Team agents don't need Meta Ads context (except Lucas)
   const isTeamAgent = agentSlug && agentSlug !== "vortex";
+  const isLucas = agentSlug === "lucas";
 
-  const metaContext = isTeamAgent
+  const metaContext = (isTeamAgent && !isLucas)
     ? ""
     : `\n## Contexto Atual da Conta
 - Nome: ${ctx.account_name}
@@ -63,7 +64,17 @@ ${projectContext}`
 - Use **create_task** para criar tarefas no kanban e atribuir a membros do time
 - Use **update_task** para atualizar status de tarefas
 - Use **save_deliverable** para salvar entregas formatadas (copy, calendario, auditoria, estrategia, etc.)
-- Sempre salve entregas usando save_deliverable para que fiquem visiveis no dashboard`
+- Sempre salve entregas usando save_deliverable para que fiquem visiveis no dashboard${
+        isLucas
+          ? `\n\n## Ferramentas de Meta Ads
+- Voce tem acesso DIRETO a conta de anuncios do usuario via Meta Marketing API
+- Use as ferramentas de Meta Ads para criar, gerenciar e analisar campanhas
+- SEMPRE peca confirmacao antes de executar acoes de criacao ou alteracao
+- Para budgets acima de R$500/dia, peca DUPLA confirmacao
+- Nunca delete campanhas — apenas pause
+- Budgets da API estao em centavos — divida por 100 para mostrar em Reais`
+          : ""
+      }`
     : "";
 
   return `${soul}
