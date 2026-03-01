@@ -5,15 +5,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 import {
   Send,
   Loader2,
-  Bot,
   User,
   Wrench,
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
@@ -27,15 +24,26 @@ interface AgentInfo {
   is_default: boolean;
 }
 
+interface SpecialistResponse {
+  agent_name: string;
+  agent_color: string;
+  agent_slug: string;
+  content: string;
+  model: string;
+  status: "working" | "done";
+}
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   toolCalls?: Array<{ name: string; status: "running" | "done" | "error" }>;
   choices?: Array<{ label: string; value: string }>;
+  specialistResponses?: SpecialistResponse[];
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  delegate_to_agent: "Acionando Especialista",
   create_task: "Criando Tarefa",
   update_task: "Atualizando Tarefa",
   save_deliverable: "Salvando Entrega",
@@ -51,6 +59,12 @@ const TOOL_LABELS: Record<string, string> = {
   create_adset: "Criando Ad Set",
   analyze_performance: "Analisando Performance",
   list_custom_audiences: "Listando Audiências",
+};
+
+const MODEL_LABELS: Record<string, string> = {
+  "claude-opus-4-6": "Opus",
+  "claude-sonnet-4-5-20250929": "Sonnet",
+  "claude-haiku-4-5-20251001": "Haiku",
 };
 
 export default function TeamChatPage() {
@@ -143,6 +157,7 @@ export default function TeamChatPage() {
         role: "assistant",
         content: "",
         toolCalls: [],
+        specialistResponses: [],
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
@@ -228,6 +243,49 @@ export default function TeamChatPage() {
                           t.name === event.name && t.status === "running"
                       );
                       if (tc) tc.status = "done";
+                    }
+                    return updated;
+                  });
+                  break;
+
+                case "specialist_start":
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last.role === "assistant") {
+                      last.specialistResponses = [
+                        ...(last.specialistResponses || []),
+                        {
+                          agent_name: event.agent_slug,
+                          agent_color: "#6B7280",
+                          agent_slug: event.agent_slug,
+                          content: "",
+                          model: "",
+                          status: "working",
+                        },
+                      ];
+                    }
+                    return updated;
+                  });
+                  break;
+
+                case "specialist_response":
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last.role === "assistant" && last.specialistResponses) {
+                      const sr = last.specialistResponses.find(
+                        (s) =>
+                          s.agent_slug === event.agent_slug &&
+                          s.status === "working"
+                      );
+                      if (sr) {
+                        sr.agent_name = event.agent_name;
+                        sr.agent_color = event.agent_color;
+                        sr.content = event.content;
+                        sr.model = event.model;
+                        sr.status = "done";
+                      }
                     }
                     return updated;
                   });
@@ -425,6 +483,55 @@ export default function TeamChatPage() {
                   </div>
                 )}
 
+                {/* Specialist responses */}
+                {msg.specialistResponses && msg.specialistResponses.length > 0 && (
+                  <div className="space-y-3 mb-3">
+                    {msg.specialistResponses.map((sr, i) => (
+                      <div
+                        key={i}
+                        className="border rounded-lg overflow-hidden"
+                        style={{ borderColor: sr.agent_color + "40" }}
+                      >
+                        {/* Specialist header */}
+                        <div
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium"
+                          style={{
+                            backgroundColor: sr.agent_color + "15",
+                            color: sr.agent_color,
+                          }}
+                        >
+                          <div
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-white text-[10px] font-bold shrink-0"
+                            style={{ backgroundColor: sr.agent_color }}
+                          >
+                            {sr.agent_name[0]}
+                          </div>
+                          <span>{sr.agent_name}</span>
+                          {sr.status === "working" && (
+                            <Loader2 className="h-3 w-3 animate-spin ml-auto" />
+                          )}
+                          {sr.status === "done" && sr.model && (
+                            <span className="ml-auto opacity-60 text-[10px]">
+                              {MODEL_LABELS[sr.model] || sr.model}
+                            </span>
+                          )}
+                        </div>
+                        {/* Specialist content */}
+                        {sr.status === "working" && !sr.content && (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">
+                            Trabalhando...
+                          </div>
+                        )}
+                        {sr.content && (
+                          <div className="px-3 py-2 text-xs whitespace-pre-wrap bg-background/50">
+                            {sr.content}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Text */}
                 {msg.content && (
                   <div className="whitespace-pre-wrap">{msg.content}</div>
@@ -457,7 +564,7 @@ export default function TeamChatPage() {
             </div>
           ))}
 
-          {isLoading && messages[messages.length - 1]?.content === "" && (
+          {isLoading && messages[messages.length - 1]?.content === "" && !messages[messages.length - 1]?.specialistResponses?.length && (
             <div className="flex gap-3">
               {selectedAgent && (
                 <div

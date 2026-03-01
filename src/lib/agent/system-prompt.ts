@@ -28,7 +28,7 @@ export function buildSystemPrompt(parts: SystemPromptParts): string {
 
   // Team agents don't need Meta Ads context (except Lucas)
   const isTeamAgent = agentSlug && agentSlug !== "vortex";
-  const isLucas = agentSlug === "lucas";
+  const isLucas = agentSlug === "paid-ads";
 
   const metaContext = (isTeamAgent && !isLucas)
     ? ""

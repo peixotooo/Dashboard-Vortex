@@ -3,7 +3,12 @@ import { buildSystemPrompt, type AccountContext } from "./system-prompt";
 import { DEFAULT_SOUL, DEFAULT_AGENT_RULES } from "./default-documents";
 import { getToolsForAgent } from "./tool-definitions";
 import { executeToolCall } from "./tool-executor";
-import { saveMessage, updateConversationTimestamp } from "./memory";
+import {
+  saveMessage,
+  updateConversationTimestamp,
+  getAgentBySlug,
+  loadAgentDocument,
+} from "./memory";
 import { extractAndSaveFacts } from "./fact-extraction";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -11,13 +16,39 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
-function selectModel(message: string): string {
-  const complexPatterns =
-    /cri(a|e|ar)|analis|otimiz|estratégia|sugest|configur|segmenta|público/i;
-  return complexPatterns.test(message)
-    ? "claude-sonnet-4-5-20250929"
-    : "claude-haiku-4-5-20251001";
+// --- Model Selection (3 Tiers) ---
+
+const MODEL_TIERS = {
+  deep: "claude-opus-4-6",
+  normal: "claude-sonnet-4-5-20250929",
+  basic: "claude-haiku-4-5-20251001",
+} as const;
+
+function selectModel(message: string, agentSlug?: string): string {
+  // Coordenador sempre usa Sonnet (precisa raciocinar bem para rotear)
+  if (agentSlug === "coordenador") return MODEL_TIERS.normal;
+
+  // Deep: estratégia completa, análise profunda, arquitetura, auditoria
+  const deepPatterns =
+    /estratégia completa|análise profunda|plano de lançamento|arquitetura completa|reestruturar? (todo|tudo|completo)|auditoria completa|análise detalhada/i;
+  if (deepPatterns.test(message)) return MODEL_TIERS.deep;
+
+  // Basic: saudações, confirmações, perguntas simples
+  const basicPatterns =
+    /^(oi|olá|hey|obrigad|valeu|ok|sim|não|beleza|blz|show|legal|entendi|perfeito|bom dia|boa tarde|boa noite|tudo bem|e aí)\b/i;
+  if (basicPatterns.test(message)) return MODEL_TIERS.basic;
+
+  // Default: Sonnet
+  return MODEL_TIERS.normal;
 }
+
+function selectModelByComplexity(complexity: string): string {
+  return (
+    MODEL_TIERS[complexity as keyof typeof MODEL_TIERS] || MODEL_TIERS.normal
+  );
+}
+
+// --- Types ---
 
 export interface AgentMessage {
   role: "user" | "assistant";
@@ -46,6 +77,8 @@ interface Choice {
   value: string;
 }
 
+// --- Helpers ---
+
 function extractChoices(text: string): {
   cleanText: string;
   choices: Choice[] | null;
@@ -65,6 +98,157 @@ function extractChoices(text: string): {
     return { cleanText: text, choices: null };
   }
 }
+
+// --- Specialist Runner (sub-agent, non-streaming) ---
+
+interface SpecialistParams {
+  agentSlug: string;
+  task: string;
+  context?: string;
+  complexity?: string;
+  accountId: string;
+  accountContext: AccountContext;
+  workspaceId: string;
+  supabase: SupabaseClient;
+  projectContext?: string;
+}
+
+interface SpecialistResult {
+  text: string;
+  model: string;
+  agentName: string;
+  agentColor: string;
+}
+
+async function runSpecialist(
+  params: SpecialistParams
+): Promise<SpecialistResult> {
+  // 1. Find agent in DB
+  const agent = await getAgentBySlug(
+    params.supabase,
+    params.workspaceId,
+    params.agentSlug
+  );
+  if (!agent) {
+    return {
+      text: `Especialista "${params.agentSlug}" não encontrado.`,
+      model: "none",
+      agentName: params.agentSlug,
+      agentColor: "#6B7280",
+    };
+  }
+
+  // 2. Load soul + rules
+  const [soul, rules] = await Promise.all([
+    loadAgentDocument(params.supabase, params.workspaceId, agent.id, "soul"),
+    loadAgentDocument(
+      params.supabase,
+      params.workspaceId,
+      agent.id,
+      "agent_rules"
+    ),
+  ]);
+
+  // 3. Build system prompt
+  const systemPrompt = buildSystemPrompt({
+    soul: soul?.content || "",
+    agentRules: rules?.content || "",
+    accountContext: params.accountContext,
+    agentSlug: params.agentSlug,
+    projectContext: params.projectContext,
+  });
+
+  // 4. Select model by complexity
+  const model = selectModelByComplexity(params.complexity || "normal");
+
+  // 5. Get tools for this specialist
+  const tools = getToolsForAgent(params.agentSlug);
+
+  // 6. Build task message
+  const taskMessage = params.context
+    ? `${params.task}\n\nContexto adicional:\n${params.context}`
+    : params.task;
+
+  // 7. Agentic loop (non-streaming)
+  const messages: Anthropic.Messages.MessageParam[] = [
+    { role: "user", content: taskMessage },
+  ];
+  let fullText = "";
+  let continueLoop = true;
+  let loopCount = 0;
+  const maxLoops = 5; // Safety limit for specialist sub-agent
+
+  while (continueLoop && loopCount < maxLoops) {
+    loopCount++;
+
+    const response = await anthropic.messages.create({
+      model,
+      max_tokens: 4096,
+      system: systemPrompt,
+      tools: tools.filter((t) => t.name !== "delegate_to_agent"), // Specialists can't delegate further
+      messages,
+    });
+
+    let hasToolUse = false;
+
+    for (const block of response.content) {
+      if (block.type === "text") {
+        // Strip choices from specialist response (Coordenador will present to user)
+        const { cleanText } = extractChoices(block.text);
+        fullText += cleanText;
+      } else if (block.type === "tool_use") {
+        hasToolUse = true;
+
+        // Execute the specialist's tool
+        let toolResult: unknown;
+        try {
+          toolResult = await executeToolCall(
+            block.name,
+            block.input as Record<string, unknown>,
+            params.accountId,
+            params.workspaceId,
+            params.supabase,
+            agent.id
+          );
+        } catch (err) {
+          toolResult = {
+            error:
+              err instanceof Error ? err.message : "Erro ao executar tool",
+          };
+        }
+
+        // Add to message chain for continuation
+        messages.push({
+          role: "assistant",
+          content: response.content,
+        });
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: JSON.stringify(toolResult),
+            },
+          ],
+        });
+      }
+    }
+
+    if (!hasToolUse || response.stop_reason === "end_turn") {
+      continueLoop = false;
+    }
+  }
+
+  return {
+    text: fullText,
+    model,
+    agentName: agent.name,
+    agentColor: agent.avatar_color,
+  };
+}
+
+// --- Main Agent Stream ---
 
 export function createAgentStream(params: AgentStreamParams): ReadableStream {
   const {
@@ -99,14 +283,15 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
         const isTeamAgent = agentSlug && agentSlug !== "vortex";
         const systemPrompt = buildSystemPrompt({
           soul: soulContent || (isTeamAgent ? "" : DEFAULT_SOUL),
-          agentRules: agentRulesContent || (isTeamAgent ? "" : DEFAULT_AGENT_RULES),
+          agentRules:
+            agentRulesContent || (isTeamAgent ? "" : DEFAULT_AGENT_RULES),
           accountContext,
           coreMemories,
           userProfile: userProfileContent,
           agentSlug,
           projectContext,
         });
-        const model = selectModel(message);
+        const model = selectModel(message, agentSlug);
         const tools = getToolsForAgent(agentSlug);
 
         // Build messages array for Anthropic API
@@ -160,53 +345,128 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             } else if (block.type === "tool_use") {
               hasToolUse = true;
 
-              sendEvent(controller, {
-                type: "tool_use",
-                name: block.name,
-                input: block.input,
-              });
-
-              // Execute the tool
-              let toolResult: unknown;
-              try {
-                toolResult = await executeToolCall(
-                  block.name,
-                  block.input as Record<string, unknown>,
-                  accountId,
-                  workspaceId,
-                  supabase,
-                  agentId
-                );
-              } catch (err) {
-                toolResult = {
-                  error:
-                    err instanceof Error
-                      ? err.message
-                      : "Erro ao executar tool",
+              // --- Special handling: delegate_to_agent ---
+              if (block.name === "delegate_to_agent") {
+                const delegateInput = block.input as {
+                  agent_slug: string;
+                  task: string;
+                  context?: string;
+                  complexity?: string;
                 };
+
+                sendEvent(controller, {
+                  type: "tool_use",
+                  name: block.name,
+                  input: delegateInput,
+                });
+
+                // Notify UI: specialist is starting
+                sendEvent(controller, {
+                  type: "specialist_start",
+                  agent_slug: delegateInput.agent_slug,
+                });
+
+                let specialistResult: SpecialistResult;
+
+                if (workspaceId && supabase) {
+                  specialistResult = await runSpecialist({
+                    agentSlug: delegateInput.agent_slug,
+                    task: delegateInput.task,
+                    context: delegateInput.context,
+                    complexity: delegateInput.complexity,
+                    accountId,
+                    accountContext,
+                    workspaceId,
+                    supabase,
+                    projectContext,
+                  });
+                } else {
+                  specialistResult = {
+                    text: "Workspace não configurado. Não foi possível executar o especialista.",
+                    model: "none",
+                    agentName: delegateInput.agent_slug,
+                    agentColor: "#6B7280",
+                  };
+                }
+
+                // Notify UI: specialist response
+                sendEvent(controller, {
+                  type: "specialist_response",
+                  agent_name: specialistResult.agentName,
+                  agent_color: specialistResult.agentColor,
+                  agent_slug: delegateInput.agent_slug,
+                  content: specialistResult.text,
+                  model: specialistResult.model,
+                });
+
+                // Add tool result to message chain
+                const toolResultContent = JSON.stringify({
+                  specialist: specialistResult.agentName,
+                  response: specialistResult.text,
+                });
+
+                messages.push({
+                  role: "assistant",
+                  content: response.content,
+                });
+                messages.push({
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: block.id,
+                      content: toolResultContent,
+                    },
+                  ],
+                });
+              } else {
+                // --- Standard tool handling ---
+                sendEvent(controller, {
+                  type: "tool_use",
+                  name: block.name,
+                  input: block.input,
+                });
+
+                let toolResult: unknown;
+                try {
+                  toolResult = await executeToolCall(
+                    block.name,
+                    block.input as Record<string, unknown>,
+                    accountId,
+                    workspaceId,
+                    supabase,
+                    agentId
+                  );
+                } catch (err) {
+                  toolResult = {
+                    error:
+                      err instanceof Error
+                        ? err.message
+                        : "Erro ao executar tool",
+                  };
+                }
+
+                sendEvent(controller, {
+                  type: "tool_result",
+                  name: block.name,
+                  result: toolResult,
+                });
+
+                messages.push({
+                  role: "assistant",
+                  content: response.content,
+                });
+                messages.push({
+                  role: "user",
+                  content: [
+                    {
+                      type: "tool_result",
+                      tool_use_id: block.id,
+                      content: JSON.stringify(toolResult),
+                    },
+                  ],
+                });
               }
-
-              sendEvent(controller, {
-                type: "tool_result",
-                name: block.name,
-                result: toolResult,
-              });
-
-              // Add assistant message + tool result to continue the conversation
-              messages.push({
-                role: "assistant",
-                content: response.content,
-              });
-              messages.push({
-                role: "user",
-                content: [
-                  {
-                    type: "tool_result",
-                    tool_use_id: block.id,
-                    content: JSON.stringify(toolResult),
-                  },
-                ],
-              });
             }
           }
 

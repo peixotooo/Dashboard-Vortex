@@ -314,6 +314,38 @@ const MEMORY_TOOLS: Tool[] = [
 
 const TEAM_TOOLS: Tool[] = [
   {
+    name: "delegate_to_agent",
+    description:
+      "Delega uma tarefa para um especialista do time e recebe a resposta dentro desta conversa. O especialista trabalha com todo seu conhecimento especializado e retorna o resultado. Use quando o usuário quer resultado AGORA (para tarefas assíncronas futuras, use create_task).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        agent_slug: {
+          type: "string",
+          description:
+            "Slug do especialista (copywriting, copy-editing, email-sequence, cold-email, seo-audit, ai-seo, programmatic-seo, schema-markup, site-architecture, content-strategy, social-content, page-cro, form-cro, signup-flow-cro, onboarding-cro, popup-cro, paywall-upgrade-cro, ab-test-setup, paid-ads, ad-creative, analytics-tracking, launch-strategy, pricing-strategy, marketing-psychology, marketing-ideas, free-tool-strategy, churn-prevention, referral-program, revops, sales-enablement, competitor-alternatives)",
+        },
+        task: {
+          type: "string",
+          description:
+            "Descrição detalhada do que o especialista deve fazer. Seja específico sobre o que entregar.",
+        },
+        context: {
+          type: "string",
+          description:
+            "Contexto adicional relevante (informações do usuário, restrições, preferências, dados da conversa)",
+        },
+        complexity: {
+          type: "string",
+          enum: ["deep", "normal", "basic"],
+          description:
+            "Nível de complexidade: deep = análise profunda/estratégia (Opus), normal = trabalho padrão (Sonnet), basic = tarefa simples/revisão (Haiku). Default: normal",
+        },
+      },
+      required: ["agent_slug", "task"],
+    },
+  },
+  {
     name: "create_task",
     description:
       "Cria uma tarefa no kanban do time. Use para delegar trabalho a um membro do time ou registrar uma tarefa a ser feita. O Coordenador usa esta ferramenta para distribuir trabalho.",
@@ -350,7 +382,7 @@ const TEAM_TOOLS: Tool[] = [
         assign_to_slug: {
           type: "string",
           description:
-            "Slug do agente para atribuir (ana, carlos, marina, rafael, lucas, julia, pedro)",
+            "Slug do agente para atribuir (copywriting, copy-editing, email-sequence, cold-email, seo-audit, ai-seo, programmatic-seo, schema-markup, site-architecture, content-strategy, social-content, page-cro, form-cro, signup-flow-cro, onboarding-cro, popup-cro, paywall-upgrade-cro, ab-test-setup, paid-ads, ad-creative, analytics-tracking, launch-strategy, pricing-strategy, marketing-psychology, marketing-ideas, free-tool-strategy, churn-prevention, referral-program, revops, sales-enablement, competitor-alternatives)",
         },
         due_date: {
           type: "string",
@@ -446,7 +478,7 @@ export function getToolsForAgent(agentSlug?: string): Tool[] {
     return [...META_TOOLS, ...MEMORY_TOOLS];
   }
   // Lucas (media buyer) gets Team + Meta tools
-  if (agentSlug === "lucas") {
+  if (agentSlug === "paid-ads") {
     return [...TEAM_TOOLS, ...META_TOOLS];
   }
   // Other team agents get only Team tools
