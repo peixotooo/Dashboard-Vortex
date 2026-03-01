@@ -12,6 +12,7 @@ import {
   Settings,
   LayoutGrid,
   Building2,
+  Briefcase,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ interface AgentWithStats {
   status: string;
   active_tasks: number;
   total_deliverables: number;
+  active_task_title: string | null;
 }
 
 export default function TeamPage() {
@@ -192,7 +194,24 @@ export default function TeamPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 mt-4 text-sm text-muted-foreground">
+                  {/* Active task or available status */}
+                  <div className="mt-3">
+                    {agent.active_task_title ? (
+                      <div className="flex items-start gap-1.5 text-xs">
+                        <Briefcase className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />
+                        <span className="text-muted-foreground line-clamp-2">
+                          {agent.active_task_title}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <div className="w-2 h-2 rounded-full bg-gray-400" />
+                        Disponivel
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Users className="h-3.5 w-3.5" />
                       {agent.active_tasks} tarefas

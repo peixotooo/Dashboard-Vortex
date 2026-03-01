@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       processed: result.processed.length,
       skipped: result.skipped,
       staleReset: result.staleReset,
+      compiledProjects: result.compiledProjects,
       details: result.processed.map((r) => ({
         taskId: r.taskId,
         title: r.taskTitle,

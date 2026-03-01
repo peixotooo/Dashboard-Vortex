@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { listTasks, createTask } from "@/lib/agent/memory";
+import { listProjects, createProject } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -17,7 +17,7 @@ function createSupabase(request: NextRequest) {
   );
 }
 
-// GET /api/team/tasks?status=todo&agent_id=xxx&task_type=copy
+// GET /api/team/projects?status=planning
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabase(request);
@@ -35,16 +35,10 @@ export async function GET(request: NextRequest) {
       );
 
     const url = new URL(request.url);
-    const filters = {
-      status: url.searchParams.get("status") || undefined,
-      agent_id: url.searchParams.get("agent_id") || undefined,
-      task_type: url.searchParams.get("task_type") || undefined,
-      priority: url.searchParams.get("priority") || undefined,
-      project_id: url.searchParams.get("project_id") || undefined,
-    };
+    const status = url.searchParams.get("status") || undefined;
 
-    const tasks = await listTasks(supabase, workspaceId, filters);
-    return NextResponse.json({ tasks });
+    const projects = await listProjects(supabase, workspaceId, { status });
+    return NextResponse.json({ projects });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal server error";
@@ -52,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/team/tasks — create a task
+// POST /api/team/projects
 export async function POST(request: NextRequest) {
   try {
     const supabase = createSupabase(request);
@@ -70,8 +64,8 @@ export async function POST(request: NextRequest) {
       );
 
     const body = await request.json();
-    const task = await createTask(supabase, workspaceId, body);
-    return NextResponse.json({ task }, { status: 201 });
+    const project = await createProject(supabase, workspaceId, body);
+    return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal server error";

@@ -4,6 +4,7 @@ import {
   getAgent,
   getAgentBySlug,
   updateTask,
+  updateProject,
   loadProjectContext,
 } from "./memory";
 import { runSpecialist } from "./claude-client";
@@ -25,6 +26,7 @@ export interface ProcessBatchResult {
   processed: TaskProcessingResult[];
   skipped: number;
   staleReset: number;
+  compiledProjects: number;
 }
 
 // --- Constants ---
@@ -67,8 +69,9 @@ export async function processTaskBatch(
   console.log(`[cron/process-tasks] Found ${tasks.length} eligible tasks`);
 
   if (tasks.length === 0) {
-    console.log("[cron/process-tasks] No eligible tasks. Done.");
-    return { processed: [], skipped: 0, staleReset };
+    console.log("[cron/process-tasks] No eligible tasks. Checking project compilation...");
+    const compiledProjects = await checkAndCompileProjects(supabase);
+    return { processed: [], skipped: 0, staleReset, compiledProjects };
   }
 
   // 3. Process up to MAX_TASKS_PER_RUN tasks
@@ -117,11 +120,20 @@ export async function processTaskBatch(
     );
   }
 
-  console.log(
-    `[cron/process-tasks] Batch complete: processed=${results.length}, skipped=${skipped}, staleReset=${staleReset}`
+  // 4. Check if any projects are ready for compilation
+  const completedTaskIds = results
+    .filter((r) => r.status === "done")
+    .map((r) => r.taskId);
+  const compiledProjects = await checkAndCompileProjects(
+    supabase,
+    completedTaskIds
   );
 
-  return { processed: results, skipped, staleReset };
+  console.log(
+    `[cron/process-tasks] Batch complete: processed=${results.length}, skipped=${skipped}, staleReset=${staleReset}, compiledProjects=${compiledProjects}`
+  );
+
+  return { processed: results, skipped, staleReset, compiledProjects };
 }
 
 // --- Helpers ---
@@ -268,6 +280,136 @@ async function resolveWorkspaceContext(
     },
     projectContext: projectContext || undefined,
   };
+}
+
+// --- Project compilation ---
+
+async function checkAndCompileProjects(
+  supabase: SupabaseClient,
+  completedTaskIds?: string[]
+): Promise<number> {
+  let compiled = 0;
+
+  // Find projects that have tasks but where ALL tasks are "done" and project is NOT yet "done"
+  const { data: projects } = await supabase
+    .from("agent_projects")
+    .select("id, workspace_id, title, description")
+    .neq("status", "done");
+
+  if (!projects || projects.length === 0) return 0;
+
+  for (const project of projects) {
+    // Get all tasks for this project
+    const { data: tasks } = await supabase
+      .from("agent_tasks")
+      .select("id, status, title")
+      .eq("project_id", project.id);
+
+    if (!tasks || tasks.length === 0) continue;
+
+    // Check if ALL tasks are done
+    const allDone = tasks.every((t) => t.status === "done");
+    if (!allDone) continue;
+
+    console.log(
+      `[cron/compile] Project "${project.title}" — all ${tasks.length} tasks done. Compiling...`
+    );
+
+    // Get all deliverables from these tasks
+    const taskIds = tasks.map((t) => t.id);
+    const { data: deliverables } = await supabase
+      .from("agent_deliverables")
+      .select("id, title, content, deliverable_type, agent:agents!agent_deliverables_agent_id_fkey(name)")
+      .in("task_id", taskIds)
+      .neq("deliverable_type", "compiled")
+      .order("created_at", { ascending: true });
+
+    if (!deliverables || deliverables.length === 0) {
+      // No deliverables to compile, just mark project done
+      await updateProject(supabase, project.id, { status: "done" });
+      compiled++;
+      continue;
+    }
+
+    // Build compilation prompt with all deliverables
+    const deliverableSummaries = deliverables.map((d, i) => {
+      const agentData = d.agent as unknown as { name: string } | null;
+      const agentName = agentData?.name || "Desconhecido";
+      const contentPreview =
+        d.content.length > 2000 ? d.content.slice(0, 2000) + "\n...(truncado)" : d.content;
+      return `### Entrega ${i + 1}: ${d.title}\n- Tipo: ${d.deliverable_type}\n- Agente: ${agentName}\n\n${contentPreview}`;
+    });
+
+    const compilationPrompt = [
+      `## Compilar Projeto: ${project.title}`,
+      "",
+      project.description || "",
+      "",
+      `Este projeto tem ${tasks.length} tarefas concluidas com ${deliverables.length} entregas.`,
+      "Compile TODAS as entregas abaixo em UM documento final coeso e profissional.",
+      "",
+      "---",
+      "",
+      ...deliverableSummaries,
+      "",
+      "---",
+      "",
+      "## INSTRUCOES DE COMPILACAO",
+      "",
+      "1. Crie UM documento compilado que integre todas as entregas acima",
+      "2. Organize de forma logica e profissional",
+      "3. Mantenha o conteudo original — nao resuma, compile",
+      "4. SALVE usando save_deliverable com:",
+      `   - task_id: "${tasks[0].id}"`,
+      `   - project_id: "${project.id}"`,
+      '   - deliverable_type: "compiled"',
+      `   - title: "Compilado: ${project.title}"`,
+      "5. NAO peca confirmacao — execute diretamente",
+    ].join("\n");
+
+    // Resolve workspace context
+    const wsContext = await resolveWorkspaceContext(
+      supabase,
+      project.workspace_id
+    );
+    if (!wsContext) {
+      console.log(
+        `[cron/compile] Skipping "${project.title}": workspace context failed`
+      );
+      continue;
+    }
+
+    try {
+      await runSpecialist({
+        agentSlug: "coordenador",
+        task: compilationPrompt,
+        context:
+          "Compilacao automatica de projeto. Salve o documento compilado com save_deliverable. NAO peca confirmacao.",
+        complexity: "deep",
+        accountId: wsContext.accountId,
+        accountContext: wsContext.accountContext,
+        workspaceId: project.workspace_id,
+        supabase,
+        projectContext: wsContext.projectContext,
+        maxLoops: 10,
+        maxTokens: 8192,
+      });
+
+      // Mark project as done
+      await updateProject(supabase, project.id, { status: "done" });
+      compiled++;
+      console.log(
+        `[cron/compile] Project "${project.title}" compiled and marked done`
+      );
+    } catch (err) {
+      console.error(
+        `[cron/compile] Failed to compile "${project.title}":`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  return compiled;
 }
 
 // --- Task execution ---

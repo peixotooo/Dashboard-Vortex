@@ -632,6 +632,90 @@ export async function loadProjectContext(
   return data?.content || null;
 }
 
+// --- Projects ---
+
+export interface AgentProject {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string;
+  status: string;
+  created_by_agent_id: string | null;
+  conversation_id: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createProject(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  params: {
+    title: string;
+    description?: string;
+    created_by_agent_id?: string;
+    conversation_id?: string;
+  }
+): Promise<AgentProject> {
+  const { data, error } = await supabase
+    .from("agent_projects")
+    .insert({
+      workspace_id: workspaceId,
+      title: params.title,
+      description: params.description || "",
+      created_by_agent_id: params.created_by_agent_id || null,
+      conversation_id: params.conversation_id || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create project: ${error.message}`);
+  return data;
+}
+
+export async function listProjects(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: { status?: string }
+): Promise<AgentProject[]> {
+  let query = supabase
+    .from("agent_projects")
+    .select("*")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.status) query = query.eq("status", filters.status);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to list projects: ${error.message}`);
+  return data || [];
+}
+
+export async function updateProject(
+  supabase: SupabaseClient,
+  projectId: string,
+  updates: { status?: string; title?: string; description?: string }
+): Promise<AgentProject> {
+  const updateData: Record<string, unknown> = {
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.status === "done") {
+    updateData.completed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from("agent_projects")
+    .update(updateData)
+    .eq("id", projectId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update project: ${error.message}`);
+  return data;
+}
+
 // --- Tasks (Kanban) ---
 
 export interface AgentTask {
@@ -647,9 +731,11 @@ export interface AgentTask {
   due_date: string | null;
   completed_at: string | null;
   conversation_id: string | null;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
   agent?: Agent;
+  project?: AgentProject;
 }
 
 export async function createTask(
@@ -664,6 +750,7 @@ export async function createTask(
     task_type?: string;
     due_date?: string;
     conversation_id?: string;
+    project_id?: string;
   }
 ): Promise<AgentTask> {
   const { data, error } = await supabase
@@ -678,6 +765,7 @@ export async function createTask(
       task_type: params.task_type || "general",
       due_date: params.due_date || null,
       conversation_id: params.conversation_id || null,
+      project_id: params.project_id || null,
     })
     .select()
     .single();
@@ -727,22 +815,59 @@ export async function listTasks(
     agent_id?: string;
     task_type?: string;
     priority?: string;
+    project_id?: string;
   }
 ): Promise<AgentTask[]> {
   let query = supabase
     .from("agent_tasks")
-    .select("*, agent:agents!agent_tasks_agent_id_fkey(*)")
+    .select(
+      "*, agent:agents!agent_tasks_agent_id_fkey(*), project:agent_projects!agent_tasks_project_id_fkey(id, title, status)"
+    )
     .eq("workspace_id", workspaceId);
 
   if (filters?.status) query = query.eq("status", filters.status);
   if (filters?.agent_id) query = query.eq("agent_id", filters.agent_id);
   if (filters?.task_type) query = query.eq("task_type", filters.task_type);
   if (filters?.priority) query = query.eq("priority", filters.priority);
+  if (filters?.project_id) query = query.eq("project_id", filters.project_id);
 
   const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw new Error(`Failed to list tasks: ${error.message}`);
   return data || [];
+}
+
+export async function getTask(
+  supabase: SupabaseClient,
+  taskId: string
+): Promise<
+  | (AgentTask & {
+      deliverables: AgentDeliverable[];
+      created_by_agent: Agent | null;
+    })
+  | null
+> {
+  const { data: task, error } = await supabase
+    .from("agent_tasks")
+    .select(
+      "*, agent:agents!agent_tasks_agent_id_fkey(*), created_by_agent:agents!agent_tasks_created_by_agent_id_fkey(*), project:agent_projects!agent_tasks_project_id_fkey(*)"
+    )
+    .eq("id", taskId)
+    .single();
+
+  if (error || !task) return null;
+
+  const { data: deliverables } = await supabase
+    .from("agent_deliverables")
+    .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
+    .eq("task_id", taskId)
+    .order("created_at", { ascending: false });
+
+  return {
+    ...task,
+    deliverables: deliverables || [],
+    created_by_agent: task.created_by_agent || null,
+  };
 }
 
 export async function deleteTask(
@@ -764,6 +889,7 @@ export interface AgentDeliverable {
   workspace_id: string;
   task_id: string | null;
   agent_id: string | null;
+  project_id: string | null;
   title: string;
   content: string;
   deliverable_type: string;
@@ -788,6 +914,7 @@ export async function createDeliverable(
     task_id?: string;
     agent_id?: string;
     conversation_id?: string;
+    project_id?: string;
   }
 ): Promise<AgentDeliverable> {
   const { data, error } = await supabase
@@ -802,6 +929,7 @@ export async function createDeliverable(
       task_id: params.task_id || null,
       agent_id: params.agent_id || null,
       conversation_id: params.conversation_id || null,
+      project_id: params.project_id || null,
     })
     .select()
     .single();
@@ -817,6 +945,7 @@ export async function listDeliverables(
     agent_id?: string;
     deliverable_type?: string;
     status?: string;
+    task_id?: string;
   }
 ): Promise<AgentDeliverable[]> {
   let query = supabase
@@ -827,6 +956,7 @@ export async function listDeliverables(
   if (filters?.agent_id) query = query.eq("agent_id", filters.agent_id);
   if (filters?.deliverable_type) query = query.eq("deliverable_type", filters.deliverable_type);
   if (filters?.status) query = query.eq("status", filters.status);
+  if (filters?.task_id) query = query.eq("task_id", filters.task_id);
 
   const { data, error } = await query.order("created_at", { ascending: false });
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { updateTask, deleteTask, getTask } from "@/lib/agent/memory";
+import { updateProject } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -17,7 +17,7 @@ function createSupabase(request: NextRequest) {
   );
 }
 
-// GET /api/team/tasks/[id] — task detail with deliverables + project + agents
+// GET /api/team/projects/[id]
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -31,11 +31,23 @@ export async function GET(
     if (!user)
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    const task = await getTask(supabase, id);
-    if (!task)
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    const { data: project, error } = await supabase
+      .from("agent_projects")
+      .select("*, created_by_agent:agents!agent_projects_created_by_agent_id_fkey(*)")
+      .eq("id", id)
+      .single();
 
-    return NextResponse.json({ task });
+    if (error || !project)
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+
+    // Also load tasks linked to this project
+    const { data: tasks } = await supabase
+      .from("agent_tasks")
+      .select("*, agent:agents!agent_tasks_agent_id_fkey(id, name, slug, avatar_color)")
+      .eq("project_id", id)
+      .order("created_at", { ascending: true });
+
+    return NextResponse.json({ project: { ...project, tasks: tasks || [] } });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal server error";
@@ -43,7 +55,7 @@ export async function GET(
   }
 }
 
-// PUT /api/team/tasks/[id]
+// PUT /api/team/projects/[id]
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -58,8 +70,8 @@ export async function PUT(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const body = await request.json();
-    const task = await updateTask(supabase, id, body);
-    return NextResponse.json({ task });
+    const project = await updateProject(supabase, id, body);
+    return NextResponse.json({ project });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Internal server error";
@@ -67,7 +79,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/team/tasks/[id]
+// DELETE /api/team/projects/[id]
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -81,7 +93,12 @@ export async function DELETE(
     if (!user)
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-    await deleteTask(supabase, id);
+    const { error } = await supabase
+      .from("agent_projects")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (error) {
     const message =

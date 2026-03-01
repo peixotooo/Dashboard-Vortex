@@ -13,6 +13,7 @@ import {
   loadCoreMemories,
   searchMemories,
   upsertDocument,
+  createProject,
   createTask,
   updateTask,
   createDeliverable,
@@ -264,6 +265,24 @@ export async function executeToolCall(
       };
     }
 
+    case "create_project": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Projetos não disponíveis (workspace não configurado)",
+        };
+      }
+      const project = await createProject(supabase, workspaceId, {
+        title: toolInput.title as string,
+        description: (toolInput.description as string) || "",
+        created_by_agent_id: agentId,
+      });
+      return {
+        success: true,
+        project_id: project.id,
+        message: `Projeto criado: "${project.title}". Use project_id: "${project.id}" ao criar tarefas para este projeto.`,
+      };
+    }
+
     case "create_task": {
       if (!workspaceId || !supabase) {
         return { error: "Tasks não disponíveis (workspace não configurado)" };
@@ -302,6 +321,7 @@ export async function executeToolCall(
         priority: (toolInput.priority as string) || "medium",
         task_type: taskType,
         due_date: toolInput.due_date as string | undefined,
+        project_id: toolInput.project_id as string | undefined,
       });
       return {
         success: true,
@@ -343,6 +363,7 @@ export async function executeToolCall(
         metadata: (toolInput.metadata as Record<string, unknown>) || {},
         task_id: toolInput.task_id as string | undefined,
         agent_id: agentId,
+        project_id: toolInput.project_id as string | undefined,
       });
       return {
         success: true,

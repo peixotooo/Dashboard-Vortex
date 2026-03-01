@@ -314,6 +314,26 @@ const MEMORY_TOOLS: Tool[] = [
 
 const TEAM_TOOLS: Tool[] = [
   {
+    name: "create_project",
+    description:
+      "Cria um novo projeto para agrupar tarefas relacionadas. Use quando o usuario pedir um plano de marketing, conjunto de entregas, ou qualquer trabalho que envolva multiplas tarefas. Depois de criar o projeto, crie as tarefas usando o project_id retornado.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "Titulo do projeto",
+        },
+        description: {
+          type: "string",
+          description:
+            "Descricao do projeto com escopo e objetivos",
+        },
+      },
+      required: ["title"],
+    },
+  },
+  {
     name: "delegate_to_agent",
     description:
       "Delega uma tarefa para um especialista do time e recebe a resposta dentro desta conversa. O especialista trabalha com todo seu conhecimento especializado e retorna o resultado. Use quando o usuário quer resultado AGORA (para tarefas assíncronas futuras, use create_task).",
@@ -388,6 +408,11 @@ const TEAM_TOOLS: Tool[] = [
           type: "string",
           description: "Data de entrega (ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "ID do projeto ao qual esta tarefa pertence (retornado por create_project)",
+        },
       },
       required: ["title"],
     },
@@ -459,6 +484,11 @@ const TEAM_TOOLS: Tool[] = [
           type: "object",
           description:
             "Dados extras estruturados (ex: entries de calendário)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "ID do projeto ao qual esta entrega pertence (opcional)",
         },
       },
       required: ["title", "content", "deliverable_type"],

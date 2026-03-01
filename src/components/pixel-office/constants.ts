@@ -10,6 +10,7 @@ export interface AgentWithStats {
   status: string;
   active_tasks: number;
   total_deliverables: number;
+  active_task_title: string | null;
 }
 
 export interface DepartmentDef {

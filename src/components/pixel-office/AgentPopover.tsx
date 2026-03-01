@@ -76,16 +76,24 @@ export function AgentPopover({ agent, open, onClose }: AgentPopoverProps) {
           </div>
         </div>
 
-        {/* Status */}
-        <div className="flex items-center gap-2 text-xs">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              isWorking ? "bg-green-500" : "bg-gray-500"
-            }`}
-          />
-          <span className="text-muted-foreground">
-            {isWorking ? "Trabalhando" : "Disponivel"}
-          </span>
+        {/* Status + Active Task */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                isWorking ? "bg-green-500" : "bg-gray-500"
+              }`}
+            />
+            <span className="text-muted-foreground">
+              {isWorking ? "Trabalhando" : "Disponivel"}
+            </span>
+          </div>
+          {agent.active_task_title && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-4">
+              <Briefcase className="h-3 w-3 text-green-500 shrink-0" />
+              <span className="line-clamp-2">{agent.active_task_title}</span>
+            </div>
+          )}
         </div>
 
         {/* Actions */}

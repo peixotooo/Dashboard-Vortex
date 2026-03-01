@@ -39,10 +39,10 @@ export async function GET(request: NextRequest) {
 
     const agents = await listAgents(supabase, workspaceId);
 
-    // Get task counts per agent
+    // Get task counts per agent (include title for active task display)
     const { data: taskCounts } = await supabase
       .from("agent_tasks")
-      .select("agent_id, status")
+      .select("agent_id, status, title")
       .eq("workspace_id", workspaceId);
 
     const { data: deliverableCounts } = await supabase
@@ -61,10 +61,17 @@ export async function GET(request: NextRequest) {
         (d) => d.agent_id === agent.id
       ).length;
 
+      // Find the active task title (priority: in_progress > todo > review)
+      const inProgress = agentTasks.find((t) => t.status === "in_progress");
+      const todo = agentTasks.find((t) => t.status === "todo");
+      const review = agentTasks.find((t) => t.status === "review");
+      const activeTask = inProgress || todo || review;
+
       return {
         ...agent,
         active_tasks: activeTasks,
         total_deliverables: deliverables,
+        active_task_title: activeTask?.title || null,
       };
     });
 

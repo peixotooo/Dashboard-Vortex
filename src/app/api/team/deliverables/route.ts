@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
       deliverable_type:
         url.searchParams.get("deliverable_type") || undefined,
       status: url.searchParams.get("status") || undefined,
+      task_id: url.searchParams.get("task_id") || undefined,
     };
 
     const deliverables = await listDeliverables(

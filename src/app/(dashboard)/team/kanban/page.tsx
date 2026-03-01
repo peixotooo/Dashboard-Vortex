@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
+import { TaskDetailSheet } from "@/components/kanban/TaskDetailSheet";
 
 interface Agent {
   id: string;
@@ -67,6 +68,7 @@ export default function KanbanPage() {
   const [filterAgent, setFilterAgent] = useState<string>("");
   const [filterType, setFilterType] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!workspace?.id) return;
@@ -227,6 +229,7 @@ export default function KanbanPage() {
                   <Card
                     key={task.id}
                     className="cursor-pointer hover:border-primary/30 transition-colors"
+                    onClick={() => setSelectedTaskId(task.id)}
                   >
                     <CardContent className="p-3">
                       <h4 className="text-sm font-medium line-clamp-2">
@@ -294,9 +297,10 @@ export default function KanbanPage() {
                               .map((c) => (
                                 <button
                                   key={c.key}
-                                  onClick={() =>
-                                    updateTaskStatus(task.id, c.key)
-                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateTaskStatus(task.id, c.key);
+                                  }}
                                   className="text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
                                 >
                                   {c.label}
@@ -319,6 +323,12 @@ export default function KanbanPage() {
           );
         })}
       </div>
+
+      <TaskDetailSheet
+        taskId={selectedTaskId}
+        open={selectedTaskId !== null}
+        onClose={() => setSelectedTaskId(null)}
+      />
     </div>
   );
 }
