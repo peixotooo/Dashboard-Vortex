@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, type AccountContext } from "./system-prompt";
 import { DEFAULT_SOUL, DEFAULT_AGENT_RULES } from "./default-documents";
-import { AGENT_TOOLS } from "./tool-definitions";
+import { getToolsForAgent } from "./tool-definitions";
 import { executeToolCall } from "./tool-executor";
 import { saveMessage, updateConversationTimestamp } from "./memory";
 import { extractAndSaveFacts } from "./fact-extraction";
@@ -94,15 +94,17 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
   return new ReadableStream({
     async start(controller) {
       try {
+        const isTeamAgent = agentSlug && agentSlug !== "vortex";
         const systemPrompt = buildSystemPrompt({
-          soul: soulContent || DEFAULT_SOUL,
-          agentRules: agentRulesContent || DEFAULT_AGENT_RULES,
+          soul: soulContent || (isTeamAgent ? "" : DEFAULT_SOUL),
+          agentRules: agentRulesContent || (isTeamAgent ? "" : DEFAULT_AGENT_RULES),
           accountContext,
           coreMemories,
           userProfile: userProfileContent,
           agentSlug,
         });
         const model = selectModel(message);
+        const tools = getToolsForAgent(agentSlug);
 
         // Build messages array for Anthropic API
         const messages: Anthropic.Messages.MessageParam[] = [];
@@ -133,7 +135,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             model,
             max_tokens: 4096,
             system: systemPrompt,
-            tools: AGENT_TOOLS,
+            tools,
             messages,
           });
 
@@ -233,7 +235,6 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
         }
 
         // Auto-extract facts (only for Vortex agent, not team agents)
-        const isTeamAgent = agentSlug && agentSlug !== "vortex";
         if (workspaceId && supabase && assistantFullText && !isTeamAgent) {
           try {
             await extractAndSaveFacts(

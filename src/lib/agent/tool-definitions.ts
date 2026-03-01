@@ -2,7 +2,9 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 type Tool = Anthropic.Messages.Tool;
 
-export const AGENT_TOOLS: Tool[] = [
+// --- Meta Ads Tools (Vortex only) ---
+
+const META_TOOLS: Tool[] = [
   {
     name: "get_account_overview",
     description:
@@ -238,6 +240,11 @@ export const AGENT_TOOLS: Tool[] = [
       required: [],
     },
   },
+];
+
+// --- Memory Tools (Vortex only) ---
+
+const MEMORY_TOOLS: Tool[] = [
   {
     name: "save_memory",
     description:
@@ -301,7 +308,11 @@ export const AGENT_TOOLS: Tool[] = [
       required: ["updated_content", "change_summary"],
     },
   },
-  // --- Team Tools ---
+];
+
+// --- Team Tools (Team agents only) ---
+
+const TEAM_TOOLS: Tool[] = [
   {
     name: "create_task",
     description:
@@ -422,3 +433,17 @@ export const AGENT_TOOLS: Tool[] = [
     },
   },
 ];
+
+// --- Backward compat: all tools in one array (used by existing /agent page) ---
+
+export const AGENT_TOOLS: Tool[] = [...META_TOOLS, ...MEMORY_TOOLS, ...TEAM_TOOLS];
+
+// --- Per-agent tool selection ---
+
+export function getToolsForAgent(agentSlug?: string): Tool[] {
+  const isTeamAgent = agentSlug && agentSlug !== "vortex";
+  if (isTeamAgent) {
+    return TEAM_TOOLS;
+  }
+  return [...META_TOOLS, ...MEMORY_TOOLS];
+}
