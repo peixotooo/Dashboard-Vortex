@@ -280,4 +280,25 @@ export const AGENT_TOOLS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "update_personality",
+    description:
+      "Atualiza a personalidade/estilo do Vortex. Use APENAS quando o usuário pedir EXPLICITAMENTE que você mude seu comportamento, tom, ou estilo de comunicação. Exemplos: 'fale mais direto', 'seja mais informal', 'use menos emojis'. NUNCA use sem pedido explícito do usuário.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        updated_content: {
+          type: "string",
+          description:
+            "O conteúdo COMPLETO atualizado do documento de personalidade em markdown. DEVE manter a estrutura de seções (Identidade, Capacidades) e apenas ajustar o estilo/tom conforme solicitado pelo usuário.",
+        },
+        change_summary: {
+          type: "string",
+          description:
+            "Breve descrição da mudança feita (ex: 'Tornado mais direto e objetivo', 'Removidos emojis')",
+        },
+      },
+      required: ["updated_content", "change_summary"],
+    },
+  },
 ];

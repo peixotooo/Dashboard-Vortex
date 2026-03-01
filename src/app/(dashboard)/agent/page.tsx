@@ -40,6 +40,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_custom_audiences: "Listar Audiências",
   save_memory: "Salvando Memória",
   recall_memory: "Consultando Memória",
+  update_personality: "Atualizando Personalidade",
 };
 
 export default function AgentPage() {

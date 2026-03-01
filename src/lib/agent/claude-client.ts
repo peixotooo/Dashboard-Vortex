@@ -1,8 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, type AccountContext } from "./system-prompt";
+import { DEFAULT_SOUL, DEFAULT_AGENT_RULES } from "./default-documents";
 import { AGENT_TOOLS } from "./tool-definitions";
 import { executeToolCall } from "./tool-executor";
 import { saveMessage, updateConversationTimestamp } from "./memory";
+import { extractAndSaveFacts } from "./fact-extraction";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const anthropic = new Anthropic({
@@ -31,6 +33,9 @@ export interface AgentStreamParams {
   coreMemories?: string;
   supabase?: SupabaseClient;
   conversationId?: string;
+  soulContent?: string;
+  agentRulesContent?: string;
+  userProfileContent?: string;
 }
 
 interface Choice {
@@ -68,6 +73,9 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
     coreMemories,
     supabase,
     conversationId,
+    soulContent,
+    agentRulesContent,
+    userProfileContent,
   } = params;
 
   const encoder = new TextEncoder();
@@ -82,7 +90,13 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
   return new ReadableStream({
     async start(controller) {
       try {
-        const systemPrompt = buildSystemPrompt(accountContext, coreMemories);
+        const systemPrompt = buildSystemPrompt({
+          soul: soulContent || DEFAULT_SOUL,
+          agentRules: agentRulesContent || DEFAULT_AGENT_RULES,
+          accountContext,
+          coreMemories,
+          userProfile: userProfileContent,
+        });
         const model = selectModel(message);
 
         // Build messages array for Anthropic API
@@ -209,6 +223,23 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             await updateConversationTimestamp(supabase, conversationId);
           } catch {
             // Don't fail the stream if persistence fails
+          }
+        }
+
+        // Auto-extract facts from the conversation (Haiku, ~300-500ms)
+        // User already has the full response, so this latency is acceptable
+        if (workspaceId && supabase && assistantFullText) {
+          try {
+            await extractAndSaveFacts(
+              supabase,
+              workspaceId,
+              accountId,
+              message,
+              assistantFullText,
+              coreMemories || ""
+            );
+          } catch {
+            // Silently ignore extraction failures
           }
         }
 

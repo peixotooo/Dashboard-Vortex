@@ -12,6 +12,7 @@ import {
   saveMemoryRecord,
   loadCoreMemories,
   searchMemories,
+  upsertDocument,
 } from "@/lib/agent/memory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -215,6 +216,46 @@ export async function executeToolCall(
           updated_at: m.updated_at,
         })),
         count: memories.length,
+      };
+    }
+
+    case "update_personality": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Personalidade não disponível (workspace não configurado)",
+        };
+      }
+
+      const content = toolInput.updated_content as string;
+      const summary = toolInput.change_summary as string;
+
+      // Safety: minimum content length
+      if (!content || content.length < 100) {
+        return {
+          error:
+            "O conteúdo da personalidade é muito curto. Deve ter pelo menos 100 caracteres e manter a estrutura completa.",
+        };
+      }
+
+      // Safety: must contain identity markers
+      if (!content.includes("Vortex") && !content.includes("Identidade")) {
+        return {
+          error:
+            "O conteúdo deve manter a referência à identidade do Vortex.",
+        };
+      }
+
+      await upsertDocument(
+        supabase,
+        workspaceId,
+        accountId,
+        "soul",
+        content
+      );
+
+      return {
+        success: true,
+        message: `Personalidade atualizada: ${summary}. A mudança será refletida na próxima mensagem.`,
       };
     }
 

@@ -1,12 +1,17 @@
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createAgentStream, type AgentMessage } from "@/lib/agent/claude-client";
+import {
+  createAgentStream,
+  type AgentMessage,
+} from "@/lib/agent/claude-client";
 import { type AccountContext } from "@/lib/agent/system-prompt";
 import {
   loadCoreMemories,
   formatMemoriesForPrompt,
   createConversation,
   saveMessage,
+  loadDocument,
+  seedDefaultDocuments,
 } from "@/lib/agent/memory";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { setContextToken } from "@/lib/meta-api";
@@ -79,20 +84,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load core memories for this account
+    // Load core memories and agent documents in parallel
     let coreMemories: string | undefined;
+    let soulContent: string | undefined;
+    let agentRulesContent: string | undefined;
+    let userProfileContent: string | undefined;
+
     if (workspaceId) {
       try {
-        const memories = await loadCoreMemories(
-          supabase,
-          workspaceId,
-          accountId
-        );
+        // Seed default documents on first use (idempotent)
+        await seedDefaultDocuments(supabase, workspaceId);
+
+        // Load everything in parallel
+        const [memories, soul, rules, profile] = await Promise.all([
+          loadCoreMemories(supabase, workspaceId, accountId),
+          loadDocument(supabase, workspaceId, accountId, "soul"),
+          loadDocument(supabase, workspaceId, accountId, "agent_rules"),
+          loadDocument(supabase, workspaceId, accountId, "user_profile"),
+        ]);
+
         if (memories.length > 0) {
           coreMemories = formatMemoriesForPrompt(memories);
         }
+        soulContent = soul?.content;
+        agentRulesContent = rules?.content;
+        userProfileContent = profile?.content;
       } catch {
-        // Continue without memories if loading fails
+        // Continue with defaults if loading fails
       }
     }
 
@@ -136,6 +154,9 @@ export async function POST(request: NextRequest) {
       coreMemories,
       supabase,
       conversationId: activeConversationId,
+      soulContent,
+      agentRulesContent,
+      userProfileContent,
     });
 
     return new Response(stream, {

@@ -210,6 +210,152 @@ export async function getConversationMessages(
   return data || [];
 }
 
+// --- Agent Documents ---
+
+export type DocType = "soul" | "agent_rules" | "user_profile" | "daily_summary";
+
+export interface AgentDocument {
+  id: string;
+  workspace_id: string;
+  account_id: string | null;
+  doc_type: DocType;
+  content: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function loadDocument(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  accountId: string | null,
+  docType: "soul" | "agent_rules" | "user_profile"
+): Promise<AgentDocument | null> {
+  // Try account-specific first
+  if (accountId) {
+    const { data } = await supabase
+      .from("agent_documents")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("account_id", accountId)
+      .eq("doc_type", docType)
+      .single();
+    if (data) return data;
+  }
+
+  // Fallback to workspace-global
+  const { data } = await supabase
+    .from("agent_documents")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .is("account_id", null)
+    .eq("doc_type", docType)
+    .single();
+
+  return data || null;
+}
+
+export async function upsertDocument(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  accountId: string | null,
+  docType: DocType,
+  content: string
+): Promise<AgentDocument> {
+  // Check if document exists
+  const existing = accountId
+    ? await supabase
+        .from("agent_documents")
+        .select("id, version")
+        .eq("workspace_id", workspaceId)
+        .eq("account_id", accountId)
+        .eq("doc_type", docType)
+        .single()
+    : await supabase
+        .from("agent_documents")
+        .select("id, version")
+        .eq("workspace_id", workspaceId)
+        .is("account_id", null)
+        .eq("doc_type", docType)
+        .single();
+
+  if (existing.data) {
+    // Update existing
+    const { data, error } = await supabase
+      .from("agent_documents")
+      .update({
+        content,
+        version: existing.data.version + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.data.id)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update document: ${error.message}`);
+    return data;
+  }
+
+  // Insert new
+  const { data, error } = await supabase
+    .from("agent_documents")
+    .insert({
+      workspace_id: workspaceId,
+      account_id: accountId,
+      doc_type: docType,
+      content,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create document: ${error.message}`);
+  return data;
+}
+
+export async function seedDefaultDocuments(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<void> {
+  // Lazy import to avoid circular deps
+  const { DEFAULT_SOUL, DEFAULT_AGENT_RULES } = await import(
+    "./default-documents"
+  );
+
+  // Check if soul already exists (workspace-global)
+  const { data: existingSoul } = await supabase
+    .from("agent_documents")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .is("account_id", null)
+    .eq("doc_type", "soul")
+    .single();
+
+  if (!existingSoul) {
+    await supabase.from("agent_documents").insert({
+      workspace_id: workspaceId,
+      account_id: null,
+      doc_type: "soul",
+      content: DEFAULT_SOUL,
+    });
+  }
+
+  // Check if agent_rules already exists
+  const { data: existingRules } = await supabase
+    .from("agent_documents")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .is("account_id", null)
+    .eq("doc_type", "agent_rules")
+    .single();
+
+  if (!existingRules) {
+    await supabase.from("agent_documents").insert({
+      workspace_id: workspaceId,
+      account_id: null,
+      doc_type: "agent_rules",
+      content: DEFAULT_AGENT_RULES,
+    });
+  }
+}
+
 // --- Formatting ---
 
 export function formatMemoriesForPrompt(memories: CoreMemory[]): string {
