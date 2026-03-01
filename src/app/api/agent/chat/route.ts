@@ -14,6 +14,7 @@ import {
   seedDefaultDocuments,
   getAgent,
   loadAgentDocument,
+  loadProjectContext,
 } from "@/lib/agent/memory";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { setContextToken } from "@/lib/meta-api";
@@ -94,11 +95,16 @@ export async function POST(request: NextRequest) {
     let agentRulesContent: string | undefined;
     let userProfileContent: string | undefined;
     let agentSlug: string | undefined;
+    let projectContextContent: string | undefined;
 
     if (workspaceId) {
       try {
         // Seed default documents on first use (idempotent)
         await seedDefaultDocuments(supabase, workspaceId);
+
+        // Load project context (shared by ALL agents)
+        const projectCtx = await loadProjectContext(supabase, workspaceId);
+        if (projectCtx) projectContextContent = projectCtx;
 
         if (agentId) {
           // Team agent — load agent-specific documents
@@ -178,6 +184,7 @@ export async function POST(request: NextRequest) {
       userProfileContent,
       agentId,
       agentSlug,
+      projectContext: projectContextContent,
     });
 
     return new Response(stream, {

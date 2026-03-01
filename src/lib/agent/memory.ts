@@ -212,7 +212,7 @@ export async function getConversationMessages(
 
 // --- Agent Documents ---
 
-export type DocType = "soul" | "agent_rules" | "user_profile" | "daily_summary";
+export type DocType = "soul" | "agent_rules" | "user_profile" | "daily_summary" | "project_context";
 
 export interface AgentDocument {
   id: string;
@@ -531,6 +531,24 @@ export async function loadAgentDocument(
     .single();
 
   return data || null;
+}
+
+// --- Project Context (shared across all agents) ---
+
+export async function loadProjectContext(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("agent_documents")
+    .select("content")
+    .eq("workspace_id", workspaceId)
+    .is("account_id", null)
+    .is("agent_id", null)
+    .eq("doc_type", "project_context")
+    .single();
+
+  return data?.content || null;
 }
 
 // --- Tasks (Kanban) ---

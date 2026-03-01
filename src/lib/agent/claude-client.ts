@@ -38,6 +38,7 @@ export interface AgentStreamParams {
   userProfileContent?: string;
   agentId?: string;
   agentSlug?: string;
+  projectContext?: string;
 }
 
 interface Choice {
@@ -80,6 +81,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
     userProfileContent,
     agentId,
     agentSlug,
+    projectContext,
   } = params;
 
   const encoder = new TextEncoder();
@@ -102,6 +104,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           coreMemories,
           userProfile: userProfileContent,
           agentSlug,
+          projectContext,
         });
         const model = selectModel(message);
         const tools = getToolsForAgent(agentSlug);

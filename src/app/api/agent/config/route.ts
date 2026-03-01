@@ -29,24 +29,37 @@ export async function GET(request: NextRequest) {
 
     const accountId = new URL(request.url).searchParams.get("account_id") || "";
     const docType = new URL(request.url).searchParams.get("doc_type") as string | null;
-    const validDocTypes = ["soul", "agent_rules", "user_profile"] as const;
+    const validDocTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;
 
     if (docType) {
       if (!validDocTypes.includes(docType as typeof validDocTypes[number])) {
         return NextResponse.json({ error: "Invalid doc_type" }, { status: 400 });
       }
-      const doc = await loadDocument(supabase, workspaceId, accountId || "", docType as typeof validDocTypes[number]);
+      // project_context is workspace-global (no account_id)
+      if (docType === "project_context") {
+        const { loadProjectContext } = await import("@/lib/agent/memory");
+        const content = await loadProjectContext(supabase, workspaceId);
+        return NextResponse.json({ document: content ? { content, doc_type: "project_context" } : null });
+      }
+      const doc = await loadDocument(supabase, workspaceId, accountId || "", docType as "soul" | "agent_rules" | "user_profile");
       return NextResponse.json({ document: doc });
     }
 
-    // Load all 3 main documents in parallel
-    const [soul, agentRules, userProfile] = await Promise.all([
+    // Load all main documents in parallel
+    const { loadProjectContext } = await import("@/lib/agent/memory");
+    const [soul, agentRules, userProfile, projectContext] = await Promise.all([
       loadDocument(supabase, workspaceId, accountId || "", "soul"),
       loadDocument(supabase, workspaceId, accountId || "", "agent_rules"),
       loadDocument(supabase, workspaceId, accountId || "", "user_profile"),
+      loadProjectContext(supabase, workspaceId),
     ]);
 
-    return NextResponse.json({ soul, agent_rules: agentRules, user_profile: userProfile });
+    return NextResponse.json({
+      soul,
+      agent_rules: agentRules,
+      user_profile: userProfile,
+      project_context: projectContext ? { content: projectContext, doc_type: "project_context" } : null,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -70,7 +83,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "doc_type and content are required" }, { status: 400 });
     }
 
-    const validTypes = ["soul", "agent_rules", "user_profile"] as const;
+    const validTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;
     type ValidDocType = typeof validTypes[number];
     if (!validTypes.includes(doc_type as ValidDocType)) {
       return NextResponse.json({ error: "Invalid doc_type" }, { status: 400 });

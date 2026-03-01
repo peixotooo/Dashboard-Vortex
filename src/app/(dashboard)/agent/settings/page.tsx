@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Trash2,
   Pencil,
+  Building2,
   Brain,
   ScrollText,
   UserCircle,
@@ -82,6 +83,8 @@ export default function AgentSettingsPage() {
   const [rulesVersion, setRulesVersion] = useState(1);
   const [userProfile, setUserProfile] = useState("");
   const [profileVersion, setProfileVersion] = useState(1);
+  const [projectContext, setProjectContext] = useState("");
+  const [projectContextVersion, setProjectContextVersion] = useState(0);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [savingDoc, setSavingDoc] = useState<string | null>(null);
   const [docMessage, setDocMessage] = useState("");
@@ -135,6 +138,13 @@ export default function AgentSettingsPage() {
         setUserProfile("");
         setProfileVersion(0);
       }
+      if (data.project_context) {
+        setProjectContext(data.project_context.content || "");
+        setProjectContextVersion(data.project_context.version || 1);
+      } else {
+        setProjectContext("");
+        setProjectContextVersion(0);
+      }
     } catch {
       setSoul(DEFAULT_SOUL);
       setAgentRules(DEFAULT_AGENT_RULES);
@@ -161,6 +171,7 @@ export default function AgentSettingsPage() {
         if (docType === "soul") setSoulVersion(data.document.version);
         if (docType === "agent_rules") setRulesVersion(data.document.version);
         if (docType === "user_profile") setProfileVersion(data.document.version);
+        if (docType === "project_context") setProjectContextVersion(data.document.version);
         setDocMessage("Salvo com sucesso!");
       } else {
         setDocMessage(`Erro: ${data.error}`);
@@ -313,8 +324,12 @@ export default function AgentSettingsPage() {
         </div>
       )}
 
-      <Tabs defaultValue="soul" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+      <Tabs defaultValue="project" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="project" className="gap-1.5">
+            <Building2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Projeto</span>
+          </TabsTrigger>
           <TabsTrigger value="soul" className="gap-1.5">
             <Brain className="h-4 w-4" />
             <span className="hidden sm:inline">Personalidade</span>
@@ -336,6 +351,92 @@ export default function AgentSettingsPage() {
             <span className="hidden sm:inline">Conversas</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* ========== TAB: Projeto ========== */}
+        <TabsContent value="project">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Contexto do Projeto</CardTitle>
+                  <CardDescription>
+                    Informacoes sobre sua empresa/projeto que todos os agentes usam como base para planejamentos e entregas.
+                  </CardDescription>
+                </div>
+                {projectContextVersion > 0 && (
+                  <Badge variant="outline">v{projectContextVersion}</Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loadingDocs ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={projectContext}
+                    onChange={(e) => setProjectContext(e.target.value)}
+                    className="w-full min-h-[400px] rounded-lg border border-border bg-background p-4 font-mono text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+                    placeholder={`Descreva sua empresa/projeto aqui. Exemplo:
+
+# Minha Empresa
+
+## O que fazemos
+SaaS de gestao financeira para pequenas empresas.
+
+## Publico-alvo
+- Donos de pequenas empresas (faturamento R$50k-500k/mes)
+- Contadores e gestores financeiros
+- Idade: 28-50 anos
+
+## Tom de voz
+Profissional mas acessivel. Evitar jargoes tecnicos.
+Usar "voce" em vez de "o usuario".
+
+## Diferenciais
+- Integracao automatica com bancos
+- Dashboard intuitivo
+- Suporte humanizado 24/7
+
+## Concorrentes
+- ContaAzul, Nibo, Omie
+
+## Objetivos atuais
+- Aumentar trial-to-paid de 8% para 15%
+- Dobrar presenca em redes sociais
+- Lancar feature de conciliacao bancaria`}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() => saveDocument("project_context", projectContext)}
+                      disabled={savingDoc === "project_context"}
+                    >
+                      {savingDoc === "project_context" ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Salvar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (confirm("Limpar o contexto do projeto?")) {
+                          setProjectContext("");
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Limpar
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* ========== TAB: Soul ========== */}
         <TabsContent value="soul">

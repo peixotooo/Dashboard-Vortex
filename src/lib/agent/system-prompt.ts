@@ -12,6 +12,7 @@ export interface SystemPromptParts {
   coreMemories?: string;
   userProfile?: string;
   agentSlug?: string;
+  projectContext?: string;
 }
 
 export function buildSystemPrompt(parts: SystemPromptParts): string {
@@ -22,6 +23,7 @@ export function buildSystemPrompt(parts: SystemPromptParts): string {
     coreMemories,
     userProfile,
     agentSlug,
+    projectContext,
   } = parts;
 
   // Team agents don't need Meta Ads context
@@ -51,6 +53,11 @@ Voce pode evoluir sua propria personalidade. Se o usuario pedir que voce mude se
 - Ao atualizar, mantenha a estrutura de secoes (Identidade, Capacidades) e ajuste apenas o que foi pedido
 - Informe ao usuario que a mudanca foi salva e sera aplicada a partir da proxima mensagem`;
 
+  const projectContextSection = projectContext
+    ? `\n## Contexto do Projeto
+${projectContext}`
+    : "";
+
   const teamToolsSection = isTeamAgent
     ? `\n## Ferramentas de Time
 - Use **create_task** para criar tarefas no kanban e atribuir a membros do time
@@ -61,5 +68,5 @@ Voce pode evoluir sua propria personalidade. Se o usuario pedir que voce mude se
 
   return `${soul}
 
-${agentRules}${metaContext}${memorySection}${profileSection}${personalitySection}${teamToolsSection}`;
+${agentRules}${projectContextSection}${metaContext}${memorySection}${profileSection}${personalitySection}${teamToolsSection}`;
 }
