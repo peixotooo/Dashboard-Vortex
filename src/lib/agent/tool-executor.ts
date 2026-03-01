@@ -8,11 +8,19 @@ import {
   getInsights,
   listAudiences,
 } from "@/lib/meta-api";
+import {
+  saveMemoryRecord,
+  loadCoreMemories,
+  searchMemories,
+} from "@/lib/agent/memory";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export async function executeToolCall(
   toolName: string,
   toolInput: Record<string, unknown>,
-  accountId: string
+  accountId: string,
+  workspaceId?: string,
+  supabase?: SupabaseClient
 ): Promise<unknown> {
   switch (toolName) {
     case "get_account_overview": {
@@ -171,6 +179,43 @@ export async function executeToolCall(
 
     case "list_custom_audiences": {
       return listAudiences({ account_id: accountId });
+    }
+
+    case "save_memory": {
+      if (!workspaceId || !supabase) {
+        return { error: "Memória não disponível (workspace não configurado)" };
+      }
+      await saveMemoryRecord(
+        supabase,
+        workspaceId,
+        accountId,
+        toolInput.category as string,
+        toolInput.key as string,
+        toolInput.value as string
+      );
+      return {
+        success: true,
+        message: `Memória salva: [${toolInput.category}] ${toolInput.key} = ${toolInput.value}`,
+      };
+    }
+
+    case "recall_memory": {
+      if (!workspaceId || !supabase) {
+        return { error: "Memória não disponível (workspace não configurado)" };
+      }
+      const query = (toolInput.query as string) || "";
+      const memories = query
+        ? await searchMemories(supabase, workspaceId, accountId, query)
+        : await loadCoreMemories(supabase, workspaceId, accountId);
+      return {
+        memories: memories.map((m) => ({
+          category: m.category,
+          key: m.key,
+          value: m.value,
+          updated_at: m.updated_at,
+        })),
+        count: memories.length,
+      };
     }
 
     default:

@@ -238,4 +238,46 @@ export const AGENT_TOOLS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "save_memory",
+    description:
+      "Salva um fato ou preferência na memória permanente do agente. Use PROATIVAMENTE quando aprender algo sobre o usuário: preferências, padrões de uso, targeting favorito, budgets típicos, convenções de nomenclatura. A memória persiste entre conversas e sessões.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        category: {
+          type: "string",
+          enum: ["targeting", "budget", "naming", "preference", "general"],
+          description:
+            "Categoria da memória: targeting (público-alvo), budget (orçamentos), naming (nomes), preference (preferências), general (outros)",
+        },
+        key: {
+          type: "string",
+          description:
+            "Chave descritiva do fato (ex: 'budget_diario_padrao', 'objetivo_preferido', 'targeting_padrao')",
+        },
+        value: {
+          type: "string",
+          description: "O fato ou preferência a ser lembrado",
+        },
+      },
+      required: ["category", "key", "value"],
+    },
+  },
+  {
+    name: "recall_memory",
+    description:
+      "Busca informações na memória permanente do agente. Use quando precisar lembrar preferências, padrões ou fatos sobre o usuário salvos em conversas anteriores. Sem query retorna todas as memórias.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Termo de busca (busca no nome e valor das memórias). Omita para retornar todas.",
+        },
+      },
+      required: [],
+    },
+  },
 ];

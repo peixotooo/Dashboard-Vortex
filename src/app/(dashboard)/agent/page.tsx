@@ -1,12 +1,22 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, Bot, User, Wrench, AlertCircle, Zap } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  Bot,
+  User,
+  Wrench,
+  AlertCircle,
+  Zap,
+  Brain,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 
 interface ChatMessage {
   id: string;
@@ -14,6 +24,7 @@ interface ChatMessage {
   content: string;
   toolCalls?: Array<{ name: string; status: "running" | "done" | "error" }>;
   model?: string;
+  choices?: Array<{ label: string; value: string }>;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -27,13 +38,17 @@ const TOOL_LABELS: Record<string, string> = {
   create_adset: "Criar Ad Set",
   analyze_performance: "Analisar Performance",
   list_custom_audiences: "Listar Audiências",
+  save_memory: "Salvando Memória",
+  recall_memory: "Consultando Memória",
 };
 
 export default function AgentPage() {
   const { accountId, accounts } = useAccount();
+  const { workspace } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,155 +64,199 @@ export default function AgentPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  const handleSubmit = async () => {
-    const trimmed = input.trim();
-    if (!trimmed || isLoading || !accountId) return;
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isLoading || !accountId) return;
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: trimmed,
-    };
+      const userMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: trimmed,
+      };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsLoading(true);
 
-    // Build history for the API (last 20 messages)
-    const history = [...messages, userMessage]
-      .slice(-20)
-      .map((m) => ({ role: m.role, content: m.content }));
+      // Build history for the API (last 20 messages)
+      const currentMessages = messages;
+      const history = [...currentMessages, userMessage]
+        .slice(-20)
+        .map((m) => ({ role: m.role, content: m.content }));
 
-    const assistantId = crypto.randomUUID();
-    setMessages((prev) => [
-      ...prev,
-      { id: assistantId, role: "assistant", content: "", toolCalls: [] },
-    ]);
+      const assistantId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantId, role: "assistant", content: "", toolCalls: [] },
+      ]);
 
-    try {
-      const res = await fetch("/api/agent/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: trimmed,
-          history: history.slice(0, -1), // exclude current message (already sent as message)
-          accountId,
-          accountContext: {
-            account_name: currentAccount?.name || "Conta Meta",
-            account_id: accountId,
-            currency: "BRL",
-            timezone: "America/Sao_Paulo",
-          },
-        }),
-      });
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (workspace?.id) {
+          headers["x-workspace-id"] = workspace.id;
+        }
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Erro na requisição");
-      }
+        const res = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            message: trimmed,
+            history: history.slice(0, -1),
+            accountId,
+            accountContext: {
+              account_name: currentAccount?.name || "Conta Meta",
+              account_id: accountId,
+              currency: "BRL",
+              timezone: "America/Sao_Paulo",
+            },
+            conversationId,
+          }),
+        });
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("Stream não disponível");
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Erro na requisição");
+        }
 
-      const decoder = new TextDecoder();
-      let buffer = "";
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("Stream não disponível");
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        buffer += decoder.decode(value, { stream: true });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        // Process complete SSE lines
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6);
+          // Process complete SSE lines
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
 
-          try {
-            const event = JSON.parse(jsonStr);
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const jsonStr = line.slice(6);
 
-            if (event.type === "text") {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: m.content + event.content }
-                    : m
-                )
-              );
-            } else if (event.type === "tool_use") {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        toolCalls: [
-                          ...(m.toolCalls || []),
-                          { name: event.name, status: "running" as const },
-                        ],
-                      }
-                    : m
-                )
-              );
-            } else if (event.type === "tool_result") {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        toolCalls: (m.toolCalls || []).map((tc) =>
-                          tc.name === event.name
-                            ? { ...tc, status: "done" as const }
-                            : tc
-                        ),
-                      }
-                    : m
-                )
-              );
-            } else if (event.type === "model") {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId ? { ...m, model: event.model } : m
-                )
-              );
-            } else if (event.type === "error") {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        content:
-                          m.content || `Erro: ${event.message}`,
-                      }
-                    : m
-                )
-              );
+            try {
+              const event = JSON.parse(jsonStr);
+
+              if (event.type === "text") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: m.content + event.content }
+                      : m
+                  )
+                );
+              } else if (event.type === "tool_use") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          toolCalls: [
+                            ...(m.toolCalls || []),
+                            {
+                              name: event.name,
+                              status: "running" as const,
+                            },
+                          ],
+                        }
+                      : m
+                  )
+                );
+              } else if (event.type === "tool_result") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          toolCalls: (m.toolCalls || []).map((tc) =>
+                            tc.name === event.name
+                              ? { ...tc, status: "done" as const }
+                              : tc
+                          ),
+                        }
+                      : m
+                  )
+                );
+              } else if (event.type === "model") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, model: event.model } : m
+                  )
+                );
+              } else if (event.type === "choices") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, choices: event.choices }
+                      : m
+                  )
+                );
+              } else if (event.type === "conversation_id") {
+                setConversationId(event.conversationId);
+              } else if (event.type === "error") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          content:
+                            m.content || `Erro: ${event.message}`,
+                        }
+                      : m
+                  )
+                );
+              }
+            } catch {
+              // Ignore malformed JSON
             }
-          } catch {
-            // Ignore malformed JSON
           }
         }
+      } catch (err) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content:
+                    err instanceof Error
+                      ? err.message
+                      : "Erro ao conectar com o agente.",
+                }
+              : m
+          )
+        );
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
+    },
+    [isLoading, accountId, messages, workspace?.id, currentAccount?.name, conversationId]
+  );
+
+  const handleSubmit = useCallback(() => {
+    sendMessage(input);
+  }, [input, sendMessage]);
+
+  const handleChoiceClick = useCallback(
+    (choice: { label: string; value: string }, messageId: string) => {
+      // Remove choices from the message (mark as selected)
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content:
-                  err instanceof Error
-                    ? err.message
-                    : "Erro ao conectar com o agente.",
-              }
-            : m
+          m.id === messageId ? { ...m, choices: undefined } : m
         )
       );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+
+      // Send the label as a user message
+      sendMessage(choice.label);
+    },
+    [sendMessage]
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -211,12 +270,12 @@ export default function AgentPage() {
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-border mb-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Bot className="h-5 w-5 text-primary" />
+          <Zap className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-lg font-bold">Agente de Mídia Paga</h1>
+          <h1 className="text-lg font-bold">Vortex</h1>
           <p className="text-xs text-muted-foreground">
-            Gerencie campanhas Meta Ads por linguagem natural
+            Seu assistente inteligente de Meta Ads
             {currentAccount && (
               <span> &middot; {currentAccount.name}</span>
             )}
@@ -233,18 +292,17 @@ export default function AgentPage() {
             </div>
             <div>
               <p className="text-base font-medium text-foreground">
-                Como posso ajudar?
+                Oi! Eu sou o Vortex.
               </p>
               <p className="text-sm mt-1">
-                Pergunte sobre suas campanhas, crie novas ou peça análises de
-                performance.
+                Como posso ajudar com suas campanhas hoje?
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 w-full max-w-lg">
               {[
                 "Quais campanhas estão ativas?",
                 "Como está a performance essa semana?",
-                "Cria uma campanha de tráfego com R$50/dia",
+                "Quero criar uma nova campanha",
                 "Analisa minha campanha principal",
               ].map((suggestion) => (
                 <button
@@ -253,7 +311,7 @@ export default function AgentPage() {
                     setInput(suggestion);
                     textareaRef.current?.focus();
                   }}
-                  className="text-left text-xs p-3 rounded-lg border border-border hover:bg-accent transition-colors"
+                  className="text-left text-xs p-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer"
                 >
                   {suggestion}
                 </button>
@@ -293,6 +351,9 @@ export default function AgentPage() {
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : tc.status === "error" ? (
                         <AlertCircle className="h-3 w-3" />
+                      ) : tc.name === "save_memory" ||
+                        tc.name === "recall_memory" ? (
+                        <Brain className="h-3 w-3" />
                       ) : (
                         <Wrench className="h-3 w-3" />
                       )}
@@ -321,6 +382,23 @@ export default function AgentPage() {
                   </div>
                 ) : null}
               </Card>
+
+              {/* Choice buttons */}
+              {msg.choices && msg.choices.length > 0 && !isLoading && (
+                <div className="flex flex-wrap gap-2">
+                  {msg.choices.map((choice) => (
+                    <Button
+                      key={choice.value}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs cursor-pointer"
+                      onClick={() => handleChoiceClick(choice, msg.id)}
+                    >
+                      {choice.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
 
               {/* Model indicator */}
               {msg.model && msg.role === "assistant" && (

@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, type AccountContext } from "./system-prompt";
 import { AGENT_TOOLS } from "./tool-definitions";
 import { executeToolCall } from "./tool-executor";
+import { saveMessage, updateConversationTimestamp } from "./memory";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
@@ -25,10 +27,48 @@ export interface AgentStreamParams {
   history: AgentMessage[];
   accountId: string;
   accountContext: AccountContext;
+  workspaceId?: string;
+  coreMemories?: string;
+  supabase?: SupabaseClient;
+  conversationId?: string;
+}
+
+interface Choice {
+  label: string;
+  value: string;
+}
+
+function extractChoices(text: string): {
+  cleanText: string;
+  choices: Choice[] | null;
+} {
+  const regex = /<choices>\s*(\[[\s\S]*?\])\s*<\/choices>/;
+  const match = text.match(regex);
+
+  if (!match) {
+    return { cleanText: text, choices: null };
+  }
+
+  try {
+    const choices = JSON.parse(match[1]) as Choice[];
+    const cleanText = text.replace(regex, "").trim();
+    return { cleanText, choices };
+  } catch {
+    return { cleanText: text, choices: null };
+  }
 }
 
 export function createAgentStream(params: AgentStreamParams): ReadableStream {
-  const { message, history, accountId, accountContext } = params;
+  const {
+    message,
+    history,
+    accountId,
+    accountContext,
+    workspaceId,
+    coreMemories,
+    supabase,
+    conversationId,
+  } = params;
 
   const encoder = new TextEncoder();
 
@@ -42,7 +82,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
   return new ReadableStream({
     async start(controller) {
       try {
-        const systemPrompt = buildSystemPrompt(accountContext);
+        const systemPrompt = buildSystemPrompt(accountContext, coreMemories);
         const model = selectModel(message);
 
         // Build messages array for Anthropic API
@@ -58,8 +98,16 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
 
         sendEvent(controller, { type: "model", model });
 
+        if (conversationId) {
+          sendEvent(controller, {
+            type: "conversation_id",
+            conversationId,
+          });
+        }
+
         // Agentic loop — keep calling Claude until we get a final text response
         let continueLoop = true;
+        let assistantFullText = "";
 
         while (continueLoop) {
           const response = await anthropic.messages.create({
@@ -75,7 +123,16 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
 
           for (const block of response.content) {
             if (block.type === "text") {
-              sendEvent(controller, { type: "text", content: block.text });
+              const { cleanText, choices } = extractChoices(block.text);
+
+              if (cleanText.trim()) {
+                sendEvent(controller, { type: "text", content: cleanText });
+                assistantFullText += cleanText;
+              }
+
+              if (choices) {
+                sendEvent(controller, { type: "choices", choices });
+              }
             } else if (block.type === "tool_use") {
               hasToolUse = true;
 
@@ -91,12 +148,16 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                 toolResult = await executeToolCall(
                   block.name,
                   block.input as Record<string, unknown>,
-                  accountId
+                  accountId,
+                  workspaceId,
+                  supabase
                 );
               } catch (err) {
                 toolResult = {
                   error:
-                    err instanceof Error ? err.message : "Erro ao executar tool",
+                    err instanceof Error
+                      ? err.message
+                      : "Erro ao executar tool",
                 };
               }
 
@@ -132,6 +193,22 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           // Safety: stop after end_turn
           if (response.stop_reason === "end_turn") {
             continueLoop = false;
+          }
+        }
+
+        // Persist assistant message to DB
+        if (conversationId && supabase && assistantFullText) {
+          try {
+            await saveMessage(
+              supabase,
+              conversationId,
+              "assistant",
+              assistantFullText,
+              { model }
+            );
+            await updateConversationTimestamp(supabase, conversationId);
+          } catch {
+            // Don't fail the stream if persistence fails
           }
         }
 
