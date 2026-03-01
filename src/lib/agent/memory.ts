@@ -425,11 +425,47 @@ export async function seedTeamAgents(
   // Check if agents already exist for this workspace
   const { data: existing } = await supabase
     .from("agents")
-    .select("slug")
+    .select("id, slug, name")
     .eq("workspace_id", workspaceId);
 
   const existingSlugs = new Set((existing || []).map((a: { slug: string }) => a.slug));
+  const validSlugs = new Set(TEAM_AGENTS.map((a) => a.slug));
 
+  // Remove agents that no longer exist in code (e.g., old generalist agents)
+  const staleAgents = (existing || []).filter(
+    (a: { id: string; slug: string }) => !validSlugs.has(a.slug)
+  );
+  for (const stale of staleAgents) {
+    // Delete agent documents first (soul, rules)
+    await supabase
+      .from("agent_documents")
+      .delete()
+      .eq("agent_id", stale.id);
+    // Delete the agent
+    await supabase
+      .from("agents")
+      .delete()
+      .eq("id", stale.id);
+  }
+
+  // Update existing agents (name, description, avatar_color) in case they changed
+  for (const agentDef of TEAM_AGENTS) {
+    if (!existingSlugs.has(agentDef.slug)) continue;
+
+    await supabase
+      .from("agents")
+      .update({
+        name: agentDef.name,
+        description: agentDef.description,
+        avatar_color: agentDef.avatar_color,
+        is_default: agentDef.is_default,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("workspace_id", workspaceId)
+      .eq("slug", agentDef.slug);
+  }
+
+  // Insert new agents that don't exist yet
   for (const agentDef of TEAM_AGENTS) {
     if (existingSlugs.has(agentDef.slug)) continue;
 

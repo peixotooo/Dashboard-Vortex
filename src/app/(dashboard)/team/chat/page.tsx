@@ -426,7 +426,7 @@ export default function TeamChatPage() {
                 {selectedAgent.name[0]}
               </div>
               <h3 className="text-lg font-semibold">
-                Oi! Eu sou {selectedAgent.name === "Coordenador" ? "o" : ""}{" "}
+                Oi! Eu sou {selectedAgent.name === "Marcos" ? "o" : ""}{" "}
                 {selectedAgent.name}
               </h3>
               <p className="text-muted-foreground mt-1 max-w-md">
