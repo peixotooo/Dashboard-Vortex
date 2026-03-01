@@ -12,6 +12,8 @@ import {
   saveMessage,
   loadDocument,
   seedDefaultDocuments,
+  getAgent,
+  loadAgentDocument,
 } from "@/lib/agent/memory";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { setContextToken } from "@/lib/meta-api";
@@ -59,12 +61,14 @@ export async function POST(request: NextRequest) {
       accountId,
       accountContext,
       conversationId: incomingConversationId,
+      agentId,
     }: {
       message: string;
       history: AgentMessage[];
       accountId: string;
       accountContext: AccountContext;
       conversationId?: string;
+      agentId?: string;
     } = body;
 
     if (!message || !accountId) {
@@ -89,26 +93,41 @@ export async function POST(request: NextRequest) {
     let soulContent: string | undefined;
     let agentRulesContent: string | undefined;
     let userProfileContent: string | undefined;
+    let agentSlug: string | undefined;
 
     if (workspaceId) {
       try {
         // Seed default documents on first use (idempotent)
         await seedDefaultDocuments(supabase, workspaceId);
 
-        // Load everything in parallel
-        const [memories, soul, rules, profile] = await Promise.all([
-          loadCoreMemories(supabase, workspaceId, accountId),
-          loadDocument(supabase, workspaceId, accountId, "soul"),
-          loadDocument(supabase, workspaceId, accountId, "agent_rules"),
-          loadDocument(supabase, workspaceId, accountId, "user_profile"),
-        ]);
+        if (agentId) {
+          // Team agent — load agent-specific documents
+          const agent = await getAgent(supabase, agentId);
+          if (agent) {
+            agentSlug = agent.slug;
+            const [soul, rules] = await Promise.all([
+              loadAgentDocument(supabase, workspaceId, agentId, "soul"),
+              loadAgentDocument(supabase, workspaceId, agentId, "agent_rules"),
+            ]);
+            soulContent = soul?.content;
+            agentRulesContent = rules?.content;
+          }
+        } else {
+          // Default Vortex agent — load workspace-global documents
+          const [memories, soul, rules, profile] = await Promise.all([
+            loadCoreMemories(supabase, workspaceId, accountId),
+            loadDocument(supabase, workspaceId, accountId, "soul"),
+            loadDocument(supabase, workspaceId, accountId, "agent_rules"),
+            loadDocument(supabase, workspaceId, accountId, "user_profile"),
+          ]);
 
-        if (memories.length > 0) {
-          coreMemories = formatMemoriesForPrompt(memories);
+          if (memories.length > 0) {
+            coreMemories = formatMemoriesForPrompt(memories);
+          }
+          soulContent = soul?.content;
+          agentRulesContent = rules?.content;
+          userProfileContent = profile?.content;
         }
-        soulContent = soul?.content;
-        agentRulesContent = rules?.content;
-        userProfileContent = profile?.content;
       } catch {
         // Continue with defaults if loading fails
       }
@@ -157,6 +176,8 @@ export async function POST(request: NextRequest) {
       soulContent,
       agentRulesContent,
       userProfileContent,
+      agentId,
+      agentSlug,
     });
 
     return new Response(stream, {

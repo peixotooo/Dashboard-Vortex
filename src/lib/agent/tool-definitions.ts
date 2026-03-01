@@ -301,4 +301,124 @@ export const AGENT_TOOLS: Tool[] = [
       required: ["updated_content", "change_summary"],
     },
   },
+  // --- Team Tools ---
+  {
+    name: "create_task",
+    description:
+      "Cria uma tarefa no kanban do time. Use para delegar trabalho a um membro do time ou registrar uma tarefa a ser feita. O Coordenador usa esta ferramenta para distribuir trabalho.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "Título da tarefa",
+        },
+        description: {
+          type: "string",
+          description: "Descrição detalhada da tarefa",
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "medium", "high", "urgent"],
+          description: "Prioridade da tarefa",
+        },
+        task_type: {
+          type: "string",
+          enum: [
+            "copy",
+            "seo",
+            "social_calendar",
+            "campaign",
+            "cro",
+            "strategy",
+            "revenue",
+            "general",
+          ],
+          description: "Tipo da tarefa",
+        },
+        assign_to_slug: {
+          type: "string",
+          description:
+            "Slug do agente para atribuir (ana, carlos, marina, rafael, lucas, julia, pedro)",
+        },
+        due_date: {
+          type: "string",
+          description: "Data de entrega (ISO 8601)",
+        },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "update_task",
+    description:
+      "Atualiza o status ou prioridade de uma tarefa existente no kanban.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        task_id: {
+          type: "string",
+          description: "ID da tarefa",
+        },
+        status: {
+          type: "string",
+          enum: ["backlog", "todo", "in_progress", "review", "done"],
+          description: "Novo status da tarefa",
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "medium", "high", "urgent"],
+          description: "Nova prioridade",
+        },
+      },
+      required: ["task_id"],
+    },
+  },
+  {
+    name: "save_deliverable",
+    description:
+      "Salva uma entrega formatada (copy, calendário, auditoria, estratégia, etc). Use para registrar o resultado do trabalho de forma estruturada. O conteúdo pode ser markdown ou JSON dependendo do tipo.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "Título da entrega",
+        },
+        content: {
+          type: "string",
+          description:
+            "Conteúdo da entrega em markdown ou JSON (para calendários use JSON com entries)",
+        },
+        deliverable_type: {
+          type: "string",
+          enum: [
+            "calendar",
+            "copy",
+            "audit",
+            "strategy",
+            "report",
+            "email_sequence",
+            "general",
+          ],
+          description: "Tipo da entrega",
+        },
+        format: {
+          type: "string",
+          enum: ["markdown", "json"],
+          description: "Formato do conteúdo",
+        },
+        task_id: {
+          type: "string",
+          description: "ID da tarefa relacionada (opcional)",
+        },
+        metadata: {
+          type: "object",
+          description:
+            "Dados extras estruturados (ex: entries de calendário)",
+        },
+      },
+      required: ["title", "content", "deliverable_type"],
+    },
+  },
 ];

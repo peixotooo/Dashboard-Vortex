@@ -15,17 +15,30 @@ import {
   ChevronLeft,
   Zap,
   MessageSquare,
+  KanbanSquare,
+  FileOutput,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  indent?: boolean;
+}
+
+const navItems: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/agent", label: "Agente IA", icon: MessageSquare },
+  { href: "/team", label: "Time", icon: Users },
+  { href: "/team/chat", label: "Chat", icon: MessageSquare, indent: true },
+  { href: "/team/kanban", label: "Kanban", icon: KanbanSquare, indent: true },
+  { href: "/team/deliverables", label: "Entregas", icon: FileOutput, indent: true },
+  { href: "/agent", label: "Vortex IA", icon: Zap },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/adsets", label: "Ad Sets", icon: Layers },
   { href: "/ads", label: "Ads", icon: FileText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/audiences", label: "Audiências", icon: Users },
+  { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -73,7 +86,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {navItems.map((item) => {
           const isActive =
             pathname === item.href ||
-            (item.href !== "/" && pathname.startsWith(item.href));
+            (item.href !== "/" && pathname.startsWith(item.href) && !navItems.some(
+              (other) => other.href !== item.href && other.href.startsWith(item.href) && pathname.startsWith(other.href)
+            ));
 
           return (
             <Link
@@ -84,7 +99,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 isActive
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                collapsed && "justify-center px-2"
+                collapsed && "justify-center px-2",
+                item.indent && !collapsed && "pl-8"
               )}
               title={collapsed ? item.label : undefined}
             >

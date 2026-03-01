@@ -400,6 +400,355 @@ export async function deleteAllMemories(
   if (error) throw new Error(`Failed to delete all memories: ${error.message}`);
 }
 
+// --- Team Agents ---
+
+export interface Agent {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  description: string;
+  avatar_color: string;
+  model_preference: string;
+  is_default: boolean;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function seedTeamAgents(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<void> {
+  const { TEAM_AGENTS } = await import("./team-agents");
+
+  // Check if agents already exist for this workspace
+  const { data: existing } = await supabase
+    .from("agents")
+    .select("slug")
+    .eq("workspace_id", workspaceId);
+
+  const existingSlugs = new Set((existing || []).map((a: { slug: string }) => a.slug));
+
+  for (const agentDef of TEAM_AGENTS) {
+    if (existingSlugs.has(agentDef.slug)) continue;
+
+    // Create the agent
+    const { data: agent, error } = await supabase
+      .from("agents")
+      .insert({
+        workspace_id: workspaceId,
+        name: agentDef.name,
+        slug: agentDef.slug,
+        description: agentDef.description,
+        avatar_color: agentDef.avatar_color,
+        model_preference: agentDef.model_preference,
+        is_default: agentDef.is_default,
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (error || !agent) continue;
+
+    // Seed soul document
+    await supabase.from("agent_documents").insert({
+      workspace_id: workspaceId,
+      account_id: null,
+      agent_id: agent.id,
+      doc_type: "soul",
+      content: agentDef.soul,
+    });
+
+    // Seed rules document
+    await supabase.from("agent_documents").insert({
+      workspace_id: workspaceId,
+      account_id: null,
+      agent_id: agent.id,
+      doc_type: "agent_rules",
+      content: agentDef.rules,
+    });
+  }
+}
+
+export async function listAgents(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<Agent[]> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("is_default", { ascending: false })
+    .order("name");
+
+  if (error) throw new Error(`Failed to list agents: ${error.message}`);
+  return data || [];
+}
+
+export async function getAgent(
+  supabase: SupabaseClient,
+  agentId: string
+): Promise<Agent | null> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .eq("id", agentId)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+export async function getAgentBySlug(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  slug: string
+): Promise<Agent | null> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("slug", slug)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+export async function loadAgentDocument(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  agentId: string,
+  docType: "soul" | "agent_rules"
+): Promise<AgentDocument | null> {
+  const { data } = await supabase
+    .from("agent_documents")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("agent_id", agentId)
+    .eq("doc_type", docType)
+    .single();
+
+  return data || null;
+}
+
+// --- Tasks (Kanban) ---
+
+export interface AgentTask {
+  id: string;
+  workspace_id: string;
+  agent_id: string | null;
+  created_by_agent_id: string | null;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  task_type: string;
+  due_date: string | null;
+  completed_at: string | null;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  agent?: Agent;
+}
+
+export async function createTask(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  params: {
+    title: string;
+    description?: string;
+    agent_id?: string;
+    created_by_agent_id?: string;
+    priority?: string;
+    task_type?: string;
+    due_date?: string;
+    conversation_id?: string;
+  }
+): Promise<AgentTask> {
+  const { data, error } = await supabase
+    .from("agent_tasks")
+    .insert({
+      workspace_id: workspaceId,
+      title: params.title,
+      description: params.description || "",
+      agent_id: params.agent_id || null,
+      created_by_agent_id: params.created_by_agent_id || null,
+      priority: params.priority || "medium",
+      task_type: params.task_type || "general",
+      due_date: params.due_date || null,
+      conversation_id: params.conversation_id || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create task: ${error.message}`);
+  return data;
+}
+
+export async function updateTask(
+  supabase: SupabaseClient,
+  taskId: string,
+  updates: {
+    status?: string;
+    priority?: string;
+    title?: string;
+    description?: string;
+    agent_id?: string;
+    due_date?: string | null;
+  }
+): Promise<AgentTask> {
+  const updateData: Record<string, unknown> = {
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  // If moving to done, set completed_at
+  if (updates.status === "done") {
+    updateData.completed_at = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from("agent_tasks")
+    .update(updateData)
+    .eq("id", taskId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update task: ${error.message}`);
+  return data;
+}
+
+export async function listTasks(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: {
+    status?: string;
+    agent_id?: string;
+    task_type?: string;
+    priority?: string;
+  }
+): Promise<AgentTask[]> {
+  let query = supabase
+    .from("agent_tasks")
+    .select("*, agent:agents!agent_tasks_agent_id_fkey(*)")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.status) query = query.eq("status", filters.status);
+  if (filters?.agent_id) query = query.eq("agent_id", filters.agent_id);
+  if (filters?.task_type) query = query.eq("task_type", filters.task_type);
+  if (filters?.priority) query = query.eq("priority", filters.priority);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to list tasks: ${error.message}`);
+  return data || [];
+}
+
+export async function deleteTask(
+  supabase: SupabaseClient,
+  taskId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("agent_tasks")
+    .delete()
+    .eq("id", taskId);
+
+  if (error) throw new Error(`Failed to delete task: ${error.message}`);
+}
+
+// --- Deliverables ---
+
+export interface AgentDeliverable {
+  id: string;
+  workspace_id: string;
+  task_id: string | null;
+  agent_id: string | null;
+  title: string;
+  content: string;
+  deliverable_type: string;
+  format: string;
+  metadata: Record<string, unknown>;
+  status: string;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  agent?: Agent;
+}
+
+export async function createDeliverable(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  params: {
+    title: string;
+    content: string;
+    deliverable_type?: string;
+    format?: string;
+    metadata?: Record<string, unknown>;
+    task_id?: string;
+    agent_id?: string;
+    conversation_id?: string;
+  }
+): Promise<AgentDeliverable> {
+  const { data, error } = await supabase
+    .from("agent_deliverables")
+    .insert({
+      workspace_id: workspaceId,
+      title: params.title,
+      content: params.content,
+      deliverable_type: params.deliverable_type || "general",
+      format: params.format || "markdown",
+      metadata: params.metadata || {},
+      task_id: params.task_id || null,
+      agent_id: params.agent_id || null,
+      conversation_id: params.conversation_id || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create deliverable: ${error.message}`);
+  return data;
+}
+
+export async function listDeliverables(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: {
+    agent_id?: string;
+    deliverable_type?: string;
+    status?: string;
+  }
+): Promise<AgentDeliverable[]> {
+  let query = supabase
+    .from("agent_deliverables")
+    .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.agent_id) query = query.eq("agent_id", filters.agent_id);
+  if (filters?.deliverable_type) query = query.eq("deliverable_type", filters.deliverable_type);
+  if (filters?.status) query = query.eq("status", filters.status);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Failed to list deliverables: ${error.message}`);
+  return data || [];
+}
+
+export async function getDeliverable(
+  supabase: SupabaseClient,
+  deliverableId: string
+): Promise<AgentDeliverable | null> {
+  const { data, error } = await supabase
+    .from("agent_deliverables")
+    .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
+    .eq("id", deliverableId)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
 // --- Formatting ---
 
 export function formatMemoriesForPrompt(memories: CoreMemory[]): string {

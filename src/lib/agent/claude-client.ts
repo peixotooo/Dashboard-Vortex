@@ -36,6 +36,8 @@ export interface AgentStreamParams {
   soulContent?: string;
   agentRulesContent?: string;
   userProfileContent?: string;
+  agentId?: string;
+  agentSlug?: string;
 }
 
 interface Choice {
@@ -76,6 +78,8 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
     soulContent,
     agentRulesContent,
     userProfileContent,
+    agentId,
+    agentSlug,
   } = params;
 
   const encoder = new TextEncoder();
@@ -96,6 +100,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           accountContext,
           coreMemories,
           userProfile: userProfileContent,
+          agentSlug,
         });
         const model = selectModel(message);
 
@@ -164,7 +169,8 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                   block.input as Record<string, unknown>,
                   accountId,
                   workspaceId,
-                  supabase
+                  supabase,
+                  agentId
                 );
               } catch (err) {
                 toolResult = {
@@ -226,9 +232,9 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           }
         }
 
-        // Auto-extract facts from the conversation (Haiku, ~300-500ms)
-        // User already has the full response, so this latency is acceptable
-        if (workspaceId && supabase && assistantFullText) {
+        // Auto-extract facts (only for Vortex agent, not team agents)
+        const isTeamAgent = agentSlug && agentSlug !== "vortex";
+        if (workspaceId && supabase && assistantFullText && !isTeamAgent) {
           try {
             await extractAndSaveFacts(
               supabase,

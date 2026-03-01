@@ -13,6 +13,10 @@ import {
   loadCoreMemories,
   searchMemories,
   upsertDocument,
+  createTask,
+  updateTask,
+  createDeliverable,
+  getAgentBySlug,
 } from "@/lib/agent/memory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -21,7 +25,8 @@ export async function executeToolCall(
   toolInput: Record<string, unknown>,
   accountId: string,
   workspaceId?: string,
-  supabase?: SupabaseClient
+  supabase?: SupabaseClient,
+  agentId?: string
 ): Promise<unknown> {
   switch (toolName) {
     case "get_account_overview": {
@@ -256,6 +261,76 @@ export async function executeToolCall(
       return {
         success: true,
         message: `Personalidade atualizada: ${summary}. A mudança será refletida na próxima mensagem.`,
+      };
+    }
+
+    case "create_task": {
+      if (!workspaceId || !supabase) {
+        return { error: "Tasks não disponíveis (workspace não configurado)" };
+      }
+      let assignAgentId: string | undefined;
+      if (toolInput.assign_to_slug) {
+        const agent = await getAgentBySlug(
+          supabase,
+          workspaceId,
+          toolInput.assign_to_slug as string
+        );
+        if (agent) assignAgentId = agent.id;
+      }
+      const task = await createTask(supabase, workspaceId, {
+        title: toolInput.title as string,
+        description: (toolInput.description as string) || "",
+        agent_id: assignAgentId,
+        created_by_agent_id: agentId,
+        priority: (toolInput.priority as string) || "medium",
+        task_type: (toolInput.task_type as string) || "general",
+        due_date: toolInput.due_date as string | undefined,
+      });
+      return {
+        success: true,
+        task_id: task.id,
+        message: `Tarefa criada: "${task.title}" (${task.priority}, ${task.task_type})${assignAgentId ? " — atribuída ao agente" : ""}`,
+      };
+    }
+
+    case "update_task": {
+      if (!workspaceId || !supabase) {
+        return { error: "Tasks não disponíveis (workspace não configurado)" };
+      }
+      const updates: Record<string, unknown> = {};
+      if (toolInput.status) updates.status = toolInput.status;
+      if (toolInput.priority) updates.priority = toolInput.priority;
+      const updated = await updateTask(
+        supabase,
+        toolInput.task_id as string,
+        updates
+      );
+      return {
+        success: true,
+        message: `Tarefa "${updated.title}" atualizada para status: ${updated.status}`,
+      };
+    }
+
+    case "save_deliverable": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Deliverables não disponíveis (workspace não configurado)",
+        };
+      }
+      const deliverable = await createDeliverable(supabase, workspaceId, {
+        title: toolInput.title as string,
+        content: toolInput.content as string,
+        deliverable_type:
+          (toolInput.deliverable_type as string) || "general",
+        format: (toolInput.format as string) || "markdown",
+        metadata: (toolInput.metadata as Record<string, unknown>) || {},
+        task_id: toolInput.task_id as string | undefined,
+        agent_id: agentId,
+      });
+      return {
+        success: true,
+        deliverable_id: deliverable.id,
+        message: `Entrega salva: "${deliverable.title}" (${deliverable.deliverable_type})`,
       };
     }
 
