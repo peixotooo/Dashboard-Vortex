@@ -111,6 +111,8 @@ export interface SpecialistParams {
   workspaceId: string;
   supabase: SupabaseClient;
   projectContext?: string;
+  maxLoops?: number;
+  maxTokens?: number;
 }
 
 export interface SpecialistResult {
@@ -176,16 +178,16 @@ export async function runSpecialist(
   let fullText = "";
   let continueLoop = true;
   let loopCount = 0;
-  const maxLoops = 5; // Safety limit for specialist sub-agent
+  const maxLoops = params.maxLoops ?? 5;
 
   while (continueLoop && loopCount < maxLoops) {
     loopCount++;
 
     const response = await anthropic.messages.create({
       model,
-      max_tokens: 4096,
+      max_tokens: params.maxTokens ?? 4096,
       system: systemPrompt,
-      tools: tools.filter((t) => t.name !== "delegate_to_agent"), // Specialists can't delegate further
+      tools: tools.filter((t) => t.name !== "delegate_to_agent"),
       messages,
     });
 

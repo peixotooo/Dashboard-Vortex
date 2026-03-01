@@ -268,28 +268,45 @@ export async function executeToolCall(
       if (!workspaceId || !supabase) {
         return { error: "Tasks não disponíveis (workspace não configurado)" };
       }
+      const taskType = (toolInput.task_type as string) || "general";
       let assignAgentId: string | undefined;
+      let assignedSlug: string | undefined;
+
       if (toolInput.assign_to_slug) {
-        const agent = await getAgentBySlug(
-          supabase,
-          workspaceId,
-          toolInput.assign_to_slug as string
-        );
+        // Explicit slug provided
+        assignedSlug = toolInput.assign_to_slug as string;
+        const agent = await getAgentBySlug(supabase, workspaceId, assignedSlug);
+        if (agent) assignAgentId = agent.id;
+      } else {
+        // Auto-assign based on task_type
+        const defaultSlugMap: Record<string, string> = {
+          copy: "copywriting",
+          seo: "seo-audit",
+          social_calendar: "social-content",
+          campaign: "paid-ads",
+          cro: "page-cro",
+          strategy: "launch-strategy",
+          revenue: "churn-prevention",
+          general: "coordenador",
+        };
+        assignedSlug = defaultSlugMap[taskType] || "coordenador";
+        const agent = await getAgentBySlug(supabase, workspaceId, assignedSlug);
         if (agent) assignAgentId = agent.id;
       }
+
       const task = await createTask(supabase, workspaceId, {
         title: toolInput.title as string,
         description: (toolInput.description as string) || "",
         agent_id: assignAgentId,
         created_by_agent_id: agentId,
         priority: (toolInput.priority as string) || "medium",
-        task_type: (toolInput.task_type as string) || "general",
+        task_type: taskType,
         due_date: toolInput.due_date as string | undefined,
       });
       return {
         success: true,
         task_id: task.id,
-        message: `Tarefa criada: "${task.title}" (${task.priority}, ${task.task_type})${assignAgentId ? " — atribuída ao agente" : ""}`,
+        message: `Tarefa criada: "${task.title}" (${task.priority}, ${task.task_type}) — atribuída a ${assignedSlug || "nenhum agente"}`,
       };
     }
 

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { processTaskBatch } from "@/lib/agent/task-processor";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   // Validate CRON_SECRET
@@ -18,11 +18,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  console.log(
+    "[cron/process-tasks] Cron triggered at",
+    new Date().toISOString()
+  );
+
   try {
     const supabase = createAdminClient();
     const result = await processTaskBatch(supabase);
 
-    return Response.json({
+    const summary = {
       success: true,
       processed: result.processed.length,
       skipped: result.skipped,
@@ -34,7 +39,11 @@ export async function GET(request: NextRequest) {
         status: r.status,
         error: r.error || null,
       })),
-    });
+    };
+
+    console.log("[cron/process-tasks] Response:", JSON.stringify(summary));
+
+    return Response.json(summary);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[cron/process-tasks] Fatal error:", message);

@@ -348,7 +348,7 @@ const TEAM_TOOLS: Tool[] = [
   {
     name: "create_task",
     description:
-      "Cria uma tarefa no kanban do time. Use para delegar trabalho a um membro do time ou registrar uma tarefa a ser feita. O Coordenador usa esta ferramenta para distribuir trabalho.",
+      "Cria uma tarefa no kanban do time e atribui a um especialista. Se assign_to_slug for omitido, o agente e atribuido automaticamente pelo task_type (copy→copywriting, seo→seo-audit, social_calendar→social-content, campaign→paid-ads, cro→page-cro, strategy→launch-strategy, revenue→churn-prevention, general→coordenador). A tarefa sera executada automaticamente pelo sistema.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -382,7 +382,7 @@ const TEAM_TOOLS: Tool[] = [
         assign_to_slug: {
           type: "string",
           description:
-            "Slug do agente para atribuir (copywriting, copy-editing, email-sequence, cold-email, seo-audit, ai-seo, programmatic-seo, schema-markup, site-architecture, content-strategy, social-content, page-cro, form-cro, signup-flow-cro, onboarding-cro, popup-cro, paywall-upgrade-cro, ab-test-setup, paid-ads, ad-creative, analytics-tracking, launch-strategy, pricing-strategy, marketing-psychology, marketing-ideas, free-tool-strategy, churn-prevention, referral-program, revops, sales-enablement, competitor-alternatives)",
+            "Slug do agente para atribuir. OPCIONAL — se omitido, atribui automaticamente pelo task_type. Use para escolher um especialista especifico diferente do default (ex: task_type=copy mas quer email-sequence ao inves de copywriting). Slugs: copywriting, copy-editing, email-sequence, cold-email, seo-audit, ai-seo, programmatic-seo, schema-markup, site-architecture, content-strategy, social-content, page-cro, form-cro, signup-flow-cro, onboarding-cro, popup-cro, paywall-upgrade-cro, ab-test-setup, paid-ads, ad-creative, analytics-tracking, launch-strategy, pricing-strategy, marketing-psychology, marketing-ideas, free-tool-strategy, churn-prevention, referral-program, revops, sales-enablement, competitor-alternatives",
         },
         due_date: {
           type: "string",
