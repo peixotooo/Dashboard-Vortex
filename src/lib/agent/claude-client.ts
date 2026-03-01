@@ -189,7 +189,12 @@ async function runSpecialist(
       messages,
     });
 
-    let hasToolUse = false;
+    // Collect all tool results from this response before pushing to messages
+    const toolResults: Array<{
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+    }> = [];
 
     for (const block of response.content) {
       if (block.type === "text") {
@@ -197,8 +202,6 @@ async function runSpecialist(
         const { cleanText } = extractChoices(block.text);
         fullText += cleanText;
       } else if (block.type === "tool_use") {
-        hasToolUse = true;
-
         // Execute the specialist's tool
         let toolResult: unknown;
         try {
@@ -217,25 +220,27 @@ async function runSpecialist(
           };
         }
 
-        // Add to message chain for continuation
-        messages.push({
-          role: "assistant",
-          content: response.content,
-        });
-        messages.push({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: block.id,
-              content: JSON.stringify(toolResult),
-            },
-          ],
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: JSON.stringify(toolResult),
         });
       }
     }
 
-    if (!hasToolUse || response.stop_reason === "end_turn") {
+    // If there were tool calls, push assistant + ALL tool_results as ONE user message
+    if (toolResults.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: response.content,
+      });
+      messages.push({
+        role: "user",
+        content: toolResults,
+      });
+    }
+
+    if (toolResults.length === 0 || response.stop_reason === "end_turn") {
       continueLoop = false;
     }
   }
@@ -327,8 +332,12 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             messages,
           });
 
-          // Process response content blocks
-          let hasToolUse = false;
+          // Collect all tool results from this response before pushing to messages
+          const toolResults: Array<{
+            type: "tool_result";
+            tool_use_id: string;
+            content: string;
+          }> = [];
 
           for (const block of response.content) {
             if (block.type === "text") {
@@ -343,8 +352,6 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                 sendEvent(controller, { type: "choices", choices });
               }
             } else if (block.type === "tool_use") {
-              hasToolUse = true;
-
               // --- Special handling: delegate_to_agent ---
               if (block.name === "delegate_to_agent") {
                 const delegateInput = block.input as {
@@ -399,25 +406,13 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                   model: specialistResult.model,
                 });
 
-                // Add tool result to message chain
-                const toolResultContent = JSON.stringify({
-                  specialist: specialistResult.agentName,
-                  response: specialistResult.text,
-                });
-
-                messages.push({
-                  role: "assistant",
-                  content: response.content,
-                });
-                messages.push({
-                  role: "user",
-                  content: [
-                    {
-                      type: "tool_result",
-                      tool_use_id: block.id,
-                      content: toolResultContent,
-                    },
-                  ],
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: block.id,
+                  content: JSON.stringify({
+                    specialist: specialistResult.agentName,
+                    response: specialistResult.text,
+                  }),
                 });
               } else {
                 // --- Standard tool handling ---
@@ -452,26 +447,29 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                   result: toolResult,
                 });
 
-                messages.push({
-                  role: "assistant",
-                  content: response.content,
-                });
-                messages.push({
-                  role: "user",
-                  content: [
-                    {
-                      type: "tool_result",
-                      tool_use_id: block.id,
-                      content: JSON.stringify(toolResult),
-                    },
-                  ],
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: block.id,
+                  content: JSON.stringify(toolResult),
                 });
               }
             }
           }
 
+          // If there were tool calls, push assistant + ALL tool_results as ONE user message
+          if (toolResults.length > 0) {
+            messages.push({
+              role: "assistant",
+              content: response.content,
+            });
+            messages.push({
+              role: "user",
+              content: toolResults,
+            });
+          }
+
           // If no tool was used, we're done
-          if (!hasToolUse) {
+          if (toolResults.length === 0) {
             continueLoop = false;
           }
 
