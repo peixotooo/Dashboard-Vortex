@@ -356,6 +356,50 @@ export async function seedDefaultDocuments(
   }
 }
 
+// --- Bulk memory operations ---
+
+export async function updateMemoryValue(
+  supabase: SupabaseClient,
+  memoryId: string,
+  value: string
+): Promise<CoreMemory> {
+  const { data, error } = await supabase
+    .from("agent_core_memory")
+    .update({ value, updated_at: new Date().toISOString() })
+    .eq("id", memoryId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update memory: ${error.message}`);
+  return data;
+}
+
+export async function deleteMemoryById(
+  supabase: SupabaseClient,
+  memoryId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("agent_core_memory")
+    .delete()
+    .eq("id", memoryId);
+
+  if (error) throw new Error(`Failed to delete memory: ${error.message}`);
+}
+
+export async function deleteAllMemories(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  accountId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("agent_core_memory")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("account_id", accountId);
+
+  if (error) throw new Error(`Failed to delete all memories: ${error.message}`);
+}
+
 // --- Formatting ---
 
 export function formatMemoriesForPrompt(memories: CoreMemory[]): string {

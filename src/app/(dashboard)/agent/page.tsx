@@ -10,7 +10,9 @@ import {
   AlertCircle,
   Zap,
   Brain,
+  Settings,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -273,7 +275,7 @@ export default function AgentPage() {
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <Zap className="h-5 w-5 text-primary" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-lg font-bold">Vortex</h1>
           <p className="text-xs text-muted-foreground">
             Seu assistente inteligente de Meta Ads
@@ -282,6 +284,11 @@ export default function AgentPage() {
             )}
           </p>
         </div>
+        <Link href="/agent/settings">
+          <Button variant="ghost" size="icon" title="Configurações do Agente">
+            <Settings className="h-5 w-5" />
+          </Button>
+        </Link>
       </div>
 
       {/* Messages */}
