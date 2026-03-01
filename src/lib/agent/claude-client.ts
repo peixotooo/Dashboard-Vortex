@@ -101,7 +101,7 @@ function extractChoices(text: string): {
 
 // --- Specialist Runner (sub-agent, non-streaming) ---
 
-interface SpecialistParams {
+export interface SpecialistParams {
   agentSlug: string;
   task: string;
   context?: string;
@@ -113,14 +113,14 @@ interface SpecialistParams {
   projectContext?: string;
 }
 
-interface SpecialistResult {
+export interface SpecialistResult {
   text: string;
   model: string;
   agentName: string;
   agentColor: string;
 }
 
-async function runSpecialist(
+export async function runSpecialist(
   params: SpecialistParams
 ): Promise<SpecialistResult> {
   // 1. Find agent in DB
