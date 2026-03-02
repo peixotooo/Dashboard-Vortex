@@ -950,7 +950,7 @@ export async function listDeliverables(
 ): Promise<AgentDeliverable[]> {
   let query = supabase
     .from("agent_deliverables")
-    .select("*, agent:agents!agent_deliverables_agent_id_fkey(*)")
+    .select("*, agent:agents!agent_deliverables_agent_id_fkey(id, name, slug, avatar_color), task:agent_tasks!agent_deliverables_task_id_fkey(id, title), project:agent_projects!agent_deliverables_project_id_fkey(id, title, status)")
     .eq("workspace_id", workspaceId);
 
   if (filters?.agent_id) query = query.eq("agent_id", filters.agent_id);
