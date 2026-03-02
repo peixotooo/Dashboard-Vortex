@@ -732,6 +732,8 @@ export interface AgentTask {
   completed_at: string | null;
   conversation_id: string | null;
   project_id: string | null;
+  retry_count: number;
+  last_processed_at: string | null;
   created_at: string;
   updated_at: string;
   agent?: Agent;

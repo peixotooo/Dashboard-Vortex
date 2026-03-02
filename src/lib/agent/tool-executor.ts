@@ -354,6 +354,16 @@ export async function executeToolCall(
           error: "Deliverables não disponíveis (workspace não configurado)",
         };
       }
+
+      // Validate content is not empty/too short
+      const deliverableContent = ((toolInput.content as string) || "").trim();
+      if (deliverableContent.length < 50) {
+        return {
+          error:
+            "Conteudo muito curto. A entrega deve ter no minimo 50 caracteres de conteudo real. Gere o conteudo COMPLETO e tente novamente.",
+        };
+      }
+
       const deliverable = await createDeliverable(supabase, workspaceId, {
         title: toolInput.title as string,
         content: toolInput.content as string,

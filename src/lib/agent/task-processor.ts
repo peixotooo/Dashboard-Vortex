@@ -31,8 +31,9 @@ export interface ProcessBatchResult {
 
 // --- Constants ---
 
-const MAX_TASKS_PER_RUN = 3;
-const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_TASKS_PER_RUN = 2;
+const STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes (must be > cron interval of 10 min)
+const MAX_RETRIES = 3;
 const PRIORITY_ORDER = ["urgent", "high", "medium", "low"];
 
 const TASK_TYPE_DEFAULT_AGENT: Record<string, string> = {
@@ -99,9 +100,16 @@ export async function processTaskBatch(
       continue;
     }
 
-    // Claim the task
+    // Claim the task (set in_progress + last_processed_at)
     try {
-      await updateTask(supabase, task.id, { status: "in_progress" });
+      await supabase
+        .from("agent_tasks")
+        .update({
+          status: "in_progress",
+          last_processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id);
     } catch {
       skipped++;
       continue;
@@ -151,8 +159,47 @@ async function fetchEligibleTasks(
 
   if (!data) return [];
 
-  // Auto-assign tasks that have no agent_id
+  const eligible: AgentTask[] = [];
+
   for (const task of data) {
+    // Skip tasks that exceeded max retries
+    if ((task.retry_count || 0) >= MAX_RETRIES) {
+      console.log(
+        `[cron/process-tasks] Task "${task.title}" exceeded max retries (${task.retry_count}). Moving to review.`
+      );
+      await supabase
+        .from("agent_tasks")
+        .update({ status: "review", updated_at: new Date().toISOString() })
+        .eq("id", task.id);
+      continue;
+    }
+
+    // Check if task already has deliverables with real content (deduplication)
+    const { data: existingDeliverables } = await supabase
+      .from("agent_deliverables")
+      .select("id, content")
+      .eq("task_id", task.id);
+
+    const hasRealContent = (existingDeliverables || []).some(
+      (d) => d.content && d.content.trim().length >= 50
+    );
+
+    if (hasRealContent) {
+      console.log(
+        `[cron/process-tasks] Task "${task.title}" already has deliverables. Marking done.`
+      );
+      await supabase
+        .from("agent_tasks")
+        .update({
+          status: "done",
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id);
+      continue;
+    }
+
+    // Auto-assign tasks that have no agent_id
     if (!task.agent_id && task.task_type) {
       const defaultSlug =
         TASK_TYPE_DEFAULT_AGENT[task.task_type] ||
@@ -173,16 +220,18 @@ async function fetchEligibleTasks(
         );
       }
     }
+
+    if (task.agent_id) {
+      eligible.push(task);
+    }
   }
 
-  // Filter out any tasks that still have no agent and sort by priority
-  return data
-    .filter((t: AgentTask) => t.agent_id !== null)
-    .sort((a: AgentTask, b: AgentTask) => {
-      const aIdx = PRIORITY_ORDER.indexOf(a.priority);
-      const bIdx = PRIORITY_ORDER.indexOf(b.priority);
-      return aIdx - bIdx;
-    });
+  // Sort by priority
+  return eligible.sort((a: AgentTask, b: AgentTask) => {
+    const aIdx = PRIORITY_ORDER.indexOf(a.priority);
+    const bIdx = PRIORITY_ORDER.indexOf(b.priority);
+    return aIdx - bIdx;
+  });
 }
 
 async function resetStaleTasks(supabase: SupabaseClient): Promise<number> {
@@ -192,17 +241,28 @@ async function resetStaleTasks(supabase: SupabaseClient): Promise<number> {
 
   const { data } = await supabase
     .from("agent_tasks")
-    .select("id")
+    .select("id, retry_count")
     .eq("status", "in_progress")
     .lt("updated_at", staleThreshold);
 
   if (!data || data.length === 0) return 0;
 
   for (const task of data) {
+    const newRetryCount = (task.retry_count || 0) + 1;
+    const newStatus = newRetryCount >= MAX_RETRIES ? "review" : "todo";
+
     await supabase
       .from("agent_tasks")
-      .update({ status: "todo", updated_at: new Date().toISOString() })
+      .update({
+        status: newStatus,
+        retry_count: newRetryCount,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", task.id);
+
+    console.log(
+      `[cron/process-tasks] Stale task reset: id=${task.id}, retry_count=${newRetryCount}, new_status=${newStatus}`
+    );
   }
 
   return data.length;
@@ -391,8 +451,8 @@ async function checkAndCompileProjects(
         workspaceId: project.workspace_id,
         supabase,
         projectContext: wsContext.projectContext,
-        maxLoops: 10,
-        maxTokens: 8192,
+        maxLoops: 5,
+        maxTokens: 4096,
       });
 
       // Mark project as done
@@ -443,6 +503,12 @@ function buildTaskPrompt(task: AgentTask): string {
     "### 4. Nao peca confirmacao",
     "Voce esta executando de forma automatica via cron. Nao ha usuario interativo.",
     "Execute diretamente sem pedir confirmacao ou fazer perguntas.",
+    "",
+    "### REGRA CRITICA: Conteudo NAO pode ser vazio",
+    "O save_deliverable REJEITARA conteudo com menos de 50 caracteres.",
+    "Voce DEVE gerar o conteudo COMPLETO antes de salvar.",
+    "NAO salve titulos ou esbocos — salve o trabalho FINAL e COMPLETO.",
+    "Se o save_deliverable retornar erro de conteudo curto, gere o conteudo real e tente novamente.",
   ].join("\n");
 }
 
@@ -466,9 +532,13 @@ async function executeTask(
       workspaceId: task.workspace_id,
       supabase,
       projectContext: wsContext.projectContext,
-      maxLoops: 10,
-      maxTokens: 8192,
+      maxLoops: 5,
+      maxTokens: 4096,
     });
+
+    console.log(
+      `[cron/process-tasks] API call completed: task="${task.title}", agent=${agentSlug}, response_length=${result.text.length}`
+    );
 
     // Short responses suggest incomplete work
     const finalStatus = result.text.length < 50 ? "review" : "done";
@@ -481,12 +551,26 @@ async function executeTask(
       status: finalStatus as "done" | "review",
     };
   } catch (err) {
-    // Revert to "todo" for retry
+    // Increment retry_count and set appropriate status
+    const newRetryCount = (task.retry_count || 0) + 1;
+    const errorStatus = newRetryCount >= MAX_RETRIES ? "review" : "todo";
+
     try {
-      await updateTask(supabase, task.id, { status: "todo" });
+      await supabase
+        .from("agent_tasks")
+        .update({
+          status: errorStatus,
+          retry_count: newRetryCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.id);
     } catch {
       // Stale reset will catch it
     }
+
+    console.log(
+      `[cron/process-tasks] Task error: "${task.title}", retry_count=${newRetryCount}, new_status=${errorStatus}`
+    );
 
     return {
       taskId: task.id,
