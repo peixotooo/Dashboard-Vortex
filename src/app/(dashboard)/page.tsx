@@ -26,7 +26,7 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { DatePreset } from "@/lib/types";
@@ -419,7 +419,11 @@ export default function OverviewPage() {
         for (const [k] of vndaMap) allDatesSet.add(k);
         for (const [k] of gadsMap) allDatesSet.add(k);
 
-        const allDates = [...allDatesSet].sort();
+        // Filter dates to only include those within the selected period
+        const expectedRange = datePresetToTimeRange(datePreset);
+        const allDates = [...allDatesSet]
+          .filter((d) => d >= expectedRange.since && d <= expectedRange.until)
+          .sort();
 
         const trendData: DailyRow[] = allDates.map((rawDate) => {
           const metaDay = metaMap.get(rawDate);
