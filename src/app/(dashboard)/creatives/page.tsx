@@ -16,8 +16,11 @@ import {
   Link2,
   Pause,
   ExternalLink,
+  Trophy,
+  Zap,
+  BarChart3,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -40,6 +43,7 @@ import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 import type { DatePreset, ActiveAdCreative } from "@/lib/types";
 
 interface UrlGroup {
@@ -54,8 +58,27 @@ interface UrlGroup {
   cpc: number;
 }
 
+const TIER_CONFIG = {
+  champion: { label: "Campeao", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
+  potential: { label: "Potencial", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
+  scale: { label: "Escala", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+} as const;
+
+function TierBadge({ tier }: { tier?: string | null }) {
+  if (!tier || !(tier in TIER_CONFIG)) return null;
+  const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
+  const Icon = config.icon;
+  return (
+    <Badge variant="outline" className={`text-xs gap-1 ${config.className}`}>
+      <Icon className="h-3 w-3" />
+      {config.label}
+    </Badge>
+  );
+}
+
 export default function CreativesPage() {
   const { accountId, accounts } = useAccount();
+  const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [ads, setAds] = useState<ActiveAdCreative[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +86,7 @@ export default function CreativesPage() {
   const [sortKey, setSortKey] = useState("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [activeTab, setActiveTab] = useState("active");
+  const [tierFilter, setTierFilter] = useState("all");
 
   const fetchData = useCallback(async () => {
     if (!accountId) return;
@@ -71,22 +95,38 @@ export default function CreativesPage() {
       const accountIds =
         accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
+      const headers: Record<string, string> = {};
+      if (workspace?.id) {
+        headers["x-workspace-id"] = workspace.id;
+      }
+
       const results = await Promise.all(
-        accountIds.map((id) =>
-          fetch(
-            `/api/creatives?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`
-          ).then((r) => r.json())
-        )
+        accountIds.map(async (id) => {
+          const res = await fetch(
+            `/api/creatives?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+            { headers }
+          );
+          const data = await res.json();
+          if (accountId === "all") {
+            const name = accounts.find((a) => a.id === id)?.name || id;
+            return (data.ads || []).map((ad: ActiveAdCreative) => ({
+              ...ad,
+              account_id: id,
+              account_name: name,
+            }));
+          }
+          return data.ads || [];
+        })
       );
 
-      const allAds: ActiveAdCreative[] = results.flatMap((r) => r.ads || []);
+      const allAds: ActiveAdCreative[] = results.flat();
       setAds(allAds);
     } catch {
       // Keep empty state
     } finally {
       setLoading(false);
     }
-  }, [accountId, accounts, datePreset]);
+  }, [accountId, accounts, datePreset, workspace?.id]);
 
   useEffect(() => {
     fetchData();
@@ -138,12 +178,19 @@ export default function CreativesPage() {
       .sort((a, b) => b.spend - a.spend);
   }, [activeAds]);
 
-  // Current dataset based on tab
+  // Current dataset based on tab + tier filter
   const currentData = useMemo(() => {
-    if (activeTab === "paused") return pausedWithResults;
-    if (activeTab === "urls") return urlGroups;
-    return activeAds;
-  }, [activeTab, activeAds, pausedWithResults, urlGroups]);
+    let data: ActiveAdCreative[] | UrlGroup[];
+    if (activeTab === "paused") data = pausedWithResults;
+    else if (activeTab === "urls") return urlGroups;
+    else data = activeAds;
+
+    // Apply tier filter
+    if (tierFilter !== "all") {
+      data = (data as ActiveAdCreative[]).filter((a) => a.tier === tierFilter);
+    }
+    return data;
+  }, [activeTab, activeAds, pausedWithResults, urlGroups, tierFilter]);
 
   // Sorting
   const sortedData = useMemo(() => {
@@ -157,6 +204,16 @@ export default function CreativesPage() {
       return sortDir === "desc" ? bNum - aNum : aNum - bNum;
     });
   }, [currentData, sortKey, sortDir]);
+
+  // Tier counts
+  const tierCounts = useMemo(() => {
+    const dataset = activeTab === "paused" ? pausedWithResults : activeAds;
+    return {
+      champion: dataset.filter((a) => a.tier === "champion").length,
+      potential: dataset.filter((a) => a.tier === "potential").length,
+      scale: dataset.filter((a) => a.tier === "scale").length,
+    };
+  }, [activeTab, activeAds, pausedWithResults]);
 
   // KPI calculations per tab
   const kpis = useMemo(() => {
@@ -199,7 +256,7 @@ export default function CreativesPage() {
     };
   }, [activeTab, activeAds, pausedWithResults, urlGroups]);
 
-  const formatBadge = (format: string) => {
+  const formatFormat = (format: string) => {
     switch (format) {
       case "video":
         return "Video";
@@ -243,7 +300,10 @@ export default function CreativesPage() {
       label: "Criativo",
       render: (val: unknown, row: Record<string, unknown>) => (
         <div className="max-w-[220px]">
-          <p className="text-sm font-medium truncate">{String(val)}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium truncate">{String(val)}</p>
+            <TierBadge tier={row.tier as string} />
+          </div>
           {row.body ? (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {String(row.body).slice(0, 80)}
@@ -253,12 +313,26 @@ export default function CreativesPage() {
       ),
     },
     { key: "campaign_name", label: "Campanha" },
+    // Account column (only in multi-account mode)
+    ...(accountId === "all"
+      ? [
+          {
+            key: "account_name",
+            label: "Conta",
+            render: (val: unknown) => (
+              <Badge variant="outline" className="text-xs">
+                {String(val || "")}
+              </Badge>
+            ),
+          },
+        ]
+      : []),
     {
       key: "format",
       label: "Formato",
       render: (val: unknown) => (
         <Badge variant="secondary" className="text-xs">
-          {formatBadge(String(val))}
+          {formatFormat(String(val))}
         </Badge>
       ),
     },
@@ -369,7 +443,7 @@ export default function CreativesPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setTierFilter("all"); }}>
         <TabsList>
           <TabsTrigger value="active">Ativos</TabsTrigger>
           <TabsTrigger value="paused">Pausados com Resultado</TabsTrigger>
@@ -410,8 +484,8 @@ export default function CreativesPage() {
           />
         </div>
 
-        {/* Sort controls */}
-        <div className="flex items-center gap-2 mt-4">
+        {/* Sort + Tier Filter controls */}
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
           <span className="text-xs text-muted-foreground">Ordenar por:</span>
           <Select value={sortKey} onValueChange={setSortKey}>
             <SelectTrigger className="w-40 h-8 text-xs">
@@ -438,6 +512,51 @@ export default function CreativesPage() {
           >
             <ArrowUpDown className="h-3.5 w-3.5" />
           </Button>
+
+          {/* Tier filter (not on URLs tab) */}
+          {activeTab !== "urls" && (
+            <>
+              <div className="w-px h-6 bg-border mx-1" />
+              <span className="text-xs text-muted-foreground">Classificacao:</span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={tierFilter === "all" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  onClick={() => setTierFilter("all")}
+                >
+                  Todos
+                </Button>
+                <Button
+                  variant={tierFilter === "champion" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs px-2 gap-1"
+                  onClick={() => setTierFilter("champion")}
+                >
+                  <Trophy className="h-3 w-3 text-emerald-500" />
+                  Campeoes {tierCounts.champion > 0 && `(${tierCounts.champion})`}
+                </Button>
+                <Button
+                  variant={tierFilter === "potential" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs px-2 gap-1"
+                  onClick={() => setTierFilter("potential")}
+                >
+                  <Zap className="h-3 w-3 text-blue-500" />
+                  Potencial {tierCounts.potential > 0 && `(${tierCounts.potential})`}
+                </Button>
+                <Button
+                  variant={tierFilter === "scale" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs px-2 gap-1"
+                  onClick={() => setTierFilter("scale")}
+                >
+                  <BarChart3 className="h-3 w-3 text-purple-500" />
+                  Escala {tierCounts.scale > 0 && `(${tierCounts.scale})`}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Tab Content */}
@@ -499,8 +618,14 @@ export default function CreativesPage() {
           {selectedAd && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedAd.ad_name}</DialogTitle>
+                <DialogTitle className="flex items-center gap-2">
+                  {selectedAd.ad_name}
+                  <TierBadge tier={selectedAd.tier} />
+                </DialogTitle>
                 <DialogDescription>
+                  {selectedAd.account_name ? (
+                    <>Conta: {selectedAd.account_name} | </>
+                  ) : null}
                   Campanha: {selectedAd.campaign_name} | Conjunto:{" "}
                   {selectedAd.adset_name}
                 </DialogDescription>
@@ -550,14 +675,14 @@ export default function CreativesPage() {
                       </p>
                     </div>
                   )}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {selectedAd.cta && (
                       <Badge variant="secondary">
                         {selectedAd.cta.replace(/_/g, " ")}
                       </Badge>
                     )}
                     <Badge variant="outline" className="text-xs">
-                      {formatBadge(selectedAd.format)}
+                      {formatFormat(selectedAd.format)}
                     </Badge>
                     {selectedAd.status === "PAUSED" && (
                       <Badge variant="outline" className="text-xs text-yellow-500 border-yellow-500/30">
@@ -576,6 +701,13 @@ export default function CreativesPage() {
                       Vinculacao
                     </h3>
                     <div className="rounded-lg border border-border p-3 space-y-1.5">
+                      {selectedAd.account_name && (
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Conta:</span>
+                          <span className="text-sm font-medium truncate">{selectedAd.account_name}</span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <Megaphone className="h-3.5 w-3.5 text-muted-foreground" />
                         <span className="text-xs text-muted-foreground">

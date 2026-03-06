@@ -1008,3 +1008,200 @@ export function formatMemoriesForPrompt(memories: CoreMemory[]): string {
 
   return sections.join("\n\n");
 }
+
+// --- Saved Creatives ---
+
+export interface SavedCreative {
+  id: string;
+  workspace_id: string;
+  account_id: string;
+  account_name: string | null;
+  ad_id: string;
+  ad_name: string;
+  campaign_name: string | null;
+  campaign_id: string | null;
+  adset_name: string | null;
+  adset_id: string | null;
+  creative_id: string | null;
+  title: string | null;
+  body: string | null;
+  image_url: string | null;
+  thumbnail_url: string | null;
+  video_id: string | null;
+  cta: string | null;
+  format: string | null;
+  destination_url: string | null;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  reach: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  revenue: number;
+  purchases: number;
+  roas: number;
+  tier: string | null;
+  notes: string | null;
+  tags: string[];
+  saved_by: string | null;
+  saved_at: string;
+  date_range: string | null;
+}
+
+export async function listSavedCreatives(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: {
+    tier?: string;
+    tags?: string[];
+    format?: string;
+    min_roas?: number;
+    account_id?: string;
+    limit?: number;
+  }
+): Promise<SavedCreative[]> {
+  let query = supabase
+    .from("saved_creatives")
+    .select("*")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.tier) {
+    query = query.eq("tier", filters.tier);
+  }
+  if (filters?.account_id) {
+    query = query.eq("account_id", filters.account_id);
+  }
+  if (filters?.format) {
+    query = query.eq("format", filters.format);
+  }
+  if (filters?.min_roas) {
+    query = query.gte("roas", filters.min_roas);
+  }
+  if (filters?.tags && filters.tags.length > 0) {
+    query = query.overlaps("tags", filters.tags);
+  }
+
+  const { data, error } = await query
+    .order("roas", { ascending: false })
+    .limit(filters?.limit || 50);
+
+  if (error) throw new Error(`Failed to list saved creatives: ${error.message}`);
+  return data || [];
+}
+
+export async function syncSavedCreatives(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  ads: Array<{
+    account_id?: string;
+    account_name?: string;
+    ad_id: string;
+    ad_name: string;
+    campaign_name: string;
+    campaign_id: string;
+    adset_name: string;
+    adset_id: string;
+    creative_id: string;
+    title: string;
+    body: string;
+    image_url: string;
+    thumbnail_url: string;
+    video_id: string;
+    cta: string;
+    format: string;
+    destination_url: string;
+    impressions: number;
+    clicks: number;
+    spend: number;
+    reach: number;
+    ctr: number;
+    cpc: number;
+    cpm: number;
+    revenue: number;
+    purchases: number;
+    roas: number;
+    tier?: string | null;
+  }>,
+  dateRange: string
+): Promise<void> {
+  const rows = ads.map((ad) => ({
+    workspace_id: workspaceId,
+    account_id: ad.account_id || "",
+    account_name: ad.account_name || null,
+    ad_id: ad.ad_id,
+    ad_name: ad.ad_name,
+    campaign_name: ad.campaign_name,
+    campaign_id: ad.campaign_id,
+    adset_name: ad.adset_name,
+    adset_id: ad.adset_id,
+    creative_id: ad.creative_id,
+    title: ad.title,
+    body: ad.body,
+    image_url: ad.image_url,
+    thumbnail_url: ad.thumbnail_url,
+    video_id: ad.video_id,
+    cta: ad.cta,
+    format: ad.format,
+    destination_url: ad.destination_url,
+    impressions: ad.impressions,
+    clicks: ad.clicks,
+    spend: ad.spend,
+    reach: ad.reach,
+    ctr: ad.ctr,
+    cpc: ad.cpc,
+    cpm: ad.cpm,
+    revenue: ad.revenue,
+    purchases: ad.purchases,
+    roas: ad.roas,
+    tier: ad.tier || null,
+    saved_at: new Date().toISOString(),
+    date_range: dateRange,
+  }));
+
+  const { error } = await supabase
+    .from("saved_creatives")
+    .upsert(rows, { onConflict: "workspace_id,ad_id" });
+
+  if (error) {
+    console.error("Failed to sync saved creatives:", error.message);
+  }
+}
+
+export async function updateCreativeNote(
+  supabase: SupabaseClient,
+  creativeId: string,
+  notes: string,
+  tags?: string[]
+): Promise<SavedCreative> {
+  const updates: Record<string, unknown> = { notes };
+  if (tags !== undefined) updates.tags = tags;
+
+  const { data, error } = await supabase
+    .from("saved_creatives")
+    .update(updates)
+    .eq("id", creativeId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update creative note: ${error.message}`);
+  return data;
+}
+
+export async function getSavedCreativeTiers(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<Record<string, string>> {
+  const { data, error } = await supabase
+    .from("saved_creatives")
+    .select("ad_id, tier")
+    .eq("workspace_id", workspaceId)
+    .not("tier", "is", null);
+
+  if (error) throw new Error(`Failed to get saved tiers: ${error.message}`);
+  const map: Record<string, string> = {};
+  for (const row of data || []) {
+    map[row.ad_id] = row.tier;
+  }
+  return map;
+}

@@ -128,6 +128,9 @@ export interface ActiveAdCreative {
   revenue: number;
   purchases: number;
   roas: number;
+  account_id?: string;
+  account_name?: string;
+  tier?: "champion" | "potential" | "scale" | null;
 }
 
 export interface AdAccount {

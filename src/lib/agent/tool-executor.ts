@@ -18,6 +18,8 @@ import {
   updateTask,
   createDeliverable,
   getAgentBySlug,
+  listSavedCreatives,
+  updateCreativeNote,
 } from "@/lib/agent/memory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -379,6 +381,74 @@ export async function executeToolCall(
         success: true,
         deliverable_id: deliverable.id,
         message: `Entrega salva: "${deliverable.title}" (${deliverable.deliverable_type})`,
+      };
+    }
+
+    // --- Saved Creatives Tools ---
+
+    case "list_saved_creatives": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Criativos salvos nao disponiveis (workspace nao configurado)",
+        };
+      }
+      const creatives = await listSavedCreatives(supabase, workspaceId, {
+        tier: (toolInput.tier as string) || undefined,
+        tags: (toolInput.tags as string[]) || undefined,
+        format: (toolInput.format as string) || undefined,
+        min_roas: (toolInput.min_roas as number) || undefined,
+        account_id: (toolInput.account_id as string) || undefined,
+        limit: (toolInput.limit as number) || 20,
+      });
+
+      return {
+        creatives: creatives.map((c) => ({
+          id: c.id,
+          ad_name: c.ad_name,
+          account_name: c.account_name,
+          format: c.format,
+          tier: c.tier,
+          campaign_name: c.campaign_name,
+          spend: c.spend,
+          revenue: c.revenue,
+          roas: c.roas,
+          ctr: c.ctr,
+          cpc: c.cpc,
+          impressions: c.impressions,
+          clicks: c.clicks,
+          title: c.title,
+          body: c.body ? c.body.slice(0, 200) : null,
+          cta: c.cta,
+          destination_url: c.destination_url,
+          image_url: c.image_url,
+          tags: c.tags,
+          notes: c.notes,
+          date_range: c.date_range,
+        })),
+        count: creatives.length,
+        message:
+          creatives.length === 0
+            ? "Nenhum criativo campeao encontrado. Os criativos sao classificados automaticamente na pagina de Criativos."
+            : `Encontrados ${creatives.length} criativos classificados.`,
+      };
+    }
+
+    case "add_creative_note": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Criativos salvos nao disponiveis (workspace nao configurado)",
+        };
+      }
+      const updated = await updateCreativeNote(
+        supabase,
+        toolInput.creative_id as string,
+        toolInput.notes as string,
+        toolInput.tags as string[] | undefined
+      );
+      return {
+        success: true,
+        message: `Anotacao atualizada para "${updated.ad_name}"`,
+        creative_id: updated.id,
       };
     }
 

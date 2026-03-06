@@ -496,20 +496,101 @@ const TEAM_TOOLS: Tool[] = [
   },
 ];
 
+// --- Saved Creatives Tools ---
+
+const SAVED_CREATIVES_TOOLS: Tool[] = [
+  {
+    name: "list_saved_creatives",
+    description:
+      "Lista criativos classificados automaticamente como campeoes, potencial ou escala. Use para buscar referencia de criativos que performaram bem. Inclui metricas de performance (impressoes, cliques, CTR, CPC, spend, receita, ROAS), copy, formato, URL de destino e anotacoes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tier: {
+          type: "string",
+          enum: ["champion", "potential", "scale"],
+          description:
+            "Filtrar por classificacao: champion (ROAS alto + volume), potential (ROAS alto, pouco gasto), scale (volume alto, ROAS positivo)",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Filtrar por tags (ex: ['winner', 'hero']). Retorna criativos que tem QUALQUER uma das tags.",
+        },
+        format: {
+          type: "string",
+          enum: ["image", "video", "carousel"],
+          description: "Filtrar por formato do criativo",
+        },
+        min_roas: {
+          type: "number",
+          description:
+            "ROAS minimo (ex: 2.0 para criativos com pelo menos 2x de retorno)",
+        },
+        account_id: {
+          type: "string",
+          description: "Filtrar por conta de anuncios especifica",
+        },
+        limit: {
+          type: "number",
+          description: "Numero maximo de resultados (default: 20)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "add_creative_note",
+    description:
+      "Adiciona ou atualiza anotacoes e tags em um criativo salvo. Use para registrar insights, razoes de performance, padroes identificados ou sugestoes de iteracao.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        creative_id: {
+          type: "string",
+          description: "ID do criativo salvo (UUID retornado por list_saved_creatives)",
+        },
+        notes: {
+          type: "string",
+          description:
+            "Anotacao sobre o criativo. Pode incluir analise de performance, padroes, sugestoes.",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Tags para categorizar (substitui as anteriores). Ex: ['winner', 'hero', 'escala']",
+        },
+      },
+      required: ["creative_id", "notes"],
+    },
+  },
+];
+
 // --- Backward compat: all tools in one array (used by existing /agent page) ---
 
-export const AGENT_TOOLS: Tool[] = [...META_TOOLS, ...MEMORY_TOOLS, ...TEAM_TOOLS];
+export const AGENT_TOOLS: Tool[] = [
+  ...META_TOOLS,
+  ...MEMORY_TOOLS,
+  ...TEAM_TOOLS,
+  ...SAVED_CREATIVES_TOOLS,
+];
 
 // --- Per-agent tool selection ---
 
 export function getToolsForAgent(agentSlug?: string): Tool[] {
-  // Vortex (default) gets Meta + Memory tools
+  // Vortex (default) gets Meta + Memory + Saved Creatives tools
   if (!agentSlug || agentSlug === "vortex") {
-    return [...META_TOOLS, ...MEMORY_TOOLS];
+    return [...META_TOOLS, ...MEMORY_TOOLS, ...SAVED_CREATIVES_TOOLS];
   }
-  // Marcos (CMO) and paid-ads specialist get Team + Meta tools
+  // Marcos (CMO) and paid-ads specialist get Team + Meta + Saved Creatives
   if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
-    return [...TEAM_TOOLS, ...META_TOOLS];
+    return [...TEAM_TOOLS, ...META_TOOLS, ...SAVED_CREATIVES_TOOLS];
+  }
+  // Ad creative and copywriting agents get Team + Saved Creatives
+  if (agentSlug === "ad-creative" || agentSlug === "copywriting") {
+    return [...TEAM_TOOLS, ...SAVED_CREATIVES_TOOLS];
   }
   // Other team agents get only Team tools
   return TEAM_TOOLS;
