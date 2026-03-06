@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt } from "@/lib/encryption";
 import { getAdAccounts, setContextToken } from "@/lib/meta-api";
-import { decrypt } from "@/lib/encryption";
+import { testVndaConnection } from "@/lib/vnda-api";
 
 function getSupabase(request: NextRequest) {
   return createServerClient(
@@ -49,9 +49,19 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .single();
 
+    // Get VNDA connection status
+    const { data: vndaConnection } = await supabase
+      .from("vnda_connections")
+      .select("id, store_host, store_name, created_at")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
     return NextResponse.json({
       accounts: accounts || [],
       connection: connection || null,
+      vndaConnection: vndaConnection || null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -304,6 +314,49 @@ export async function POST(request: NextRequest) {
           .eq("workspace_id", workspace_id)
           .eq("account_id", account_id);
 
+        if (error) throw error;
+        return NextResponse.json({ success: true });
+      }
+
+      case "save_vnda_connection": {
+        const { api_token, store_host, store_name } = args;
+        const encryptedToken = encrypt(api_token);
+
+        // Upsert connection
+        const { data: existingVnda } = await supabase
+          .from("vnda_connections")
+          .select("id")
+          .eq("workspace_id", workspace_id)
+          .limit(1)
+          .single();
+
+        if (existingVnda) {
+          const { error } = await supabase
+            .from("vnda_connections")
+            .update({ api_token: encryptedToken, store_host, store_name, updated_at: new Date().toISOString() })
+            .eq("id", existingVnda.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from("vnda_connections")
+            .insert({ workspace_id, api_token: encryptedToken, store_host, store_name });
+          if (error) throw error;
+        }
+
+        return NextResponse.json({ success: true });
+      }
+
+      case "test_vnda_connection": {
+        const { api_token, store_host } = args;
+        const result = await testVndaConnection({ apiToken: api_token, storeHost: store_host });
+        return NextResponse.json(result);
+      }
+
+      case "delete_vnda_connection": {
+        const { error } = await supabase
+          .from("vnda_connections")
+          .delete()
+          .eq("workspace_id", workspace_id);
         if (error) throw error;
         return NextResponse.json({ success: true });
       }

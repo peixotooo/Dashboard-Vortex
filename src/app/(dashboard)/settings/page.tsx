@@ -14,6 +14,7 @@ import {
   Building2,
   Star,
   Save,
+  ShoppingBag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,18 @@ export default function SettingsPage() {
   const [wsMessage, setWsMessage] = useState("");
   const [wsError, setWsError] = useState("");
 
+  // VNDA Connection
+  const [vndaToken, setVndaToken] = useState("");
+  const [vndaHost, setVndaHost] = useState("");
+  const [vndaName, setVndaName] = useState("");
+  const [savingVnda, setSavingVnda] = useState(false);
+  const [vndaSaved, setVndaSaved] = useState(false);
+  const [vndaError, setVndaError] = useState("");
+  const [hasVndaConnection, setHasVndaConnection] = useState(false);
+  const [vndaConnectionInfo, setVndaConnectionInfo] = useState<{ store_host?: string; store_name?: string; created_at?: string } | null>(null);
+  const [testingVnda, setTestingVnda] = useState(false);
+  const [vndaTestResult, setVndaTestResult] = useState<{ ok?: boolean; message?: string } | null>(null);
+
   // Load workspace data
   const loadWorkspaceData = useCallback(async () => {
     if (!workspace?.id) return;
@@ -96,6 +109,10 @@ export default function SettingsPage() {
         setSelectedIds(selected);
         const def = data.accounts.find((a: SavedAccount) => a.is_default);
         if (def) setDefaultAccountId(def.account_id);
+      }
+      if (data.vndaConnection) {
+        setHasVndaConnection(true);
+        setVndaConnectionInfo(data.vndaConnection);
       }
     } catch {
       // Silent
@@ -395,6 +412,102 @@ export default function SettingsPage() {
     }
   }
 
+  // === VNDA handlers ===
+
+  async function handleSaveVndaConnection() {
+    if (!vndaToken || !vndaHost || !workspace) return;
+    setSavingVnda(true);
+    setVndaError("");
+    setVndaSaved(false);
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_vnda_connection",
+          workspace_id: workspace.id,
+          api_token: vndaToken,
+          store_host: vndaHost,
+          store_name: vndaName || vndaHost,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setVndaError(data.error);
+      } else {
+        setVndaSaved(true);
+        setVndaToken("");
+        setHasVndaConnection(true);
+        await loadWorkspaceData();
+      }
+    } catch {
+      setVndaError("Erro ao salvar conexão VNDA");
+    } finally {
+      setSavingVnda(false);
+    }
+  }
+
+  async function handleTestVndaConnection() {
+    const token = vndaToken || undefined;
+    const host = vndaHost || vndaConnectionInfo?.store_host;
+    if (!host || !workspace) return;
+
+    // If no new token typed, we need to fetch from the API using saved connection
+    if (!token && !hasVndaConnection) return;
+
+    setTestingVnda(true);
+    setVndaTestResult(null);
+    try {
+      if (token) {
+        // Test with the token typed in the field
+        const res = await fetch("/api/workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "test_vnda_connection",
+            workspace_id: workspace.id,
+            api_token: token,
+            store_host: host,
+          }),
+        });
+        setVndaTestResult(await res.json());
+      } else {
+        // Test by fetching 1 insight from saved connection
+        const res = await fetch(`/api/vnda/insights?date_preset=last_7d`, {
+          headers: { "x-workspace-id": workspace.id },
+        });
+        const data = await res.json();
+        setVndaTestResult(data.configured
+          ? { ok: true, message: `Conexão OK. ${data.totals?.orders || 0} pedidos nos últimos 7 dias.` }
+          : { ok: false, message: data.error || "Não foi possível conectar" }
+        );
+      }
+    } catch {
+      setVndaTestResult({ ok: false, message: "Erro ao testar conexão" });
+    } finally {
+      setTestingVnda(false);
+    }
+  }
+
+  async function handleDeleteVndaConnection() {
+    if (!workspace) return;
+    try {
+      await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_vnda_connection",
+          workspace_id: workspace.id,
+        }),
+      });
+      setHasVndaConnection(false);
+      setVndaConnectionInfo(null);
+      setVndaTestResult(null);
+    } catch {
+      // Silent
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -417,6 +530,10 @@ export default function SettingsPage() {
           <TabsTrigger value="workspace">
             <Building2 className="h-4 w-4 mr-2" />
             Workspace
+          </TabsTrigger>
+          <TabsTrigger value="vnda">
+            <ShoppingBag className="h-4 w-4 mr-2" />
+            VNDA
           </TabsTrigger>
           <TabsTrigger value="health">
             <Activity className="h-4 w-4 mr-2" />
@@ -842,6 +959,129 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ===== VNDA Tab ===== */}
+        <TabsContent value="vnda" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingBag className="h-5 w-5 text-emerald-500" />
+                Conexão VNDA E-commerce
+              </CardTitle>
+              <CardDescription>
+                {hasVndaConnection
+                  ? "Conexão ativa com a VNDA. Insira novos dados para substituir."
+                  : "Configure o token da API VNDA para importar dados reais de pedidos e faturamento."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!isAdmin ? (
+                <p className="text-sm text-muted-foreground">
+                  Apenas administradores podem gerenciar a conexão VNDA.
+                </p>
+              ) : (
+                <>
+                  {hasVndaConnection && vndaConnectionInfo && (
+                    <div className="flex items-center justify-between p-3 bg-emerald-500/10 rounded-lg mb-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-emerald-500" />
+                        <span className="text-sm text-emerald-500">
+                          Conectado a {vndaConnectionInfo.store_name || vndaConnectionInfo.store_host} desde{" "}
+                          {new Date(vndaConnectionInfo.created_at!).toLocaleDateString("pt-BR")}
+                        </span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={handleDeleteVndaConnection} className="text-destructive hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>Token da API</Label>
+                    <Input
+                      type="password"
+                      value={vndaToken}
+                      onChange={(e) => setVndaToken(e.target.value)}
+                      placeholder={hasVndaConnection ? "Novo token (deixe vazio para manter)" : "Token gerado no Admin VNDA"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Gere em: Admin VNDA &gt; Configurações &gt; Tokens de Desenvolvedor
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Host da Loja</Label>
+                    <Input
+                      value={vndaHost || vndaConnectionInfo?.store_host || ""}
+                      onChange={(e) => setVndaHost(e.target.value)}
+                      placeholder="www.sualoja.com.br"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Nome da Loja (opcional)</Label>
+                    <Input
+                      value={vndaName || vndaConnectionInfo?.store_name || ""}
+                      onChange={(e) => setVndaName(e.target.value)}
+                      placeholder="Minha Loja"
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleSaveVndaConnection}
+                      disabled={(!vndaToken || !vndaHost) || savingVnda}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      {savingVnda ? "Salvando..." : hasVndaConnection ? "Atualizar Conexão" : "Salvar Conexão"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestVndaConnection}
+                      disabled={testingVnda || (!vndaToken && !hasVndaConnection)}
+                    >
+                      {testingVnda ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Testando...
+                        </>
+                      ) : (
+                        "Testar Conexão"
+                      )}
+                    </Button>
+                  </div>
+
+                  {vndaSaved && (
+                    <div className="flex items-center gap-2 p-3 bg-emerald-500/10 rounded-lg">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      <span className="text-sm text-emerald-500">Conexão VNDA salva com sucesso!</span>
+                    </div>
+                  )}
+
+                  {vndaError && (
+                    <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                      <XCircle className="h-4 w-4 text-destructive" />
+                      <span className="text-sm text-destructive">{vndaError}</span>
+                    </div>
+                  )}
+
+                  {vndaTestResult && (
+                    <div className={`flex items-center gap-2 p-3 rounded-lg ${vndaTestResult.ok ? "bg-emerald-500/10" : "bg-destructive/10"}`}>
+                      {vndaTestResult.ok ? (
+                        <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className={`text-sm ${vndaTestResult.ok ? "text-emerald-500" : "text-destructive"}`}>
+                        {vndaTestResult.message}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

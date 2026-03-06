@@ -28,6 +28,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 import type { DatePreset } from "@/lib/types";
 
 // --- Helpers ---
@@ -95,6 +96,23 @@ interface DailyRow {
   clicks: number;
 }
 
+interface VndaTotals {
+  orders: number;
+  revenue: number;
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  avgTicket: number;
+  productsSold: number;
+}
+
+interface VndaDailyRow {
+  date: string;
+  dateRaw: string;
+  orders: number;
+  revenue: number;
+}
+
 interface OverviewData {
   // Meta
   spend: number;
@@ -111,6 +129,8 @@ interface OverviewData {
   txConversao: number;
   roas: number;
   ga4Configured: boolean;
+  // VNDA
+  vndaConfigured: boolean;
   // Combined
   trendData: DailyRow[];
   dailyData: DailyRow[];
@@ -118,10 +138,12 @@ interface OverviewData {
   // Comparison
   metaComparison: MetaComparison | null;
   ga4Comparison: GA4Totals | null;
+  vndaComparison: VndaTotals | null;
 }
 
 export default function OverviewPage() {
   const { accountId } = useAccount();
+  const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OverviewData>({
@@ -138,11 +160,13 @@ export default function OverviewPage() {
     txConversao: 0,
     roas: 0,
     ga4Configured: false,
+    vndaConfigured: false,
     trendData: [],
     dailyData: [],
     topCampaigns: [],
     metaComparison: null,
     ga4Comparison: null,
+    vndaComparison: null,
   });
 
   useEffect(() => {
@@ -151,19 +175,27 @@ export default function OverviewPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        // Fetch Meta + GA4 + Campaigns in parallel
-        const [insightsRes, ga4Res, campaignsRes] = await Promise.all([
+        // Fetch Meta + GA4 + VNDA + Campaigns in parallel
+        const vndaHeaders: Record<string, string> = {};
+        if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
+
+        const [insightsRes, ga4Res, vndaRes, campaignsRes] = await Promise.all([
           fetch(
             `/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&include_comparison=true`
           ),
           fetch(
             `/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`
           ),
+          fetch(
+            `/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`,
+            { headers: vndaHeaders }
+          ),
           fetch(`/api/campaigns?account_id=${accountId}&limit=5`),
         ]);
 
         const insightsData = await insightsRes.json();
         const ga4Data = await ga4Res.json();
+        const vndaData = await vndaRes.json();
         const campaignsData = await campaignsRes.json();
 
         // --- Process Meta data ---
@@ -247,16 +279,42 @@ export default function OverviewPage() {
           pageViews: 0,
         };
 
-        // --- Merge daily data (Meta + GA4 by date) ---
-        // GA4 has priority for revenue/transactions; Meta is fallback
+        // --- Process VNDA data ---
+        const vndaConfigured = vndaData.configured === true;
+        const vndaInsights: VndaDailyRow[] = (vndaData.insights || []).map(
+          (row: Record<string, unknown>) => ({
+            date: row.date as string,
+            dateRaw: (row.dateRaw as string) || "",
+            orders: (row.orders as number) || 0,
+            revenue: (row.revenue as number) || 0,
+          })
+        );
+        const vndaTotals: VndaTotals = vndaData.totals || {
+          orders: 0,
+          revenue: 0,
+          subtotal: 0,
+          discount: 0,
+          shipping: 0,
+          avgTicket: 0,
+          productsSold: 0,
+        };
+
+        // --- Merge daily data (Meta + GA4 + VNDA by date) ---
+        // Priority: VNDA > GA4 > Meta for revenue/orders
         const trendData: DailyRow[] = metaDaily.map((metaDay) => {
           const ga4Day = ga4Insights.find((g) => g.date === metaDay.date);
-          const revenue = ga4Configured
-            ? (ga4Day?.revenue ?? 0)
-            : metaDay.metaRevenue;
-          const transactions = ga4Configured
-            ? (ga4Day?.transactions ?? 0)
-            : metaDay.metaPurchases;
+          const vndaDay = vndaInsights.find((v) => v.date === metaDay.date);
+
+          const revenue = vndaConfigured
+            ? (vndaDay?.revenue ?? 0)
+            : ga4Configured
+              ? (ga4Day?.revenue ?? 0)
+              : metaDay.metaRevenue;
+          const transactions = vndaConfigured
+            ? (vndaDay?.orders ?? 0)
+            : ga4Configured
+              ? (ga4Day?.transactions ?? 0)
+              : metaDay.metaPurchases;
           const sessions = ga4Day?.sessions ?? 0;
 
           return {
@@ -286,13 +344,17 @@ export default function OverviewPage() {
         });
 
         // --- Calculate totals ---
-        // Use GA4 data when available, otherwise fall back to Meta purchase data
-        const totalRevenue = ga4Configured
-          ? ga4Totals.revenue
-          : totalMetaRevenue;
-        const totalPedidos = ga4Configured
-          ? ga4Totals.transactions
-          : totalMetaPurchases;
+        // Priority: VNDA > GA4 > Meta for revenue/orders
+        const totalRevenue = vndaConfigured
+          ? vndaTotals.revenue
+          : ga4Configured
+            ? ga4Totals.revenue
+            : totalMetaRevenue;
+        const totalPedidos = vndaConfigured
+          ? vndaTotals.orders
+          : ga4Configured
+            ? ga4Totals.transactions
+            : totalMetaPurchases;
         const totalSessions = ga4Configured
           ? ga4Totals.sessions
           : 0;
@@ -322,11 +384,13 @@ export default function OverviewPage() {
           txConversao: totalTxConversao,
           roas: totalRoas,
           ga4Configured,
+          vndaConfigured,
           trendData,
           dailyData,
           topCampaigns: campaigns,
           metaComparison: insightsData.comparison || null,
           ga4Comparison: ga4Data.comparison || null,
+          vndaComparison: vndaData.comparison || null,
         });
       } catch {
         // Keep default empty state
@@ -336,7 +400,7 @@ export default function OverviewPage() {
     }
 
     fetchData();
-  }, [datePreset, accountId]);
+  }, [datePreset, accountId, workspace?.id]);
 
   function calcChange(
     current: number,
@@ -348,10 +412,19 @@ export default function OverviewPage() {
 
   const mc = data.metaComparison;
   const gc = data.ga4Comparison;
+  const vc = data.vndaComparison;
 
-  // Previous period revenue: GA4 if available, otherwise Meta
-  const prevRevenue = data.ga4Configured && gc ? gc.revenue : mc?.revenue;
-  const prevPurchases = data.ga4Configured && gc ? gc.transactions : mc?.purchases;
+  // Previous period revenue: VNDA > GA4 > Meta
+  const prevRevenue = data.vndaConfigured && vc
+    ? vc.revenue
+    : data.ga4Configured && gc
+      ? gc.revenue
+      : mc?.revenue;
+  const prevPurchases = data.vndaConfigured && vc
+    ? vc.orders
+    : data.ga4Configured && gc
+      ? gc.transactions
+      : mc?.purchases;
 
   // Previous period ROAS
   const prevRoas =
@@ -361,14 +434,16 @@ export default function OverviewPage() {
     prevPurchases && prevPurchases > 0 && prevRevenue !== undefined
       ? prevRevenue / prevPurchases
       : undefined;
-  // Previous period tx conversão
+  // Previous period tx conversão — uses GA4 sessions for denominator, VNDA/GA4 orders for numerator
+  const prevTxOrders = data.vndaConfigured && vc ? vc.orders : gc?.transactions;
   const prevTxConversao =
-    gc && gc.sessions > 0
-      ? (gc.transactions / gc.sessions) * 100
+    gc && gc.sessions > 0 && prevTxOrders
+      ? (prevTxOrders / gc.sessions) * 100
       : undefined;
 
-  const revenueSource = data.ga4Configured ? "GA4" : "Meta";
-  const revenueColor = data.ga4Configured ? "#f97316" : "#1877f2";
+  // Revenue source badge: VNDA > GA4 > Meta
+  const revenueSource = data.vndaConfigured ? "VNDA" : data.ga4Configured ? "GA4" : "Meta";
+  const revenueColor = data.vndaConfigured ? "#10b981" : data.ga4Configured ? "#f97316" : "#1877f2";
 
   return (
     <div className="space-y-6">
@@ -377,7 +452,7 @@ export default function OverviewPage() {
         <div>
           <h1 className="text-2xl font-bold">Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Visão geral Meta Ads{data.ga4Configured ? " + GA4" : ""}
+            Visão geral Meta Ads{data.ga4Configured ? " + GA4" : ""}{data.vndaConfigured ? " + VNDA" : ""}
           </p>
         </div>
         <DateRangePicker value={datePreset} onChange={setDatePreset} />
@@ -412,8 +487,8 @@ export default function OverviewPage() {
           icon={Target}
           iconColor="text-purple-400"
           loading={loading}
-          badge={data.ga4Configured ? "Meta + GA4" : "Meta"}
-          badgeColor="#8b5cf6"
+          badge={data.vndaConfigured ? "Meta + VNDA" : data.ga4Configured ? "Meta + GA4" : "Meta"}
+          badgeColor={data.vndaConfigured ? "#10b981" : "#8b5cf6"}
         />
         <KpiCard
           title="Pedidos"
@@ -496,6 +571,12 @@ export default function OverviewPage() {
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#f97316" }} />
           <span className="text-xs text-muted-foreground">GA4</span>
         </span>
+        {data.vndaConfigured && (
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#10b981" }} />
+            <span className="text-xs text-muted-foreground">VNDA</span>
+          </span>
+        )}
       </div>
       <PerformanceTable
         title="Controle Diário"
