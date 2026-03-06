@@ -64,6 +64,7 @@ interface GA4Totals {
 
 interface GA4DailyRow {
   date: string;
+  dateRaw: string;
   sessions: number;
   users: number;
   transactions: number;
@@ -92,6 +93,7 @@ interface GoogleAdsTotals {
 
 interface GoogleAdsDailyRow {
   date: string;
+  dateRaw: string;
   cost: number;
   clicks: number;
   impressions: number;
@@ -234,6 +236,7 @@ export default function OverviewPage() {
 
         interface MetaDailyItem {
           date: string;
+          dateRaw: string;
           spend: number;
           cpc: number;
           impressions: number;
@@ -268,8 +271,10 @@ export default function OverviewPage() {
             totalMetaRevenue += metaRevenue;
             totalMetaPurchases += metaPurchases;
 
+            const dateStart = (row.date_start as string) || "";
             return {
-              date: ((row.date_start as string) || "").slice(8, 10) + "/" + ((row.date_start as string) || "").slice(5, 7),
+              date: dateStart.slice(8, 10) + "/" + dateStart.slice(5, 7),
+              dateRaw: dateStart.slice(0, 10),
               spend: parseFloat(spend.toFixed(2)),
               cpc: parseFloat(cpc.toFixed(2)),
               impressions,
@@ -291,6 +296,7 @@ export default function OverviewPage() {
         const ga4Insights: GA4DailyRow[] = (ga4Data.insights || []).map(
           (row: Record<string, unknown>) => ({
             date: row.date as string,
+            dateRaw: (row.dateRaw as string) || "",
             sessions: (row.sessions as number) || 0,
             users: (row.users as number) || 0,
             transactions: (row.transactions as number) || 0,
@@ -312,6 +318,7 @@ export default function OverviewPage() {
         const gadsDaily: GoogleAdsDailyRow[] = (ga4Data.googleAds?.daily || []).map(
           (row: Record<string, unknown>) => ({
             date: row.date as string,
+            dateRaw: (row.dateRaw as string) || "",
             cost: (row.cost as number) || 0,
             clicks: (row.clicks as number) || 0,
             impressions: (row.impressions as number) || 0,
@@ -338,30 +345,52 @@ export default function OverviewPage() {
           productsSold: 0,
         };
 
-        // --- Merge daily data (Meta + Google Ads + GA4 + VNDA by date) ---
+        // --- Merge daily data (UNION of Meta + Google Ads + GA4 + VNDA by dateRaw) ---
         // Priority: VNDA > GA4 > Meta for revenue/orders
-        const trendData: DailyRow[] = metaDaily.map((metaDay) => {
-          const ga4Day = ga4Insights.find((g) => g.date === metaDay.date);
-          const vndaDay = vndaInsights.find((v) => v.date === metaDay.date);
-          const gadsDay = gadsDaily.find((g) => g.date === metaDay.date);
+        const normDate = (raw: string) =>
+          raw.length === 8 && !raw.includes("-")
+            ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+            : raw.slice(0, 10);
+        const toDisplay = (raw: string) => `${raw.slice(8, 10)}/${raw.slice(5, 7)}`;
+
+        const metaMap = new Map(metaDaily.map((d) => [d.dateRaw, d]));
+        const ga4Map = new Map(ga4Insights.map((d) => [normDate(d.dateRaw), d]));
+        const vndaMap = new Map(vndaInsights.map((d) => [normDate(d.dateRaw), d]));
+        const gadsMap = new Map(gadsDaily.map((d) => [normDate(d.dateRaw), d]));
+
+        const allDatesSet = new Set<string>();
+        for (const [k] of metaMap) allDatesSet.add(k);
+        for (const [k] of ga4Map) allDatesSet.add(k);
+        for (const [k] of vndaMap) allDatesSet.add(k);
+        for (const [k] of gadsMap) allDatesSet.add(k);
+
+        const allDates = [...allDatesSet].sort();
+
+        const trendData: DailyRow[] = allDates.map((rawDate) => {
+          const metaDay = metaMap.get(rawDate);
+          const ga4Day = ga4Map.get(rawDate);
+          const vndaDay = vndaMap.get(rawDate);
+          const gadsDay = gadsMap.get(rawDate);
+
+          const spend = metaDay?.spend ?? 0;
+          const googleAdsCost = gadsDay?.cost ?? 0;
+          const totalDaySpend = spend + googleAdsCost;
 
           const revenue = vndaConfigured
             ? (vndaDay?.revenue ?? 0)
             : ga4Configured
               ? (ga4Day?.revenue ?? 0)
-              : metaDay.metaRevenue;
+              : (metaDay?.metaRevenue ?? 0);
           const transactions = vndaConfigured
             ? (vndaDay?.orders ?? 0)
             : ga4Configured
               ? (ga4Day?.transactions ?? 0)
-              : metaDay.metaPurchases;
+              : (metaDay?.metaPurchases ?? 0);
           const sessions = ga4Day?.sessions ?? 0;
-          const googleAdsCost = gadsDay?.cost ?? 0;
-          const totalDaySpend = metaDay.spend + googleAdsCost;
 
           return {
-            date: metaDay.date,
-            spend: metaDay.spend,
+            date: toDisplay(rawDate),
+            spend: parseFloat(spend.toFixed(2)),
             googleAdsCost: parseFloat(googleAdsCost.toFixed(2)),
             totalSpend: parseFloat(totalDaySpend.toFixed(2)),
             revenue: parseFloat(revenue.toFixed(2)),
@@ -381,9 +410,9 @@ export default function OverviewPage() {
                     ((transactions / sessions) * 100).toFixed(2)
                   )
                 : 0,
-            cpc: metaDay.cpc,
-            impressions: metaDay.impressions,
-            clicks: metaDay.clicks,
+            cpc: metaDay?.cpc ?? 0,
+            impressions: metaDay?.impressions ?? 0,
+            clicks: metaDay?.clicks ?? 0,
           };
         });
 
@@ -579,16 +608,29 @@ export default function OverviewPage() {
           badge="Meta"
           badgeColor="#1877f2"
         />
-        <KpiCard
-          title="Invest. Google"
-          value={formatCurrency(data.googleAdsCost)}
-          change={calcChange(data.googleAdsCost, gadsc?.cost)}
-          icon={DollarSign}
-          iconColor="text-green-400"
-          loading={loading}
-          badge="Google Ads"
-          badgeColor="#4285f4"
-        />
+        {data.gadsConfigured ? (
+          <KpiCard
+            title="Invest. Google"
+            value={formatCurrency(data.googleAdsCost)}
+            change={calcChange(data.googleAdsCost, gadsc?.cost)}
+            icon={DollarSign}
+            iconColor="text-green-400"
+            loading={loading}
+            badge="Google Ads"
+            badgeColor="#4285f4"
+          />
+        ) : (
+          <KpiCard
+            title="Sessões"
+            value={formatNumber(data.sessions)}
+            change={calcChange(data.sessions, gc?.sessions)}
+            icon={Users}
+            iconColor="text-cyan-400"
+            loading={loading}
+            badge="GA4"
+            badgeColor="#f97316"
+          />
+        )}
         <KpiCard
           title="TX Conversão"
           value={formatPercent(data.txConversao)}

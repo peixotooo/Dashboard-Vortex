@@ -45,6 +45,42 @@ export function formatCompact(value: number | string): string {
   return num.toFixed(0);
 }
 
+export function datePresetToTimeRange(preset: DatePreset): { since: string; until: string } {
+  const today = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const sub = (days: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - days);
+    return d;
+  };
+
+  switch (preset) {
+    case "today":
+      return { since: fmt(today), until: fmt(today) };
+    case "yesterday":
+      return { since: fmt(sub(1)), until: fmt(sub(1)) };
+    case "last_7d":
+      return { since: fmt(sub(7)), until: fmt(sub(1)) };
+    case "last_14d":
+      return { since: fmt(sub(14)), until: fmt(sub(1)) };
+    case "last_30d":
+      return { since: fmt(sub(30)), until: fmt(sub(1)) };
+    case "last_90d":
+      return { since: fmt(sub(90)), until: fmt(sub(1)) };
+    case "this_month": {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { since: fmt(firstDay), until: fmt(today) };
+    }
+    case "last_month": {
+      const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { since: fmt(firstDay), until: fmt(lastDay) };
+    }
+    default:
+      return { since: fmt(sub(30)), until: fmt(sub(1)) };
+  }
+}
+
 export function getPreviousPeriodDates(preset: DatePreset): { since: string; until: string } {
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().slice(0, 10);

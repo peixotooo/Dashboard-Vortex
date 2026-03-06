@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInsights, comparePerformance } from "@/lib/meta-api";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
-import { getPreviousPeriodDates } from "@/lib/utils";
+import { datePresetToTimeRange, getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -16,10 +16,11 @@ export async function GET(request: NextRequest) {
     const fields = searchParams.get("fields") || "";
     const include_comparison = searchParams.get("include_comparison") === "true";
 
+    const timeRange = datePresetToTimeRange(date_preset);
     const result = await getInsights({
       object_id,
       level,
-      date_preset,
+      time_range: timeRange,
       breakdowns: breakdowns ? breakdowns.split(",") : undefined,
       fields: fields ? fields.split(",") : undefined,
     });
