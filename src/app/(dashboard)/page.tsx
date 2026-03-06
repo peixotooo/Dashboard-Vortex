@@ -367,6 +367,9 @@ export default function OverviewPage() {
       ? (gc.transactions / gc.sessions) * 100
       : undefined;
 
+  const revenueSource = data.ga4Configured ? "GA4" : "Meta";
+  const revenueColor = data.ga4Configured ? "#f97316" : "#1877f2";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -389,6 +392,8 @@ export default function OverviewPage() {
           icon={DollarSign}
           iconColor="text-success"
           loading={loading}
+          badge="Meta"
+          badgeColor="#1877f2"
         />
         <KpiCard
           title="Receita"
@@ -397,6 +402,8 @@ export default function OverviewPage() {
           icon={TrendingUp}
           iconColor="text-blue-400"
           loading={loading}
+          badge={revenueSource}
+          badgeColor={revenueColor}
         />
         <KpiCard
           title="ROAS"
@@ -405,6 +412,8 @@ export default function OverviewPage() {
           icon={Target}
           iconColor="text-purple-400"
           loading={loading}
+          badge={data.ga4Configured ? "Meta + GA4" : "Meta"}
+          badgeColor="#8b5cf6"
         />
         <KpiCard
           title="Pedidos"
@@ -413,6 +422,8 @@ export default function OverviewPage() {
           icon={ShoppingCart}
           iconColor="text-warning"
           loading={loading}
+          badge={revenueSource}
+          badgeColor={revenueColor}
         />
       </div>
 
@@ -425,6 +436,8 @@ export default function OverviewPage() {
           icon={Users}
           iconColor="text-cyan-400"
           loading={loading}
+          badge="GA4"
+          badgeColor="#f97316"
         />
         <KpiCard
           title="TX Conversão"
@@ -433,6 +446,8 @@ export default function OverviewPage() {
           icon={Percent}
           iconColor="text-orange-400"
           loading={loading}
+          badge={revenueSource}
+          badgeColor={revenueColor}
         />
         <KpiCard
           title="Ticket Médio"
@@ -441,6 +456,8 @@ export default function OverviewPage() {
           icon={Receipt}
           iconColor="text-emerald-400"
           loading={loading}
+          badge={revenueSource}
+          badgeColor={revenueColor}
         />
         <KpiCard
           title="CPC"
@@ -449,6 +466,8 @@ export default function OverviewPage() {
           icon={MousePointerClick}
           iconColor="text-destructive"
           loading={loading}
+          badge="Meta"
+          badgeColor="#1877f2"
         />
       </div>
 
@@ -467,6 +486,17 @@ export default function OverviewPage() {
       </div>
 
       {/* Controle Diário */}
+      <div className="flex items-center gap-3 -mb-4">
+        <span className="text-xs font-medium text-muted-foreground">Fonte:</span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#1877f2" }} />
+          <span className="text-xs text-muted-foreground">Meta</span>
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#f97316" }} />
+          <span className="text-xs text-muted-foreground">GA4</span>
+        </span>
+      </div>
       <PerformanceTable
         title="Controle Diário"
         columns={[

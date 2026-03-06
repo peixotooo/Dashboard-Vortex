@@ -12,6 +12,8 @@ interface KpiCardProps {
   icon: LucideIcon;
   iconColor?: string;
   loading?: boolean;
+  badge?: string;
+  badgeColor?: string;
 }
 
 export function KpiCard({
@@ -21,6 +23,8 @@ export function KpiCard({
   icon: Icon,
   iconColor = "text-primary",
   loading = false,
+  badge,
+  badgeColor,
 }: KpiCardProps) {
   if (loading) {
     return (
@@ -40,7 +44,20 @@ export function KpiCard({
     <Card className="hover:border-primary/20 transition-colors">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            {badge && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                style={{
+                  color: badgeColor || "#8888a0",
+                  backgroundColor: `${badgeColor || "#8888a0"}15`,
+                }}
+              >
+                {badge}
+              </span>
+            )}
+          </div>
           <div className={cn("rounded-lg bg-muted p-2", iconColor)}>
             <Icon className="h-4 w-4" />
           </div>

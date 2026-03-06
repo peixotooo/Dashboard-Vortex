@@ -177,3 +177,61 @@ export async function getGA4DailyReport(args: {
 
   return { insights, totals };
 }
+
+// --- Generic report function ---
+
+export interface GA4GenericRow {
+  dimensions: Record<string, string>;
+  metrics: Record<string, number>;
+}
+
+export interface GA4GenericReport {
+  rows: GA4GenericRow[];
+}
+
+export async function getGA4Report(args: {
+  propertyId?: string;
+  datePreset?: string;
+  startDate?: string;
+  endDate?: string;
+  dimensions: string[];
+  metrics: string[];
+  limit?: number;
+  orderBy?: { metric: string; desc: boolean };
+}): Promise<GA4GenericReport> {
+  const client = getClient();
+  const propertyId = args.propertyId || getPropertyId();
+
+  const range = args.startDate && args.endDate
+    ? { startDate: args.startDate, endDate: args.endDate }
+    : datePresetToRange(args.datePreset || "last_30d");
+
+  const orderBys = args.orderBy
+    ? [{ metric: { metricName: args.orderBy.metric }, desc: args.orderBy.desc }]
+    : undefined;
+
+  const [response] = await client.runReport({
+    property: `properties/${propertyId}`,
+    dimensions: args.dimensions.map((name) => ({ name })),
+    metrics: args.metrics.map((name) => ({ name })),
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+    limit: args.limit || 50,
+    orderBys,
+  });
+
+  const rows: GA4GenericRow[] = (response.rows || []).map((row) => {
+    const dimensions: Record<string, string> = {};
+    args.dimensions.forEach((dim, i) => {
+      dimensions[dim] = row.dimensionValues?.[i]?.value || "";
+    });
+
+    const metrics: Record<string, number> = {};
+    args.metrics.forEach((met, i) => {
+      metrics[met] = parseFloat(row.metricValues?.[i]?.value || "0");
+    });
+
+    return { dimensions, metrics };
+  });
+
+  return { rows };
+}
