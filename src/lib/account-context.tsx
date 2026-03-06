@@ -41,18 +41,20 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       if (data.accounts && data.accounts.length > 0) {
         setAccounts(data.accounts);
 
-        // Select default account if available, otherwise keep current or pick first
-        const defaultAccount = data.accounts.find(
-          (a: AdAccount & { is_default?: boolean }) => a.is_default
-        );
-        const currentValid = data.accounts.find(
-          (a: AdAccount) => a.id === accountId
-        );
+        // Default to "all" when multiple accounts, otherwise select first
+        const currentValid = accountId === "all"
+          ? data.accounts.length > 1
+          : data.accounts.find((a: AdAccount) => a.id === accountId);
 
-        if (defaultAccount && !currentValid) {
-          setAccountId(defaultAccount.id);
-        } else if (!currentValid) {
-          setAccountId(data.accounts[0].id);
+        if (!currentValid) {
+          if (data.accounts.length > 1) {
+            setAccountId("all");
+          } else {
+            const defaultAccount = data.accounts.find(
+              (a: AdAccount & { is_default?: boolean }) => a.is_default
+            );
+            setAccountId(defaultAccount?.id || data.accounts[0].id);
+          }
         }
       } else {
         setAccounts([]);

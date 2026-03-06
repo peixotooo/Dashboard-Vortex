@@ -167,7 +167,7 @@ interface OverviewData {
 }
 
 export default function OverviewPage() {
-  const { accountId } = useAccount();
+  const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
@@ -204,13 +204,23 @@ export default function OverviewPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        // Fetch Meta + GA4 + VNDA + Campaigns in parallel
+        // Determine which accounts to fetch
+        const accountIds = accountId === "all"
+          ? accounts.map((a) => a.id)
+          : [accountId];
+
+        // Fetch Meta (per-account) + GA4 + VNDA in parallel
         const vndaHeaders: Record<string, string> = {};
         if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
 
-        const [insightsRes, ga4Res, vndaRes, campaignsRes] = await Promise.all([
-          fetch(
-            `/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&include_comparison=true`
+        const [insightsResults, ga4Res, vndaRes, campaignsResults] = await Promise.all([
+          // Fetch insights for each account in parallel
+          Promise.all(
+            accountIds.map((id) =>
+              fetch(
+                `/api/insights?object_id=${id}&level=account&date_preset=${datePreset}&include_comparison=true`
+              ).then((r) => r.json())
+            )
           ),
           fetch(
             `/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`
@@ -219,21 +229,18 @@ export default function OverviewPage() {
             `/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`,
             { headers: vndaHeaders }
           ),
-          fetch(`/api/campaigns?account_id=${accountId}&limit=5`),
+          // Fetch campaigns for each account
+          Promise.all(
+            accountIds.map((id) =>
+              fetch(`/api/campaigns?account_id=${id}&limit=5`).then((r) => r.json())
+            )
+          ),
         ]);
 
-        const insightsData = await insightsRes.json();
         const ga4Data = await ga4Res.json();
         const vndaData = await vndaRes.json();
-        const campaignsData = await campaignsRes.json();
 
-        // --- Process Meta data ---
-        const metaInsights = insightsData.insights || [];
-        let totalSpend = 0;
-        let totalImpressions = 0;
-        let totalClicks = 0;
-        let totalReach = 0;
-
+        // --- Process & aggregate Meta data across all accounts ---
         interface MetaDailyItem {
           date: string;
           dateRaw: string;
@@ -245,20 +252,28 @@ export default function OverviewPage() {
           metaPurchases: number;
         }
 
+        let totalSpend = 0;
+        let totalImpressions = 0;
+        let totalClicks = 0;
+        let totalReach = 0;
         let totalMetaRevenue = 0;
         let totalMetaPurchases = 0;
 
-        const metaDaily: MetaDailyItem[] = metaInsights.map(
-          (row: Record<string, unknown>) => {
+        // Aggregate daily data across accounts using dateRaw as key
+        const dailyAggMap = new Map<string, MetaDailyItem>();
+
+        // Aggregate comparison data across accounts
+        let aggComparison: MetaComparison | null = null;
+
+        for (const insightsData of insightsResults) {
+          const metaInsights = insightsData.insights || [];
+
+          for (const row of metaInsights) {
             const spend = parseFloat((row.spend as string) || "0");
-            const impressions = parseFloat(
-              (row.impressions as string) || "0"
-            );
+            const impressions = parseFloat((row.impressions as string) || "0");
             const clicks = parseFloat((row.clicks as string) || "0");
             const reach = parseFloat((row.reach as string) || "0");
-            const cpc = clicks > 0 ? spend / clicks : 0;
 
-            // Extract purchase data from Meta actions/action_values
             const actions = row.actions as Array<{ action_type: string; value: string }> | undefined;
             const actionValues = row.action_values as Array<{ action_type: string; value: string }> | undefined;
             const metaRevenue = extractActionValue(actionValues, "purchase");
@@ -272,18 +287,58 @@ export default function OverviewPage() {
             totalMetaPurchases += metaPurchases;
 
             const dateStart = (row.date_start as string) || "";
-            return {
-              date: dateStart.slice(8, 10) + "/" + dateStart.slice(5, 7),
-              dateRaw: dateStart.slice(0, 10),
-              spend: parseFloat(spend.toFixed(2)),
-              cpc: parseFloat(cpc.toFixed(2)),
-              impressions,
-              clicks,
-              metaRevenue: parseFloat(metaRevenue.toFixed(2)),
-              metaPurchases,
-            };
+            const dateRaw = dateStart.slice(0, 10);
+            const existing = dailyAggMap.get(dateRaw);
+            if (existing) {
+              existing.spend += spend;
+              existing.impressions += impressions;
+              existing.clicks += clicks;
+              existing.metaRevenue += metaRevenue;
+              existing.metaPurchases += metaPurchases;
+              existing.cpc = existing.clicks > 0 ? existing.spend / existing.clicks : 0;
+            } else {
+              dailyAggMap.set(dateRaw, {
+                date: dateStart.slice(8, 10) + "/" + dateStart.slice(5, 7),
+                dateRaw,
+                spend,
+                cpc: clicks > 0 ? spend / clicks : 0,
+                impressions,
+                clicks,
+                metaRevenue,
+                metaPurchases,
+              });
+            }
           }
-        );
+
+          // Aggregate comparison
+          const comp = insightsData.comparison;
+          if (comp) {
+            if (!aggComparison) {
+              aggComparison = { spend: 0, impressions: 0, clicks: 0, reach: 0, ctr: 0, cpc: 0, revenue: 0, purchases: 0, roas: 0 };
+            }
+            aggComparison.spend += comp.spend || 0;
+            aggComparison.impressions += comp.impressions || 0;
+            aggComparison.clicks += comp.clicks || 0;
+            aggComparison.reach += comp.reach || 0;
+            aggComparison.revenue += comp.revenue || 0;
+            aggComparison.purchases += comp.purchases || 0;
+          }
+        }
+
+        // Recalculate derived comparison metrics
+        if (aggComparison) {
+          aggComparison.ctr = aggComparison.impressions > 0 ? (aggComparison.clicks / aggComparison.impressions) * 100 : 0;
+          aggComparison.cpc = aggComparison.clicks > 0 ? aggComparison.spend / aggComparison.clicks : 0;
+          aggComparison.roas = aggComparison.spend > 0 ? aggComparison.revenue / aggComparison.spend : 0;
+        }
+
+        // Round daily values
+        const metaDaily: MetaDailyItem[] = [...dailyAggMap.values()].map((d) => ({
+          ...d,
+          spend: parseFloat(d.spend.toFixed(2)),
+          cpc: parseFloat(d.cpc.toFixed(2)),
+          metaRevenue: parseFloat(d.metaRevenue.toFixed(2)),
+        }));
 
         const totalCtr =
           totalImpressions > 0
@@ -442,7 +497,7 @@ export default function OverviewPage() {
             : 0;
 
         const dailyData = [...trendData].reverse();
-        const campaigns = campaignsData.campaigns || [];
+        const campaigns = campaignsResults.flatMap((r) => r.campaigns || []);
 
         setData({
           spend: totalSpend,
@@ -465,7 +520,7 @@ export default function OverviewPage() {
           trendData,
           dailyData,
           topCampaigns: campaigns,
-          metaComparison: insightsData.comparison || null,
+          metaComparison: aggComparison,
           ga4Comparison: ga4Data.comparison || null,
           vndaComparison: vndaData.comparison || null,
           gadsComparison: ga4Data.googleAdsComparison || null,
@@ -478,7 +533,7 @@ export default function OverviewPage() {
     }
 
     fetchData();
-  }, [datePreset, accountId, workspace?.id]);
+  }, [datePreset, accountId, accounts, workspace?.id]);
 
   function calcChange(
     current: number,

@@ -33,6 +33,9 @@ export function AccountSelector() {
         <SelectValue placeholder="Selecione a conta" />
       </SelectTrigger>
       <SelectContent>
+        {accounts.length > 1 && (
+          <SelectItem value="all">Todas as Contas</SelectItem>
+        )}
         {accounts.map((account) => (
           <SelectItem key={account.id} value={account.id}>
             {account.name || account.account_id}
