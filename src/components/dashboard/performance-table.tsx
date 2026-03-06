@@ -10,6 +10,8 @@ interface Column {
   label: string;
   format?: "currency" | "budget" | "number" | "percent" | "status" | "text";
   align?: "left" | "right" | "center";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  render?: (value: unknown, row: Record<string, any>) => React.ReactNode;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,7 +136,7 @@ export function PerformanceTable({
                             : "text-left"
                         }`}
                       >
-                        {formatCell(row[col.key], col.format)}
+                        {col.render ? col.render(row[col.key], row) : formatCell(row[col.key], col.format)}
                       </td>
                     ))}
                     {actions && (

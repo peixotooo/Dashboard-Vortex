@@ -101,6 +101,33 @@ export interface Creative {
   thumbnail_url?: string;
 }
 
+export interface ActiveAdCreative {
+  ad_id: string;
+  ad_name: string;
+  campaign_name: string;
+  campaign_id: string;
+  adset_name: string;
+  adset_id: string;
+  creative_id: string;
+  title: string;
+  body: string;
+  image_url: string;
+  thumbnail_url: string;
+  video_id: string;
+  cta: string;
+  format: "image" | "video" | "carousel" | "unknown";
+  impressions: number;
+  clicks: number;
+  spend: number;
+  reach: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  revenue: number;
+  purchases: number;
+  roas: number;
+}
+
 export interface AdAccount {
   id: string;
   account_id: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Image as ImageIcon,
   Eye,
@@ -11,10 +11,19 @@ import {
   Users,
   Megaphone,
   Layers,
+  ArrowUpDown,
+  Video,
+  GalleryHorizontal,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -22,320 +31,394 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useAccount } from "@/lib/account-context";
+import { Button } from "@/components/ui/button";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import { PerformanceTable } from "@/components/dashboard/performance-table";
+import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
-import type { Creative } from "@/lib/types";
-
-interface CreativeDetails {
-  creative: Creative;
-  ads: Array<{
-    id: string;
-    name: string;
-    status: string;
-    campaign_id: string;
-    adset_id: string;
-    campaign?: { name: string; id: string };
-    adset?: { name: string; id: string };
-  }>;
-  metrics: {
-    impressions: number;
-    clicks: number;
-    spend: number;
-    reach: number;
-    ctr: number;
-    cpc: number;
-  };
-}
+import { useAccount } from "@/lib/account-context";
+import type { DatePreset, ActiveAdCreative } from "@/lib/types";
 
 export default function CreativesPage() {
-  const { accountId } = useAccount();
-  const [creatives, setCreatives] = useState<Creative[]>([]);
+  const { accountId, accounts } = useAccount();
+  const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
+  const [ads, setAds] = useState<ActiveAdCreative[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
-  const [details, setDetails] = useState<CreativeDetails | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [selectedAd, setSelectedAd] = useState<ActiveAdCreative | null>(null);
+  const [sortKey, setSortKey] = useState("spend");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const fetchCreatives = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     if (!accountId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/creatives?account_id=${accountId}`);
-      const data = await res.json();
-      setCreatives(data.creatives || []);
+      const accountIds =
+        accountId === "all" ? accounts.map((a) => a.id) : [accountId];
+
+      const results = await Promise.all(
+        accountIds.map((id) =>
+          fetch(
+            `/api/creatives?account_id=${id}&date_preset=${datePreset}`
+          ).then((r) => r.json())
+        )
+      );
+
+      const allAds: ActiveAdCreative[] = results.flatMap((r) => r.ads || []);
+      setAds(allAds);
     } catch {
       // Keep empty state
     } finally {
       setLoading(false);
     }
-  }, [accountId]);
+  }, [accountId, accounts, datePreset]);
 
   useEffect(() => {
-    fetchCreatives();
-  }, [fetchCreatives]);
+    fetchData();
+  }, [fetchData]);
 
-  async function handleSelectCreative(creative: Creative) {
-    setSelectedCreative(creative);
-    setDetails(null);
-    setDetailsLoading(true);
-    try {
-      const res = await fetch("/api/creatives", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "details",
-          creative_id: creative.id,
-          account_id: accountId,
-        }),
-      });
-      const data = await res.json();
-      setDetails(data);
-    } catch {
-      // Keep null
-    } finally {
-      setDetailsLoading(false);
+  // KPI calculations
+  const totalAds = ads.length;
+  const totalSpend = ads.reduce((sum, a) => sum + a.spend, 0);
+  const totalRevenue = ads.reduce((sum, a) => sum + a.revenue, 0);
+  const totalImpressions = ads.reduce((sum, a) => sum + a.impressions, 0);
+  const totalClicks = ads.reduce((sum, a) => sum + a.clicks, 0);
+  const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const avgCtr =
+    totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+
+  // Sorting
+  const sortedAds = useMemo(() => {
+    return [...ads].sort((a, b) => {
+      const aVal = (a as unknown as Record<string, unknown>)[sortKey] ?? 0;
+      const bVal = (b as unknown as Record<string, unknown>)[sortKey] ?? 0;
+      const aNum = typeof aVal === "number" ? aVal : parseFloat(String(aVal)) || 0;
+      const bNum = typeof bVal === "number" ? bVal : parseFloat(String(bVal)) || 0;
+      return sortDir === "desc" ? bNum - aNum : aNum - bNum;
+    });
+  }, [ads, sortKey, sortDir]);
+
+  const formatBadge = (format: string) => {
+    switch (format) {
+      case "video":
+        return "Video";
+      case "carousel":
+        return "Carrossel";
+      case "image":
+        return "Imagem";
+      default:
+        return "Outro";
     }
-  }
-
-  const hasMetrics = details?.metrics && (
-    details.metrics.impressions > 0 ||
-    details.metrics.clicks > 0 ||
-    details.metrics.spend > 0
-  );
+  };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Criativos</h1>
-        <p className="text-sm text-muted-foreground">
-          Visualize e gerencie seus criativos de anúncio
-        </p>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Criativos</h1>
+          <p className="text-sm text-muted-foreground">
+            Performance dos criativos de campanhas ativas
+          </p>
+        </div>
+        <DateRangePicker value={datePreset} onChange={setDatePreset} />
       </div>
 
-      {/* Creative Detail Dialog - 2 columns */}
-      <Dialog
-        open={!!selectedCreative}
-        onOpenChange={() => {
-          setSelectedCreative(null);
-          setDetails(null);
-        }}
-      >
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          title="Criativos Ativos"
+          value={formatNumber(totalAds)}
+          icon={ImageIcon}
+          iconColor="text-blue-400"
+          loading={loading}
+        />
+        <KpiCard
+          title="Investimento"
+          value={formatCurrency(totalSpend)}
+          icon={DollarSign}
+          iconColor="text-success"
+          loading={loading}
+          badge="Meta"
+          badgeColor="#1877f2"
+        />
+        <KpiCard
+          title="ROAS Medio"
+          value={`${avgRoas.toFixed(2)}x`}
+          icon={Target}
+          iconColor="text-purple-400"
+          loading={loading}
+        />
+        <KpiCard
+          title="CTR Medio"
+          value={formatPercent(avgCtr)}
+          icon={MousePointerClick}
+          iconColor="text-warning"
+          loading={loading}
+        />
+      </div>
+
+      {/* Sort controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Ordenar por:</span>
+        <Select value={sortKey} onValueChange={setSortKey}>
+          <SelectTrigger className="w-40 h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="spend">Investimento</SelectItem>
+            <SelectItem value="roas">ROAS</SelectItem>
+            <SelectItem value="revenue">Receita</SelectItem>
+            <SelectItem value="ctr">CTR</SelectItem>
+            <SelectItem value="impressions">Impressoes</SelectItem>
+            <SelectItem value="clicks">Cliques</SelectItem>
+            <SelectItem value="cpc">CPC</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+        >
+          <ArrowUpDown className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Performance Table */}
+      <PerformanceTable
+        title="Performance por Criativo"
+        columns={[
+          {
+            key: "thumbnail_url",
+            label: "",
+            render: (val, row) => (
+              <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
+                {val || row.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={String(val || row.image_url)}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : row.video_id ? (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Video className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: "ad_name",
+            label: "Criativo",
+            render: (val, row) => (
+              <div className="max-w-[220px]">
+                <p className="text-sm font-medium truncate">{String(val)}</p>
+                {row.body && (
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {String(row.body).slice(0, 80)}
+                  </p>
+                )}
+              </div>
+            ),
+          },
+          { key: "campaign_name", label: "Campanha" },
+          {
+            key: "format",
+            label: "Formato",
+            render: (val) => (
+              <Badge variant="secondary" className="text-xs">
+                {formatBadge(String(val))}
+              </Badge>
+            ),
+          },
+          {
+            key: "impressions",
+            label: "Impressoes",
+            format: "number",
+            align: "right",
+          },
+          { key: "clicks", label: "Cliques", format: "number", align: "right" },
+          { key: "ctr", label: "CTR", format: "percent", align: "right" },
+          { key: "cpc", label: "CPC", format: "currency", align: "right" },
+          {
+            key: "spend",
+            label: "Investimento",
+            format: "currency",
+            align: "right",
+          },
+          {
+            key: "revenue",
+            label: "Receita",
+            format: "currency",
+            align: "right",
+          },
+          {
+            key: "roas",
+            label: "ROAS",
+            align: "right",
+            render: (val) => (
+              <span className="font-medium">
+                {Number(val || 0).toFixed(2)}x
+              </span>
+            ),
+          },
+        ]}
+        data={sortedAds as unknown as Array<Record<string, unknown>>}
+        loading={loading}
+        onRowClick={(row) => setSelectedAd(row as unknown as ActiveAdCreative)}
+      />
+
+      {/* Detail Dialog */}
+      <Dialog open={!!selectedAd} onOpenChange={() => setSelectedAd(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{selectedCreative?.name || "Criativo"}</DialogTitle>
-            <DialogDescription>
-              ID: {selectedCreative?.id}
-            </DialogDescription>
-          </DialogHeader>
+          {selectedAd && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedAd.ad_name}</DialogTitle>
+                <DialogDescription>
+                  Campanha: {selectedAd.campaign_name} | Conjunto:{" "}
+                  {selectedAd.adset_name}
+                </DialogDescription>
+              </DialogHeader>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-            {/* Left Column - Preview */}
-            <div className="space-y-4">
-              {selectedCreative?.image_url || selectedCreative?.thumbnail_url ? (
-                <img
-                  src={selectedCreative.image_url || selectedCreative.thumbnail_url}
-                  alt={selectedCreative.name}
-                  className="w-full rounded-lg border border-border object-cover max-h-[300px]"
-                />
-              ) : (
-                <div className="w-full h-48 rounded-lg bg-muted flex items-center justify-center border border-border">
-                  <ImageIcon className="h-12 w-12 text-muted-foreground" />
-                </div>
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                {/* Left Column - Preview */}
+                <div className="space-y-4">
+                  {selectedAd.image_url || selectedAd.thumbnail_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selectedAd.image_url || selectedAd.thumbnail_url}
+                      alt={selectedAd.ad_name}
+                      className="w-full rounded-lg border border-border object-cover max-h-[300px]"
+                    />
+                  ) : (
+                    <div className="w-full h-48 rounded-lg bg-muted flex items-center justify-center border border-border">
+                      {selectedAd.video_id ? (
+                        <Video className="h-12 w-12 text-muted-foreground" />
+                      ) : (
+                        <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                      )}
+                    </div>
+                  )}
 
-              {selectedCreative?.title && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Título</p>
-                  <p className="text-sm font-medium">{selectedCreative.title}</p>
-                </div>
-              )}
-              {selectedCreative?.body && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Texto</p>
-                  <p className="text-sm leading-relaxed">{selectedCreative.body}</p>
-                </div>
-              )}
-              {selectedCreative?.call_to_action_type && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">CTA</p>
-                  <Badge variant="secondary">
-                    {selectedCreative.call_to_action_type.replace(/_/g, " ")}
-                  </Badge>
-                </div>
-              )}
-            </div>
-
-            {/* Right Column - Info & Metrics */}
-            <div className="space-y-5">
-              {/* Campaign & Ad Set Info */}
-              <div>
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" />
-                  Vinculação
-                </h3>
-                {detailsLoading ? (
-                  <div className="space-y-2">
-                    <div className="h-10 animate-pulse rounded bg-muted" />
-                    <div className="h-10 animate-pulse rounded bg-muted" />
+                  {selectedAd.title && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Titulo
+                      </p>
+                      <p className="text-sm font-medium">{selectedAd.title}</p>
+                    </div>
+                  )}
+                  {selectedAd.body && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Copy</p>
+                      <p className="text-sm leading-relaxed">
+                        {selectedAd.body}
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    {selectedAd.cta && (
+                      <Badge variant="secondary">
+                        {selectedAd.cta.replace(/_/g, " ")}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className="text-xs">
+                      {formatBadge(selectedAd.format)}
+                    </Badge>
                   </div>
-                ) : details?.ads && details.ads.length > 0 ? (
-                  <div className="space-y-2">
-                    {details.ads.map((ad) => (
-                      <div
-                        key={ad.id}
-                        className="rounded-lg border border-border p-3 space-y-1.5"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Megaphone className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Campanha:</span>
-                          <span className="text-sm font-medium truncate">
-                            {ad.campaign?.name || ad.campaign_id}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Layers className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Ad Set:</span>
-                          <span className="text-sm font-medium truncate">
-                            {ad.adset?.name || ad.adset_id}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground ml-5">Ad:</span>
-                          <span className="text-sm truncate">{ad.name}</span>
-                          <Badge
-                            variant="outline"
-                            className={`text-xs ml-auto ${
-                              ad.status === "ACTIVE"
-                                ? "bg-success/10 text-success border-success/20"
-                                : "bg-warning/10 text-warning border-warning/20"
-                            }`}
-                          >
-                            {ad.status}
-                          </Badge>
-                        </div>
+                </div>
+
+                {/* Right Column - Info & Metrics */}
+                <div className="space-y-5">
+                  {/* Campaign Info */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-primary" />
+                      Vinculacao
+                    </h3>
+                    <div className="rounded-lg border border-border p-3 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Megaphone className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">
+                          Campanha:
+                        </span>
+                        <span className="text-sm font-medium truncate">
+                          {selectedAd.campaign_name}
+                        </span>
                       </div>
-                    ))}
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">
+                          Conjunto:
+                        </span>
+                        <span className="text-sm font-medium truncate">
+                          {selectedAd.adset_name}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {detailsLoading ? "Carregando..." : "Nenhum anúncio vinculado"}
-                  </p>
-                )}
-              </div>
 
-              {/* Metrics */}
-              <div>
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  Performance (últimos 30 dias)
-                </h3>
-                {detailsLoading ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    {[...Array(6)].map((_, i) => (
-                      <div key={i} className="h-16 animate-pulse rounded bg-muted" />
-                    ))}
+                  {/* Metrics */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                      Performance
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      <MetricCard
+                        icon={Eye}
+                        label="Impressoes"
+                        value={formatNumber(selectedAd.impressions)}
+                      />
+                      <MetricCard
+                        icon={MousePointerClick}
+                        label="Cliques"
+                        value={formatNumber(selectedAd.clicks)}
+                      />
+                      <MetricCard
+                        icon={DollarSign}
+                        label="Investimento"
+                        value={formatCurrency(selectedAd.spend)}
+                      />
+                      <MetricCard
+                        icon={Users}
+                        label="Alcance"
+                        value={formatNumber(selectedAd.reach)}
+                      />
+                      <MetricCard
+                        icon={Target}
+                        label="CTR"
+                        value={formatPercent(selectedAd.ctr)}
+                      />
+                      <MetricCard
+                        icon={TrendingUp}
+                        label="CPC"
+                        value={formatCurrency(selectedAd.cpc)}
+                      />
+                      <MetricCard
+                        icon={DollarSign}
+                        label="Receita"
+                        value={formatCurrency(selectedAd.revenue)}
+                      />
+                      <MetricCard
+                        icon={Target}
+                        label="ROAS"
+                        value={`${selectedAd.roas.toFixed(2)}x`}
+                      />
+                    </div>
                   </div>
-                ) : hasMetrics ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <MetricCard
-                      icon={Eye}
-                      label="Impressões"
-                      value={formatNumber(details!.metrics.impressions)}
-                    />
-                    <MetricCard
-                      icon={MousePointerClick}
-                      label="Cliques"
-                      value={formatNumber(details!.metrics.clicks)}
-                    />
-                    <MetricCard
-                      icon={DollarSign}
-                      label="Investimento"
-                      value={formatCurrency(details!.metrics.spend)}
-                    />
-                    <MetricCard
-                      icon={Users}
-                      label="Alcance"
-                      value={formatNumber(details!.metrics.reach)}
-                    />
-                    <MetricCard
-                      icon={Target}
-                      label="CTR"
-                      value={formatPercent(details!.metrics.ctr)}
-                    />
-                    <MetricCard
-                      icon={TrendingUp}
-                      label="CPC"
-                      value={formatCurrency(details!.metrics.cpc)}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Sem dados de performance disponíveis
-                  </p>
-                )}
+                </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
-
-      {/* Creatives Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {[...Array(8)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-4">
-                <div className="animate-pulse space-y-3">
-                  <div className="h-40 rounded bg-muted" />
-                  <div className="h-4 w-32 rounded bg-muted" />
-                  <div className="h-3 w-24 rounded bg-muted" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : creatives.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <ImageIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-medium">Nenhum criativo encontrado</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Criativos aparecerão aqui quando forem criados
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {creatives.map((creative) => (
-            <Card
-              key={creative.id}
-              className="cursor-pointer hover:border-primary/20 transition-colors"
-              onClick={() => handleSelectCreative(creative)}
-            >
-              <CardContent className="p-4">
-                {creative.image_url || creative.thumbnail_url ? (
-                  <img
-                    src={creative.thumbnail_url || creative.image_url}
-                    alt={creative.name}
-                    className="w-full h-40 object-cover rounded-lg mb-3 bg-muted"
-                  />
-                ) : (
-                  <div className="w-full h-40 rounded-lg mb-3 bg-muted flex items-center justify-center">
-                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                )}
-                <p className="text-sm font-medium truncate">
-                  {creative.name || `Criativo ${creative.id}`}
-                </p>
-                {creative.call_to_action_type && (
-                  <Badge variant="secondary" className="mt-2 text-xs">
-                    {creative.call_to_action_type.replace(/_/g, " ")}
-                  </Badge>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

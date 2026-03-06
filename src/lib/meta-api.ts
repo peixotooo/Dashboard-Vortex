@@ -372,6 +372,7 @@ export async function getInsights(args: {
   breakdowns?: string[];
   limit?: number;
   time_increment?: string;
+  filtering?: Array<{ field: string; operator: string; value: string[] }>;
 }): Promise<unknown> {
   let objectId = args.object_id || "";
   if (!objectId) {
@@ -394,6 +395,7 @@ export async function getInsights(args: {
 
   if (args.level) params.level = args.level;
   if (args.breakdowns) params.breakdowns = args.breakdowns.join(",");
+  if (args.filtering) params.filtering = JSON.stringify(args.filtering);
 
   const data = await graphRequest(`/${objectId}/insights`, params);
   const result = data as { data?: unknown[]; paging?: { next?: string } };
@@ -696,6 +698,165 @@ export async function getCreativeDetails(args: { creative_id: string; account_id
       cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
     },
   };
+}
+
+// ============ Active Creatives with Performance ============
+
+import type { ActiveAdCreative } from "@/lib/types";
+
+export async function getActiveAdsWithCreatives(args: {
+  account_id: string;
+  time_range?: { since: string; until: string };
+  date_preset?: string;
+}): Promise<{ ads: ActiveAdCreative[] }> {
+  let accountId = args.account_id || "";
+  if (!accountId) {
+    const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
+    if (accounts.accounts.length === 0) return { ads: [] };
+    accountId = accounts.accounts[0].id;
+  }
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  // Call 1: Fetch active ads with expanded creative, campaign, adset
+  const adsPromise = (async () => {
+    const firstPage = await graphRequest(`/${accountId}/ads`, {
+      effective_status: JSON.stringify(["ACTIVE"]),
+      fields: [
+        "id", "name", "effective_status",
+        "creative{id,name,title,body,image_url,thumbnail_url,video_id,call_to_action_type,object_story_spec}",
+        "campaign{id,name}",
+        "adset{id,name}",
+      ].join(","),
+      limit: "200",
+    });
+    const result = firstPage as { data?: unknown[]; paging?: { next?: string } };
+    let allAds = result.data || [];
+    let nextUrl = result.paging?.next;
+    while (nextUrl) {
+      const res = await fetch(nextUrl);
+      const page = await res.json();
+      if (page.error) break;
+      allAds = [...allAds, ...(page.data || [])];
+      nextUrl = page.paging?.next;
+    }
+    return allAds;
+  })();
+
+  // Call 2: Fetch ad-level insights for active ads (aggregated for the period)
+  const insightsPromise = getInsights({
+    object_id: accountId,
+    level: "ad",
+    time_range: args.time_range,
+    date_preset: args.date_preset,
+    time_increment: "all_days",
+    fields: ["ad_id", "ad_name", "impressions", "clicks", "spend", "reach", "ctr", "cpc", "cpm", "actions", "action_values"],
+    filtering: [{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }],
+    limit: 500,
+  });
+
+  const [allAds, insightsResult] = await Promise.all([adsPromise, insightsPromise]);
+
+  // Build insights map by ad_id
+  const insightsMap = new Map<string, Record<string, unknown>>();
+  const allInsights = (insightsResult as { insights: Array<Record<string, unknown>> }).insights || [];
+  for (const row of allInsights) {
+    insightsMap.set(String(row.ad_id), row);
+  }
+
+  // Merge ads + insights
+  const mergedAds: ActiveAdCreative[] = [];
+
+  for (const rawAd of allAds as Array<Record<string, unknown>>) {
+    const ad = rawAd as {
+      id: string;
+      name: string;
+      effective_status: string;
+      creative?: {
+        id?: string;
+        name?: string;
+        title?: string;
+        body?: string;
+        image_url?: string;
+        thumbnail_url?: string;
+        video_id?: string;
+        call_to_action_type?: string;
+        object_story_spec?: { link_data?: { child_attachments?: unknown[] } };
+      };
+      campaign?: { id: string; name: string };
+      adset?: { id: string; name: string };
+    };
+
+    const insight = insightsMap.get(ad.id);
+    const spend = parseFloat(String(insight?.spend || "0"));
+    const impressions = parseFloat(String(insight?.impressions || "0"));
+    const clicks = parseFloat(String(insight?.clicks || "0"));
+    const reach = parseFloat(String(insight?.reach || "0"));
+
+    // Extract revenue from action_values (purchase or omni_purchase)
+    const actionValues = insight?.action_values as Array<{ action_type: string; value: string }> | undefined;
+    let revenue = 0;
+    if (actionValues) {
+      const purchaseTypes = ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"];
+      for (const type of purchaseTypes) {
+        const match = actionValues.find((a) => a.action_type === type);
+        if (match) { revenue = parseFloat(match.value || "0"); break; }
+      }
+    }
+
+    // Extract purchase count from actions
+    const actions = insight?.actions as Array<{ action_type: string; value: string }> | undefined;
+    let purchases = 0;
+    if (actions) {
+      const purchaseTypes = ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"];
+      for (const type of purchaseTypes) {
+        const match = actions.find((a) => a.action_type === type);
+        if (match) { purchases = parseFloat(match.value || "0"); break; }
+      }
+    }
+
+    // Determine format
+    const creativeData = ad.creative || {};
+    let format: "image" | "video" | "carousel" | "unknown" = "unknown";
+    if (creativeData.video_id) {
+      format = "video";
+    } else if (creativeData.object_story_spec?.link_data?.child_attachments) {
+      format = "carousel";
+    } else if (creativeData.image_url || creativeData.thumbnail_url) {
+      format = "image";
+    }
+
+    mergedAds.push({
+      ad_id: ad.id,
+      ad_name: ad.name || "",
+      campaign_name: ad.campaign?.name || "",
+      campaign_id: ad.campaign?.id || "",
+      adset_name: ad.adset?.name || "",
+      adset_id: ad.adset?.id || "",
+      creative_id: creativeData.id || "",
+      title: creativeData.title || "",
+      body: creativeData.body || "",
+      image_url: creativeData.image_url || "",
+      thumbnail_url: creativeData.thumbnail_url || "",
+      video_id: creativeData.video_id || "",
+      cta: creativeData.call_to_action_type || "",
+      format,
+      impressions,
+      clicks,
+      spend,
+      reach,
+      ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      revenue,
+      purchases,
+      roas: spend > 0 ? revenue / spend : 0,
+    });
+  }
+
+  // Sort by spend descending
+  mergedAds.sort((a, b) => b.spend - a.spend);
+
+  return { ads: mergedAds };
 }
 
 // ============ Auth & Health ============
