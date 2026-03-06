@@ -60,13 +60,13 @@ export function datePresetToTimeRange(preset: DatePreset): { since: string; unti
     case "yesterday":
       return { since: fmt(sub(1)), until: fmt(sub(1)) };
     case "last_7d":
-      return { since: fmt(sub(7)), until: fmt(sub(1)) };
+      return { since: fmt(sub(7)), until: fmt(today) };
     case "last_14d":
-      return { since: fmt(sub(14)), until: fmt(sub(1)) };
+      return { since: fmt(sub(14)), until: fmt(today) };
     case "last_30d":
-      return { since: fmt(sub(30)), until: fmt(sub(1)) };
+      return { since: fmt(sub(30)), until: fmt(today) };
     case "last_90d":
-      return { since: fmt(sub(90)), until: fmt(sub(1)) };
+      return { since: fmt(sub(90)), until: fmt(today) };
     case "this_month": {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
       return { since: fmt(firstDay), until: fmt(today) };
@@ -77,7 +77,7 @@ export function datePresetToTimeRange(preset: DatePreset): { since: string; unti
       return { since: fmt(firstDay), until: fmt(lastDay) };
     }
     default:
-      return { since: fmt(sub(30)), until: fmt(sub(1)) };
+      return { since: fmt(sub(30)), until: fmt(today) };
   }
 }
 

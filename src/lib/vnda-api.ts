@@ -89,13 +89,13 @@ function datePresetToRange(preset: string): { start: string; end: string } {
       return { start: fmt(y), end: fmt(y) };
     }
     case "last_7d":
-      return { start: fmt(sub(7)), end: fmt(sub(1)) };
+      return { start: fmt(sub(7)), end: fmt(today) };
     case "last_14d":
-      return { start: fmt(sub(14)), end: fmt(sub(1)) };
+      return { start: fmt(sub(14)), end: fmt(today) };
     case "last_30d":
-      return { start: fmt(sub(30)), end: fmt(sub(1)) };
+      return { start: fmt(sub(30)), end: fmt(today) };
     case "last_90d":
-      return { start: fmt(sub(90)), end: fmt(sub(1)) };
+      return { start: fmt(sub(90)), end: fmt(today) };
     case "this_month": {
       const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
       return { start: fmt(firstDay), end: fmt(today) };
@@ -106,7 +106,7 @@ function datePresetToRange(preset: string): { start: string; end: string } {
       return { start: fmt(firstDay), end: fmt(lastDay) };
     }
     default:
-      return { start: fmt(sub(30)), end: fmt(sub(1)) };
+      return { start: fmt(sub(30)), end: fmt(today) };
   }
 }
 
