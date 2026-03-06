@@ -116,6 +116,8 @@ export interface ActiveAdCreative {
   video_id: string;
   cta: string;
   format: "image" | "video" | "carousel" | "unknown";
+  status: string;
+  destination_url: string;
   impressions: number;
   clicks: number;
   spend: number;

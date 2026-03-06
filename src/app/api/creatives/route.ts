@@ -11,11 +11,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
     const date_preset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
+    const statusesParam = searchParams.get("statuses");
+    const statuses = statusesParam ? statusesParam.split(",") : ["ACTIVE"];
 
     const timeRange = datePresetToTimeRange(date_preset);
     const result = await getActiveAdsWithCreatives({
       account_id,
       time_range: timeRange,
+      statuses,
     });
 
     return NextResponse.json(result);

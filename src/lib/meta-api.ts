@@ -704,10 +704,29 @@ export async function getCreativeDetails(args: { creative_id: string; account_id
 
 import type { ActiveAdCreative } from "@/lib/types";
 
+function cleanUrl(raw: string): string {
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.startsWith("utm_") || key === "fbclid" || key === "gclid" || key === "hsa_acc") {
+        url.searchParams.delete(key);
+      }
+    }
+    let clean = url.origin + url.pathname;
+    if (url.searchParams.toString()) clean += "?" + url.searchParams.toString();
+    if (clean.endsWith("/") && url.pathname !== "/") clean = clean.slice(0, -1);
+    return clean;
+  } catch {
+    return raw;
+  }
+}
+
 export async function getActiveAdsWithCreatives(args: {
   account_id: string;
   time_range?: { since: string; until: string };
   date_preset?: string;
+  statuses?: string[];
 }): Promise<{ ads: ActiveAdCreative[] }> {
   let accountId = args.account_id || "";
   if (!accountId) {
@@ -717,10 +736,12 @@ export async function getActiveAdsWithCreatives(args: {
   }
   if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
 
-  // Call 1: Fetch active ads with expanded creative, campaign, adset
+  const statuses = args.statuses || ["ACTIVE"];
+
+  // Call 1: Fetch ads with expanded creative, campaign, adset
   const adsPromise = (async () => {
     const firstPage = await graphRequest(`/${accountId}/ads`, {
-      effective_status: JSON.stringify(["ACTIVE"]),
+      effective_status: JSON.stringify(statuses),
       fields: [
         "id", "name", "effective_status",
         "creative{id,name,title,body,image_url,thumbnail_url,video_id,call_to_action_type,object_story_spec}",
@@ -742,7 +763,7 @@ export async function getActiveAdsWithCreatives(args: {
     return allAds;
   })();
 
-  // Call 2: Fetch ad-level insights for active ads (aggregated for the period)
+  // Call 2: Fetch ad-level insights (aggregated for the period)
   const insightsPromise = getInsights({
     object_id: accountId,
     level: "ad",
@@ -750,7 +771,7 @@ export async function getActiveAdsWithCreatives(args: {
     date_preset: args.date_preset,
     time_increment: "all_days",
     fields: ["ad_id", "ad_name", "impressions", "clicks", "spend", "reach", "ctr", "cpc", "cpm", "actions", "action_values"],
-    filtering: [{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }],
+    filtering: [{ field: "ad.effective_status", operator: "IN", value: statuses }],
     limit: 500,
   });
 
@@ -780,7 +801,12 @@ export async function getActiveAdsWithCreatives(args: {
         thumbnail_url?: string;
         video_id?: string;
         call_to_action_type?: string;
-        object_story_spec?: { link_data?: { child_attachments?: unknown[] } };
+        object_story_spec?: {
+          link_data?: {
+            link?: string;
+            child_attachments?: unknown[];
+          };
+        };
       };
       campaign?: { id: string; name: string };
       adset?: { id: string; name: string };
@@ -825,6 +851,9 @@ export async function getActiveAdsWithCreatives(args: {
       format = "image";
     }
 
+    // Extract destination URL from object_story_spec
+    const rawUrl = creativeData.object_story_spec?.link_data?.link || "";
+
     mergedAds.push({
       ad_id: ad.id,
       ad_name: ad.name || "",
@@ -840,6 +869,8 @@ export async function getActiveAdsWithCreatives(args: {
       video_id: creativeData.video_id || "",
       cta: creativeData.call_to_action_type || "",
       format,
+      status: ad.effective_status || "UNKNOWN",
+      destination_url: cleanUrl(rawUrl),
       impressions,
       clicks,
       spend,
