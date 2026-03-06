@@ -9,7 +9,18 @@ function getClient(): BetaAnalyticsDataClient {
 
   const credentialsJson = process.env.GA4_CREDENTIALS_JSON;
   if (credentialsJson) {
-    const credentials = JSON.parse(credentialsJson);
+    let credentials;
+    try {
+      credentials = JSON.parse(credentialsJson);
+    } catch {
+      // Env vars may convert \n escapes in private_key to actual newlines,
+      // which breaks JSON.parse. Replace them back to escape sequences.
+      credentials = JSON.parse(credentialsJson.replace(/\n/g, "\\n"));
+    }
+    // Ensure private_key has actual newline characters (PEM format requirement)
+    if (credentials.private_key) {
+      credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
+    }
     _client = new BetaAnalyticsDataClient({ credentials });
   } else {
     // Falls back to GOOGLE_APPLICATION_CREDENTIALS env var (file path)

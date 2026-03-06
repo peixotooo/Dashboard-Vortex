@@ -179,7 +179,12 @@ export default function OverviewPage() {
           cpc: number;
           impressions: number;
           clicks: number;
+          metaRevenue: number;
+          metaPurchases: number;
         }
+
+        let totalMetaRevenue = 0;
+        let totalMetaPurchases = 0;
 
         const metaDaily: MetaDailyItem[] = metaInsights.map(
           (row: Record<string, unknown>) => {
@@ -191,10 +196,18 @@ export default function OverviewPage() {
             const reach = parseFloat((row.reach as string) || "0");
             const cpc = clicks > 0 ? spend / clicks : 0;
 
+            // Extract purchase data from Meta actions/action_values
+            const actions = row.actions as Array<{ action_type: string; value: string }> | undefined;
+            const actionValues = row.action_values as Array<{ action_type: string; value: string }> | undefined;
+            const metaRevenue = extractActionValue(actionValues, "purchase");
+            const metaPurchases = extractAction(actions, "purchase");
+
             totalSpend += spend;
             totalImpressions += impressions;
             totalClicks += clicks;
             totalReach += reach;
+            totalMetaRevenue += metaRevenue;
+            totalMetaPurchases += metaPurchases;
 
             return {
               date: (row.date_start as string)?.slice(5) || "",
@@ -202,6 +215,8 @@ export default function OverviewPage() {
               cpc: parseFloat(cpc.toFixed(2)),
               impressions,
               clicks,
+              metaRevenue: parseFloat(metaRevenue.toFixed(2)),
+              metaPurchases,
             };
           }
         );
@@ -233,10 +248,15 @@ export default function OverviewPage() {
         };
 
         // --- Merge daily data (Meta + GA4 by date) ---
+        // GA4 has priority for revenue/transactions; Meta is fallback
         const trendData: DailyRow[] = metaDaily.map((metaDay) => {
           const ga4Day = ga4Insights.find((g) => g.date === metaDay.date);
-          const revenue = ga4Day?.revenue ?? 0;
-          const transactions = ga4Day?.transactions ?? 0;
+          const revenue = ga4Configured
+            ? (ga4Day?.revenue ?? 0)
+            : metaDay.metaRevenue;
+          const transactions = ga4Configured
+            ? (ga4Day?.transactions ?? 0)
+            : metaDay.metaPurchases;
           const sessions = ga4Day?.sessions ?? 0;
 
           return {
@@ -266,12 +286,13 @@ export default function OverviewPage() {
         });
 
         // --- Calculate totals ---
+        // Use GA4 data when available, otherwise fall back to Meta purchase data
         const totalRevenue = ga4Configured
           ? ga4Totals.revenue
-          : 0;
+          : totalMetaRevenue;
         const totalPedidos = ga4Configured
           ? ga4Totals.transactions
-          : 0;
+          : totalMetaPurchases;
         const totalSessions = ga4Configured
           ? ga4Totals.sessions
           : 0;
@@ -328,13 +349,17 @@ export default function OverviewPage() {
   const mc = data.metaComparison;
   const gc = data.ga4Comparison;
 
+  // Previous period revenue: GA4 if available, otherwise Meta
+  const prevRevenue = data.ga4Configured && gc ? gc.revenue : mc?.revenue;
+  const prevPurchases = data.ga4Configured && gc ? gc.transactions : mc?.purchases;
+
   // Previous period ROAS
   const prevRoas =
-    mc && gc && mc.spend > 0 ? gc.revenue / mc.spend : undefined;
+    mc && mc.spend > 0 && prevRevenue !== undefined ? prevRevenue / mc.spend : undefined;
   // Previous period ticket médio
   const prevTicketMedio =
-    gc && gc.transactions > 0
-      ? gc.revenue / gc.transactions
+    prevPurchases && prevPurchases > 0 && prevRevenue !== undefined
+      ? prevRevenue / prevPurchases
       : undefined;
   // Previous period tx conversão
   const prevTxConversao =
@@ -368,7 +393,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Receita"
           value={formatCurrency(data.revenue)}
-          change={calcChange(data.revenue, gc?.revenue)}
+          change={calcChange(data.revenue, prevRevenue)}
           icon={TrendingUp}
           iconColor="text-blue-400"
           loading={loading}
@@ -384,7 +409,7 @@ export default function OverviewPage() {
         <KpiCard
           title="Pedidos"
           value={formatNumber(data.pedidos)}
-          change={calcChange(data.pedidos, gc?.transactions)}
+          change={calcChange(data.pedidos, prevPurchases)}
           icon={ShoppingCart}
           iconColor="text-warning"
           loading={loading}

@@ -42,14 +42,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...result, configured: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    // If GA4 is not configured, return empty data gracefully
-    if (message.includes("not configured") || message.includes("GOOGLE_APPLICATION_CREDENTIALS")) {
-      return NextResponse.json({
-        insights: [],
-        totals: { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 },
-        configured: false,
-      });
-    }
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[GA4] Error:", message);
+    // Return empty data gracefully for any GA4 error (credentials, config, API issues)
+    return NextResponse.json({
+      insights: [],
+      totals: { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 },
+      configured: false,
+      error: message,
+    });
   }
 }
