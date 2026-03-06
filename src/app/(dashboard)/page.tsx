@@ -210,7 +210,7 @@ export default function OverviewPage() {
             totalMetaPurchases += metaPurchases;
 
             return {
-              date: (row.date_start as string)?.slice(5) || "",
+              date: ((row.date_start as string) || "").slice(8, 10) + "/" + ((row.date_start as string) || "").slice(5, 7),
               spend: parseFloat(spend.toFixed(2)),
               cpc: parseFloat(cpc.toFixed(2)),
               impressions,

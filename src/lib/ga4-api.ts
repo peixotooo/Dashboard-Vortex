@@ -39,7 +39,7 @@ function getPropertyId(): string {
 // --- Types ---
 
 export interface GA4DailyRow {
-  date: string; // MM-DD format (to match Meta trend data)
+  date: string; // DD/MM format (Brazilian standard)
   dateRaw: string; // YYYYMMDD
   sessions: number;
   users: number;
@@ -99,11 +99,11 @@ function datePresetToRange(preset: string): { startDate: string; endDate: string
   }
 }
 
-// Convert YYYYMMDD to MM-DD
+// Convert YYYYMMDD to DD/MM (Brazilian format)
 function formatDate(yyyymmdd: string): string {
   const month = yyyymmdd.slice(4, 6);
   const day = yyyymmdd.slice(6, 8);
-  return `${month}-${day}`;
+  return `${day}/${month}`;
 }
 
 // --- Main function ---

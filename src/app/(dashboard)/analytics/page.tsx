@@ -110,7 +110,7 @@ export default function AnalyticsPage() {
   }, [fetchInsights]);
 
   const trendData = insights.map((row) => ({
-    date: row.date_start?.slice(5) || "",
+    date: (row.date_start || "").slice(8, 10) + "/" + (row.date_start || "").slice(5, 7),
     impressions: parseFloat(row.impressions || "0"),
     clicks: parseFloat(row.clicks || "0"),
     spend: parseFloat(row.spend || "0"),

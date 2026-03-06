@@ -229,14 +229,20 @@ export default function GA4Page() {
                 { key: "revenue", label: "Receita", format: "currency", align: "right" },
                 { key: "views", label: "Views", format: "number", align: "right" },
                 { key: "addToCart", label: "Add Cart", format: "number", align: "right" },
+                { key: "txConv", label: "TX Conv.", format: "text", align: "right" },
               ]}
-              data={products.map((r) => ({
-                name: r.dimensions.itemName || "(not set)",
-                quantity: r.metrics.itemsPurchased || 0,
-                revenue: r.metrics.itemRevenue || 0,
-                views: r.metrics.itemsViewed || 0,
-                addToCart: r.metrics.itemsAddedToCart || 0,
-              }))}
+              data={products.map((r) => {
+                const views = r.metrics.itemsViewed || 0;
+                const purchased = r.metrics.itemsPurchased || 0;
+                return {
+                  name: r.dimensions.itemName || "(not set)",
+                  quantity: purchased,
+                  revenue: r.metrics.itemRevenue || 0,
+                  views,
+                  addToCart: r.metrics.itemsAddedToCart || 0,
+                  txConv: views > 0 ? `${((purchased / views) * 100).toFixed(2)}%` : "0%",
+                };
+              })}
               loading={loading}
             />
             <Card>
@@ -345,17 +351,23 @@ export default function GA4Page() {
                     <div className="h-full animate-pulse rounded bg-muted" />
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={hourly.map((r) => ({
-                        hora: `${r.dimensions.hour?.padStart(2, "0")}h`,
-                        sessoes: r.metrics.sessions || 0,
-                        receita: parseFloat((r.metrics.purchaseRevenue || 0).toFixed(2)),
-                      }))}>
+                      <BarChart data={hourly.map((r) => {
+                        const sessions = r.metrics.sessions || 0;
+                        const transactions = r.metrics.transactions || 0;
+                        return {
+                          hora: `${r.dimensions.hour?.padStart(2, "0")}h`,
+                          sessoes: sessions,
+                          txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
+                        };
+                      })}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                         <XAxis dataKey="hora" stroke="#8888a0" fontSize={11} tickLine={false} />
-                        <YAxis stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <YAxis yAxisId="left" stroke="#8888a0" fontSize={12} tickLine={false} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : v, name]} />
                         <Legend />
-                        <Bar dataKey="sessoes" name="Sessões" fill="#f97316" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#f97316" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="txConv" name="TX Conv. (%)" fill="#22c55e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -374,21 +386,23 @@ export default function GA4Page() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={dayOfWeek.map((r) => {
                         const idx = parseInt(r.dimensions.dayOfWeek || "0", 10);
+                        const sessions = r.metrics.sessions || 0;
+                        const transactions = r.metrics.transactions || 0;
                         return {
                           dia: DAY_NAMES[idx] || `Dia ${idx}`,
-                          sessoes: r.metrics.sessions || 0,
+                          sessoes: sessions,
                           receita: parseFloat((r.metrics.purchaseRevenue || 0).toFixed(2)),
-                          pedidos: r.metrics.transactions || 0,
+                          txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
                         };
                       })}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                         <XAxis dataKey="dia" stroke="#8888a0" fontSize={11} tickLine={false} />
                         <YAxis yAxisId="left" stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
                         <Legend />
                         <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Bar yAxisId="right" dataKey="receita" name="Receita (R$)" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="txConv" name="TX Conv. (%)" fill="#22c55e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -399,7 +413,7 @@ export default function GA4Page() {
 
           {/* Best hour/day insights */}
           {!loading && hourly.length > 0 && dayOfWeek.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">Melhor horário (sessões)</p>
@@ -413,12 +427,42 @@ export default function GA4Page() {
               </Card>
               <Card>
                 <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">Melhor horário (conversão)</p>
+                  <p className="text-lg font-bold mt-1">
+                    {(() => {
+                      const withConv = hourly.filter((h) => (h.metrics.sessions || 0) > 0).map((h) => ({
+                        hour: h.dimensions.hour,
+                        conv: ((h.metrics.transactions || 0) / (h.metrics.sessions || 1)) * 100,
+                      }));
+                      const best = [...withConv].sort((a, b) => b.conv - a.conv)[0];
+                      return best ? `${best.hour?.padStart(2, "0")}h — ${best.conv.toFixed(2)}%` : "—";
+                    })()}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
                   <p className="text-sm text-muted-foreground">Melhor dia (receita)</p>
                   <p className="text-lg font-bold mt-1">
                     {(() => {
                       const best = [...dayOfWeek].sort((a, b) => (b.metrics.purchaseRevenue || 0) - (a.metrics.purchaseRevenue || 0))[0];
                       const idx = parseInt(best?.dimensions.dayOfWeek || "0", 10);
                       return `${DAY_NAMES[idx]} — ${formatCurrency(best?.metrics.purchaseRevenue || 0)}`;
+                    })()}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">Melhor dia (conversão)</p>
+                  <p className="text-lg font-bold mt-1">
+                    {(() => {
+                      const withConv = dayOfWeek.filter((d) => (d.metrics.sessions || 0) > 0).map((d) => ({
+                        idx: parseInt(d.dimensions.dayOfWeek || "0", 10),
+                        conv: ((d.metrics.transactions || 0) / (d.metrics.sessions || 1)) * 100,
+                      }));
+                      const best = [...withConv].sort((a, b) => b.conv - a.conv)[0];
+                      return best ? `${DAY_NAMES[best.idx]} — ${best.conv.toFixed(2)}%` : "—";
                     })()}
                   </p>
                 </CardContent>
@@ -438,16 +482,22 @@ export default function GA4Page() {
                 { key: "users", label: "Usuários", format: "number", align: "right" },
                 { key: "transactions", label: "Pedidos", format: "number", align: "right" },
                 { key: "revenue", label: "Receita", format: "currency", align: "right" },
+                { key: "txConv", label: "TX Conv.", format: "text", align: "right" },
                 { key: "bounce", label: "Bounce", format: "text", align: "right" },
               ]}
-              data={traffic.map((r) => ({
-                source: `${r.dimensions.sessionSource || "(direct)"} / ${r.dimensions.sessionMedium || "(none)"}`,
-                sessions: r.metrics.sessions || 0,
-                users: r.metrics.totalUsers || 0,
-                transactions: r.metrics.transactions || 0,
-                revenue: r.metrics.purchaseRevenue || 0,
-                bounce: `${((r.metrics.bounceRate || 0) * 100).toFixed(1)}%`,
-              }))}
+              data={traffic.map((r) => {
+                const sessions = r.metrics.sessions || 0;
+                const transactions = r.metrics.transactions || 0;
+                return {
+                  source: `${r.dimensions.sessionSource || "(direct)"} / ${r.dimensions.sessionMedium || "(none)"}`,
+                  sessions,
+                  users: r.metrics.totalUsers || 0,
+                  transactions,
+                  revenue: r.metrics.purchaseRevenue || 0,
+                  txConv: sessions > 0 ? `${((transactions / sessions) * 100).toFixed(2)}%` : "0%",
+                  bounce: `${((r.metrics.bounceRate || 0) * 100).toFixed(1)}%`,
+                };
+              })}
               loading={loading}
             />
             <Card>
