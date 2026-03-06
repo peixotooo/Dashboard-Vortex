@@ -221,7 +221,7 @@ export async function getVndaOrders(args: {
 
   const allOrders: VndaOrder[] = [];
   let page = 1;
-  const maxPages = 50; // Safety limit
+  const maxPages = 500; // Safety limit
 
   while (page <= maxPages) {
     const { data, pagination } = await vndaRequest<VndaOrder[]>("orders", args.config, {
@@ -229,7 +229,7 @@ export async function getVndaOrders(args: {
       start: range.start,
       finish: range.end,
       page: String(page),
-      per_page: "100",
+      per_page: "200",
     });
 
     allOrders.push(...(data || []));
