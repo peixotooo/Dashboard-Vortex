@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGA4DailyReport } from "@/lib/ga4-api";
+import { getGA4DailyReport, getGA4GoogleAdsCost } from "@/lib/ga4-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
@@ -15,38 +15,53 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         insights: [],
         totals: { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 },
+        googleAds: null,
         configured: false,
       });
     }
 
-    const result = await getGA4DailyReport({
-      propertyId,
-      datePreset,
-    });
+    // Fetch GA4 daily report + Google Ads cost in parallel
+    const [result, googleAdsResult] = await Promise.all([
+      getGA4DailyReport({ propertyId, datePreset }),
+      getGA4GoogleAdsCost({ propertyId, datePreset }).catch(() => null),
+    ]);
 
     if (includeComparison) {
       const prevDates = getPreviousPeriodDates(datePreset);
-      const prevResult = await getGA4DailyReport({
-        propertyId,
-        startDate: prevDates.since,
-        endDate: prevDates.until,
-      });
+      const [prevResult, prevGoogleAds] = await Promise.all([
+        getGA4DailyReport({
+          propertyId,
+          startDate: prevDates.since,
+          endDate: prevDates.until,
+        }),
+        getGA4GoogleAdsCost({
+          propertyId,
+          startDate: prevDates.since,
+          endDate: prevDates.until,
+        }).catch(() => null),
+      ]);
 
       return NextResponse.json({
         ...result,
+        googleAds: googleAdsResult,
         configured: true,
         comparison: prevResult.totals,
+        googleAdsComparison: prevGoogleAds?.totals || null,
       });
     }
 
-    return NextResponse.json({ ...result, configured: true });
+    return NextResponse.json({
+      ...result,
+      googleAds: googleAdsResult,
+      configured: true,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[GA4] Error:", message);
-    // Return empty data gracefully for any GA4 error (credentials, config, API issues)
     return NextResponse.json({
       insights: [],
       totals: { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 },
+      googleAds: null,
       configured: false,
       error: message,
     });

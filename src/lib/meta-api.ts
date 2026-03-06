@@ -383,7 +383,7 @@ export async function getInsights(args: {
   const params: Record<string, string> = {
     fields: (args.fields || ["impressions", "clicks", "spend", "reach", "frequency", "ctr", "cpc", "cpm", "actions", "action_values"]).join(","),
     time_increment: args.time_increment || "1",
-    limit: String(args.limit || 100),
+    limit: String(args.limit || 500),
   };
 
   if (args.time_range) {
@@ -396,8 +396,20 @@ export async function getInsights(args: {
   if (args.breakdowns) params.breakdowns = args.breakdowns.join(",");
 
   const data = await graphRequest(`/${objectId}/insights`, params);
-  const result = data as { data?: unknown[] };
-  return { insights: result.data || [] };
+  const result = data as { data?: unknown[]; paging?: { next?: string } };
+  let allInsights = result.data || [];
+
+  // Follow pagination to ensure all data is fetched (critical for longer periods like 90d)
+  let nextUrl = result.paging?.next;
+  while (nextUrl) {
+    const res = await fetch(nextUrl);
+    const pageData = await res.json();
+    if (pageData.error) break;
+    allInsights = [...allInsights, ...(pageData.data || [])];
+    nextUrl = pageData.paging?.next;
+  }
+
+  return { insights: allInsights };
 }
 
 export async function comparePerformance(args: {

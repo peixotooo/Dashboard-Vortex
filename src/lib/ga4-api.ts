@@ -61,6 +61,27 @@ export interface GA4Report {
   };
 }
 
+export interface GoogleAdsDailyRow {
+  date: string;       // DD/MM
+  dateRaw: string;    // YYYYMMDD
+  cost: number;
+  clicks: number;
+  impressions: number;
+}
+
+export interface GoogleAdsTotals {
+  cost: number;
+  clicks: number;
+  impressions: number;
+  cpc: number;
+  ctr: number;
+}
+
+export interface GoogleAdsReport {
+  daily: GoogleAdsDailyRow[];
+  totals: GoogleAdsTotals;
+}
+
 // --- Date helpers ---
 
 function datePresetToRange(preset: string): { startDate: string; endDate: string } {
@@ -176,6 +197,68 @@ export async function getGA4DailyReport(args: {
   }
 
   return { insights, totals };
+}
+
+// --- Google Ads cost via GA4 ---
+
+export async function getGA4GoogleAdsCost(args: {
+  propertyId?: string;
+  datePreset?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<GoogleAdsReport | null> {
+  const client = getClient();
+  const propertyId = args.propertyId || getPropertyId();
+
+  const range = args.startDate && args.endDate
+    ? { startDate: args.startDate, endDate: args.endDate }
+    : datePresetToRange(args.datePreset || "last_30d");
+
+  const [response] = await client.runReport({
+    property: `properties/${propertyId}`,
+    dimensions: [{ name: "date" }],
+    metrics: [
+      { name: "advertiserAdCost" },
+      { name: "advertiserAdClicks" },
+      { name: "advertiserAdImpressions" },
+    ],
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+    orderBys: [{ dimension: { dimensionName: "date", orderType: "NUMERIC" }, desc: false }],
+  });
+
+  const rows = response.rows || [];
+  const daily: GoogleAdsDailyRow[] = [];
+  const totals = { cost: 0, clicks: 0, impressions: 0, cpc: 0, ctr: 0 };
+
+  for (const row of rows) {
+    const dateRaw = row.dimensionValues?.[0]?.value || "";
+    const cost = parseFloat(row.metricValues?.[0]?.value || "0");
+    const clicks = parseInt(row.metricValues?.[1]?.value || "0", 10);
+    const impressions = parseInt(row.metricValues?.[2]?.value || "0", 10);
+
+    totals.cost += cost;
+    totals.clicks += clicks;
+    totals.impressions += impressions;
+
+    daily.push({
+      date: formatDate(dateRaw),
+      dateRaw,
+      cost: parseFloat(cost.toFixed(2)),
+      clicks,
+      impressions,
+    });
+  }
+
+  // If total cost is 0, Google Ads is not linked to GA4
+  if (totals.cost === 0 && totals.clicks === 0) {
+    return null;
+  }
+
+  totals.cpc = totals.clicks > 0 ? parseFloat((totals.cost / totals.clicks).toFixed(2)) : 0;
+  totals.ctr = totals.impressions > 0 ? parseFloat(((totals.clicks / totals.impressions) * 100).toFixed(2)) : 0;
+  totals.cost = parseFloat(totals.cost.toFixed(2));
+
+  return { daily, totals };
 }
 
 // --- Generic report function ---

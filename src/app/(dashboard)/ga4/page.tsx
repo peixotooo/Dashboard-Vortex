@@ -10,6 +10,7 @@ import {
   Percent,
   Receipt,
   Activity,
+  MousePointerClick,
 } from "lucide-react";
 import {
   BarChart,
@@ -86,6 +87,13 @@ export default function GA4Page() {
   const [traffic, setTraffic] = useState<GA4Row[]>([]);
   const [devices, setDevices] = useState<GA4Row[]>([]);
 
+  // Google Ads data
+  const [gadsConfigured, setGadsConfigured] = useState(false);
+  const [gadsTotals, setGadsTotals] = useState<{ cost: number; clicks: number; impressions: number; cpc: number; ctr: number }>({ cost: 0, clicks: 0, impressions: 0, cpc: 0, ctr: 0 });
+  const [gadsDaily, setGadsDaily] = useState<Array<{ date: string; cost: number; clicks: number; impressions: number }>>([]);
+  const [gadsCampaigns, setGadsCampaigns] = useState<GA4Row[]>([]);
+  const [gadsComparison, setGadsComparison] = useState<{ cost: number; clicks: number; impressions: number; cpc: number; ctr: number } | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -97,10 +105,11 @@ export default function GA4Page() {
         fetch(`/api/ga4/report?report_type=day_of_week&date_preset=${datePreset}&limit=7`),
         fetch(`/api/ga4/report?report_type=traffic&date_preset=${datePreset}&limit=20`),
         fetch(`/api/ga4/report?report_type=devices&date_preset=${datePreset}&limit=10`),
+        fetch(`/api/ga4/report?report_type=google_ads_campaigns&date_preset=${datePreset}&limit=20`),
       ]);
 
       const insightsData = await insightsRes.json();
-      const [productsData, regionsData, hourlyData, dowData, trafficData, devicesData] =
+      const [productsData, regionsData, hourlyData, dowData, trafficData, devicesData, gadsCampaignsData] =
         await Promise.all(reportResults.map((r) => r.json()));
 
       setConfigured(insightsData.configured !== false);
@@ -113,6 +122,14 @@ export default function GA4Page() {
       setDayOfWeek(dowData.rows || []);
       setTraffic(trafficData.rows || []);
       setDevices(devicesData.rows || []);
+
+      // Google Ads data
+      const gAds = insightsData.googleAds;
+      setGadsConfigured(gAds != null);
+      setGadsTotals(gAds?.totals || { cost: 0, clicks: 0, impressions: 0, cpc: 0, ctr: 0 });
+      setGadsDaily(gAds?.daily || []);
+      setGadsCampaigns(gadsCampaignsData.rows || []);
+      setGadsComparison(insightsData.googleAdsComparison || null);
     } catch {
       // Keep empty state
     } finally {
@@ -179,6 +196,7 @@ export default function GA4Page() {
           <TabsTrigger value="hours">Horários</TabsTrigger>
           <TabsTrigger value="traffic">Tráfego</TabsTrigger>
           <TabsTrigger value="devices">Dispositivos</TabsTrigger>
+          {gadsConfigured && <TabsTrigger value="google_ads">Google Ads</TabsTrigger>}
         </TabsList>
 
         {/* Tab: Visão Geral */}
@@ -604,6 +622,65 @@ export default function GA4Page() {
             </Card>
           </div>
         </TabsContent>
+
+        {/* Tab: Google Ads */}
+        {gadsConfigured && (
+          <TabsContent value="google_ads" className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <KpiCard title="Investimento" value={`R$ ${gadsTotals.cost.toFixed(2)}`} change={gadsComparison ? ((gadsTotals.cost - gadsComparison.cost) / gadsComparison.cost) * 100 : undefined} icon={DollarSign} iconColor="text-green-400" loading={loading} badge="Google Ads" badgeColor="#4285f4" />
+              <KpiCard title="Cliques" value={gadsTotals.clicks.toLocaleString("pt-BR")} change={gadsComparison ? ((gadsTotals.clicks - gadsComparison.clicks) / gadsComparison.clicks) * 100 : undefined} icon={MousePointerClick} iconColor="text-blue-400" loading={loading} />
+              <KpiCard title="CPC" value={`R$ ${gadsTotals.cpc.toFixed(2)}`} change={gadsComparison && gadsComparison.cpc > 0 ? ((gadsTotals.cpc - gadsComparison.cpc) / gadsComparison.cpc) * 100 : undefined} icon={Receipt} iconColor="text-orange-400" loading={loading} />
+              <KpiCard title="CTR" value={`${gadsTotals.ctr.toFixed(2)}%`} change={gadsComparison && gadsComparison.ctr > 0 ? ((gadsTotals.ctr - gadsComparison.ctr) / gadsComparison.ctr) * 100 : undefined} icon={Percent} iconColor="text-purple-400" loading={loading} />
+            </div>
+
+            <TrendChart
+              title="Custo Diário Google Ads"
+              data={gadsDaily as unknown as Array<Record<string, unknown>>}
+              lines={[
+                { key: "cost", label: "Custo (R$)", color: "#4285f4" },
+              ]}
+              loading={loading}
+            />
+
+            <PerformanceTable
+              title="Campanhas Google Ads"
+              columns={[
+                { key: "campaign", label: "Campanha" },
+                { key: "cost", label: "Custo", format: "currency", align: "right" },
+                { key: "clicks", label: "Cliques", format: "number", align: "right" },
+                { key: "impressions", label: "Impressões", format: "number", align: "right" },
+                { key: "cpc", label: "CPC", format: "currency", align: "right" },
+                { key: "ctr", label: "CTR", format: "text", align: "right" },
+                { key: "sessions", label: "Sessões", format: "number", align: "right" },
+                { key: "transactions", label: "Pedidos", format: "number", align: "right" },
+                { key: "revenue", label: "Receita", format: "currency", align: "right" },
+                { key: "roas", label: "ROAS", format: "text", align: "right" },
+              ]}
+              data={gadsCampaigns
+                .filter((r) => r.dimensions.sessionGoogleAdsCampaignName && r.dimensions.sessionGoogleAdsCampaignName !== "(not set)")
+                .map((r) => {
+                  const cost = r.metrics.advertiserAdCost || 0;
+                  const clicks = r.metrics.advertiserAdClicks || 0;
+                  const impressions = r.metrics.advertiserAdImpressions || 0;
+                  const revenue = r.metrics.purchaseRevenue || 0;
+                  return {
+                    campaign: r.dimensions.sessionGoogleAdsCampaignName,
+                    cost,
+                    clicks,
+                    impressions,
+                    cpc: clicks > 0 ? parseFloat((cost / clicks).toFixed(2)) : 0,
+                    ctr: impressions > 0 ? `${((clicks / impressions) * 100).toFixed(2)}%` : "0%",
+                    sessions: r.metrics.sessions || 0,
+                    transactions: r.metrics.transactions || 0,
+                    revenue,
+                    roas: cost > 0 ? `${(revenue / cost).toFixed(2)}x` : "—",
+                  };
+                })
+              }
+              loading={loading}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

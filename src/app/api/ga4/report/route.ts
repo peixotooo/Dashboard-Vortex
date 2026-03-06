@@ -43,6 +43,11 @@ const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; 
     metrics: ["screenPageViews", "sessions", "bounceRate"],
     orderBy: { metric: "screenPageViews", desc: true },
   },
+  google_ads_campaigns: {
+    dimensions: ["sessionGoogleAdsCampaignName"],
+    metrics: ["advertiserAdCost", "advertiserAdClicks", "advertiserAdImpressions", "sessions", "transactions", "purchaseRevenue"],
+    orderBy: { metric: "advertiserAdCost", desc: true },
+  },
 };
 
 export async function GET(request: NextRequest) {

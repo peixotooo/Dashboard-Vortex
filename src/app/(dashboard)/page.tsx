@@ -82,9 +82,26 @@ interface MetaComparison {
   roas: number;
 }
 
+interface GoogleAdsTotals {
+  cost: number;
+  clicks: number;
+  impressions: number;
+  cpc: number;
+  ctr: number;
+}
+
+interface GoogleAdsDailyRow {
+  date: string;
+  cost: number;
+  clicks: number;
+  impressions: number;
+}
+
 interface DailyRow {
   date: string;
   spend: number;
+  googleAdsCost: number;
+  totalSpend: number;
   revenue: number;
   roas: number;
   sessions: number;
@@ -121,6 +138,11 @@ interface OverviewData {
   impressions: number;
   clicks: number;
   reach: number;
+  // Google Ads
+  googleAdsCost: number;
+  gadsConfigured: boolean;
+  // Combined investment
+  totalInvestment: number;
   // GA4
   revenue: number;
   sessions: number;
@@ -139,6 +161,7 @@ interface OverviewData {
   metaComparison: MetaComparison | null;
   ga4Comparison: GA4Totals | null;
   vndaComparison: VndaTotals | null;
+  gadsComparison: GoogleAdsTotals | null;
 }
 
 export default function OverviewPage() {
@@ -153,6 +176,9 @@ export default function OverviewPage() {
     impressions: 0,
     clicks: 0,
     reach: 0,
+    googleAdsCost: 0,
+    gadsConfigured: false,
+    totalInvestment: 0,
     revenue: 0,
     sessions: 0,
     pedidos: 0,
@@ -167,6 +193,7 @@ export default function OverviewPage() {
     metaComparison: null,
     ga4Comparison: null,
     vndaComparison: null,
+    gadsComparison: null,
   });
 
   useEffect(() => {
@@ -279,6 +306,18 @@ export default function OverviewPage() {
           pageViews: 0,
         };
 
+        // --- Process Google Ads data (from GA4 response) ---
+        const gadsConfigured = ga4Data.googleAds != null;
+        const gadsTotals: GoogleAdsTotals = ga4Data.googleAds?.totals || { cost: 0, clicks: 0, impressions: 0, cpc: 0, ctr: 0 };
+        const gadsDaily: GoogleAdsDailyRow[] = (ga4Data.googleAds?.daily || []).map(
+          (row: Record<string, unknown>) => ({
+            date: row.date as string,
+            cost: (row.cost as number) || 0,
+            clicks: (row.clicks as number) || 0,
+            impressions: (row.impressions as number) || 0,
+          })
+        );
+
         // --- Process VNDA data ---
         const vndaConfigured = vndaData.configured === true;
         const vndaInsights: VndaDailyRow[] = (vndaData.insights || []).map(
@@ -299,11 +338,12 @@ export default function OverviewPage() {
           productsSold: 0,
         };
 
-        // --- Merge daily data (Meta + GA4 + VNDA by date) ---
+        // --- Merge daily data (Meta + Google Ads + GA4 + VNDA by date) ---
         // Priority: VNDA > GA4 > Meta for revenue/orders
         const trendData: DailyRow[] = metaDaily.map((metaDay) => {
           const ga4Day = ga4Insights.find((g) => g.date === metaDay.date);
           const vndaDay = vndaInsights.find((v) => v.date === metaDay.date);
+          const gadsDay = gadsDaily.find((g) => g.date === metaDay.date);
 
           const revenue = vndaConfigured
             ? (vndaDay?.revenue ?? 0)
@@ -316,14 +356,18 @@ export default function OverviewPage() {
               ? (ga4Day?.transactions ?? 0)
               : metaDay.metaPurchases;
           const sessions = ga4Day?.sessions ?? 0;
+          const googleAdsCost = gadsDay?.cost ?? 0;
+          const totalDaySpend = metaDay.spend + googleAdsCost;
 
           return {
             date: metaDay.date,
             spend: metaDay.spend,
+            googleAdsCost: parseFloat(googleAdsCost.toFixed(2)),
+            totalSpend: parseFloat(totalDaySpend.toFixed(2)),
             revenue: parseFloat(revenue.toFixed(2)),
             roas:
-              metaDay.spend > 0
-                ? parseFloat((revenue / metaDay.spend).toFixed(2))
+              totalDaySpend > 0
+                ? parseFloat((revenue / totalDaySpend).toFixed(2))
                 : 0,
             sessions,
             pedidos: transactions,
@@ -358,8 +402,9 @@ export default function OverviewPage() {
         const totalSessions = ga4Configured
           ? ga4Totals.sessions
           : 0;
+        const totalInvestment = totalSpend + gadsTotals.cost;
         const totalRoas =
-          totalSpend > 0 ? totalRevenue / totalSpend : 0;
+          totalInvestment > 0 ? totalRevenue / totalInvestment : 0;
         const totalTicketMedio =
           totalPedidos > 0 ? totalRevenue / totalPedidos : 0;
         const totalTxConversao =
@@ -377,6 +422,9 @@ export default function OverviewPage() {
           impressions: totalImpressions,
           clicks: totalClicks,
           reach: totalReach,
+          googleAdsCost: gadsTotals.cost,
+          gadsConfigured,
+          totalInvestment,
           revenue: totalRevenue,
           sessions: totalSessions,
           pedidos: totalPedidos,
@@ -391,6 +439,7 @@ export default function OverviewPage() {
           metaComparison: insightsData.comparison || null,
           ga4Comparison: ga4Data.comparison || null,
           vndaComparison: vndaData.comparison || null,
+          gadsComparison: ga4Data.googleAdsComparison || null,
         });
       } catch {
         // Keep default empty state
@@ -413,6 +462,7 @@ export default function OverviewPage() {
   const mc = data.metaComparison;
   const gc = data.ga4Comparison;
   const vc = data.vndaComparison;
+  const gadsc = data.gadsComparison;
 
   // Previous period revenue: VNDA > GA4 > Meta
   const prevRevenue = data.vndaConfigured && vc
@@ -426,9 +476,14 @@ export default function OverviewPage() {
       ? gc.transactions
       : mc?.purchases;
 
-  // Previous period ROAS
+  // Previous period total investment (Meta + Google Ads)
+  const prevMetaSpend = mc?.spend ?? 0;
+  const prevGadsCost = gadsc?.cost ?? 0;
+  const prevTotalInvestment = prevMetaSpend + prevGadsCost;
+
+  // Previous period ROAS (uses total investment)
   const prevRoas =
-    mc && mc.spend > 0 && prevRevenue !== undefined ? prevRevenue / mc.spend : undefined;
+    prevTotalInvestment > 0 && prevRevenue !== undefined ? prevRevenue / prevTotalInvestment : undefined;
   // Previous period ticket médio
   const prevTicketMedio =
     prevPurchases && prevPurchases > 0 && prevRevenue !== undefined
@@ -445,6 +500,16 @@ export default function OverviewPage() {
   const revenueSource = data.vndaConfigured ? "VNDA" : data.ga4Configured ? "GA4" : "Meta";
   const revenueColor = data.vndaConfigured ? "#10b981" : data.ga4Configured ? "#f97316" : "#1877f2";
 
+  // Investment badge
+  const investBadge = data.gadsConfigured ? "Meta + Google" : "Meta";
+  const investColor = data.gadsConfigured ? "#8b5cf6" : "#1877f2";
+
+  // ROAS badge
+  const roasSources = [data.gadsConfigured ? "Meta + Google" : "Meta"];
+  if (data.vndaConfigured) roasSources.push("VNDA");
+  else if (data.ga4Configured) roasSources.push("GA4");
+  const roasBadge = roasSources.join(" / ");
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -452,7 +517,7 @@ export default function OverviewPage() {
         <div>
           <h1 className="text-2xl font-bold">Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Visão geral Meta Ads{data.ga4Configured ? " + GA4" : ""}{data.vndaConfigured ? " + VNDA" : ""}
+            Visão geral Meta Ads{data.gadsConfigured ? " + Google Ads" : ""}{data.ga4Configured ? " + GA4" : ""}{data.vndaConfigured ? " + VNDA" : ""}
           </p>
         </div>
         <DateRangePicker value={datePreset} onChange={setDatePreset} />
@@ -461,14 +526,14 @@ export default function OverviewPage() {
       {/* KPI Cards - Row 1: Revenue metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Investimento"
-          value={formatCurrency(data.spend)}
-          change={calcChange(data.spend, mc?.spend)}
+          title="Invest. Total"
+          value={formatCurrency(data.totalInvestment)}
+          change={calcChange(data.totalInvestment, prevTotalInvestment || undefined)}
           icon={DollarSign}
           iconColor="text-success"
           loading={loading}
-          badge="Meta"
-          badgeColor="#1877f2"
+          badge={investBadge}
+          badgeColor={investColor}
         />
         <KpiCard
           title="Receita"
@@ -487,8 +552,8 @@ export default function OverviewPage() {
           icon={Target}
           iconColor="text-purple-400"
           loading={loading}
-          badge={data.vndaConfigured ? "Meta + VNDA" : data.ga4Configured ? "Meta + GA4" : "Meta"}
-          badgeColor={data.vndaConfigured ? "#10b981" : "#8b5cf6"}
+          badge={roasBadge}
+          badgeColor="#8b5cf6"
         />
         <KpiCard
           title="Pedidos"
@@ -502,17 +567,27 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* KPI Cards - Row 2: Performance metrics */}
+      {/* KPI Cards - Row 2: Breakdown + Performance */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Sessões"
-          value={formatNumber(data.sessions)}
-          change={calcChange(data.sessions, gc?.sessions)}
-          icon={Users}
-          iconColor="text-cyan-400"
+          title="Invest. Meta"
+          value={formatCurrency(data.spend)}
+          change={calcChange(data.spend, mc?.spend)}
+          icon={DollarSign}
+          iconColor="text-blue-400"
           loading={loading}
-          badge="GA4"
-          badgeColor="#f97316"
+          badge="Meta"
+          badgeColor="#1877f2"
+        />
+        <KpiCard
+          title="Invest. Google"
+          value={formatCurrency(data.googleAdsCost)}
+          change={calcChange(data.googleAdsCost, gadsc?.cost)}
+          icon={DollarSign}
+          iconColor="text-green-400"
+          loading={loading}
+          badge="Google Ads"
+          badgeColor="#4285f4"
         />
         <KpiCard
           title="TX Conversão"
@@ -534,16 +609,6 @@ export default function OverviewPage() {
           badge={revenueSource}
           badgeColor={revenueColor}
         />
-        <KpiCard
-          title="CPC"
-          value={formatCurrency(data.cpc)}
-          change={calcChange(data.cpc, mc?.cpc)}
-          icon={MousePointerClick}
-          iconColor="text-destructive"
-          loading={loading}
-          badge="Meta"
-          badgeColor="#1877f2"
-        />
       </div>
 
       {/* Charts */}
@@ -552,7 +617,7 @@ export default function OverviewPage() {
           title="Investimento x Receita"
           data={data.trendData as unknown as Array<Record<string, unknown>>}
           lines={[
-            { key: "spend", label: "Investimento (R$)", color: "#22c55e" },
+            { key: "totalSpend", label: "Invest. Total (R$)", color: "#22c55e" },
             { key: "revenue", label: "Receita (R$)", color: "#3b82f6" },
           ]}
           loading={loading}
@@ -571,6 +636,12 @@ export default function OverviewPage() {
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#f97316" }} />
           <span className="text-xs text-muted-foreground">GA4</span>
         </span>
+        {data.gadsConfigured && (
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#4285f4" }} />
+            <span className="text-xs text-muted-foreground">Google Ads</span>
+          </span>
+        )}
         {data.vndaConfigured && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#10b981" }} />
@@ -582,14 +653,14 @@ export default function OverviewPage() {
         title="Controle Diário"
         columns={[
           { key: "date", label: "Data" },
-          { key: "sessions", label: "Sessões", format: "number", align: "right" },
           { key: "pedidos", label: "Pedidos", format: "number", align: "right" },
           { key: "ticketMedio", label: "Ticket Médio", format: "currency", align: "right" },
           { key: "txConversao", label: "TX Conv.", format: "percent", align: "right" },
           { key: "spend", label: "Invest. Meta", format: "currency", align: "right" },
+          ...(data.gadsConfigured ? [{ key: "googleAdsCost", label: "Invest. Google", format: "currency" as const, align: "right" as const }] : []),
+          { key: "totalSpend", label: "Invest. Total", format: "currency", align: "right" },
           { key: "revenue", label: "Receita", format: "currency", align: "right" },
           { key: "roas", label: "ROAS", format: "text", align: "right" },
-          { key: "cpc", label: "CPC", format: "currency", align: "right" },
         ]}
         data={data.dailyData.map((row) => ({
           ...row,
