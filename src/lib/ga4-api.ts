@@ -7,7 +7,7 @@ let _client: BetaAnalyticsDataClient | null = null;
 function getClient(): BetaAnalyticsDataClient {
   if (_client) return _client;
 
-  const credentialsJson = process.env.GA4_CREDENTIALS_JSON;
+  const credentialsJson = process.env.GA4_CREDENTIALS_JSON?.trim();
   if (credentialsJson) {
     let credentials;
     try {
