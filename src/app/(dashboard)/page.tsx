@@ -3,39 +3,121 @@
 import React, { useEffect, useState } from "react";
 import {
   DollarSign,
-  Eye,
-  MousePointerClick,
   TrendingUp,
   Target,
-  BarChart3,
+  ShoppingCart,
+  MousePointerClick,
+  Users,
+  Receipt,
+  Percent,
 } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { TrendChart } from "@/components/dashboard/trend-chart";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import type { DatePreset } from "@/lib/types";
 
-interface ComparisonData {
+// --- Helpers ---
+
+function extractAction(
+  actions: Array<{ action_type: string; value: string }> | undefined,
+  type: string
+): number {
+  if (!actions) return 0;
+  const action = actions.find((a) => a.action_type === type);
+  return action ? parseFloat(action.value || "0") : 0;
+}
+
+function extractActionValue(
+  actionValues: Array<{ action_type: string; value: string }> | undefined,
+  type: string
+): number {
+  if (!actionValues) return 0;
+  const action = actionValues.find((a) => a.action_type === type);
+  return action ? parseFloat(action.value || "0") : 0;
+}
+
+// --- Types ---
+
+interface GA4Totals {
+  sessions: number;
+  users: number;
+  newUsers: number;
+  transactions: number;
+  revenue: number;
+  pageViews: number;
+}
+
+interface GA4DailyRow {
+  date: string;
+  sessions: number;
+  users: number;
+  transactions: number;
+  revenue: number;
+}
+
+interface MetaComparison {
   spend: number;
   impressions: number;
   clicks: number;
   reach: number;
   ctr: number;
   cpc: number;
+  revenue: number;
+  purchases: number;
+  roas: number;
+}
+
+interface DailyRow {
+  date: string;
+  spend: number;
+  revenue: number;
+  roas: number;
+  sessions: number;
+  pedidos: number;
+  ticketMedio: number;
+  txConversao: number;
+  cpc: number;
+  impressions: number;
+  clicks: number;
 }
 
 interface OverviewData {
+  // Meta
   spend: number;
+  cpc: number;
+  ctr: number;
   impressions: number;
   clicks: number;
-  ctr: number;
-  cpc: number;
   reach: number;
-  trendData: Array<Record<string, unknown>>;
+  // GA4
+  revenue: number;
+  sessions: number;
+  pedidos: number;
+  ticketMedio: number;
+  txConversao: number;
+  roas: number;
+  ga4Configured: boolean;
+  // Combined
+  trendData: DailyRow[];
+  dailyData: DailyRow[];
   topCampaigns: Array<Record<string, unknown>>;
-  comparison: ComparisonData | null;
+  // Comparison
+  metaComparison: MetaComparison | null;
+  ga4Comparison: GA4Totals | null;
 }
 
 export default function OverviewPage() {
@@ -44,14 +126,23 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OverviewData>({
     spend: 0,
+    cpc: 0,
+    ctr: 0,
     impressions: 0,
     clicks: 0,
-    ctr: 0,
-    cpc: 0,
     reach: 0,
+    revenue: 0,
+    sessions: 0,
+    pedidos: 0,
+    ticketMedio: 0,
+    txConversao: 0,
+    roas: 0,
+    ga4Configured: false,
     trendData: [],
+    dailyData: [],
     topCampaigns: [],
-    comparison: null,
+    metaComparison: null,
+    ga4Comparison: null,
   });
 
   useEffect(() => {
@@ -60,28 +151,45 @@ export default function OverviewPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        // Fetch account insights
-        const [insightsRes, campaignsRes] = await Promise.all([
-          fetch(`/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&include_comparison=true`),
+        // Fetch Meta + GA4 + Campaigns in parallel
+        const [insightsRes, ga4Res, campaignsRes] = await Promise.all([
+          fetch(
+            `/api/insights?object_id=${accountId}&level=account&date_preset=${datePreset}&include_comparison=true`
+          ),
+          fetch(
+            `/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`
+          ),
           fetch(`/api/campaigns?account_id=${accountId}&limit=5`),
         ]);
 
         const insightsData = await insightsRes.json();
+        const ga4Data = await ga4Res.json();
         const campaignsData = await campaignsRes.json();
 
-        // Process insights
-        const insights = insightsData.insights || [];
+        // --- Process Meta data ---
+        const metaInsights = insightsData.insights || [];
         let totalSpend = 0;
         let totalImpressions = 0;
         let totalClicks = 0;
         let totalReach = 0;
 
-        const trendData = insights.map(
-          (row: Record<string, string>) => {
-            const spend = parseFloat(row.spend || "0");
-            const impressions = parseFloat(row.impressions || "0");
-            const clicks = parseFloat(row.clicks || "0");
-            const reach = parseFloat(row.reach || "0");
+        interface MetaDailyItem {
+          date: string;
+          spend: number;
+          cpc: number;
+          impressions: number;
+          clicks: number;
+        }
+
+        const metaDaily: MetaDailyItem[] = metaInsights.map(
+          (row: Record<string, unknown>) => {
+            const spend = parseFloat((row.spend as string) || "0");
+            const impressions = parseFloat(
+              (row.impressions as string) || "0"
+            );
+            const clicks = parseFloat((row.clicks as string) || "0");
+            const reach = parseFloat((row.reach as string) || "0");
+            const cpc = clicks > 0 ? spend / clicks : 0;
 
             totalSpend += spend;
             totalImpressions += impressions;
@@ -89,33 +197,115 @@ export default function OverviewPage() {
             totalReach += reach;
 
             return {
-              date: row.date_start?.slice(5) || "",
+              date: (row.date_start as string)?.slice(5) || "",
               spend: parseFloat(spend.toFixed(2)),
+              cpc: parseFloat(cpc.toFixed(2)),
               impressions,
               clicks,
             };
           }
         );
 
-        const ctr =
+        const totalCtr =
           totalImpressions > 0
             ? (totalClicks / totalImpressions) * 100
             : 0;
-        const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+        const totalCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
-        // Process top campaigns
+        // --- Process GA4 data ---
+        const ga4Configured = ga4Data.configured === true;
+        const ga4Insights: GA4DailyRow[] = (ga4Data.insights || []).map(
+          (row: Record<string, unknown>) => ({
+            date: row.date as string,
+            sessions: (row.sessions as number) || 0,
+            users: (row.users as number) || 0,
+            transactions: (row.transactions as number) || 0,
+            revenue: (row.revenue as number) || 0,
+          })
+        );
+        const ga4Totals: GA4Totals = ga4Data.totals || {
+          sessions: 0,
+          users: 0,
+          newUsers: 0,
+          transactions: 0,
+          revenue: 0,
+          pageViews: 0,
+        };
+
+        // --- Merge daily data (Meta + GA4 by date) ---
+        const trendData: DailyRow[] = metaDaily.map((metaDay) => {
+          const ga4Day = ga4Insights.find((g) => g.date === metaDay.date);
+          const revenue = ga4Day?.revenue ?? 0;
+          const transactions = ga4Day?.transactions ?? 0;
+          const sessions = ga4Day?.sessions ?? 0;
+
+          return {
+            date: metaDay.date,
+            spend: metaDay.spend,
+            revenue: parseFloat(revenue.toFixed(2)),
+            roas:
+              metaDay.spend > 0
+                ? parseFloat((revenue / metaDay.spend).toFixed(2))
+                : 0,
+            sessions,
+            pedidos: transactions,
+            ticketMedio:
+              transactions > 0
+                ? parseFloat((revenue / transactions).toFixed(2))
+                : 0,
+            txConversao:
+              sessions > 0
+                ? parseFloat(
+                    ((transactions / sessions) * 100).toFixed(2)
+                  )
+                : 0,
+            cpc: metaDay.cpc,
+            impressions: metaDay.impressions,
+            clicks: metaDay.clicks,
+          };
+        });
+
+        // --- Calculate totals ---
+        const totalRevenue = ga4Configured
+          ? ga4Totals.revenue
+          : 0;
+        const totalPedidos = ga4Configured
+          ? ga4Totals.transactions
+          : 0;
+        const totalSessions = ga4Configured
+          ? ga4Totals.sessions
+          : 0;
+        const totalRoas =
+          totalSpend > 0 ? totalRevenue / totalSpend : 0;
+        const totalTicketMedio =
+          totalPedidos > 0 ? totalRevenue / totalPedidos : 0;
+        const totalTxConversao =
+          totalSessions > 0
+            ? (totalPedidos / totalSessions) * 100
+            : 0;
+
+        const dailyData = [...trendData].reverse();
         const campaigns = campaignsData.campaigns || [];
 
         setData({
           spend: totalSpend,
+          cpc: totalCpc,
+          ctr: totalCtr,
           impressions: totalImpressions,
           clicks: totalClicks,
-          ctr,
-          cpc,
           reach: totalReach,
+          revenue: totalRevenue,
+          sessions: totalSessions,
+          pedidos: totalPedidos,
+          ticketMedio: totalTicketMedio,
+          txConversao: totalTxConversao,
+          roas: totalRoas,
+          ga4Configured,
           trendData,
+          dailyData,
           topCampaigns: campaigns,
-          comparison: insightsData.comparison || null,
+          metaComparison: insightsData.comparison || null,
+          ga4Comparison: ga4Data.comparison || null,
         });
       } catch {
         // Keep default empty state
@@ -127,12 +317,30 @@ export default function OverviewPage() {
     fetchData();
   }, [datePreset, accountId]);
 
-  function calcChange(current: number, previous: number | undefined): number | undefined {
+  function calcChange(
+    current: number,
+    previous: number | undefined
+  ): number | undefined {
     if (previous === undefined || previous === 0) return undefined;
     return ((current - previous) / previous) * 100;
   }
 
-  const comp = data.comparison;
+  const mc = data.metaComparison;
+  const gc = data.ga4Comparison;
+
+  // Previous period ROAS
+  const prevRoas =
+    mc && gc && mc.spend > 0 ? gc.revenue / mc.spend : undefined;
+  // Previous period ticket médio
+  const prevTicketMedio =
+    gc && gc.transactions > 0
+      ? gc.revenue / gc.transactions
+      : undefined;
+  // Previous period tx conversão
+  const prevTxConversao =
+    gc && gc.sessions > 0
+      ? (gc.transactions / gc.sessions) * 100
+      : undefined;
 
   return (
     <div className="space-y-6">
@@ -141,60 +349,80 @@ export default function OverviewPage() {
         <div>
           <h1 className="text-2xl font-bold">Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Visão geral da sua conta Meta Ads
+            Visão geral Meta Ads{data.ga4Configured ? " + GA4" : ""}
           </p>
         </div>
         <DateRangePicker value={datePreset} onChange={setDatePreset} />
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      {/* KPI Cards - Row 1: Revenue metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Investimento"
           value={formatCurrency(data.spend)}
-          change={calcChange(data.spend, comp?.spend)}
+          change={calcChange(data.spend, mc?.spend)}
           icon={DollarSign}
           iconColor="text-success"
           loading={loading}
         />
         <KpiCard
-          title="Impressões"
-          value={formatNumber(data.impressions)}
-          change={calcChange(data.impressions, comp?.impressions)}
-          icon={Eye}
-          iconColor="text-info"
+          title="Receita"
+          value={formatCurrency(data.revenue)}
+          change={calcChange(data.revenue, gc?.revenue)}
+          icon={TrendingUp}
+          iconColor="text-blue-400"
           loading={loading}
         />
         <KpiCard
-          title="Cliques"
-          value={formatNumber(data.clicks)}
-          change={calcChange(data.clicks, comp?.clicks)}
-          icon={MousePointerClick}
-          iconColor="text-primary"
-          loading={loading}
-        />
-        <KpiCard
-          title="CTR"
-          value={formatPercent(data.ctr)}
-          change={calcChange(data.ctr, comp?.ctr)}
+          title="ROAS"
+          value={`${data.roas.toFixed(2)}x`}
+          change={calcChange(data.roas, prevRoas)}
           icon={Target}
+          iconColor="text-purple-400"
+          loading={loading}
+        />
+        <KpiCard
+          title="Pedidos"
+          value={formatNumber(data.pedidos)}
+          change={calcChange(data.pedidos, gc?.transactions)}
+          icon={ShoppingCart}
           iconColor="text-warning"
+          loading={loading}
+        />
+      </div>
+
+      {/* KPI Cards - Row 2: Performance metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          title="Sessões"
+          value={formatNumber(data.sessions)}
+          change={calcChange(data.sessions, gc?.sessions)}
+          icon={Users}
+          iconColor="text-cyan-400"
+          loading={loading}
+        />
+        <KpiCard
+          title="TX Conversão"
+          value={formatPercent(data.txConversao)}
+          change={calcChange(data.txConversao, prevTxConversao)}
+          icon={Percent}
+          iconColor="text-orange-400"
+          loading={loading}
+        />
+        <KpiCard
+          title="Ticket Médio"
+          value={formatCurrency(data.ticketMedio)}
+          change={calcChange(data.ticketMedio, prevTicketMedio)}
+          icon={Receipt}
+          iconColor="text-emerald-400"
           loading={loading}
         />
         <KpiCard
           title="CPC"
           value={formatCurrency(data.cpc)}
-          change={calcChange(data.cpc, comp?.cpc)}
-          icon={TrendingUp}
+          change={calcChange(data.cpc, mc?.cpc)}
+          icon={MousePointerClick}
           iconColor="text-destructive"
-          loading={loading}
-        />
-        <KpiCard
-          title="Alcance"
-          value={formatNumber(data.reach)}
-          change={calcChange(data.reach, comp?.reach)}
-          icon={BarChart3}
-          iconColor="text-purple-400"
           loading={loading}
         />
       </div>
@@ -202,23 +430,38 @@ export default function OverviewPage() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TrendChart
-          title="Investimento ao longo do tempo"
-          data={data.trendData}
+          title="Investimento x Receita"
+          data={data.trendData as unknown as Array<Record<string, unknown>>}
           lines={[
-            { key: "spend", label: "Spend (R$)", color: "#22c55e" },
+            { key: "spend", label: "Investimento (R$)", color: "#22c55e" },
+            { key: "revenue", label: "Receita (R$)", color: "#3b82f6" },
           ]}
           loading={loading}
         />
-        <TrendChart
-          title="Impressões e Cliques"
-          data={data.trendData}
-          lines={[
-            { key: "impressions", label: "Impressões", color: "#3b82f6" },
-            { key: "clicks", label: "Cliques", color: "#1877f2" },
-          ]}
-          loading={loading}
-        />
+        <RoasChart data={data.trendData} loading={loading} />
       </div>
+
+      {/* Controle Diário */}
+      <PerformanceTable
+        title="Controle Diário"
+        columns={[
+          { key: "date", label: "Data" },
+          { key: "sessions", label: "Sessões", format: "number", align: "right" },
+          { key: "pedidos", label: "Pedidos", format: "number", align: "right" },
+          { key: "ticketMedio", label: "Ticket Médio", format: "currency", align: "right" },
+          { key: "txConversao", label: "TX Conv.", format: "percent", align: "right" },
+          { key: "spend", label: "Invest. Meta", format: "currency", align: "right" },
+          { key: "revenue", label: "Receita", format: "currency", align: "right" },
+          { key: "roas", label: "ROAS", format: "text", align: "right" },
+          { key: "cpc", label: "CPC", format: "currency", align: "right" },
+        ]}
+        data={data.dailyData.map((row) => ({
+          ...row,
+          roas: `${row.roas.toFixed(2)}x`,
+          txConversao: row.txConversao.toFixed(2),
+        }))}
+        loading={loading}
+      />
 
       {/* Top Campaigns */}
       <PerformanceTable
@@ -227,11 +470,93 @@ export default function OverviewPage() {
           { key: "name", label: "Nome" },
           { key: "status", label: "Status", format: "status" },
           { key: "objective", label: "Objetivo" },
-          { key: "daily_budget", label: "Orçamento Diário", format: "budget", align: "right" },
+          {
+            key: "daily_budget",
+            label: "Orçamento Diário",
+            format: "budget",
+            align: "right",
+          },
         ]}
         data={data.topCampaigns}
         loading={loading}
       />
     </div>
+  );
+}
+
+// --- ROAS Bar Chart ---
+
+function RoasChart({
+  data,
+  loading,
+}: {
+  data: DailyRow[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ROAS Diário</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] animate-pulse rounded bg-muted" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">ROAS Diário</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[300px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <XAxis
+                dataKey="date"
+                stroke="#8888a0"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#8888a0"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => `${v}x`}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#12121a",
+                  border: "1px solid #2a2a3e",
+                  borderRadius: "8px",
+                  color: "#f0f0f5",
+                  fontSize: "12px",
+                }}
+                formatter={(value) => [
+                  `${Number(value ?? 0).toFixed(2)}x`,
+                  "ROAS",
+                ]}
+              />
+              <Legend />
+              <Bar
+                dataKey="roas"
+                name="ROAS"
+                fill="#8b5cf6"
+                radius={[4, 4, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

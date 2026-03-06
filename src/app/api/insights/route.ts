@@ -36,16 +36,29 @@ export async function GET(request: NextRequest) {
 
       const prevInsights = prevResult.insights || [];
       let prevSpend = 0, prevImpressions = 0, prevClicks = 0, prevReach = 0;
+      let prevRevenue = 0, prevPurchases = 0;
 
-      prevInsights.forEach((row) => {
-        prevSpend += parseFloat(row.spend || "0");
-        prevImpressions += parseFloat(row.impressions || "0");
-        prevClicks += parseFloat(row.clicks || "0");
-        prevReach += parseFloat(row.reach || "0");
+      prevInsights.forEach((row: Record<string, unknown>) => {
+        prevSpend += parseFloat((row.spend as string) || "0");
+        prevImpressions += parseFloat((row.impressions as string) || "0");
+        prevClicks += parseFloat((row.clicks as string) || "0");
+        prevReach += parseFloat((row.reach as string) || "0");
+
+        const actions = row.actions as Array<{ action_type: string; value: string }> | undefined;
+        const actionValues = row.action_values as Array<{ action_type: string; value: string }> | undefined;
+        if (actions) {
+          const purchase = actions.find((a) => a.action_type === "purchase");
+          if (purchase) prevPurchases += parseFloat(purchase.value || "0");
+        }
+        if (actionValues) {
+          const purchaseVal = actionValues.find((a) => a.action_type === "purchase");
+          if (purchaseVal) prevRevenue += parseFloat(purchaseVal.value || "0");
+        }
       });
 
       const prevCtr = prevImpressions > 0 ? (prevClicks / prevImpressions) * 100 : 0;
       const prevCpc = prevClicks > 0 ? prevSpend / prevClicks : 0;
+      const prevRoas = prevSpend > 0 ? prevRevenue / prevSpend : 0;
 
       return NextResponse.json({
         ...(result as Record<string, unknown>),
@@ -56,6 +69,9 @@ export async function GET(request: NextRequest) {
           reach: prevReach,
           ctr: prevCtr,
           cpc: prevCpc,
+          revenue: prevRevenue,
+          purchases: prevPurchases,
+          roas: prevRoas,
         },
       });
     }

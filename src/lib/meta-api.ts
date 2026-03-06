@@ -381,7 +381,7 @@ export async function getInsights(args: {
   }
 
   const params: Record<string, string> = {
-    fields: (args.fields || ["impressions", "clicks", "spend", "reach", "frequency", "ctr", "cpc", "cpm"]).join(","),
+    fields: (args.fields || ["impressions", "clicks", "spend", "reach", "frequency", "ctr", "cpc", "cpm", "actions", "action_values"]).join(","),
     time_increment: args.time_increment || "1",
     limit: String(args.limit || 100),
   };
