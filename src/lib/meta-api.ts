@@ -512,6 +512,7 @@ export async function estimateAudienceSize(args: { targeting: Record<string, unk
 
 export async function uploadAdImage(formData: FormData): Promise<unknown> {
   let accountId = formData.get("account_id") as string || "";
+  if (accountId === "all") accountId = "";
   if (!accountId) {
     const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
     if (accounts.accounts.length === 0) throw new Error("No ad accounts found");

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,7 @@ export default function TeamChatPage() {
   const router = useRouter();
   const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
@@ -86,6 +88,15 @@ export default function TeamChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [loadingAgents, setLoadingAgents] = useState(true);
+
+  // Sync selectedAccountId with global accountId
+  useEffect(() => {
+    if (accountId && accountId !== "all") {
+      setSelectedAccountId(accountId);
+    } else if (accounts.length > 0) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accountId, accounts]);
 
   const [attachments, setAttachments] = useState<Array<{
     id: string;
@@ -103,9 +114,11 @@ export default function TeamChatPage() {
 
   const uploadFile = useCallback(async (id: string, file: File) => {
     try {
+      const uploadAccId = selectedAccountId || accountId;
+      if (!uploadAccId || uploadAccId === "all") throw new Error("Selecione uma conta");
       const formData = new FormData();
       formData.append("filename", file, file.name);
-      formData.append("account_id", accountId);
+      formData.append("account_id", uploadAccId);
       const res = await fetch("/api/media", { method: "POST", body: formData });
       const data = await res.json();
       const images = data.images || {};
@@ -122,7 +135,7 @@ export default function TeamChatPage() {
         prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
       );
     }
-  }, [accountId]);
+  }, [selectedAccountId, accountId]);
 
   // Load agents
   useEffect(() => {
@@ -228,12 +241,12 @@ export default function TeamChatPage() {
           body: JSON.stringify({
             message: text.trim(),
             history,
-            accountId,
+            accountId: selectedAccountId || accountId,
             accountContext: {
-              account_name: (accounts as Array<{ id: string; name?: string; currency?: string; timezone_name?: string }>)?.find((a) => a.id === accountId)?.name || "Conta Meta",
-              account_id: accountId,
-              currency: (accounts as Array<{ id: string; currency?: string }>)?.find((a) => a.id === accountId)?.currency || "BRL",
-              timezone: (accounts as Array<{ id: string; timezone_name?: string }>)?.find((a) => a.id === accountId)?.timezone_name || "America/Sao_Paulo",
+              account_name: (accounts as Array<{ id: string; name?: string; currency?: string; timezone_name?: string }>)?.find((a) => a.id === (selectedAccountId || accountId))?.name || "Conta Meta",
+              account_id: selectedAccountId || accountId,
+              currency: (accounts as Array<{ id: string; currency?: string }>)?.find((a) => a.id === (selectedAccountId || accountId))?.currency || "BRL",
+              timezone: (accounts as Array<{ id: string; timezone_name?: string }>)?.find((a) => a.id === (selectedAccountId || accountId))?.timezone_name || "America/Sao_Paulo",
             },
             conversationId,
             agentId: selectedAgent.id,
@@ -639,6 +652,23 @@ export default function TeamChatPage() {
         {/* Input */}
         <div className="border-t border-border p-4">
           <div className="max-w-4xl mx-auto">
+            {accounts.length > 1 && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-muted-foreground">Conta:</span>
+                <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+                  <SelectTrigger className="h-7 w-auto text-xs">
+                    <SelectValue placeholder="Selecione a conta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((a: { id: string; name?: string; account_id?: string }) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name || a.account_id || a.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {attachments.length > 0 && (
               <div className="flex gap-2 mb-2 flex-wrap">
                 {attachments.map((att) => (
@@ -699,7 +729,7 @@ export default function TeamChatPage() {
                 size="icon"
                 className="h-11 w-11 shrink-0"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || !selectedAgent}
+                disabled={isLoading || !selectedAgent || !selectedAccountId}
                 title="Anexar criativos"
               >
                 <ImagePlus className="h-4 w-4" />
