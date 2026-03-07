@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   Plus,
   Pause,
@@ -14,6 +14,7 @@ import {
   Trophy,
   Zap,
   BarChart3,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,55 +59,87 @@ export default function CampaignsPage() {
   const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [campaigns, setCampaigns] = useState<CampaignWithMetrics[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState<{ total: number; loaded: number } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [tierFilter, setTierFilter] = useState("all");
+  const [pageAccountFilter, setPageAccountFilter] = useState("all");
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
     if (!accountId) return;
-    setLoading(true);
-    try {
-      const accountIds =
-        accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
-      const headers: Record<string, string> = {};
-      if (workspace?.id) {
-        headers["x-workspace-id"] = workspace.id;
-      }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-      const results = await Promise.all(
-        accountIds.map(async (id) => {
+    const accountIds =
+      accountId === "all" ? accounts.map((a) => a.id) : [accountId];
+    const isMulti = accountIds.length > 1;
+
+    setCampaigns([]);
+    setInitialLoading(true);
+    setPageAccountFilter("all");
+    setLoadingProgress(isMulti ? { total: accountIds.length, loaded: 0 } : null);
+
+    const headers: Record<string, string> = {};
+    if (workspace?.id) {
+      headers["x-workspace-id"] = workspace.id;
+    }
+
+    if (isMulti) {
+      const promises = accountIds.map(async (id) => {
+        try {
           const res = await fetch(
             `/api/campaigns?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
-            { headers }
+            { headers, signal: controller.signal }
           );
           const data = await res.json();
-          if (accountId === "all") {
-            const name = accounts.find((a) => a.id === id)?.name || id;
-            return (data.campaigns || []).map((c: CampaignWithMetrics) => ({
-              ...c,
-              account_id: id,
-              account_name: name,
-            }));
-          }
-          return data.campaigns || [];
-        })
-      );
+          const name = accounts.find((a) => a.id === id)?.name || id;
+          const enriched = (data.campaigns || []).map((c: CampaignWithMetrics) => ({
+            ...c,
+            account_id: id,
+            account_name: name,
+          }));
 
-      const allCampaigns: CampaignWithMetrics[] = results.flat();
-      setCampaigns(allCampaigns);
-    } catch {
-      // Keep empty state
-    } finally {
-      setLoading(false);
+          setCampaigns((prev) => [...prev, ...enriched]);
+          setInitialLoading(false);
+          setLoadingProgress((prev) =>
+            prev ? { ...prev, loaded: prev.loaded + 1 } : null
+          );
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setLoadingProgress((prev) =>
+            prev ? { ...prev, loaded: prev.loaded + 1 } : null
+          );
+        }
+      });
+
+      await Promise.all(promises);
+      setLoadingProgress(null);
+      setInitialLoading(false);
+    } else {
+      try {
+        const res = await fetch(
+          `/api/campaigns?account_id=${accountIds[0]}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+          { headers, signal: controller.signal }
+        );
+        const data = await res.json();
+        setCampaigns(data.campaigns || []);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setInitialLoading(false);
+      }
     }
   }, [accountId, accounts, datePreset, workspace?.id]);
 
   useEffect(() => {
     fetchCampaigns();
+    return () => { abortRef.current?.abort(); };
   }, [fetchCampaigns]);
 
   async function handleAction(action: string, campaignId: string) {
@@ -125,13 +158,22 @@ export default function CampaignsPage() {
     }
   }
 
+  // Filter by page account
+  const accountFiltered = useMemo(
+    () =>
+      pageAccountFilter === "all"
+        ? campaigns
+        : campaigns.filter((c) => c.account_id === pageAccountFilter),
+    [campaigns, pageAccountFilter]
+  );
+
   // Filter by name
   const filtered = useMemo(
     () =>
-      campaigns.filter((c) =>
+      accountFiltered.filter((c) =>
         c.name?.toLowerCase().includes(filter.toLowerCase())
       ),
-    [campaigns, filter]
+    [accountFiltered, filter]
   );
 
   // Filter by tier
@@ -263,14 +305,14 @@ export default function CampaignsPage() {
           value={formatNumber(totalCampaigns)}
           icon={Megaphone}
           iconColor="text-blue-400"
-          loading={loading}
+          loading={initialLoading}
         />
         <KpiCard
           title="Investimento"
           value={formatCurrency(totalSpend)}
           icon={DollarSign}
           iconColor="text-success"
-          loading={loading}
+          loading={initialLoading}
           badge="Meta"
           badgeColor="#1877f2"
         />
@@ -279,19 +321,53 @@ export default function CampaignsPage() {
           value={`${avgRoas.toFixed(2)}x`}
           icon={Target}
           iconColor="text-purple-400"
-          loading={loading}
+          loading={initialLoading}
         />
         <KpiCard
           title="CTR Medio"
           value={formatPercent(avgCtr)}
           icon={MousePointerClick}
           iconColor="text-warning"
-          loading={loading}
+          loading={initialLoading}
         />
       </div>
 
+      {/* Loading Progress */}
+      {loadingProgress && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>Carregando... ({loadingProgress.loaded}/{loadingProgress.total} contas)</span>
+          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden max-w-[200px]">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-300"
+              style={{ width: `${(loadingProgress.loaded / loadingProgress.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Controls Row */}
       <div className="flex items-center gap-2 flex-wrap">
+        {/* Account Filter (multi-account only) */}
+        {accountId === "all" && accounts.length > 1 && (
+          <>
+            <Select value={pageAccountFilter} onValueChange={setPageAccountFilter}>
+              <SelectTrigger className="w-44 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as Contas</SelectItem>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name || a.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="w-px h-6 bg-border mx-1" />
+          </>
+        )}
+
         <Input
           placeholder="Buscar campanhas..."
           value={filter}
@@ -372,7 +448,7 @@ export default function CampaignsPage() {
         title={`${sorted.length} campanha${sorted.length !== 1 ? "s" : ""}`}
         columns={columns}
         data={sorted as unknown as Array<Record<string, unknown>>}
-        loading={loading}
+        loading={initialLoading}
         actions={(row) => {
           const status = row.status as string;
           const id = row.id as string;
@@ -426,7 +502,7 @@ export default function CampaignsPage() {
       />
 
       {/* Empty state */}
-      {!loading && sorted.length === 0 && (
+      {!initialLoading && !loadingProgress && sorted.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
             <Megaphone className="h-10 w-10 text-muted-foreground mx-auto mb-3" />

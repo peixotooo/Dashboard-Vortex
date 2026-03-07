@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   Image as ImageIcon,
   Eye,
@@ -19,6 +19,7 @@ import {
   Trophy,
   Zap,
   BarChart3,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -81,68 +82,109 @@ export default function CreativesPage() {
   const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [ads, setAds] = useState<ActiveAdCreative[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState<{ total: number; loaded: number } | null>(null);
   const [selectedAd, setSelectedAd] = useState<ActiveAdCreative | null>(null);
   const [sortKey, setSortKey] = useState("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [activeTab, setActiveTab] = useState("active");
   const [tierFilter, setTierFilter] = useState("all");
+  const [pageAccountFilter, setPageAccountFilter] = useState("all");
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!accountId) return;
-    setLoading(true);
-    try {
-      const accountIds =
-        accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
-      const headers: Record<string, string> = {};
-      if (workspace?.id) {
-        headers["x-workspace-id"] = workspace.id;
-      }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-      const results = await Promise.all(
-        accountIds.map(async (id) => {
+    const accountIds =
+      accountId === "all" ? accounts.map((a) => a.id) : [accountId];
+    const isMulti = accountIds.length > 1;
+
+    setAds([]);
+    setInitialLoading(true);
+    setPageAccountFilter("all");
+    setLoadingProgress(isMulti ? { total: accountIds.length, loaded: 0 } : null);
+
+    const headers: Record<string, string> = {};
+    if (workspace?.id) {
+      headers["x-workspace-id"] = workspace.id;
+    }
+
+    if (isMulti) {
+      const promises = accountIds.map(async (id) => {
+        try {
           const res = await fetch(
             `/api/creatives?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
-            { headers }
+            { headers, signal: controller.signal }
           );
           const data = await res.json();
-          if (accountId === "all") {
-            const name = accounts.find((a) => a.id === id)?.name || id;
-            return (data.ads || []).map((ad: ActiveAdCreative) => ({
-              ...ad,
-              account_id: id,
-              account_name: name,
-            }));
-          }
-          return data.ads || [];
-        })
-      );
+          const name = accounts.find((a) => a.id === id)?.name || id;
+          const enriched = (data.ads || []).map((ad: ActiveAdCreative) => ({
+            ...ad,
+            account_id: id,
+            account_name: name,
+          }));
 
-      const allAds: ActiveAdCreative[] = results.flat();
-      setAds(allAds);
-    } catch {
-      // Keep empty state
-    } finally {
-      setLoading(false);
+          setAds((prev) => [...prev, ...enriched]);
+          setInitialLoading(false);
+          setLoadingProgress((prev) =>
+            prev ? { ...prev, loaded: prev.loaded + 1 } : null
+          );
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setLoadingProgress((prev) =>
+            prev ? { ...prev, loaded: prev.loaded + 1 } : null
+          );
+        }
+      });
+
+      await Promise.all(promises);
+      setLoadingProgress(null);
+      setInitialLoading(false);
+    } else {
+      try {
+        const res = await fetch(
+          `/api/creatives?account_id=${accountIds[0]}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+          { headers, signal: controller.signal }
+        );
+        const data = await res.json();
+        setAds(data.ads || []);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      } finally {
+        setInitialLoading(false);
+      }
     }
   }, [accountId, accounts, datePreset, workspace?.id]);
 
   useEffect(() => {
     fetchData();
+    return () => { abortRef.current?.abort(); };
   }, [fetchData]);
+
+  // Filter by page account
+  const accountFilteredAds = useMemo(
+    () =>
+      pageAccountFilter === "all"
+        ? ads
+        : ads.filter((a) => a.account_id === pageAccountFilter),
+    [ads, pageAccountFilter]
+  );
 
   // Split by status
   const activeAds = useMemo(
-    () => ads.filter((a) => a.status === "ACTIVE"),
-    [ads]
+    () => accountFilteredAds.filter((a) => a.status === "ACTIVE"),
+    [accountFilteredAds]
   );
   const pausedWithResults = useMemo(
     () =>
-      ads
+      accountFilteredAds
         .filter((a) => a.status === "PAUSED" && a.spend > 0 && a.roas > 0)
         .sort((a, b) => b.roas - a.roas),
-    [ads]
+    [accountFilteredAds]
   );
 
   // URL grouping (from active ads only)
@@ -457,14 +499,14 @@ export default function CreativesPage() {
             value={kpis.card1.value}
             icon={kpis.card1.icon}
             iconColor={kpis.card1.color}
-            loading={loading}
+            loading={initialLoading}
           />
           <KpiCard
             title={kpis.card2.title}
             value={kpis.card2.value}
             icon={kpis.card2.icon}
             iconColor={kpis.card2.color}
-            loading={loading}
+            loading={initialLoading}
             badge="Meta"
             badgeColor="#1877f2"
           />
@@ -473,19 +515,53 @@ export default function CreativesPage() {
             value={kpis.card3.value}
             icon={kpis.card3.icon}
             iconColor={kpis.card3.color}
-            loading={loading}
+            loading={initialLoading}
           />
           <KpiCard
             title={kpis.card4.title}
             value={kpis.card4.value}
             icon={kpis.card4.icon}
             iconColor={kpis.card4.color}
-            loading={loading}
+            loading={initialLoading}
           />
         </div>
 
+        {/* Loading Progress */}
+        {loadingProgress && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>Carregando... ({loadingProgress.loaded}/{loadingProgress.total} contas)</span>
+            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden max-w-[200px]">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-300"
+                style={{ width: `${(loadingProgress.loaded / loadingProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Sort + Tier Filter controls */}
         <div className="flex items-center gap-2 mt-4 flex-wrap">
+          {/* Account Filter (multi-account only) */}
+          {accountId === "all" && accounts.length > 1 && (
+            <>
+              <Select value={pageAccountFilter} onValueChange={setPageAccountFilter}>
+                <SelectTrigger className="w-44 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Contas</SelectItem>
+                  {accounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name || a.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="w-px h-6 bg-border mx-1" />
+            </>
+          )}
+
           <span className="text-xs text-muted-foreground">Ordenar por:</span>
           <Select value={sortKey} onValueChange={setSortKey}>
             <SelectTrigger className="w-40 h-8 text-xs">
@@ -565,13 +641,13 @@ export default function CreativesPage() {
             title={tableTitle}
             columns={adColumns}
             data={sortedData as Array<Record<string, unknown>>}
-            loading={loading}
+            loading={initialLoading}
             onRowClick={(row) => setSelectedAd(row as unknown as ActiveAdCreative)}
           />
         </TabsContent>
 
         <TabsContent value="paused">
-          {!loading && pausedWithResults.length === 0 ? (
+          {!initialLoading && !loadingProgress && pausedWithResults.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <Pause className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
@@ -585,14 +661,14 @@ export default function CreativesPage() {
               title={tableTitle}
               columns={adColumns}
               data={sortedData as Array<Record<string, unknown>>}
-              loading={loading}
+              loading={initialLoading}
               onRowClick={(row) => setSelectedAd(row as unknown as ActiveAdCreative)}
             />
           )}
         </TabsContent>
 
         <TabsContent value="urls">
-          {!loading && urlGroups.length === 0 ? (
+          {!initialLoading && !loadingProgress && urlGroups.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <Link2 className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
@@ -606,7 +682,7 @@ export default function CreativesPage() {
               title={tableTitle}
               columns={urlColumns}
               data={sortedData as Array<Record<string, unknown>>}
-              loading={loading}
+              loading={initialLoading}
             />
           )}
         </TabsContent>
