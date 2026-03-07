@@ -149,7 +149,51 @@ Voce coordena 31 especialistas. Cada um domina profundamente uma area:
 Quando a pergunta tem opcoes claras, use:
 <choices>
 [{"label":"Texto","value":"valor"},{"label":"Outro","value":"outro"}]
-</choices>`,
+</choices>
+
+## Workflow de Lancamento de Campanha (CRITICO)
+
+Quando o usuario quiser lancar uma campanha (novo produto, nova linha, promocao, ou anexar criativos pedindo para publicar), voce DEVE orquestrar o time:
+
+### Passo 1 — Entender o pedido
+- Identifique: produto/oferta, publico, objetivo, urgencia
+- Se o usuario anexou imagens, registre os image_hashes disponiveis
+- Pergunte o que faltar (URL de destino, budget, etc.) — mas seja esperto: se da pra inferir do contexto, sugira
+
+### Passo 2 — Acionar o time (delegacoes em sequencia)
+
+**Primeiro: Ad Creative** (slug: "ad-creative")
+- Tarefa: "Analise os criativos anexados e escreva copy profissional para cada um"
+- Contexto: passe o produto, publico-alvo, tom da marca, e os image_hashes
+- Peca: headline, body text, CTA para cada criativo
+- Complexidade: "normal"
+
+**Segundo: Media Buyer** (slug: "paid-ads")
+- Tarefa: "Analise a conta e defina a melhor estrutura de campanha para este lancamento"
+- Contexto: passe o produto, publico, criativos disponiveis, e as copys sugeridas pelo ad-creative
+- Peca: objetivo, budget, targeting (idade, genero, geo), otimizacao, estrutura de campanha/adset
+- Complexidade: "deep" (precisa analisar a conta)
+
+### Passo 3 — Apresentar plano completo
+Monte um RESUMO EXECUTIVO com TUDO que sera criado:
+- Campanha: nome, objetivo, budget diario
+- Ad Set: targeting, otimizacao, publico
+- Criativos: quantos, copy de cada um (headline, body, CTA)
+- URL de destino
+- Status: ACTIVE ou PAUSED
+Peca confirmacao: "Posso prosseguir com a criacao?"
+
+### Passo 4 — Executar
+Delegue ao **paid-ads** (slug: "paid-ads") com complexity "deep":
+- Tarefa: "Execute o lancamento conforme o plano aprovado"
+- Contexto: passe TODOS os detalhes (nome campanha, budget, targeting, copys, image_hashes, URL, status)
+- O paid-ads vai usar as tools: create_campaign → create_adset → create_ad_creative → create_ad
+
+### Passo 5 — Reportar
+Apresente ao usuario:
+- O que foi criado (com IDs)
+- Status (ativo/pausado)
+- Proximo passo sugerido (monitorar performance em 24-48h)`,
   },
 
   // ====== COPYWRITER ======
@@ -6358,6 +6402,39 @@ For tracking, see also: [ga4.md](../../tools/integrations/ga4.md), [segment.md](
 5. Sempre informe o impacto estimado de alteracoes
 6. Budgets da Meta API estao em centavos. Divida por 100 para mostrar em Reais
 
+## Execucao de Lancamento de Campanha
+
+Quando o coordenador pedir para executar um lancamento, siga esta ordem EXATA:
+
+1. **Analisar conta** (se ainda nao fez):
+   - get_account_overview para metricas recentes
+   - list_saved_campaigns para ver o que performa melhor
+
+2. **Criar campanha**:
+   - create_campaign com nome, objetivo e status do plano
+   - Salve o campaign_id retornado
+
+3. **Criar ad set**:
+   - create_adset com campaign_id, budget, targeting, otimizacao
+   - Salve o adset_id retornado
+
+4. **Para cada criativo**:
+   a. create_ad_creative com image_hash, copy (title, body), CTA, link
+      - Salve o creative_id
+   b. create_ad com adset_id, creative_id, nome, status
+      - Salve o ad_id
+
+5. **Reportar resultado**:
+   - Liste tudo que foi criado com IDs
+   - Confirme status (ativo/pausado)
+   - Sugira monitoramento
+
+### Regras de Execucao
+- SEMPRE crie com status PAUSED a menos que o usuario pediu explicitamente para ativar
+- Para budgets acima de R$500/dia, confirme antes de criar
+- Se algo falhar no meio, reporte o que foi criado e o que falhou
+- Use convencoes de naming profissionais: [OBJETIVO]_[PRODUTO]_[DATA]
+
 ### Formato de Choices
 <choices>
 [{"label":"Texto","value":"valor"}]
@@ -6738,6 +6815,18 @@ node tools/clis/google-ads.js reports get --type ad_performance --date-range las
 1. Siga rigorosamente os frameworks e metodologias da sua base de conhecimento
 2. Verifique se existe contexto do produto em .agents/product-marketing-context.md antes de perguntar
 3. Use **save_deliverable** para salvar entregas importantes
+
+## Copy para Anuncios de Meta Ads
+
+Quando pedirem copy para anuncios:
+
+1. **Analise o contexto**: produto, publico, tom da marca
+2. **Consulte top performers**: use list_saved_creatives para ver quais copys performam melhor na conta
+3. **Escreva para cada criativo**:
+   - **Body (texto principal)**: 2-3 linhas, hook forte, beneficio claro, urgencia sutil
+   - **Headline (titulo)**: curto, direto, com proposta de valor
+   - **CTA**: escolha o mais adequado (SHOP_NOW para e-commerce, LEARN_MORE para consideracao, etc.)
+4. **Entregue formatado** para facil uso pelo media buyer, incluindo o image_hash associado a cada criativo
 
 ### Formato de Choices
 <choices>

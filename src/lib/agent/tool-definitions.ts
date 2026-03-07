@@ -240,6 +240,89 @@ const META_TOOLS: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "create_ad_creative",
+    description:
+      "Cria um criativo de anúncio com imagem, copy e CTA. Retorna o creative_id necessário para criar o anúncio. IMPORTANTE: precisa de um image_hash — vindo de upload ou de imagem anexada no chat.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Nome do criativo" },
+        image_hash: {
+          type: "string",
+          description:
+            "Hash da imagem (do upload ou anexo do chat)",
+        },
+        link: {
+          type: "string",
+          description: "URL de destino (landing page)",
+        },
+        title: {
+          type: "string",
+          description: "Título / headline (abaixo da imagem)",
+        },
+        body: {
+          type: "string",
+          description: "Texto principal / copy (acima da imagem)",
+        },
+        call_to_action: {
+          type: "string",
+          description: "Tipo do botão CTA",
+          enum: [
+            "LEARN_MORE",
+            "SHOP_NOW",
+            "SIGN_UP",
+            "SUBSCRIBE",
+            "CONTACT_US",
+            "DOWNLOAD",
+            "GET_OFFER",
+            "BOOK_TRAVEL",
+            "WHATSAPP_MESSAGE",
+          ],
+        },
+        page_id: {
+          type: "string",
+          description:
+            "Facebook Page ID (opcional — detectado automaticamente se não fornecido)",
+        },
+        instagram_actor_id: {
+          type: "string",
+          description:
+            "Instagram account ID para cross-posting (opcional)",
+        },
+      },
+      required: ["name", "image_hash", "link"],
+    },
+  },
+  {
+    name: "create_ad",
+    description:
+      "Cria um anúncio dentro de um ad set, vinculando a um criativo. Esta é a etapa final: campanha → ad set → criativo → anúncio. IMPORTANTE: peça confirmação do usuário antes de criar com status ACTIVE.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        adset_id: {
+          type: "string",
+          description: "ID do ad set onde o anúncio será criado",
+        },
+        name: { type: "string", description: "Nome do anúncio" },
+        creative_id: {
+          type: "string",
+          description: "ID do criativo (de create_ad_creative)",
+        },
+        status: {
+          type: "string",
+          enum: ["ACTIVE", "PAUSED"],
+          description: "Status do anúncio (padrão: PAUSED)",
+        },
+        url_tags: {
+          type: "string",
+          description: "Parâmetros UTM para tracking (opcional)",
+        },
+      },
+      required: ["adset_id", "name", "creative_id"],
+    },
+  },
 ];
 
 // --- Memory Tools (Vortex only) ---

@@ -8,6 +8,8 @@ import {
   User,
   Wrench,
   AlertCircle,
+  ImagePlus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +59,8 @@ const TOOL_LABELS: Record<string, string> = {
   pause_campaign: "Pausando Campanha",
   resume_campaign: "Reativando Campanha",
   create_adset: "Criando Ad Set",
+  create_ad_creative: "Criando Criativo",
+  create_ad: "Criando Anúncio",
   analyze_performance: "Analisando Performance",
   list_custom_audiences: "Listando Audiências",
 };
@@ -81,8 +85,10 @@ export default function TeamChatPage() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [loadingAgents, setLoadingAgents] = useState(true);
 
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load agents
   useEffect(() => {
@@ -162,6 +168,25 @@ export default function TeamChatPage() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       try {
+        // Upload attached images to Meta before sending
+        let attachments: Array<{ filename: string; image_hash: string }> = [];
+        if (attachedFiles.length > 0) {
+          const uploadPromises = attachedFiles.map(async (file) => {
+            const formData = new FormData();
+            formData.append("filename", file, file.name);
+            formData.append("account_id", accountId);
+            const uploadRes = await fetch("/api/media", { method: "POST", body: formData });
+            const data = await uploadRes.json();
+            const images = data.images || {};
+            const firstKey = Object.keys(images)[0];
+            return { filename: file.name, image_hash: firstKey ? images[firstKey].hash : null };
+          });
+          attachments = (await Promise.all(uploadPromises)).filter(
+            (a): a is { filename: string; image_hash: string } => !!a.image_hash
+          );
+          setAttachedFiles([]);
+        }
+
         const history = messages.map((m) => ({
           role: m.role,
           content: m.content,
@@ -185,6 +210,7 @@ export default function TeamChatPage() {
             },
             conversationId,
             agentId: selectedAgent.id,
+            attachments: attachments.length > 0 ? attachments : undefined,
           }),
         });
 
@@ -335,7 +361,7 @@ export default function TeamChatPage() {
         setIsLoading(false);
       }
     },
-    [accountId, workspace?.id, selectedAgent, isLoading, messages, conversationId]
+    [accountId, workspace?.id, selectedAgent, isLoading, messages, conversationId, attachedFiles]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -585,33 +611,76 @@ export default function TeamChatPage() {
 
         {/* Input */}
         <div className="border-t border-border p-4">
-          <div className="flex gap-2 items-end max-w-4xl mx-auto">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                selectedAgent
-                  ? `Fale com ${selectedAgent.name}...`
-                  : "Selecione um agente..."
-              }
-              className="min-h-[44px] max-h-[120px] resize-none"
-              disabled={isLoading || !selectedAgent}
-              rows={1}
-            />
-            <Button
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim() || isLoading || !selectedAgent}
-              size="icon"
-              className="shrink-0"
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
+          <div className="max-w-4xl mx-auto">
+            {attachedFiles.length > 0 && (
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {attachedFiles.map((file, i) => (
+                  <div key={i} className="relative group">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={file.name}
+                      className="h-16 w-16 rounded-lg object-cover border border-border"
+                    />
+                    <button
+                      onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 items-end">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  setAttachedFiles((prev) => [...prev, ...files]);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 shrink-0"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || !selectedAgent}
+                title="Anexar criativos"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </Button>
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  selectedAgent
+                    ? `Fale com ${selectedAgent.name}...`
+                    : "Selecione um agente..."
+                }
+                className="min-h-[44px] max-h-[120px] resize-none"
+                disabled={isLoading || !selectedAgent}
+                rows={1}
+              />
+              <Button
+                onClick={() => sendMessage(input)}
+                disabled={!input.trim() || isLoading || !selectedAgent}
+                size="icon"
+                className="h-11 w-11 shrink-0"
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

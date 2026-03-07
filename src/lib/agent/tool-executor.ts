@@ -5,6 +5,8 @@ import {
   pauseCampaign,
   resumeCampaign,
   createAdSet,
+  createAdCreative,
+  createAd,
   getInsights,
   listAudiences,
 } from "@/lib/meta-api";
@@ -142,6 +144,30 @@ export async function executeToolCall(
         optimization_goal: toolInput.optimization_goal,
         targeting: toolInput.targeting,
         status: toolInput.status || "PAUSED",
+      });
+    }
+
+    case "create_ad_creative": {
+      return createAdCreative({
+        account_id: accountId,
+        name: toolInput.name as string,
+        image_hash: toolInput.image_hash as string,
+        link: toolInput.link as string,
+        title: (toolInput.title as string) || "",
+        body: (toolInput.body as string) || "",
+        call_to_action: (toolInput.call_to_action as string) || "LEARN_MORE",
+        page_id: toolInput.page_id as string | undefined,
+        instagram_actor_id: toolInput.instagram_actor_id as string | undefined,
+      });
+    }
+
+    case "create_ad": {
+      return createAd({
+        adset_id: toolInput.adset_id as string,
+        name: toolInput.name as string,
+        creative: { creative_id: toolInput.creative_id as string },
+        status: (toolInput.status as string) || "PAUSED",
+        url_tags: toolInput.url_tags as string | undefined,
       });
     }
 

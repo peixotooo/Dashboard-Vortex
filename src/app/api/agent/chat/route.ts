@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       accountContext,
       conversationId: incomingConversationId,
       agentId,
+      attachments,
     }: {
       message: string;
       history: AgentMessage[];
@@ -70,7 +71,17 @@ export async function POST(request: NextRequest) {
       accountContext: AccountContext;
       conversationId?: string;
       agentId?: string;
+      attachments?: Array<{ filename: string; image_hash: string }>;
     } = body;
+
+    // Enrich message with attachment context
+    let enrichedMessage = message;
+    if (attachments && attachments.length > 0) {
+      const list = attachments
+        .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
+        .join("\n");
+      enrichedMessage = `${message}\n\n[Criativos anexados — já enviados para a conta Meta, prontos para uso]\n${list}\n\nUse estes image_hashes ao criar criativos com create_ad_creative.`;
+    }
 
     if (!message || !accountId) {
       return new Response(
@@ -166,7 +177,7 @@ export async function POST(request: NextRequest) {
     }
 
     const stream = createAgentStream({
-      message,
+      message: enrichedMessage,
       history,
       accountId,
       accountContext: accountContext || {
