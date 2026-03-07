@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+
+export const maxDuration = 300;
 import {
   createAgentStream,
   type AgentMessage,

@@ -448,9 +448,13 @@ export async function seedTeamAgents(
       .eq("id", stale.id);
   }
 
-  // Update existing agents (name, description, avatar_color) in case they changed
+  // Update existing agents (name, description, avatar_color, soul, rules)
   for (const agentDef of TEAM_AGENTS) {
     if (!existingSlugs.has(agentDef.slug)) continue;
+
+    const existingAgent = (existing || []).find(
+      (a: { slug: string }) => a.slug === agentDef.slug
+    ) as { id: string; slug: string } | undefined;
 
     await supabase
       .from("agents")
@@ -463,6 +467,35 @@ export async function seedTeamAgents(
       })
       .eq("workspace_id", workspaceId)
       .eq("slug", agentDef.slug);
+
+    // Sync soul and rules documents to ensure latest instructions
+    if (existingAgent) {
+      for (const docType of ["soul", "agent_rules"] as const) {
+        const content = docType === "soul" ? agentDef.soul : agentDef.rules;
+        // Check if document exists
+        const { data: doc } = await supabase
+          .from("agent_documents")
+          .select("id")
+          .eq("agent_id", existingAgent.id)
+          .eq("doc_type", docType)
+          .single();
+
+        if (doc) {
+          await supabase
+            .from("agent_documents")
+            .update({ content })
+            .eq("id", doc.id);
+        } else {
+          await supabase.from("agent_documents").insert({
+            workspace_id: workspaceId,
+            account_id: null,
+            agent_id: existingAgent.id,
+            doc_type: docType,
+            content,
+          });
+        }
+      }
+    }
   }
 
   // Insert new agents that don't exist yet
@@ -1243,6 +1276,7 @@ export async function listSavedCampaigns(
     tier?: string;
     min_roas?: number;
     account_id?: string;
+    platform?: string;
     limit?: number;
   }
 ): Promise<SavedCampaign[]> {
@@ -1253,6 +1287,7 @@ export async function listSavedCampaigns(
 
   if (filters?.tier) query = query.eq("tier", filters.tier);
   if (filters?.account_id) query = query.eq("account_id", filters.account_id);
+  if (filters?.platform) query = query.eq("platform", filters.platform);
   if (filters?.min_roas) query = query.gte("roas", filters.min_roas);
 
   const { data, error } = await query
@@ -1287,7 +1322,8 @@ export async function syncSavedCampaigns(
     roas: number;
     tier?: string | null;
   }>,
-  dateRange: string
+  dateRange: string,
+  platform: "meta" | "google" = "meta"
 ): Promise<void> {
   const rows = campaigns.map((c) => ({
     workspace_id: workspaceId,
@@ -1312,11 +1348,12 @@ export async function syncSavedCampaigns(
     tier: c.tier || null,
     saved_at: new Date().toISOString(),
     date_range: dateRange,
+    platform,
   }));
 
   const { error } = await supabase
     .from("saved_campaigns")
-    .upsert(rows, { onConflict: "workspace_id,campaign_id" });
+    .upsert(rows, { onConflict: "workspace_id,platform,campaign_id" });
 
   if (error) {
     console.error("Failed to sync saved campaigns:", error.message);
