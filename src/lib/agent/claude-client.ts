@@ -194,7 +194,7 @@ export async function runSpecialist(
   let fullText = "";
   let continueLoop = true;
   let loopCount = 0;
-  const maxLoops = params.maxLoops ?? 5;
+  const maxLoops = params.maxLoops ?? 12;
 
   while (continueLoop && loopCount < maxLoops) {
     loopCount++;
@@ -420,6 +420,8 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                     supabase,
                     projectContext,
                     imageAttachments,
+                    maxLoops: delegateInput.complexity === "deep" ? 20 : 12,
+                    maxTokens: delegateInput.complexity === "deep" ? 8192 : 4096,
                   });
                 } else {
                   specialistResult = {
