@@ -168,11 +168,10 @@ export default function TeamChatPage() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       try {
-        // Upload attached images to Meta and read as base64 for Claude vision
-        let attachments: Array<{ filename: string; image_hash: string; image_data?: string; media_type?: string }> = [];
+        // Upload attached images to Meta + Supabase Storage
+        let attachments: Array<{ filename: string; image_hash: string; image_url?: string }> = [];
         if (attachedFiles.length > 0) {
           const uploadPromises = attachedFiles.map(async (file) => {
-            // Upload to Meta API
             const formData = new FormData();
             formData.append("filename", file, file.name);
             formData.append("account_id", accountId);
@@ -180,23 +179,15 @@ export default function TeamChatPage() {
             const data = await uploadRes.json();
             const images = data.images || {};
             const firstKey = Object.keys(images)[0];
-            const imageHash = firstKey ? images[firstKey].hash : null;
-
-            // Read as base64 for Claude vision
-            let imageData: string | undefined;
-            const mediaType = file.type || "image/jpeg";
-            try {
-              const buffer = await file.arrayBuffer();
-              imageData = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-            } catch {
-              // Continue without base64 if file is too large
-            }
-
-            return { filename: file.name, image_hash: imageHash, image_data: imageData, media_type: mediaType };
+            return {
+              filename: file.name,
+              image_hash: firstKey ? images[firstKey].hash : null,
+              image_url: data.imageUrl || undefined,
+            };
           });
           attachments = (await Promise.all(uploadPromises)).filter(
             (a) => !!a.image_hash
-          ) as Array<{ filename: string; image_hash: string; image_data?: string; media_type?: string }>;
+          ) as Array<{ filename: string; image_hash: string; image_url?: string }>;
           setAttachedFiles([]);
         }
 

@@ -70,10 +70,7 @@ export interface AgentStreamParams {
   agentId?: string;
   agentSlug?: string;
   projectContext?: string;
-  images?: Array<{
-    image_data: string;
-    media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-  }>;
+  imageUrls?: string[];
 }
 
 interface Choice {
@@ -277,7 +274,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
     agentId,
     agentSlug,
     projectContext,
-    images,
+    imageUrls,
   } = params;
 
   const encoder = new TextEncoder();
@@ -316,13 +313,12 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           });
         }
         // Build user message — multimodal if images are attached
-        if (images && images.length > 0) {
-          const contentBlocks: Anthropic.Messages.ContentBlockParam[] = images.map((img) => ({
+        if (imageUrls && imageUrls.length > 0) {
+          const contentBlocks: Anthropic.Messages.ContentBlockParam[] = imageUrls.map((url: string) => ({
             type: "image" as const,
             source: {
-              type: "base64" as const,
-              media_type: img.media_type,
-              data: img.image_data,
+              type: "url" as const,
+              url,
             },
           }));
           contentBlocks.push({ type: "text" as const, text: message });
