@@ -40,6 +40,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
@@ -62,12 +68,12 @@ interface UrlGroup {
 }
 
 const TIER_CONFIG = {
-  champion: { label: "Escalar", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
-  potential: { label: "Aumentar", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
-  scale: { label: "Manter", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
-  profitable: { label: "Otimizar", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
-  warning: { label: "Revisar", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
-  critical: { label: "Pausar", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
+  champion: { label: "Escalar", description: "ROAS acima de 1.5x a media e alto investimento. Aumente o budget — esta gerando muito retorno com volume.", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
+  potential: { label: "Aumentar", description: "ROAS acima de 1.5x a media, mas investimento baixo. Suba o budget para capturar mais resultado com esse ROAS alto.", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
+  scale: { label: "Manter", description: "Alto investimento com retorno positivo (ROAS >= 1.0). Mantenha o budget atual e monitore variacoes.", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  profitable: { label: "Otimizar", description: "ROAS positivo mas abaixo da media. Teste novos criativos, copys ou publicos para melhorar o retorno.", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
+  warning: { label: "Revisar", description: "ROAS abaixo de 1.0 — gasta mais do que retorna. Revise segmentacao, criativos e landing page urgente.", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
+  critical: { label: "Pausar", description: "Investimento sem nenhum retorno (ROAS zero). Pause imediatamente e reestruture antes de gastar mais.", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
 } as const;
 
 function TierBadge({ tier }: { tier?: string | null }) {
@@ -75,10 +81,17 @@ function TierBadge({ tier }: { tier?: string | null }) {
   const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
   const Icon = config.icon;
   return (
-    <Badge variant="outline" className={`text-xs gap-1 ${config.className}`}>
-      <Icon className="h-3 w-3" />
-      {config.label}
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="outline" className={`text-xs gap-1 cursor-help ${config.className}`}>
+          <Icon className="h-3 w-3" />
+          {config.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs">
+        {config.description}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -95,7 +108,20 @@ export default function CreativesPage() {
   const [activeTab, setActiveTab] = useState("active");
   const [tierFilter, setTierFilter] = useState("all");
   const [pageAccountFilter, setPageAccountFilter] = useState("all");
+  const [accountInsightsMap, setAccountInsightsMap] = useState<Map<string, { spend: number; impressions: number; clicks: number }>>(new Map());
   const abortRef = useRef<AbortController | null>(null);
+
+  // Helper to parse account-level insights from the insights API response
+  function parseAccountInsights(insightsData: { insights?: Array<Record<string, string>> }) {
+    const rows = insightsData.insights || [];
+    let spend = 0, impressions = 0, clicks = 0;
+    for (const row of rows) {
+      spend += parseFloat(row.spend || "0");
+      impressions += parseFloat(row.impressions || "0");
+      clicks += parseFloat(row.clicks || "0");
+    }
+    return { spend, impressions, clicks };
+  }
 
   const fetchData = useCallback(async () => {
     if (!accountId) return;
@@ -111,6 +137,7 @@ export default function CreativesPage() {
     setAds([]);
     setInitialLoading(true);
     setPageAccountFilter("all");
+    setAccountInsightsMap(new Map());
     setLoadingProgress(isMulti ? { total: accountIds.length, loaded: 0 } : null);
 
     const headers: Record<string, string> = {};
@@ -121,17 +148,31 @@ export default function CreativesPage() {
     if (isMulti) {
       const promises = accountIds.map(async (id) => {
         try {
-          const res = await fetch(
-            `/api/creatives?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
-            { headers, signal: controller.signal }
-          );
-          const data = await res.json();
+          const [creativesRes, insightsRes] = await Promise.all([
+            fetch(
+              `/api/creatives?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+              { headers, signal: controller.signal }
+            ),
+            fetch(
+              `/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`,
+              { signal: controller.signal }
+            ),
+          ]);
+          const data = await creativesRes.json();
+          const insightsData = await insightsRes.json();
           const name = accounts.find((a) => a.id === id)?.name || id;
           const enriched = (data.ads || []).map((ad: ActiveAdCreative) => ({
             ...ad,
             account_id: id,
             account_name: name,
           }));
+
+          const acctInsights = parseAccountInsights(insightsData);
+          setAccountInsightsMap((prev) => {
+            const next = new Map(prev);
+            next.set(id, acctInsights);
+            return next;
+          });
 
           setAds((prev) => [...prev, ...enriched]);
           setInitialLoading(false);
@@ -151,12 +192,22 @@ export default function CreativesPage() {
       setInitialLoading(false);
     } else {
       try {
-        const res = await fetch(
-          `/api/creatives?account_id=${accountIds[0]}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
-          { headers, signal: controller.signal }
-        );
-        const data = await res.json();
+        const [creativesRes, insightsRes] = await Promise.all([
+          fetch(
+            `/api/creatives?account_id=${accountIds[0]}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+            { headers, signal: controller.signal }
+          ),
+          fetch(
+            `/api/insights?object_id=${accountIds[0]}&level=account&date_preset=${datePreset}`,
+            { signal: controller.signal }
+          ),
+        ]);
+        const data = await creativesRes.json();
+        const insightsData = await insightsRes.json();
         setAds(data.ads || []);
+
+        const acctInsights = parseAccountInsights(insightsData);
+        setAccountInsightsMap(new Map([[accountIds[0], acctInsights]]));
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
       } finally {
@@ -265,12 +316,17 @@ export default function CreativesPage() {
     };
   }, [activeTab, activeAds, pausedWithResults]);
 
-  // KPI calculations — Investimento/ROAS/CTR always use ALL ads for consistency with campaigns page
+  // KPI calculations — Investimento/CTR from account-level insights for consistency with campaigns/overview
   const kpis = useMemo(() => {
-    const totalSpend = accountFilteredAds.reduce((s, a) => s + a.spend, 0);
+    // Use account-level insights (same source as overview page) for spend/impressions/clicks
+    const relevantInsights = pageAccountFilter === "all"
+      ? [...accountInsightsMap.values()]
+      : [accountInsightsMap.get(pageAccountFilter)].filter(Boolean);
+    const totalSpend = relevantInsights.reduce((s, i) => s + (i?.spend ?? 0), 0);
+    const totalImpressions = relevantInsights.reduce((s, i) => s + (i?.impressions ?? 0), 0);
+    const totalClicks = relevantInsights.reduce((s, i) => s + (i?.clicks ?? 0), 0);
+    // Revenue comes from ad-level data (account insights don't break out revenue easily)
     const totalRevenue = accountFilteredAds.reduce((s, a) => s + a.revenue, 0);
-    const totalImpressions = accountFilteredAds.reduce((s, a) => s + a.impressions, 0);
-    const totalClicks = accountFilteredAds.reduce((s, a) => s + a.clicks, 0);
     const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
     const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
@@ -290,7 +346,7 @@ export default function CreativesPage() {
       card3: { title: "ROAS Medio", value: `${avgRoas.toFixed(2)}x`, icon: Target, color: "text-purple-400" },
       card4: { title: "CTR Medio", value: formatPercent(avgCtr), icon: MousePointerClick, color: "text-warning" },
     };
-  }, [activeTab, activeAds, pausedWithResults, urlGroups, accountFilteredAds]);
+  }, [activeTab, activeAds, pausedWithResults, urlGroups, accountFilteredAds, accountInsightsMap, pageAccountFilter]);
 
   const formatFormat = (format: string) => {
     switch (format) {
@@ -466,6 +522,7 @@ export default function CreativesPage() {
     : "Performance por URL de Destino";
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -618,6 +675,13 @@ export default function CreativesPage() {
             </>
           )}
         </div>
+
+        {/* Tier description when filter is active */}
+        {tierFilter !== "all" && tierFilter in TIER_CONFIG && (
+          <p className="text-xs text-muted-foreground -mt-2">
+            {TIER_CONFIG[tierFilter as keyof typeof TIER_CONFIG].description}
+          </p>
+        )}
 
         {/* Tab Content */}
         <TabsContent value="active">
@@ -845,6 +909,7 @@ export default function CreativesPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
 

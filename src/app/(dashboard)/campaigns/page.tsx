@@ -23,6 +23,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import Link from "next/link";
 import {
   Select,
@@ -40,12 +46,12 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
 
 const TIER_CONFIG = {
-  champion: { label: "Escalar", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
-  potential: { label: "Aumentar", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
-  scale: { label: "Manter", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
-  profitable: { label: "Otimizar", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
-  warning: { label: "Revisar", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
-  critical: { label: "Pausar", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
+  champion: { label: "Escalar", description: "ROAS acima de 1.5x a media e alto investimento. Aumente o budget — esta gerando muito retorno com volume.", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
+  potential: { label: "Aumentar", description: "ROAS acima de 1.5x a media, mas investimento baixo. Suba o budget para capturar mais resultado com esse ROAS alto.", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
+  scale: { label: "Manter", description: "Alto investimento com retorno positivo (ROAS >= 1.0). Mantenha o budget atual e monitore variacoes.", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  profitable: { label: "Otimizar", description: "ROAS positivo mas abaixo da media. Teste novos criativos, copys ou publicos para melhorar o retorno.", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
+  warning: { label: "Revisar", description: "ROAS abaixo de 1.0 — gasta mais do que retorna. Revise segmentacao, criativos e landing page urgente.", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
+  critical: { label: "Pausar", description: "Investimento sem nenhum retorno (ROAS zero). Pause imediatamente e reestruture antes de gastar mais.", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
 } as const;
 
 function TierBadge({ tier }: { tier?: string | null }) {
@@ -53,10 +59,17 @@ function TierBadge({ tier }: { tier?: string | null }) {
   const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
   const Icon = config.icon;
   return (
-    <Badge variant="outline" className={`text-xs gap-1 ${config.className}`}>
-      <Icon className="h-3 w-3" />
-      {config.label}
-    </Badge>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="outline" className={`text-xs gap-1 cursor-help ${config.className}`}>
+          <Icon className="h-3 w-3" />
+          {config.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs">
+        {config.description}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -287,6 +300,7 @@ export default function CampaignsPage() {
   ];
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -442,6 +456,13 @@ export default function CampaignsPage() {
         </div>
       </div>
 
+      {/* Tier description when filter is active */}
+      {tierFilter !== "all" && tierFilter in TIER_CONFIG && (
+        <p className="text-xs text-muted-foreground -mt-4">
+          {TIER_CONFIG[tierFilter as keyof typeof TIER_CONFIG].description}
+        </p>
+      )}
+
       {/* Performance Table */}
       <PerformanceTable
         title={`${sorted.length} campanha${sorted.length !== 1 ? "s" : ""}`}
@@ -512,5 +533,6 @@ export default function CampaignsPage() {
         </Card>
       )}
     </div>
+    </TooltipProvider>
   );
 }
