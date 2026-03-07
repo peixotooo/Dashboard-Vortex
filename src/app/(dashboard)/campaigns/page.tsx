@@ -15,6 +15,9 @@ import {
   Zap,
   BarChart3,
   Loader2,
+  TrendingUp,
+  AlertTriangle,
+  OctagonX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,9 +40,12 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
 
 const TIER_CONFIG = {
-  champion: { label: "Campeao", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
-  potential: { label: "Potencial", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
-  scale: { label: "Escala", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  champion: { label: "Escalar", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
+  potential: { label: "Aumentar", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
+  scale: { label: "Manter", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  profitable: { label: "Otimizar", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
+  warning: { label: "Revisar", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
+  critical: { label: "Pausar", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
 } as const;
 
 function TierBadge({ tier }: { tier?: string | null }) {
@@ -201,6 +207,9 @@ export default function CampaignsPage() {
     champion: filtered.filter((c) => c.tier === "champion").length,
     potential: filtered.filter((c) => c.tier === "potential").length,
     scale: filtered.filter((c) => c.tier === "scale").length,
+    profitable: filtered.filter((c) => c.tier === "profitable").length,
+    warning: filtered.filter((c) => c.tier === "warning").length,
+    critical: filtered.filter((c) => c.tier === "critical").length,
   }), [filtered]);
 
   // KPIs
@@ -403,8 +412,8 @@ export default function CampaignsPage() {
 
         <div className="w-px h-6 bg-border mx-1" />
 
-        <span className="text-xs text-muted-foreground">Classificacao:</span>
-        <div className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground">Acao:</span>
+        <div className="flex items-center gap-1 flex-wrap">
           <Button
             variant={tierFilter === "all" ? "secondary" : "ghost"}
             size="sm"
@@ -413,33 +422,23 @@ export default function CampaignsPage() {
           >
             Todos
           </Button>
-          <Button
-            variant={tierFilter === "champion" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 text-xs px-2 gap-1"
-            onClick={() => setTierFilter("champion")}
-          >
-            <Trophy className="h-3 w-3 text-emerald-500" />
-            Campeoes {tierCounts.champion > 0 && `(${tierCounts.champion})`}
-          </Button>
-          <Button
-            variant={tierFilter === "potential" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 text-xs px-2 gap-1"
-            onClick={() => setTierFilter("potential")}
-          >
-            <Zap className="h-3 w-3 text-blue-500" />
-            Potencial {tierCounts.potential > 0 && `(${tierCounts.potential})`}
-          </Button>
-          <Button
-            variant={tierFilter === "scale" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-7 text-xs px-2 gap-1"
-            onClick={() => setTierFilter("scale")}
-          >
-            <BarChart3 className="h-3 w-3 text-purple-500" />
-            Escala {tierCounts.scale > 0 && `(${tierCounts.scale})`}
-          </Button>
+          {(Object.keys(TIER_CONFIG) as Array<keyof typeof TIER_CONFIG>).map((key) => {
+            const config = TIER_CONFIG[key];
+            const Icon = config.icon;
+            const count = tierCounts[key] || 0;
+            return (
+              <Button
+                key={key}
+                variant={tierFilter === key ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs px-2 gap-1"
+                onClick={() => setTierFilter(key)}
+              >
+                <Icon className={`h-3 w-3 ${config.className.split(" ")[0]}`} />
+                {config.label} {count > 0 && `(${count})`}
+              </Button>
+            );
+          })}
         </div>
       </div>
 

@@ -130,7 +130,7 @@ export interface ActiveAdCreative {
   roas: number;
   account_id?: string;
   account_name?: string;
-  tier?: "champion" | "potential" | "scale" | null;
+  tier?: "champion" | "potential" | "scale" | "profitable" | "warning" | "critical" | null;
 }
 
 export interface CampaignWithMetrics {
@@ -152,7 +152,7 @@ export interface CampaignWithMetrics {
   roas: number;
   account_id?: string;
   account_name?: string;
-  tier?: "champion" | "potential" | "scale" | null;
+  tier?: "champion" | "potential" | "scale" | "profitable" | "warning" | "critical" | null;
 }
 
 export interface AdAccount {

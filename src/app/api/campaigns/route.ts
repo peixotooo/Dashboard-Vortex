@@ -28,10 +28,13 @@ function classifyCampaigns(campaigns: CampaignWithMetrics[]): CampaignWithMetric
     const highSpend = c.spend >= avgSpend;
     const veryHighSpend = c.spend >= avgSpend * 2;
 
-    let tier: "champion" | "potential" | "scale" | null = null;
+    let tier: CampaignWithMetrics["tier"] = null;
     if (highRoas && highSpend) tier = "champion";
     else if (highRoas) tier = "potential";
     else if (veryHighSpend && c.roas >= 1.0) tier = "scale";
+    else if (c.roas >= 1.0) tier = "profitable";
+    else if (c.roas > 0) tier = "warning";
+    else tier = "critical";
 
     return { ...c, tier };
   });
@@ -62,7 +65,7 @@ export async function GET(request: NextRequest) {
       // Auto-save classified campaigns to DB (fire-and-forget)
       const workspaceId = request.headers.get("x-workspace-id") || "";
       if (workspaceId) {
-        const toSave = classified.filter((c) => c.tier);
+        const toSave = classified.filter((c) => c.tier === "champion" || c.tier === "potential" || c.tier === "scale");
         if (toSave.length > 0) {
           const supabase = createServerClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,

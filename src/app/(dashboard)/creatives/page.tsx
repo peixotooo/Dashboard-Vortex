@@ -20,6 +20,8 @@ import {
   Zap,
   BarChart3,
   Loader2,
+  AlertTriangle,
+  OctagonX,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -60,9 +62,12 @@ interface UrlGroup {
 }
 
 const TIER_CONFIG = {
-  champion: { label: "Campeao", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
-  potential: { label: "Potencial", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
-  scale: { label: "Escala", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  champion: { label: "Escalar", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
+  potential: { label: "Aumentar", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
+  scale: { label: "Manter", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  profitable: { label: "Otimizar", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
+  warning: { label: "Revisar", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
+  critical: { label: "Pausar", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
 } as const;
 
 function TierBadge({ tier }: { tier?: string | null }) {
@@ -254,49 +259,38 @@ export default function CreativesPage() {
       champion: dataset.filter((a) => a.tier === "champion").length,
       potential: dataset.filter((a) => a.tier === "potential").length,
       scale: dataset.filter((a) => a.tier === "scale").length,
+      profitable: dataset.filter((a) => a.tier === "profitable").length,
+      warning: dataset.filter((a) => a.tier === "warning").length,
+      critical: dataset.filter((a) => a.tier === "critical").length,
     };
   }, [activeTab, activeAds, pausedWithResults]);
 
-  // KPI calculations per tab
+  // KPI calculations — Investimento/ROAS/CTR always use ALL ads for consistency with campaigns page
   const kpis = useMemo(() => {
-    if (activeTab === "urls") {
-      const totalSpend = urlGroups.reduce((s, g) => s + g.spend, 0);
-      const totalRevenue = urlGroups.reduce((s, g) => s + g.revenue, 0);
-      const totalImpressions = urlGroups.reduce((s, g) => s + g.impressions, 0);
-      const totalClicks = urlGroups.reduce((s, g) => s + g.clicks, 0);
-      return {
-        card1: { title: "URLs Unicas", value: formatNumber(urlGroups.length), icon: Link2, color: "text-blue-400" },
-        card2: { title: "Investimento", value: formatCurrency(totalSpend), icon: DollarSign, color: "text-success" },
-        card3: { title: "ROAS Medio", value: `${(totalSpend > 0 ? totalRevenue / totalSpend : 0).toFixed(2)}x`, icon: Target, color: "text-purple-400" },
-        card4: { title: "CTR Medio", value: formatPercent(totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0), icon: MousePointerClick, color: "text-warning" },
-      };
-    }
-
-    const dataset = activeTab === "paused" ? pausedWithResults : activeAds;
-    const totalSpend = dataset.reduce((s, a) => s + a.spend, 0);
-    const totalRevenue = dataset.reduce((s, a) => s + a.revenue, 0);
-    const totalImpressions = dataset.reduce((s, a) => s + a.impressions, 0);
-    const totalClicks = dataset.reduce((s, a) => s + a.clicks, 0);
+    const totalSpend = accountFilteredAds.reduce((s, a) => s + a.spend, 0);
+    const totalRevenue = accountFilteredAds.reduce((s, a) => s + a.revenue, 0);
+    const totalImpressions = accountFilteredAds.reduce((s, a) => s + a.impressions, 0);
+    const totalClicks = accountFilteredAds.reduce((s, a) => s + a.clicks, 0);
     const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
     const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
-    if (activeTab === "paused") {
-      const bestRoas = pausedWithResults.length > 0 ? Math.max(...pausedWithResults.map((a) => a.roas)) : 0;
-      return {
-        card1: { title: "Criativos Pausados", value: formatNumber(pausedWithResults.length), icon: Pause, color: "text-yellow-400" },
-        card2: { title: "Invest. no Periodo", value: formatCurrency(totalSpend), icon: DollarSign, color: "text-success" },
-        card3: { title: "Melhor ROAS", value: `${bestRoas.toFixed(2)}x`, icon: TrendingUp, color: "text-emerald-400" },
-        card4: { title: "ROAS Medio", value: `${avgRoas.toFixed(2)}x`, icon: Target, color: "text-purple-400" },
-      };
+    // Card 1 is tab-specific (count)
+    let card1;
+    if (activeTab === "urls") {
+      card1 = { title: "URLs Unicas", value: formatNumber(urlGroups.length), icon: Link2, color: "text-blue-400" };
+    } else if (activeTab === "paused") {
+      card1 = { title: "Criativos Pausados", value: formatNumber(pausedWithResults.length), icon: Pause, color: "text-yellow-400" };
+    } else {
+      card1 = { title: "Criativos Ativos", value: formatNumber(activeAds.length), icon: ImageIcon, color: "text-blue-400" };
     }
 
     return {
-      card1: { title: "Criativos Ativos", value: formatNumber(activeAds.length), icon: ImageIcon, color: "text-blue-400" },
+      card1,
       card2: { title: "Investimento", value: formatCurrency(totalSpend), icon: DollarSign, color: "text-success" },
       card3: { title: "ROAS Medio", value: `${avgRoas.toFixed(2)}x`, icon: Target, color: "text-purple-400" },
       card4: { title: "CTR Medio", value: formatPercent(avgCtr), icon: MousePointerClick, color: "text-warning" },
     };
-  }, [activeTab, activeAds, pausedWithResults, urlGroups]);
+  }, [activeTab, activeAds, pausedWithResults, urlGroups, accountFilteredAds]);
 
   const formatFormat = (format: string) => {
     switch (format) {
@@ -593,8 +587,8 @@ export default function CreativesPage() {
           {activeTab !== "urls" && (
             <>
               <div className="w-px h-6 bg-border mx-1" />
-              <span className="text-xs text-muted-foreground">Classificacao:</span>
-              <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground">Acao:</span>
+              <div className="flex items-center gap-1 flex-wrap">
                 <Button
                   variant={tierFilter === "all" ? "secondary" : "ghost"}
                   size="sm"
@@ -603,33 +597,23 @@ export default function CreativesPage() {
                 >
                   Todos
                 </Button>
-                <Button
-                  variant={tierFilter === "champion" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs px-2 gap-1"
-                  onClick={() => setTierFilter("champion")}
-                >
-                  <Trophy className="h-3 w-3 text-emerald-500" />
-                  Campeoes {tierCounts.champion > 0 && `(${tierCounts.champion})`}
-                </Button>
-                <Button
-                  variant={tierFilter === "potential" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs px-2 gap-1"
-                  onClick={() => setTierFilter("potential")}
-                >
-                  <Zap className="h-3 w-3 text-blue-500" />
-                  Potencial {tierCounts.potential > 0 && `(${tierCounts.potential})`}
-                </Button>
-                <Button
-                  variant={tierFilter === "scale" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs px-2 gap-1"
-                  onClick={() => setTierFilter("scale")}
-                >
-                  <BarChart3 className="h-3 w-3 text-purple-500" />
-                  Escala {tierCounts.scale > 0 && `(${tierCounts.scale})`}
-                </Button>
+                {(Object.keys(TIER_CONFIG) as Array<keyof typeof TIER_CONFIG>).map((key) => {
+                  const config = TIER_CONFIG[key];
+                  const Icon = config.icon;
+                  const count = tierCounts[key] || 0;
+                  return (
+                    <Button
+                      key={key}
+                      variant={tierFilter === key ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 text-xs px-2 gap-1"
+                      onClick={() => setTierFilter(key)}
+                    >
+                      <Icon className={`h-3 w-3 ${config.className.split(" ")[0]}`} />
+                      {config.label} {count > 0 && `(${count})`}
+                    </Button>
+                  );
+                })}
               </div>
             </>
           )}

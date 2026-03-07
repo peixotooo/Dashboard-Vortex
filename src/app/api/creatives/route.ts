@@ -20,10 +20,13 @@ function classifyCreatives(ads: ActiveAdCreative[]): ActiveAdCreative[] {
     const highSpend = ad.spend >= avgSpend;
     const veryHighSpend = ad.spend >= avgSpend * 2;
 
-    let tier: "champion" | "potential" | "scale" | null = null;
+    let tier: ActiveAdCreative["tier"] = null;
     if (highRoas && highSpend) tier = "champion";
     else if (highRoas) tier = "potential";
     else if (veryHighSpend && ad.roas >= 1.0) tier = "scale";
+    else if (ad.roas >= 1.0) tier = "profitable";
+    else if (ad.roas > 0) tier = "warning";
+    else tier = "critical";
 
     return { ...ad, tier };
   });
@@ -52,7 +55,7 @@ export async function GET(request: NextRequest) {
     // Auto-save classified creatives to DB (fire-and-forget)
     const workspaceId = request.headers.get("x-workspace-id") || "";
     if (workspaceId) {
-      const classified = classifiedAds.filter((a) => a.tier);
+      const classified = classifiedAds.filter((a) => a.tier === "champion" || a.tier === "potential" || a.tier === "scale");
       if (classified.length > 0) {
         const supabase = createServerClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
