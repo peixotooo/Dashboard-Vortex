@@ -258,7 +258,7 @@ export async function runSpecialist(
       });
     }
 
-    if (toolResults.length === 0 || response.stop_reason === "end_turn") {
+    if (toolResults.length === 0) {
       continueLoop = false;
     }
   }
@@ -504,13 +504,9 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             });
           }
 
-          // If no tool was used, we're done
+          // Exit only when Claude made no tool calls (finished working)
+          // If tools were called, always continue so Claude sees the results
           if (toolResults.length === 0) {
-            continueLoop = false;
-          }
-
-          // Safety: stop after end_turn
-          if (response.stop_reason === "end_turn") {
             continueLoop = false;
           }
         }
