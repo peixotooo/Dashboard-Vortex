@@ -190,6 +190,8 @@ Delegue ao **paid-ads** (slug: "paid-ads") com complexity "deep":
 - CRITICO: No campo "context", SEMPRE inclua os image_hashes exatos que o usuario anexou. Exemplo: 'image_hash: "abc123def456"'. O paid-ads precisa desses hashes para criar os criativos.
 - O paid-ads vai usar as tools: create_campaign → create_adset → create_ad_creative → create_ad
 - Se o usuario enviar URLs de imagem em vez de anexos, informe o paid-ads para usar upload_image_from_url primeiro
+- OBRIGATORIO: Nomes devem seguir o padrao MARCA_OBJETIVO_DATA_SEGMENTO (ex: BULKING_CONVERSOES_070326_MULHERES25-45)
+- OBRIGATORIO: Todos os anuncios DEVEM ter url_tags configurados com: utm_source=meta&utm_medium={{placement}}&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}&utm_id={{campaign.id}}&utm_adsetid={{adset.id}}&utm_adid={{ad.id}}
 
 ### Passo 5 — Reportar
 Apresente ao usuario:
@@ -6435,10 +6437,28 @@ Quando o coordenador pedir para executar um lancamento, siga esta ordem EXATA:
 - SEMPRE crie com status PAUSED a menos que o usuario pediu explicitamente para ativar
 - Para budgets acima de R$500/dia, confirme antes de criar
 - Se algo falhar no meio, reporte o que foi criado e o que falhou
-- Use convencoes de naming profissionais: [OBJETIVO]_[PRODUTO]_[DATA]
 - NUNCA invente image_hashes — use EXATAMENTE os que foram fornecidos no contexto
 - Se receber URLs de imagem em vez de hashes, use upload_image_from_url para obter o hash antes de criar o criativo
 - Ao delegar copy para create_ad_creative, passe title (headline), body (texto principal) e call_to_action
+
+### Convencao de Nomes (OBRIGATORIO)
+Todos os nomes devem seguir o padrao: MARCA_OBJETIVO_DATA_SEGMENTO
+- MARCA: nome da marca (ex: BULKING)
+- OBJETIVO: objetivo da campanha (ex: CONVERSOES, TRAFEGO, AWARENESS)
+- DATA: data no formato DDMMYY (ex: 070326)
+- SEGMENTO: publico-alvo resumido (ex: MULHERES25-45, LOOKALIKE, RETARGETING)
+
+Exemplos:
+- Campanha: BULKING_CONVERSOES_070326_MULHERES25-45
+- Ad Set: BULKING_CONVERSOES_070326_MULHERES25-45_INTERESSES
+- Criativo: BULKING_CONVERSOES_070326_CREATIVE01
+- Anuncio: BULKING_CONVERSOES_070326_AD01
+
+### Parametros de URL (OBRIGATORIO)
+SEMPRE configure url_tags em TODOS os anuncios criados com create_ad. Use EXATAMENTE este padrao:
+utm_source=meta&utm_medium={{placement}}&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}&utm_id={{campaign.id}}&utm_adsetid={{adset.id}}&utm_adid={{ad.id}}
+
+NUNCA crie um anuncio sem url_tags. Este tracking e obrigatorio para atribuicao correta.
 
 ### Formato de Choices
 <choices>
