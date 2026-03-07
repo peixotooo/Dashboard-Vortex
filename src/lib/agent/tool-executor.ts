@@ -20,6 +20,7 @@ import {
   getAgentBySlug,
   listSavedCreatives,
   updateCreativeNote,
+  listSavedCampaigns,
 } from "@/lib/agent/memory";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -449,6 +450,47 @@ export async function executeToolCall(
         success: true,
         message: `Anotacao atualizada para "${updated.ad_name}"`,
         creative_id: updated.id,
+      };
+    }
+
+    case "list_saved_campaigns": {
+      if (!workspaceId || !supabase) {
+        return {
+          error: "Campanhas salvas nao disponiveis (workspace nao configurado)",
+        };
+      }
+      const savedCampaigns = await listSavedCampaigns(supabase, workspaceId, {
+        tier: (toolInput.tier as string) || undefined,
+        min_roas: (toolInput.min_roas as number) || undefined,
+        account_id: (toolInput.account_id as string) || undefined,
+        limit: (toolInput.limit as number) || 20,
+      });
+
+      return {
+        campaigns: savedCampaigns.map((c) => ({
+          id: c.id,
+          campaign_name: c.campaign_name,
+          account_name: c.account_name,
+          status: c.status,
+          objective: c.objective,
+          tier: c.tier,
+          spend: c.spend,
+          revenue: c.revenue,
+          roas: c.roas,
+          ctr: c.ctr,
+          cpc: c.cpc,
+          impressions: c.impressions,
+          clicks: c.clicks,
+          daily_budget: c.daily_budget,
+          tags: c.tags,
+          notes: c.notes,
+          date_range: c.date_range,
+        })),
+        count: savedCampaigns.length,
+        message:
+          savedCampaigns.length === 0
+            ? "Nenhuma campanha classificada encontrada. As campanhas sao classificadas automaticamente na pagina de Campanhas."
+            : `Encontradas ${savedCampaigns.length} campanhas classificadas.`,
       };
     }
 

@@ -133,6 +133,28 @@ export interface ActiveAdCreative {
   tier?: "champion" | "potential" | "scale" | null;
 }
 
+export interface CampaignWithMetrics {
+  id: string;
+  name: string;
+  status: string;
+  objective: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  reach: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  revenue: number;
+  purchases: number;
+  roas: number;
+  account_id?: string;
+  account_name?: string;
+  tier?: "champion" | "potential" | "scale" | null;
+}
+
 export interface AdAccount {
   id: string;
   account_id: string;

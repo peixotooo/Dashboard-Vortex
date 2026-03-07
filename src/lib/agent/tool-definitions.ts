@@ -568,6 +568,40 @@ const SAVED_CREATIVES_TOOLS: Tool[] = [
   },
 ];
 
+// --- Saved Campaigns Tools ---
+
+const SAVED_CAMPAIGNS_TOOLS: Tool[] = [
+  {
+    name: "list_saved_campaigns",
+    description:
+      "Lista campanhas classificadas automaticamente como campeoes, potencial ou escala. Inclui metricas agregadas de performance (spend, revenue, ROAS, CTR, CPC) e metadados (objetivo, orcamento, status).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tier: {
+          type: "string",
+          enum: ["champion", "potential", "scale"],
+          description:
+            "Filtrar por classificacao: champion (ROAS alto + volume), potential (ROAS alto, pouco gasto), scale (volume alto, ROAS positivo)",
+        },
+        min_roas: {
+          type: "number",
+          description: "ROAS minimo (ex: 2.0)",
+        },
+        account_id: {
+          type: "string",
+          description: "Filtrar por conta de anuncios",
+        },
+        limit: {
+          type: "number",
+          description: "Numero maximo de resultados (default: 20)",
+        },
+      },
+      required: [],
+    },
+  },
+];
+
 // --- Backward compat: all tools in one array (used by existing /agent page) ---
 
 export const AGENT_TOOLS: Tool[] = [
@@ -575,22 +609,24 @@ export const AGENT_TOOLS: Tool[] = [
   ...MEMORY_TOOLS,
   ...TEAM_TOOLS,
   ...SAVED_CREATIVES_TOOLS,
+  ...SAVED_CAMPAIGNS_TOOLS,
 ];
 
 // --- Per-agent tool selection ---
 
 export function getToolsForAgent(agentSlug?: string): Tool[] {
-  // Vortex (default) gets Meta + Memory + Saved Creatives tools
+  const SAVED_TOOLS = [...SAVED_CREATIVES_TOOLS, ...SAVED_CAMPAIGNS_TOOLS];
+  // Vortex (default) gets Meta + Memory + Saved tools
   if (!agentSlug || agentSlug === "vortex") {
-    return [...META_TOOLS, ...MEMORY_TOOLS, ...SAVED_CREATIVES_TOOLS];
+    return [...META_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS];
   }
-  // Marcos (CMO) and paid-ads specialist get Team + Meta + Saved Creatives
+  // Marcos (CMO) and paid-ads specialist get Team + Meta + Saved
   if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
-    return [...TEAM_TOOLS, ...META_TOOLS, ...SAVED_CREATIVES_TOOLS];
+    return [...TEAM_TOOLS, ...META_TOOLS, ...SAVED_TOOLS];
   }
-  // Ad creative and copywriting agents get Team + Saved Creatives
+  // Ad creative and copywriting agents get Team + Saved
   if (agentSlug === "ad-creative" || agentSlug === "copywriting") {
-    return [...TEAM_TOOLS, ...SAVED_CREATIVES_TOOLS];
+    return [...TEAM_TOOLS, ...SAVED_TOOLS];
   }
   // Other team agents get only Team tools
   return TEAM_TOOLS;

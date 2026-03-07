@@ -1205,3 +1205,140 @@ export async function getSavedCreativeTiers(
   }
   return map;
 }
+
+// --- Saved Campaigns ---
+
+export interface SavedCampaign {
+  id: string;
+  workspace_id: string;
+  account_id: string;
+  account_name: string | null;
+  campaign_id: string;
+  campaign_name: string;
+  status: string | null;
+  objective: string | null;
+  daily_budget: string | null;
+  lifetime_budget: string | null;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  reach: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  revenue: number;
+  purchases: number;
+  roas: number;
+  tier: string | null;
+  notes: string | null;
+  tags: string[];
+  saved_at: string;
+  date_range: string | null;
+}
+
+export async function listSavedCampaigns(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: {
+    tier?: string;
+    min_roas?: number;
+    account_id?: string;
+    limit?: number;
+  }
+): Promise<SavedCampaign[]> {
+  let query = supabase
+    .from("saved_campaigns")
+    .select("*")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.tier) query = query.eq("tier", filters.tier);
+  if (filters?.account_id) query = query.eq("account_id", filters.account_id);
+  if (filters?.min_roas) query = query.gte("roas", filters.min_roas);
+
+  const { data, error } = await query
+    .order("roas", { ascending: false })
+    .limit(filters?.limit || 50);
+
+  if (error) throw new Error(`Failed to list saved campaigns: ${error.message}`);
+  return data || [];
+}
+
+export async function syncSavedCampaigns(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  campaigns: Array<{
+    account_id?: string;
+    account_name?: string;
+    id: string;
+    name: string;
+    status: string;
+    objective: string;
+    daily_budget?: string;
+    lifetime_budget?: string;
+    impressions: number;
+    clicks: number;
+    spend: number;
+    reach: number;
+    ctr: number;
+    cpc: number;
+    cpm: number;
+    revenue: number;
+    purchases: number;
+    roas: number;
+    tier?: string | null;
+  }>,
+  dateRange: string
+): Promise<void> {
+  const rows = campaigns.map((c) => ({
+    workspace_id: workspaceId,
+    account_id: c.account_id || "",
+    account_name: c.account_name || null,
+    campaign_id: c.id,
+    campaign_name: c.name,
+    status: c.status,
+    objective: c.objective,
+    daily_budget: c.daily_budget || null,
+    lifetime_budget: c.lifetime_budget || null,
+    impressions: c.impressions,
+    clicks: c.clicks,
+    spend: c.spend,
+    reach: c.reach,
+    ctr: c.ctr,
+    cpc: c.cpc,
+    cpm: c.cpm,
+    revenue: c.revenue,
+    purchases: c.purchases,
+    roas: c.roas,
+    tier: c.tier || null,
+    saved_at: new Date().toISOString(),
+    date_range: dateRange,
+  }));
+
+  const { error } = await supabase
+    .from("saved_campaigns")
+    .upsert(rows, { onConflict: "workspace_id,campaign_id" });
+
+  if (error) {
+    console.error("Failed to sync saved campaigns:", error.message);
+  }
+}
+
+export async function updateCampaignNote(
+  supabase: SupabaseClient,
+  campaignId: string,
+  notes: string,
+  tags?: string[]
+): Promise<SavedCampaign> {
+  const updates: Record<string, unknown> = { notes };
+  if (tags !== undefined) updates.tags = tags;
+
+  const { data, error } = await supabase
+    .from("saved_campaigns")
+    .update(updates)
+    .eq("id", campaignId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update campaign note: ${error.message}`);
+  return data;
+}

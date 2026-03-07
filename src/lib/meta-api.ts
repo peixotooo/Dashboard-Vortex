@@ -890,6 +890,132 @@ export async function getActiveAdsWithCreatives(args: {
   return { ads: mergedAds };
 }
 
+// ============ Campaigns with Metrics ============
+
+export async function getCampaignsWithMetrics(args: {
+  account_id: string;
+  time_range?: { since: string; until: string };
+  date_preset?: string;
+  statuses?: string[];
+}): Promise<{ campaigns: import("@/lib/types").CampaignWithMetrics[] }> {
+  let accountId = args.account_id;
+  if (!accountId) return { campaigns: [] };
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  const statuses = args.statuses || ["ACTIVE"];
+
+  // 1. Fetch campaigns with metadata
+  const campaignParams: Record<string, string> = {
+    fields: "id,name,status,objective,daily_budget,lifetime_budget",
+    limit: "200",
+    filtering: JSON.stringify([
+      { field: "effective_status", operator: "IN", value: statuses },
+    ]),
+  };
+
+  const campaignData = await graphRequest(`/${accountId}/campaigns`, campaignParams);
+  const campaignResult = campaignData as { data?: Array<Record<string, unknown>> };
+  const campaigns = campaignResult.data || [];
+  if (campaigns.length === 0) return { campaigns: [] };
+
+  // 2. Fetch campaign-level insights (aggregated for the period)
+  const insightParams: Record<string, string> = {
+    fields: "campaign_id,campaign_name,impressions,clicks,spend,reach,ctr,cpc,cpm,actions,action_values",
+    level: "campaign",
+    time_increment: "all_days",
+    limit: "500",
+    filtering: JSON.stringify([
+      { field: "campaign.effective_status", operator: "IN", value: statuses },
+    ]),
+  };
+
+  if (args.time_range) {
+    insightParams.time_range = JSON.stringify(args.time_range);
+  } else if (args.date_preset) {
+    insightParams.date_preset = args.date_preset;
+  } else {
+    insightParams.date_preset = "last_30d";
+  }
+
+  const insightData = await graphRequest(`/${accountId}/insights`, insightParams);
+  const insightResult = insightData as { data?: Array<Record<string, unknown>>; paging?: { next?: string } };
+  let allInsights = insightResult.data || [];
+
+  // Follow pagination
+  let nextUrl = insightResult.paging?.next;
+  while (nextUrl) {
+    const res = await fetch(nextUrl);
+    const pageData = await res.json();
+    if (pageData.error) break;
+    allInsights = [...allInsights, ...(pageData.data || [])];
+    nextUrl = pageData.paging?.next;
+  }
+
+  // Build insights map by campaign_id
+  const insightsMap = new Map<string, Record<string, unknown>>();
+  for (const insight of allInsights) {
+    const cid = String(insight.campaign_id || "");
+    if (cid) insightsMap.set(cid, insight);
+  }
+
+  // 3. Merge campaigns + insights
+  const merged: import("@/lib/types").CampaignWithMetrics[] = [];
+
+  for (const campaign of campaigns) {
+    const cid = String(campaign.id || "");
+    const insight = insightsMap.get(cid);
+
+    const spend = parseFloat(String(insight?.spend || "0"));
+    const impressions = parseFloat(String(insight?.impressions || "0"));
+    const clicks = parseFloat(String(insight?.clicks || "0"));
+    const reach = parseFloat(String(insight?.reach || "0"));
+
+    // Extract revenue
+    const actionValues = insight?.action_values as Array<{ action_type: string; value: string }> | undefined;
+    let revenue = 0;
+    if (actionValues) {
+      const purchaseTypes = ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"];
+      for (const type of purchaseTypes) {
+        const match = actionValues.find((a) => a.action_type === type);
+        if (match) { revenue = parseFloat(match.value || "0"); break; }
+      }
+    }
+
+    // Extract purchases
+    const actions = insight?.actions as Array<{ action_type: string; value: string }> | undefined;
+    let purchases = 0;
+    if (actions) {
+      const purchaseTypes = ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"];
+      for (const type of purchaseTypes) {
+        const match = actions.find((a) => a.action_type === type);
+        if (match) { purchases = parseFloat(match.value || "0"); break; }
+      }
+    }
+
+    merged.push({
+      id: cid,
+      name: String(campaign.name || ""),
+      status: String(campaign.status || "UNKNOWN"),
+      objective: String(campaign.objective || ""),
+      daily_budget: campaign.daily_budget as string | undefined,
+      lifetime_budget: campaign.lifetime_budget as string | undefined,
+      impressions,
+      clicks,
+      spend,
+      reach,
+      ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+      cpc: clicks > 0 ? spend / clicks : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      revenue,
+      purchases,
+      roas: spend > 0 ? revenue / spend : 0,
+    });
+  }
+
+  merged.sort((a, b) => b.spend - a.spend);
+  return { campaigns: merged };
+}
+
 // ============ Auth & Health ============
 
 export async function getTokenInfo(): Promise<unknown> {
