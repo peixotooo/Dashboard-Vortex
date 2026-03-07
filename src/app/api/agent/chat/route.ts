@@ -71,10 +71,10 @@ export async function POST(request: NextRequest) {
       accountContext: AccountContext;
       conversationId?: string;
       agentId?: string;
-      attachments?: Array<{ filename: string; image_hash: string }>;
+      attachments?: Array<{ filename: string; image_hash: string; image_data?: string; media_type?: string }>;
     } = body;
 
-    // Enrich message with attachment context
+    // Enrich message with attachment context (text part)
     let enrichedMessage = message;
     if (attachments && attachments.length > 0) {
       const list = attachments
@@ -176,6 +176,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Extract image data for Claude vision
+    const imageAttachments = attachments
+      ?.filter((a) => a.image_data)
+      .map((a) => ({
+        image_data: a.image_data!,
+        media_type: (a.media_type || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+      }));
+
     const stream = createAgentStream({
       message: enrichedMessage,
       history,
@@ -196,6 +204,7 @@ export async function POST(request: NextRequest) {
       agentId,
       agentSlug,
       projectContext: projectContextContent,
+      images: imageAttachments && imageAttachments.length > 0 ? imageAttachments : undefined,
     });
 
     return new Response(stream, {
