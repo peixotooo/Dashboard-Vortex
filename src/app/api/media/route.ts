@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
         const formData = await request.formData();
         const file = formData.get("filename") as File | null;
 
-        // Buffer the file BEFORE Meta upload consumes the stream
+        // Buffer the file BEFORE any upload consumes the stream
         let fileBuffer: ArrayBuffer | null = null;
         let fileName = "image.jpg";
         let fileType = "image/jpeg";
@@ -31,9 +31,11 @@ export async function POST(request: NextRequest) {
             fileBuffer = await file.arrayBuffer();
             fileName = file.name;
             fileType = file.type || "image/jpeg";
+            // Replace the consumed File in FormData with a fresh copy from the buffer
+            formData.set("filename", new File([fileBuffer], fileName, { type: fileType }));
         }
 
-        // Upload to Meta (consumes the FormData/File stream)
+        // Upload to Meta (using the fresh File copy)
         const result = await uploadAdImage(formData);
 
         // Upload to Supabase Storage using the saved buffer (for Claude Vision URLs)
