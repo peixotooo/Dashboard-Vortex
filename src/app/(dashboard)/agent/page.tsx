@@ -13,6 +13,7 @@ import {
   Settings,
   ImagePlus,
   X,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -56,10 +57,42 @@ export default function AgentPage() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<Array<{
+    id: string;
+    file: File;
+    preview: string;
+    status: "uploading" | "done" | "error";
+    image_hash?: string;
+    image_url?: string;
+  }>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isUploading = attachments.some((a) => a.status === "uploading");
+
+  const uploadFile = useCallback(async (id: string, file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append("filename", file, file.name);
+      formData.append("account_id", accountId);
+      const res = await fetch("/api/media", { method: "POST", body: formData });
+      const data = await res.json();
+      const images = data.images || {};
+      const firstKey = Object.keys(images)[0];
+      const hash = firstKey ? images[firstKey].hash : null;
+      if (!hash) throw new Error("No image hash");
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, status: "done" as const, image_hash: hash, image_url: data.imageUrl } : a
+        )
+      );
+    } catch {
+      setAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
+      );
+    }
+  }, [accountId]);
 
   const currentAccount = accounts.find(
     (a: { id: string }) => a.id === accountId
@@ -101,28 +134,17 @@ export default function AgentPage() {
       ]);
 
       try {
-        // Upload attached images to Meta + Supabase Storage
-        let attachments: Array<{ filename: string; image_hash: string; image_url?: string }> = [];
-        if (attachedFiles.length > 0) {
-          const uploadPromises = attachedFiles.map(async (file) => {
-            const formData = new FormData();
-            formData.append("filename", file, file.name);
-            formData.append("account_id", accountId);
-            const uploadRes = await fetch("/api/media", { method: "POST", body: formData });
-            const data = await uploadRes.json();
-            const images = data.images || {};
-            const firstKey = Object.keys(images)[0];
-            return {
-              filename: file.name,
-              image_hash: firstKey ? images[firstKey].hash : null,
-              image_url: data.imageUrl || undefined,
-            };
-          });
-          attachments = (await Promise.all(uploadPromises)).filter(
-            (a) => !!a.image_hash
-          ) as Array<{ filename: string; image_hash: string; image_url?: string }>;
-          setAttachedFiles([]);
-        }
+        // Collect already-uploaded attachments (uploaded immediately on attach)
+        const readyAttachments = attachments
+          .filter((a) => a.status === "done" && a.image_hash)
+          .map((a) => ({
+            filename: a.file.name,
+            image_hash: a.image_hash!,
+            image_url: a.image_url,
+          }));
+        // Clear attachments and revoke preview URLs
+        attachments.forEach((a) => URL.revokeObjectURL(a.preview));
+        setAttachments([]);
 
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
@@ -145,7 +167,7 @@ export default function AgentPage() {
               timezone: "America/Sao_Paulo",
             },
             conversationId,
-            attachments: attachments.length > 0 ? attachments : undefined,
+            attachments: readyAttachments.length > 0 ? readyAttachments : undefined,
           }),
         });
 
@@ -269,7 +291,7 @@ export default function AgentPage() {
         setIsLoading(false);
       }
     },
-    [isLoading, accountId, messages, workspace?.id, currentAccount?.name, conversationId, attachedFiles]
+    [isLoading, accountId, messages, workspace?.id, currentAccount?.name, conversationId, attachments]
   );
 
   const handleSubmit = useCallback(() => {
@@ -459,17 +481,35 @@ export default function AgentPage() {
 
       {/* Input */}
       <div className="border-t border-border pt-4">
-        {attachedFiles.length > 0 && (
+        {attachments.length > 0 && (
           <div className="flex gap-2 mb-2 flex-wrap">
-            {attachedFiles.map((file, i) => (
-              <div key={i} className="relative group">
+            {attachments.map((att) => (
+              <div key={att.id} className="relative group">
                 <img
-                  src={URL.createObjectURL(file)}
-                  alt={file.name}
+                  src={att.preview}
+                  alt={att.file.name}
                   className="h-16 w-16 rounded-lg object-cover border border-border"
                 />
+                {att.status === "uploading" && (
+                  <div className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 text-white animate-spin" />
+                  </div>
+                )}
+                {att.status === "done" && (
+                  <div className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-green-500 flex items-center justify-center">
+                    <Check className="h-3 w-3 text-white" />
+                  </div>
+                )}
+                {att.status === "error" && (
+                  <div className="absolute inset-0 rounded-lg bg-red-500/30 flex items-center justify-center">
+                    <AlertCircle className="h-5 w-5 text-white" />
+                  </div>
+                )}
                 <button
-                  onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    URL.revokeObjectURL(att.preview);
+                    setAttachments((prev) => prev.filter((a) => a.id !== att.id));
+                  }}
                   className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                 >
                   <X className="h-3 w-3" />
@@ -487,7 +527,12 @@ export default function AgentPage() {
             className="hidden"
             onChange={(e) => {
               const files = Array.from(e.target.files || []);
-              setAttachedFiles((prev) => [...prev, ...files]);
+              for (const file of files) {
+                const id = Math.random().toString(36).slice(2);
+                const preview = URL.createObjectURL(file);
+                setAttachments((prev) => [...prev, { id, file, preview, status: "uploading" }]);
+                uploadFile(id, file);
+              }
               e.target.value = "";
             }}
           />
@@ -519,7 +564,7 @@ export default function AgentPage() {
           />
           <Button
             onClick={handleSubmit}
-            disabled={isLoading || !input.trim() || !accountId}
+            disabled={isLoading || !input.trim() || !accountId || isUploading}
             size="icon"
             className="h-11 w-11 shrink-0"
           >

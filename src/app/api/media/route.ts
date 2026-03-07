@@ -21,27 +21,35 @@ export async function POST(request: NextRequest) {
         await getAuthenticatedContext(request).catch(() => { });
 
         const formData = await request.formData();
-
-        // Get the file before forwarding to Meta (FormData is consumed once)
         const file = formData.get("filename") as File | null;
 
-        // Upload to Meta
+        // Buffer the file BEFORE Meta upload consumes the stream
+        let fileBuffer: ArrayBuffer | null = null;
+        let fileName = "image.jpg";
+        let fileType = "image/jpeg";
+        if (file && file instanceof File) {
+            fileBuffer = await file.arrayBuffer();
+            fileName = file.name;
+            fileType = file.type || "image/jpeg";
+        }
+
+        // Upload to Meta (consumes the FormData/File stream)
         const result = await uploadAdImage(formData);
 
-        // Also upload to Supabase Storage for Claude Vision (URL-based)
+        // Upload to Supabase Storage using the saved buffer (for Claude Vision URLs)
         let imageUrl: string | undefined;
-        if (file && file instanceof File) {
+        if (fileBuffer) {
             try {
                 const supabase = createAdminClient();
                 await ensureBucket(supabase);
 
-                const ext = file.name.split(".").pop() || "jpg";
+                const ext = fileName.split(".").pop() || "jpg";
                 const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
                 const { error } = await supabase.storage
                     .from(BUCKET_NAME)
-                    .upload(path, file, {
-                        contentType: file.type || "image/jpeg",
+                    .upload(path, fileBuffer, {
+                        contentType: fileType,
                         upsert: false,
                     });
 
