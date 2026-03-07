@@ -62,6 +62,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_adset: "Criando Ad Set",
   create_ad_creative: "Criando Criativo",
   create_ad: "Criando Anúncio",
+  upload_image_from_url: "Enviando Imagem",
   analyze_performance: "Analisando Performance",
   list_custom_audiences: "Listando Audiências",
 };

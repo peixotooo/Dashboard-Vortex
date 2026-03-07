@@ -71,6 +71,7 @@ export interface AgentStreamParams {
   agentSlug?: string;
   projectContext?: string;
   imageUrls?: string[];
+  imageAttachments?: ImageAttachment[];
 }
 
 interface Choice {
@@ -102,6 +103,12 @@ function extractChoices(text: string): {
 
 // --- Specialist Runner (sub-agent, non-streaming) ---
 
+export interface ImageAttachment {
+  filename: string;
+  image_hash: string;
+  image_url?: string;
+}
+
 export interface SpecialistParams {
   agentSlug: string;
   task: string;
@@ -114,6 +121,7 @@ export interface SpecialistParams {
   projectContext?: string;
   maxLoops?: number;
   maxTokens?: number;
+  imageAttachments?: ImageAttachment[];
 }
 
 export interface SpecialistResult {
@@ -167,10 +175,17 @@ export async function runSpecialist(
   // 5. Get tools for this specialist
   const tools = getToolsForAgent(params.agentSlug);
 
-  // 6. Build task message
-  const taskMessage = params.context
+  // 6. Build task message (inject image attachments context)
+  let taskMessage = params.context
     ? `${params.task}\n\nContexto adicional:\n${params.context}`
     : params.task;
+
+  if (params.imageAttachments && params.imageAttachments.length > 0) {
+    const imgList = params.imageAttachments
+      .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
+      .join("\n");
+    taskMessage += `\n\n[Criativos anexados pelo usuário — já enviados para a conta Meta, prontos para uso]\n${imgList}\n\nUse estes image_hashes ao criar criativos com create_ad_creative. NÃO invente hashes — use EXATAMENTE os listados acima.`;
+  }
 
   // 7. Agentic loop (non-streaming)
   const messages: Anthropic.Messages.MessageParam[] = [
@@ -275,6 +290,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
     agentSlug,
     projectContext,
     imageUrls,
+    imageAttachments,
   } = params;
 
   const encoder = new TextEncoder();
@@ -403,6 +419,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                     workspaceId,
                     supabase,
                     projectContext,
+                    imageAttachments,
                   });
                 } else {
                   specialistResult = {

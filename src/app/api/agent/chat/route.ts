@@ -181,6 +181,15 @@ export async function POST(request: NextRequest) {
       ?.filter((a) => a.image_url)
       .map((a) => a.image_url!);
 
+    // Build structured image attachments for specialist forwarding
+    const readyAttachments = attachments
+      ?.filter((a) => a.image_hash)
+      .map((a) => ({
+        filename: a.filename,
+        image_hash: a.image_hash,
+        image_url: a.image_url,
+      }));
+
     const stream = createAgentStream({
       message: enrichedMessage,
       history,
@@ -202,6 +211,7 @@ export async function POST(request: NextRequest) {
       agentSlug,
       projectContext: projectContextContent,
       imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
+      imageAttachments: readyAttachments && readyAttachments.length > 0 ? readyAttachments : undefined,
     });
 
     return new Response(stream, {

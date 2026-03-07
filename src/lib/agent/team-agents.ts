@@ -187,7 +187,9 @@ Peca confirmacao: "Posso prosseguir com a criacao?"
 Delegue ao **paid-ads** (slug: "paid-ads") com complexity "deep":
 - Tarefa: "Execute o lancamento conforme o plano aprovado"
 - Contexto: passe TODOS os detalhes (nome campanha, budget, targeting, copys, image_hashes, URL, status)
+- CRITICO: No campo "context", SEMPRE inclua os image_hashes exatos que o usuario anexou. Exemplo: 'image_hash: "abc123def456"'. O paid-ads precisa desses hashes para criar os criativos.
 - O paid-ads vai usar as tools: create_campaign → create_adset → create_ad_creative → create_ad
+- Se o usuario enviar URLs de imagem em vez de anexos, informe o paid-ads para usar upload_image_from_url primeiro
 
 ### Passo 5 — Reportar
 Apresente ao usuario:
@@ -6434,6 +6436,9 @@ Quando o coordenador pedir para executar um lancamento, siga esta ordem EXATA:
 - Para budgets acima de R$500/dia, confirme antes de criar
 - Se algo falhar no meio, reporte o que foi criado e o que falhou
 - Use convencoes de naming profissionais: [OBJETIVO]_[PRODUTO]_[DATA]
+- NUNCA invente image_hashes — use EXATAMENTE os que foram fornecidos no contexto
+- Se receber URLs de imagem em vez de hashes, use upload_image_from_url para obter o hash antes de criar o criativo
+- Ao delegar copy para create_ad_creative, passe title (headline), body (texto principal) e call_to_action
 
 ### Formato de Choices
 <choices>

@@ -9,6 +9,7 @@ import {
   createAd,
   getInsights,
   listAudiences,
+  uploadAdImage,
 } from "@/lib/meta-api";
 import {
   saveMemoryRecord,
@@ -518,6 +519,51 @@ export async function executeToolCall(
             ? "Nenhuma campanha classificada encontrada. As campanhas sao classificadas automaticamente na pagina de Campanhas."
             : `Encontradas ${savedCampaigns.length} campanhas classificadas.`,
       };
+    }
+
+    case "upload_image_from_url": {
+      const imageUrl = toolInput.image_url as string;
+      if (!imageUrl) {
+        return { error: "image_url é obrigatório" };
+      }
+
+      try {
+        // Download image from URL
+        const imgRes = await fetch(imageUrl);
+        if (!imgRes.ok) {
+          return { error: `Falha ao baixar imagem: HTTP ${imgRes.status}` };
+        }
+        const blob = await imgRes.blob();
+
+        // Detect filename from URL
+        const urlPath = new URL(imageUrl).pathname;
+        const filename = urlPath.split("/").pop() || "image.jpg";
+
+        // Create FormData for Meta upload
+        const formData = new FormData();
+        formData.append("filename", blob, filename);
+        formData.append("account_id", accountId);
+
+        const result = await uploadAdImage(formData);
+        const images = (result as Record<string, unknown>).images as Record<string, { hash: string }> | undefined;
+        if (!images) {
+          return { error: "Upload concluído mas nenhum hash retornado" };
+        }
+        const firstKey = Object.keys(images)[0];
+        const hash = firstKey ? images[firstKey].hash : null;
+        if (!hash) {
+          return { error: "Upload concluído mas image_hash não encontrado" };
+        }
+        return {
+          success: true,
+          image_hash: hash,
+          message: `Imagem enviada com sucesso. image_hash: "${hash}" — use este hash em create_ad_creative.`,
+        };
+      } catch (err) {
+        return {
+          error: `Erro ao fazer upload da imagem: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+        };
+      }
     }
 
     default:

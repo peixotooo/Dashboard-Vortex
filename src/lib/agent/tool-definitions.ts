@@ -323,6 +323,21 @@ const META_TOOLS: Tool[] = [
       required: ["adset_id", "name", "creative_id"],
     },
   },
+  {
+    name: "upload_image_from_url",
+    description:
+      "Faz upload de uma imagem a partir de uma URL para a conta de anúncios Meta. Retorna o image_hash que pode ser usado em create_ad_creative. Use quando precisar subir uma imagem de URL externa (ex: de um gerador de criativos ou asset externo).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        image_url: {
+          type: "string",
+          description: "URL pública da imagem a ser enviada",
+        },
+      },
+      required: ["image_url"],
+    },
+  },
 ];
 
 // --- Memory Tools (Vortex only) ---
