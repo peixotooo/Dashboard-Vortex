@@ -19,6 +19,8 @@ import {
   MessageSquare,
   KanbanSquare,
   FileOutput,
+  CircleDollarSign,
+  Calculator,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,8 +42,10 @@ const navItems: NavItem[] = [
   { href: "/adsets", label: "Ad Sets", icon: Layers },
   { href: "/ads", label: "Ads", icon: FileText },
   { href: "/analytics", label: "Meta Ads", icon: BarChart3 },
+  { href: "/google-ads", label: "Google Ads", icon: CircleDollarSign },
   { href: "/ga4", label: "Google Analytics", icon: LineChart },
   { href: "/vnda", label: "E-commerce", icon: ShoppingBag },
+  { href: "/simulador", label: "Simulador", icon: Calculator },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
   { href: "/settings", label: "Settings", icon: Settings },

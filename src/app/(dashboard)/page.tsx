@@ -10,7 +10,9 @@ import {
   Users,
   Receipt,
   Percent,
+  Calculator,
 } from "lucide-react";
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -633,16 +635,24 @@ export default function OverviewPage() {
           badge={revenueSource}
           badgeColor={revenueColor}
         />
-        <KpiCard
-          title="ROAS"
-          value={`${data.roas.toFixed(2)}x`}
-          change={calcChange(data.roas, prevRoas)}
-          icon={Target}
-          iconColor="text-purple-400"
-          loading={loading}
-          badge={roasBadge}
-          badgeColor="#8b5cf6"
-        />
+        <div className="relative group">
+          <KpiCard
+            title="ROAS"
+            value={`${data.roas.toFixed(2)}x`}
+            change={calcChange(data.roas, prevRoas)}
+            icon={Target}
+            iconColor="text-purple-400"
+            loading={loading}
+            badge={roasBadge}
+            badgeColor="#8b5cf6"
+          />
+          <Link
+            href="/simulador"
+            className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-primary hover:underline flex items-center gap-1"
+          >
+            <Calculator className="h-3 w-3" /> Simular
+          </Link>
+        </div>
         <KpiCard
           title="Pedidos"
           value={formatNumber(data.pedidos)}
