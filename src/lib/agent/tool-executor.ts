@@ -25,7 +25,9 @@ import {
   listSavedCreatives,
   updateCreativeNote,
   listSavedCampaigns,
+  createMarketingAction,
 } from "@/lib/agent/memory";
+import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export async function executeToolCall(
@@ -602,6 +604,32 @@ export async function executeToolCall(
       } catch (err) {
         return {
           error: `Erro ao buscar campanhas Google Ads: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+        };
+      }
+    }
+
+    case "create_marketing_action": {
+      if (!workspaceId || !supabase) {
+        return { error: "Workspace nao configurado" };
+      }
+      try {
+        const action = await createMarketingAction(supabase, workspaceId, {
+          title: toolInput.title as string,
+          description: (toolInput.description as string) || "",
+          category: (toolInput.category as string) || "geral",
+          start_date: toolInput.start_date as string,
+          end_date: toolInput.end_date as string,
+          status: "planned",
+        });
+        syncMarketingToProjectContext(supabase, workspaceId).catch(() => {});
+        return {
+          success: true,
+          action_id: action.id,
+          message: `Acao "${action.title}" adicionada ao calendario de planejamento (${action.start_date} a ${action.end_date})`,
+        };
+      } catch (err) {
+        return {
+          error: `Erro ao criar acao de marketing: ${err instanceof Error ? err.message : "erro desconhecido"}`,
         };
       }
     }

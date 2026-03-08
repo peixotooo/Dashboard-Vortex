@@ -592,6 +592,47 @@ const TEAM_TOOLS: Tool[] = [
       required: ["title", "content", "deliverable_type"],
     },
   },
+  {
+    name: "create_marketing_action",
+    description:
+      "Cria uma acao no calendario de planejamento de marketing. Use apos concluir entregas para registrar as acoes planejadas no calendario do time. O usuario ve essas acoes na pagina Planejamento.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "Titulo da acao de marketing",
+        },
+        description: {
+          type: "string",
+          description: "Descricao da acao",
+        },
+        category: {
+          type: "string",
+          enum: [
+            "campanha",
+            "conteudo",
+            "social",
+            "email",
+            "seo",
+            "lancamento",
+            "evento",
+            "geral",
+          ],
+          description: "Categoria da acao",
+        },
+        start_date: {
+          type: "string",
+          description: "Data de inicio (YYYY-MM-DD)",
+        },
+        end_date: {
+          type: "string",
+          description: "Data de fim (YYYY-MM-DD)",
+        },
+      },
+      required: ["title", "category", "start_date", "end_date"],
+    },
+  },
 ];
 
 // --- Saved Creatives Tools ---
