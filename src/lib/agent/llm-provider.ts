@@ -98,10 +98,29 @@ export interface LLMResponse {
 // --- Main entry point ---
 
 export async function callLLM(params: LLMParams): Promise<LLMResponse> {
-  if (params.provider === "anthropic") {
-    return callAnthropic(params);
+  // Validate that the selected provider has an API key
+  if (params.provider === "openrouter") {
+    if (!process.env.OPENROUTER_API_KEY) {
+      // Fallback to Anthropic if available
+      if (process.env.ANTHROPIC_API_KEY) {
+        console.warn("[llm-provider] OPENROUTER_API_KEY not set, falling back to Anthropic");
+        return callAnthropic(params);
+      }
+      throw new Error("OPENROUTER_API_KEY não configurada. Adicione a env var e faça redeploy.");
+    }
+    return callOpenRouter(params);
   }
-  return callOpenRouter(params);
+
+  // Anthropic provider
+  if (!process.env.ANTHROPIC_API_KEY) {
+    // Fallback to OpenRouter if available
+    if (process.env.OPENROUTER_API_KEY) {
+      console.warn("[llm-provider] ANTHROPIC_API_KEY not set, falling back to OpenRouter");
+      return callOpenRouter(params);
+    }
+    throw new Error("ANTHROPIC_API_KEY não configurada.");
+  }
+  return callAnthropic(params);
 }
 
 // --- Anthropic (direct) ---
