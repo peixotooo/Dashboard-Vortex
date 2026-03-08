@@ -422,7 +422,18 @@ export async function seedTeamAgents(
 ): Promise<void> {
   const { TEAM_AGENTS } = await import("./team-agents");
 
-  // Check if agents already exist for this workspace
+  // Quick check: if agent count matches expected, skip full sync
+  // This avoids ~100 queries on every page load (only runs on first load or deploy changes)
+  const { count } = await supabase
+    .from("agents")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId);
+
+  if (count === TEAM_AGENTS.length) {
+    return;
+  }
+
+  // Full sync needed — fetch existing agents
   const { data: existing } = await supabase
     .from("agents")
     .select("id, slug, name")

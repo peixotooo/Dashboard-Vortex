@@ -312,6 +312,15 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
 
   return new ReadableStream({
     async start(controller) {
+      // Heartbeat to keep connection alive during long operations (Vercel proxy timeout)
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 15000);
+
       try {
         const isTeamAgent = agentSlug && agentSlug !== "vortex";
         const systemPrompt = buildSystemPrompt({
@@ -374,8 +383,21 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
         // Agentic loop — keep calling Claude until we get a final text response
         let continueLoop = true;
         let assistantFullText = "";
+        let loopCount = 0;
+        const MAX_LOOPS = 15;
+        const startTime = Date.now();
+        const TIMEOUT_MS = 250_000; // 250s graceful limit (Vercel max is 300s)
 
-        while (continueLoop) {
+        while (continueLoop && loopCount < MAX_LOOPS) {
+          // Graceful timeout check
+          if (Date.now() - startTime > TIMEOUT_MS) {
+            sendEvent(controller, {
+              type: "text",
+              content: "\n\n---\n*Tempo limite atingido. Envie outra mensagem para continuar.*",
+            });
+            break;
+          }
+          loopCount++;
           const response = await callLLM({
             provider: providerConfig.provider,
             model: resolveModel(providerConfig, tier, model),
@@ -533,6 +555,14 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           }
         }
 
+        // Notify if loop limit was reached
+        if (loopCount >= MAX_LOOPS) {
+          sendEvent(controller, {
+            type: "text",
+            content: "\n\n---\n*Limite de operacoes atingido. Envie outra mensagem para continuar.*",
+          });
+        }
+
         // Persist assistant message to DB
         if (conversationId && supabase && assistantFullText) {
           try {
@@ -572,6 +602,8 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           err instanceof Error ? err.message : "Erro desconhecido";
         sendEvent(controller, { type: "error", message: errorMessage });
         controller.close();
+      } finally {
+        clearInterval(heartbeat);
       }
     },
   });

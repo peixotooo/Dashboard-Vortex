@@ -144,7 +144,7 @@ export default function TeamChatPage() {
 
     async function loadAgents() {
       try {
-        const res = await fetch("/api/team/agents", {
+        const res = await fetch("/api/team/agents?slim=true", {
           headers: { "x-workspace-id": workspace!.id },
         });
         if (res.ok) {
@@ -418,8 +418,22 @@ export default function TeamChatPage() {
 
   if (loadingAgents) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex h-[calc(100vh-4rem)] gap-0">
+        <div className="w-64 border-r border-border bg-card/50 p-3">
+          <div className="h-4 w-16 bg-muted animate-pulse rounded mb-3 mx-2" />
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                <div className="h-8 w-8 rounded-full bg-muted animate-pulse shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 w-20 bg-muted animate-pulse rounded" />
+                  <div className="h-2.5 w-28 bg-muted animate-pulse rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1" />
       </div>
     );
   }

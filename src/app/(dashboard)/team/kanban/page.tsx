@@ -78,7 +78,7 @@ export default function KanbanPage() {
         fetch("/api/team/tasks", {
           headers: { "x-workspace-id": workspace.id },
         }),
-        fetch("/api/team/agents", {
+        fetch("/api/team/agents?slim=true", {
           headers: { "x-workspace-id": workspace.id },
         }),
       ]);
@@ -133,8 +133,20 @@ export default function KanbanPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <div className="h-8 w-32 bg-muted animate-pulse rounded" />
+        <div className="grid grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="space-y-3">
+              <div className="h-5 w-24 bg-muted animate-pulse rounded" />
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, j) => (
+                  <div key={j} className="h-24 bg-muted animate-pulse rounded-lg" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

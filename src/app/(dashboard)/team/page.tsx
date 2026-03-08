@@ -70,8 +70,29 @@ export default function TeamPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-8">
+        <div>
+          <div className="h-8 w-48 bg-muted animate-pulse rounded" />
+          <div className="h-4 w-72 bg-muted animate-pulse rounded mt-2" />
+        </div>
+        <div className="h-20 bg-muted/50 animate-pulse rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="h-11 w-11 rounded-full bg-muted animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                    <div className="h-3 w-full bg-muted animate-pulse rounded" />
+                  </div>
+                </div>
+                <div className="h-3 w-32 bg-muted animate-pulse rounded mt-3" />
+                <div className="h-8 w-full bg-muted animate-pulse rounded mt-4" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   }

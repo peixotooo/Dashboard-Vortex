@@ -18,6 +18,7 @@ function createSupabase(request: NextRequest) {
 }
 
 // GET /api/team/agents — list all agents (seeds on first use)
+// ?slim=true — returns only agent info without stats (faster for chat sidebar, filters)
 export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabase(request);
@@ -34,21 +35,30 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
 
-    // Seed team agents if they don't exist yet (idempotent)
+    // Seed team agents if they don't exist yet (fast count check, skips if synced)
     await seedTeamAgents(supabase, workspaceId);
 
-    const agents = await listAgents(supabase, workspaceId);
+    const slim = request.nextUrl.searchParams.get("slim") === "true";
 
-    // Get task counts per agent (include title for active task display)
-    const { data: taskCounts } = await supabase
-      .from("agent_tasks")
-      .select("agent_id, status, title")
-      .eq("workspace_id", workspaceId);
+    // Slim mode: return just agent list without stats (for chat sidebar, filters)
+    if (slim) {
+      const agents = await listAgents(supabase, workspaceId);
+      return NextResponse.json({ agents });
+    }
 
-    const { data: deliverableCounts } = await supabase
-      .from("agent_deliverables")
-      .select("agent_id")
-      .eq("workspace_id", workspaceId);
+    // Full mode: parallel fetch of agents + stats
+    const [agents, { data: taskCounts }, { data: deliverableCounts }] =
+      await Promise.all([
+        listAgents(supabase, workspaceId),
+        supabase
+          .from("agent_tasks")
+          .select("agent_id, status, title")
+          .eq("workspace_id", workspaceId),
+        supabase
+          .from("agent_deliverables")
+          .select("agent_id")
+          .eq("workspace_id", workspaceId),
+      ]);
 
     const agentsWithStats = agents.map((agent) => {
       const agentTasks = (taskCounts || []).filter(
