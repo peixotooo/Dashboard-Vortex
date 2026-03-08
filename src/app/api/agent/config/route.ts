@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const accountId = new URL(request.url).searchParams.get("account_id") || "";
     const docType = new URL(request.url).searchParams.get("doc_type") as string | null;
     const agentId = new URL(request.url).searchParams.get("agent_id");
-    const validDocTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;
+    const validDocTypes = ["soul", "agent_rules", "user_profile", "project_context", "provider_config"] as const;
 
     // Team agent mode — only soul + agent_rules
     if (agentId) {
@@ -52,11 +52,20 @@ export async function GET(request: NextRequest) {
       if (!validDocTypes.includes(docType as typeof validDocTypes[number])) {
         return NextResponse.json({ error: "Invalid doc_type" }, { status: 400 });
       }
-      // project_context is workspace-global (no account_id)
+      // project_context and provider_config are workspace-global (no account_id)
       if (docType === "project_context") {
         const { loadProjectContext } = await import("@/lib/agent/memory");
         const content = await loadProjectContext(supabase, workspaceId);
         return NextResponse.json({ document: content ? { content, doc_type: "project_context" } : null });
+      }
+      if (docType === "provider_config") {
+        const { data: doc } = await supabase
+          .from("agent_documents")
+          .select("*")
+          .eq("workspace_id", workspaceId)
+          .eq("doc_type", "provider_config")
+          .single();
+        return NextResponse.json({ document: doc || null });
       }
       const doc = await loadDocument(supabase, workspaceId, accountId || "", docType as "soul" | "agent_rules" | "user_profile");
       return NextResponse.json({ document: doc });
@@ -109,13 +118,44 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ document: doc });
     }
 
-    const validTypes = ["soul", "agent_rules", "user_profile", "project_context"] as const;
+    const validTypes = ["soul", "agent_rules", "user_profile", "project_context", "provider_config"] as const;
     type ValidDocType = typeof validTypes[number];
     if (!validTypes.includes(doc_type as ValidDocType)) {
       return NextResponse.json({ error: "Invalid doc_type" }, { status: 400 });
     }
 
-    const doc = await upsertDocument(supabase, workspaceId, null, doc_type as ValidDocType, content);
+    // provider_config: workspace-global upsert
+    if (doc_type === "provider_config") {
+      const { data: existing } = await supabase
+        .from("agent_documents")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("doc_type", "provider_config")
+        .single();
+
+      if (existing) {
+        const { data: doc } = await supabase
+          .from("agent_documents")
+          .update({ content, updated_at: new Date().toISOString() })
+          .eq("id", existing.id)
+          .select()
+          .single();
+        return NextResponse.json({ document: doc });
+      } else {
+        const { data: doc } = await supabase
+          .from("agent_documents")
+          .insert({
+            workspace_id: workspaceId,
+            doc_type: "provider_config",
+            content,
+          })
+          .select()
+          .single();
+        return NextResponse.json({ document: doc });
+      }
+    }
+
+    const doc = await upsertDocument(supabase, workspaceId, null, doc_type as "soul" | "agent_rules" | "user_profile" | "project_context", content);
     return NextResponse.json({ document: doc });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

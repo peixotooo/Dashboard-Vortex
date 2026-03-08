@@ -8,6 +8,10 @@ import {
 } from "@/lib/agent/claude-client";
 import { type AccountContext } from "@/lib/agent/system-prompt";
 import {
+  DEFAULT_PROVIDER_CONFIG,
+  type ProviderConfig,
+} from "@/lib/agent/llm-provider";
+import {
   loadCoreMemories,
   formatMemoriesForPrompt,
   createConversation,
@@ -92,15 +96,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENROUTER_API_KEY) {
       return new Response(
         JSON.stringify({
           error:
-            "ANTHROPIC_API_KEY não configurada. Adicione no .env.local para usar o agente.",
+            "Nenhuma API key configurada (ANTHROPIC_API_KEY ou OPENROUTER_API_KEY).",
         }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
+
+    // Load provider config from workspace settings
+    let providerConfig: ProviderConfig = DEFAULT_PROVIDER_CONFIG;
 
     // Load core memories and agent documents in parallel
     let coreMemories: string | undefined;
@@ -114,6 +121,21 @@ export async function POST(request: NextRequest) {
       try {
         // Seed default documents on first use (idempotent)
         await seedDefaultDocuments(supabase, workspaceId);
+
+        // Load provider config
+        try {
+          const { data: configDoc } = await supabase
+            .from("agent_documents")
+            .select("content")
+            .eq("workspace_id", workspaceId)
+            .eq("doc_type", "provider_config")
+            .single();
+          if (configDoc?.content) {
+            providerConfig = JSON.parse(configDoc.content);
+          }
+        } catch {
+          // Keep default (anthropic)
+        }
 
         // Load project context (shared by ALL agents)
         const projectCtx = await loadProjectContext(supabase, workspaceId);
@@ -214,6 +236,7 @@ export async function POST(request: NextRequest) {
       projectContext: projectContextContent,
       imageUrls: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
       imageAttachments: readyAttachments && readyAttachments.length > 0 ? readyAttachments : undefined,
+      providerConfig,
     });
 
     return new Response(stream, {

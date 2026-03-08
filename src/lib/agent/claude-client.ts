@@ -10,11 +10,13 @@ import {
   loadAgentDocument,
 } from "./memory";
 import { extractAndSaveFacts } from "./fact-extraction";
+import {
+  callLLM,
+  resolveModel,
+  DEFAULT_PROVIDER_CONFIG,
+  type ProviderConfig,
+} from "./llm-provider";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || "",
-});
 
 // --- Model Selection (3 Tiers) ---
 
@@ -72,6 +74,7 @@ export interface AgentStreamParams {
   projectContext?: string;
   imageUrls?: string[];
   imageAttachments?: ImageAttachment[];
+  providerConfig?: ProviderConfig;
 }
 
 interface Choice {
@@ -122,6 +125,7 @@ export interface SpecialistParams {
   maxLoops?: number;
   maxTokens?: number;
   imageAttachments?: ImageAttachment[];
+  providerConfig?: ProviderConfig;
 }
 
 export interface SpecialistResult {
@@ -170,7 +174,9 @@ export async function runSpecialist(
   });
 
   // 4. Select model by complexity
-  const model = selectModelByComplexity(params.complexity || "normal");
+  const complexity = params.complexity || "normal";
+  const model = selectModelByComplexity(complexity);
+  const providerConfig = params.providerConfig || DEFAULT_PROVIDER_CONFIG;
 
   // 5. Get tools for this specialist
   const tools = getToolsForAgent(params.agentSlug);
@@ -199,9 +205,10 @@ export async function runSpecialist(
   while (continueLoop && loopCount < maxLoops) {
     loopCount++;
 
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: params.maxTokens ?? 4096,
+    const response = await callLLM({
+      provider: providerConfig.provider,
+      model: resolveModel(providerConfig, complexity, model),
+      maxTokens: params.maxTokens ?? 4096,
       system: systemPrompt,
       tools: tools.filter((t) => t.name !== "delegate_to_agent"),
       messages,
@@ -317,6 +324,12 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           projectContext,
         });
         const model = selectModel(message, agentSlug);
+        const providerConfig = params.providerConfig || DEFAULT_PROVIDER_CONFIG;
+        // Determine tier for OpenRouter model resolution
+        const tier = agentSlug === "coordenador" ? "coordinator" : (
+          model === MODEL_TIERS.deep ? "deep" :
+          model === MODEL_TIERS.basic ? "basic" : "normal"
+        );
         const tools = getToolsForAgent(agentSlug);
 
         // Build messages array for Anthropic API
@@ -343,7 +356,12 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
           messages.push({ role: "user", content: message });
         }
 
-        sendEvent(controller, { type: "model", model });
+        const resolvedModel = resolveModel(providerConfig, tier, model);
+        sendEvent(controller, {
+          type: "model",
+          model: resolvedModel,
+          provider: providerConfig.provider,
+        });
 
         if (conversationId) {
           sendEvent(controller, {
@@ -357,9 +375,10 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
         let assistantFullText = "";
 
         while (continueLoop) {
-          const response = await anthropic.messages.create({
-            model,
-            max_tokens: 4096,
+          const response = await callLLM({
+            provider: providerConfig.provider,
+            model: resolveModel(providerConfig, tier, model),
+            maxTokens: 4096,
             system: systemPrompt,
             tools,
             messages,
@@ -422,6 +441,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                     imageAttachments,
                     maxLoops: delegateInput.complexity === "deep" ? 20 : 12,
                     maxTokens: delegateInput.complexity === "deep" ? 8192 : 4096,
+                    providerConfig,
                   });
                 } else {
                   specialistResult = {

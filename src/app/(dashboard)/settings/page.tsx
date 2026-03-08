@@ -15,6 +15,7 @@ import {
   Star,
   Save,
   ShoppingBag,
+  Cpu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,18 @@ export default function SettingsPage() {
   const [testingVnda, setTestingVnda] = useState(false);
   const [vndaTestResult, setVndaTestResult] = useState<{ ok?: boolean; message?: string } | null>(null);
 
+  // LLM Provider
+  const [llmProvider, setLlmProvider] = useState<"anthropic" | "openrouter">("anthropic");
+  const [llmModels, setLlmModels] = useState({
+    deep: "anthropic/claude-sonnet-4.6",
+    normal: "deepseek/deepseek-chat",
+    basic: "google/gemini-2.0-flash",
+    coordinator: "anthropic/claude-haiku-4.5",
+  });
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [providerSaved, setProviderSaved] = useState(false);
+  const [providerError, setProviderError] = useState("");
+
   // Load workspace data
   const loadWorkspaceData = useCallback(async () => {
     if (!workspace?.id) return;
@@ -122,6 +135,27 @@ export default function SettingsPage() {
   useEffect(() => {
     loadWorkspaceData();
   }, [loadWorkspaceData]);
+
+  // Load LLM provider config
+  useEffect(() => {
+    if (!workspace?.id) return;
+    async function loadProvider() {
+      try {
+        const res = await fetch(`/api/agent/config?doc_type=provider_config`, {
+          headers: { "x-workspace-id": workspace!.id },
+        });
+        const data = await res.json();
+        if (data.document?.content) {
+          const config = JSON.parse(data.document.content);
+          if (config.provider) setLlmProvider(config.provider);
+          if (config.models) setLlmModels((prev) => ({ ...prev, ...config.models }));
+        }
+      } catch {
+        // Keep defaults
+      }
+    }
+    loadProvider();
+  }, [workspace?.id]);
 
   useEffect(() => {
     if (workspace) {
@@ -538,6 +572,10 @@ export default function SettingsPage() {
           <TabsTrigger value="health">
             <Activity className="h-4 w-4 mr-2" />
             Health Check
+          </TabsTrigger>
+          <TabsTrigger value="llm">
+            <Cpu className="h-4 w-4 mr-2" />
+            Provedor IA
           </TabsTrigger>
         </TabsList>
 
@@ -1132,6 +1170,161 @@ export default function SettingsPage() {
                   </pre>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* ===== LLM Provider Tab ===== */}
+        <TabsContent value="llm" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Cpu className="h-5 w-5 text-primary" />
+                Provedor de IA
+              </CardTitle>
+              <CardDescription>
+                Escolha entre Anthropic (direto) ou OpenRouter (mais econômico, múltiplos modelos).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Provider Toggle */}
+              <div className="space-y-2">
+                <Label>Provedor</Label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setLlmProvider("anthropic")}
+                    className={`flex-1 rounded-lg border p-4 text-left transition-colors cursor-pointer ${
+                      llmProvider === "anthropic"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <div className="font-semibold text-sm">Anthropic (Direto)</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Máxima qualidade. Claude Opus, Sonnet e Haiku direto da API.
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setLlmProvider("openrouter")}
+                    className={`flex-1 rounded-lg border p-4 text-left transition-colors cursor-pointer ${
+                      llmProvider === "openrouter"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <div className="font-semibold text-sm">OpenRouter</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Custo reduzido. DeepSeek, Gemini, Claude via gateway unificado.
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Configuration (only for OpenRouter) */}
+              {llmProvider === "openrouter" && (
+                <div className="space-y-4 border-t border-border pt-4">
+                  <div>
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Modelos por Complexidade
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Configure qual modelo usar para cada nível de tarefa.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Deep (estratégia, análise profunda)</Label>
+                      <Input
+                        value={llmModels.deep}
+                        onChange={(e) => setLlmModels((p) => ({ ...p, deep: e.target.value }))}
+                        placeholder="anthropic/claude-sonnet-4.6"
+                      />
+                      <p className="text-[10px] text-muted-foreground">~$3.00/1M input</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Normal (tarefas padrão, especialistas)</Label>
+                      <Input
+                        value={llmModels.normal}
+                        onChange={(e) => setLlmModels((p) => ({ ...p, normal: e.target.value }))}
+                        placeholder="deepseek/deepseek-chat"
+                      />
+                      <p className="text-[10px] text-muted-foreground">~$0.28/1M input</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Basic (saudações, confirmações)</Label>
+                      <Input
+                        value={llmModels.basic}
+                        onChange={(e) => setLlmModels((p) => ({ ...p, basic: e.target.value }))}
+                        placeholder="google/gemini-2.0-flash"
+                      />
+                      <p className="text-[10px] text-muted-foreground">~$0.10/1M input</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Coordenador (roteamento de agentes)</Label>
+                      <Input
+                        value={llmModels.coordinator}
+                        onChange={(e) => setLlmModels((p) => ({ ...p, coordinator: e.target.value }))}
+                        placeholder="anthropic/claude-haiku-4.5"
+                      />
+                      <p className="text-[10px] text-muted-foreground">~$0.25/1M input</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Save Button */}
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={async () => {
+                    if (!workspace?.id) return;
+                    setSavingProvider(true);
+                    setProviderError("");
+                    setProviderSaved(false);
+                    try {
+                      const config = {
+                        provider: llmProvider,
+                        ...(llmProvider === "openrouter" ? { models: llmModels } : {}),
+                      };
+                      const res = await fetch("/api/agent/config", {
+                        method: "PUT",
+                        headers: {
+                          "Content-Type": "application/json",
+                          "x-workspace-id": workspace.id,
+                        },
+                        body: JSON.stringify({
+                          doc_type: "provider_config",
+                          content: JSON.stringify(config),
+                        }),
+                      });
+                      if (!res.ok) throw new Error("Falha ao salvar");
+                      setProviderSaved(true);
+                      setTimeout(() => setProviderSaved(false), 3000);
+                    } catch {
+                      setProviderError("Erro ao salvar configuração.");
+                    } finally {
+                      setSavingProvider(false);
+                    }
+                  }}
+                  disabled={savingProvider}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  {savingProvider ? "Salvando..." : "Salvar Provedor"}
+                </Button>
+                {providerSaved && (
+                  <span className="text-sm text-success flex items-center gap-1">
+                    <CheckCircle className="h-4 w-4" /> Salvo!
+                  </span>
+                )}
+                {providerError && (
+                  <span className="text-sm text-destructive">{providerError}</span>
+                )}
+              </div>
+
+              {/* Info Box */}
+              <div className="rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground space-y-1">
+                <p><strong>Anthropic:</strong> Requer ANTHROPIC_API_KEY no .env</p>
+                <p><strong>OpenRouter:</strong> Requer OPENROUTER_API_KEY no .env — um gateway para 300+ modelos com billing consolidado</p>
+                <p>Modelos populares: deepseek/deepseek-chat, google/gemini-2.5-flash, anthropic/claude-haiku-4.5</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
