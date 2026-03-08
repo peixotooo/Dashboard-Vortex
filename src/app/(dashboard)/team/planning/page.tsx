@@ -14,9 +14,9 @@ import {
   Link as LinkIcon,
   ImageIcon,
   CalendarDays,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -89,7 +89,7 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Cancelado" },
 ];
 
-const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
+const WEEKDAYS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 
 const MONTH_NAMES = [
   "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
@@ -114,7 +114,7 @@ function formatDateBR(s: string): string {
 
 function getMonthGrid(year: number, month: number): Date[] {
   const firstDay = new Date(year, month, 1);
-  const startOffset = firstDay.getDay(); // 0=Sun
+  const startOffset = firstDay.getDay();
   const days: Date[] = [];
   for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - startOffset + i);
@@ -157,13 +157,13 @@ function segmentActions(
     }
   }
 
-  // Assign lanes to avoid overlaps within the same week row
+  // Assign lanes to avoid overlaps
   for (let row = 0; row < 6; row++) {
     const rowSegments = segments
       .filter((s) => s.weekRow === row)
       .sort((a, b) => a.startCol - b.startCol || b.colSpan - a.colSpan);
 
-    const lanes: number[][] = []; // each lane tracks occupied columns
+    const lanes: number[][] = [];
 
     for (const seg of rowSegments) {
       const segEnd = seg.startCol + seg.colSpan - 1;
@@ -220,6 +220,7 @@ export default function PlanningPage() {
   const [formLinks, setFormLinks] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [improving, setImproving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const headers = useMemo(
     () =>
@@ -252,7 +253,7 @@ export default function PlanningPage() {
         setActions(data.actions || []);
       }
     } catch {
-      // silent
+      // silent on load
     } finally {
       setLoading(false);
     }
@@ -282,7 +283,7 @@ export default function PlanningPage() {
     setCurrentMonth({ year: now.getFullYear(), month: now.getMonth() });
   };
 
-  // --- Filter actions ---
+  // --- Filter ---
   const filteredActions = useMemo(
     () =>
       filterCategory === "all"
@@ -296,15 +297,6 @@ export default function PlanningPage() {
     [filteredActions, gridDays]
   );
 
-  // Max lanes per row (for row height)
-  const maxLanesPerRow = useMemo(() => {
-    const result: number[] = [0, 0, 0, 0, 0, 0];
-    for (const seg of segments) {
-      result[seg.weekRow] = Math.max(result[seg.weekRow], seg.lane + 1);
-    }
-    return result;
-  }, [segments]);
-
   // --- Dialog helpers ---
   const resetForm = () => {
     setFormTitle("");
@@ -316,6 +308,7 @@ export default function PlanningPage() {
     setFormImages([]);
     setFormLinks([]);
     setEditingAction(null);
+    setFormError(null);
   };
 
   const openCreateDialog = (date?: string) => {
@@ -337,6 +330,7 @@ export default function PlanningPage() {
     setFormStatus(action.status);
     setFormImages(action.content?.images || []);
     setFormLinks(action.content?.links || []);
+    setFormError(null);
     setDetailAction(null);
     setDialogOpen(true);
   };
@@ -344,6 +338,7 @@ export default function PlanningPage() {
   // --- Save ---
   const handleSave = async () => {
     if (!formTitle || !formStartDate || !formEndDate || !headers) return;
+    setFormError(null);
     setSaving(true);
     try {
       const body = {
@@ -359,23 +354,29 @@ export default function PlanningPage() {
         },
       };
 
-      if (editingAction) {
-        await fetch(`/api/marketing/actions/${editingAction.id}`, {
-          method: "PUT",
-          headers,
-          body: JSON.stringify(body),
-        });
-      } else {
-        await fetch("/api/marketing/actions", {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
+      const res = editingAction
+        ? await fetch(`/api/marketing/actions/${editingAction.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(body),
+          })
+        : await fetch("/api/marketing/actions", {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+          });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error || "Erro ao salvar. Tente novamente.");
+        return;
       }
 
       setDialogOpen(false);
       resetForm();
       fetchActions();
+    } catch {
+      setFormError("Erro de conexao. Verifique sua internet.");
     } finally {
       setSaving(false);
     }
@@ -395,6 +396,7 @@ export default function PlanningPage() {
   // --- Improve with AI ---
   const handleImprove = async () => {
     if (!formTitle || !headers) return;
+    setFormError(null);
     setImproving(true);
     try {
       const res = await fetch("/api/marketing/improve-prompt", {
@@ -404,18 +406,36 @@ export default function PlanningPage() {
           title: formTitle,
           description: formDescription,
           category: formCategory,
-          start_date: formStartDate,
-          end_date: formEndDate,
+          start_date: formStartDate || toDateStr(new Date()),
+          end_date: formEndDate || toDateStr(new Date()),
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        setFormDescription(data.improved_text || formDescription);
+        if (data.improved_text) {
+          setFormDescription(data.improved_text);
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setFormError(data.error || "Erro ao melhorar texto com IA.");
       }
+    } catch {
+      setFormError("Erro de conexao ao chamar IA.");
     } finally {
       setImproving(false);
     }
   };
+
+  // --- Compute segments per cell for unified grid ---
+  const cellSegments = useMemo(() => {
+    const map: Record<string, SpanSegment[]> = {};
+    for (const seg of segments) {
+      const key = `${seg.weekRow}-${seg.startCol}`;
+      if (!map[key]) map[key] = [];
+      map[key].push(seg);
+    }
+    return map;
+  }, [segments]);
 
   // --- Render ---
   if (!workspace) {
@@ -440,143 +460,129 @@ export default function PlanningPage() {
         </Button>
       </div>
 
-      {/* Month navigation + filters */}
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={prevMonth}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <button
-              onClick={goToday}
-              className="min-w-[180px] text-center text-lg font-semibold hover:text-primary transition-colors cursor-pointer"
-            >
-              {MONTH_NAMES[currentMonth.month]} {currentMonth.year}
-            </button>
-            <Button variant="outline" size="icon" onClick={nextMonth}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge
-              variant={filterCategory === "all" ? "default" : "outline"}
-              className="cursor-pointer"
-              onClick={() => setFilterCategory("all")}
-            >
-              Todos
-            </Badge>
-            {CATEGORIES.map((cat) => (
-              <Badge
-                key={cat.value}
-                variant={filterCategory === cat.value ? "default" : "outline"}
-                className="cursor-pointer"
-                style={
-                  filterCategory === cat.value
-                    ? { backgroundColor: cat.color, borderColor: cat.color, color: "#fff" }
-                    : { borderColor: cat.color, color: cat.color }
-                }
-                onClick={() =>
-                  setFilterCategory(
-                    filterCategory === cat.value ? "all" : cat.value
-                  )
-                }
-              >
-                {cat.label}
-              </Badge>
-            ))}
-          </div>
+      {/* Month nav + filters */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={prevMonth} className="h-8 w-8">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <button
+            onClick={goToday}
+            className="min-w-[200px] text-center text-lg font-bold tracking-tight hover:text-primary transition-colors cursor-pointer"
+          >
+            {MONTH_NAMES[currentMonth.month]} {currentMonth.year}
+          </button>
+          <Button variant="ghost" size="icon" onClick={nextMonth} className="h-8 w-8">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
-      </Card>
 
-      {/* Calendar Grid */}
-      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge
+            variant={filterCategory === "all" ? "default" : "outline"}
+            className="cursor-pointer text-xs"
+            onClick={() => setFilterCategory("all")}
+          >
+            Todos
+          </Badge>
+          {CATEGORIES.map((cat) => (
+            <Badge
+              key={cat.value}
+              variant={filterCategory === cat.value ? "default" : "outline"}
+              className="cursor-pointer text-xs"
+              style={
+                filterCategory === cat.value
+                  ? { backgroundColor: cat.color, borderColor: cat.color, color: "#fff" }
+                  : { borderColor: cat.color + "60", color: cat.color }
+              }
+              onClick={() =>
+                setFilterCategory(
+                  filterCategory === cat.value ? "all" : cat.value
+                )
+              }
+            >
+              {cat.label}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Calendar */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
         {/* Weekday headers */}
-        <div className="grid grid-cols-7 border-b border-border bg-muted/50">
-          {WEEKDAYS.map((d) => (
+        <div className="grid grid-cols-7 bg-muted/60">
+          {WEEKDAYS.map((d, i) => (
             <div
               key={d}
-              className="px-2 py-2 text-center text-xs font-medium text-muted-foreground"
+              className={`py-2.5 text-center text-[11px] font-semibold tracking-widest text-muted-foreground ${
+                i < 6 ? "border-r border-border/50" : ""
+              }`}
             >
               {d}
             </div>
           ))}
         </div>
 
-        {/* Week rows */}
+        {/* Grid */}
         {loading ? (
-          <div className="flex h-[400px] items-center justify-center">
+          <div className="flex h-[500px] items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          Array.from({ length: 6 }).map((_, rowIdx) => {
-            const weekDays = gridDays.slice(rowIdx * 7, rowIdx * 7 + 7);
-            const rowSegments = segments.filter(
-              (s) => s.weekRow === rowIdx
-            );
-            const lanes = maxLanesPerRow[rowIdx];
+          <div className="grid grid-cols-7">
+            {gridDays.map((day, idx) => {
+              const dateStr = toDateStr(day);
+              const isCurrentMonth = day.getMonth() === currentMonth.month;
+              const isToday = dateStr === today;
+              const rowIdx = Math.floor(idx / 7);
+              const colIdx = idx % 7;
 
-            return (
-              <div key={rowIdx} className="border-b border-border last:border-b-0">
-                {/* Day numbers */}
-                <div className="grid grid-cols-7">
-                  {weekDays.map((day, colIdx) => {
-                    const dateStr = toDateStr(day);
-                    const isCurrentMonth =
-                      day.getMonth() === currentMonth.month;
-                    const isToday = dateStr === today;
+              // Get segments that START in this cell
+              const segsHere = segments.filter(
+                (s) => s.weekRow === rowIdx && s.startCol === colIdx
+              );
 
-                    return (
+              return (
+                <div
+                  key={idx}
+                  className={`group relative min-h-[100px] border-b border-r border-border/40 p-1.5 transition-colors cursor-pointer ${
+                    isCurrentMonth
+                      ? "bg-card hover:bg-accent/20"
+                      : "bg-muted/20 hover:bg-muted/40"
+                  } ${colIdx === 6 ? "border-r-0" : ""} ${
+                    idx >= 35 ? "border-b-0" : ""
+                  }`}
+                  onClick={() => openCreateDialog(dateStr)}
+                >
+                  {/* Day number */}
+                  <div className="flex items-center justify-between mb-1">
+                    <span
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium transition-colors ${
+                        isToday
+                          ? "bg-primary text-primary-foreground font-bold"
+                          : isCurrentMonth
+                          ? "text-foreground"
+                          : "text-muted-foreground/50"
+                      }`}
+                    >
+                      {day.getDate()}
+                    </span>
+                    <Plus className="h-4 w-4 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+
+                  {/* Action spans that start in this cell */}
+                  <div className="space-y-0.5">
+                    {segsHere.map((seg, i) => (
                       <div
-                        key={colIdx}
-                        className={`group relative border-r border-border last:border-r-0 px-1.5 pt-1 pb-0.5 min-h-[28px] cursor-pointer transition-colors hover:bg-accent/30 ${
-                          !isCurrentMonth ? "opacity-40" : ""
-                        }`}
-                        onClick={() => openCreateDialog(dateStr)}
-                      >
-                        <span
-                          className={`text-xs font-medium ${
-                            isToday
-                              ? "flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground"
-                              : ""
-                          }`}
-                        >
-                          {day.getDate()}
-                        </span>
-                        <Plus className="absolute right-1 top-1 h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Action spans */}
-                {lanes > 0 && (
-                  <div
-                    className="relative grid grid-cols-7"
-                    style={{ minHeight: `${lanes * 22}px` }}
-                  >
-                    {rowSegments.map((seg, i) => (
-                      <div
-                        key={`${seg.actionId}-${rowIdx}-${i}`}
-                        className="absolute text-xs font-medium truncate px-1.5 py-0.5 cursor-pointer transition-opacity hover:opacity-80"
+                        key={`${seg.actionId}-${i}`}
+                        className="relative z-10 truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-tight cursor-pointer transition-all hover:brightness-90 hover:shadow-sm"
                         style={{
-                          left: `${(seg.startCol / 7) * 100}%`,
-                          width: `${(seg.colSpan / 7) * 100}%`,
-                          top: `${seg.lane * 22}px`,
-                          height: "20px",
-                          backgroundColor: seg.color + "20",
-                          borderLeft: seg.isStart
-                            ? `3px solid ${seg.color}`
-                            : "none",
-                          borderRight: seg.isEnd
-                            ? `3px solid ${seg.color}`
-                            : "none",
-                          borderRadius: `${seg.isStart ? "4px" : "0"} ${
-                            seg.isEnd ? "4px" : "0"
-                          } ${seg.isEnd ? "4px" : "0"} ${
-                            seg.isStart ? "4px" : "0"
-                          }`,
-                          color: seg.color,
+                          backgroundColor: seg.color,
+                          color: "#fff",
+                          width:
+                            seg.colSpan > 1
+                              ? `calc(${seg.colSpan * 100}% + ${(seg.colSpan - 1) * 1}px)`
+                              : "100%",
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -586,24 +592,23 @@ export default function PlanningPage() {
                           if (action) setDetailAction(action);
                         }}
                       >
-                        {seg.isStart ? seg.title : ""}
+                        {seg.title}
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            );
-          })
+                </div>
+              );
+            })}
+          </div>
         )}
-      </Card>
+      </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span>Legenda:</span>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
         {CATEGORIES.map((cat) => (
-          <span key={cat.value} className="flex items-center gap-1">
+          <span key={cat.value} className="flex items-center gap-1.5">
             <span
-              className="inline-block h-2.5 w-2.5 rounded-sm"
+              className="inline-block h-2.5 w-5 rounded-sm"
               style={{ backgroundColor: cat.color }}
             />
             {cat.label}
@@ -621,6 +626,14 @@ export default function PlanningPage() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Error */}
+            {formError && (
+              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
             {/* Title */}
             <div className="space-y-1.5">
               <Label>Titulo</Label>
@@ -698,16 +711,16 @@ export default function PlanningPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-7 text-xs gap-1"
                   onClick={handleImprove}
                   disabled={improving || !formTitle}
                 >
                   {improving ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <Sparkles className="mr-1 h-3 w-3" />
+                    <Sparkles className="h-3 w-3" />
                   )}
-                  Melhorar com IA
+                  {improving ? "Melhorando..." : "Melhorar com IA"}
                 </Button>
               </div>
               <Textarea
@@ -846,11 +859,9 @@ export default function PlanningPage() {
                 <div className="flex flex-wrap gap-2">
                   <Badge
                     style={{
-                      backgroundColor: detailAction.color + "20",
-                      color: detailAction.color,
-                      borderColor: detailAction.color,
+                      backgroundColor: detailAction.color,
+                      color: "#fff",
                     }}
-                    variant="outline"
                   >
                     {CATEGORIES.find((c) => c.value === detailAction.category)
                       ?.label || detailAction.category}

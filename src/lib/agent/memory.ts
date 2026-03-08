@@ -1461,7 +1461,8 @@ export async function listMarketingActions(
     .select("*")
     .eq("workspace_id", workspaceId);
 
-  if (filters?.start) query = query.lte("start_date", filters.start).or(`end_date.gte.${filters.start}`);
+  // Overlap filter: start_date <= end AND end_date >= start
+  if (filters?.start) query = query.gte("end_date", filters.start);
   if (filters?.end) query = query.lte("start_date", filters.end);
   if (filters?.category) query = query.eq("category", filters.category);
   if (filters?.status) query = query.eq("status", filters.status);
