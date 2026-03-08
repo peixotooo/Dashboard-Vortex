@@ -212,6 +212,7 @@ export async function runSpecialist(
       system: systemPrompt,
       tools: tools.filter((t) => t.name !== "delegate_to_agent"),
       messages,
+      allowedModels: providerConfig.allowedModels,
     });
 
     // Collect all tool results from this response before pushing to messages
@@ -382,6 +383,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
             system: systemPrompt,
             tools,
             messages,
+            allowedModels: providerConfig.allowedModels,
           });
 
           // Collect all tool results from this response before pushing to messages

@@ -13,25 +13,11 @@ import OpenAI from "openai";
 
 export interface ProviderConfig {
   provider: "anthropic" | "openrouter";
-  models?: {
-    deep?: string;
-    normal?: string;
-    basic?: string;
-    coordinator?: string;
-  };
+  allowedModels?: string[];
 }
 
 export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {
   provider: "anthropic",
-};
-
-// --- Default model mapping for OpenRouter ---
-
-const OPENROUTER_MODEL_DEFAULTS: Record<string, string> = {
-  deep: "anthropic/claude-sonnet-4.6",
-  normal: "deepseek/deepseek-chat",
-  basic: "google/gemini-2.0-flash",
-  coordinator: "anthropic/claude-haiku-4.5",
 };
 
 // --- Clients (lazy singletons) ---
@@ -65,18 +51,17 @@ function getOpenRouterClient(): OpenAI {
 // --- Model Resolution ---
 
 /**
- * Resolves model name based on provider and complexity tier.
+ * Resolves model name based on provider.
  * For Anthropic: returns the Anthropic model ID as-is.
- * For OpenRouter: maps tier to configured (or default) OpenRouter model.
+ * For OpenRouter: returns "openrouter/auto" (auto router selects best model).
  */
 export function resolveModel(
   config: ProviderConfig,
-  tier: string,
+  _tier: string,
   anthropicModel: string
 ): string {
   if (config.provider === "anthropic") return anthropicModel;
-  const models: Record<string, string> = { ...OPENROUTER_MODEL_DEFAULTS, ...config.models };
-  return models[tier] || models.normal;
+  return "openrouter/auto";
 }
 
 // --- Normalized types (Anthropic-like) ---
@@ -88,6 +73,7 @@ export interface LLMParams {
   system: string;
   tools: Anthropic.Messages.Tool[];
   messages: Anthropic.Messages.MessageParam[];
+  allowedModels?: string[];
 }
 
 export interface LLMResponse {
@@ -164,13 +150,23 @@ async function callOpenRouter(params: LLMParams): Promise<LLMResponse> {
     openaiMessages.push(...convertMessage(msg));
   }
 
-  const response = await client.chat.completions.create({
+  // Build request — include plugins for auto router if allowed_models configured
+  const createParams: OpenAI.ChatCompletionCreateParamsNonStreaming & { plugins?: unknown[] } = {
     model: params.model,
     max_tokens: params.maxTokens,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
     tool_choice: openaiTools.length > 0 ? "auto" : undefined,
-  });
+  };
+
+  if (params.allowedModels && params.allowedModels.length > 0) {
+    createParams.plugins = [
+      { id: "auto-router", allowed_models: params.allowedModels },
+    ];
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await client.chat.completions.create(createParams as any) as OpenAI.ChatCompletion;
 
   // Convert response: OpenAI → Anthropic-like format
   return convertResponse(response);

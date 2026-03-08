@@ -96,12 +96,7 @@ export default function SettingsPage() {
 
   // LLM Provider
   const [llmProvider, setLlmProvider] = useState<"anthropic" | "openrouter">("anthropic");
-  const [llmModels, setLlmModels] = useState({
-    deep: "anthropic/claude-sonnet-4.6",
-    normal: "deepseek/deepseek-chat",
-    basic: "google/gemini-2.0-flash",
-    coordinator: "anthropic/claude-haiku-4.5",
-  });
+  const [allowedModels, setAllowedModels] = useState("");
   const [savingProvider, setSavingProvider] = useState(false);
   const [providerSaved, setProviderSaved] = useState(false);
   const [providerError, setProviderError] = useState("");
@@ -148,7 +143,7 @@ export default function SettingsPage() {
         if (data.document?.content) {
           const config = JSON.parse(data.document.content);
           if (config.provider) setLlmProvider(config.provider);
-          if (config.models) setLlmModels((prev) => ({ ...prev, ...config.models }));
+          if (config.allowedModels) setAllowedModels(config.allowedModels.join("\n"));
         }
       } catch {
         // Keep defaults
@@ -1211,63 +1206,33 @@ export default function SettingsPage() {
                         : "border-border hover:border-primary/50"
                     }`}
                   >
-                    <div className="font-semibold text-sm">OpenRouter</div>
+                    <div className="font-semibold text-sm">OpenRouter (Auto)</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      Custo reduzido. DeepSeek, Gemini, Claude via gateway unificado.
+                      Roteador automatico. Analisa o contexto e seleciona o melhor modelo (Claude, GPT, DeepSeek, Gemini).
                     </div>
                   </button>
                 </div>
               </div>
 
-              {/* Model Configuration (only for OpenRouter) */}
+              {/* Allowed Models (only for OpenRouter) */}
               {llmProvider === "openrouter" && (
                 <div className="space-y-4 border-t border-border pt-4">
                   <div>
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Modelos por Complexidade
+                      Modelos Permitidos (opcional)
                     </Label>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Configure qual modelo usar para cada nível de tarefa.
+                      Restrinja quais modelos o roteador pode escolher. Deixe vazio para permitir todos.
+                      Um modelo por linha. Suporta glob: <code className="text-[10px] bg-muted px-1 rounded">deepseek/*</code>
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Deep (estratégia, análise profunda)</Label>
-                      <Input
-                        value={llmModels.deep}
-                        onChange={(e) => setLlmModels((p) => ({ ...p, deep: e.target.value }))}
-                        placeholder="anthropic/claude-sonnet-4.6"
-                      />
-                      <p className="text-[10px] text-muted-foreground">~$3.00/1M input</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Normal (tarefas padrão, especialistas)</Label>
-                      <Input
-                        value={llmModels.normal}
-                        onChange={(e) => setLlmModels((p) => ({ ...p, normal: e.target.value }))}
-                        placeholder="deepseek/deepseek-chat"
-                      />
-                      <p className="text-[10px] text-muted-foreground">~$0.28/1M input</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Basic (saudações, confirmações)</Label>
-                      <Input
-                        value={llmModels.basic}
-                        onChange={(e) => setLlmModels((p) => ({ ...p, basic: e.target.value }))}
-                        placeholder="google/gemini-2.0-flash"
-                      />
-                      <p className="text-[10px] text-muted-foreground">~$0.10/1M input</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Coordenador (roteamento de agentes)</Label>
-                      <Input
-                        value={llmModels.coordinator}
-                        onChange={(e) => setLlmModels((p) => ({ ...p, coordinator: e.target.value }))}
-                        placeholder="anthropic/claude-haiku-4.5"
-                      />
-                      <p className="text-[10px] text-muted-foreground">~$0.25/1M input</p>
-                    </div>
-                  </div>
+                  <textarea
+                    value={allowedModels}
+                    onChange={(e) => setAllowedModels(e.target.value)}
+                    placeholder={"anthropic/claude-sonnet-4.6\ndeepseek/deepseek-chat\ngoogle/gemini-2.5-flash\nanthropic/claude-haiku-4.5"}
+                    rows={5}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                 </div>
               )}
 
@@ -1280,9 +1245,15 @@ export default function SettingsPage() {
                     setProviderError("");
                     setProviderSaved(false);
                     try {
+                      const allowedList = allowedModels
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
                       const config = {
                         provider: llmProvider,
-                        ...(llmProvider === "openrouter" ? { models: llmModels } : {}),
+                        ...(llmProvider === "openrouter" && allowedList.length > 0
+                          ? { allowedModels: allowedList }
+                          : {}),
                       };
                       const res = await fetch("/api/agent/config", {
                         method: "PUT",
@@ -1322,8 +1293,8 @@ export default function SettingsPage() {
               {/* Info Box */}
               <div className="rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground space-y-1">
                 <p><strong>Anthropic:</strong> Requer ANTHROPIC_API_KEY no .env</p>
-                <p><strong>OpenRouter:</strong> Requer OPENROUTER_API_KEY no .env — um gateway para 300+ modelos com billing consolidado</p>
-                <p>Modelos populares: deepseek/deepseek-chat, google/gemini-2.5-flash, anthropic/claude-haiku-4.5</p>
+                <p><strong>OpenRouter:</strong> Requer OPENROUTER_API_KEY no .env — o roteador automatico analisa cada prompt e escolhe o modelo ideal</p>
+                <p>Use &quot;Modelos Permitidos&quot; para limitar o pool e controlar custos (ex: apenas deepseek/* e gemini)</p>
               </div>
             </CardContent>
           </Card>

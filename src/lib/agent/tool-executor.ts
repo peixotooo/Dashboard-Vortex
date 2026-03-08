@@ -11,6 +11,7 @@ import {
   listAudiences,
   uploadAdImage,
 } from "@/lib/meta-api";
+import { getGoogleAdsCampaigns } from "@/lib/google-ads-api";
 import {
   saveMemoryRecord,
   loadCoreMemories,
@@ -490,6 +491,7 @@ export async function executeToolCall(
         tier: (toolInput.tier as string) || undefined,
         min_roas: (toolInput.min_roas as number) || undefined,
         account_id: (toolInput.account_id as string) || undefined,
+        platform: (toolInput.platform as string) || undefined,
         limit: (toolInput.limit as number) || 20,
       });
 
@@ -562,6 +564,44 @@ export async function executeToolCall(
       } catch (err) {
         return {
           error: `Erro ao fazer upload da imagem: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+        };
+      }
+    }
+
+    case "list_google_ads_campaigns": {
+      const dateRange = (toolInput.date_range as string) || "last_30d";
+      try {
+        const result = await getGoogleAdsCampaigns({
+          datePreset: dateRange as import("@/lib/types").DatePreset,
+          statuses: ["ACTIVE", "PAUSED"],
+        });
+        const campaigns = result.campaigns;
+        return {
+          campaigns: campaigns.map((c) => ({
+            id: c.id,
+            name: c.name,
+            status: c.status,
+            objective: c.objective,
+            spend: c.spend,
+            revenue: c.revenue,
+            roas: c.roas,
+            impressions: c.impressions,
+            clicks: c.clicks,
+            ctr: c.ctr,
+            cpc: c.cpc,
+            purchases: c.purchases,
+          })),
+          count: campaigns.length,
+          total_spend: campaigns.reduce((s, c) => s + c.spend, 0).toFixed(2),
+          total_revenue: campaigns.reduce((s, c) => s + c.revenue, 0).toFixed(2),
+          message:
+            campaigns.length === 0
+              ? "Nenhuma campanha Google Ads encontrada. Verifique se as credenciais estao configuradas."
+              : `Encontradas ${campaigns.length} campanhas Google Ads.`,
+        };
+      } catch (err) {
+        return {
+          error: `Erro ao buscar campanhas Google Ads: ${err instanceof Error ? err.message : "erro desconhecido"}`,
         };
       }
     }

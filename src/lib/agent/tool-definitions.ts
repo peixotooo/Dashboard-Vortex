@@ -672,7 +672,7 @@ const SAVED_CAMPAIGNS_TOOLS: Tool[] = [
   {
     name: "list_saved_campaigns",
     description:
-      "Lista campanhas classificadas automaticamente como campeoes, potencial ou escala. Inclui metricas agregadas de performance (spend, revenue, ROAS, CTR, CPC) e metadados (objetivo, orcamento, status).",
+      "Lista campanhas classificadas automaticamente como campeoes, potencial ou escala. Inclui metricas agregadas de performance (spend, revenue, ROAS, CTR, CPC) e metadados (objetivo, orcamento, status). Suporta filtro por plataforma (meta ou google).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -690,9 +690,35 @@ const SAVED_CAMPAIGNS_TOOLS: Tool[] = [
           type: "string",
           description: "Filtrar por conta de anuncios",
         },
+        platform: {
+          type: "string",
+          enum: ["meta", "google"],
+          description: "Filtrar por plataforma (meta ou google). Omita para todas.",
+        },
         limit: {
           type: "number",
           description: "Numero maximo de resultados (default: 20)",
+        },
+      },
+      required: [],
+    },
+  },
+];
+
+// --- Google Ads Tools ---
+
+const GOOGLE_ADS_TOOLS: Tool[] = [
+  {
+    name: "list_google_ads_campaigns",
+    description:
+      "Lista campanhas do Google Ads com metricas de performance (spend, impressoes, cliques, CTR, CPC, conversoes, receita, ROAS). Use quando o usuario perguntar sobre campanhas do Google Ads, performance no Google, ou quiser comparar com Meta Ads.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date_range: {
+          type: "string",
+          enum: ["today", "yesterday", "last_7d", "last_14d", "last_30d", "this_month", "last_month"],
+          description: "Periodo para os dados agregados (default: last_30d)",
         },
       },
       required: [],
@@ -704,6 +730,7 @@ const SAVED_CAMPAIGNS_TOOLS: Tool[] = [
 
 export const AGENT_TOOLS: Tool[] = [
   ...META_TOOLS,
+  ...GOOGLE_ADS_TOOLS,
   ...MEMORY_TOOLS,
   ...TEAM_TOOLS,
   ...SAVED_CREATIVES_TOOLS,
@@ -714,13 +741,13 @@ export const AGENT_TOOLS: Tool[] = [
 
 export function getToolsForAgent(agentSlug?: string): Tool[] {
   const SAVED_TOOLS = [...SAVED_CREATIVES_TOOLS, ...SAVED_CAMPAIGNS_TOOLS];
-  // Vortex (default) gets Meta + Memory + Saved tools
+  // Vortex (default) gets Meta + Google Ads + Memory + Saved tools
   if (!agentSlug || agentSlug === "vortex") {
-    return [...META_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS];
+    return [...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS];
   }
-  // Marcos (CMO) and paid-ads specialist get Team + Meta + Saved
+  // Marcos (CMO) and paid-ads specialist get Team + Meta + Google Ads + Saved
   if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
-    return [...TEAM_TOOLS, ...META_TOOLS, ...SAVED_TOOLS];
+    return [...TEAM_TOOLS, ...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...SAVED_TOOLS];
   }
   // Ad creative and copywriting agents get Team + Saved
   if (agentSlug === "ad-creative" || agentSlug === "copywriting") {
