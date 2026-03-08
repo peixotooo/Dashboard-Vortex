@@ -25,12 +25,12 @@ function createSupabase(request: NextRequest) {
 }
 
 const CATEGORY_TO_AGENT: Record<string, string> = {
-  campanha: "media-buyer",
-  conteudo: "copywriter",
-  social: "social-media",
+  campanha: "paid-ads",
+  conteudo: "copywriting",
+  social: "social-content",
   email: "cold-email",
-  seo: "seo",
-  lancamento: "estrategia-produto",
+  seo: "seo-audit",
+  lancamento: "launch-strategy",
   evento: "coordenador",
   geral: "coordenador",
 };
