@@ -1379,3 +1379,145 @@ export async function updateCampaignNote(
   if (error) throw new Error(`Failed to update campaign note: ${error.message}`);
   return data;
 }
+
+// --- Marketing Actions ---
+
+export interface MarketingAction {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string;
+  category: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  content: { images?: string[]; links?: string[]; notes?: string };
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  campanha: "#EF4444",
+  conteudo: "#8B5CF6",
+  social: "#EC4899",
+  email: "#F59E0B",
+  seo: "#22C55E",
+  lancamento: "#6366F1",
+  evento: "#14B8A6",
+  geral: "#3B82F6",
+};
+
+export function getCategoryColor(category: string): string {
+  return CATEGORY_COLORS[category] || CATEGORY_COLORS.geral;
+}
+
+export async function createMarketingAction(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  params: {
+    title: string;
+    description?: string;
+    category?: string;
+    start_date: string;
+    end_date: string;
+    status?: string;
+    content?: object;
+    created_by?: string;
+  }
+): Promise<MarketingAction> {
+  const { data, error } = await supabase
+    .from("marketing_actions")
+    .insert({
+      workspace_id: workspaceId,
+      title: params.title,
+      description: params.description || "",
+      category: params.category || "geral",
+      start_date: params.start_date,
+      end_date: params.end_date,
+      status: params.status || "planned",
+      content: params.content || {},
+      created_by: params.created_by || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create marketing action: ${error.message}`);
+  return data;
+}
+
+export async function listMarketingActions(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters?: {
+    start?: string;
+    end?: string;
+    category?: string;
+    status?: string;
+  }
+): Promise<MarketingAction[]> {
+  let query = supabase
+    .from("marketing_actions")
+    .select("*")
+    .eq("workspace_id", workspaceId);
+
+  if (filters?.start) query = query.lte("start_date", filters.start).or(`end_date.gte.${filters.start}`);
+  if (filters?.end) query = query.lte("start_date", filters.end);
+  if (filters?.category) query = query.eq("category", filters.category);
+  if (filters?.status) query = query.eq("status", filters.status);
+
+  const { data, error } = await query.order("start_date", { ascending: true });
+
+  if (error) throw new Error(`Failed to list marketing actions: ${error.message}`);
+  return data || [];
+}
+
+export async function getMarketingAction(
+  supabase: SupabaseClient,
+  actionId: string
+): Promise<MarketingAction | null> {
+  const { data, error } = await supabase
+    .from("marketing_actions")
+    .select("*")
+    .eq("id", actionId)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+export async function updateMarketingAction(
+  supabase: SupabaseClient,
+  actionId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    category?: string;
+    start_date?: string;
+    end_date?: string;
+    status?: string;
+    content?: object;
+  }
+): Promise<MarketingAction> {
+  const { data, error } = await supabase
+    .from("marketing_actions")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", actionId)
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to update marketing action: ${error.message}`);
+  return data;
+}
+
+export async function deleteMarketingAction(
+  supabase: SupabaseClient,
+  actionId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("marketing_actions")
+    .delete()
+    .eq("id", actionId);
+
+  if (error) throw new Error(`Failed to delete marketing action: ${error.message}`);
+}

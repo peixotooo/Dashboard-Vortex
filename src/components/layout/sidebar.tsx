@@ -21,6 +21,7 @@ import {
   FileOutput,
   CircleDollarSign,
   Calculator,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ const navItems: NavItem[] = [
   { href: "/team/chat", label: "Chat", icon: MessageSquare, indent: true },
   { href: "/team/kanban", label: "Kanban", icon: KanbanSquare, indent: true },
   { href: "/team/deliverables", label: "Entregas", icon: FileOutput, indent: true },
+  { href: "/team/planning", label: "Planejamento", icon: CalendarDays, indent: true },
   { href: "/agent", label: "Vortex IA", icon: Zap },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/adsets", label: "Ad Sets", icon: Layers },
