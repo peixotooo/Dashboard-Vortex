@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
+import { MessageContent } from "@/components/ui/message-content";
 
 interface AgentInfo {
   id: string;
@@ -589,8 +590,8 @@ export default function TeamChatPage() {
                           </div>
                         )}
                         {sr.content && (
-                          <div className="px-3 py-2 text-xs whitespace-pre-wrap bg-background/50">
-                            {sr.content}
+                          <div className="px-3 py-2 bg-background/50">
+                            <MessageContent content={sr.content} className="text-xs" />
                           </div>
                         )}
                       </div>
@@ -600,7 +601,7 @@ export default function TeamChatPage() {
 
                 {/* Text */}
                 {msg.content && (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <MessageContent content={msg.content} isUser={msg.role === "user"} />
                 )}
 
                 {/* Choices */}

@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
+import { MessageContent } from "@/components/ui/message-content";
 
 interface ChatMessage {
   id: string;
@@ -445,9 +446,7 @@ export default function AgentPage() {
                 }`}
               >
                 {msg.content ? (
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                    {msg.content}
-                  </div>
+                  <MessageContent content={msg.content} isUser={msg.role === "user"} />
                 ) : msg.role === "assistant" && isLoading ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
