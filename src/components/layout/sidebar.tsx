@@ -22,6 +22,8 @@ import {
   CircleDollarSign,
   Calculator,
   CalendarDays,
+  Instagram,
+  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +52,8 @@ const navItems: NavItem[] = [
   { href: "/simulador", label: "Simulador", icon: Calculator },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
+  { href: "/social", label: "Instagram", icon: Instagram },
+  { href: "/social/posts", label: "Posts", icon: LayoutGrid, indent: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

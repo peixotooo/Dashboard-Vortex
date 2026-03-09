@@ -58,10 +58,34 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .single();
 
+    // Get Apify connection status
+    const { data: apifyConnection } = await supabase
+      .from("apify_connections")
+      .select("id, instagram_username, created_at")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    // Get instagram username from apify_connections or instagram_profiles
+    let instagramUsername: string | null = apifyConnection?.instagram_username || null;
+    if (!instagramUsername) {
+      const { data: igProfile } = await supabase
+        .from("instagram_profiles")
+        .select("username")
+        .eq("workspace_id", workspaceId)
+        .order("last_scraped_at", { ascending: false })
+        .limit(1)
+        .single();
+      instagramUsername = igProfile?.username || null;
+    }
+
     return NextResponse.json({
       accounts: accounts || [],
       connection: connection || null,
       vndaConnection: vndaConnection || null,
+      apifyConnection: apifyConnection || null,
+      instagramUsername,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -355,6 +379,53 @@ export async function POST(request: NextRequest) {
       case "delete_vnda_connection": {
         const { error } = await supabase
           .from("vnda_connections")
+          .delete()
+          .eq("workspace_id", workspace_id);
+        if (error) throw error;
+        return NextResponse.json({ success: true });
+      }
+
+      case "save_apify_connection": {
+        const { api_token, instagram_username } = args;
+        const encryptedToken = encrypt(api_token);
+
+        const { data: existingApify } = await supabase
+          .from("apify_connections")
+          .select("id")
+          .eq("workspace_id", workspace_id)
+          .limit(1)
+          .single();
+
+        if (existingApify) {
+          const updateData: Record<string, string> = {
+            api_token: encryptedToken,
+            updated_at: new Date().toISOString(),
+          };
+          if (instagram_username !== undefined) {
+            updateData.instagram_username = instagram_username;
+          }
+          const { error } = await supabase
+            .from("apify_connections")
+            .update(updateData)
+            .eq("id", existingApify.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from("apify_connections")
+            .insert({
+              workspace_id,
+              api_token: encryptedToken,
+              instagram_username: instagram_username || null,
+            });
+          if (error) throw error;
+        }
+
+        return NextResponse.json({ success: true });
+      }
+
+      case "delete_apify_connection": {
+        const { error } = await supabase
+          .from("apify_connections")
           .delete()
           .eq("workspace_id", workspace_id);
         if (error) throw error;

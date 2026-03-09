@@ -16,6 +16,7 @@ import {
   Save,
   ShoppingBag,
   Cpu,
+  Instagram,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +102,17 @@ export default function SettingsPage() {
   const [providerSaved, setProviderSaved] = useState(false);
   const [providerError, setProviderError] = useState("");
 
+  // Apify / Instagram
+  const [apifyToken, setApifyToken] = useState("");
+  const [igUsername, setIgUsername] = useState("");
+  const [savingApify, setSavingApify] = useState(false);
+  const [apifySaved, setApifySaved] = useState(false);
+  const [apifyError, setApifyError] = useState("");
+  const [hasApifyConnection, setHasApifyConnection] = useState(false);
+  const [apifyConnectionInfo, setApifyConnectionInfo] = useState<{ instagram_username?: string; created_at?: string } | null>(null);
+  const [testingApify, setTestingApify] = useState(false);
+  const [apifyTestResult, setApifyTestResult] = useState<{ ok?: boolean; message?: string } | null>(null);
+
   // Load workspace data
   const loadWorkspaceData = useCallback(async () => {
     if (!workspace?.id) return;
@@ -121,6 +133,16 @@ export default function SettingsPage() {
       if (data.vndaConnection) {
         setHasVndaConnection(true);
         setVndaConnectionInfo(data.vndaConnection);
+      }
+      if (data.apifyConnection) {
+        setHasApifyConnection(true);
+        setApifyConnectionInfo(data.apifyConnection);
+        if (data.apifyConnection.instagram_username) {
+          setIgUsername(data.apifyConnection.instagram_username);
+        }
+      }
+      if (data.instagramUsername && !igUsername) {
+        setIgUsername(data.instagramUsername);
       }
     } catch {
       // Silent
@@ -537,6 +559,89 @@ export default function SettingsPage() {
     }
   }
 
+  // === Apify / Instagram handlers ===
+
+  async function handleSaveApifyConnection() {
+    if (!apifyToken || !workspace) return;
+    setSavingApify(true);
+    setApifyError("");
+    setApifySaved(false);
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_apify_connection",
+          workspace_id: workspace.id,
+          api_token: apifyToken,
+          instagram_username: igUsername.replace(/^@/, "") || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setApifyError(data.error);
+      } else {
+        setApifySaved(true);
+        setApifyToken("");
+        setHasApifyConnection(true);
+        await loadWorkspaceData();
+      }
+    } catch {
+      setApifyError("Erro ao salvar conexao Apify");
+    } finally {
+      setSavingApify(false);
+    }
+  }
+
+  async function handleTestApifyConnection() {
+    if (!workspace) return;
+    setTestingApify(true);
+    setApifyTestResult(null);
+    try {
+      const testUsername = igUsername.replace(/^@/, "") || "instagram";
+      const res = await fetch(
+        `/api/instagram/profile?username=${testUsername}`,
+        { headers: { "x-workspace-id": workspace.id } }
+      );
+      const data = await res.json();
+      if (res.ok && data.profile) {
+        setApifyTestResult({
+          ok: true,
+          message: `Conexao OK! Perfil @${data.profile.username} encontrado (${data.profile.followersCount} seguidores).`,
+        });
+      } else {
+        setApifyTestResult({
+          ok: false,
+          message: data.error || "Nao foi possivel conectar",
+        });
+      }
+    } catch {
+      setApifyTestResult({ ok: false, message: "Erro ao testar conexao" });
+    } finally {
+      setTestingApify(false);
+    }
+  }
+
+  async function handleDeleteApifyConnection() {
+    if (!workspace) return;
+    try {
+      await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_apify_connection",
+          workspace_id: workspace.id,
+        }),
+      });
+      setHasApifyConnection(false);
+      setApifyConnectionInfo(null);
+      setApifyTestResult(null);
+      setIgUsername("");
+    } catch {
+      // Silent
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -563,6 +668,10 @@ export default function SettingsPage() {
           <TabsTrigger value="vnda">
             <ShoppingBag className="h-4 w-4 mr-2" />
             VNDA
+          </TabsTrigger>
+          <TabsTrigger value="social">
+            <Instagram className="h-4 w-4 mr-2" />
+            Social Media
           </TabsTrigger>
           <TabsTrigger value="health">
             <Activity className="h-4 w-4 mr-2" />
@@ -1113,6 +1222,130 @@ export default function SettingsPage() {
                       </span>
                     </div>
                   )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ===== Social Media Tab ===== */}
+        <TabsContent value="social" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Instagram className="h-5 w-5 text-pink-500" />
+                Instagram via Apify
+              </CardTitle>
+              <CardDescription>
+                {hasApifyConnection
+                  ? "Conexao ativa. Insira novos dados para substituir."
+                  : "Configure o token da API Apify para importar dados do Instagram (perfil, posts, engagement)."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!isAdmin ? (
+                <p className="text-sm text-muted-foreground">
+                  Apenas administradores podem gerenciar a conexao Apify.
+                </p>
+              ) : (
+                <>
+                  {hasApifyConnection && apifyConnectionInfo && (
+                    <div className="flex items-center justify-between p-3 bg-pink-500/10 rounded-lg mb-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-pink-500" />
+                        <span className="text-sm text-pink-500">
+                          Conectado desde{" "}
+                          {new Date(apifyConnectionInfo.created_at!).toLocaleDateString("pt-BR")}
+                          {apifyConnectionInfo.instagram_username && ` · @${apifyConnectionInfo.instagram_username}`}
+                        </span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={handleDeleteApifyConnection} className="text-destructive hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>Apify API Token</Label>
+                    <Input
+                      type="password"
+                      value={apifyToken}
+                      onChange={(e) => setApifyToken(e.target.value)}
+                      placeholder={hasApifyConnection ? "Novo token (deixe vazio para manter)" : "apify_api_..."}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Gere em: console.apify.com &gt; Settings &gt; Integrations &gt; API Tokens
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Username do Instagram</Label>
+                    <Input
+                      value={igUsername}
+                      onChange={(e) => setIgUsername(e.target.value.replace(/^@/, ""))}
+                      placeholder="seu_perfil"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Sem @. Exemplo: nike, starbucks
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleSaveApifyConnection}
+                      disabled={!apifyToken || savingApify}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      {savingApify ? "Salvando..." : hasApifyConnection ? "Atualizar Conexao" : "Salvar Conexao"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestApifyConnection}
+                      disabled={testingApify || (!apifyToken && !hasApifyConnection) || !igUsername}
+                    >
+                      {testingApify ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Testando...
+                        </>
+                      ) : (
+                        "Testar Conexao"
+                      )}
+                    </Button>
+                  </div>
+
+                  {apifySaved && (
+                    <div className="flex items-center gap-2 p-3 bg-pink-500/10 rounded-lg">
+                      <CheckCircle className="h-4 w-4 text-pink-500" />
+                      <span className="text-sm text-pink-500">Conexao Apify salva com sucesso!</span>
+                    </div>
+                  )}
+
+                  {apifyError && (
+                    <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                      <XCircle className="h-4 w-4 text-destructive" />
+                      <span className="text-sm text-destructive">{apifyError}</span>
+                    </div>
+                  )}
+
+                  {apifyTestResult && (
+                    <div className={`flex items-center gap-2 p-3 rounded-lg ${apifyTestResult.ok ? "bg-pink-500/10" : "bg-destructive/10"}`}>
+                      {apifyTestResult.ok ? (
+                        <CheckCircle className="h-4 w-4 text-pink-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className={`text-sm ${apifyTestResult.ok ? "text-pink-500" : "text-destructive"}`}>
+                        {apifyTestResult.message}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground space-y-1">
+                    <p><strong>O que e o Apify?</strong> Plataforma de web scraping que extrai dados publicos do Instagram sem precisar da API oficial.</p>
+                    <p><strong>Dados coletados:</strong> Perfil (bio, seguidores, posts), ultimos 30-50 posts (curtidas, comentarios, hashtags).</p>
+                    <p><strong>Cache:</strong> Dados sao cacheados por 6h para economizar creditos do Apify.</p>
+                  </div>
                 </>
               )}
             </CardContent>
