@@ -554,6 +554,7 @@ export default function GA4Page() {
                         <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
                         <Legend />
                         <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="left" dataKey="receita" name="Receita (R$)" fill="#f97316" radius={[4, 4, 0, 0]} />
                         <Bar yAxisId="right" dataKey="txConv" name="TX Conv. (%)" fill="#22c55e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
