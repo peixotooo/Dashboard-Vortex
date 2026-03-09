@@ -11,6 +11,12 @@ import {
   Percent,
   Calculator,
   Landmark,
+  Search,
+  AlertTriangle,
+  CheckCircle2,
+  Lightbulb,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -31,6 +37,7 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -807,6 +814,12 @@ export default function OverviewPage() {
         vndaDiscount={data.vndaDiscount}
         vndaConfigured={data.vndaConfigured}
         finSettings={data.finSettings}
+        sessions={data.sessions}
+        pedidos={data.pedidos}
+        ticketMedio={data.ticketMedio}
+        txConversao={data.txConversao}
+        cpc={data.cpc}
+        roas={data.roas}
         loading={loading}
       />
 
@@ -878,6 +891,12 @@ function FinancialHealth({
   vndaDiscount,
   vndaConfigured,
   finSettings,
+  sessions,
+  pedidos,
+  ticketMedio,
+  txConversao,
+  cpc,
+  roas,
   loading,
 }: {
   trendData: DailyRow[];
@@ -887,8 +906,15 @@ function FinancialHealth({
   vndaDiscount: number;
   vndaConfigured: boolean;
   finSettings: FinancialSettings;
+  sessions: number;
+  pedidos: number;
+  ticketMedio: number;
+  txConversao: number;
+  cpc: number;
+  roas: number;
   loading: boolean;
 }) {
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
   const calc = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth(); // 0-indexed
@@ -983,6 +1009,195 @@ function FinancialHealth({
     };
   }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
+  // --- Diagnostic: decompose target into daily KPIs ---
+  const diagnostic = useMemo(() => {
+    if (!calc.monthTarget || !calc.daysWithData) return [];
+
+    const dailyTarget = calc.monthTarget / calc.daysInMonth;
+    const dailySessions = calc.daysWithData > 0 ? sessions / calc.daysWithData : 0;
+    const dailyPedidos = calc.daysWithData > 0 ? pedidos / calc.daysWithData : 0;
+    const dailySpend = calc.daysWithData > 0 ? totalInvestment / calc.daysWithData : 0;
+    const actualTxConv = txConversao / 100; // decimal
+    const actualTicket = ticketMedio;
+    const actualRoas = roas;
+    const actualCpc = cpc;
+
+    // Needed values (fixing the other two to find each)
+    const neededSessions = actualTxConv > 0 && actualTicket > 0
+      ? dailyTarget / (actualTxConv * actualTicket) : 0;
+    const neededTxConv = dailySessions > 0 && actualTicket > 0
+      ? (dailyTarget / (dailySessions * actualTicket)) * 100 : 0;
+    const neededTicket = dailySessions > 0 && actualTxConv > 0
+      ? dailyTarget / (dailySessions * actualTxConv) : 0;
+
+    const projectedSpend = dailySpend * calc.daysInMonth;
+    const neededRoas = projectedSpend > 0 ? calc.monthTarget / projectedSpend : 0;
+
+    // CPA-based ideal investment
+    const cpaAtual = dailyPedidos > 0 ? dailySpend / dailyPedidos : 0;
+    const neededDailyPedidos = actualTicket > 0 ? dailyTarget / actualTicket : 0;
+    const neededDailySpend = cpaAtual > 0 ? neededDailyPedidos * cpaAtual : 0;
+
+    // CPC ideal — to achieve needed ROAS at current conversion
+    const neededCpc = actualTxConv > 0 && actualTicket > 0 && neededRoas > 0
+      ? (actualTxConv * actualTicket) / neededRoas : 0;
+
+    type Status = "ok" | "warning" | "critical";
+    function getStatus(gap: number): Status {
+      if (gap >= 0) return "ok";
+      if (gap >= -15) return "warning";
+      return "critical";
+    }
+    // For CPC, lower is better → invert
+    function getStatusInverted(gap: number): Status {
+      if (gap <= 0) return "ok";
+      if (gap <= 15) return "warning";
+      return "critical";
+    }
+
+    function calcGap(actual: number, needed: number): number {
+      if (needed === 0) return 0;
+      return ((actual - needed) / needed) * 100;
+    }
+
+    const metrics: Array<{
+      name: string;
+      actual: number;
+      needed: number;
+      gap: number;
+      status: Status;
+      insight: string;
+      format: "number" | "currency" | "percent" | "roas";
+    }> = [];
+
+    // 1. Sessoes/dia
+    const sessGap = calcGap(dailySessions, neededSessions);
+    metrics.push({
+      name: "Sessoes/dia",
+      actual: dailySessions,
+      needed: neededSessions,
+      gap: sessGap,
+      status: getStatus(sessGap),
+      format: "number",
+      insight: sessGap < -15
+        ? `Sessoes estao ${Math.abs(sessGap).toFixed(0)}% abaixo do necessario. Aumente investimento em trafego ou diversifique canais (SEO, email, social).`
+        : sessGap < 0
+          ? `Sessoes levemente abaixo. Considere ajustes no investimento de midia.`
+          : `Sessoes dentro do esperado para bater a meta.`,
+    });
+
+    // 2. TX Conversao
+    const txGap = calcGap(txConversao, neededTxConv);
+    metrics.push({
+      name: "TX Conversao",
+      actual: txConversao,
+      needed: neededTxConv,
+      gap: txGap,
+      status: getStatus(txGap),
+      format: "percent",
+      insight: txGap < -15
+        ? `Taxa de conversao em ${txConversao.toFixed(2)}% vs ${neededTxConv.toFixed(2)}% necessarios. Revise a experiencia de compra: checkout, frete, persuasao na pagina de produto.`
+        : txGap < 0
+          ? `Conversao levemente abaixo. Pequenas melhorias no checkout podem fechar o gap.`
+          : `Conversao saudavel — acima do necessario para a meta.`,
+    });
+
+    // 3. Ticket Medio
+    const ticketGap = calcGap(actualTicket, neededTicket);
+    metrics.push({
+      name: "Ticket Medio",
+      actual: actualTicket,
+      needed: neededTicket,
+      gap: ticketGap,
+      status: getStatus(ticketGap),
+      format: "currency",
+      insight: ticketGap < -15
+        ? `Ticket medio de ${formatCurrency(actualTicket)} vs ${formatCurrency(neededTicket)} necessarios. Considere cross-sell, bundles ou revisao de precos.`
+        : ticketGap < 0
+          ? `Ticket medio levemente abaixo. Ofertas de upsell podem ajudar.`
+          : `Ticket medio acima do necessario.`,
+    });
+
+    // 4. Investimento/dia
+    const investGap = calcGap(dailySpend, neededDailySpend);
+    metrics.push({
+      name: "Investimento/dia",
+      actual: dailySpend,
+      needed: neededDailySpend,
+      gap: investGap,
+      status: getStatus(investGap),
+      format: "currency",
+      insight: investGap < -15
+        ? `Investimento diario de ${formatCurrency(dailySpend)} esta ${Math.abs(investGap).toFixed(0)}% abaixo do ideal (${formatCurrency(neededDailySpend)}). Avalie aumentar budget mantendo ROAS.`
+        : investGap < 0
+          ? `Investimento levemente abaixo do ideal. Pode ser oportunidade de escalar.`
+          : `Investimento adequado para a meta atual.`,
+    });
+
+    // 5. ROAS
+    const roasGap = calcGap(actualRoas, neededRoas);
+    metrics.push({
+      name: "ROAS",
+      actual: actualRoas,
+      needed: neededRoas,
+      gap: roasGap,
+      status: getStatus(roasGap),
+      format: "roas",
+      insight: roasGap < -15
+        ? `ROAS atual de ${actualRoas.toFixed(2)}x vs ${neededRoas.toFixed(2)}x necessario. Otimize segmentacao, criativos e landing pages.`
+        : roasGap < 0
+          ? `ROAS levemente abaixo. Ajustes finos em campanhas podem resolver.`
+          : `ROAS acima do necessario — eficiencia de midia saudavel.`,
+    });
+
+    // 6. CPC (lower is better)
+    const cpcGap = neededCpc > 0 ? ((actualCpc - neededCpc) / neededCpc) * 100 : 0;
+    metrics.push({
+      name: "CPC",
+      actual: actualCpc,
+      needed: neededCpc,
+      gap: cpcGap,
+      status: getStatusInverted(cpcGap),
+      format: "currency",
+      insight: cpcGap > 15
+        ? `CPC de ${formatCurrency(actualCpc)} esta ${cpcGap.toFixed(0)}% acima do ideal (${formatCurrency(neededCpc)}). Revise qualidade dos anuncios e segmentacao.`
+        : cpcGap > 0
+          ? `CPC levemente acima do ideal. Otimize copy e segmentacao.`
+          : `CPC dentro ou abaixo do ideal.`,
+    });
+
+    return metrics;
+  }, [calc, sessions, pedidos, ticketMedio, txConversao, totalInvestment, cpc, roas]);
+
+  // Find the biggest villain
+  const villain = useMemo(() => {
+    const criticals = diagnostic.filter((m) => m.status === "critical");
+    if (criticals.length > 0) {
+      // Sort by most negative gap
+      return criticals.sort((a, b) => a.gap - b.gap)[0];
+    }
+    const warnings = diagnostic.filter((m) => m.status === "warning");
+    if (warnings.length > 0) {
+      return warnings.sort((a, b) => a.gap - b.gap)[0];
+    }
+    return null;
+  }, [diagnostic]);
+
+  // Action plan based on top issues
+  const actionPlan = useMemo(() => {
+    const actions: string[] = [];
+    const sorted = [...diagnostic].filter((m) => m.status !== "ok").sort((a, b) => a.gap - b.gap);
+    for (const m of sorted.slice(0, 3)) {
+      if (m.name === "Sessoes/dia") actions.push("Aumentar investimento em trafego pago ou ativar canais organicos (SEO, email marketing, redes sociais).");
+      else if (m.name === "TX Conversao") actions.push("Otimizar experiencia de compra: simplificar checkout, revisar politica de frete, melhorar paginas de produto.");
+      else if (m.name === "Ticket Medio") actions.push("Implementar estrategias de cross-sell e bundles para aumentar valor por pedido.");
+      else if (m.name === "Investimento/dia") actions.push("Avaliar aumento de budget de midia paga mantendo eficiencia de ROAS.");
+      else if (m.name === "ROAS") actions.push("Otimizar campanhas: revisar segmentacao, testar novos criativos, melhorar landing pages.");
+      else if (m.name === "CPC") actions.push("Reduzir CPC: melhorar relevancia dos anuncios, testar novas audiencias, ajustar lances.");
+    }
+    return actions.length > 0 ? actions : ["Todas as metricas estao dentro do esperado. Continue monitorando para manter o ritmo."];
+  }, [diagnostic]);
+
   if (loading) {
     return (
       <Card>
@@ -1000,6 +1215,7 @@ function FinancialHealth({
   }
 
   return (
+    <>
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
@@ -1017,6 +1233,12 @@ function FinancialHealth({
                 Abaixo do PE
               </span>
             )}
+            <button
+              onClick={() => setShowDiagnostic(true)}
+              className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium cursor-pointer"
+            >
+              Entender Metricas
+            </button>
             {finSettings.isDefault && (
               <Link
                 href="/simulador/config"
@@ -1231,6 +1453,125 @@ function FinancialHealth({
         </div>
       </CardContent>
     </Card>
+
+    {/* Diagnostic Sheet */}
+    <Sheet open={showDiagnostic} onOpenChange={setShowDiagnostic}>
+      <SheetContent className="overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-primary" />
+            Diagnostico de Metricas
+          </SheetTitle>
+          <SheetDescription>
+            Analise para bater a meta de {formatCurrency(calc.monthTarget)} este mes
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="mt-6 space-y-6">
+          {/* Villain summary */}
+          {villain && (
+            <div className={`rounded-lg p-4 ${villain.status === "critical" ? "bg-destructive/10 border border-destructive/20" : "bg-warning/10 border border-warning/20"}`}>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${villain.status === "critical" ? "text-destructive" : "text-warning"}`} />
+                <div>
+                  <p className="text-sm font-semibold">
+                    Seu maior vilao e {villain.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Esta {Math.abs(villain.gap).toFixed(0)}% {villain.name === "CPC" ? "acima" : "abaixo"} do necessario para bater a meta.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          {!villain && diagnostic.length > 0 && (
+            <div className="rounded-lg p-4 bg-success/10 border border-success/20">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 text-success flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-success">Todas as metricas estao saudaveis</p>
+                  <p className="text-xs text-muted-foreground mt-1">Continue monitorando para manter o ritmo.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Metric cards */}
+          <div className="space-y-3">
+            {diagnostic.map((m) => {
+              const statusColor = m.status === "ok" ? "text-success" : m.status === "warning" ? "text-warning" : "text-destructive";
+              const statusBg = m.status === "ok" ? "bg-success/5 border-success/10" : m.status === "warning" ? "bg-warning/5 border-warning/10" : "bg-destructive/5 border-destructive/10";
+              const GapIcon = m.name === "CPC"
+                ? (m.gap > 0 ? ArrowUpRight : ArrowDownRight)
+                : (m.gap >= 0 ? ArrowUpRight : ArrowDownRight);
+
+              function fmtValue(val: number) {
+                if (m.format === "currency") return formatCurrency(val);
+                if (m.format === "percent") return `${val.toFixed(2)}%`;
+                if (m.format === "roas") return `${val.toFixed(2)}x`;
+                return formatNumber(val);
+              }
+
+              return (
+                <div key={m.name} className={`rounded-lg border p-3 ${statusBg}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {m.status === "ok" ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                      ) : m.status === "warning" ? (
+                        <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                      )}
+                      <span className="text-sm font-medium">{m.name}</span>
+                    </div>
+                    <div className={`flex items-center gap-0.5 text-xs font-semibold ${statusColor}`}>
+                      <GapIcon className="h-3 w-3" />
+                      {m.gap >= 0 ? "+" : ""}{m.gap.toFixed(0)}%
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs mb-2">
+                    <div>
+                      <span className="text-muted-foreground">Atual: </span>
+                      <span className="font-semibold">{fmtValue(m.actual)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Necessario: </span>
+                      <span className="font-semibold">{fmtValue(m.needed)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                    <Lightbulb className="h-3 w-3 mt-0.5 flex-shrink-0 text-primary" />
+                    <span>{m.insight}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Action Plan */}
+          {actionPlan.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold flex items-center gap-1.5 mb-3">
+                <Lightbulb className="h-4 w-4 text-primary" />
+                Plano de Acao
+              </h4>
+              <div className="space-y-2">
+                {actionPlan.map((action, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-[10px]">
+                      {i + 1}
+                    </span>
+                    <p className="text-muted-foreground pt-0.5">{action}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+    </>
   );
 }
 
