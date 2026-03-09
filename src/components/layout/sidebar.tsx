@@ -22,6 +22,7 @@ import {
   CalendarDays,
   Landmark,
   SlidersHorizontal,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ const navItems: NavItem[] = [
   { href: "/vnda", label: "E-commerce", icon: ShoppingBag },
   { href: "/simulador", label: "Financeiro", icon: Landmark },
   { href: "/simulador", label: "Simulador", icon: Calculator, indent: true },
+  { href: "/simulador/diagnostico", label: "Diagnostico", icon: Search, indent: true },
   { href: "/simulador/config", label: "Configurações", icon: SlidersHorizontal, indent: true },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },

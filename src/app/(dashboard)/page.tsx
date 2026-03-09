@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DollarSign,
   TrendingUp,
@@ -11,12 +11,6 @@ import {
   Percent,
   Calculator,
   Landmark,
-  Search,
-  AlertTriangle,
-  CheckCircle2,
-  Lightbulb,
-  ArrowUpRight,
-  ArrowDownRight,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -37,7 +31,6 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -896,7 +889,6 @@ function FinancialHealth({
   finSettings: FinancialSettings;
   loading: boolean;
 }) {
-  const [showDiagnostic, setShowDiagnostic] = useState(false);
   const calc = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth(); // 0-indexed
@@ -968,117 +960,6 @@ function FinancialHealth({
       revenue: d.day <= currentDay ? d.revenue : undefined,
     }));
 
-    // --- Diagnostic: daily expected vs realized ---
-    const dailyRevenueTarget = daysInMonth > 0 ? monthTarget / daysInMonth : 0;
-
-    // Month averages (from current month data only)
-    const totalMonthSessions = monthData.reduce((s, d) => s + d.sessions, 0);
-    const totalMonthPedidos = monthData.reduce((s, d) => s + d.pedidos, 0);
-    const totalMonthSpend = monthData.reduce((s, d) => s + d.totalSpend, 0);
-    const avgDailySessions = daysWithData > 0 ? totalMonthSessions / daysWithData : 0;
-    const avgDailySpend = daysWithData > 0 ? totalMonthSpend / daysWithData : 0;
-    const avgTicket = totalMonthPedidos > 0 ? monthRevenue / totalMonthPedidos : 0;
-    const avgTxConv = totalMonthSessions > 0 ? (totalMonthPedidos / totalMonthSessions) * 100 : 0;
-    const avgRoas = totalMonthSpend > 0 ? monthRevenue / totalMonthSpend : 0;
-    const avgCps = totalMonthSessions > 0 ? totalMonthSpend / totalMonthSessions : 0;
-
-    // Expected daily values (derived from monthly target)
-    const expectedDailyPedidos = avgTicket > 0 ? dailyRevenueTarget / avgTicket : 0;
-    const expectedDailySessions = avgTxConv > 0 ? expectedDailyPedidos / (avgTxConv / 100) : 0;
-
-    // Villain decomposition: Receita = Sessoes x TxConv x Ticket
-    // "What would each metric need to be to hit the daily target?"
-    const sessionsNeeded = (avgTxConv > 0 && avgTicket > 0) ? dailyRevenueTarget / ((avgTxConv / 100) * avgTicket) : 0;
-    const txConvNeeded = (avgDailySessions > 0 && avgTicket > 0) ? (dailyRevenueTarget / (avgDailySessions * avgTicket)) * 100 : 0;
-    const ticketNeeded = (avgDailySessions > 0 && avgTxConv > 0) ? dailyRevenueTarget / (avgDailySessions * (avgTxConv / 100)) : 0;
-    // Investimento baseado em CPS: sessões necessárias × custo por sessão
-    const investNeeded = avgCps > 0 ? sessionsNeeded * avgCps : avgDailySpend;
-    const roasNeeded = investNeeded > 0 ? dailyRevenueTarget / investNeeded : 0;
-
-    function calcGap(actual: number, needed: number) {
-      if (needed === 0) return 0;
-      return ((actual - needed) / needed) * 100;
-    }
-    type VillainStatus = "ok" | "warning" | "critical";
-    function getStatus(gap: number): VillainStatus {
-      if (gap >= 0) return "ok";
-      if (gap >= -15) return "warning";
-      return "critical";
-    }
-
-    const villains = [
-      {
-        name: "Sessoes/dia", actual: avgDailySessions, needed: sessionsNeeded,
-        gap: calcGap(avgDailySessions, sessionsNeeded), format: "number" as const,
-        insight: calcGap(avgDailySessions, sessionsNeeded) < 0
-          ? "Aumente investimento em trafego ou diversifique canais (SEO, email, social)."
-          : "Volume de trafego adequado para a meta.",
-      },
-      {
-        name: "TX Conversao", actual: avgTxConv, needed: txConvNeeded,
-        gap: calcGap(avgTxConv, txConvNeeded), format: "percent" as const,
-        insight: calcGap(avgTxConv, txConvNeeded) < 0
-          ? "Revise a experiencia de compra: checkout, frete, persuasao na pagina de produto."
-          : "Taxa de conversao saudavel para a meta.",
-      },
-      {
-        name: "Ticket Medio", actual: avgTicket, needed: ticketNeeded,
-        gap: calcGap(avgTicket, ticketNeeded), format: "currency" as const,
-        insight: calcGap(avgTicket, ticketNeeded) < 0
-          ? "Considere cross-sell, bundles ou revisao de precos para aumentar o valor por pedido."
-          : "Ticket medio acima do necessario.",
-      },
-      {
-        name: "ROAS", actual: avgRoas, needed: roasNeeded,
-        gap: calcGap(avgRoas, roasNeeded), format: "roas" as const,
-        insight: calcGap(avgRoas, roasNeeded) < 0
-          ? "Otimize segmentacao, criativos e landing pages para melhorar retorno."
-          : "Eficiencia de midia adequada.",
-      },
-      {
-        name: "Investimento/dia", actual: avgDailySpend, needed: investNeeded,
-        gap: calcGap(avgDailySpend, investNeeded), format: "currency" as const,
-        insight: calcGap(avgDailySpend, investNeeded) < 0
-          ? "Avalie aumentar budget de midia mantendo eficiencia de ROAS."
-          : "Investimento adequado para a meta.",
-      },
-    ].map((v) => ({ ...v, status: getStatus(v.gap) }))
-     .sort((a, b) => a.gap - b.gap);
-
-    // Daily diagnostic table
-    const expectedDailyInvest = avgCps > 0 ? Math.round(expectedDailySessions) * avgCps : avgDailySpend;
-    const dailyDiagnostic = monthData.map((d) => ({
-      date: d.date,
-      revenue: d.revenue,
-      revenueExpected: dailyRevenueTarget,
-      sessions: d.sessions,
-      sessionsExpected: Math.round(expectedDailySessions),
-      pedidos: d.pedidos,
-      pedidosExpected: Math.round(expectedDailyPedidos),
-      ticketMedio: d.ticketMedio,
-      ticketExpected: avgTicket,
-      txConversao: d.txConversao,
-      txExpected: txConvNeeded,
-      roas: d.roas,
-      roasExpected: roasNeeded,
-      invest: d.totalSpend,
-      investExpected: expectedDailyInvest,
-      cps: d.sessions > 0 ? d.totalSpend / d.sessions : 0,
-      cpsExpected: avgCps,
-    }));
-
-    // Action plan from top villains
-    const actionPlan: string[] = [];
-    const badVillains = villains.filter((v) => v.status !== "ok");
-    for (const v of badVillains.slice(0, 3)) {
-      if (v.name === "Sessoes/dia") actionPlan.push("Aumentar investimento em trafego pago ou ativar canais organicos (SEO, email marketing, redes sociais).");
-      else if (v.name === "TX Conversao") actionPlan.push("Otimizar experiencia de compra: simplificar checkout, revisar politica de frete, melhorar paginas de produto.");
-      else if (v.name === "Ticket Medio") actionPlan.push("Implementar estrategias de cross-sell e bundles para aumentar valor por pedido.");
-      else if (v.name === "ROAS") actionPlan.push("Otimizar campanhas: revisar segmentacao, testar novos criativos, melhorar landing pages.");
-      else if (v.name === "Investimento/dia") actionPlan.push("Avaliar aumento de budget de midia paga mantendo eficiencia de ROAS.");
-    }
-    if (actionPlan.length === 0) actionPlan.push("Todas as metricas estao dentro do esperado. Continue monitorando para manter o ritmo.");
-
     return {
       monthRevenue,
       projectedRevenue,
@@ -1099,11 +980,6 @@ function FinancialHealth({
       marginAboveBE,
       seasonalityWeight: (monthly_seasonality?.[currentMonth] ?? 8.33),
       chartData,
-      // Diagnostic
-      dailyRevenueTarget,
-      villains,
-      dailyDiagnostic,
-      actionPlan,
     };
   }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
@@ -1124,7 +1000,6 @@ function FinancialHealth({
   }
 
   return (
-    <>
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
@@ -1142,12 +1017,12 @@ function FinancialHealth({
                 Abaixo do PE
               </span>
             )}
-            <button
-              onClick={() => setShowDiagnostic(true)}
-              className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium cursor-pointer"
+            <Link
+              href="/simulador/diagnostico"
+              className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
             >
               Entender Metricas
-            </button>
+            </Link>
             {finSettings.isDefault && (
               <Link
                 href="/simulador/config"
@@ -1362,200 +1237,6 @@ function FinancialHealth({
         </div>
       </CardContent>
     </Card>
-
-    {/* Diagnostic Sheet */}
-    <Sheet open={showDiagnostic} onOpenChange={setShowDiagnostic}>
-      <SheetContent className="overflow-y-auto !w-full !max-w-5xl">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-primary" />
-            Diagnostico de Metricas
-          </SheetTitle>
-          <SheetDescription>
-            Meta diaria: {formatCurrency(calc.dailyRevenueTarget)} | Media realizada: {formatCurrency(calc.avgDaily)}
-            {calc.avgDaily < calc.dailyRevenueTarget && (
-              <span className="text-destructive font-medium ml-1">
-                (deficit de {formatCurrency(calc.dailyRevenueTarget - calc.avgDaily)}/dia)
-              </span>
-            )}
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="mt-6 space-y-6">
-          {/* Villain Summary Cards */}
-          <div>
-            <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-              <AlertTriangle className="h-4 w-4 text-primary" />
-              Analise por Metrica
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {calc.villains.map((v) => {
-                const statusColor = v.status === "ok" ? "text-success" : v.status === "warning" ? "text-warning" : "text-destructive";
-                const statusBg = v.status === "ok" ? "bg-success/5 border-success/10" : v.status === "warning" ? "bg-warning/5 border-warning/10" : "bg-destructive/5 border-destructive/10";
-                const GapIcon = v.gap >= 0 ? ArrowUpRight : ArrowDownRight;
-
-                function fmtVal(val: number) {
-                  if (v.format === "currency") return formatCurrency(val);
-                  if (v.format === "percent") return `${val.toFixed(2)}%`;
-                  if (v.format === "roas") return `${val.toFixed(2)}x`;
-                  return formatNumber(val);
-                }
-
-                return (
-                  <div key={v.name} className={`rounded-lg border p-3 ${statusBg}`}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        {v.status === "ok" ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                        ) : (
-                          <AlertTriangle className={`h-3.5 w-3.5 ${v.status === "warning" ? "text-warning" : "text-destructive"}`} />
-                        )}
-                        <span className="text-xs font-medium">{v.name}</span>
-                      </div>
-                      <div className={`flex items-center gap-0.5 text-[11px] font-semibold ${statusColor}`}>
-                        <GapIcon className="h-3 w-3" />
-                        {v.gap >= 0 ? "+" : ""}{v.gap.toFixed(0)}%
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 text-[11px] mb-1.5">
-                      <div>
-                        <span className="text-muted-foreground">Atual: </span>
-                        <span className="font-semibold">{fmtVal(v.actual)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Necessario: </span>
-                        <span className="font-semibold">{fmtVal(v.needed)}</span>
-                      </div>
-                    </div>
-                    {v.status !== "ok" && (
-                      <div className="flex items-start gap-1 text-[10px] text-muted-foreground">
-                        <Lightbulb className="h-2.5 w-2.5 mt-0.5 flex-shrink-0 text-primary" />
-                        <span>{v.insight}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Action Plan */}
-          {calc.actionPlan.length > 0 && calc.villains.some((v) => v.status !== "ok") && (
-            <div>
-              <h4 className="text-sm font-semibold flex items-center gap-1.5 mb-3">
-                <Lightbulb className="h-4 w-4 text-primary" />
-                Plano de Acao
-              </h4>
-              <div className="space-y-2">
-                {calc.actionPlan.map((action, i) => (
-                  <div key={i} className="flex items-start gap-2 text-xs">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-[10px]">
-                      {i + 1}
-                    </span>
-                    <p className="text-muted-foreground pt-0.5">{action}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Daily Table */}
-          <div>
-            <h4 className="text-sm font-semibold mb-3">Controle Diario — Esperado vs Realizado</h4>
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="px-2 py-2 text-left font-medium text-muted-foreground sticky left-0 bg-muted/30 z-10">Data</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Investimento</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Sessoes</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>TX Conv</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Pedidos</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Ticket Medio</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Receita</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>ROAS</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>CPS</th>
-                  </tr>
-                  <tr className="border-b border-border bg-muted/20">
-                    <th className="px-2 py-1 sticky left-0 bg-muted/20 z-10"></th>
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <React.Fragment key={i}>
-                        <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                        <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
-                      </React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {calc.dailyDiagnostic.map((d, i) => (
-                    <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="px-2 py-1.5 font-medium sticky left-0 bg-card z-10">{d.date}</td>
-                      {/* Investimento — vermelho se gastou MAIS que esperado */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.invest > d.investExpected * 1.05 ? "text-destructive" : "text-success"}`}>
-                        {formatCurrency(d.invest)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatCurrency(d.investExpected)}
-                      </td>
-                      {/* Sessoes */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.sessions < d.sessionsExpected ? "text-destructive" : "text-success"}`}>
-                        {formatNumber(d.sessions)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatNumber(d.sessionsExpected)}
-                      </td>
-                      {/* TX Conv */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.txConversao < d.txExpected ? "text-destructive" : "text-success"}`}>
-                        {d.txConversao.toFixed(2)}%
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {d.txExpected.toFixed(2)}%
-                      </td>
-                      {/* Pedidos */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.pedidos < d.pedidosExpected ? "text-destructive" : "text-success"}`}>
-                        {d.pedidos}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {d.pedidosExpected}
-                      </td>
-                      {/* Ticket Medio */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.ticketMedio < d.ticketExpected ? "text-destructive" : "text-success"}`}>
-                        {formatCurrency(d.ticketMedio)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatCurrency(d.ticketExpected)}
-                      </td>
-                      {/* Receita */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.revenue < d.revenueExpected ? "text-destructive" : "text-success"}`}>
-                        {formatCurrency(d.revenue)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatCurrency(d.revenueExpected)}
-                      </td>
-                      {/* ROAS */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.roas < d.roasExpected ? "text-destructive" : "text-success"}`}>
-                        {d.roas.toFixed(2)}x
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {d.roasExpected.toFixed(2)}x
-                      </td>
-                      {/* CPS — vermelho se CPS real ACIMA do esperado */}
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.cps > d.cpsExpected * 1.05 ? "text-destructive" : "text-success"}`}>
-                        {formatCurrency(d.cps)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatCurrency(d.cpsExpected)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
-    </>
   );
 }
 
