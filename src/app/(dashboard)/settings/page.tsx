@@ -635,12 +635,14 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="meta">
+      <Tabs defaultValue={isAdmin ? "meta" : "team"}>
         <TabsList>
-          <TabsTrigger value="meta">
-            <Key className="h-4 w-4 mr-2" />
-            Conexão Meta
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="meta">
+              <Key className="h-4 w-4 mr-2" />
+              Conexão Meta
+            </TabsTrigger>
+          )}
           <TabsTrigger value="team">
             <Users className="h-4 w-4 mr-2" />
             Equipe
@@ -649,18 +651,24 @@ export default function SettingsPage() {
             <Building2 className="h-4 w-4 mr-2" />
             Workspace
           </TabsTrigger>
-          <TabsTrigger value="vnda">
-            <ShoppingBag className="h-4 w-4 mr-2" />
-            VNDA
-          </TabsTrigger>
-          <TabsTrigger value="health">
-            <Activity className="h-4 w-4 mr-2" />
-            Health Check
-          </TabsTrigger>
-          <TabsTrigger value="llm">
-            <Cpu className="h-4 w-4 mr-2" />
-            Provedor IA
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="vnda">
+              <ShoppingBag className="h-4 w-4 mr-2" />
+              VNDA
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="health">
+              <Activity className="h-4 w-4 mr-2" />
+              Health Check
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="llm">
+              <Cpu className="h-4 w-4 mr-2" />
+              Provedor IA
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ===== Meta Connection Tab ===== */}

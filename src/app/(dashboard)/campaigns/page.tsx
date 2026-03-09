@@ -204,9 +204,15 @@ export default function CampaignsPage() {
     [filtered, tierFilter]
   );
 
-  // Sorting
+  // Sorting — ACTIVE first, then by user-chosen sort key
   const sorted = useMemo(() => {
     return [...tierFiltered].sort((a, b) => {
+      // Primary: ACTIVE before PAUSED
+      const aActive = a.status === "ACTIVE" ? 0 : 1;
+      const bActive = b.status === "ACTIVE" ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+
+      // Secondary: user-chosen sort key
       const aVal = (a as unknown as Record<string, unknown>)[sortKey] ?? 0;
       const bVal = (b as unknown as Record<string, unknown>)[sortKey] ?? 0;
       const aNum = typeof aVal === "number" ? aVal : parseFloat(String(aVal)) || 0;
