@@ -980,20 +980,20 @@ function FinancialHealth({
     const avgTicket = totalMonthPedidos > 0 ? monthRevenue / totalMonthPedidos : 0;
     const avgTxConv = totalMonthSessions > 0 ? (totalMonthPedidos / totalMonthSessions) * 100 : 0;
     const avgRoas = totalMonthSpend > 0 ? monthRevenue / totalMonthSpend : 0;
-    const avgCpc = daysWithData > 0 ? monthData.reduce((s, d) => s + d.cpc, 0) / daysWithData : 0;
+    const avgCps = totalMonthSessions > 0 ? totalMonthSpend / totalMonthSessions : 0;
 
     // Expected daily values (derived from monthly target)
     const expectedDailyPedidos = avgTicket > 0 ? dailyRevenueTarget / avgTicket : 0;
     const expectedDailySessions = avgTxConv > 0 ? expectedDailyPedidos / (avgTxConv / 100) : 0;
-    const expectedRoas = avgDailySpend > 0 ? dailyRevenueTarget / avgDailySpend : 0;
 
     // Villain decomposition: Receita = Sessoes x TxConv x Ticket
     // "What would each metric need to be to hit the daily target?"
     const sessionsNeeded = (avgTxConv > 0 && avgTicket > 0) ? dailyRevenueTarget / ((avgTxConv / 100) * avgTicket) : 0;
     const txConvNeeded = (avgDailySessions > 0 && avgTicket > 0) ? (dailyRevenueTarget / (avgDailySessions * avgTicket)) * 100 : 0;
     const ticketNeeded = (avgDailySessions > 0 && avgTxConv > 0) ? dailyRevenueTarget / (avgDailySessions * (avgTxConv / 100)) : 0;
-    const investNeeded = expectedRoas > 0 ? dailyRevenueTarget / expectedRoas : avgDailySpend;
-    const roasNeeded = avgDailySpend > 0 ? dailyRevenueTarget / avgDailySpend : 0;
+    // Investimento baseado em CPS: sessões necessárias × custo por sessão
+    const investNeeded = avgCps > 0 ? sessionsNeeded * avgCps : avgDailySpend;
+    const roasNeeded = investNeeded > 0 ? dailyRevenueTarget / investNeeded : 0;
 
     function calcGap(actual: number, needed: number) {
       if (needed === 0) return 0;
@@ -1046,6 +1046,7 @@ function FinancialHealth({
      .sort((a, b) => a.gap - b.gap);
 
     // Daily diagnostic table
+    const expectedDailyInvest = avgCps > 0 ? Math.round(expectedDailySessions) * avgCps : avgDailySpend;
     const dailyDiagnostic = monthData.map((d) => ({
       date: d.date,
       revenue: d.revenue,
@@ -1059,8 +1060,11 @@ function FinancialHealth({
       txConversao: d.txConversao,
       txExpected: txConvNeeded,
       roas: d.roas,
-      roasExpected: expectedRoas,
+      roasExpected: roasNeeded,
       invest: d.totalSpend,
+      investExpected: expectedDailyInvest,
+      cps: d.sessions > 0 ? d.totalSpend / d.sessions : 0,
+      cpsExpected: avgCps,
     }));
 
     // Action plan from top villains
@@ -1361,7 +1365,7 @@ function FinancialHealth({
 
     {/* Diagnostic Sheet */}
     <Sheet open={showDiagnostic} onOpenChange={setShowDiagnostic}>
-      <SheetContent className="overflow-y-auto !w-full !max-w-3xl">
+      <SheetContent className="overflow-y-auto !w-full !max-w-5xl">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <Search className="h-5 w-5 text-primary" />
@@ -1462,60 +1466,85 @@ function FinancialHealth({
               <table className="w-full text-[11px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
-                    <th className="px-2 py-2 text-left font-medium text-muted-foreground">Data</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Receita</th>
+                    <th className="px-2 py-2 text-left font-medium text-muted-foreground sticky left-0 bg-muted/30 z-10">Data</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Investimento</th>
                     <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Sessoes</th>
-                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Pedidos</th>
                     <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>TX Conv</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Pedidos</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Ticket Medio</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Receita</th>
                     <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>ROAS</th>
+                    <th className="px-2 py-2 text-right font-medium text-muted-foreground" colSpan={2}>CPS</th>
                   </tr>
                   <tr className="border-b border-border bg-muted/20">
-                    <th className="px-2 py-1"></th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
-                    <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
+                    <th className="px-2 py-1 sticky left-0 bg-muted/20 z-10"></th>
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <React.Fragment key={i}>
+                        <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Real</th>
+                        <th className="px-2 py-1 text-right text-[9px] text-muted-foreground font-normal">Esp.</th>
+                      </React.Fragment>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {calc.dailyDiagnostic.map((d, i) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="px-2 py-1.5 font-medium">{d.date}</td>
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.revenue < d.revenueExpected ? "text-destructive" : "text-success"}`}>
-                        {formatCurrency(d.revenue)}
+                      <td className="px-2 py-1.5 font-medium sticky left-0 bg-card z-10">{d.date}</td>
+                      {/* Investimento — vermelho se gastou MAIS que esperado */}
+                      <td className={`px-2 py-1.5 text-right font-medium ${d.invest > d.investExpected * 1.05 ? "text-destructive" : "text-success"}`}>
+                        {formatCurrency(d.invest)}
                       </td>
                       <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {formatCurrency(d.revenueExpected)}
+                        {formatCurrency(d.investExpected)}
                       </td>
+                      {/* Sessoes */}
                       <td className={`px-2 py-1.5 text-right font-medium ${d.sessions < d.sessionsExpected ? "text-destructive" : "text-success"}`}>
                         {formatNumber(d.sessions)}
                       </td>
                       <td className="px-2 py-1.5 text-right text-muted-foreground">
                         {formatNumber(d.sessionsExpected)}
                       </td>
-                      <td className={`px-2 py-1.5 text-right font-medium ${d.pedidos < d.pedidosExpected ? "text-destructive" : "text-success"}`}>
-                        {d.pedidos}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-muted-foreground">
-                        {d.pedidosExpected}
-                      </td>
+                      {/* TX Conv */}
                       <td className={`px-2 py-1.5 text-right font-medium ${d.txConversao < d.txExpected ? "text-destructive" : "text-success"}`}>
                         {d.txConversao.toFixed(2)}%
                       </td>
                       <td className="px-2 py-1.5 text-right text-muted-foreground">
                         {d.txExpected.toFixed(2)}%
                       </td>
+                      {/* Pedidos */}
+                      <td className={`px-2 py-1.5 text-right font-medium ${d.pedidos < d.pedidosExpected ? "text-destructive" : "text-success"}`}>
+                        {d.pedidos}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-muted-foreground">
+                        {d.pedidosExpected}
+                      </td>
+                      {/* Ticket Medio */}
+                      <td className={`px-2 py-1.5 text-right font-medium ${d.ticketMedio < d.ticketExpected ? "text-destructive" : "text-success"}`}>
+                        {formatCurrency(d.ticketMedio)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-muted-foreground">
+                        {formatCurrency(d.ticketExpected)}
+                      </td>
+                      {/* Receita */}
+                      <td className={`px-2 py-1.5 text-right font-medium ${d.revenue < d.revenueExpected ? "text-destructive" : "text-success"}`}>
+                        {formatCurrency(d.revenue)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-muted-foreground">
+                        {formatCurrency(d.revenueExpected)}
+                      </td>
+                      {/* ROAS */}
                       <td className={`px-2 py-1.5 text-right font-medium ${d.roas < d.roasExpected ? "text-destructive" : "text-success"}`}>
                         {d.roas.toFixed(2)}x
                       </td>
                       <td className="px-2 py-1.5 text-right text-muted-foreground">
                         {d.roasExpected.toFixed(2)}x
+                      </td>
+                      {/* CPS — vermelho se CPS real ACIMA do esperado */}
+                      <td className={`px-2 py-1.5 text-right font-medium ${d.cps > d.cpsExpected * 1.05 ? "text-destructive" : "text-success"}`}>
+                        {formatCurrency(d.cps)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-muted-foreground">
+                        {formatCurrency(d.cpsExpected)}
                       </td>
                     </tr>
                   ))}
