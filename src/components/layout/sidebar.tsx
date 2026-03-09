@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Megaphone,
-  Layers,
-  FileText,
   BarChart3,
   LineChart,
   ShoppingBag,
@@ -22,8 +20,6 @@ import {
   CircleDollarSign,
   Calculator,
   CalendarDays,
-  Instagram,
-  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,8 +39,6 @@ const navItems: NavItem[] = [
   { href: "/team/planning", label: "Planejamento", icon: CalendarDays, indent: true },
   { href: "/agent", label: "Vortex IA", icon: Zap },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
-  { href: "/adsets", label: "Ad Sets", icon: Layers },
-  { href: "/ads", label: "Ads", icon: FileText },
   { href: "/analytics", label: "Meta Ads", icon: BarChart3 },
   { href: "/google-ads", label: "Google Ads", icon: CircleDollarSign },
   { href: "/ga4", label: "Google Analytics", icon: LineChart },
@@ -52,8 +46,6 @@ const navItems: NavItem[] = [
   { href: "/simulador", label: "Simulador", icon: Calculator },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
-  { href: "/social", label: "Instagram", icon: Instagram },
-  { href: "/social/posts", label: "Posts", icon: LayoutGrid, indent: true },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

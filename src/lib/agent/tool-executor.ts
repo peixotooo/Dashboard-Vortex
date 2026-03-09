@@ -12,6 +12,7 @@ import {
   uploadAdImage,
 } from "@/lib/meta-api";
 import { getGoogleAdsCampaigns } from "@/lib/google-ads-api";
+import { getApifyConfig, scrapeInstagramProfile, scrapeInstagramPosts } from "@/lib/apify-api";
 import {
   saveMemoryRecord,
   loadCoreMemories,
@@ -631,6 +632,46 @@ export async function executeToolCall(
         return {
           error: `Erro ao criar acao de marketing: ${err instanceof Error ? err.message : "erro desconhecido"}`,
         };
+      }
+    }
+
+    // --- Instagram Tools ---
+
+    case "get_instagram_profile": {
+      const username = toolInput.username as string;
+      if (!username) return { error: "username e obrigatorio" };
+      try {
+        const config = await getApifyConfig(workspaceId || undefined);
+        if (!config) return { error: "Apify nao configurado. Defina APIFY_API_TOKEN no .env." };
+        const profile = await scrapeInstagramProfile(config, username);
+        return { profile };
+      } catch (err) {
+        return { error: `Erro ao buscar perfil: ${err instanceof Error ? err.message : "erro desconhecido"}` };
+      }
+    }
+
+    case "get_instagram_posts": {
+      const username = toolInput.username as string;
+      if (!username) return { error: "username e obrigatorio" };
+      const limit = Math.min((toolInput.limit as number) || 12, 50);
+      try {
+        const config = await getApifyConfig(workspaceId || undefined);
+        if (!config) return { error: "Apify nao configurado. Defina APIFY_API_TOKEN no .env." };
+        const posts = await scrapeInstagramPosts(config, username, limit);
+        return {
+          posts: posts.map(p => ({
+            type: p.type,
+            caption: p.caption?.slice(0, 200),
+            hashtags: p.hashtags,
+            likesCount: p.likesCount,
+            commentsCount: p.commentsCount,
+            timestamp: p.timestamp,
+            url: p.url,
+          })),
+          total: posts.length,
+        };
+      } catch (err) {
+        return { error: `Erro ao buscar posts: ${err instanceof Error ? err.message : "erro desconhecido"}` };
       }
     }
 

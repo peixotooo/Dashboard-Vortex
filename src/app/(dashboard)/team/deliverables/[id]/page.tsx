@@ -38,6 +38,7 @@ interface Deliverable {
   format: string;
   metadata: Record<string, unknown>;
   status: string;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
   agent: Agent | null;
@@ -361,11 +362,9 @@ export default function DeliverableDetailPage() {
               {deliverable.status === "final" ? "Final" : "Rascunho"}
             </Badge>
             <span className="text-sm text-muted-foreground">
-              {new Date(deliverable.created_at).toLocaleDateString("pt-BR", {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              })}
+              {deliverable.delivered_at
+                ? `Entregue em ${new Date(deliverable.delivered_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                : new Date(deliverable.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
             </span>
           </div>
         </div>

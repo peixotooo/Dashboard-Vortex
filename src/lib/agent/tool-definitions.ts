@@ -767,6 +767,45 @@ const GOOGLE_ADS_TOOLS: Tool[] = [
   },
 ];
 
+// --- Instagram Tools (scraping via Apify) ---
+
+const INSTAGRAM_TOOLS: Tool[] = [
+  {
+    name: "get_instagram_profile",
+    description:
+      "Obtem dados do perfil publico de um usuario do Instagram via scraping. Retorna seguidores, posts, bio, categoria. Usa cache de 6h. Use quando precisar analisar metricas de um perfil IG ou para contexto de criacao de conteudo.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        username: {
+          type: "string",
+          description: "Username do Instagram (sem @). Ex: nike, starbucks",
+        },
+      },
+      required: ["username"],
+    },
+  },
+  {
+    name: "get_instagram_posts",
+    description:
+      "Obtem posts recentes de um perfil publico do Instagram via scraping. Retorna curtidas, comentarios, caption, hashtags, tipo (imagem/video/carrossel). Usa cache de 6h. Use para analisar conteudo, identificar padroes de engagement, ou buscar inspiracao.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        username: {
+          type: "string",
+          description: "Username do Instagram (sem @)",
+        },
+        limit: {
+          type: "number",
+          description: "Numero maximo de posts (padrao: 12, max: 50)",
+        },
+      },
+      required: ["username"],
+    },
+  },
+];
+
 // --- Backward compat: all tools in one array (used by existing /agent page) ---
 
 export const AGENT_TOOLS: Tool[] = [
@@ -774,6 +813,7 @@ export const AGENT_TOOLS: Tool[] = [
   ...GOOGLE_ADS_TOOLS,
   ...MEMORY_TOOLS,
   ...TEAM_TOOLS,
+  ...INSTAGRAM_TOOLS,
   ...SAVED_CREATIVES_TOOLS,
   ...SAVED_CAMPAIGNS_TOOLS,
 ];
@@ -786,9 +826,13 @@ export function getToolsForAgent(agentSlug?: string): Tool[] {
   if (!agentSlug || agentSlug === "vortex") {
     return [...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS];
   }
-  // Marcos (CMO) and paid-ads specialist get Team + Meta + Google Ads + Saved
+  // Marcos (CMO) and paid-ads specialist get Team + Meta + Google Ads + Instagram + Saved
   if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
-    return [...TEAM_TOOLS, ...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...SAVED_TOOLS];
+    return [...TEAM_TOOLS, ...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...INSTAGRAM_TOOLS, ...SAVED_TOOLS];
+  }
+  // Social content gets Team + Instagram + Saved
+  if (agentSlug === "social-content") {
+    return [...TEAM_TOOLS, ...INSTAGRAM_TOOLS, ...SAVED_TOOLS];
   }
   // Ad creative and copywriting agents get Team + Saved
   if (agentSlug === "ad-creative" || agentSlug === "copywriting") {

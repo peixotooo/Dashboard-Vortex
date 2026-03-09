@@ -39,6 +39,7 @@ interface Deliverable {
   format: string;
   metadata: Record<string, unknown>;
   status: string;
+  delivered_at: string | null;
   created_at: string;
   agent: Agent | null;
   task: { id: string; title: string } | null;
@@ -342,6 +343,9 @@ export default function DeliverablesPage() {
                         <th className="text-left font-medium px-4 py-2.5 w-[80px]">
                           Status
                         </th>
+                        <th className="text-left font-medium px-4 py-2.5 w-[130px]">
+                          Entregue em
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -449,6 +453,15 @@ export default function DeliverablesPage() {
                                   ? "Final"
                                   : "Rascunho"}
                               </Badge>
+                            </td>
+
+                            {/* Entregue em */}
+                            <td className="px-4 py-3">
+                              <span className="text-xs text-muted-foreground">
+                                {del.delivered_at
+                                  ? new Date(del.delivered_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+                                  : "—"}
+                              </span>
                             </td>
                           </Link>
                         );

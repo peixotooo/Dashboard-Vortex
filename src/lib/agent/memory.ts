@@ -953,6 +953,7 @@ export interface AgentDeliverable {
   metadata: Record<string, unknown>;
   status: string;
   conversation_id: string | null;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
   agent?: Agent;
@@ -986,6 +987,8 @@ export async function createDeliverable(
       agent_id: params.agent_id || null,
       conversation_id: params.conversation_id || null,
       project_id: params.project_id || null,
+      status: "final",
+      delivered_at: new Date().toISOString(),
     })
     .select()
     .single();
