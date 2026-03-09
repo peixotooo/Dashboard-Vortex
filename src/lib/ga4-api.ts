@@ -91,13 +91,13 @@ function datePresetToRange(preset: string): { startDate: string; endDate: string
     case "yesterday":
       return { startDate: "yesterday", endDate: "yesterday" };
     case "last_7d":
-      return { startDate: "7daysAgo", endDate: "yesterday" };
+      return { startDate: "7daysAgo", endDate: "today" };
     case "last_14d":
-      return { startDate: "14daysAgo", endDate: "yesterday" };
+      return { startDate: "14daysAgo", endDate: "today" };
     case "last_30d":
-      return { startDate: "30daysAgo", endDate: "yesterday" };
+      return { startDate: "30daysAgo", endDate: "today" };
     case "last_90d":
-      return { startDate: "90daysAgo", endDate: "yesterday" };
+      return { startDate: "90daysAgo", endDate: "today" };
     case "this_month": {
       const now = new Date();
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -116,7 +116,7 @@ function datePresetToRange(preset: string): { startDate: string; endDate: string
       };
     }
     default:
-      return { startDate: "30daysAgo", endDate: "yesterday" };
+      return { startDate: "30daysAgo", endDate: "today" };
   }
 }
 

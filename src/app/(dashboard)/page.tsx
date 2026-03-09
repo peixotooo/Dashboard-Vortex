@@ -726,6 +726,26 @@ export default function OverviewPage() {
         <RoasChart data={data.trendData} loading={loading} />
       </div>
 
+      {/* Sessões + TX Conversão Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TrendChart
+          title="Sessões"
+          data={data.trendData as unknown as Array<Record<string, unknown>>}
+          lines={[
+            { key: "sessions", label: "Sessões", color: "#06b6d4" },
+          ]}
+          loading={loading}
+        />
+        <TrendChart
+          title="Taxa de Conversão"
+          data={data.trendData as unknown as Array<Record<string, unknown>>}
+          lines={[
+            { key: "txConversao", label: "TX Conversão (%)", color: "#f97316" },
+          ]}
+          loading={loading}
+        />
+      </div>
+
       {/* Controle Diário */}
       <div className="flex items-center gap-3 -mb-4">
         <span className="text-xs font-medium text-muted-foreground">Fonte:</span>
@@ -770,26 +790,6 @@ export default function OverviewPage() {
         }))}
         loading={loading}
       />
-
-      {/* Sessões + TX Conversão Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TrendChart
-          title="Sessões"
-          data={data.trendData as unknown as Array<Record<string, unknown>>}
-          lines={[
-            { key: "sessions", label: "Sessões", color: "#06b6d4" },
-          ]}
-          loading={loading}
-        />
-        <TrendChart
-          title="Taxa de Conversão"
-          data={data.trendData as unknown as Array<Record<string, unknown>>}
-          lines={[
-            { key: "txConversao", label: "TX Conversão (%)", color: "#f97316" },
-          ]}
-          loading={loading}
-        />
-      </div>
     </div>
   );
 }
