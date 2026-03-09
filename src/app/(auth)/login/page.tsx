@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -89,10 +88,7 @@ export default function LoginPage() {
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">
-            Não tem uma conta?{" "}
-            <Link href="/register" className="text-primary hover:underline">
-              Criar conta
-            </Link>
+            Acesso apenas por convite
           </p>
         </form>
       </CardContent>

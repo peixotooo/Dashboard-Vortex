@@ -86,44 +86,157 @@ export async function POST(request: NextRequest) {
       case "invite_member": {
         const { email, role = "member" } = args;
 
-        // Look up user by email in profiles table
-        const { data: invitedUser } = await supabase
+        // Check if already a member
+        const { data: existingProfile } = await supabase
           .from("profiles")
           .select("id")
           .eq("email", email)
           .single();
 
-        if (!invitedUser) {
-          return NextResponse.json(
-            { error: "Nenhum usuário encontrado com este email" },
-            { status: 404 }
-          );
+        if (existingProfile) {
+          const { data: existingMember } = await supabase
+            .from("workspace_members")
+            .select("user_id")
+            .eq("workspace_id", workspace_id)
+            .eq("user_id", existingProfile.id)
+            .single();
+
+          if (existingMember) {
+            return NextResponse.json(
+              { error: "Este usuario ja e membro do workspace" },
+              { status: 400 }
+            );
+          }
         }
 
-        // Check if already a member
-        const { data: existing } = await supabase
-          .from("workspace_members")
-          .select("user_id")
+        // Check if invitation already pending
+        const { data: existingInvite } = await supabase
+          .from("workspace_invitations")
+          .select("id")
           .eq("workspace_id", workspace_id)
-          .eq("user_id", invitedUser.id)
+          .eq("email", email)
+          .eq("status", "pending")
           .single();
 
-        if (existing) {
+        if (existingInvite) {
           return NextResponse.json(
-            { error: "Este usuário já é membro do workspace" },
+            { error: "Convite ja enviado para este email" },
             { status: 400 }
           );
         }
 
+        // Create invitation record
+        const { data: invitation, error: invError } = await supabase
+          .from("workspace_invitations")
+          .insert({ workspace_id, email, role, invited_by: user.id })
+          .select("token")
+          .single();
+
+        if (invError) throw invError;
+
+        // Send email via Resend
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const inviteUrl = `${request.nextUrl.origin}/invite?token=${invitation.token}`;
+
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("name")
+          .eq("id", workspace_id)
+          .single();
+
+        await resend.emails.send({
+          from: `Vortex <${process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev"}>`,
+          to: email,
+          subject: `Convite para ${ws?.name || "Dashboard Vortex"}`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+              <h2 style="color: #111;">Voce foi convidado!</h2>
+              <p style="color: #555; line-height: 1.6;">
+                Voce recebeu um convite para participar do workspace
+                <strong>${ws?.name || "Dashboard Vortex"}</strong>.
+              </p>
+              <a href="${inviteUrl}"
+                 style="display: inline-block; background: #111; color: #fff; padding: 12px 24px;
+                        border-radius: 8px; text-decoration: none; margin: 16px 0;">
+                Aceitar convite
+              </a>
+              <p style="color: #999; font-size: 13px; margin-top: 24px;">
+                Este convite expira em 7 dias. Se voce nao solicitou este convite, ignore este email.
+              </p>
+            </div>
+          `,
+        });
+
+        return NextResponse.json({ success: true });
+      }
+
+      case "cancel_invite": {
+        const { invitation_id } = args;
         const { error } = await supabase
-          .from("workspace_members")
-          .insert({
-            workspace_id,
-            user_id: invitedUser.id,
-            role,
-          });
+          .from("workspace_invitations")
+          .delete()
+          .eq("id", invitation_id)
+          .eq("workspace_id", workspace_id);
 
         if (error) throw error;
+        return NextResponse.json({ success: true });
+      }
+
+      case "resend_invite": {
+        const { invitation_id } = args;
+
+        const { data: inv } = await supabase
+          .from("workspace_invitations")
+          .select("email, token, workspace_id")
+          .eq("id", invitation_id)
+          .eq("workspace_id", workspace_id)
+          .eq("status", "pending")
+          .single();
+
+        if (!inv) {
+          return NextResponse.json({ error: "Convite nao encontrado" }, { status: 404 });
+        }
+
+        // Reset expiration
+        await supabase
+          .from("workspace_invitations")
+          .update({ expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() })
+          .eq("id", invitation_id);
+
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const inviteUrl = `${request.nextUrl.origin}/invite?token=${inv.token}`;
+
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("name")
+          .eq("id", workspace_id)
+          .single();
+
+        await resend.emails.send({
+          from: `Vortex <${process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev"}>`,
+          to: inv.email,
+          subject: `Convite para ${ws?.name || "Dashboard Vortex"}`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+              <h2 style="color: #111;">Voce foi convidado!</h2>
+              <p style="color: #555; line-height: 1.6;">
+                Voce recebeu um convite para participar do workspace
+                <strong>${ws?.name || "Dashboard Vortex"}</strong>.
+              </p>
+              <a href="${inviteUrl}"
+                 style="display: inline-block; background: #111; color: #fff; padding: 12px 24px;
+                        border-radius: 8px; text-decoration: none; margin: 16px 0;">
+                Aceitar convite
+              </a>
+              <p style="color: #999; font-size: 13px; margin-top: 24px;">
+                Este convite expira em 7 dias.
+              </p>
+            </div>
+          `,
+        });
+
         return NextResponse.json({ success: true });
       }
 

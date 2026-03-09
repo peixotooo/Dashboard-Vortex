@@ -16,6 +16,7 @@ import {
   Save,
   ShoppingBag,
   Cpu,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,18 @@ export default function SettingsPage() {
   const [inviting, setInviting] = useState(false);
   const [teamMessage, setTeamMessage] = useState("");
   const [teamError, setTeamError] = useState("");
+
+  // Pending invitations
+  interface PendingInvite {
+    id: string;
+    email: string;
+    role: string;
+    status: string;
+    created_at: string;
+    expires_at: string;
+  }
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+  const [loadingInvites, setLoadingInvites] = useState(false);
 
   // Workspace edit
   const [wsName, setWsName] = useState("");
@@ -325,6 +338,29 @@ export default function SettingsPage() {
 
   // === Team handlers ===
 
+  const fetchPendingInvites = useCallback(async () => {
+    if (!workspace?.id || !isAdmin) return;
+    setLoadingInvites(true);
+    try {
+      const supabase = (await import("@/lib/supabase")).createClient();
+      const { data } = await supabase
+        .from("workspace_invitations")
+        .select("id, email, role, status, created_at, expires_at")
+        .eq("workspace_id", workspace.id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      setPendingInvites((data || []) as PendingInvite[]);
+    } catch {
+      // Silent
+    } finally {
+      setLoadingInvites(false);
+    }
+  }, [workspace?.id, isAdmin]);
+
+  useEffect(() => {
+    fetchPendingInvites();
+  }, [fetchPendingInvites]);
+
   async function handleInviteMember() {
     if (!inviteEmail || !workspace) return;
     setInviting(true);
@@ -345,14 +381,67 @@ export default function SettingsPage() {
       if (data.error) {
         setTeamError(data.error);
       } else {
-        setTeamMessage("Membro convidado com sucesso!");
+        setTeamMessage("Convite enviado por email!");
         setInviteEmail("");
         refreshMembers();
+        fetchPendingInvites();
       }
     } catch {
       setTeamError("Erro ao convidar membro");
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleCancelInvite(invitationId: string) {
+    if (!workspace) return;
+    setTeamMessage("");
+    setTeamError("");
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel_invite",
+          workspace_id: workspace.id,
+          invitation_id: invitationId,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setTeamError(data.error);
+      } else {
+        setTeamMessage("Convite cancelado");
+        fetchPendingInvites();
+      }
+    } catch {
+      setTeamError("Erro ao cancelar convite");
+    }
+  }
+
+  async function handleResendInvite(invitationId: string) {
+    if (!workspace) return;
+    setTeamMessage("");
+    setTeamError("");
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "resend_invite",
+          workspace_id: workspace.id,
+          invitation_id: invitationId,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setTeamError(data.error);
+      } else {
+        setTeamMessage("Convite reenviado!");
+        fetchPendingInvites();
+      }
+    } catch {
+      setTeamError("Erro ao reenviar convite");
     }
   }
 
@@ -872,6 +961,62 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Pending invitations */}
+              {isAdmin && pendingInvites.length > 0 && (
+                <div className="pt-4 border-t border-border space-y-3">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    Convites Pendentes ({pendingInvites.length})
+                  </p>
+                  <div className="space-y-2">
+                    {pendingInvites.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between p-3 rounded-lg border border-dashed border-border"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-full bg-amber-500/10 flex items-center justify-center">
+                            <Mail className="h-4 w-4 text-amber-500" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{inv.email}</p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                                Pendente
+                              </Badge>
+                              <Badge variant="secondary" className="text-xs">
+                                {inv.role}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                Enviado {new Date(inv.created_at).toLocaleDateString("pt-BR")}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResendInvite(inv.id)}
+                            title="Reenviar convite"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleCancelInvite(inv.id)}
+                            title="Cancelar convite"
+                          >
+                            <XCircle className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Invite member */}
               {isAdmin && (
