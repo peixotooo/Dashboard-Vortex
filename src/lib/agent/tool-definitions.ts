@@ -434,7 +434,7 @@ const TEAM_TOOLS: Tool[] = [
   {
     name: "delegate_to_agent",
     description:
-      "Delega uma tarefa para um especialista do time e recebe a resposta dentro desta conversa. O especialista trabalha com todo seu conhecimento especializado e retorna o resultado. Use quando o usuário quer resultado AGORA (para tarefas assíncronas futuras, use create_task).",
+      "Delega uma tarefa para um especialista do time. Por padrao, executa de forma sincrona e retorna o resultado na conversa. Com async=true, cria uma tarefa no kanban que sera processada em background (ideal para analises complexas com muitas chamadas de API que podem demorar). O resultado ficara disponivel na pagina de entregas.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -458,6 +458,11 @@ const TEAM_TOOLS: Tool[] = [
           enum: ["deep", "normal", "basic"],
           description:
             "Nível de complexidade: deep = análise profunda/estratégia (Opus), normal = trabalho padrão (Sonnet), basic = tarefa simples/revisão (Haiku). Default: normal",
+        },
+        async: {
+          type: "boolean",
+          description:
+            "Se true, cria uma tarefa no kanban e processa em background (para analises complexas com muitas chamadas de API, coleta de dados granular, auditorias extensas). O resultado ficara na pagina de entregas. Use async=true quando a tarefa envolver: coleta de dados de multiplas campanhas/adsets/ads, analises que precisam de muitas chamadas API sequenciais, ou qualquer trabalho que possa demorar mais de 3 minutos. Default: false",
         },
       },
       required: ["agent_slug", "task"],

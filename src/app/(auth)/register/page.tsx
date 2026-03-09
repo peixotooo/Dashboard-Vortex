@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Mail } from "lucide-react";
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
@@ -15,6 +16,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const router = useRouter();
   const supabase = createClient();
 
@@ -24,13 +26,14 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             full_name: fullName,
           },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
@@ -39,12 +42,50 @@ export default function RegisterPage() {
         return;
       }
 
-      router.push("/");
+      // Email already registered (Supabase returns fake success to prevent enumeration)
+      if (data.user && data.user.identities?.length === 0) {
+        setError("Este email já está cadastrado. Tente fazer login.");
+        return;
+      }
+
+      // Session exists = email confirmation disabled, go straight in
+      if (data.session) {
+        router.push("/");
+        return;
+      }
+
+      // No session = email confirmation required
+      setSuccess(true);
     } catch {
       setError("Erro ao criar conta. Tente novamente.");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (success) {
+    return (
+      <Card>
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+            <Mail className="h-6 w-6 text-primary" />
+          </div>
+          <CardTitle className="text-2xl">Verifique seu email</CardTitle>
+          <CardDescription>
+            Enviamos um link de confirmação para <strong>{email}</strong>.
+            Clique no link para ativar sua conta.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-sm text-muted-foreground">
+            Já confirmou?{" "}
+            <Link href="/login" className="text-primary hover:underline">
+              Fazer login
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

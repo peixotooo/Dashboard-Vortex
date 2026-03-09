@@ -207,6 +207,55 @@ export default function TeamChatPage() {
     textareaRef.current?.focus();
   }, [selectedAgent?.id]);
 
+  // Poll for completed background tasks
+  const lastTaskCheckRef = useRef<string>(new Date().toISOString());
+  useEffect(() => {
+    if (!conversationId || !workspace?.id) return;
+
+    const checkCompletedTasks = async () => {
+      try {
+        const params = new URLSearchParams({
+          conversation_id: conversationId,
+          status: "done",
+          since: lastTaskCheckRef.current,
+        });
+        const res = await fetch(`/api/agent/tasks?${params}`, {
+          headers: { "x-workspace-id": workspace!.id },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        if (tasks.length > 0) {
+          lastTaskCheckRef.current = new Date().toISOString();
+          for (const task of tasks) {
+            const agentData = task.agent as { name: string; slug: string } | null;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `task-done-${task.id}`,
+                role: "assistant",
+                content: `Tarefa concluída: **${task.title}**. Resultado disponível na [página de entregas](/team/deliverables).`,
+                specialistResponses: agentData ? [{
+                  agent_name: agentData.name,
+                  agent_color: "#10B981",
+                  agent_slug: agentData.slug,
+                  content: `Tarefa finalizada com sucesso.`,
+                  model: "background",
+                  status: "done" as const,
+                }] : undefined,
+              },
+            ]);
+          }
+        }
+      } catch {
+        // Silently fail
+      }
+    };
+
+    const interval = setInterval(checkCompletedTasks, 30_000);
+    return () => clearInterval(interval);
+  }, [conversationId, workspace?.id]);
+
   // Fetch conversations for selected agent
   const fetchConversations = useCallback(async () => {
     if (!workspace?.id || !selectedAccountId || !selectedAgent) return;
@@ -434,6 +483,27 @@ export default function TeamChatPage() {
                         sr.model = event.model;
                         sr.status = "done";
                       }
+                    }
+                    return updated;
+                  });
+                  break;
+
+                case "task_queued":
+                  setMessages((prev) => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last.role === "assistant") {
+                      last.specialistResponses = [
+                        ...(last.specialistResponses || []),
+                        {
+                          agent_name: event.agent_name,
+                          agent_color: "#F59E0B",
+                          agent_slug: event.agent_slug,
+                          content: `Tarefa criada para processamento em background. O resultado ficará disponível na página de entregas.`,
+                          model: "background",
+                          status: "done",
+                        },
+                      ];
                     }
                     return updated;
                   });

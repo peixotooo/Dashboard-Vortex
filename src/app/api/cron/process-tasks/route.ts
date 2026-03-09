@@ -25,6 +25,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createAdminClient();
+
+    // Quick bail: skip entirely if no pending work exists (saves function time + DB queries)
+    const { count } = await supabase
+      .from("agent_tasks")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["todo", "in_progress"]);
+
+    if (!count || count === 0) {
+      return Response.json({ success: true, skipped: "no pending tasks" });
+    }
+
     const result = await processTaskBatch(supabase);
 
     const summary = {

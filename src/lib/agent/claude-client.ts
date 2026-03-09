@@ -8,6 +8,7 @@ import {
   updateConversationTimestamp,
   getAgentBySlug,
   loadAgentDocument,
+  createTask,
 } from "./memory";
 import { extractAndSaveFacts } from "./fact-extraction";
 import {
@@ -126,6 +127,7 @@ export interface SpecialistParams {
   maxTokens?: number;
   imageAttachments?: ImageAttachment[];
   providerConfig?: ProviderConfig;
+  timeBudgetMs?: number;
 }
 
 export interface SpecialistResult {
@@ -201,8 +203,14 @@ export async function runSpecialist(
   let continueLoop = true;
   let loopCount = 0;
   const maxLoops = params.maxLoops ?? 12;
+  const specialistStartTime = Date.now();
 
   while (continueLoop && loopCount < maxLoops) {
+    // Time budget check — stop before exceeding the streaming timeout
+    if (params.timeBudgetMs && (Date.now() - specialistStartTime) > params.timeBudgetMs) {
+      fullText += "\n\n---\n*Limite de tempo atingido para este especialista. Trabalho parcial entregue.*";
+      break;
+    }
     loopCount++;
 
     const response = await callLLM({
@@ -435,6 +443,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                   task: string;
                   context?: string;
                   complexity?: string;
+                  async?: boolean;
                 };
 
                 sendEvent(controller, {
@@ -443,57 +452,110 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                   input: delegateInput,
                 });
 
-                // Notify UI: specialist is starting
-                sendEvent(controller, {
-                  type: "specialist_start",
-                  agent_slug: delegateInput.agent_slug,
-                });
+                // --- Async mode: create task for background processing ---
+                if (delegateInput.async && workspaceId && supabase) {
+                  const SLUG_TO_TASK_TYPE: Record<string, string> = {
+                    copywriting: "copy", "copy-editing": "copy", "email-sequence": "copy", "cold-email": "copy",
+                    "seo-audit": "seo", "ai-seo": "seo", "programmatic-seo": "seo", "schema-markup": "seo", "site-architecture": "seo", "content-strategy": "seo",
+                    "social-content": "social_calendar",
+                    "paid-ads": "campaign", "ad-creative": "campaign",
+                    "page-cro": "cro", "form-cro": "cro", "signup-flow-cro": "cro", "onboarding-cro": "cro", "popup-cro": "cro", "paywall-upgrade-cro": "cro", "ab-test-setup": "cro",
+                    "launch-strategy": "strategy", "pricing-strategy": "strategy", "marketing-psychology": "strategy", "marketing-ideas": "strategy", "free-tool-strategy": "strategy",
+                    "churn-prevention": "revenue", "referral-program": "revenue", revops: "revenue",
+                    "sales-enablement": "general", "competitor-alternatives": "general", "analytics-tracking": "general",
+                  };
 
-                let specialistResult: SpecialistResult;
+                  const specialist = await getAgentBySlug(supabase, workspaceId, delegateInput.agent_slug);
+                  const taskType = SLUG_TO_TASK_TYPE[delegateInput.agent_slug] || "general";
+                  const priority = delegateInput.complexity === "deep" ? "high" : "medium";
 
-                if (workspaceId && supabase) {
-                  specialistResult = await runSpecialist({
-                    agentSlug: delegateInput.agent_slug,
-                    task: delegateInput.task,
-                    context: delegateInput.context,
-                    complexity: delegateInput.complexity,
-                    accountId,
-                    accountContext,
-                    workspaceId,
-                    supabase,
-                    projectContext,
-                    imageAttachments,
-                    maxLoops: delegateInput.complexity === "deep" ? 20 : 12,
-                    maxTokens: delegateInput.complexity === "deep" ? 8192 : 4096,
-                    providerConfig,
+                  const taskDescription = delegateInput.context
+                    ? `${delegateInput.task}\n\nContexto adicional:\n${delegateInput.context}`
+                    : delegateInput.task;
+
+                  const task = await createTask(supabase, workspaceId, {
+                    title: delegateInput.task.slice(0, 120),
+                    description: taskDescription,
+                    agent_id: specialist?.id,
+                    priority,
+                    task_type: taskType,
+                    conversation_id: conversationId,
+                  });
+
+                  sendEvent(controller, {
+                    type: "task_queued",
+                    task_id: task.id,
+                    task_title: task.title,
+                    agent_slug: delegateInput.agent_slug,
+                    agent_name: specialist?.name || delegateInput.agent_slug,
+                  });
+
+                  toolResults.push({
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content: JSON.stringify({
+                      queued: true,
+                      task_id: task.id,
+                      task_title: task.title,
+                      message: `Tarefa criada e atribuida a ${specialist?.name || delegateInput.agent_slug}. Sera processada automaticamente em background. O resultado ficara disponivel na pagina de entregas.`,
+                    }),
                   });
                 } else {
-                  specialistResult = {
-                    text: "Workspace não configurado. Não foi possível executar o especialista.",
-                    model: "none",
-                    agentName: delegateInput.agent_slug,
-                    agentColor: "#6B7280",
-                  };
+                  // --- Sync mode: run specialist inline ---
+                  // Notify UI: specialist is starting
+                  sendEvent(controller, {
+                    type: "specialist_start",
+                    agent_slug: delegateInput.agent_slug,
+                  });
+
+                  let specialistResult: SpecialistResult;
+
+                  if (workspaceId && supabase) {
+                    const remainingMs = TIMEOUT_MS - (Date.now() - startTime) - 30_000;
+                    specialistResult = await runSpecialist({
+                      agentSlug: delegateInput.agent_slug,
+                      task: delegateInput.task,
+                      context: delegateInput.context,
+                      complexity: delegateInput.complexity,
+                      accountId,
+                      accountContext,
+                      workspaceId,
+                      supabase,
+                      projectContext,
+                      imageAttachments,
+                      maxLoops: delegateInput.complexity === "deep" ? 20 : 12,
+                      maxTokens: delegateInput.complexity === "deep" ? 8192 : 4096,
+                      providerConfig,
+                      timeBudgetMs: remainingMs > 30_000 ? remainingMs : undefined,
+                    });
+                  } else {
+                    specialistResult = {
+                      text: "Workspace não configurado. Não foi possível executar o especialista.",
+                      model: "none",
+                      agentName: delegateInput.agent_slug,
+                      agentColor: "#6B7280",
+                    };
+                  }
+
+                  // Notify UI: specialist response
+                  sendEvent(controller, {
+                    type: "specialist_response",
+                    agent_name: specialistResult.agentName,
+                    agent_color: specialistResult.agentColor,
+                    agent_slug: delegateInput.agent_slug,
+                    content: specialistResult.text,
+                    model: specialistResult.model,
+                  });
+
+                  toolResults.push({
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content: JSON.stringify({
+                      specialist: specialistResult.agentName,
+                      response: specialistResult.text,
+                    }),
+                  });
                 }
-
-                // Notify UI: specialist response
-                sendEvent(controller, {
-                  type: "specialist_response",
-                  agent_name: specialistResult.agentName,
-                  agent_color: specialistResult.agentColor,
-                  agent_slug: delegateInput.agent_slug,
-                  content: specialistResult.text,
-                  model: specialistResult.model,
-                });
-
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: block.id,
-                  content: JSON.stringify({
-                    specialist: specialistResult.agentName,
-                    response: specialistResult.text,
-                  }),
-                });
               } else {
                 // --- Standard tool handling ---
                 sendEvent(controller, {
