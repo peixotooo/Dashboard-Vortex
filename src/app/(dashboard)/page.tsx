@@ -160,7 +160,6 @@ interface OverviewData {
   // Combined
   trendData: DailyRow[];
   dailyData: DailyRow[];
-  topCampaigns: Array<Record<string, unknown>>;
   // Comparison
   metaComparison: MetaComparison | null;
   ga4Comparison: GA4Totals | null;
@@ -193,7 +192,6 @@ export default function OverviewPage() {
     vndaConfigured: false,
     trendData: [],
     dailyData: [],
-    topCampaigns: [],
     metaComparison: null,
     ga4Comparison: null,
     vndaComparison: null,
@@ -215,7 +213,7 @@ export default function OverviewPage() {
         const vndaHeaders: Record<string, string> = {};
         if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
 
-        const [insightsResults, ga4Res, vndaRes, campaignsResults] = await Promise.all([
+        const [insightsResults, ga4Res, vndaRes] = await Promise.all([
           // Fetch insights for each account in parallel
           Promise.all(
             accountIds.map((id) =>
@@ -230,12 +228,6 @@ export default function OverviewPage() {
           fetch(
             `/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`,
             { headers: vndaHeaders }
-          ),
-          // Fetch campaigns for each account
-          Promise.all(
-            accountIds.map((id) =>
-              fetch(`/api/campaigns?account_id=${id}&limit=5`).then((r) => r.json())
-            )
           ),
         ]);
 
@@ -503,7 +495,6 @@ export default function OverviewPage() {
             : 0;
 
         const dailyData = [...trendData].reverse();
-        const campaigns = campaignsResults.flatMap((r) => r.campaigns || []);
 
         setData({
           spend: totalSpend,
@@ -525,7 +516,6 @@ export default function OverviewPage() {
           vndaConfigured,
           trendData,
           dailyData,
-          topCampaigns: campaigns,
           metaComparison: aggComparison,
           ga4Comparison: ga4Data.comparison || null,
           vndaComparison: vndaData.comparison || null,
@@ -781,23 +771,25 @@ export default function OverviewPage() {
         loading={loading}
       />
 
-      {/* Top Campaigns */}
-      <PerformanceTable
-        title="Top Campanhas"
-        columns={[
-          { key: "name", label: "Nome" },
-          { key: "status", label: "Status", format: "status" },
-          { key: "objective", label: "Objetivo" },
-          {
-            key: "daily_budget",
-            label: "Orçamento Diário",
-            format: "budget",
-            align: "right",
-          },
-        ]}
-        data={data.topCampaigns}
-        loading={loading}
-      />
+      {/* Sessões + TX Conversão Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TrendChart
+          title="Sessões"
+          data={data.trendData as unknown as Array<Record<string, unknown>>}
+          lines={[
+            { key: "sessions", label: "Sessões", color: "#06b6d4" },
+          ]}
+          loading={loading}
+        />
+        <TrendChart
+          title="Taxa de Conversão"
+          data={data.trendData as unknown as Array<Record<string, unknown>>}
+          lines={[
+            { key: "txConversao", label: "TX Conversão (%)", color: "#f97316" },
+          ]}
+          loading={loading}
+        />
+      </div>
     </div>
   );
 }
