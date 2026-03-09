@@ -47,6 +47,8 @@ export interface GA4DailyRow {
   transactions: number;
   revenue: number;
   pageViews: number;
+  addToCarts: number;
+  checkouts: number;
 }
 
 export interface GA4Report {
@@ -58,6 +60,8 @@ export interface GA4Report {
     transactions: number;
     revenue: number;
     pageViews: number;
+    addToCarts: number;
+    checkouts: number;
   };
 }
 
@@ -152,6 +156,8 @@ export async function getGA4DailyReport(args: {
       { name: "transactions" },
       { name: "purchaseRevenue" },
       { name: "screenPageViews" },
+      { name: "addToCarts" },
+      { name: "checkouts" },
     ],
     dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
     orderBys: [{ dimension: { dimensionName: "date", orderType: "NUMERIC" }, desc: false }],
@@ -166,6 +172,8 @@ export async function getGA4DailyReport(args: {
     transactions: 0,
     revenue: 0,
     pageViews: 0,
+    addToCarts: 0,
+    checkouts: 0,
   };
 
   for (const row of rows) {
@@ -176,6 +184,8 @@ export async function getGA4DailyReport(args: {
     const transactions = parseInt(row.metricValues?.[3]?.value || "0", 10);
     const revenue = parseFloat(row.metricValues?.[4]?.value || "0");
     const pageViews = parseInt(row.metricValues?.[5]?.value || "0", 10);
+    const addToCarts = parseInt(row.metricValues?.[6]?.value || "0", 10);
+    const checkouts = parseInt(row.metricValues?.[7]?.value || "0", 10);
 
     totals.sessions += sessions;
     totals.users += users;
@@ -183,6 +193,8 @@ export async function getGA4DailyReport(args: {
     totals.transactions += transactions;
     totals.revenue += revenue;
     totals.pageViews += pageViews;
+    totals.addToCarts += addToCarts;
+    totals.checkouts += checkouts;
 
     insights.push({
       date: formatDate(dateRaw),
@@ -193,6 +205,8 @@ export async function getGA4DailyReport(args: {
       transactions,
       revenue: parseFloat(revenue.toFixed(2)),
       pageViews,
+      addToCarts,
+      checkouts,
     });
   }
 

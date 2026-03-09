@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   DollarSign,
   TrendingUp,
@@ -11,6 +11,7 @@ import {
   Receipt,
   Percent,
   Calculator,
+  CalendarDays,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -62,6 +63,8 @@ interface GA4Totals {
   transactions: number;
   revenue: number;
   pageViews: number;
+  addToCarts: number;
+  checkouts: number;
 }
 
 interface GA4DailyRow {
@@ -157,6 +160,9 @@ interface OverviewData {
   ga4Configured: boolean;
   // VNDA
   vndaConfigured: boolean;
+  // Funnel
+  addToCarts: number;
+  checkouts: number;
   // Combined
   trendData: DailyRow[];
   dailyData: DailyRow[];
@@ -190,6 +196,8 @@ export default function OverviewPage() {
     roas: 0,
     ga4Configured: false,
     vndaConfigured: false,
+    addToCarts: 0,
+    checkouts: 0,
     trendData: [],
     dailyData: [],
     metaComparison: null,
@@ -359,6 +367,8 @@ export default function OverviewPage() {
           transactions: 0,
           revenue: 0,
           pageViews: 0,
+          addToCarts: 0,
+          checkouts: 0,
         };
 
         // --- Process Google Ads data (from GA4 response) ---
@@ -514,6 +524,8 @@ export default function OverviewPage() {
           roas: totalRoas,
           ga4Configured,
           vndaConfigured,
+          addToCarts: ga4Configured ? ga4Totals.addToCarts : 0,
+          checkouts: ga4Configured ? ga4Totals.checkouts : 0,
           trendData,
           dailyData,
           metaComparison: aggComparison,
@@ -746,6 +758,22 @@ export default function OverviewPage() {
         />
       </div>
 
+      {/* Revenue Projection */}
+      <RevenueProjection
+        trendData={data.trendData}
+        loading={loading}
+      />
+
+      {/* Funnel E-commerce */}
+      <FunnelSection
+        sessions={data.sessions}
+        addToCarts={data.addToCarts}
+        checkouts={data.checkouts}
+        pedidos={data.pedidos}
+        ga4Configured={data.ga4Configured}
+        loading={loading}
+      />
+
       {/* Controle Diário */}
       <div className="flex items-center gap-3 -mb-4">
         <span className="text-xs font-medium text-muted-foreground">Fonte:</span>
@@ -791,6 +819,225 @@ export default function OverviewPage() {
         loading={loading}
       />
     </div>
+  );
+}
+
+// --- Revenue Projection ---
+
+function RevenueProjection({
+  trendData,
+  loading,
+}: {
+  trendData: DailyRow[];
+  loading: boolean;
+}) {
+  const projection = useMemo(() => {
+    const now = new Date();
+    const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const currentDay = now.getDate();
+
+    // Filter trend data for current month (date format: DD/MM)
+    const monthData = trendData.filter((d) => d.date.slice(3, 5) === currentMonth);
+    if (monthData.length === 0) return null;
+
+    const monthRevenue = monthData.reduce((sum, d) => sum + d.revenue, 0);
+    const daysWithData = monthData.length;
+    const avgDaily = daysWithData > 0 ? monthRevenue / daysWithData : 0;
+    const projected = avgDaily * daysInMonth;
+    const daysRemaining = daysInMonth - currentDay;
+    const progressPercent = daysInMonth > 0 ? (monthRevenue / projected) * 100 : 0;
+
+    return {
+      monthRevenue,
+      projected,
+      avgDaily,
+      daysRemaining,
+      daysInMonth,
+      currentDay,
+      progressPercent: Math.min(progressPercent, 100),
+    };
+  }, [trendData]);
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-blue-400" />
+            Projeção de Receita do Mês
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-24 animate-pulse rounded bg-muted" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!projection) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-blue-400" />
+          Projeção de Receita do Mês
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Receita Atual</p>
+            <p className="text-2xl font-bold">{formatCurrency(projection.monthRevenue)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {projection.currentDay} de {projection.daysInMonth} dias
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Projeção Mensal</p>
+            <p className="text-2xl font-bold text-blue-400">{formatCurrency(projection.projected)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {projection.daysRemaining} dias restantes
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Média Diária</p>
+            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(projection.avgDaily)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              base: {projection.currentDay} dias com dados
+            </p>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+            <span>Progresso do mês</span>
+            <span>{projection.progressPercent.toFixed(0)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-500"
+              style={{ width: `${projection.progressPercent}%` }}
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Funnel E-commerce ---
+
+function FunnelSection({
+  sessions,
+  addToCarts,
+  checkouts,
+  pedidos,
+  ga4Configured,
+  loading,
+}: {
+  sessions: number;
+  addToCarts: number;
+  checkouts: number;
+  pedidos: number;
+  ga4Configured: boolean;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Funil E-commerce</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-48 animate-pulse rounded bg-muted" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!ga4Configured) return null;
+
+  const stages = [
+    { name: "Visitas", value: sessions, color: "#3b82f6" },
+    { name: "Carrinho", value: addToCarts, color: "#8b5cf6" },
+    { name: "Checkout", value: checkouts, color: "#f97316" },
+    { name: "Compra", value: pedidos, color: "#22c55e" },
+  ];
+
+  const maxValue = stages[0].value || 1;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Funil E-commerce</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {stages.map((stage, i) => {
+            const widthPercent = maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
+            const rateFromPrevious =
+              i > 0 && stages[i - 1].value > 0
+                ? (stage.value / stages[i - 1].value) * 100
+                : i === 0
+                  ? 100
+                  : 0;
+            const rateFromTop =
+              maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
+
+            return (
+              <div key={stage.name}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{stage.name}</span>
+                    {i > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {rateFromPrevious.toFixed(1)}% da etapa anterior
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold">{formatNumber(stage.value)}</span>
+                    <span className="text-xs text-muted-foreground w-14 text-right">
+                      {rateFromTop.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+                <div className="h-8 rounded bg-muted/30 overflow-hidden flex items-center">
+                  <div
+                    className="h-full rounded transition-all duration-500 flex items-center justify-end pr-2"
+                    style={{
+                      width: `${Math.max(widthPercent, 2)}%`,
+                      backgroundColor: stage.color,
+                      opacity: 0.8,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Conversion arrows */}
+        <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
+          {stages.slice(1).map((stage, i) => {
+            const rate =
+              stages[i].value > 0
+                ? (stage.value / stages[i].value) * 100
+                : 0;
+            return (
+              <div key={stage.name} className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>{stages[i].name}</span>
+                <span className="text-foreground font-medium">{rate.toFixed(1)}%</span>
+                <span>→</span>
+                <span>{stage.name}</span>
+                {i < stages.length - 2 && <span className="mx-2">|</span>}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
