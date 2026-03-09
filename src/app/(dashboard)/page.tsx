@@ -1183,29 +1183,51 @@ function FinancialHealth({
         {/* Margin breakdown */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
           <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">Invest. Ads</p>
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">Invest. Ads</p>
+              <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
+            </div>
             <p className="font-semibold">{calc.investPerc.toFixed(1)}%</p>
           </div>
           <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">Frete</p>
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">Frete</p>
+              {vndaConfigured && (
+                <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
+              )}
+            </div>
             <p className="font-semibold">{calc.fretePerc.toFixed(1)}%</p>
           </div>
           <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">Descontos</p>
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">Descontos</p>
+              {vndaConfigured && (
+                <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
+              )}
+            </div>
             <p className="font-semibold">{calc.descontoPerc.toFixed(1)}%</p>
           </div>
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">Impostos</p>
+          <Link href="/simulador/config" className="bg-muted/30 rounded-lg p-2.5 hover:bg-muted/50 transition-colors">
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">Impostos</p>
+              <span className="text-[8px] px-1 py-0.5 rounded bg-muted text-muted-foreground font-semibold">Config</span>
+            </div>
             <p className="font-semibold">{finSettings.tax_pct}%</p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">CMV</p>
+          </Link>
+          <Link href="/simulador/config" className="bg-muted/30 rounded-lg p-2.5 hover:bg-muted/50 transition-colors">
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">CMV</p>
+              <span className="text-[8px] px-1 py-0.5 rounded bg-muted text-muted-foreground font-semibold">Config</span>
+            </div>
             <p className="font-semibold">{finSettings.product_cost_pct}%</p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <p className="text-muted-foreground">Outras</p>
+          </Link>
+          <Link href="/simulador/config" className="bg-muted/30 rounded-lg p-2.5 hover:bg-muted/50 transition-colors">
+            <div className="flex items-center gap-1 mb-0.5">
+              <p className="text-muted-foreground">Outras</p>
+              <span className="text-[8px] px-1 py-0.5 rounded bg-muted text-muted-foreground font-semibold">Config</span>
+            </div>
             <p className="font-semibold">{finSettings.other_expenses_pct}%</p>
-          </div>
+          </Link>
         </div>
       </CardContent>
     </Card>
