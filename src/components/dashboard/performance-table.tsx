@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatBudget, formatNumber, formatPercent, getStatusBadgeClasses } from "@/lib/utils";
@@ -23,6 +23,7 @@ interface PerformanceTableProps {
   onRowClick?: (row: Record<string, any>) => void;
   actions?: (row: Record<string, any>) => React.ReactNode;
   highlightKey?: string;
+  sortable?: boolean;
 }
 
 function formatCell(value: unknown, format?: string): React.ReactNode {
@@ -55,7 +56,22 @@ export function PerformanceTable({
   onRowClick,
   actions,
   highlightKey,
+  sortable = false,
 }: PerformanceTableProps) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const sortedData = useMemo(() => {
+    if (!sortable || !sortKey) return data;
+    return [...data].sort((a, b) => {
+      const aVal = a[sortKey] ?? 0;
+      const bVal = b[sortKey] ?? 0;
+      const aNum = typeof aVal === "number" ? aVal : parseFloat(String(aVal)) || 0;
+      const bNum = typeof bVal === "number" ? bVal : parseFloat(String(bVal)) || 0;
+      return sortDir === "desc" ? bNum - aNum : aNum - bNum;
+    });
+  }, [data, sortKey, sortDir, sortable]);
+
   if (loading) {
     return (
       <Card>
@@ -96,9 +112,23 @@ export function PerformanceTable({
                         : col.align === "center"
                         ? "text-center"
                         : "text-left"
-                    }`}
+                    } ${sortable ? "cursor-pointer select-none hover:text-foreground transition-colors" : ""}`}
+                    onClick={() => {
+                      if (!sortable) return;
+                      if (sortKey === col.key) {
+                        setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                      } else {
+                        setSortKey(col.key);
+                        setSortDir("desc");
+                      }
+                    }}
                   >
-                    {col.label}
+                    <span className={`inline-flex items-center gap-1 ${col.align === "right" ? "justify-end" : ""}`}>
+                      {col.label}
+                      {sortable && sortKey === col.key && (
+                        <span className="text-[10px]">{sortDir === "desc" ? "▼" : "▲"}</span>
+                      )}
+                    </span>
                   </th>
                 ))}
                 {actions && (
@@ -109,7 +139,7 @@ export function PerformanceTable({
               </tr>
             </thead>
             <tbody>
-              {data.length === 0 ? (
+              {sortedData.length === 0 ? (
                 <tr>
                   <td
                     colSpan={columns.length + (actions ? 1 : 0)}
@@ -119,7 +149,7 @@ export function PerformanceTable({
                   </td>
                 </tr>
               ) : (
-                data.map((row, i) => (
+                sortedData.map((row, i) => (
                   <tr
                     key={i}
                     className={`border-b border-border/50 transition-colors hover:bg-muted/30 ${

@@ -189,8 +189,16 @@ export default function GA4Page() {
       }
       setProducts(productsData.rows || []);
       setRegions(regionsData.rows || []);
-      setHourly(hourlyData.rows || []);
-      setDayOfWeek(dowData.rows || []);
+      setHourly(
+        [...(hourlyData.rows || [])].sort((a: GA4Row, b: GA4Row) =>
+          parseInt(a.dimensions.hour || "0", 10) - parseInt(b.dimensions.hour || "0", 10)
+        )
+      );
+      setDayOfWeek(
+        [...(dowData.rows || [])].sort((a: GA4Row, b: GA4Row) =>
+          parseInt(a.dimensions.dayOfWeek || "0", 10) - parseInt(b.dimensions.dayOfWeek || "0", 10)
+        )
+      );
       setTraffic(trafficData.rows || []);
       setDevices(devicesData.rows || []);
 
@@ -675,6 +683,7 @@ export default function GA4Page() {
           {/* Hourly Performance Table */}
           <PerformanceTable
             title="Detalhamento por Hora"
+            sortable
             columns={[
               { key: "hora", label: "Hora" },
               { key: "sessoes", label: "Sessões", format: "number", align: "right" },
