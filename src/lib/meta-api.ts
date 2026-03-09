@@ -807,6 +807,11 @@ export async function getActiveAdsWithCreatives(args: {
             link?: string;
             child_attachments?: unknown[];
           };
+          video_data?: {
+            call_to_action?: {
+              value?: { link?: string };
+            };
+          };
         };
       };
       campaign?: { id: string; name: string };
@@ -852,8 +857,11 @@ export async function getActiveAdsWithCreatives(args: {
       format = "image";
     }
 
-    // Extract destination URL from object_story_spec
-    const rawUrl = creativeData.object_story_spec?.link_data?.link || "";
+    // Extract destination URL from object_story_spec (link_data for images/carousels, video_data for videos)
+    const rawUrl =
+      creativeData.object_story_spec?.link_data?.link ||
+      creativeData.object_story_spec?.video_data?.call_to_action?.value?.link ||
+      "";
 
     mergedAds.push({
       ad_id: ad.id,

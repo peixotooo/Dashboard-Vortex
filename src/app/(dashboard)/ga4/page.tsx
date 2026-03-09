@@ -89,6 +89,7 @@ export default function GA4Page() {
   const [totals, setTotals] = useState<GA4Totals>({ sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 });
   const [comparison, setComparison] = useState<GA4Totals | null>(null);
   const [dailyData, setDailyData] = useState<DailyInsight[]>([]);
+  const [fullDailyData, setFullDailyData] = useState<DailyInsight[]>([]);
 
   // Report data
   const [products, setProducts] = useState<GA4Row[]>([]);
@@ -125,8 +126,12 @@ export default function GA4Page() {
         ? `start_date=${selectedDate}&end_date=${selectedDate}`
         : `date_preset=${datePreset}`;
 
+      const insightsParams = selectedDate
+        ? `start_date=${selectedDate}&end_date=${selectedDate}`
+        : `date_preset=${datePreset}&include_comparison=true`;
+
       const fetches: Promise<Response>[] = [
-        fetch(`/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`),
+        fetch(`/api/ga4/insights?${insightsParams}`),
         fetch(reportQuery("products", 20, selectedDate)),
         fetch(reportQuery("regions", 20, selectedDate)),
         fetch(reportQuery("hourly", 24, selectedDate)),
@@ -178,6 +183,10 @@ export default function GA4Page() {
       setTotals(insightsData.totals || { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 });
       setComparison(insightsData.comparison || null);
       setDailyData(insightsData.insights || []);
+      // Keep full daily data for the table when not filtering by day
+      if (!selectedDate) {
+        setFullDailyData(insightsData.insights || []);
+      }
       setProducts(productsData.rows || []);
       setRegions(regionsData.rows || []);
       setHourly(hourlyData.rows || []);
@@ -327,8 +336,18 @@ export default function GA4Page() {
               { key: "revenue", label: "Receita", format: "currency", align: "right" },
               { key: "pageViews", label: "Pageviews", format: "number", align: "right" },
             ]}
-            data={[...dailyData].reverse()}
+            data={[...(fullDailyData.length > 0 ? fullDailyData : dailyData)].reverse().map((row) => {
+              const raw = (row as DailyInsight).dateRaw;
+              const normalized = raw && raw.length === 8 && !raw.includes("-")
+                ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+                : raw;
+              return {
+                ...row,
+                _highlighted: normalized === selectedDate,
+              };
+            })}
             loading={loading}
+            highlightKey="_highlighted"
             onRowClick={(row) => {
               const dateRaw = (row as unknown as DailyInsight).dateRaw;
               if (dateRaw) {

@@ -794,9 +794,15 @@ export default function CreativesPage() {
                   {selectedAd.destination_url && (
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">URL de Destino</p>
-                      <p className="text-sm text-primary truncate">
-                        {selectedAd.destination_url}
-                      </p>
+                      <a
+                        href={selectedAd.destination_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline flex items-center gap-1.5"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span className="truncate">{selectedAd.destination_url}</span>
+                      </a>
                     </div>
                   )}
                   <div className="flex items-center gap-2 flex-wrap">

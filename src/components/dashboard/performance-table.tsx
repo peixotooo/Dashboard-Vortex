@@ -22,6 +22,7 @@ interface PerformanceTableProps {
   loading?: boolean;
   onRowClick?: (row: Record<string, any>) => void;
   actions?: (row: Record<string, any>) => React.ReactNode;
+  highlightKey?: string;
 }
 
 function formatCell(value: unknown, format?: string): React.ReactNode {
@@ -53,6 +54,7 @@ export function PerformanceTable({
   loading = false,
   onRowClick,
   actions,
+  highlightKey,
 }: PerformanceTableProps) {
   if (loading) {
     return (
@@ -122,7 +124,7 @@ export function PerformanceTable({
                     key={i}
                     className={`border-b border-border/50 transition-colors hover:bg-muted/30 ${
                       onRowClick ? "cursor-pointer" : ""
-                    }`}
+                    } ${highlightKey && row[highlightKey] ? "bg-primary/10" : ""}`}
                     onClick={() => onRowClick?.(row)}
                   >
                     {columns.map((col) => (
