@@ -6,23 +6,25 @@ import {
   TrendingUp,
   Target,
   ShoppingCart,
-  MousePointerClick,
   Users,
   Receipt,
   Percent,
   Calculator,
-  CalendarDays,
+  Landmark,
 } from "lucide-react";
 import Link from "next/link";
 import {
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
+  ReferenceLine,
 } from "recharts";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { TrendChart } from "@/components/dashboard/trend-chart";
@@ -137,6 +139,28 @@ interface VndaDailyRow {
   revenue: number;
 }
 
+interface FinancialSettings {
+  monthly_fixed_costs: number;
+  tax_pct: number;
+  product_cost_pct: number;
+  other_expenses_pct: number;
+  monthly_seasonality: number[];
+  target_profit_monthly: number;
+  safety_margin_pct: number;
+  isDefault: boolean;
+}
+
+const FIN_DEFAULTS: FinancialSettings = {
+  monthly_fixed_costs: 160000,
+  tax_pct: 6,
+  product_cost_pct: 25,
+  other_expenses_pct: 5,
+  monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
+  target_profit_monthly: 0,
+  safety_margin_pct: 5,
+  isDefault: true,
+};
+
 interface OverviewData {
   // Meta
   spend: number;
@@ -160,6 +184,8 @@ interface OverviewData {
   ga4Configured: boolean;
   // VNDA
   vndaConfigured: boolean;
+  vndaShipping: number;
+  vndaDiscount: number;
   // Funnel
   addToCarts: number;
   checkouts: number;
@@ -171,6 +197,8 @@ interface OverviewData {
   ga4Comparison: GA4Totals | null;
   vndaComparison: VndaTotals | null;
   gadsComparison: GoogleAdsTotals | null;
+  // Financial
+  finSettings: FinancialSettings;
 }
 
 export default function OverviewPage() {
@@ -196,6 +224,8 @@ export default function OverviewPage() {
     roas: 0,
     ga4Configured: false,
     vndaConfigured: false,
+    vndaShipping: 0,
+    vndaDiscount: 0,
     addToCarts: 0,
     checkouts: 0,
     trendData: [],
@@ -204,6 +234,7 @@ export default function OverviewPage() {
     ga4Comparison: null,
     vndaComparison: null,
     gadsComparison: null,
+    finSettings: FIN_DEFAULTS,
   });
 
   useEffect(() => {
@@ -221,7 +252,7 @@ export default function OverviewPage() {
         const vndaHeaders: Record<string, string> = {};
         if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
 
-        const [insightsResults, ga4Res, vndaRes] = await Promise.all([
+        const [insightsResults, ga4Res, vndaRes, finRes] = await Promise.all([
           // Fetch insights for each account in parallel
           Promise.all(
             accountIds.map((id) =>
@@ -237,10 +268,16 @@ export default function OverviewPage() {
             `/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`,
             { headers: vndaHeaders }
           ),
+          workspace?.id
+            ? fetch("/api/financial-settings", { headers: vndaHeaders })
+            : Promise.resolve(null),
         ]);
 
         const ga4Data = await ga4Res.json();
         const vndaData = await vndaRes.json();
+        const finSettings: FinancialSettings = finRes
+          ? await finRes.json()
+          : FIN_DEFAULTS;
 
         // --- Process & aggregate Meta data across all accounts ---
         interface MetaDailyItem {
@@ -524,6 +561,8 @@ export default function OverviewPage() {
           roas: totalRoas,
           ga4Configured,
           vndaConfigured,
+          vndaShipping: vndaTotals.shipping,
+          vndaDiscount: vndaTotals.discount,
           addToCarts: ga4Configured ? ga4Totals.addToCarts : 0,
           checkouts: ga4Configured ? ga4Totals.checkouts : 0,
           trendData,
@@ -532,6 +571,7 @@ export default function OverviewPage() {
           ga4Comparison: ga4Data.comparison || null,
           vndaComparison: vndaData.comparison || null,
           gadsComparison: ga4Data.googleAdsComparison || null,
+          finSettings,
         });
       } catch {
         // Keep default empty state
@@ -758,9 +798,15 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* Revenue Projection */}
-      <RevenueProjection
+      {/* Financial Health */}
+      <FinancialHealth
         trendData={data.trendData}
+        totalRevenue={data.revenue}
+        totalInvestment={data.totalInvestment}
+        vndaShipping={data.vndaShipping}
+        vndaDiscount={data.vndaDiscount}
+        vndaConfigured={data.vndaConfigured}
+        finSettings={data.finSettings}
         loading={loading}
       />
 
@@ -822,104 +868,343 @@ export default function OverviewPage() {
   );
 }
 
-// --- Revenue Projection ---
+// --- Financial Health ---
 
-function RevenueProjection({
+function FinancialHealth({
   trendData,
+  totalRevenue,
+  totalInvestment,
+  vndaShipping,
+  vndaDiscount,
+  vndaConfigured,
+  finSettings,
   loading,
 }: {
   trendData: DailyRow[];
+  totalRevenue: number;
+  totalInvestment: number;
+  vndaShipping: number;
+  vndaDiscount: number;
+  vndaConfigured: boolean;
+  finSettings: FinancialSettings;
   loading: boolean;
 }) {
-  const projection = useMemo(() => {
+  const calc = useMemo(() => {
     const now = new Date();
-    const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const currentMonth = now.getMonth(); // 0-indexed
+    const currentMonthStr = String(currentMonth + 1).padStart(2, "0");
+    const daysInMonth = new Date(now.getFullYear(), currentMonth + 1, 0).getDate();
     const currentDay = now.getDate();
 
     // Filter trend data for current month (date format: DD/MM)
-    const monthData = trendData.filter((d) => d.date.slice(3, 5) === currentMonth);
-    if (monthData.length === 0) return null;
-
+    const monthData = trendData.filter((d) => d.date.slice(3, 5) === currentMonthStr);
     const monthRevenue = monthData.reduce((sum, d) => sum + d.revenue, 0);
     const daysWithData = monthData.length;
     const avgDaily = daysWithData > 0 ? monthRevenue / daysWithData : 0;
-    const projected = avgDaily * daysInMonth;
+    const projectedRevenue = avgDaily * daysInMonth;
     const daysRemaining = daysInMonth - currentDay;
-    const progressPercent = daysInMonth > 0 ? (monthRevenue / projected) * 100 : 0;
+
+    // Variable cost percentages from real data
+    const fretePerc = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
+    const descontoPerc = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
+    const investPerc = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
+
+    // From config
+    const { tax_pct, product_cost_pct, other_expenses_pct, monthly_fixed_costs, target_profit_monthly, safety_margin_pct, monthly_seasonality } = finSettings;
+
+    // Contribution margin
+    const totalVarCostPct = investPerc + fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
+    const contributionMarginPct = 100 - totalVarCostPct;
+
+    // Break-even: GF / MC
+    const breakEven = contributionMarginPct > 0
+      ? monthly_fixed_costs / (contributionMarginPct / 100)
+      : 0;
+
+    // Monthly target with seasonality: (GF + LR) / (MC - MS)
+    const effectiveMargin = contributionMarginPct - safety_margin_pct;
+    const annualTarget = effectiveMargin > 0
+      ? ((monthly_fixed_costs + target_profit_monthly) * 12) / (effectiveMargin / 100)
+      : 0;
+    const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
+    const monthTarget = annualTarget * seasonalityWeight;
+
+    // Progress
+    const progressPercent = monthTarget > 0 ? (monthRevenue / monthTarget) * 100 : 0;
+    const breakEvenPercent = monthTarget > 0 ? (breakEven / monthTarget) * 100 : 0;
+    const aboveBreakEven = monthRevenue >= breakEven;
+    const marginAboveBE = monthRevenue - breakEven;
+
+    // Cumulative chart data
+    const cumulativeData: Array<{
+      day: number;
+      revenue: number;
+      target: number;
+      breakEven: number;
+    }> = [];
+    let cumRevenue = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayStr = String(day).padStart(2, "0");
+      const dayData = monthData.find((d) => d.date.startsWith(dayStr + "/"));
+      if (dayData) cumRevenue += dayData.revenue;
+      cumulativeData.push({
+        day,
+        revenue: day <= currentDay ? cumRevenue : 0,
+        target: (monthTarget / daysInMonth) * day,
+        breakEven,
+      });
+    }
+    // Mark future days
+    const chartData = cumulativeData.map((d) => ({
+      ...d,
+      revenue: d.day <= currentDay ? d.revenue : undefined,
+    }));
 
     return {
       monthRevenue,
-      projected,
+      projectedRevenue,
       avgDaily,
       daysRemaining,
       daysInMonth,
       currentDay,
-      progressPercent: Math.min(progressPercent, 100),
+      daysWithData,
+      fretePerc,
+      descontoPerc,
+      investPerc,
+      contributionMarginPct,
+      breakEven,
+      monthTarget,
+      progressPercent: Math.min(progressPercent, 150),
+      breakEvenPercent: Math.min(breakEvenPercent, 100),
+      aboveBreakEven,
+      marginAboveBE,
+      seasonalityWeight: (monthly_seasonality?.[currentMonth] ?? 8.33),
+      chartData,
     };
-  }, [trendData]);
+  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
   if (loading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-blue-400" />
-            Projeção de Receita do Mês
+            <Landmark className="h-4 w-4 text-primary" />
+            Saúde Financeira
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-24 animate-pulse rounded bg-muted" />
+          <div className="h-64 animate-pulse rounded bg-muted" />
         </CardContent>
       </Card>
     );
   }
 
-  if (!projection) return null;
-
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-blue-400" />
-          Projeção de Receita do Mês
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Landmark className="h-4 w-4 text-primary" />
+            Saúde Financeira do Mês
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {calc.aboveBreakEven ? (
+              <span className="text-xs font-semibold px-2 py-1 rounded-full bg-success/10 text-success">
+                Acima do PE
+              </span>
+            ) : (
+              <span className="text-xs font-semibold px-2 py-1 rounded-full bg-destructive/10 text-destructive">
+                Abaixo do PE
+              </span>
+            )}
+            {finSettings.isDefault && (
+              <Link
+                href="/simulador/config"
+                className="text-xs text-warning hover:underline"
+              >
+                Configurar
+              </Link>
+            )}
+          </div>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <CardContent className="space-y-6">
+        {/* KPI Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Meta Mensal</p>
+            <p className="text-xl font-bold">{formatCurrency(calc.monthTarget)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              sazonalidade: {calc.seasonalityWeight.toFixed(1)}%
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Ponto de Equilíbrio</p>
+            <p className={`text-xl font-bold ${calc.aboveBreakEven ? "text-success" : "text-destructive"}`}>
+              {formatCurrency(calc.breakEven)}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              GF / MC ({calc.contributionMarginPct.toFixed(1)}%)
+            </p>
+          </div>
           <div>
             <p className="text-xs text-muted-foreground mb-1">Receita Atual</p>
-            <p className="text-2xl font-bold">{formatCurrency(projection.monthRevenue)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {projection.currentDay} de {projection.daysInMonth} dias
+            <p className="text-xl font-bold">{formatCurrency(calc.monthRevenue)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              proj: {formatCurrency(calc.projectedRevenue)} | {calc.daysRemaining}d restantes
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Projeção Mensal</p>
-            <p className="text-2xl font-bold text-blue-400">{formatCurrency(projection.projected)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {projection.daysRemaining} dias restantes
+            <p className="text-xs text-muted-foreground mb-1">MC%</p>
+            <p className={`text-xl font-bold ${calc.contributionMarginPct > 0 ? "text-success" : "text-destructive"}`}>
+              {calc.contributionMarginPct.toFixed(1)}%
             </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Média Diária</p>
-            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(projection.avgDaily)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              base: {projection.currentDay} dias com dados
+            <p className={`text-[10px] mt-0.5 ${calc.marginAboveBE >= 0 ? "text-success" : "text-destructive"}`}>
+              {calc.marginAboveBE >= 0 ? "+" : ""}{formatCurrency(calc.marginAboveBE)} vs PE
             </p>
           </div>
         </div>
-        {/* Progress bar */}
-        <div className="mt-4">
+
+        {/* Progress bar with break-even marker */}
+        <div>
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-            <span>Progresso do mês</span>
-            <span>{projection.progressPercent.toFixed(0)}%</span>
+            <span>Progresso vs Meta</span>
+            <span>{Math.min(calc.progressPercent, 100).toFixed(0)}%</span>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-500"
-              style={{ width: `${projection.progressPercent}%` }}
-            />
+          <div className="relative">
+            <div className="h-3 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  calc.aboveBreakEven
+                    ? "bg-gradient-to-r from-emerald-500 to-emerald-400"
+                    : "bg-gradient-to-r from-red-500 to-orange-400"
+                }`}
+                style={{ width: `${Math.min(calc.progressPercent, 100)}%` }}
+              />
+            </div>
+            {/* Break-even marker */}
+            {calc.breakEvenPercent > 0 && calc.breakEvenPercent <= 100 && (
+              <div
+                className="absolute top-0 h-3 w-0.5 bg-foreground/60"
+                style={{ left: `${calc.breakEvenPercent}%` }}
+              >
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] text-muted-foreground whitespace-nowrap">
+                  PE
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1">
+            <span>R$ 0</span>
+            <span>{formatCurrency(calc.monthTarget)}</span>
+          </div>
+        </div>
+
+        {/* Cumulative Revenue Chart */}
+        <div className="h-[260px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={calc.chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+              <defs>
+                <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={calc.aboveBreakEven ? "#22c55e" : "#ef4444"} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={calc.aboveBreakEven ? "#22c55e" : "#ef4444"} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <XAxis
+                dataKey="day"
+                stroke="#8888a0"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(d) => `${d}`}
+              />
+              <YAxis
+                stroke="#8888a0"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#12121a",
+                  border: "1px solid #2a2a3e",
+                  borderRadius: "8px",
+                  color: "#f0f0f5",
+                  fontSize: "12px",
+                }}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any, name: any) => {
+                  const label = name === "revenue" ? "Receita Acum." : name === "target" ? "Ritmo Meta" : "Ponto Equilíbrio";
+                  return [formatCurrency(Number(value ?? 0)), label];
+                }}
+                labelFormatter={(day) => `Dia ${day}`}
+              />
+              <Legend
+                formatter={(value) => {
+                  if (value === "revenue") return "Receita Acumulada";
+                  if (value === "target") return "Ritmo Meta";
+                  if (value === "breakEven") return "Ponto Equilíbrio";
+                  return value;
+                }}
+              />
+              {/* Break-even line */}
+              <ReferenceLine
+                y={calc.breakEven}
+                stroke="#ef4444"
+                strokeDasharray="6 3"
+                strokeWidth={1.5}
+              />
+              {/* Target pace line (dashed) */}
+              <Area
+                type="monotone"
+                dataKey="target"
+                stroke="#8b5cf6"
+                strokeDasharray="6 3"
+                fill="none"
+                strokeWidth={1.5}
+                dot={false}
+              />
+              {/* Actual revenue */}
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke={calc.aboveBreakEven ? "#22c55e" : "#3b82f6"}
+                fill="url(#gradRevenue)"
+                strokeWidth={2.5}
+                dot={false}
+                connectNulls={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Margin breakdown */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">Invest. Ads</p>
+            <p className="font-semibold">{calc.investPerc.toFixed(1)}%</p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">Frete</p>
+            <p className="font-semibold">{calc.fretePerc.toFixed(1)}%</p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">Descontos</p>
+            <p className="font-semibold">{calc.descontoPerc.toFixed(1)}%</p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">Impostos</p>
+            <p className="font-semibold">{finSettings.tax_pct}%</p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">CMV</p>
+            <p className="font-semibold">{finSettings.product_cost_pct}%</p>
+          </div>
+          <div className="bg-muted/30 rounded-lg p-2.5">
+            <p className="text-muted-foreground">Outras</p>
+            <p className="font-semibold">{finSettings.other_expenses_pct}%</p>
           </div>
         </div>
       </CardContent>

@@ -102,7 +102,31 @@ export default function SimuladorPage() {
   const [impostosPerc, setImpostosPerc] = useState(6);
   const [custoProdPerc, setCustoProdPerc] = useState(25);
   const [outrasDespPerc, setOutrasDespPerc] = useState(5);
-  const [custosFixos, setCustosFixos] = useState(150000);
+  const [custosFixos, setCustosFixos] = useState(160000);
+
+  // Fetch financial settings from config
+  useEffect(() => {
+    if (!workspace?.id) return;
+
+    async function fetchFinSettings() {
+      try {
+        const res = await fetch("/api/financial-settings", {
+          headers: { "x-workspace-id": workspace!.id },
+        });
+        const data = await res.json();
+        if (!data.error) {
+          setCustosFixos(data.monthly_fixed_costs ?? 160000);
+          setImpostosPerc(data.tax_pct ?? 6);
+          setCustoProdPerc(data.product_cost_pct ?? 25);
+          setOutrasDespPerc(data.other_expenses_pct ?? 5);
+        }
+      } catch {
+        // Keep defaults
+      }
+    }
+
+    fetchFinSettings();
+  }, [workspace?.id]);
 
   // Fetch real data
   useEffect(() => {
