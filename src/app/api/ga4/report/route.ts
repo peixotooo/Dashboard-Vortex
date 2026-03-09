@@ -55,6 +55,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const reportType = searchParams.get("report_type") || "";
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
+    const startDate = searchParams.get("start_date") || undefined;
+    const endDate = searchParams.get("end_date") || undefined;
     const limit = parseInt(searchParams.get("limit") || "50", 10);
 
     if (!process.env.GA4_PROPERTY_ID) {
@@ -76,7 +78,7 @@ export async function GET(request: NextRequest) {
     }
 
     const result = await getGA4Report({
-      datePreset,
+      ...(startDate && endDate ? { startDate, endDate } : { datePreset }),
       dimensions: config.dimensions,
       metrics: config.metrics,
       limit,

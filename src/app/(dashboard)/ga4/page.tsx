@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Users,
   UserPlus,
@@ -11,6 +11,8 @@ import {
   Receipt,
   Activity,
   MousePointerClick,
+  X,
+  CalendarDays,
 } from "lucide-react";
 import {
   BarChart,
@@ -31,7 +33,11 @@ import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
+import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 import type { DatePreset } from "@/lib/types";
 
 const COLORS = ["#f97316", "#3b82f6", "#22c55e", "#8b5cf6", "#06b6d4", "#ef4444", "#f59e0b", "#ec4899"];
@@ -52,6 +58,7 @@ interface GA4Row {
 
 interface DailyInsight {
   date: string;
+  dateRaw: string;
   sessions: number;
   users: number;
   newUsers: number;
@@ -70,9 +77,13 @@ interface GA4Totals {
 }
 
 export default function GA4Page() {
+  const { accountId, accounts } = useAccount();
+  const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
   const [configured, setConfigured] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [metaHourly, setMetaHourly] = useState<Array<{ hour: string; spend: number }>>([]);
 
   // Overview data
   const [totals, setTotals] = useState<GA4Totals>({ sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 });
@@ -94,23 +105,74 @@ export default function GA4Page() {
   const [gadsCampaigns, setGadsCampaigns] = useState<GA4Row[]>([]);
   const [gadsComparison, setGadsComparison] = useState<{ cost: number; clicks: number; impressions: number; cpc: number; ctr: number } | null>(null);
 
+  // Build report query string (supports day filter)
+  const reportQuery = useCallback((reportType: string, limit: number, date?: string | null) => {
+    const dateParams = date
+      ? `start_date=${date}&end_date=${date}`
+      : `date_preset=${datePreset}`;
+    return `/api/ga4/report?report_type=${reportType}&${dateParams}&limit=${limit}`;
+  }, [datePreset]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [insightsRes, ...reportResults] = await Promise.all([
+      // Fetch all data in parallel
+      const metaAccountIds = accountId === "all"
+        ? accounts.map((a) => a.id)
+        : accountId ? [accountId] : [];
+
+      const dateParams = selectedDate
+        ? `start_date=${selectedDate}&end_date=${selectedDate}`
+        : `date_preset=${datePreset}`;
+
+      const fetches: Promise<Response>[] = [
         fetch(`/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`),
-        fetch(`/api/ga4/report?report_type=products&date_preset=${datePreset}&limit=20`),
-        fetch(`/api/ga4/report?report_type=regions&date_preset=${datePreset}&limit=20`),
-        fetch(`/api/ga4/report?report_type=hourly&date_preset=${datePreset}&limit=24`),
-        fetch(`/api/ga4/report?report_type=day_of_week&date_preset=${datePreset}&limit=7`),
-        fetch(`/api/ga4/report?report_type=traffic&date_preset=${datePreset}&limit=20`),
-        fetch(`/api/ga4/report?report_type=devices&date_preset=${datePreset}&limit=10`),
-        fetch(`/api/ga4/report?report_type=google_ads_campaigns&date_preset=${datePreset}&limit=20`),
-      ]);
+        fetch(reportQuery("products", 20, selectedDate)),
+        fetch(reportQuery("regions", 20, selectedDate)),
+        fetch(reportQuery("hourly", 24, selectedDate)),
+        fetch(reportQuery("day_of_week", 7, selectedDate)),
+        fetch(reportQuery("traffic", 20, selectedDate)),
+        fetch(reportQuery("devices", 10, selectedDate)),
+        fetch(reportQuery("google_ads_campaigns", 20, selectedDate)),
+      ];
+
+      // Fetch Meta hourly data if Meta is configured
+      if (metaAccountIds.length > 0) {
+        for (const id of metaAccountIds) {
+          fetches.push(
+            fetch(`/api/insights?object_id=${id}&level=account&${dateParams}&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone&time_increment=all_days`)
+          );
+        }
+      }
+
+      const [insightsRes, ...rest] = await Promise.all(fetches);
 
       const insightsData = await insightsRes.json();
-      const [productsData, regionsData, hourlyData, dowData, trafficData, devicesData, gadsCampaignsData] =
-        await Promise.all(reportResults.map((r) => r.json()));
+      const reportJsons = await Promise.all(rest.slice(0, 7).map((r) => r.json()));
+      const [productsData, regionsData, hourlyData, dowData, trafficData, devicesData, gadsCampaignsData] = reportJsons;
+
+      // Process Meta hourly data
+      const metaHourlyResults = rest.slice(7);
+      if (metaHourlyResults.length > 0) {
+        const hourlySpendMap = new Map<string, number>();
+        for (const res of metaHourlyResults) {
+          const data = await res.json();
+          const insights = data.insights || [];
+          for (const row of insights) {
+            const hourRange = row.hourly_stats_aggregated_by_advertiser_time_zone as string || "";
+            const hour = hourRange.split(":")[0]?.padStart(2, "0") || "";
+            const spend = parseFloat((row.spend as string) || "0");
+            hourlySpendMap.set(hour, (hourlySpendMap.get(hour) || 0) + spend);
+          }
+        }
+        setMetaHourly(
+          [...hourlySpendMap.entries()]
+            .map(([hour, spend]) => ({ hour, spend: parseFloat(spend.toFixed(2)) }))
+            .sort((a, b) => a.hour.localeCompare(b.hour))
+        );
+      } else {
+        setMetaHourly([]);
+      }
 
       setConfigured(insightsData.configured !== false);
       setTotals(insightsData.totals || { sessions: 0, users: 0, newUsers: 0, transactions: 0, revenue: 0, pageViews: 0 });
@@ -135,7 +197,7 @@ export default function GA4Page() {
     } finally {
       setLoading(false);
     }
-  }, [datePreset]);
+  }, [datePreset, selectedDate, accountId, accounts, reportQuery]);
 
   useEffect(() => {
     fetchData();
@@ -150,6 +212,27 @@ export default function GA4Page() {
   const ticketMedio = totals.transactions > 0 ? totals.revenue / totals.transactions : 0;
   const prevTxConversao = comparison && comparison.sessions > 0 ? (comparison.transactions / comparison.sessions) * 100 : undefined;
   const prevTicketMedio = comparison && comparison.transactions > 0 ? comparison.revenue / comparison.transactions : undefined;
+
+  // Merge GA4 hourly + Meta hourly for combined view
+  const mergedHourly = useMemo(() => {
+    const metaMap = new Map(metaHourly.map((m) => [m.hour, m.spend]));
+    return hourly.map((r) => {
+      const hour = r.dimensions.hour?.padStart(2, "0") || "00";
+      const sessions = r.metrics.sessions || 0;
+      const transactions = r.metrics.transactions || 0;
+      const revenue = parseFloat((r.metrics.purchaseRevenue || 0).toFixed(2));
+      const spend = metaMap.get(hour) || 0;
+      return {
+        hora: `${hour}h`,
+        sessoes: sessions,
+        pedidos: transactions,
+        receita: revenue,
+        txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
+        investMeta: parseFloat(spend.toFixed(2)),
+        roas: spend > 0 ? parseFloat((revenue / spend).toFixed(2)) : 0,
+      };
+    });
+  }, [hourly, metaHourly]);
 
   if (!configured && !loading) {
     return (
@@ -187,6 +270,19 @@ export default function GA4Page() {
         <KpiCard title="Ticket" value={formatCurrency(ticketMedio)} change={calcChange(ticketMedio, prevTicketMedio)} icon={Receipt} iconColor="text-emerald-400" loading={loading} />
       </div>
 
+      {/* Day filter badge */}
+      {selectedDate && (
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="gap-1.5 px-3 py-1.5 text-sm">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Filtrando: {selectedDate.slice(8, 10)}/{selectedDate.slice(5, 7)}/{selectedDate.slice(0, 4)}
+            <button onClick={() => setSelectedDate(null)} className="ml-1 hover:text-destructive">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </Badge>
+        </div>
+      )}
+
       {/* Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
@@ -222,7 +318,7 @@ export default function GA4Page() {
             />
           </div>
           <PerformanceTable
-            title="Resumo Diário"
+            title="Resumo Diário — clique em um dia para filtrar"
             columns={[
               { key: "date", label: "Data" },
               { key: "sessions", label: "Sessões", format: "number", align: "right" },
@@ -233,6 +329,15 @@ export default function GA4Page() {
             ]}
             data={[...dailyData].reverse()}
             loading={loading}
+            onRowClick={(row) => {
+              const dateRaw = (row as unknown as DailyInsight).dateRaw;
+              if (dateRaw) {
+                const normalized = dateRaw.length === 8 && !dateRaw.includes("-")
+                  ? `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`
+                  : dateRaw;
+                setSelectedDate(normalized === selectedDate ? null : normalized);
+              }
+            }}
           />
         </TabsContent>
 
@@ -375,6 +480,7 @@ export default function GA4Page() {
                         return {
                           hora: `${r.dimensions.hour?.padStart(2, "0")}h`,
                           sessoes: sessions,
+                          receita: parseFloat((r.metrics.purchaseRevenue || 0).toFixed(2)),
                           txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
                         };
                       })}>
@@ -382,9 +488,10 @@ export default function GA4Page() {
                         <XAxis dataKey="hora" stroke="#8888a0" fontSize={11} tickLine={false} />
                         <YAxis yAxisId="left" stroke="#8888a0" fontSize={12} tickLine={false} />
                         <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : v, name]} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
                         <Legend />
                         <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#f97316" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="left" dataKey="receita" name="Receita (R$)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                         <Bar yAxisId="right" dataKey="txConv" name="TX Conv. (%)" fill="#22c55e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -487,6 +594,82 @@ export default function GA4Page() {
               </Card>
             </div>
           )}
+
+          {/* Meta Investment x Revenue by Hour */}
+          {metaHourly.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Investimento Meta x Receita por Hora</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[350px]">
+                  {loading ? (
+                    <div className="h-full animate-pulse rounded bg-muted" />
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={mergedHourly}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                        <XAxis dataKey="hora" stroke="#8888a0" fontSize={11} tickLine={false} />
+                        <YAxis stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatCurrency(Number(v)), name]} />
+                        <Legend />
+                        <Bar dataKey="investMeta" name="Invest. Meta (R$)" fill="#1877f2" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="receita" name="Receita (R$)" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ROAS insights by hour */}
+          {!loading && metaHourly.length > 0 && mergedHourly.some((h) => h.investMeta > 0) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">Melhor horário (ROAS)</p>
+                  <p className="text-lg font-bold mt-1">
+                    {(() => {
+                      const withSpend = mergedHourly.filter((h) => h.investMeta > 0);
+                      const best = [...withSpend].sort((a, b) => b.roas - a.roas)[0];
+                      return best ? `${best.hora} — ${best.roas.toFixed(2)}x (R$${best.investMeta} → R$${best.receita})` : "—";
+                    })()}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-sm text-muted-foreground">Pior horário (ROAS)</p>
+                  <p className="text-lg font-bold mt-1">
+                    {(() => {
+                      const withSpend = mergedHourly.filter((h) => h.investMeta > 0);
+                      const worst = [...withSpend].sort((a, b) => a.roas - b.roas)[0];
+                      return worst ? `${worst.hora} — ${worst.roas.toFixed(2)}x (R$${worst.investMeta} → R$${worst.receita})` : "—";
+                    })()}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Hourly Performance Table */}
+          <PerformanceTable
+            title="Detalhamento por Hora"
+            columns={[
+              { key: "hora", label: "Hora" },
+              { key: "sessoes", label: "Sessões", format: "number", align: "right" },
+              { key: "pedidos", label: "Pedidos", format: "number", align: "right" },
+              { key: "receita", label: "Receita", format: "currency", align: "right" },
+              { key: "txConv", label: "TX Conv.", format: "text", align: "right", render: (v) => `${v}%` },
+              ...(metaHourly.length > 0 ? [
+                { key: "investMeta", label: "Invest. Meta", format: "currency" as const, align: "right" as const },
+                { key: "roas", label: "ROAS", format: "text" as const, align: "right" as const, render: (v: unknown) => `${Number(v).toFixed(2)}x` },
+              ] : []),
+            ]}
+            data={mergedHourly}
+            loading={loading}
+          />
         </TabsContent>
 
         {/* Tab: Tráfego */}
