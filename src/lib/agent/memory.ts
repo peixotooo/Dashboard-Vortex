@@ -18,6 +18,7 @@ export interface Conversation {
   workspace_id: string;
   account_id: string;
   user_id: string;
+  agent_id: string | null;
   title: string | null;
   created_at: string;
   updated_at: string;
@@ -124,7 +125,8 @@ export async function createConversation(
   workspaceId: string,
   accountId: string,
   userId: string,
-  title?: string
+  title?: string,
+  agentId?: string
 ): Promise<Conversation> {
   const { data, error } = await supabase
     .from("agent_conversations")
@@ -133,6 +135,7 @@ export async function createConversation(
       account_id: accountId,
       user_id: userId,
       title: title || null,
+      agent_id: agentId || null,
     })
     .select()
     .single();
@@ -145,15 +148,22 @@ export async function listConversations(
   supabase: SupabaseClient,
   workspaceId: string,
   accountId: string,
-  limit = 20
+  limit = 20,
+  agentId?: string
 ): Promise<Conversation[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("agent_conversations")
     .select("*")
     .eq("workspace_id", workspaceId)
     .eq("account_id", accountId)
     .order("updated_at", { ascending: false })
     .limit(limit);
+
+  if (agentId) {
+    query = query.eq("agent_id", agentId);
+  }
+
+  const { data, error } = await query;
 
   if (error)
     throw new Error(`Failed to list conversations: ${error.message}`);

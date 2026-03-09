@@ -11,6 +11,8 @@ import {
   ImagePlus,
   X,
   Check,
+  Plus,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -75,6 +77,20 @@ const MODEL_LABELS: Record<string, string> = {
   "claude-haiku-4-5-20251001": "Haiku",
 };
 
+function formatRelativeDate(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "agora";
+  if (diffMin < 60) return `${diffMin}min`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 7) return `${diffD}d`;
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
 export default function TeamChatPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -89,6 +105,8 @@ export default function TeamChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [loadingAgents, setLoadingAgents] = useState(true);
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string | null; updated_at: string }>>([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
 
   // Sync selectedAccountId with global accountId
   useEffect(() => {
@@ -183,6 +201,69 @@ export default function TeamChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Auto-focus textarea when agent changes
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [selectedAgent?.id]);
+
+  // Fetch conversations for selected agent
+  const fetchConversations = useCallback(async () => {
+    if (!workspace?.id || !selectedAccountId || !selectedAgent) return;
+    setLoadingConversations(true);
+    try {
+      const params = new URLSearchParams({
+        account_id: selectedAccountId,
+        agent_id: selectedAgent.id,
+        limit: "20",
+      });
+      const res = await fetch(`/api/agent/conversations?${params}`, {
+        headers: { "x-workspace-id": workspace.id },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.conversations || []);
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setLoadingConversations(false);
+    }
+  }, [workspace?.id, selectedAccountId, selectedAgent]);
+
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  // Load a previous conversation
+  const loadConversation = useCallback(async (convId: string) => {
+    if (!workspace?.id) return;
+    try {
+      const res = await fetch(`/api/agent/conversations/${convId}`, {
+        headers: { "x-workspace-id": workspace.id },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const loadedMessages: ChatMessage[] = (data.messages || []).map(
+          (m: { id: string; role: "user" | "assistant"; content: string }) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          })
+        );
+        setMessages(loadedMessages);
+        setConversationId(convId);
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [workspace?.id]);
+
+  const handleNewConversation = () => {
+    setMessages([]);
+    setConversationId(undefined);
+    textareaRef.current?.focus();
+  };
 
   const handleSelectAgent = (agent: AgentInfo) => {
     if (agent.id === selectedAgent?.id) return;
@@ -371,6 +452,7 @@ export default function TeamChatPage() {
 
                 case "conversation_id":
                   setConversationId(event.conversationId);
+                  fetchConversations();
                   break;
 
                 case "error":
@@ -402,7 +484,7 @@ export default function TeamChatPage() {
         setIsLoading(false);
       }
     },
-    [accountId, workspace?.id, selectedAgent, isLoading, messages, conversationId, attachments]
+    [accountId, selectedAccountId, workspace?.id, selectedAgent, isLoading, messages, conversationId, attachments, fetchConversations]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -474,6 +556,55 @@ export default function TeamChatPage() {
             ))}
           </div>
         </div>
+
+        {/* Conversations */}
+        {selectedAgent && (
+          <div className="p-3 border-t border-border">
+            <button
+              onClick={handleNewConversation}
+              className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors cursor-pointer mb-2"
+            >
+              <Plus className="h-4 w-4" />
+              Nova conversa
+            </button>
+
+            {loadingConversations ? (
+              <div className="space-y-2 px-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                ))}
+              </div>
+            ) : conversations.length > 0 ? (
+              <div className="space-y-0.5">
+                <h3 className="text-xs font-semibold text-muted-foreground px-2 mb-1">
+                  Conversas recentes
+                </h3>
+                {conversations.map((conv) => (
+                  <button
+                    key={conv.id}
+                    onClick={() => loadConversation(conv.id)}
+                    className={cn(
+                      "w-full flex items-start gap-2 rounded-lg px-3 py-2 text-xs transition-colors text-left cursor-pointer",
+                      conversationId === conv.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">
+                        {conv.title || "Sem titulo"}
+                      </div>
+                      <div className="text-[10px] opacity-60 mt-0.5">
+                        {formatRelativeDate(conv.updated_at)}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Chat area */}
@@ -761,6 +892,7 @@ export default function TeamChatPage() {
                 }
                 className="min-h-[44px] max-h-[120px] resize-none"
                 disabled={isLoading || !selectedAgent}
+                autoFocus
                 rows={1}
               />
               <Button

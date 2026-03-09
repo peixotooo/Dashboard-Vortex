@@ -32,8 +32,9 @@ export async function GET(request: NextRequest) {
     if (!accountId) return NextResponse.json({ error: "account_id is required" }, { status: 400 });
 
     const limit = parseInt(url.searchParams.get("limit") || "20");
+    const agentId = url.searchParams.get("agent_id") || undefined;
 
-    const conversations = await listConversations(supabase, workspaceId, accountId, limit);
+    const conversations = await listConversations(supabase, workspaceId, accountId, limit, agentId);
     return NextResponse.json({ conversations });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

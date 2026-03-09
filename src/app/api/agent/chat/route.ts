@@ -183,7 +183,8 @@ export async function POST(request: NextRequest) {
           workspaceId,
           accountId,
           userId,
-          message.slice(0, 100)
+          message.slice(0, 100),
+          agentId
         );
         activeConversationId = conv.id;
       } catch {

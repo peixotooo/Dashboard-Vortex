@@ -590,6 +590,7 @@ export default function AgentPage() {
             }
             onKeyDown={handleKeyDown}
             disabled={isLoading || !accountId}
+            autoFocus
           />
           <Button
             onClick={handleSubmit}
