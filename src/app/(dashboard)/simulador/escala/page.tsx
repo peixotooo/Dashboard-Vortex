@@ -109,6 +109,8 @@ export default function EscalaPage() {
   const [vndaConfigured, setVndaConfigured] = useState(false);
   const [finSettings, setFinSettings] = useState<FinancialSettings>(FIN_DEFAULTS);
   const [simInvest, setSimInvest] = useState(3200);
+  const [cpsDecay, setCpsDecay] = useState(15);   // % inflacao CPS ao dobrar invest
+  const [convDecay, setConvDecay] = useState(10);  // % queda TX Conv ao dobrar invest
 
   useEffect(() => {
     if (!accountId || accounts.length === 0) return;
@@ -348,17 +350,24 @@ export default function EscalaPage() {
       accumData.push({ dia: i, data: `${String(i).padStart(2, "0")}/${currentMonthStr}`, receitaAcum: accReceita, projecao: true });
     }
 
-    // Scenario simulation (CPS-based: invest → sessoes → pedidos → receita)
-    const simData: Array<{ invest: number; sessoes: number; pedidos: number; receitaDia: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
+    // Scenario simulation (CPS-based com decaimento conservador)
+    const cpsExp = Math.log2(1 + cpsDecay / 100);
+    const convExp = Math.log2(1 + convDecay / 100);
+
+    const simData: Array<{ invest: number; sessoes: number; pedidos: number; receitaDia: number; cpsAdj: number; txConvAdj: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
     if (avgCps > 0 && avgTxConv > 0 && avgTicket > 0) {
       for (let invest = 1000; invest <= 6000; invest += 100) {
-        const sessoes = invest / avgCps;
-        const pedidos = sessoes * (avgTxConv / 100);
+        const ratio = avgInvestDia > 0 ? invest / avgInvestDia : 1;
+        const cpsAdj = ratio > 1 ? avgCps * Math.pow(ratio, cpsExp) : avgCps;
+        const txConvAdj = ratio > 1 ? avgTxConv * Math.pow(ratio, -convExp) : avgTxConv;
+
+        const sessoes = invest / cpsAdj;
+        const pedidos = sessoes * (txConvAdj / 100);
         const receitaDia = pedidos * avgTicket;
         const ebitda = receitaDia * mcPreAdsPct - invest - custoFixoDiario;
         const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
         const receitaMes = totalReceita + (receitaDia * diasRestantes);
-        simData.push({ invest, sessoes, pedidos, receitaDia, ebitda, ebitdaPct, receitaMes });
+        simData.push({ invest, sessoes, pedidos, receitaDia, cpsAdj, txConvAdj, ebitda, ebitdaPct, receitaMes });
       }
     }
 
@@ -406,19 +415,24 @@ export default function EscalaPage() {
       progPE,
       progMeta,
     };
-  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
+  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings, cpsDecay, convDecay]);
 
-  // Slider simulation (CPS-based)
+  // Slider simulation (CPS-based com decaimento)
   const simAtual = useMemo(() => {
     if (calc.avgCps <= 0 || calc.avgTxConv <= 0 || calc.avgTicket <= 0) return null;
-    const sessoes = simInvest / calc.avgCps;
-    const pedidos = sessoes * (calc.avgTxConv / 100);
+    const cpsExp = Math.log2(1 + cpsDecay / 100);
+    const convExp = Math.log2(1 + convDecay / 100);
+    const ratio = calc.avgInvestDia > 0 ? simInvest / calc.avgInvestDia : 1;
+    const cpsAdj = ratio > 1 ? calc.avgCps * Math.pow(ratio, cpsExp) : calc.avgCps;
+    const txConvAdj = ratio > 1 ? calc.avgTxConv * Math.pow(ratio, -convExp) : calc.avgTxConv;
+    const sessoes = simInvest / cpsAdj;
+    const pedidos = sessoes * (txConvAdj / 100);
     const receitaDia = pedidos * calc.avgTicket;
     const ebitda = receitaDia * calc.mcPreAdsPct - simInvest - calc.custoFixoDiario;
     const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
     const receitaMes = calc.totalReceita + (receitaDia * calc.diasRestantes);
-    return { sessoes, pedidos, receitaDia, ebitda, ebitdaPct, receitaMes };
-  }, [simInvest, calc]);
+    return { sessoes, pedidos, cpsAdj, txConvAdj, receitaDia, ebitda, ebitdaPct, receitaMes };
+  }, [simInvest, calc, cpsDecay, convDecay]);
 
   if (loading) {
     return (
@@ -744,12 +758,44 @@ export default function EscalaPage() {
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
             Simulador: Ate onde posso investir?
           </h3>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4 text-[11px] text-muted-foreground">
-            <span>Parametros travados: <span className="font-semibold text-foreground">CPS {formatCurrency(calc.avgCps)}</span> · <span className="font-semibold text-foreground">TX Conv {calc.avgTxConv.toFixed(2)}%</span> · <span className="font-semibold text-foreground">Ticket {formatCurrency(calc.avgTicket)}</span></span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[11px] text-muted-foreground">
+            <span>Parametros base: <span className="font-semibold text-foreground">CPS {formatCurrency(calc.avgCps)}</span> · <span className="font-semibold text-foreground">TX Conv {calc.avgTxConv.toFixed(2)}%</span> · <span className="font-semibold text-foreground">Ticket {formatCurrency(calc.avgTicket)}</span> · <span className="font-semibold text-foreground">Invest. atual {fmtInt(calc.avgInvestDia)}/dia</span></span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 text-[11px]">
+            <span className="text-muted-foreground">Ajuste de escala:</span>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Inflacao CPS ao 2x</span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                step={1}
+                value={cpsDecay}
+                onChange={(e) => setCpsDecay(Math.max(0, Math.min(50, Number(e.target.value))))}
+                className="w-12 bg-muted/20 border border-border/30 rounded px-1.5 py-0.5 text-center text-foreground font-semibold text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-muted-foreground">%</span>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Queda TX Conv ao 2x</span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                step={1}
+                value={convDecay}
+                onChange={(e) => setConvDecay(Math.max(0, Math.min(50, Number(e.target.value))))}
+                className="w-12 bg-muted/20 border border-border/30 rounded px-1.5 py-0.5 text-center text-foreground font-semibold text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span className="text-muted-foreground">%</span>
+            </label>
           </div>
           <div className="bg-muted/[0.04] rounded-lg px-3.5 py-2.5 mb-5 text-[11px] text-muted-foreground leading-relaxed">
             <span className="font-semibold text-foreground">Como e calculado: </span>
-            Investimento/dia ÷ CPS = <span className="text-foreground">Sessoes</span> → Sessoes × TX Conv = <span className="text-foreground">Pedidos</span> → Pedidos × Ticket Medio = <span className="text-foreground">Receita</span> → Receita × MC pre-ads - Invest - Custo fixo/dia = <span className="text-foreground">EBITDA</span>
+            Invest ÷ CPS = <span className="text-foreground">Sessoes</span> → × TX Conv = <span className="text-foreground">Pedidos</span> → × Ticket = <span className="text-foreground">Receita</span> → × MC pre-ads - Invest - Fixo/dia = <span className="text-foreground">EBITDA</span>.
+            {(cpsDecay > 0 || convDecay > 0) && (
+              <span className="ml-1">Acima de {fmtInt(calc.avgInvestDia)}/dia, CPS sobe {cpsDecay}% e TX Conv cai {convDecay}% a cada 2x de budget (retornos decrescentes).</span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8 items-start">
@@ -779,12 +825,18 @@ export default function EscalaPage() {
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
                     <p className="text-[10px] text-muted-foreground mb-1">Sessoes/dia</p>
                     <p className="text-lg font-extrabold text-foreground">{Math.round(simAtual.sessoes).toLocaleString("pt-BR")}</p>
-                    <p className="text-[9px] text-muted-foreground mt-0.5">{fmtInt(simInvest)} / {formatCurrency(calc.avgCps)} CPS</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">
+                      {fmtInt(simInvest)} / {formatCurrency(simAtual.cpsAdj)} CPS
+                      {simAtual.cpsAdj > calc.avgCps && <span className="text-warning ml-1">(+{(((simAtual.cpsAdj / calc.avgCps) - 1) * 100).toFixed(0)}%)</span>}
+                    </p>
                   </div>
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
                     <p className="text-[10px] text-muted-foreground mb-1">Pedidos/dia</p>
                     <p className="text-lg font-extrabold text-foreground">{simAtual.pedidos.toFixed(1)}</p>
-                    <p className="text-[9px] text-muted-foreground mt-0.5">{Math.round(simAtual.sessoes)} sessoes x {calc.avgTxConv.toFixed(2)}% conv</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">
+                      {Math.round(simAtual.sessoes)} sessoes x {simAtual.txConvAdj.toFixed(2)}% conv
+                      {simAtual.txConvAdj < calc.avgTxConv && <span className="text-warning ml-1">({(((simAtual.txConvAdj / calc.avgTxConv) - 1) * 100).toFixed(0)}%)</span>}
+                    </p>
                   </div>
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
                     <p className="text-[10px] text-muted-foreground mb-1">Receita/dia</p>
@@ -848,10 +900,22 @@ export default function EscalaPage() {
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null;
                         const d = payload[0]?.payload as typeof calc.simData[number];
+                        const cpsChanged = d.cpsAdj > calc.avgCps;
+                        const txChanged = d.txConvAdj < calc.avgTxConv;
                         return (
-                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] min-w-[240px]">
+                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] min-w-[260px]">
                             <div className="text-foreground font-bold mb-1.5">Investindo {fmtInt(d.invest)}/dia</div>
                             <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[12px]">
+                              <span className="text-muted-foreground">CPS</span>
+                              <span className="text-foreground text-right">
+                                {formatCurrency(d.cpsAdj)}
+                                {cpsChanged && <span className="text-warning ml-1 text-[10px]">(+{(((d.cpsAdj / calc.avgCps) - 1) * 100).toFixed(0)}%)</span>}
+                              </span>
+                              <span className="text-muted-foreground">TX Conv</span>
+                              <span className="text-foreground text-right">
+                                {d.txConvAdj.toFixed(2)}%
+                                {txChanged && <span className="text-warning ml-1 text-[10px]">({(((d.txConvAdj / calc.avgTxConv) - 1) * 100).toFixed(0)}%)</span>}
+                              </span>
                               <span className="text-muted-foreground">Sessoes</span>
                               <span className="text-foreground text-right">{Math.round(d.sessoes).toLocaleString("pt-BR")}</span>
                               <span className="text-muted-foreground">Pedidos</span>
