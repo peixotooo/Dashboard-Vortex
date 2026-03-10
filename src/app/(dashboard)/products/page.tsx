@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Package,
-  PackageX,
   DollarSign,
   Percent,
   AlertTriangle,
@@ -72,7 +71,6 @@ const RECOMMENDATION_LABELS: Record<string, string> = {
   manter_preco: "Manter Preco",
   reduzir_preco: "Reduzir Preco",
   promocionar: "Promocionar",
-  sem_estoque: "Sem Estoque",
 };
 
 const RECOMMENDATION_COLORS: Record<string, string> = {
@@ -80,11 +78,9 @@ const RECOMMENDATION_COLORS: Record<string, string> = {
   manter_preco: "#8b5cf6",
   reduzir_preco: "#f97316",
   promocionar: "#3b82f6",
-  sem_estoque: "#ef4444",
 };
 
 const RECOMMENDATION_ORDER: ProductRecommendation[] = [
-  "sem_estoque",
   "promocionar",
   "aumentar_preco",
   "reduzir_preco",
@@ -164,26 +160,6 @@ function SourceBadge({ sources }: { sources: string[] }) {
   );
 }
 
-function StockBadge({ stock, status }: { stock: number; status: string }) {
-  const color =
-    status === "ok"
-      ? "text-success"
-      : status === "low"
-        ? "text-yellow-400"
-        : "text-destructive";
-  const bg =
-    status === "ok"
-      ? "bg-success/10"
-      : status === "low"
-        ? "bg-yellow-400/10"
-        : "bg-destructive/10";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${color} ${bg}`}>
-      {stock}
-    </span>
-  );
-}
-
 // --- Empty summary ---
 
 const emptySummary = {
@@ -202,7 +178,6 @@ const emptySummary = {
     manter_preco: 0,
     reduzir_preco: 0,
     promocionar: 0,
-    sem_estoque: 0,
   } as Record<ProductRecommendation, number>,
 };
 
@@ -348,7 +323,7 @@ export default function ProductsPage() {
         {/* ===== Tab 1: Overview ===== */}
         <TabsContent value="overview" className="space-y-6">
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <KpiCard
               title="Total Produtos"
               value={formatNumber(summary.totalProducts)}
@@ -375,15 +350,6 @@ export default function ProductsPage() {
               value={formatNumber(summary.productsNeedingAttention)}
               icon={AlertTriangle}
               iconColor="text-destructive"
-              loading={loading}
-            />
-            <KpiCard
-              title="Sem Estoque"
-              value={formatNumber(
-                products.filter((p) => p.stockStatus === "out").length
-              )}
-              icon={PackageX}
-              iconColor="text-red-400"
               loading={loading}
             />
           </div>
@@ -581,20 +547,6 @@ export default function ProductsPage() {
                 align: "right",
               },
               {
-                key: "stock",
-                label: "Estoque",
-                align: "center",
-                render: (_v, row) => {
-                  const p = row as unknown as ProductIntelligence;
-                  return (
-                    <StockBadge
-                      stock={p.stock}
-                      status={p.stockStatus}
-                    />
-                  );
-                },
-              },
-              {
                 key: "conversionRate",
                 label: "TX Conv.",
                 align: "right",
@@ -695,20 +647,6 @@ export default function ProductsPage() {
                             </span>
                             <span className="text-xs">
                               Score: {product.healthScore}
-                            </span>
-                            <span className="text-xs">
-                              Estoque:{" "}
-                              <span
-                                className={
-                                  product.stockStatus === "ok"
-                                    ? "text-success"
-                                    : product.stockStatus === "low"
-                                      ? "text-yellow-400"
-                                      : "text-destructive"
-                                }
-                              >
-                                {product.stock}
-                              </span>
                             </span>
                           </div>
                         </div>

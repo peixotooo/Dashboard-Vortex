@@ -70,38 +70,6 @@ export interface VndaProductRow {
   percentOfTotal: number;
 }
 
-// --- Stock / Catalog types ---
-
-export interface VndaVariant {
-  id: number;
-  sku: string;
-  price: number;
-  sale_price: number;
-  quantity: number;
-  available: boolean;
-  properties?: Record<string, string>;
-}
-
-export interface VndaCatalogProduct {
-  id: number;
-  name: string;
-  slug: string;
-  price: number;
-  sale_price: number;
-  available: boolean;
-  variants: VndaVariant[];
-}
-
-export interface VndaStockRow {
-  name: string;
-  totalStock: number;
-  variantCount: number;
-  available: boolean;
-  price: number;
-  salePrice: number | null;
-  hasPromotion: boolean;
-}
-
 // --- Date helpers ---
 
 function datePresetToRange(preset: string): { start: string; end: string } {
@@ -402,73 +370,6 @@ export async function getVndaProductReport(args: {
     .slice(0, args.limit || 20);
 
   return products;
-}
-
-// --- Stock report (catalog scan) ---
-
-export async function getVndaStockReport(config: VndaConfig): Promise<VndaStockRow[]> {
-  // Step 1: Paginate products to collect IDs and basic info
-  // (GET /api/v2/products does NOT include variant quantity — only the dedicated endpoint does)
-  const catalogProducts: { id: number; name: string; price: number; salePrice: number; available: boolean }[] = [];
-  let page = 1;
-  const maxPages = 100;
-
-  while (page <= maxPages) {
-    const { data, pagination } = await vndaRequest<VndaCatalogProduct[]>(
-      "products", config, { page: String(page), per_page: "50" }
-    );
-    if (!data || data.length === 0) break;
-
-    for (const p of data) {
-      catalogProducts.push({
-        id: p.id,
-        name: p.name,
-        price: p.price,
-        salePrice: p.sale_price,
-        available: p.available,
-      });
-    }
-
-    if (!pagination?.next_page) break;
-    page++;
-  }
-
-  // Step 2: Fetch variants per product in batches (quantity lives here)
-  const BATCH_SIZE = 5;
-  const results: VndaStockRow[] = [];
-
-  for (let i = 0; i < catalogProducts.length; i += BATCH_SIZE) {
-    const batch = catalogProducts.slice(i, i + BATCH_SIZE);
-    const variantResults = await Promise.all(
-      batch.map(async (product) => {
-        try {
-          const { data: variants } = await vndaRequest<VndaVariant[]>(
-            `products/${product.id}/variants`, config
-          );
-          const totalStock = (variants || []).reduce((s, v) => s + (v.quantity || 0), 0);
-          const variantCount = (variants || []).length;
-          const available = (variants || []).some(v => v.available);
-          const salePrice = product.salePrice && product.salePrice < product.price
-            ? product.salePrice : null;
-
-          return {
-            name: product.name,
-            totalStock,
-            variantCount,
-            available,
-            price: product.price,
-            salePrice,
-            hasPromotion: !!salePrice,
-          } as VndaStockRow;
-        } catch {
-          return null;
-        }
-      })
-    );
-    results.push(...variantResults.filter(Boolean) as VndaStockRow[]);
-  }
-
-  return results;
 }
 
 // --- Health check ---

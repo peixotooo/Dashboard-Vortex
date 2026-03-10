@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVndaConfig, getVndaProductReport, getVndaStockReport } from "@/lib/vnda-api";
+import { getVndaConfig, getVndaProductReport } from "@/lib/vnda-api";
 import { getGA4Report } from "@/lib/ga4-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import { generateIntelligenceReport } from "@/lib/products-intelligence";
@@ -26,15 +26,15 @@ export async function GET(request: NextRequest) {
           avgConversionRate: 0,
           productsNeedingAttention: 0,
           classificationCounts: { estrela: 0, oportunidade: 0, cash_cow: 0, alerta: 0 },
-          recommendationCounts: { aumentar_preco: 0, manter_preco: 0, reduzir_preco: 0, promocionar: 0, sem_estoque: 0 },
+          recommendationCounts: { aumentar_preco: 0, manter_preco: 0, reduzir_preco: 0, promocionar: 0 },
         },
         vndaConfigured: false,
         ga4Configured: false,
       });
     }
 
-    // Fetch all sources in parallel (stock is best-effort — failures don't break the page)
-    const [vndaProducts, ga4Result, stockData] = await Promise.all([
+    // Fetch all sources in parallel
+    const [vndaProducts, ga4Result] = await Promise.all([
       vndaConfig
         ? getVndaProductReport({ config: vndaConfig, datePreset, limit })
         : Promise.resolve([]),
@@ -47,12 +47,6 @@ export async function GET(request: NextRequest) {
             orderBy: { metric: "itemRevenue", desc: true },
           })
         : Promise.resolve({ rows: [] }),
-      vndaConfig
-        ? getVndaStockReport(vndaConfig).catch((err) => {
-            console.error("[Products Intelligence] Stock fetch failed (non-fatal):", err instanceof Error ? err.message : err);
-            return [] as Awaited<ReturnType<typeof getVndaStockReport>>;
-          })
-        : Promise.resolve([]),
     ]);
 
     // Optionally fetch previous period for comparison
@@ -86,7 +80,6 @@ export async function GET(request: NextRequest) {
       ga4Products: ga4Result.rows,
       prevVndaProducts,
       prevGA4Products: prevGA4Result?.rows,
-      stockData,
     });
 
     return NextResponse.json({
@@ -105,7 +98,7 @@ export async function GET(request: NextRequest) {
         avgConversionRate: 0,
         productsNeedingAttention: 0,
         classificationCounts: { estrela: 0, oportunidade: 0, cash_cow: 0, alerta: 0 },
-        recommendationCounts: { aumentar_preco: 0, manter_preco: 0, reduzir_preco: 0, promocionar: 0, sem_estoque: 0 },
+        recommendationCounts: { aumentar_preco: 0, manter_preco: 0, reduzir_preco: 0, promocionar: 0 },
       },
       vndaConfigured: false,
       ga4Configured: false,
