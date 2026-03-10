@@ -192,7 +192,7 @@ export async function runSpecialist(
     const imgList = params.imageAttachments
       .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
       .join("\n");
-    taskMessage += `\n\n[Criativos anexados pelo usuário — já enviados para a conta Meta, prontos para uso]\n${imgList}\n\nUse estes image_hashes ao criar criativos com create_ad_creative. NÃO invente hashes — use EXATAMENTE os listados acima.`;
+    taskMessage += `\n\n[CRIATIVOS ANEXADOS — já enviados para a conta Meta]\n${imgList}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes. NAO chame list_media_gallery — voce JA TEM as imagens necessárias acima.`;
   }
 
   // 7. Agentic loop (non-streaming)

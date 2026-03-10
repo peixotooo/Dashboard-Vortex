@@ -462,7 +462,7 @@ const TEAM_TOOLS: Tool[] = [
         async: {
           type: "boolean",
           description:
-            "Se true, cria uma tarefa no kanban e processa em background (para analises complexas com muitas chamadas de API, coleta de dados granular, auditorias extensas). O resultado ficara na pagina de entregas. Use async=true quando a tarefa envolver: coleta de dados de multiplas campanhas/adsets/ads, analises que precisam de muitas chamadas API sequenciais, ou qualquer trabalho que possa demorar mais de 3 minutos. Default: false",
+            "Se true, cria uma tarefa no kanban e processa em background. Ideal para: geracao de copy, auditorias SEO, calendarios, estrategias — tarefas que geram DOCUMENTOS/TEXTOS. NUNCA use async=true para acoes que executam na Meta Ads API (criar campanhas, adsets, anuncios) — essas DEVEM ser sync (async=false) para executar imediatamente. Default: false",
         },
       },
       required: ["agent_slug", "task"],

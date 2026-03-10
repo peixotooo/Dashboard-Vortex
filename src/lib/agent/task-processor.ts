@@ -474,7 +474,39 @@ async function checkAndCompileProjects(
 
 // --- Task execution ---
 
+function buildCampaignTaskPrompt(task: AgentTask): string {
+  return [
+    `## Tarefa de Campanha: ${task.title}`,
+    "",
+    task.description || "(sem descricao detalhada)",
+    "",
+    `- Task ID: ${task.id}`,
+    "",
+    "## INSTRUCOES OBRIGATORIAS",
+    "",
+    "### 1. Execute as acoes na Meta Ads API",
+    "Use as ferramentas create_campaign, create_adset, create_ad_creative, create_ad conforme necessario.",
+    "Crie TUDO com status PAUSED.",
+    "Execute em sequencia: create_campaign → create_adset → create_ad_creative → create_ad.",
+    "Capture os IDs retornados de cada etapa e use na proxima.",
+    "",
+    "### 2. Salve um resumo usando save_deliverable",
+    "Apos executar as acoes na Meta API, salve um RESUMO do que foi criado:",
+    `- Use task_id: "${task.id}"`,
+    '- deliverable_type: "report"',
+    "- Inclua IDs das campanhas/adsets/ads criados e seus status",
+    "",
+    "### 3. Nao peca confirmacao",
+    "Voce esta executando de forma automatica. Execute diretamente.",
+    "Crie tudo PAUSED — o usuario ativara manualmente se quiser.",
+  ].join("\n");
+}
+
 function buildTaskPrompt(task: AgentTask): string {
+  if (task.task_type === "campaign") {
+    return buildCampaignTaskPrompt(task);
+  }
+
   return [
     `## Tarefa Atribuida: ${task.title}`,
     "",
@@ -521,18 +553,20 @@ async function executeTask(
   const taskPrompt = buildTaskPrompt(task);
 
   try {
+    const isCampaign = task.task_type === "campaign";
     const result = await runSpecialist({
       agentSlug,
       task: taskPrompt,
-      context:
-        "Tarefa executada automaticamente pelo sistema. Salve o resultado com save_deliverable. NAO peca confirmacao.",
+      context: isCampaign
+        ? "Tarefa de campanha executada automaticamente. Execute as chamadas Meta API (create_campaign, create_adset, etc.) e salve um resumo com save_deliverable. NAO peca confirmacao. Crie tudo PAUSED."
+        : "Tarefa executada automaticamente pelo sistema. Salve o resultado com save_deliverable. NAO peca confirmacao.",
       complexity: task.priority === "urgent" ? "deep" : "normal",
       accountId: wsContext.accountId,
       accountContext: wsContext.accountContext,
       workspaceId: task.workspace_id,
       supabase,
       projectContext: wsContext.projectContext,
-      maxLoops: 5,
+      maxLoops: isCampaign ? 10 : 5,
       maxTokens: 4096,
     });
 

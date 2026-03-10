@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       const list = attachments
         .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
         .join("\n");
-      enrichedMessage = `${message}\n\n[Criativos anexados — já enviados para a conta Meta, prontos para uso]\n${list}\n\nUse estes image_hashes ao criar criativos com create_ad_creative.`;
+      enrichedMessage = `${message}\n\n[CRIATIVOS ANEXADOS NESTA CONVERSA — já enviados para a conta Meta, prontos para uso]\n${list}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes ao criar criativos. NAO chame list_media_gallery — as imagens já estão disponíveis acima.`;
     }
 
     if (!message || !accountId) {

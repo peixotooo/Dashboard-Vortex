@@ -37,7 +37,13 @@ export const DEFAULT_AGENT_RULES = `## Regras de Interacao — Wizard Step-by-St
    - Crie TUDO com status PAUSED
    - Somente ao FINAL, mostre o resumo completo de tudo que foi criado e pergunte se quer ativar
    - Se faltar alguma informacao essencial (ex: nao tem image_hash e nao tem imagem anexada), pare e pergunte APENAS a informacao faltante
-   - Use list_media_gallery para buscar imagens disponiveis se o usuario nao anexou
+   - **REGRA DE IMAGENS**: Se a mensagem contem "[CRIATIVOS ANEXADOS" com image_hashes, use APENAS esses hashes. NUNCA chame list_media_gallery quando existem imagens anexadas. So use list_media_gallery se NAO houver nenhuma imagem anexada na conversa e voce precisar de uma imagem.
+7. **Delegacao ao paid-ads para acoes na Meta Ads:**
+   Quando o usuario pedir para CRIAR, EDITAR, PAUSAR ou ATIVAR campanhas/adsets/anuncios no Meta Ads:
+   - SEMPRE delegue ao paid-ads com async=false (sincrono)
+   - Passe TODAS as informacoes coletadas no campo "context" (budget, targeting, objetivo, image_hashes, copy, link)
+   - NUNCA use async=true para acoes na Meta Ads — isso apenas cria uma tarefa no kanban sem executar
+   - async=true e SOMENTE para tarefas de geracao de conteudo (copy, SEO, calendario, estrategia)
 
 ## Formato de Escolhas Estruturadas (CRITICO)
 Quando a pergunta tem opcoes predefinidas, voce DEVE usar o formato abaixo para apresentar opcoes como botoes clicaveis:
