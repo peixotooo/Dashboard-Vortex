@@ -70,6 +70,38 @@ export interface VndaProductRow {
   percentOfTotal: number;
 }
 
+// --- Stock / Catalog types ---
+
+export interface VndaVariant {
+  id: number;
+  sku: string;
+  price: number;
+  sale_price: number;
+  quantity: number;
+  available: boolean;
+  properties?: Record<string, string>;
+}
+
+export interface VndaCatalogProduct {
+  id: number;
+  name: string;
+  slug: string;
+  price: number;
+  sale_price: number;
+  available: boolean;
+  variants: VndaVariant[];
+}
+
+export interface VndaStockRow {
+  name: string;
+  totalStock: number;
+  variantCount: number;
+  available: boolean;
+  price: number;
+  salePrice: number | null;
+  hasPromotion: boolean;
+}
+
 // --- Date helpers ---
 
 function datePresetToRange(preset: string): { start: string; end: string } {
@@ -370,6 +402,45 @@ export async function getVndaProductReport(args: {
     .slice(0, args.limit || 20);
 
   return products;
+}
+
+// --- Stock report (catalog scan) ---
+
+export async function getVndaStockReport(config: VndaConfig): Promise<VndaStockRow[]> {
+  const stockMap = new Map<string, VndaStockRow>();
+  let page = 1;
+  const maxPages = 100;
+
+  while (page <= maxPages) {
+    const { data, pagination } = await vndaRequest<VndaCatalogProduct[]>(
+      "products", config, { page: String(page), per_page: "50" }
+    );
+
+    if (!data || data.length === 0) break;
+
+    for (const product of data) {
+      const totalStock = (product.variants || []).reduce((s, v) => s + (v.quantity || 0), 0);
+      const variantCount = (product.variants || []).length;
+      const available = (product.variants || []).some(v => v.available);
+      const salePrice = product.sale_price && product.sale_price < product.price
+        ? product.sale_price : null;
+
+      stockMap.set(product.name, {
+        name: product.name,
+        totalStock,
+        variantCount,
+        available,
+        price: product.price,
+        salePrice,
+        hasPromotion: !!salePrice,
+      });
+    }
+
+    if (!pagination?.next_page) break;
+    page++;
+  }
+
+  return [...stockMap.values()];
 }
 
 // --- Health check ---

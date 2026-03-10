@@ -1,10 +1,10 @@
-import type { VndaProductRow } from "./vnda-api";
+import type { VndaProductRow, VndaStockRow } from "./vnda-api";
 import type { GA4GenericRow } from "./ga4-api";
 
 // --- Types ---
 
 export type ProductClassification = "estrela" | "oportunidade" | "cash_cow" | "alerta";
-export type ProductRecommendation = "aumentar_preco" | "manter_preco" | "reduzir_preco" | "promocionar";
+export type ProductRecommendation = "aumentar_preco" | "manter_preco" | "reduzir_preco" | "promocionar" | "sem_estoque";
 
 export interface ProductIntelligence {
   name: string;
@@ -27,6 +27,14 @@ export interface ProductIntelligence {
   recommendationReason: string;
   hasVndaData: boolean;
   hasGA4Data: boolean;
+  // Stock (VNDA catalog)
+  stock: number;
+  stockStatus: "ok" | "low" | "out";
+  hasPromotion: boolean;
+  catalogPrice: number;
+  catalogSalePrice: number | null;
+  // Source tracking
+  sources: ("vnda" | "ga4")[];
 }
 
 export interface ProductComparison {
@@ -109,11 +117,18 @@ interface MergedRaw {
   ga4Revenue: number;
   hasVndaData: boolean;
   hasGA4Data: boolean;
+  // Stock
+  stock: number;
+  stockStatus: "ok" | "low" | "out";
+  hasPromotion: boolean;
+  catalogPrice: number;
+  catalogSalePrice: number | null;
 }
 
 function mergeProducts(
   vndaProducts: VndaProductRow[],
-  ga4Products: GA4GenericRow[]
+  ga4Products: GA4GenericRow[],
+  stockData?: VndaStockRow[]
 ): MergedRaw[] {
   const merged = new Map<string, MergedRaw>();
 
@@ -132,6 +147,11 @@ function mergeProducts(
       ga4Revenue: 0,
       hasVndaData: true,
       hasGA4Data: false,
+      stock: 0,
+      stockStatus: "out",
+      hasPromotion: false,
+      catalogPrice: 0,
+      catalogSalePrice: null,
     });
   }
 
@@ -182,7 +202,43 @@ function mergeProducts(
         ga4Revenue: row.metrics.itemRevenue || 0,
         hasVndaData: false,
         hasGA4Data: true,
+        stock: 0,
+        stockStatus: "out",
+        hasPromotion: false,
+        catalogPrice: 0,
+        catalogSalePrice: null,
       });
+    }
+  }
+
+  // Enrich with stock data (fuzzy match by name)
+  if (stockData && stockData.length > 0) {
+    const stockIndex = new Map<string, VndaStockRow>();
+    for (const s of stockData) {
+      stockIndex.set(normalizeProductName(s.name), s);
+    }
+
+    for (const [key, product] of merged) {
+      // Exact match
+      let stock = stockIndex.get(key);
+      // Fuzzy match
+      if (!stock) {
+        let bestScore = 0;
+        for (const [sKey, sRow] of stockIndex) {
+          const score = tokenOverlap(key, sKey);
+          if (score > bestScore && score >= 0.7) {
+            bestScore = score;
+            stock = sRow;
+          }
+        }
+      }
+      if (stock) {
+        product.stock = stock.totalStock;
+        product.stockStatus = stock.totalStock > 10 ? "ok" : stock.totalStock > 0 ? "low" : "out";
+        product.hasPromotion = stock.hasPromotion;
+        product.catalogPrice = stock.price;
+        product.catalogSalePrice = stock.salePrice;
+      }
     }
   }
 
@@ -269,17 +325,39 @@ function recommendAction(
   const views = product.views;
   const cartAband = product.cartAbandonmentRate;
 
+  // Stock-aware: out of stock overrides everything
+  if (product.stock === 0 && product.stockStatus === "out") {
+    return {
+      recommendation: "sem_estoque",
+      reason: `Produto sem estoque. Reponha antes de investir em divulgacao.`,
+    };
+  }
+
   if (conv > avgConvRate * 1.5 && product.unitsSold > 0) {
+    const stockWarning = product.stockStatus === "low"
+      ? ` Atencao: estoque baixo (${product.stock} un.) — risco de ruptura.`
+      : "";
     return {
       recommendation: "aumentar_preco",
-      reason: `Alta demanda com conversao de ${conv.toFixed(1)}% (media ${avgConvRate.toFixed(1)}%). Ha margem para aumento de preco.`,
+      reason: `Alta demanda com conversao de ${conv.toFixed(1)}% (media ${avgConvRate.toFixed(1)}%). Ha margem para aumento de preco.${stockWarning}`,
     };
   }
 
   if (views > viewsMedian && conv < avgConvRate * 0.5 && cartAband > 0.5) {
+    const stockNote = product.stock > 50
+      ? ` Estoque alto (${product.stock} un.) parado — considere desconto agressivo.`
+      : "";
     return {
       recommendation: "reduzir_preco",
-      reason: `${views} visualizacoes mas apenas ${conv.toFixed(1)}% de conversao. ${(cartAband * 100).toFixed(0)}% de abandono de carrinho sugere preco elevado.`,
+      reason: `${views} visualizacoes mas apenas ${conv.toFixed(1)}% de conversao. ${(cartAband * 100).toFixed(0)}% de abandono de carrinho sugere preco elevado.${stockNote}`,
+    };
+  }
+
+  // High stock + low conversion = reduce price
+  if (product.stock > 50 && conv < avgConvRate * 0.7 && product.unitsSold > 0) {
+    return {
+      recommendation: "reduzir_preco",
+      reason: `Estoque alto (${product.stock} un.) com conversao baixa (${conv.toFixed(1)}%). Considere reducao de preco para girar o estoque.`,
     };
   }
 
@@ -303,8 +381,9 @@ export function generateIntelligenceReport(args: {
   ga4Products: GA4GenericRow[];
   prevVndaProducts?: VndaProductRow[];
   prevGA4Products?: GA4GenericRow[];
+  stockData?: VndaStockRow[];
 }): ProductIntelligenceResponse {
-  const rawMerged = mergeProducts(args.vndaProducts, args.ga4Products);
+  const rawMerged = mergeProducts(args.vndaProducts, args.ga4Products, args.stockData);
 
   // Calculate aggregates
   const revenues = rawMerged.map((p) => p.revenue).filter((r) => r > 0);
@@ -335,6 +414,10 @@ export function generateIntelligenceReport(args: {
         : 0;
     const healthScore = calculateHealthScore(raw, avgConvRate, medianRev);
 
+    const sources: ("vnda" | "ga4")[] = [];
+    if (raw.hasVndaData) sources.push("vnda");
+    if (raw.hasGA4Data) sources.push("ga4");
+
     const partial: ProductIntelligence = {
       name: raw.name,
       revenue: raw.revenue,
@@ -353,6 +436,12 @@ export function generateIntelligenceReport(args: {
       recommendationReason: "",
       hasVndaData: raw.hasVndaData,
       hasGA4Data: raw.hasGA4Data,
+      stock: raw.stock,
+      stockStatus: raw.stockStatus,
+      hasPromotion: raw.hasPromotion,
+      catalogPrice: raw.catalogPrice,
+      catalogSalePrice: raw.catalogSalePrice,
+      sources,
     };
 
     partial.classification = classifyProduct(
@@ -439,6 +528,7 @@ export function generateIntelligenceReport(args: {
     manter_preco: 0,
     reduzir_preco: 0,
     promocionar: 0,
+    sem_estoque: 0,
   };
   for (const p of products) {
     classificationCounts[p.classification]++;
