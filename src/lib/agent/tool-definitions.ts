@@ -640,6 +640,27 @@ const TEAM_TOOLS: Tool[] = [
   },
 ];
 
+// --- Media Gallery Tools ---
+
+const MEDIA_GALLERY_TOOLS: Tool[] = [
+  {
+    name: "list_media_gallery",
+    description:
+      "Lista imagens disponíveis na galeria de mídia do workspace. Retorna filename, image_hash e image_url de imagens já enviadas pelo usuário. Use quando precisar de image_hash para criar criativos, ou quando o usuário perguntar quais imagens tem disponíveis.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        search: {
+          type: "string",
+          description:
+            "Termo de busca para filtrar por nome do arquivo (opcional)",
+        },
+      },
+      required: [],
+    },
+  },
+];
+
 // --- Saved Creatives Tools ---
 
 const SAVED_CREATIVES_TOOLS: Tool[] = [
@@ -821,27 +842,28 @@ export const AGENT_TOOLS: Tool[] = [
   ...INSTAGRAM_TOOLS,
   ...SAVED_CREATIVES_TOOLS,
   ...SAVED_CAMPAIGNS_TOOLS,
+  ...MEDIA_GALLERY_TOOLS,
 ];
 
 // --- Per-agent tool selection ---
 
 export function getToolsForAgent(agentSlug?: string): Tool[] {
   const SAVED_TOOLS = [...SAVED_CREATIVES_TOOLS, ...SAVED_CAMPAIGNS_TOOLS];
-  // Vortex (default) gets Meta + Google Ads + Memory + Saved tools
+  // Vortex (default) gets Meta + Google Ads + Memory + Saved + Media Gallery
   if (!agentSlug || agentSlug === "vortex") {
-    return [...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS];
+    return [...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...MEMORY_TOOLS, ...SAVED_TOOLS, ...MEDIA_GALLERY_TOOLS];
   }
-  // Marcos (CMO) and paid-ads specialist get Team + Meta + Google Ads + Instagram + Saved
+  // Marcos (CMO) and paid-ads specialist get Team + Meta + Google Ads + Instagram + Saved + Media Gallery
   if (agentSlug === "coordenador" || agentSlug === "paid-ads") {
-    return [...TEAM_TOOLS, ...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...INSTAGRAM_TOOLS, ...SAVED_TOOLS];
+    return [...TEAM_TOOLS, ...META_TOOLS, ...GOOGLE_ADS_TOOLS, ...INSTAGRAM_TOOLS, ...SAVED_TOOLS, ...MEDIA_GALLERY_TOOLS];
   }
   // Social content gets Team + Instagram + Saved
   if (agentSlug === "social-content") {
     return [...TEAM_TOOLS, ...INSTAGRAM_TOOLS, ...SAVED_TOOLS];
   }
-  // Ad creative and copywriting agents get Team + Saved
+  // Ad creative and copywriting agents get Team + Saved + Media Gallery
   if (agentSlug === "ad-creative" || agentSlug === "copywriting") {
-    return [...TEAM_TOOLS, ...SAVED_TOOLS];
+    return [...TEAM_TOOLS, ...SAVED_TOOLS, ...MEDIA_GALLERY_TOOLS];
   }
   // Other team agents get only Team tools
   return TEAM_TOOLS;

@@ -9,6 +9,7 @@ import {
   Wrench,
   AlertCircle,
   ImagePlus,
+  FolderOpen,
   X,
   Check,
   Plus,
@@ -21,6 +22,7 @@ import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 import { MessageContent } from "@/components/ui/message-content";
+import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
 
 interface AgentInfo {
   id: string;
@@ -69,6 +71,7 @@ const TOOL_LABELS: Record<string, string> = {
   upload_image_from_url: "Enviando Imagem",
   analyze_performance: "Analisando Performance",
   list_custom_audiences: "Listando Audiências",
+  list_media_gallery: "Consultando Galeria",
 };
 
 const MODEL_LABELS: Record<string, string> = {
@@ -117,6 +120,8 @@ export default function TeamChatPage() {
     }
   }, [accountId, accounts]);
 
+  const [galleryOpen, setGalleryOpen] = useState(false);
+
   const [attachments, setAttachments] = useState<Array<{
     id: string;
     file: File;
@@ -138,7 +143,9 @@ export default function TeamChatPage() {
       const formData = new FormData();
       formData.append("filename", file, file.name);
       formData.append("account_id", uploadAccId);
-      const res = await fetch("/api/media", { method: "POST", body: formData });
+      const headers: Record<string, string> = {};
+      if (workspace?.id) headers["x-workspace-id"] = workspace.id;
+      const res = await fetch("/api/media", { method: "POST", body: formData, headers });
       const data = await res.json();
       const images = data.images || {};
       const firstKey = Object.keys(images)[0];
@@ -154,7 +161,19 @@ export default function TeamChatPage() {
         prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
       );
     }
-  }, [selectedAccountId, accountId]);
+  }, [selectedAccountId, accountId, workspace?.id]);
+
+  const handleGallerySelect = useCallback((items: MediaItem[]) => {
+    const newAttachments = items.map((item) => ({
+      id: item.id,
+      file: new File([], item.filename),
+      preview: item.image_url,
+      status: "done" as const,
+      image_hash: item.image_hash || undefined,
+      image_url: item.image_url,
+    }));
+    setAttachments((prev) => [...prev, ...newAttachments]);
+  }, []);
 
   // Load agents
   useEffect(() => {
@@ -950,6 +969,16 @@ export default function TeamChatPage() {
               >
                 <ImagePlus className="h-4 w-4" />
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 shrink-0"
+                onClick={() => setGalleryOpen(true)}
+                disabled={isLoading || !selectedAgent || !workspace?.id}
+                title="Galeria de mídias"
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
               <Textarea
                 ref={textareaRef}
                 value={input}
@@ -981,6 +1010,15 @@ export default function TeamChatPage() {
           </div>
         </div>
       </div>
+
+      {workspace?.id && (
+        <GalleryPicker
+          open={galleryOpen}
+          onOpenChange={setGalleryOpen}
+          workspaceId={workspace.id}
+          onSelect={handleGallerySelect}
+        />
+      )}
     </div>
   );
 }

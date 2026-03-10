@@ -28,6 +28,7 @@ import {
   listSavedCampaigns,
   createMarketingAction,
 } from "@/lib/agent/memory";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -631,6 +632,51 @@ export async function executeToolCall(
       } catch (err) {
         return {
           error: `Erro ao criar acao de marketing: ${err instanceof Error ? err.message : "erro desconhecido"}`,
+        };
+      }
+    }
+
+    // --- Media Gallery Tools ---
+
+    case "list_media_gallery": {
+      if (!workspaceId) {
+        return { error: "Galeria não disponível (workspace não configurado)" };
+      }
+      try {
+        const adminSb = createAdminClient();
+        let query = adminSb
+          .from("workspace_media")
+          .select("id, filename, image_url, image_hash, created_at")
+          .eq("workspace_id", workspaceId)
+          .order("created_at", { ascending: false })
+          .limit(50);
+
+        const search = toolInput.search as string | undefined;
+        if (search) {
+          query = query.ilike("filename", `%${search}%`);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          return { error: `Erro ao buscar galeria: ${error.message}` };
+        }
+
+        return {
+          media: (data || []).map((m) => ({
+            filename: m.filename,
+            image_hash: m.image_hash,
+            image_url: m.image_url,
+            created_at: m.created_at,
+          })),
+          count: (data || []).length,
+          message:
+            (data || []).length === 0
+              ? "Nenhuma imagem na galeria. O usuário precisa anexar imagens no chat primeiro."
+              : `${(data || []).length} imagens disponíveis na galeria.`,
+        };
+      } catch (err) {
+        return {
+          error: `Erro ao buscar galeria: ${err instanceof Error ? err.message : "erro desconhecido"}`,
         };
       }
     }

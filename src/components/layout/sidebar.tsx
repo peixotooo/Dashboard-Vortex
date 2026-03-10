@@ -54,6 +54,7 @@ const navItems: NavItem[] = [
   { href: "/simulador/config", label: "Configurações", icon: SlidersHorizontal, indent: true },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
+  { href: "/media", label: "Galeria", icon: Image },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
