@@ -23,6 +23,7 @@ import {
   Landmark,
   SlidersHorizontal,
   Search,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +50,7 @@ const navItems: NavItem[] = [
   { href: "/simulador", label: "Financeiro", icon: Landmark },
   { href: "/simulador", label: "Simulador", icon: Calculator, indent: true },
   { href: "/simulador/diagnostico", label: "Diagnostico", icon: Search, indent: true },
+  { href: "/simulador/escala", label: "Escala", icon: TrendingUp, indent: true },
   { href: "/simulador/config", label: "Configurações", icon: SlidersHorizontal, indent: true },
   { href: "/audiences", label: "Audiências", icon: Image },
   { href: "/creatives", label: "Criativos", icon: Image },
