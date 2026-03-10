@@ -305,6 +305,11 @@ export default function EscalaPage() {
     const diasRestantes = daysInMonth - daysWithData;
     const projReceita = totalReceita + (avgReceitaDia * diasRestantes);
     const avgRoas = totalInvest > 0 ? totalReceita / totalInvest : 0;
+    const totalSessions = enriched.reduce((s, d) => s + d.sessions, 0);
+    const totalPedidos = enriched.reduce((s, d) => s + d.pedidos, 0);
+    const avgTicket = totalPedidos > 0 ? totalReceita / totalPedidos : 0;
+    const avgTxConv = totalSessions > 0 ? (totalPedidos / totalSessions) * 100 : 0;
+    const avgCps = totalSessions > 0 ? totalInvest / totalSessions : 0;
     const diasAbaixo = enriched.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
 
     // PE + Meta — SAME formula as Overview (using totalInvestment from last_30d)
@@ -343,16 +348,17 @@ export default function EscalaPage() {
       accumData.push({ dia: i, data: `${String(i).padStart(2, "0")}/${currentMonthStr}`, receitaAcum: accReceita, projecao: true });
     }
 
-    // Scenario simulation
-    const simData: Array<{ invest: number; roasEst: number; receitaDia: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
-    if (avgRoas > 0 && avgInvestDia > 0) {
+    // Scenario simulation (CPS-based: invest → sessoes → pedidos → receita)
+    const simData: Array<{ invest: number; sessoes: number; pedidos: number; receitaDia: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
+    if (avgCps > 0 && avgTxConv > 0 && avgTicket > 0) {
       for (let invest = 1000; invest <= 6000; invest += 100) {
-        const roasEst = avgRoas * Math.pow(avgInvestDia / invest, 0.18);
-        const receitaDia = invest * roasEst;
+        const sessoes = invest / avgCps;
+        const pedidos = sessoes * (avgTxConv / 100);
+        const receitaDia = pedidos * avgTicket;
         const ebitda = receitaDia * mcPreAdsPct - invest - custoFixoDiario;
         const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
         const receitaMes = totalReceita + (receitaDia * diasRestantes);
-        simData.push({ invest, roasEst, receitaDia, ebitda, ebitdaPct, receitaMes });
+        simData.push({ invest, sessoes, pedidos, receitaDia, ebitda, ebitdaPct, receitaMes });
       }
     }
 
@@ -378,6 +384,9 @@ export default function EscalaPage() {
       avgReceitaDia,
       avgInvestDia,
       avgRoas,
+      avgTicket,
+      avgTxConv,
+      avgCps,
       diasRestantes,
       daysWithData,
       daysInMonth,
@@ -399,15 +408,16 @@ export default function EscalaPage() {
     };
   }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
-  // Slider simulation (reactive)
+  // Slider simulation (CPS-based)
   const simAtual = useMemo(() => {
-    if (calc.avgRoas <= 0 || calc.avgInvestDia <= 0) return null;
-    const roasEst = calc.avgRoas * Math.pow(calc.avgInvestDia / simInvest, 0.18);
-    const receitaDia = simInvest * roasEst;
+    if (calc.avgCps <= 0 || calc.avgTxConv <= 0 || calc.avgTicket <= 0) return null;
+    const sessoes = simInvest / calc.avgCps;
+    const pedidos = sessoes * (calc.avgTxConv / 100);
+    const receitaDia = pedidos * calc.avgTicket;
     const ebitda = receitaDia * calc.mcPreAdsPct - simInvest - calc.custoFixoDiario;
     const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
     const receitaMes = calc.totalReceita + (receitaDia * calc.diasRestantes);
-    return { roasEst, receitaDia, ebitda, ebitdaPct, receitaMes };
+    return { sessoes, pedidos, receitaDia, ebitda, ebitdaPct, receitaMes };
   }, [simInvest, calc]);
 
   if (loading) {
@@ -731,9 +741,16 @@ export default function EscalaPage() {
       {/* Simulador */}
       <Card>
         <CardContent className="pt-5 pb-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
             Simulador: Ate onde posso investir?
           </h3>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4 text-[11px] text-muted-foreground">
+            <span>Parametros travados: <span className="font-semibold text-foreground">CPS {formatCurrency(calc.avgCps)}</span> · <span className="font-semibold text-foreground">TX Conv {calc.avgTxConv.toFixed(2)}%</span> · <span className="font-semibold text-foreground">Ticket {formatCurrency(calc.avgTicket)}</span></span>
+          </div>
+          <div className="bg-muted/[0.04] rounded-lg px-3.5 py-2.5 mb-5 text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-semibold text-foreground">Como e calculado: </span>
+            Investimento/dia ÷ CPS = <span className="text-foreground">Sessoes</span> → Sessoes × TX Conv = <span className="text-foreground">Pedidos</span> → Pedidos × Ticket Medio = <span className="text-foreground">Receita</span> → Receita × MC pre-ads - Invest - Custo fixo/dia = <span className="text-foreground">EBITDA</span>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8 items-start">
             <div>
@@ -760,13 +777,24 @@ export default function EscalaPage() {
               {simAtual && (
                 <div className="grid gap-2.5">
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
-                    <p className="text-[10px] text-muted-foreground mb-1">Receita/dia estimada</p>
-                    <p className="text-xl font-extrabold text-foreground">{fmtInt(simAtual.receitaDia)}</p>
+                    <p className="text-[10px] text-muted-foreground mb-1">Sessoes/dia</p>
+                    <p className="text-lg font-extrabold text-foreground">{Math.round(simAtual.sessoes).toLocaleString("pt-BR")}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{fmtInt(simInvest)} / {formatCurrency(calc.avgCps)} CPS</p>
                   </div>
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
-                    <p className="text-[10px] text-muted-foreground mb-1">EBITDA %</p>
+                    <p className="text-[10px] text-muted-foreground mb-1">Pedidos/dia</p>
+                    <p className="text-lg font-extrabold text-foreground">{simAtual.pedidos.toFixed(1)}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{Math.round(simAtual.sessoes)} sessoes x {calc.avgTxConv.toFixed(2)}% conv</p>
+                  </div>
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">Receita/dia</p>
+                    <p className="text-xl font-extrabold text-foreground">{fmtInt(simAtual.receitaDia)}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{simAtual.pedidos.toFixed(1)} ped x {formatCurrency(calc.avgTicket)} ticket</p>
+                  </div>
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">EBITDA</p>
                     <p className={`text-xl font-extrabold ${simAtual.ebitdaPct >= EBITDA_IDEAL ? "text-success" : simAtual.ebitdaPct >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
-                      {pct(simAtual.ebitdaPct)}
+                      {pct(simAtual.ebitdaPct)} <span className="text-sm">({fmtInt(simAtual.ebitda)}/dia)</span>
                     </p>
                     <p className="text-[10px] mt-1">
                       {simAtual.ebitdaPct >= EBITDA_IDEAL
@@ -775,12 +803,6 @@ export default function EscalaPage() {
                         ? <span className="text-warning">OK, mas no limite</span>
                         : <span className="text-destructive">Abaixo do minimo!</span>
                       }
-                    </p>
-                  </div>
-                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
-                    <p className="text-[10px] text-muted-foreground mb-1">EBITDA R$/dia</p>
-                    <p className={`text-xl font-extrabold ${simAtual.ebitda >= 0 ? "text-success" : "text-destructive"}`}>
-                      {fmtInt(simAtual.ebitda)}
                     </p>
                   </div>
                   <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
@@ -827,14 +849,23 @@ export default function EscalaPage() {
                         if (!active || !payload?.length) return null;
                         const d = payload[0]?.payload as typeof calc.simData[number];
                         return (
-                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px]">
-                            <div className="text-foreground font-bold mb-1">Investindo {fmtInt(d.invest)}/dia</div>
-                            <div className="text-blue-500">Receita/dia: {fmtInt(d.receitaDia)}</div>
-                            <div className={`font-bold ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
-                              EBITDA: {pct(d.ebitdaPct)} ({fmtInt(d.ebitda)}/dia)
+                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] min-w-[240px]">
+                            <div className="text-foreground font-bold mb-1.5">Investindo {fmtInt(d.invest)}/dia</div>
+                            <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[12px]">
+                              <span className="text-muted-foreground">Sessoes</span>
+                              <span className="text-foreground text-right">{Math.round(d.sessoes).toLocaleString("pt-BR")}</span>
+                              <span className="text-muted-foreground">Pedidos</span>
+                              <span className="text-foreground text-right">{d.pedidos.toFixed(1)}</span>
+                              <span className="text-muted-foreground">Receita/dia</span>
+                              <span className="text-blue-500 text-right font-semibold">{fmtInt(d.receitaDia)}</span>
                             </div>
-                            <div className="text-muted-foreground text-[11px] mt-1">
-                              ROAS: {d.roasEst.toFixed(1)}x · Receita mes: {fmtK(d.receitaMes)}
+                            <div className="border-t border-border/20 mt-1.5 pt-1.5">
+                              <div className={`font-bold ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+                                EBITDA: {pct(d.ebitdaPct)} ({fmtInt(d.ebitda)}/dia)
+                              </div>
+                              <div className="text-muted-foreground text-[11px] mt-0.5">
+                                Receita mes: {fmtK(d.receitaMes)}
+                              </div>
                             </div>
                           </div>
                         );
