@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch all sources in parallel (including stock)
+    // Fetch all sources in parallel (stock is best-effort — failures don't break the page)
     const [vndaProducts, ga4Result, stockData] = await Promise.all([
       vndaConfig
         ? getVndaProductReport({ config: vndaConfig, datePreset, limit })
@@ -48,7 +48,10 @@ export async function GET(request: NextRequest) {
           })
         : Promise.resolve({ rows: [] }),
       vndaConfig
-        ? getVndaStockReport(vndaConfig)
+        ? getVndaStockReport(vndaConfig).catch((err) => {
+            console.error("[Products Intelligence] Stock fetch failed (non-fatal):", err instanceof Error ? err.message : err);
+            return [] as Awaited<ReturnType<typeof getVndaStockReport>>;
+          })
         : Promise.resolve([]),
     ]);
 
