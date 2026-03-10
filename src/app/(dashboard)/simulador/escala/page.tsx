@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, CheckCircle2, Target } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -103,6 +103,7 @@ export default function EscalaPage() {
   const [loading, setLoading] = useState(true);
   const [trendData, setTrendData] = useState<DailyRow[]>([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalInvestment, setTotalInvestment] = useState(0);
   const [vndaShipping, setVndaShipping] = useState(0);
   const [vndaDiscount, setVndaDiscount] = useState(0);
   const [vndaConfigured, setVndaConfigured] = useState(false);
@@ -186,6 +187,7 @@ export default function EscalaPage() {
             dateRaw: (row.dateRaw as string) || "",
             cost: (row.cost as number) || 0,
           }));
+        const gadsTotalCost = ga4Data.googleAds?.totals?.cost || 0;
 
         // VNDA
         const isVndaConfigured = vndaData.configured === true;
@@ -250,6 +252,8 @@ export default function EscalaPage() {
         setTrendData(trend);
         const rev = isVndaConfigured ? vndaTotals.revenue : ga4Configured ? ga4Totals.revenue : totalMetaRevenue;
         setTotalRevenue(rev);
+        // Total investment from last_30d (same as Overview)
+        setTotalInvestment(totalSpend + gadsTotalCost);
       } catch {
         // Keep defaults
       } finally {
@@ -286,10 +290,9 @@ export default function EscalaPage() {
       const ebitda = d.revenue * mcPreAdsPct - d.totalSpend - custoFixoDiario;
       const ebitdaPct = d.revenue > 0 ? ebitda / d.revenue : 0;
       const adsPct = d.revenue > 0 ? d.totalSpend / d.revenue : 0;
-      const custoFixoPct = d.revenue > 0 ? custoFixoDiario / d.revenue : 0;
       const roas = d.totalSpend > 0 ? d.revenue / d.totalSpend : 0;
       const receitaMin8 = mcPreAdsPct - EBITDA_MIN > 0 ? (d.totalSpend + custoFixoDiario) / (mcPreAdsPct - EBITDA_MIN) : 0;
-      return { ...d, custosVar, ebitda, ebitdaPct, adsPct, custoFixoPct, roas, receitaMin8 };
+      return { ...d, custosVar, ebitda, ebitdaPct, adsPct, roas, receitaMin8 };
     });
 
     // Totals
@@ -304,10 +307,10 @@ export default function EscalaPage() {
     const avgRoas = totalInvest > 0 ? totalReceita / totalInvest : 0;
     const diasAbaixo = enriched.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
 
-    // PE + Meta (same formulas as Overview)
-    const investPerc = totalRevenue > 0 ? (totalInvest / (totalRevenue || 1)) * 100 : 0;
-    const totalVarCostPct = fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
-    const contributionMarginPct = 100 - totalVarCostPct - investPerc;
+    // PE + Meta — SAME formula as Overview (using totalInvestment from last_30d)
+    const investPerc = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
+    const totalVarCostPct = investPerc + fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
+    const contributionMarginPct = 100 - totalVarCostPct;
     const breakEven = contributionMarginPct > 0 ? monthly_fixed_costs / (contributionMarginPct / 100) : 0;
     const effectiveMargin = contributionMarginPct - finSettings.safety_margin_pct;
     const annualTarget = effectiveMargin > 0
@@ -315,6 +318,17 @@ export default function EscalaPage() {
       : 0;
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
     const monthTarget = annualTarget * seasonalityWeight;
+
+    // Pre/Post PE
+    const aboveBreakEven = totalReceita >= breakEven;
+    const marginAbovePE = totalReceita - breakEven;
+    const diasParaPE = !aboveBreakEven && avgReceitaDia > 0
+      ? Math.ceil((breakEven - totalReceita) / avgReceitaDia)
+      : 0;
+    const diasParaMeta = monthTarget > totalReceita && avgReceitaDia > 0
+      ? Math.ceil((monthTarget - totalReceita) / avgReceitaDia)
+      : 0;
+    const mcPosAdsPct = totalReceita > 0 ? (totalReceita - totalReceita * custosSemAdsPct - totalInvest) / totalReceita : 0;
 
     // Accumulated revenue (with projection)
     const accumData: Array<{ dia: number; data: string; receitaAcum: number; projecao: boolean }> = [];
@@ -371,13 +385,19 @@ export default function EscalaPage() {
       diasAbaixo,
       breakEven,
       monthTarget,
+      aboveBreakEven,
+      marginAbovePE,
+      diasParaPE,
+      diasParaMeta,
+      mcPosAdsPct,
+      contributionMarginPct,
       accumData,
       simData,
       pontoOtimo,
       progPE,
       progMeta,
     };
-  }, [trendData, totalRevenue, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
+  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
   // Slider simulation (reactive)
   const simAtual = useMemo(() => {
@@ -405,6 +425,12 @@ export default function EscalaPage() {
     );
   }
 
+  // PE position for visual bar (as % of Meta or max scale)
+  const barScale = Math.max(calc.monthTarget, calc.projReceita, calc.breakEven) * 1.1;
+  const peBarPct = barScale > 0 ? (calc.breakEven / barScale) * 100 : 0;
+  const receitaBarPct = barScale > 0 ? (calc.totalReceita / barScale) * 100 : 0;
+  const metaBarPct = barScale > 0 ? (calc.monthTarget / barScale) * 100 : 0;
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -419,7 +445,6 @@ export default function EscalaPage() {
 
       {/* 4 KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        {/* Receita Acumulada */}
         <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/[0.02]">
           <CardContent className="pt-5 pb-4">
             <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-blue-500 mb-2">Receita Acumulada</p>
@@ -428,8 +453,7 @@ export default function EscalaPage() {
           </CardContent>
         </Card>
 
-        {/* EBITDA % */}
-        <Card className={`border-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/20 bg-gradient-to-br from-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/10 to-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/[0.02]`}>
+        <Card className={calc.ebitdaPctGlobal >= EBITDA_MIN ? "border-success/20 bg-gradient-to-br from-success/10 to-success/[0.02]" : "border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/[0.02]"}>
           <CardContent className="pt-5 pb-4">
             <p className={`text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
               EBITDA % Periodo
@@ -441,7 +465,6 @@ export default function EscalaPage() {
           </CardContent>
         </Card>
 
-        {/* EBITDA R$ Acum */}
         <Card className="border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-purple-500/[0.02]">
           <CardContent className="pt-5 pb-4">
             <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-purple-500 mb-2">EBITDA R$ Acum.</p>
@@ -454,7 +477,6 @@ export default function EscalaPage() {
           </CardContent>
         </Card>
 
-        {/* Invest. Otimo */}
         <Card className="border-warning/20 bg-gradient-to-br from-warning/10 to-warning/[0.02]">
           <CardContent className="pt-5 pb-4">
             <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-warning mb-2">Invest. Otimo (Max Receita c/ 8%)</p>
@@ -469,7 +491,6 @@ export default function EscalaPage() {
       {/* Progress PE + Meta */}
       <Card className="bg-muted/[0.02]">
         <CardContent className="pt-4 pb-4">
-          {/* PE */}
           <div className="mb-3.5">
             <div className="flex justify-between text-[11px] mb-1">
               <span className="text-destructive font-semibold">PE: {fmtK(calc.breakEven)}</span>
@@ -482,7 +503,6 @@ export default function EscalaPage() {
               />
             </div>
           </div>
-          {/* Meta */}
           <div>
             <div className="flex justify-between text-[11px] mb-1">
               <span className="text-blue-500 font-semibold">Meta: {fmtK(calc.monthTarget)}</span>
@@ -495,6 +515,103 @@ export default function EscalaPage() {
               />
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Pre/Post PE Section */}
+      <Card>
+        <CardContent className="pt-5 pb-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+            Pre e Pos Ponto de Equilibrio
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+            {/* Ate o PE */}
+            <div className={`rounded-xl px-4 py-4 ${calc.aboveBreakEven ? "bg-success/[0.06] border border-success/20" : "bg-destructive/[0.06] border border-destructive/20"}`}>
+              <div className="flex items-center gap-2 mb-2">
+                {calc.aboveBreakEven
+                  ? <CheckCircle2 className="h-4 w-4 text-success" />
+                  : <Target className="h-4 w-4 text-destructive" />
+                }
+                <p className={`text-[10px] font-bold uppercase tracking-[1.5px] ${calc.aboveBreakEven ? "text-success" : "text-destructive"}`}>
+                  Ate o PE ({fmtK(calc.breakEven)})
+                </p>
+              </div>
+              {calc.aboveBreakEven ? (
+                <>
+                  <p className="text-lg font-black text-success">PE Atingido</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Custos fixos cobertos — cada R$ 1 de receita extra gera R$ {calc.mcPosAdsPct.toFixed(2)} de lucro
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-black text-destructive">Faltam {fmtK(calc.breakEven - calc.totalReceita)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    ~{calc.diasParaPE} dia(s) no ritmo atual ({fmtInt(calc.avgReceitaDia)}/dia)
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Apos o PE → Meta */}
+            <div className={`rounded-xl px-4 py-4 ${calc.totalReceita >= calc.monthTarget ? "bg-blue-500/[0.06] border border-blue-500/20" : "bg-muted/[0.06] border border-border/20"}`}>
+              <div className="flex items-center gap-2 mb-2">
+                {calc.totalReceita >= calc.monthTarget
+                  ? <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                  : <Target className="h-4 w-4 text-blue-500" />
+                }
+                <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-blue-500">
+                  Meta ({fmtK(calc.monthTarget)})
+                </p>
+              </div>
+              {calc.totalReceita >= calc.monthTarget ? (
+                <>
+                  <p className="text-lg font-black text-blue-500">Meta Atingida</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {fmtK(calc.totalReceita - calc.monthTarget)} acima da meta
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-black text-foreground">Faltam {fmtK(calc.monthTarget - calc.totalReceita)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    ~{calc.diasParaMeta} dia(s) no ritmo atual
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Visual bar */}
+          <div className="relative h-6 bg-muted/20 rounded-full overflow-visible">
+            {/* PE marker */}
+            <div className="absolute top-0 h-full" style={{ left: `${peBarPct}%` }}>
+              <div className="h-full w-0.5 bg-destructive" />
+              <span className="absolute -top-4 -translate-x-1/2 text-[9px] text-destructive font-bold whitespace-nowrap">PE</span>
+            </div>
+            {/* Meta marker */}
+            <div className="absolute top-0 h-full" style={{ left: `${metaBarPct}%` }}>
+              <div className="h-full w-0.5 bg-blue-500" />
+              <span className="absolute -top-4 -translate-x-1/2 text-[9px] text-blue-500 font-bold whitespace-nowrap">Meta</span>
+            </div>
+            {/* Receita fill */}
+            <div
+              className={`h-full rounded-full transition-all ${
+                calc.totalReceita >= calc.monthTarget ? "bg-blue-500" :
+                calc.aboveBreakEven ? "bg-success" : "bg-destructive"
+              }`}
+              style={{ width: `${Math.min(receitaBarPct, 100)}%` }}
+            />
+            {/* Receita label */}
+            <span
+              className="absolute -bottom-4 text-[9px] font-bold text-foreground whitespace-nowrap"
+              style={{ left: `${Math.min(receitaBarPct, 95)}%`, transform: "translateX(-50%)" }}
+            >
+              {fmtK(calc.totalReceita)}
+            </span>
+          </div>
+          <div className="h-4" />
         </CardContent>
       </Card>
 
@@ -530,25 +647,30 @@ export default function EscalaPage() {
                   {calc.monthTarget > 0 && (
                     <ReferenceLine y={calc.monthTarget} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} label={{ value: "Meta", fill: "#3b82f6", fontSize: 10, position: "right" }} />
                   )}
-                  <Area type="monotone" dataKey="receitaAcum" stroke="#22c55e" fill="rgba(34,197,94,0.1)" strokeWidth={2.5} />
+                  <Area type="monotone" dataKey="receitaAcum" stroke="#22c55e" fill="rgba(34,197,94,0.1)" strokeWidth={2.5} name="Receita" />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+            <div className="flex gap-5 justify-center mt-1.5 text-[10px]">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-success inline-block rounded" /> Receita acumulada</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-destructive inline-block rounded" style={{ borderTop: "2px dashed #ef4444", height: 0 }} /> PE ({fmtK(calc.breakEven)})</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded" style={{ borderTop: "2px dashed #3b82f6", height: 0 }} /> Meta ({fmtK(calc.monthTarget)})</span>
             </div>
           </CardContent>
         </Card>
 
-        {/* EBITDA % por Dia */}
+        {/* EBITDA R$ por Dia */}
         <Card>
           <CardContent className="pt-5">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
-              EBITDA % por Dia
+              EBITDA R$ por Dia
             </h3>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={calc.enriched}>
+                <BarChart data={calc.enriched} barSize={28}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                   <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} domain={[-0.15, 0.25]} />
+                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
@@ -569,7 +691,7 @@ export default function EscalaPage() {
                           <div className="border-t border-border/20 mt-2 pt-2">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">EBITDA</span>
-                              <span className={`font-extrabold text-[15px] ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+                              <span className={`font-extrabold text-[15px] ${d.ebitda >= 0 ? "text-success" : "text-destructive"}`}>
                                 {formatCurrency(d.ebitda)} ({pct(d.ebitdaPct)})
                               </span>
                             </div>
@@ -581,10 +703,8 @@ export default function EscalaPage() {
                       );
                     }}
                   />
-                  <ReferenceLine y={EBITDA_IDEAL} stroke="#22c55e" strokeDasharray="6 4" label={{ value: "10%", fill: "#22c55e", fontSize: 10, position: "right" }} />
-                  <ReferenceLine y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "right" }} />
-                  <ReferenceLine y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} />
-                  <Bar dataKey="ebitdaPct" barSize={28} radius={[4, 4, 0, 0]}>
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} />
+                  <Bar dataKey="ebitda" radius={[4, 4, 0, 0]}>
                     {calc.enriched.map((d, i) => (
                       <Cell
                         key={i}
@@ -596,8 +716,13 @@ export default function EscalaPage() {
                       />
                     ))}
                   </Bar>
-                </ComposedChart>
+                </BarChart>
               </ResponsiveContainer>
+            </div>
+            <div className="flex gap-5 justify-center mt-1.5 text-[10px]">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: "rgba(34,197,94,0.75)" }} /> EBITDA {">"}= 10%</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: "rgba(245,158,11,0.6)" }} /> 8-10%</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: "rgba(239,68,68,0.7)" }} /> {"<"} 8%</span>
             </div>
           </CardContent>
         </Card>
@@ -611,7 +736,6 @@ export default function EscalaPage() {
           </h3>
 
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8 items-start">
-            {/* Slider + mini-cards */}
             <div>
               <div className="mb-5">
                 <p className="text-[11px] text-muted-foreground mb-2">Investimento/dia</p>
@@ -697,7 +821,6 @@ export default function EscalaPage() {
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
-                      domain={[-0.05, 0.25]}
                     />
                     <Tooltip
                       content={({ active, payload }) => {
@@ -777,7 +900,6 @@ export default function EscalaPage() {
                     <td className="px-3 py-2.5 text-right"><EbitdaTag value={d.ebitdaPct} /></td>
                   </tr>
                 ))}
-                {/* Total row */}
                 <tr className="border-t-2 border-border">
                   <td className="px-3 py-3 text-right font-black text-foreground">TOTAL</td>
                   <td className="px-3 py-3 text-right font-extrabold text-foreground">{formatCurrency(calc.totalReceita)}</td>
