@@ -19,6 +19,10 @@ const DEFAULTS = {
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
   target_profit_monthly: 0,
   safety_margin_pct: 5,
+  annual_revenue_target: 8000000,
+  invest_pct: 12,
+  frete_pct: 6,
+  desconto_pct: 3,
 };
 
 export default function FinancialConfigPage() {
@@ -35,6 +39,10 @@ export default function FinancialConfigPage() {
   const [seasonality, setSeasonality] = useState<number[]>(DEFAULTS.monthly_seasonality);
   const [targetProfitMonthly, setTargetProfitMonthly] = useState(DEFAULTS.target_profit_monthly);
   const [safetyMarginPct, setSafetyMarginPct] = useState(DEFAULTS.safety_margin_pct);
+  const [annualRevenueTarget, setAnnualRevenueTarget] = useState(DEFAULTS.annual_revenue_target);
+  const [investPct, setInvestPct] = useState(DEFAULTS.invest_pct);
+  const [fretePct, setFretePct] = useState(DEFAULTS.frete_pct);
+  const [descontoPct, setDescontoPct] = useState(DEFAULTS.desconto_pct);
 
   useEffect(() => {
     if (!workspace?.id) return;
@@ -53,6 +61,10 @@ export default function FinancialConfigPage() {
         setSeasonality(data.monthly_seasonality ?? DEFAULTS.monthly_seasonality);
         setTargetProfitMonthly(data.target_profit_monthly ?? DEFAULTS.target_profit_monthly);
         setSafetyMarginPct(data.safety_margin_pct ?? DEFAULTS.safety_margin_pct);
+        setAnnualRevenueTarget(data.annual_revenue_target ?? DEFAULTS.annual_revenue_target);
+        setInvestPct(data.invest_pct ?? DEFAULTS.invest_pct);
+        setFretePct(data.frete_pct ?? DEFAULTS.frete_pct);
+        setDescontoPct(data.desconto_pct ?? DEFAULTS.desconto_pct);
         setIsDefault(data.isDefault ?? true);
       } catch {
         // Keep defaults
@@ -82,6 +94,10 @@ export default function FinancialConfigPage() {
           monthly_seasonality: seasonality,
           target_profit_monthly: targetProfitMonthly,
           safety_margin_pct: safetyMarginPct,
+          annual_revenue_target: annualRevenueTarget,
+          invest_pct: investPct,
+          frete_pct: fretePct,
+          desconto_pct: descontoPct,
         }),
       });
       if (res.ok) {
@@ -104,6 +120,10 @@ export default function FinancialConfigPage() {
     setSeasonality([...DEFAULTS.monthly_seasonality]);
     setTargetProfitMonthly(DEFAULTS.target_profit_monthly);
     setSafetyMarginPct(DEFAULTS.safety_margin_pct);
+    setAnnualRevenueTarget(DEFAULTS.annual_revenue_target);
+    setInvestPct(DEFAULTS.invest_pct);
+    setFretePct(DEFAULTS.frete_pct);
+    setDescontoPct(DEFAULTS.desconto_pct);
   }
 
   function updateSeasonality(index: number, value: number) {
@@ -165,6 +185,67 @@ export default function FinancialConfigPage() {
           </button>
         </div>
       </div>
+
+      {/* Meta e Premissas — destaque */}
+      <Card className="border-primary/30 bg-primary/[0.02]">
+        <CardHeader>
+          <CardTitle className="text-base">Meta de Receita e Premissas de Execução</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground mb-5">
+            A meta mensal é distribuída automaticamente pela sazonalidade. As premissas abaixo são fixas no mês — desvios aparecem como alertas no Overview.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <ConfigField
+              label="Receita Anual Desejada"
+              value={annualRevenueTarget}
+              onChange={setAnnualRevenueTarget}
+              step={100000}
+              prefix="R$"
+              hint="Meta anual total de faturamento"
+            />
+            <ConfigField
+              label="Ads % planejado"
+              value={investPct}
+              onChange={setInvestPct}
+              step={0.5}
+              suffix="%"
+              hint="% da receita em investimento ads"
+            />
+            <ConfigField
+              label="Frete % planejado"
+              value={fretePct}
+              onChange={setFretePct}
+              step={0.5}
+              suffix="%"
+              hint="% da receita em frete"
+            />
+            <ConfigField
+              label="Desconto % planejado"
+              value={descontoPct}
+              onChange={setDescontoPct}
+              step={0.5}
+              suffix="%"
+              hint="% da receita em descontos"
+            />
+          </div>
+          {/* Preview: meta do mês atual */}
+          <div className="mt-4 pt-4 border-t border-border/50 flex items-center gap-6 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Meta este mês ({MONTH_LABELS[new Date().getMonth()]})</p>
+              <p className="font-semibold text-primary">
+                {formatCurrency(annualRevenueTarget * (seasonality[new Date().getMonth()] ?? 8.33) / 100)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Custos var. totais (config)</p>
+              <p className="font-semibold">
+                {(investPct + fretePct + descontoPct + taxPct + productCostPct + otherExpensesPct).toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Custos e Margens */}
@@ -286,24 +367,24 @@ export default function FinancialConfigPage() {
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
+              <p className="text-xs text-muted-foreground">Receita Anual</p>
+              <p className="font-semibold">{formatCurrency(annualRevenueTarget)}</p>
+            </div>
+            <div>
               <p className="text-xs text-muted-foreground">Custo Fixo/mês</p>
               <p className="font-semibold">{formatCurrency(monthlyFixedCosts)}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Custos Var. (config)</p>
-              <p className="font-semibold">{(taxPct + productCostPct + otherExpensesPct).toFixed(1)}%</p>
+              <p className="text-xs text-muted-foreground">Custos Var. totais</p>
+              <p className="font-semibold">{(investPct + fretePct + descontoPct + taxPct + productCostPct + otherExpensesPct).toFixed(1)}%</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Lucro Requerido</p>
-              <p className="font-semibold">{formatCurrency(targetProfitMonthly)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Margem Segurança</p>
-              <p className="font-semibold">{safetyMarginPct}%</p>
+              <p className="text-xs text-muted-foreground">Margem Contrib.</p>
+              <p className="font-semibold">{(100 - investPct - fretePct - descontoPct - taxPct - productCostPct - otherExpensesPct).toFixed(1)}%</p>
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-4">
-            Frete e descontos são calculados dos dados reais do VNDA. Investimento em ads é calculado do Meta + Google Ads.
+            A meta mensal é calculada como: Receita Anual × Sazonalidade do mês. Valores reais de ads, frete e desconto são monitorados no Overview como desvios.
           </p>
         </CardContent>
       </Card>

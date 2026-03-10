@@ -43,6 +43,10 @@ interface FinancialSettings {
   monthly_seasonality: number[];
   target_profit_monthly: number;
   safety_margin_pct: number;
+  annual_revenue_target: number;
+  invest_pct: number;
+  frete_pct: number;
+  desconto_pct: number;
   isDefault: boolean;
 }
 
@@ -54,6 +58,10 @@ const FIN_DEFAULTS: FinancialSettings = {
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
   target_profit_monthly: 0,
   safety_margin_pct: 5,
+  annual_revenue_target: 8000000,
+  invest_pct: 12,
+  frete_pct: 6,
+  desconto_pct: 3,
   isDefault: true,
 };
 
@@ -277,12 +285,11 @@ export default function EscalaPage() {
     const monthData = trendData.filter((d) => d.date.slice(3, 5) === currentMonthStr);
     const daysWithData = monthData.length;
 
-    // Variable cost percentages (EXCLUDING ads)
-    const { tax_pct, product_cost_pct, other_expenses_pct, monthly_fixed_costs, monthly_seasonality } = finSettings;
-    const fretePerc = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
-    const descontoPerc = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
+    // Variable cost percentages (EXCLUDING ads) — usa premissas CONFIGURADAS (fixas no mês)
+    const { tax_pct, product_cost_pct, other_expenses_pct, monthly_fixed_costs, monthly_seasonality,
+            annual_revenue_target, invest_pct, frete_pct, desconto_pct } = finSettings;
 
-    const custosSemAdsPct = (fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct) / 100;
+    const custosSemAdsPct = (frete_pct + desconto_pct + tax_pct + product_cost_pct + other_expenses_pct) / 100;
     const mcPreAdsPct = 1 - custosSemAdsPct;
     const custoFixoDiario = daysInMonth > 0 ? monthly_fixed_costs / daysInMonth : 0;
 
@@ -314,17 +321,14 @@ export default function EscalaPage() {
     const avgCps = totalSessions > 0 ? totalInvest / totalSessions : 0;
     const diasAbaixo = enriched.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
 
-    // PE + Meta — SAME formula as Overview (using totalInvestment from last_30d)
-    const investPerc = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
-    const totalVarCostPct = investPerc + fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
-    const contributionMarginPct = 100 - totalVarCostPct;
-    const breakEven = contributionMarginPct > 0 ? monthly_fixed_costs / (contributionMarginPct / 100) : 0;
-    const effectiveMargin = contributionMarginPct - finSettings.safety_margin_pct;
-    const annualTarget = effectiveMargin > 0
-      ? ((monthly_fixed_costs + finSettings.target_profit_monthly) * 12) / (effectiveMargin / 100)
-      : 0;
+    // --- META: top-down, FIXA no mês ---
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
-    const monthTarget = annualTarget * seasonalityWeight;
+    const monthTarget = annual_revenue_target * seasonalityWeight;
+
+    // --- PE: usa premissas CONFIGURADAS (fixas no mês) ---
+    const totalVarCostPctConfig = invest_pct + frete_pct + desconto_pct + tax_pct + product_cost_pct + other_expenses_pct;
+    const contributionMarginPct = 100 - totalVarCostPctConfig;
+    const breakEven = contributionMarginPct > 0 ? monthly_fixed_costs / (contributionMarginPct / 100) : 0;
 
     // Pre/Post PE
     const aboveBreakEven = totalReceita >= breakEven;
@@ -415,7 +419,7 @@ export default function EscalaPage() {
       progPE,
       progMeta,
     };
-  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings, cpsDecay, convDecay]);
+  }, [trendData, finSettings, cpsDecay, convDecay]);
 
   // Slider simulation (CPS-based com decaimento)
   const simAtual = useMemo(() => {

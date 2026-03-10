@@ -9,6 +9,10 @@ const DEFAULTS = {
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
   target_profit_monthly: 0,
   safety_margin_pct: 5,
+  annual_revenue_target: 8000000,
+  invest_pct: 12,
+  frete_pct: 6,
+  desconto_pct: 3,
 };
 
 function createSupabase(request: NextRequest) {
@@ -80,6 +84,10 @@ export async function PUT(request: NextRequest) {
           monthly_seasonality: body.monthly_seasonality ?? DEFAULTS.monthly_seasonality,
           target_profit_monthly: body.target_profit_monthly ?? DEFAULTS.target_profit_monthly,
           safety_margin_pct: body.safety_margin_pct ?? DEFAULTS.safety_margin_pct,
+          annual_revenue_target: body.annual_revenue_target ?? DEFAULTS.annual_revenue_target,
+          invest_pct: body.invest_pct ?? DEFAULTS.invest_pct,
+          frete_pct: body.frete_pct ?? DEFAULTS.frete_pct,
+          desconto_pct: body.desconto_pct ?? DEFAULTS.desconto_pct,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "workspace_id" }

@@ -147,6 +147,10 @@ interface FinancialSettings {
   monthly_seasonality: number[];
   target_profit_monthly: number;
   safety_margin_pct: number;
+  annual_revenue_target: number;
+  invest_pct: number;
+  frete_pct: number;
+  desconto_pct: number;
   isDefault: boolean;
 }
 
@@ -158,6 +162,10 @@ const FIN_DEFAULTS: FinancialSettings = {
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
   target_profit_monthly: 0,
   safety_margin_pct: 5,
+  annual_revenue_target: 8000000,
+  invest_pct: 12,
+  frete_pct: 6,
+  desconto_pct: 3,
   isDefault: true,
 };
 
@@ -904,30 +912,29 @@ function FinancialHealth({
     const projectedRevenue = avgDaily * daysInMonth;
     const daysRemaining = daysInMonth - currentDay;
 
-    // Variable cost percentages from real data
-    const fretePerc = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
-    const descontoPerc = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
-    const investPerc = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
-
-    // From config
-    const { tax_pct, product_cost_pct, other_expenses_pct, monthly_fixed_costs, target_profit_monthly, safety_margin_pct, monthly_seasonality } = finSettings;
-
-    // Contribution margin
-    const totalVarCostPct = investPerc + fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
-    const contributionMarginPct = 100 - totalVarCostPct;
-
-    // Break-even: GF / MC
-    const breakEven = contributionMarginPct > 0
-      ? monthly_fixed_costs / (contributionMarginPct / 100)
-      : 0;
-
-    // Monthly target with seasonality: (GF + LR) / (MC - MS)
-    const effectiveMargin = contributionMarginPct - safety_margin_pct;
-    const annualTarget = effectiveMargin > 0
-      ? ((monthly_fixed_costs + target_profit_monthly) * 12) / (effectiveMargin / 100)
-      : 0;
+    // --- META: top-down, FIXA no mês ---
+    const { annual_revenue_target, invest_pct, frete_pct, desconto_pct,
+            tax_pct, product_cost_pct, other_expenses_pct,
+            monthly_fixed_costs, monthly_seasonality } = finSettings;
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
-    const monthTarget = annualTarget * seasonalityWeight;
+    const monthTarget = annual_revenue_target * seasonalityWeight;
+
+    // --- PE: usa premissas CONFIGURADAS (fixas no mês) ---
+    const totalVarCostPctConfig = invest_pct + frete_pct + desconto_pct + tax_pct + product_cost_pct + other_expenses_pct;
+    const contributionMarginPctConfig = 100 - totalVarCostPctConfig;
+    const breakEven = contributionMarginPctConfig > 0
+      ? monthly_fixed_costs / (contributionMarginPctConfig / 100)
+      : 0;
+
+    // --- VALORES REAIS: para monitoramento/desvios (NÃO afetam Meta/PE) ---
+    const investPercReal = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
+    const fretePercReal = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
+    const descontoPercReal = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
+
+    // Desvios: real vs planejado
+    const investDeviation = investPercReal - invest_pct;
+    const freteDeviation = fretePercReal - frete_pct;
+    const descontoDeviation = descontoPercReal - desconto_pct;
 
     // Progress
     const progressPercent = monthTarget > 0 ? (monthRevenue / monthTarget) * 100 : 0;
@@ -968,10 +975,19 @@ function FinancialHealth({
       daysInMonth,
       currentDay,
       daysWithData,
-      fretePerc,
-      descontoPerc,
-      investPerc,
-      contributionMarginPct,
+      // Real values
+      investPercReal,
+      fretePercReal,
+      descontoPercReal,
+      // Configured values
+      investPctPlan: invest_pct,
+      fretePctPlan: frete_pct,
+      descontoPctPlan: desconto_pct,
+      // Deviations
+      investDeviation,
+      freteDeviation,
+      descontoDeviation,
+      contributionMarginPct: contributionMarginPctConfig,
       breakEven,
       monthTarget,
       progressPercent: Math.min(progressPercent, 150),
@@ -1186,33 +1202,29 @@ function FinancialHealth({
           </ResponsiveContainer>
         </div>
 
-        {/* Margin breakdown */}
+        {/* Margin breakdown — Real vs Planejado */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <div className="flex items-center gap-1 mb-0.5">
-              <p className="text-muted-foreground">Invest. Ads</p>
-              <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
-            </div>
-            <p className="font-semibold">{calc.investPerc.toFixed(1)}%</p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <div className="flex items-center gap-1 mb-0.5">
-              <p className="text-muted-foreground">Frete</p>
-              {vndaConfigured && (
-                <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
-              )}
-            </div>
-            <p className="font-semibold">{calc.fretePerc.toFixed(1)}%</p>
-          </div>
-          <div className="bg-muted/30 rounded-lg p-2.5">
-            <div className="flex items-center gap-1 mb-0.5">
-              <p className="text-muted-foreground">Descontos</p>
-              {vndaConfigured && (
-                <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
-              )}
-            </div>
-            <p className="font-semibold">{calc.descontoPerc.toFixed(1)}%</p>
-          </div>
+          <CostCard
+            label="Invest. Ads"
+            realValue={calc.investPercReal}
+            planValue={calc.investPctPlan}
+            deviation={calc.investDeviation}
+            hasReal
+          />
+          <CostCard
+            label="Frete"
+            realValue={calc.fretePercReal}
+            planValue={calc.fretePctPlan}
+            deviation={calc.freteDeviation}
+            hasReal={vndaConfigured}
+          />
+          <CostCard
+            label="Descontos"
+            realValue={calc.descontoPercReal}
+            planValue={calc.descontoPctPlan}
+            deviation={calc.descontoDeviation}
+            hasReal={vndaConfigured}
+          />
           <Link href="/simulador/config" className="bg-muted/30 rounded-lg p-2.5 hover:bg-muted/50 transition-colors">
             <div className="flex items-center gap-1 mb-0.5">
               <p className="text-muted-foreground">Impostos</p>
@@ -1237,6 +1249,45 @@ function FinancialHealth({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// --- Cost Card with deviation ---
+
+function CostCard({
+  label,
+  realValue,
+  planValue,
+  deviation,
+  hasReal,
+}: {
+  label: string;
+  realValue: number;
+  planValue: number;
+  deviation: number;
+  hasReal: boolean;
+}) {
+  const threshold = planValue * 0.15; // 15% tolerance
+  const isAbove = deviation > threshold;
+  const isBelow = deviation < -threshold;
+
+  return (
+    <div className="bg-muted/30 rounded-lg p-2.5">
+      <div className="flex items-center gap-1 mb-0.5">
+        <p className="text-muted-foreground text-xs">{label}</p>
+        {hasReal && (
+          <span className="text-[8px] px-1 py-0.5 rounded bg-success/10 text-success font-semibold">Real</span>
+        )}
+      </div>
+      <p className="font-semibold text-xs">{hasReal ? realValue.toFixed(1) : planValue.toFixed(1)}%</p>
+      {hasReal && (
+        <p className={`text-[9px] mt-0.5 ${isAbove ? "text-destructive" : isBelow ? "text-success" : "text-muted-foreground"}`}>
+          plan: {planValue}%
+          {isAbove && " — acima"}
+          {isBelow && " — abaixo"}
+        </p>
+      )}
+    </div>
   );
 }
 

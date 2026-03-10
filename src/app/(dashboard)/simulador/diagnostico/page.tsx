@@ -38,6 +38,10 @@ interface FinancialSettings {
   monthly_seasonality: number[];
   target_profit_monthly: number;
   safety_margin_pct: number;
+  annual_revenue_target: number;
+  invest_pct: number;
+  frete_pct: number;
+  desconto_pct: number;
   isDefault: boolean;
 }
 
@@ -49,6 +53,10 @@ const FIN_DEFAULTS: FinancialSettings = {
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
   target_profit_monthly: 0,
   safety_margin_pct: 5,
+  annual_revenue_target: 8000000,
+  invest_pct: 12,
+  frete_pct: 6,
+  desconto_pct: 3,
   isDefault: true,
 };
 
@@ -279,22 +287,10 @@ export default function DiagnosticoPage() {
     const daysWithData = monthData.length;
     const avgDaily = daysWithData > 0 ? monthRevenue / daysWithData : 0;
 
-    // Variable cost percentages
-    const fretePerc = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
-    const descontoPerc = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
-    const investPerc = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
-
-    const { tax_pct, product_cost_pct, other_expenses_pct, monthly_fixed_costs, target_profit_monthly, safety_margin_pct, monthly_seasonality } = finSettings;
-    const totalVarCostPct = investPerc + fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
-    const contributionMarginPct = 100 - totalVarCostPct;
-
-    // Monthly target with seasonality
-    const effectiveMargin = contributionMarginPct - safety_margin_pct;
-    const annualTarget = effectiveMargin > 0
-      ? ((monthly_fixed_costs + target_profit_monthly) * 12) / (effectiveMargin / 100)
-      : 0;
+    // --- META: top-down, FIXA no mês ---
+    const { monthly_seasonality, annual_revenue_target } = finSettings;
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
-    const monthTarget = annualTarget * seasonalityWeight;
+    const monthTarget = annual_revenue_target * seasonalityWeight;
 
     // Daily target
     const dailyRevenueTarget = daysInMonth > 0 ? monthTarget / daysInMonth : 0;
@@ -398,7 +394,7 @@ export default function DiagnosticoPage() {
       dailyDiagnostic,
       actionPlan,
     };
-  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
+  }, [trendData, finSettings]);
 
   if (loading) {
     return (
