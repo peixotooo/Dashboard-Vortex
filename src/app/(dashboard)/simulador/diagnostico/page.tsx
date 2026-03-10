@@ -106,7 +106,7 @@ export default function DiagnosticoPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const datePreset = "this_month";
+        const datePreset = "last_30d";
         const accountIds = accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
         const vndaHeaders: Record<string, string> = {};
@@ -310,13 +310,12 @@ export default function DiagnosticoPage() {
     const avgRoas = totalMonthSpend > 0 ? monthRevenue / totalMonthSpend : 0;
     const avgCps = totalMonthSessions > 0 ? totalMonthSpend / totalMonthSessions : 0;
 
-    // Needed values
-    const sessionsNeeded = (avgTxConv > 0 && avgTicket > 0) ? dailyRevenueTarget / ((avgTxConv / 100) * avgTicket) : 0;
-    const txConvNeeded = (avgDailySessions > 0 && avgTicket > 0) ? (dailyRevenueTarget / (avgDailySessions * avgTicket)) * 100 : 0;
-    const ticketNeeded = (avgDailySessions > 0 && avgTxConv > 0) ? dailyRevenueTarget / (avgDailySessions * (avgTxConv / 100)) : 0;
+    // Needed values — ticket e CPS TRAVADOS nos valores reais
+    const pedidosNeeded = avgTicket > 0 ? dailyRevenueTarget / avgTicket : 0;
+    const sessionsNeeded = avgTxConv > 0 ? pedidosNeeded / (avgTxConv / 100) : 0;
+    const txConvNeeded = (avgDailySessions > 0 && avgTicket > 0) ? (pedidosNeeded / avgDailySessions) * 100 : 0;
     const investNeeded = avgCps > 0 ? sessionsNeeded * avgCps : avgDailySpend;
     const roasNeeded = investNeeded > 0 ? dailyRevenueTarget / investNeeded : 0;
-    const expectedDailyPedidos = avgTicket > 0 ? dailyRevenueTarget / avgTicket : 0;
 
     function calcGap(actual: number, needed: number) {
       if (needed === 0) return 0;
@@ -331,6 +330,13 @@ export default function DiagnosticoPage() {
 
     const villains = [
       {
+        name: "Investimento/dia", actual: avgDailySpend, needed: investNeeded,
+        gap: calcGap(avgDailySpend, investNeeded), format: "currency" as const,
+        insight: calcGap(avgDailySpend, investNeeded) < 0
+          ? "Aumente o budget de midia para gerar as sessoes necessarias (CPS travado em " + formatCurrency(avgCps) + ")."
+          : "Budget adequado para a meta.",
+      },
+      {
         name: "Sessoes/dia", actual: avgDailySessions, needed: sessionsNeeded,
         gap: calcGap(avgDailySessions, sessionsNeeded), format: "number" as const,
         insight: calcGap(avgDailySessions, sessionsNeeded) < 0
@@ -344,30 +350,9 @@ export default function DiagnosticoPage() {
           ? "Revise a experiencia de compra: checkout, frete, persuasao na pagina de produto."
           : "Taxa de conversao saudavel para a meta.",
       },
-      {
-        name: "Ticket Medio", actual: avgTicket, needed: ticketNeeded,
-        gap: calcGap(avgTicket, ticketNeeded), format: "currency" as const,
-        insight: calcGap(avgTicket, ticketNeeded) < 0
-          ? "Considere cross-sell, bundles ou revisao de precos para aumentar o valor por pedido."
-          : "Ticket medio acima do necessario.",
-      },
-      {
-        name: "ROAS", actual: avgRoas, needed: roasNeeded,
-        gap: calcGap(avgRoas, roasNeeded), format: "roas" as const,
-        insight: calcGap(avgRoas, roasNeeded) < 0
-          ? "Otimize segmentacao, criativos e landing pages para melhorar retorno."
-          : "Eficiencia de midia adequada.",
-      },
-      {
-        name: "Investimento/dia", actual: avgDailySpend, needed: investNeeded,
-        gap: calcGap(avgDailySpend, investNeeded), format: "currency" as const,
-        insight: calcGap(avgDailySpend, investNeeded) < 0
-          ? "Avalie aumentar budget de midia mantendo eficiencia de ROAS."
-          : "Investimento adequado para a meta.",
-      },
     ].map((v) => ({ ...v, status: getStatus(v.gap) })).sort((a, b) => a.gap - b.gap);
 
-    // Daily diagnostic table — use NEEDED values (same as villain cards)
+    // Daily diagnostic table — ticket e CPS TRAVADOS, alavancas com valores needed
     const dailyDiagnostic = monthData.map((d) => ({
       date: d.date,
       invest: d.totalSpend,
@@ -375,28 +360,26 @@ export default function DiagnosticoPage() {
       sessions: d.sessions,
       sessionsExpected: Math.round(sessionsNeeded),
       txConversao: d.txConversao,
-      txExpected: txConvNeeded,
+      txExpected: avgTxConv,
       pedidos: d.pedidos,
-      pedidosExpected: Math.round(expectedDailyPedidos),
+      pedidosExpected: Math.round(pedidosNeeded),
       ticketMedio: d.ticketMedio,
-      ticketExpected: ticketNeeded,
+      ticketExpected: avgTicket,       // TRAVADO
       revenue: d.revenue,
       revenueExpected: dailyRevenueTarget,
       roas: d.roas,
       roasExpected: roasNeeded,
       cps: d.sessions > 0 ? d.totalSpend / d.sessions : 0,
-      cpsExpected: avgCps,
+      cpsExpected: avgCps,             // TRAVADO
     }));
 
-    // Action plan
+    // Action plan — apenas alavancas controlaveis
     const actionPlan: string[] = [];
     const badVillains = villains.filter((v) => v.status !== "ok");
-    for (const v of badVillains.slice(0, 3)) {
-      if (v.name === "Sessoes/dia") actionPlan.push("Aumentar investimento em trafego pago ou ativar canais organicos (SEO, email marketing, redes sociais).");
-      else if (v.name === "TX Conversao") actionPlan.push("Otimizar experiencia de compra: simplificar checkout, revisar politica de frete, melhorar paginas de produto.");
-      else if (v.name === "Ticket Medio") actionPlan.push("Implementar estrategias de cross-sell e bundles para aumentar valor por pedido.");
-      else if (v.name === "ROAS") actionPlan.push("Otimizar campanhas: revisar segmentacao, testar novos criativos, melhorar landing pages.");
-      else if (v.name === "Investimento/dia") actionPlan.push("Avaliar aumento de budget de midia paga mantendo eficiencia de ROAS.");
+    for (const v of badVillains) {
+      if (v.name === "Investimento/dia") actionPlan.push("Aumentar budget de midia para " + formatCurrency(investNeeded) + "/dia (+" + formatCurrency(investNeeded - avgDailySpend) + " vs atual).");
+      else if (v.name === "Sessoes/dia") actionPlan.push("Gerar " + formatNumber(Math.round(sessionsNeeded)) + " sessoes/dia via trafego pago ou canais organicos (SEO, email, social).");
+      else if (v.name === "TX Conversao") actionPlan.push("Elevar TX Conversao de " + avgTxConv.toFixed(2) + "% para " + txConvNeeded.toFixed(2) + "% via CRO: checkout, frete, pagina de produto.");
     }
 
     return {
@@ -407,6 +390,10 @@ export default function DiagnosticoPage() {
       daysWithData,
       daysInMonth,
       currentDay,
+      // Locked params
+      avgTicket,
+      avgCps,
+      // Villains & diagnostic
       villains,
       dailyDiagnostic,
       actionPlan,
@@ -456,16 +443,19 @@ export default function DiagnosticoPage() {
         </Link>
       </div>
 
-      {/* Villain Summary Cards */}
+      {/* Locked Params + Villain Cards */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Landmark className="h-4 w-4 text-primary" />
             Analise por Metrica
           </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Parametros travados: <span className="font-semibold text-foreground">Ticket Medio {formatCurrency(calc.avgTicket)}</span> | <span className="font-semibold text-foreground">CPS {formatCurrency(calc.avgCps)}</span>
+          </p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {calc.villains.map((v) => {
               const gapColor = v.status === "ok" ? "text-success" : v.status === "warning" ? "text-warning" : "text-destructive";
               const GapIcon = v.gap >= 0 ? ArrowUpRight : ArrowDownRight;
@@ -473,7 +463,6 @@ export default function DiagnosticoPage() {
               function fmtVal(val: number) {
                 if (v.format === "currency") return formatCurrency(val);
                 if (v.format === "percent") return `${val.toFixed(2)}%`;
-                if (v.format === "roas") return `${val.toFixed(2)}x`;
                 return formatNumber(val);
               }
 
