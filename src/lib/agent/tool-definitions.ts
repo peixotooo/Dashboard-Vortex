@@ -155,7 +155,7 @@ const META_TOOLS: Tool[] = [
   {
     name: "create_adset",
     description:
-      "Cria um novo conjunto de anúncios (Ad Set) dentro de uma campanha. Define segmentação, orçamento e otimização. Peça confirmação antes de executar.",
+      "Cria um novo conjunto de anúncios (Ad Set) dentro de uma campanha. Define segmentação, orçamento e otimização. Em fluxo automatico (campanha completa), crie com status PAUSED sem pedir confirmação.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -297,7 +297,7 @@ const META_TOOLS: Tool[] = [
   {
     name: "create_ad",
     description:
-      "Cria um anúncio dentro de um ad set, vinculando a um criativo. Esta é a etapa final: campanha → ad set → criativo → anúncio. IMPORTANTE: peça confirmação do usuário antes de criar com status ACTIVE.",
+      "Cria um anúncio dentro de um ad set, vinculando a um criativo. Esta é a etapa final: campanha → ad set → criativo → anúncio. Em fluxo automatico, crie com status PAUSED e pergunte ao final se quer ativar.",
     input_schema: {
       type: "object" as const,
       properties: {

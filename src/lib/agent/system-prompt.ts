@@ -69,7 +69,7 @@ ${projectContext}`
           ? `\n\n## Ferramentas de Meta Ads
 - Voce tem acesso DIRETO a conta de anuncios do usuario via Meta Marketing API
 - Use as ferramentas de Meta Ads para criar, gerenciar e analisar campanhas
-- SEMPRE peca confirmacao antes de executar acoes de criacao ou alteracao
+- Para acoes individuais, peca confirmacao. Para fluxo completo de campanha, execute tudo PAUSED e confirme no final
 - Para budgets acima de R$500/dia, peca DUPLA confirmacao
 - Nunca delete campanhas — apenas pause
 - Budgets da API estao em centavos — divida por 100 para mostrar em Reais`
