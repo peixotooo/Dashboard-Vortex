@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { TrendingUp } from "lucide-react";
-import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -18,7 +17,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -58,6 +57,9 @@ const FIN_DEFAULTS: FinancialSettings = {
   isDefault: true,
 };
 
+const EBITDA_MIN = 0.08;
+const EBITDA_IDEAL = 0.10;
+
 // --- Helpers ---
 
 function extractAction(
@@ -80,6 +82,20 @@ function extractActionValue(
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const fmtK = (v: number) => `R$ ${(v / 1000).toFixed(1)}k`;
+const fmtInt = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
+
+function EbitdaTag({ value }: { value: number }) {
+  const isIdeal = value >= EBITDA_IDEAL;
+  const isOk = value >= EBITDA_MIN;
+  const bg = isIdeal ? "bg-success/15" : isOk ? "bg-warning/15" : "bg-destructive/15";
+  const color = isIdeal ? "text-success" : isOk ? "text-warning" : "text-destructive";
+  const label = isIdeal ? "IDEAL" : isOk ? "OK" : "ABAIXO";
+  return (
+    <span className={`${bg} ${color} px-2.5 py-0.5 rounded text-[10px] font-bold`}>
+      {pct(value)} · {label}
+    </span>
+  );
+}
 
 export default function EscalaPage() {
   const { accountId, accounts } = useAccount();
@@ -91,6 +107,7 @@ export default function EscalaPage() {
   const [vndaDiscount, setVndaDiscount] = useState(0);
   const [vndaConfigured, setVndaConfigured] = useState(false);
   const [finSettings, setFinSettings] = useState<FinancialSettings>(FIN_DEFAULTS);
+  const [simInvest, setSimInvest] = useState(3200);
 
   useEffect(() => {
     if (!accountId || accounts.length === 0) return;
@@ -169,7 +186,6 @@ export default function EscalaPage() {
             dateRaw: (row.dateRaw as string) || "",
             cost: (row.cost as number) || 0,
           }));
-        const gadsTotalCost = ga4Data.googleAds?.totals?.cost || 0;
 
         // VNDA
         const isVndaConfigured = vndaData.configured === true;
@@ -250,6 +266,7 @@ export default function EscalaPage() {
     const currentMonth = now.getMonth();
     const currentMonthStr = String(currentMonth + 1).padStart(2, "0");
     const daysInMonth = new Date(now.getFullYear(), currentMonth + 1, 0).getDate();
+    const monthName = now.toLocaleString("pt-BR", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase());
 
     const monthData = trendData.filter((d) => d.date.slice(3, 5) === currentMonthStr);
     const daysWithData = monthData.length;
@@ -259,19 +276,39 @@ export default function EscalaPage() {
     const fretePerc = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
     const descontoPerc = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
 
-    // MC pre-ads = 1 - all costs EXCEPT ads
-    const custosSemAds = (fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct) / 100;
-    const mcPreAdsPct = 1 - custosSemAds;
+    const custosSemAdsPct = (fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct) / 100;
+    const mcPreAdsPct = 1 - custosSemAdsPct;
+    const custoFixoDiario = daysInMonth > 0 ? monthly_fixed_costs / daysInMonth : 0;
 
-    // ROAS breakeven (where MC pos-ads = 0)
-    const roasBreakeven = mcPreAdsPct > 0 ? 1 / mcPreAdsPct : 0;
+    // Enrich daily data with EBITDA
+    const enriched = monthData.map((d) => {
+      const custosVar = d.revenue * custosSemAdsPct;
+      const ebitda = d.revenue * mcPreAdsPct - d.totalSpend - custoFixoDiario;
+      const ebitdaPct = d.revenue > 0 ? ebitda / d.revenue : 0;
+      const adsPct = d.revenue > 0 ? d.totalSpend / d.revenue : 0;
+      const custoFixoPct = d.revenue > 0 ? custoFixoDiario / d.revenue : 0;
+      const roas = d.totalSpend > 0 ? d.revenue / d.totalSpend : 0;
+      const receitaMin8 = mcPreAdsPct - EBITDA_MIN > 0 ? (d.totalSpend + custoFixoDiario) / (mcPreAdsPct - EBITDA_MIN) : 0;
+      return { ...d, custosVar, ebitda, ebitdaPct, adsPct, custoFixoPct, roas, receitaMin8 };
+    });
 
-    // Monthly target (same formula as Overview)
-    const investPerc = totalRevenue > 0 ? 0 : 0; // Not used for MC pre-ads, but needed for monthTarget
-    const totalVarCostPct = (fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct);
-    // For monthTarget, we use the full contribution margin including ads from Overview
-    const investPercReal = totalRevenue > 0 ? (monthData.reduce((s, d) => s + d.totalSpend, 0) / (totalRevenue || 1)) * 100 : 0;
-    const contributionMarginPct = 100 - totalVarCostPct - investPercReal;
+    // Totals
+    const totalReceita = enriched.reduce((s, d) => s + d.revenue, 0);
+    const totalInvest = enriched.reduce((s, d) => s + d.totalSpend, 0);
+    const totalEbitda = enriched.reduce((s, d) => s + d.ebitda, 0);
+    const ebitdaPctGlobal = totalReceita > 0 ? totalEbitda / totalReceita : 0;
+    const avgReceitaDia = daysWithData > 0 ? totalReceita / daysWithData : 0;
+    const avgInvestDia = daysWithData > 0 ? totalInvest / daysWithData : 0;
+    const diasRestantes = daysInMonth - daysWithData;
+    const projReceita = totalReceita + (avgReceitaDia * diasRestantes);
+    const avgRoas = totalInvest > 0 ? totalReceita / totalInvest : 0;
+    const diasAbaixo = enriched.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
+
+    // PE + Meta (same formulas as Overview)
+    const investPerc = totalRevenue > 0 ? (totalInvest / (totalRevenue || 1)) * 100 : 0;
+    const totalVarCostPct = fretePerc + descontoPerc + tax_pct + product_cost_pct + other_expenses_pct;
+    const contributionMarginPct = 100 - totalVarCostPct - investPerc;
+    const breakEven = contributionMarginPct > 0 ? monthly_fixed_costs / (contributionMarginPct / 100) : 0;
     const effectiveMargin = contributionMarginPct - finSettings.safety_margin_pct;
     const annualTarget = effectiveMargin > 0
       ? ((monthly_fixed_costs + finSettings.target_profit_monthly) * 12) / (effectiveMargin / 100)
@@ -279,123 +316,79 @@ export default function EscalaPage() {
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
     const monthTarget = annualTarget * seasonalityWeight;
 
-    // Enrich daily data with MC pos-ads
-    const enriched = monthData.map((d) => {
-      const adsPct = d.revenue > 0 ? d.totalSpend / d.revenue : 0;
-      const mcPosAds = mcPreAdsPct - adsPct;
-      const lucroLiquido = d.revenue * mcPosAds;
-      const roas = d.totalSpend > 0 ? d.revenue / d.totalSpend : 0;
-      return { ...d, adsPct, mcPosAds, lucroLiquido, roas };
-    });
-
-    // Totals
-    const totalInvest = enriched.reduce((s, d) => s + d.totalSpend, 0);
-    const totalReceita = enriched.reduce((s, d) => s + d.revenue, 0);
-    const totalLucro = enriched.reduce((s, d) => s + d.lucroLiquido, 0);
-    const avgLucroDia = daysWithData > 0 ? totalLucro / daysWithData : 0;
-    const avgInvestDia = daysWithData > 0 ? totalInvest / daysWithData : 0;
-    const avgReceitaDia = daysWithData > 0 ? totalReceita / daysWithData : 0;
-    const adsPctGlobal = totalReceita > 0 ? totalInvest / totalReceita : 0;
-    const mcPosAdsGlobal = mcPreAdsPct - adsPctGlobal;
-    const diasRestantes = daysInMonth - daysWithData;
-    const projReceita = totalReceita + (avgReceitaDia * diasRestantes);
-    const projLucro = totalLucro + (avgLucroDia * diasRestantes);
-    const avgRoas = totalInvest > 0 ? totalReceita / totalInvest : 0;
-
-    // Fixed costs + EBITDA
-    const custoFixoDiario = daysInMonth > 0 ? monthly_fixed_costs / daysInMonth : 0;
-    const ebitdaPct = 0.08;
-    const mcPosAdsMinima = avgReceitaDia > 0 ? (custoFixoDiario / avgReceitaDia) + ebitdaPct : 0;
-
-    // Accumulated data
-    let accLucro = 0;
-    let accInvest = 0;
+    // Accumulated revenue (with projection)
+    const accumData: Array<{ dia: number; data: string; receitaAcum: number; projecao: boolean }> = [];
     let accReceita = 0;
-    const accumData = enriched.map((d) => {
-      accLucro += d.lucroLiquido;
-      accInvest += d.totalSpend;
+    enriched.forEach((d, i) => {
       accReceita += d.revenue;
-      const mcPosAdsAcum = accReceita > 0 ? mcPreAdsPct - (accInvest / accReceita) : 0;
-      return {
-        date: d.date,
-        lucroAcum: parseFloat(accLucro.toFixed(2)),
-        investAcum: parseFloat(accInvest.toFixed(2)),
-        mcPosAdsAcum,
-      };
+      accumData.push({ dia: i + 1, data: d.date, receitaAcum: accReceita, projecao: false });
     });
-
-    // MC compression chart data
-    const mcOverTime = enriched.map((d) => ({
-      date: d.date,
-      mcPosAds: d.mcPosAds * 100,
-      adsPct: d.adsPct * 100,
-      mcPreAds: mcPreAdsPct * 100,
-    }));
+    const avgDia = daysWithData > 0 ? accReceita / daysWithData : 0;
+    for (let i = daysWithData + 1; i <= daysInMonth; i++) {
+      accReceita += avgDia;
+      accumData.push({ dia: i, data: `${String(i).padStart(2, "0")}/${currentMonthStr}`, receitaAcum: accReceita, projecao: true });
+    }
 
     // Scenario simulation
-    const scenarios: Array<{
-      investDia: number;
-      roasEst: number;
-      receitaDia: number;
-      adsPctEst: number;
-      mcPosAdsEst: number;
-      lucroDia: number;
-      receitaMes: number;
-      lucroMes: number;
-      isCurrentAvg: boolean;
-      cobreFixoEbitda: boolean;
-    }> = [];
-
+    const simData: Array<{ invest: number; roasEst: number; receitaDia: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
     if (avgRoas > 0 && avgInvestDia > 0) {
-      for (let invest = 500; invest <= 8000; invest += 200) {
+      for (let invest = 1000; invest <= 6000; invest += 100) {
         const roasEst = avgRoas * Math.pow(avgInvestDia / invest, 0.18);
         const receitaDia = invest * roasEst;
-        const adsPctEst = invest / receitaDia;
-        const mcPosAdsEst = mcPreAdsPct - adsPctEst;
-        const lucroDia = receitaDia * mcPosAdsEst;
+        const ebitda = receitaDia * mcPreAdsPct - invest - custoFixoDiario;
+        const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
         const receitaMes = totalReceita + (receitaDia * diasRestantes);
-        const lucroMes = totalLucro + (lucroDia * diasRestantes);
-        const isCurrentAvg = Math.abs(invest - avgInvestDia) < 150;
-        const cobreFixoEbitda = lucroDia >= custoFixoDiario + (receitaDia * ebitdaPct);
-        scenarios.push({ investDia: invest, roasEst, receitaDia, adsPctEst, mcPosAdsEst, lucroDia, receitaMes, lucroMes, isCurrentAvg, cobreFixoEbitda });
+        simData.push({ invest, roasEst, receitaDia, ebitda, ebitdaPct, receitaMes });
       }
     }
 
-    const bestScenario = scenarios.length > 0
-      ? scenarios.reduce((best, s) => s.lucroDia > best.lucroDia ? s : best, scenarios[0])
-      : null;
+    // Ponto otimo: max receita com EBITDA >= 8%
+    const validScenarios = simData.filter((s) => s.ebitdaPct >= EBITDA_MIN);
+    const pontoOtimo = validScenarios.length > 0
+      ? validScenarios.reduce((best, s) => s.receitaDia > best.receitaDia ? s : best, validScenarios[0])
+      : simData[0] ?? null;
 
-    const gapMeta = monthTarget - projReceita;
+    const progPE = breakEven > 0 ? Math.min((totalReceita / breakEven) * 100, 100) : 0;
+    const progMeta = monthTarget > 0 ? Math.min((totalReceita / monthTarget) * 100, 100) : 0;
 
     return {
+      monthName,
       mcPreAdsPct,
-      roasBreakeven,
-      monthTarget,
+      custosSemAdsPct,
+      custoFixoDiario,
       enriched,
-      totalInvest,
       totalReceita,
-      totalLucro,
-      avgLucroDia,
-      avgInvestDia,
+      totalInvest,
+      totalEbitda,
+      ebitdaPctGlobal,
       avgReceitaDia,
-      adsPctGlobal,
-      mcPosAdsGlobal,
+      avgInvestDia,
       avgRoas,
+      diasRestantes,
       daysWithData,
       daysInMonth,
-      diasRestantes,
       projReceita,
-      projLucro,
-      custoFixoDiario,
-      ebitdaPct,
-      mcPosAdsMinima,
+      diasAbaixo,
+      breakEven,
+      monthTarget,
       accumData,
-      mcOverTime,
-      scenarios,
-      bestScenario,
-      gapMeta,
+      simData,
+      pontoOtimo,
+      progPE,
+      progMeta,
     };
   }, [trendData, totalRevenue, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
+
+  // Slider simulation (reactive)
+  const simAtual = useMemo(() => {
+    if (calc.avgRoas <= 0 || calc.avgInvestDia <= 0) return null;
+    const roasEst = calc.avgRoas * Math.pow(calc.avgInvestDia / simInvest, 0.18);
+    const receitaDia = simInvest * roasEst;
+    const ebitda = receitaDia * calc.mcPreAdsPct - simInvest - calc.custoFixoDiario;
+    const ebitdaPct = receitaDia > 0 ? ebitda / receitaDia : 0;
+    const receitaMes = calc.totalReceita + (receitaDia * calc.diasRestantes);
+    return { roasEst, receitaDia, ebitda, ebitdaPct, receitaMes };
+  }, [simInvest, calc]);
 
   if (loading) {
     return (
@@ -403,7 +396,7 @@ export default function EscalaPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <TrendingUp className="h-6 w-6 text-primary" />
-            Painel de Escala
+            Painel de Caixa
           </h1>
           <p className="text-sm text-muted-foreground">Carregando...</p>
         </div>
@@ -415,303 +408,406 @@ export default function EscalaPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <TrendingUp className="h-6 w-6 text-primary" />
-            Painel de Escala — Contribuicao Liquida
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            MC pre-ads: {pct(calc.mcPreAdsPct)} · ROAS Breakeven: {calc.roasBreakeven.toFixed(2)}x · MC pos-ads minima (fixo+EBITDA 8%): {pct(calc.mcPosAdsMinima)}
-          </p>
-        </div>
-        <Link
-          href="/"
-          className="text-xs px-3 py-2 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors font-medium"
-        >
-          Voltar ao Overview
-        </Link>
+      <div>
+        <h1 className="text-xl font-extrabold text-foreground">
+          Painel de Caixa — {calc.monthName} {new Date().getFullYear()}
+        </h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Objetivo: maximizar receita mantendo EBITDA entre 8% e 10%
+        </p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border-success/20 bg-success/[0.03]">
+      {/* 4 KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* Receita Acumulada */}
+        <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/[0.02]">
           <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-success mb-2">Lucro Liquido Acumulado</p>
-            <p className={`text-3xl font-black tabular-nums ${calc.totalLucro >= 0 ? "text-success" : "text-destructive"}`}>
-              {formatCurrency(calc.totalLucro)}
+            <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-blue-500 mb-2">Receita Acumulada</p>
+            <p className="text-2xl font-black text-foreground leading-none">{fmtK(calc.totalReceita)}</p>
+            <p className="text-[11px] text-muted-foreground mt-2">media {fmtInt(calc.avgReceitaDia)}/dia</p>
+          </CardContent>
+        </Card>
+
+        {/* EBITDA % */}
+        <Card className={`border-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/20 bg-gradient-to-br from-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/10 to-${calc.ebitdaPctGlobal >= EBITDA_MIN ? "success" : "destructive"}/[0.02]`}>
+          <CardContent className="pt-5 pb-4">
+            <p className={`text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+              EBITDA % Periodo
             </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {calc.daysWithData} dias · media {formatCurrency(calc.avgLucroDia)}/dia
+            <p className={`text-2xl font-black leading-none ${calc.ebitdaPctGlobal >= EBITDA_IDEAL ? "text-success" : calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+              {pct(calc.ebitdaPctGlobal)}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-2">{fmtInt(calc.totalEbitda)} em {calc.daysWithData} dias</p>
+          </CardContent>
+        </Card>
+
+        {/* EBITDA R$ Acum */}
+        <Card className="border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-purple-500/[0.02]">
+          <CardContent className="pt-5 pb-4">
+            <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-purple-500 mb-2">EBITDA R$ Acum.</p>
+            <p className={`text-2xl font-black leading-none ${calc.totalEbitda >= 0 ? "text-purple-500" : "text-destructive"}`}>
+              {fmtInt(calc.totalEbitda)}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              {calc.diasAbaixo > 0 ? `${calc.diasAbaixo} dia(s) abaixo de 8%` : "todos os dias acima de 8%"}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-warning/20 bg-warning/[0.03]">
+        {/* Invest. Otimo */}
+        <Card className="border-warning/20 bg-gradient-to-br from-warning/10 to-warning/[0.02]">
           <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-warning mb-2">MC% Pos-Ads (Real)</p>
-            <p className={`text-3xl font-black ${calc.mcPosAdsGlobal >= 0 ? "text-warning" : "text-destructive"}`}>
-              {pct(calc.mcPosAdsGlobal)}
+            <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-warning mb-2">Invest. Otimo (Max Receita c/ 8%)</p>
+            <p className="text-2xl font-black text-warning leading-none">
+              {calc.pontoOtimo ? fmtInt(calc.pontoOtimo.invest) : "—"}<span className="text-sm text-muted-foreground">/dia</span>
             </p>
-            <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-              <span>pre-ads: {pct(calc.mcPreAdsPct)}</span>
-              <span className="text-destructive">ads: {pct(calc.adsPctGlobal)}</span>
+            <p className="text-[11px] text-muted-foreground mt-2">atual: {fmtInt(calc.avgInvestDia)}/dia</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Progress PE + Meta */}
+      <Card className="bg-muted/[0.02]">
+        <CardContent className="pt-4 pb-4">
+          {/* PE */}
+          <div className="mb-3.5">
+            <div className="flex justify-between text-[11px] mb-1">
+              <span className="text-destructive font-semibold">PE: {fmtK(calc.breakEven)}</span>
+              <span className="text-destructive">{calc.progPE.toFixed(0)}%</span>
             </div>
-          </CardContent>
-        </Card>
+            <div className="h-2.5 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${calc.progPE >= 100 ? "bg-success" : "bg-destructive"}`}
+                style={{ width: `${calc.progPE}%` }}
+              />
+            </div>
+          </div>
+          {/* Meta */}
+          <div>
+            <div className="flex justify-between text-[11px] mb-1">
+              <span className="text-blue-500 font-semibold">Meta: {fmtK(calc.monthTarget)}</span>
+              <span className="text-blue-500">{calc.progMeta.toFixed(0)}%</span>
+            </div>
+            <div className="h-2.5 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all"
+                style={{ width: `${calc.progMeta}%` }}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card className={`${calc.gapMeta > 0 ? "border-destructive/20 bg-destructive/[0.03]" : "border-success/20 bg-success/[0.03]"}`}>
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-2">Projecao vs Meta</p>
-            <p className={`text-3xl font-black ${calc.gapMeta > 0 ? "text-destructive" : "text-success"}`}>
-              {calc.gapMeta > 0 ? `-${fmtK(calc.gapMeta)}` : "Meta OK"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              proj: {fmtK(calc.projReceita)} · meta: {fmtK(calc.monthTarget)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Equation Banner */}
-      <div className="rounded-lg border border-border/50 bg-muted/20 px-5 py-3 flex items-center justify-center gap-6 flex-wrap text-xs font-mono">
-        <span className="text-muted-foreground">Equacao:</span>
-        <span className="text-success font-bold">Lucro</span>
-        <span className="text-muted-foreground">=</span>
-        <span className="text-foreground">Receita</span>
-        <span className="text-muted-foreground">x</span>
-        <span className="text-muted-foreground">(</span>
-        <span className="text-warning">{pct(calc.mcPreAdsPct)}</span>
-        <span className="text-muted-foreground">-</span>
-        <span className="text-destructive">1/ROAS</span>
-        <span className="text-muted-foreground">)</span>
-        <span className="text-border">|</span>
-        <span className="text-muted-foreground text-[10px]">+ investimento → ROAS cai → % ads sobe → MC% encolhe</span>
-      </div>
-
-      {/* Charts Row 1 */}
+      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Lucro Diario */}
+        {/* Receita Acumulada no Mes */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lucro Liquido Diario</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={calc.enriched} barSize={26}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="date" tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "#12121a", border: "1px solid #2a2a3e", borderRadius: "8px", fontSize: "11px" }}
-                    formatter={(value) => [formatCurrency(Number(value)), "Lucro"]}
-                    labelFormatter={(label) => `Dia ${label}`}
-                  />
-                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.08)" />
-                  <ReferenceLine y={calc.custoFixoDiario} stroke="#f59e0b" strokeDasharray="4 4" />
-                  <Bar dataKey="lucroLiquido" radius={[4, 4, 0, 0]}>
-                    {calc.enriched.map((entry, i) => (
-                      <Cell key={i} fill={entry.lucroLiquido >= 0 ? "rgba(34,197,94,0.75)" : "rgba(239,68,68,0.75)"} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1 text-center">Linha amarela = custo fixo diario ({formatCurrency(calc.custoFixoDiario)})</p>
-          </CardContent>
-        </Card>
-
-        {/* MC Compression */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Compressao da MC% (pre-ads → pos-ads)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={calc.mcOverTime}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="date" tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 60]} tickFormatter={(v) => `${v}%`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "#12121a", border: "1px solid #2a2a3e", borderRadius: "8px", fontSize: "11px" }}
-                    formatter={(value, name) => {
-                      const label = name === "mcPosAds" ? "MC pos-ads" : name === "adsPct" ? "Custo Ads" : "MC pre-ads";
-                      return [`${Number(value).toFixed(1)}%`, label];
-                    }}
-                  />
-                  <ReferenceLine y={calc.mcPreAdsPct * 100} stroke="rgba(255,255,255,0.15)" strokeDasharray="6 4" />
-                  <ReferenceLine y={0} stroke="rgba(239,68,68,0.3)" strokeWidth={2} />
-                  <Area type="monotone" dataKey="adsPct" stackId="1" fill="rgba(239,68,68,0.2)" stroke="none" />
-                  <Area type="monotone" dataKey="mcPosAds" stackId="1" fill="rgba(34,197,94,0.15)" stroke="none" />
-                  <Line type="monotone" dataKey="mcPosAds" stroke="#22c55e" strokeWidth={2.5} dot={{ fill: "#22c55e", r: 3, strokeWidth: 0 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1 text-center">Verde = margem pos-ads · Vermelho = custo ads · Linha = MC% pos-ads</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Accumulated */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lucro Acumulado vs Investimento Acumulado</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
+              Receita Acumulada no Mes
+            </h3>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={calc.accumData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="date" tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                  <XAxis dataKey="dia" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#12121a", border: "1px solid #2a2a3e", borderRadius: "8px", fontSize: "11px" }}
-                    formatter={(value, name) => {
-                      const label = name === "lucroAcum" ? "Lucro Acum." : "Invest. Acum.";
-                      return [formatCurrency(Number(value)), label];
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload as { dia: number; projecao: boolean; receitaAcum: number };
+                      return (
+                        <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3 text-[13px]">
+                          <div className="text-foreground font-bold">Dia {d.dia} {d.projecao ? "(projecao)" : ""}</div>
+                          <div className="text-foreground mt-1">Receita acum: {fmtK(d.receitaAcum)}</div>
+                        </div>
+                      );
                     }}
                   />
-                  <Area type="monotone" dataKey="lucroAcum" stroke="#22c55e" fill="rgba(34,197,94,0.12)" strokeWidth={2.5} />
-                  <Area type="monotone" dataKey="investAcum" stroke="#ef4444" fill="rgba(239,68,68,0.06)" strokeWidth={2} strokeDasharray="4 4" />
+                  {calc.breakEven > 0 && (
+                    <ReferenceLine y={calc.breakEven} stroke="#ef4444" strokeDasharray="6 4" strokeWidth={2} label={{ value: "PE", fill: "#ef4444", fontSize: 10, position: "right" }} />
+                  )}
+                  {calc.monthTarget > 0 && (
+                    <ReferenceLine y={calc.monthTarget} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} label={{ value: "Meta", fill: "#3b82f6", fontSize: 10, position: "right" }} />
+                  )}
+                  <Area type="monotone" dataKey="receitaAcum" stroke="#22c55e" fill="rgba(34,197,94,0.1)" strokeWidth={2.5} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        {/* Scenario Simulation */}
+        {/* EBITDA % por Dia */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Simulacao: Lucro/dia vs Investimento/dia</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
+              EBITDA % por Dia
+            </h3>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={calc.scenarios}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="investDia" tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
-                  <YAxis tick={{ fill: "#8888a0", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
+                <ComposedChart data={calc.enriched}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                  <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} domain={[-0.15, 0.25]} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#12121a", border: "1px solid #2a2a3e", borderRadius: "8px", fontSize: "11px" }}
-                    formatter={(value, name) => {
-                      if (name === "lucroDia") return [formatCurrency(Number(value)), "Lucro/dia"];
-                      return [value, name];
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload as typeof calc.enriched[number];
+                      return (
+                        <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] leading-[1.7] min-w-[260px]">
+                          <div className="text-foreground font-bold text-sm mb-1.5">{d.date}</div>
+                          <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5">
+                            <span className="text-muted-foreground">Receita</span>
+                            <span className="text-foreground text-right">{formatCurrency(d.revenue)}</span>
+                            <span className="text-muted-foreground">Custos var. ({pct(calc.custosSemAdsPct)})</span>
+                            <span className="text-warning text-right">-{formatCurrency(d.custosVar)}</span>
+                            <span className="text-muted-foreground">Ads ({pct(d.adsPct)})</span>
+                            <span className="text-destructive text-right">-{formatCurrency(d.totalSpend)}</span>
+                            <span className="text-muted-foreground">Custo fixo/dia</span>
+                            <span className="text-muted-foreground text-right">-{formatCurrency(calc.custoFixoDiario)}</span>
+                          </div>
+                          <div className="border-t border-border/20 mt-2 pt-2">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">EBITDA</span>
+                              <span className={`font-extrabold text-[15px] ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+                                {formatCurrency(d.ebitda)} ({pct(d.ebitdaPct)})
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-1">
+                              Precisava {formatCurrency(d.receitaMin8)} pra 8% de EBITDA
+                            </div>
+                          </div>
+                        </div>
+                      );
                     }}
-                    labelFormatter={(v) => `Invest: ${formatCurrency(Number(v))}/dia`}
                   />
-                  <ReferenceLine y={0} stroke="rgba(239,68,68,0.3)" strokeWidth={1.5} />
-                  <ReferenceLine y={calc.custoFixoDiario} stroke="#f59e0b" strokeDasharray="4 4" />
-                  <Area type="monotone" dataKey="lucroDia" fill="rgba(168,85,247,0.1)" stroke="none" />
-                  <Line type="monotone" dataKey="lucroDia" stroke="#a855f7" strokeWidth={2.5} dot={false} />
-                  {calc.avgInvestDia > 0 && (
-                    <ReferenceLine x={Math.round(calc.avgInvestDia / 200) * 200} stroke="#f59e0b" strokeDasharray="4 4" />
-                  )}
-                  {calc.bestScenario && (
-                    <ReferenceLine x={calc.bestScenario.investDia} stroke="#22c55e" strokeDasharray="4 4" />
-                  )}
+                  <ReferenceLine y={EBITDA_IDEAL} stroke="#22c55e" strokeDasharray="6 4" label={{ value: "10%", fill: "#22c55e", fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} />
+                  <Bar dataKey="ebitdaPct" barSize={28} radius={[4, 4, 0, 0]}>
+                    {calc.enriched.map((d, i) => (
+                      <Cell
+                        key={i}
+                        fill={
+                          d.ebitdaPct >= EBITDA_IDEAL ? "rgba(34,197,94,0.75)" :
+                          d.ebitdaPct >= EBITDA_MIN ? "rgba(245,158,11,0.6)" :
+                          "rgba(239,68,68,0.7)"
+                        }
+                      />
+                    ))}
+                  </Bar>
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex items-center justify-center gap-6 text-[10px] text-muted-foreground mt-1">
-              <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-warning inline-block" /> ATUAL ({formatCurrency(calc.avgInvestDia)}/dia)</span>
-              {calc.bestScenario && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-success inline-block" /> OTIMO ({formatCurrency(calc.bestScenario.investDia)}/dia)</span>}
-              <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-warning inline-block" style={{ borderTop: "1px dashed" }} /> Custo fixo diario</span>
-            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Decision Rule + Best Scenario */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="bg-gradient-to-br from-success/[0.03] to-transparent">
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-success mb-2">Regra de Decisao</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Escale investimento enquanto a <span className="text-success font-semibold">MC% pos-ads se mantiver positiva</span> (ROAS {">"} {calc.roasBreakeven.toFixed(2)}x).
-              O ponto otimo e onde o lucro absoluto para de subir — nao onde o ROAS e mais alto.
-              A MC pos-ads precisa cobrir custos fixos ({formatCurrency(calc.custoFixoDiario)}/dia) + EBITDA minimo de 8%.
-            </p>
-          </CardContent>
-        </Card>
-
-        {calc.bestScenario && (
-          <Card className="bg-gradient-to-br from-purple-500/[0.03] to-transparent">
-            <CardContent className="pt-5 pb-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-purple-400 mb-2">Cenario Otimo Estimado</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Investir <span className="text-purple-400 font-semibold">{formatCurrency(calc.bestScenario.investDia)}/dia</span> (atual: {formatCurrency(calc.avgInvestDia)}) ·
-                ROAS proj: {calc.bestScenario.roasEst.toFixed(1)}x ·
-                MC% proj: {pct(calc.bestScenario.mcPosAdsEst)} ·
-                Lucro/dia: <span className="text-success font-semibold">{formatCurrency(calc.bestScenario.lucroDia)}</span>
-                {calc.bestScenario.cobreFixoEbitda
-                  ? <span className="text-success ml-1">(cobre fixo + EBITDA)</span>
-                  : <span className="text-warning ml-1">(nao cobre fixo + EBITDA)</span>
-                }
-              </p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Daily Table */}
+      {/* Simulador */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Controle Diario</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-5 pb-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-5">
+            Simulador: Ate onde posso investir?
+          </h3>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8 items-start">
+            {/* Slider + mini-cards */}
+            <div>
+              <div className="mb-5">
+                <p className="text-[11px] text-muted-foreground mb-2">Investimento/dia</p>
+                <p className="text-3xl font-black text-foreground mb-3">
+                  {fmtInt(simInvest)}<span className="text-sm text-muted-foreground">/dia</span>
+                </p>
+                <input
+                  type="range"
+                  min={1000}
+                  max={6000}
+                  step={100}
+                  value={simInvest}
+                  onChange={(e) => setSimInvest(Number(e.target.value))}
+                  className="w-full accent-purple-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span>R$ 1.000</span>
+                  <span>R$ 6.000</span>
+                </div>
+              </div>
+
+              {simAtual && (
+                <div className="grid gap-2.5">
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">Receita/dia estimada</p>
+                    <p className="text-xl font-extrabold text-foreground">{fmtInt(simAtual.receitaDia)}</p>
+                  </div>
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">EBITDA %</p>
+                    <p className={`text-xl font-extrabold ${simAtual.ebitdaPct >= EBITDA_IDEAL ? "text-success" : simAtual.ebitdaPct >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+                      {pct(simAtual.ebitdaPct)}
+                    </p>
+                    <p className="text-[10px] mt-1">
+                      {simAtual.ebitdaPct >= EBITDA_IDEAL
+                        ? <span className="text-success">Dentro do ideal</span>
+                        : simAtual.ebitdaPct >= EBITDA_MIN
+                        ? <span className="text-warning">OK, mas no limite</span>
+                        : <span className="text-destructive">Abaixo do minimo!</span>
+                      }
+                    </p>
+                  </div>
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">EBITDA R$/dia</p>
+                    <p className={`text-xl font-extrabold ${simAtual.ebitda >= 0 ? "text-success" : "text-destructive"}`}>
+                      {fmtInt(simAtual.ebitda)}
+                    </p>
+                  </div>
+                  <div className="bg-muted/[0.06] rounded-xl px-3.5 py-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">Projecao receita mes</p>
+                    <p className={`text-xl font-extrabold ${simAtual.receitaMes >= calc.breakEven ? "text-blue-500" : "text-destructive"}`}>
+                      {fmtK(simAtual.receitaMes)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Dual-axis chart */}
+            <div>
+              <div className="h-[360px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={calc.simData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                    <XAxis
+                      dataKey="invest"
+                      tick={{ fill: "#555", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`}
+                      label={{ value: "Investimento/dia", position: "insideBottom", offset: -5, fill: "#555", fontSize: 10 }}
+                    />
+                    <YAxis
+                      yAxisId="receita"
+                      tick={{ fill: "#555", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                    />
+                    <YAxis
+                      yAxisId="ebitda"
+                      orientation="right"
+                      tick={{ fill: "#555", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+                      domain={[-0.05, 0.25]}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload as typeof calc.simData[number];
+                        return (
+                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px]">
+                            <div className="text-foreground font-bold mb-1">Investindo {fmtInt(d.invest)}/dia</div>
+                            <div className="text-blue-500">Receita/dia: {fmtInt(d.receitaDia)}</div>
+                            <div className={`font-bold ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+                              EBITDA: {pct(d.ebitdaPct)} ({fmtInt(d.ebitda)}/dia)
+                            </div>
+                            <div className="text-muted-foreground text-[11px] mt-1">
+                              ROAS: {d.roasEst.toFixed(1)}x · Receita mes: {fmtK(d.receitaMes)}
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <ReferenceLine yAxisId="ebitda" y={EBITDA_IDEAL} stroke="#22c55e" strokeDasharray="6 4" label={{ value: "10%", fill: "#22c55e", fontSize: 10, position: "left" }} />
+                    <ReferenceLine yAxisId="ebitda" y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "left" }} />
+                    <ReferenceLine yAxisId="ebitda" y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} />
+                    {calc.avgInvestDia > 0 && (
+                      <ReferenceLine x={Math.round(calc.avgInvestDia / 100) * 100} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: "ATUAL", fill: "#f59e0b", fontSize: 10, position: "top" }} />
+                    )}
+                    {calc.pontoOtimo && (
+                      <ReferenceLine x={calc.pontoOtimo.invest} stroke="#22c55e" strokeDasharray="4 4" label={{ value: "OTIMO", fill: "#22c55e", fontSize: 10, position: "top" }} />
+                    )}
+                    <Area yAxisId="receita" type="monotone" dataKey="receitaDia" fill="rgba(59,130,246,0.06)" stroke="none" />
+                    <Line yAxisId="receita" type="monotone" dataKey="receitaDia" stroke="#3b82f6" strokeWidth={2.5} dot={false} name="Receita/dia" />
+                    <Line yAxisId="ebitda" type="monotone" dataKey="ebitdaPct" stroke="#22c55e" strokeWidth={2} dot={false} strokeDasharray="4 2" name="EBITDA %" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex gap-5 justify-center mt-2 text-[11px]">
+                <span className="text-blue-500">━ Receita/dia (eixo esq.)</span>
+                <span className="text-success">╌ EBITDA % (eixo dir.)</span>
+                <span className="text-warning">┊ Investimento atual</span>
+                <span className="text-success">┊ Ponto otimo</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabela Controle Diario */}
+      <Card>
+        <CardContent className="pt-5">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
+            Controle Diario
+          </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">Data</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">Investimento</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">Receita</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">% Ads</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">MC pre</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">MC pos-ads</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">Lucro Liquido</th>
-                  <th className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">ROAS</th>
+                  {["Data", "Receita", "Custos Var.", "Ads", "Fixo/dia", "EBITDA R$", "EBITDA %", ""].map((h) => (
+                    <th key={h} className="px-3 py-2 text-right font-semibold text-muted-foreground text-[10px] uppercase tracking-wide">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {calc.enriched.map((d, i) => (
-                  <tr key={i} className="border-b border-border/30 hover:bg-muted/10">
-                    <td className="px-3 py-2 text-right font-semibold">{d.date}</td>
-                    <td className="px-3 py-2 text-right text-destructive">{formatCurrency(d.totalSpend)}</td>
-                    <td className="px-3 py-2 text-right">{formatCurrency(d.revenue)}</td>
-                    <td className="px-3 py-2 text-right text-warning font-semibold">{pct(d.adsPct)}</td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">{pct(calc.mcPreAdsPct)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <span className={`font-bold ${d.mcPosAds >= 0.35 ? "text-success" : d.mcPosAds >= 0.25 ? "text-warning" : "text-destructive"}`}>
-                        {pct(d.mcPosAds)}
-                      </span>
+                  <tr key={i} className="border-b border-border/20 hover:bg-muted/5">
+                    <td className="px-3 py-2.5 text-right font-semibold text-foreground">{d.date}</td>
+                    <td className="px-3 py-2.5 text-right text-foreground">{formatCurrency(d.revenue)}</td>
+                    <td className="px-3 py-2.5 text-right text-warning">-{formatCurrency(d.custosVar)}</td>
+                    <td className="px-3 py-2.5 text-right text-destructive">-{formatCurrency(d.totalSpend)}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">-{formatCurrency(calc.custoFixoDiario)}</td>
+                    <td className={`px-3 py-2.5 text-right font-extrabold ${d.ebitda >= 0 ? "text-success" : "text-destructive"}`}>
+                      {formatCurrency(d.ebitda)}
                     </td>
-                    <td className={`px-3 py-2 text-right font-bold ${d.lucroLiquido >= 0 ? "text-success" : "text-destructive"}`}>
-                      {formatCurrency(d.lucroLiquido)}
+                    <td className={`px-3 py-2.5 text-right font-bold ${d.ebitdaPct >= EBITDA_IDEAL ? "text-success" : d.ebitdaPct >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+                      {pct(d.ebitdaPct)}
                     </td>
-                    <td className="px-3 py-2 text-right text-blue-400 font-semibold">{d.roas.toFixed(2)}x</td>
+                    <td className="px-3 py-2.5 text-right"><EbitdaTag value={d.ebitdaPct} /></td>
                   </tr>
                 ))}
                 {/* Total row */}
                 <tr className="border-t-2 border-border">
-                  <td className="px-3 py-2.5 text-right font-black">TOTAL</td>
-                  <td className="px-3 py-2.5 text-right text-destructive font-bold">{formatCurrency(calc.totalInvest)}</td>
-                  <td className="px-3 py-2.5 text-right font-bold">{formatCurrency(calc.totalReceita)}</td>
-                  <td className="px-3 py-2.5 text-right text-warning font-bold">{pct(calc.adsPctGlobal)}</td>
-                  <td className="px-3 py-2.5 text-right text-muted-foreground">{pct(calc.mcPreAdsPct)}</td>
-                  <td className="px-3 py-2.5 text-right text-success font-bold">{pct(calc.mcPosAdsGlobal)}</td>
-                  <td className={`px-3 py-2.5 text-right font-black text-sm ${calc.totalLucro >= 0 ? "text-success" : "text-destructive"}`}>
-                    {formatCurrency(calc.totalLucro)}
+                  <td className="px-3 py-3 text-right font-black text-foreground">TOTAL</td>
+                  <td className="px-3 py-3 text-right font-extrabold text-foreground">{formatCurrency(calc.totalReceita)}</td>
+                  <td className="px-3 py-3 text-right font-bold text-warning">-{formatCurrency(calc.totalReceita * calc.custosSemAdsPct)}</td>
+                  <td className="px-3 py-3 text-right font-bold text-destructive">-{formatCurrency(calc.totalInvest)}</td>
+                  <td className="px-3 py-3 text-right font-bold text-muted-foreground">-{formatCurrency(calc.custoFixoDiario * calc.daysWithData)}</td>
+                  <td className={`px-3 py-3 text-right font-black text-sm ${calc.totalEbitda >= 0 ? "text-success" : "text-destructive"}`}>
+                    {formatCurrency(calc.totalEbitda)}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-blue-400 font-bold">{calc.avgRoas.toFixed(2)}x</td>
+                  <td className={`px-3 py-3 text-right font-extrabold ${calc.ebitdaPctGlobal >= EBITDA_IDEAL ? "text-success" : calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+                    {pct(calc.ebitdaPctGlobal)}
+                  </td>
+                  <td className="px-3 py-3 text-right"><EbitdaTag value={calc.ebitdaPctGlobal} /></td>
                 </tr>
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Regra de Decisao */}
+      <Card className="bg-muted/[0.04]">
+        <CardContent className="pt-4 pb-4">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <strong className="text-foreground">Regra: </strong>
+            <span className="text-success">EBITDA acima de 10% </span>→ pode investir mais, esta sobrando margem.
+            <span className="text-warning"> EBITDA entre 8% e 10% </span>→ no ponto, mantem.
+            <span className="text-destructive"> EBITDA abaixo de 8% </span>→ recua investimento.
+            O objetivo e empurrar a receita ao maximo mantendo o EBITDA na faixa.
+          </p>
         </CardContent>
       </Card>
     </div>
