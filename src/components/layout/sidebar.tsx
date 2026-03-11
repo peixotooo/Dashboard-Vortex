@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Megaphone,
-  BarChart3,
   LineChart,
   ShoppingBag,
   Users,
@@ -25,6 +24,7 @@ import {
   Search,
   TrendingUp,
   Boxes,
+  Contact,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +44,11 @@ const navItems: NavItem[] = [
   { href: "/team/planning", label: "Planejamento", icon: CalendarDays, indent: true },
   { href: "/agent", label: "Vortex IA", icon: Zap },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
-  { href: "/analytics", label: "Meta Ads", icon: BarChart3 },
   { href: "/google-ads", label: "Google Ads", icon: CircleDollarSign },
   { href: "/ga4", label: "Google Analytics", icon: LineChart },
   { href: "/vnda", label: "E-commerce", icon: ShoppingBag },
   { href: "/products", label: "Produtos", icon: Boxes },
+  { href: "/crm", label: "CRM", icon: Contact },
   { href: "/simulador", label: "Financeiro", icon: Landmark },
   { href: "/simulador", label: "Simulador", icon: Calculator, indent: true },
   { href: "/simulador/diagnostico", label: "Diagnostico", icon: Search, indent: true },
