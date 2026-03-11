@@ -50,10 +50,9 @@ export function DateRangePicker({
     setOpen(false);
   };
 
-  const handleRangeSelect = (range: DateRange | undefined) => {
-    setPendingRange(range);
-    if (range?.from && range?.to) {
-      const newRange = { since: fmt(range.from), until: fmt(range.to) };
+  const handleApply = () => {
+    if (pendingRange?.from && pendingRange?.to) {
+      const newRange = { since: fmt(pendingRange.from), until: fmt(pendingRange.to) };
       onCustomRangeChange?.(newRange);
       onChange("custom");
       setShowCalendar(false);
@@ -65,6 +64,14 @@ export function DateRangePicker({
     setOpen(isOpen);
     if (!isOpen) setShowCalendar(false);
   };
+
+  const rangeIsComplete = !!(pendingRange?.from && pendingRange?.to);
+
+  const pendingLabel = pendingRange?.from
+    ? pendingRange.to
+      ? `${format(pendingRange.from, "dd MMM yyyy", { locale: ptBR })} - ${format(pendingRange.to, "dd MMM yyyy", { locale: ptBR })}`
+      : `${format(pendingRange.from, "dd MMM yyyy", { locale: ptBR })} - ...`
+    : null;
 
   const displayLabel = value === "custom" && customRange
     ? `${format(new Date(customRange.since + "T00:00:00"), "dd MMM", { locale: ptBR })} - ${format(new Date(customRange.until + "T00:00:00"), "dd MMM yyyy", { locale: ptBR })}`
@@ -95,16 +102,41 @@ export function DateRangePicker({
               >
                 &larr; Voltar
               </button>
-              <span className="text-xs text-muted-foreground">Selecione o intervalo</span>
+              {pendingLabel && (
+                <span className="text-xs font-medium text-foreground">{pendingLabel}</span>
+              )}
+              {!pendingLabel && (
+                <span className="text-xs text-muted-foreground">Selecione o intervalo</span>
+              )}
             </div>
             <Calendar
               mode="range"
               selected={pendingRange}
-              onSelect={handleRangeSelect}
+              onSelect={setPendingRange}
               numberOfMonths={2}
               disabled={{ after: new Date() }}
               defaultMonth={pendingRange?.from || new Date()}
             />
+            <div className="flex justify-end px-4 pb-3 pt-1 gap-2">
+              <button
+                onClick={() => { setShowCalendar(false); setOpen(false); }}
+                className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleApply}
+                disabled={!rangeIsComplete}
+                className={cn(
+                  "px-4 py-1.5 text-sm rounded-md font-medium transition-colors",
+                  rangeIsComplete
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                )}
+              >
+                Aplicar
+              </button>
+            </div>
           </div>
         ) : (
           <div className="py-1 min-w-[180px]">
