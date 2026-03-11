@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { generateRfmReport } from "@/lib/crm-rfm";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
@@ -19,21 +20,52 @@ const EMPTY_RESPONSE = {
   distributions: { recency: [], frequency: [], monetary: [] },
 };
 
-export async function GET() {
-  try {
-    const supabase = createAdminClient();
+function createSupabase(request: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {},
+      },
+    }
+  );
+}
 
-    // Paginated fetch to handle 78k+ rows
-    // Supabase default limit is 1000 rows per request
+export async function GET(request: NextRequest) {
+  try {
+    // Authenticate user
+    const supabase = createSupabase(request);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (!workspaceId) {
+      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    }
+
+    // Use admin client for the heavy data query (bypasses RLS for performance)
+    // but filter explicitly by workspace_id for isolation
+    const admin = createAdminClient();
+
+    // Paginated fetch — Supabase default limit is 1000 rows per request
     let allRows: CrmVendaRow[] = [];
     const PAGE_SIZE = 1000;
     let from = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const { data, error } = await supabase
+      const { data, error } = await admin
         .from("crm_vendas")
         .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
+        .eq("workspace_id", workspaceId)
         .range(from, from + PAGE_SIZE - 1);
 
       if (error) throw new Error(`Supabase error: ${error.message}`);

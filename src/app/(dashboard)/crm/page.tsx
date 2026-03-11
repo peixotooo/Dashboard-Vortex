@@ -9,6 +9,7 @@ import {
   Search,
   Loader2,
   Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   PieChart,
@@ -205,11 +206,13 @@ function ExportSelect({
   filterFn,
   customers,
   filenamePrefix,
+  onExport,
 }: {
   options: { value: string; label: string }[];
   filterFn: (c: RfmCustomer, value: string) => boolean;
   customers: RfmCustomer[];
   filenamePrefix: string;
+  onExport?: (type: string, filters: Record<string, string>, count: number) => void;
 }) {
   const [selected, setSelected] = React.useState(options[0]?.value ?? "");
   const count = customers.filter((c) => filterFn(c, selected)).length;
@@ -233,6 +236,7 @@ function ExportSelect({
           const filtered = customers.filter((c) => filterFn(c, selected));
           const label = options.find((o) => o.value === selected)?.label ?? selected;
           exportCustomersCsv(filtered, `${filenamePrefix}-${label}`);
+          onExport?.(filenamePrefix, { value: selected, label }, filtered.length);
         }}
       >
         <Download className="h-3 w-3" />
@@ -262,13 +266,26 @@ export default function CrmPage() {
   const [distributions, setDistributions] = useState(emptyDistributions);
   const [behavioral, setBehavioral] = useState(emptyBehavioral);
 
+  // Export logs
+  interface ExportLog {
+    id: string;
+    export_type: string;
+    filters: Record<string, string> | null;
+    record_count: number;
+    created_at: string;
+  }
+  const [exportLogs, setExportLogs] = useState<ExportLog[]>([]);
+
+  const wsHeaders = useCallback((): Record<string, string> => {
+    const hdrs: Record<string, string> = {};
+    if (workspace?.id) hdrs["x-workspace-id"] = workspace.id;
+    return hdrs;
+  }, [workspace?.id]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const hdrs: Record<string, string> = {};
-      if (workspace?.id) hdrs["x-workspace-id"] = workspace.id;
-
-      const res = await fetch("/api/crm/rfm", { headers: hdrs });
+      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
       const data = await res.json();
 
       setCustomers(data.customers || []);
@@ -281,11 +298,38 @@ export default function CrmPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id]);
+  }, [wsHeaders]);
+
+  const fetchExportLogs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/crm/export-logs", { headers: wsHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setExportLogs(data.logs || []);
+      }
+    } catch {
+      // Silent — non-critical
+    }
+  }, [wsHeaders]);
+
+  // Fire-and-forget export log
+  const logExport = useCallback(
+    (exportType: string, filters: Record<string, string>, recordCount: number) => {
+      fetch("/api/crm/export-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...wsHeaders() },
+        body: JSON.stringify({ export_type: exportType, filters, record_count: recordCount }),
+      })
+        .then(() => fetchExportLogs())
+        .catch(() => {});
+    },
+    [wsHeaders, fetchExportLogs]
+  );
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    fetchExportLogs();
+  }, [fetchData, fetchExportLogs]);
 
   // Filtered customers
   const filteredCustomers = useMemo(() => {
@@ -414,6 +458,54 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
           </div>
+
+          {/* Export History */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base">Exportacoes Recentes</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {exportLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Nenhuma exportacao registrada ainda.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="text-left py-2 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Data</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Tipo</th>
+                        <th className="text-left py-2 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Filtros</th>
+                        <th className="text-right py-2 px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">Registros</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exportLogs.slice(0, 15).map((log) => (
+                        <tr key={log.id} className="border-b border-border/30 hover:bg-muted/30">
+                          <td className="py-2 px-2 text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(log.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          </td>
+                          <td className="py-2 px-2">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary">
+                              {log.export_type.replace(/_/g, " ").replace(/^crm-?/, "")}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-xs text-muted-foreground max-w-[200px] truncate">
+                            {log.filters ? Object.entries(log.filters).map(([k, v]) => `${k}: ${v}`).join(", ") : "—"}
+                          </td>
+                          <td className="py-2 px-2 text-right font-medium">{formatNumber(log.record_count)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ===== Tab 2: Segments ===== */}
@@ -456,6 +548,7 @@ export default function CrmPage() {
                         e.stopPropagation();
                         const filtered = customers.filter((c) => c.segment === seg.segment);
                         exportCustomersCsv(filtered, `crm-${seg.label.toLowerCase().replace(/\s+/g, "-")}`);
+                        logExport(`segment_${seg.segment}`, { segmento: seg.label }, filtered.length);
                       }}
                     >
                       <Download className="h-3.5 w-3.5" />
@@ -472,7 +565,7 @@ export default function CrmPage() {
         <TabsContent value="behavior" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}
-              actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-mes"
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-mes" onExport={logExport}
                 options={[{ value: "1-5", label: "Dia 1-5" }, { value: "6-10", label: "Dia 6-10" }, { value: "11-15", label: "Dia 11-15" }, { value: "16-20", label: "Dia 16-20" }, { value: "21-25", label: "Dia 21-25" }, { value: "26-31", label: "Dia 26-31" }]}
                 filterFn={(c, v) => c.preferredDayRange === v} />}>
               <ResponsiveContainer width="100%" height="100%">
@@ -487,7 +580,7 @@ export default function CrmPage() {
             </ChartCard>
 
             <ChartCard title="Turno Preferido" loading={loading} isEmpty={behavioral.hourOfDay.length === 0}
-              actions={<ExportSelect customers={customers} filenamePrefix="crm-turno"
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-turno" onExport={logExport}
                 options={[{ value: "madrugada", label: "Madrugada" }, { value: "manha", label: "Manha" }, { value: "tarde", label: "Tarde" }, { value: "noite", label: "Noite" }]}
                 filterFn={(c, v) => c.preferredHour === v} />}>
               <ResponsiveContainer width="100%" height="100%">
@@ -504,7 +597,7 @@ export default function CrmPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title="Sensibilidade a Cupom" loading={loading} isEmpty={behavioral.couponUsage.length === 0}
-              actions={<ExportSelect customers={customers} filenamePrefix="crm-cupom"
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-cupom" onExport={logExport}
                 options={[{ value: "never", label: "Nunca usa" }, { value: "occasional", label: "Ocasional" }, { value: "frequent", label: "Frequente" }, { value: "always", label: "Sempre usa" }]}
                 filterFn={(c, v) => c.couponSensitivity === v} />}>
               <ResponsiveContainer width="100%" height="100%">
@@ -521,7 +614,7 @@ export default function CrmPage() {
             </ChartCard>
 
             <ChartCard title="Estagio do Ciclo de Vida" loading={loading} isEmpty={behavioral.lifecycle.length === 0}
-              actions={<ExportSelect customers={customers} filenamePrefix="crm-lifecycle"
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-lifecycle" onExport={logExport}
                 options={[{ value: "new", label: "Novo" }, { value: "returning", label: "Retornante" }, { value: "regular", label: "Regular" }, { value: "vip", label: "VIP" }]}
                 filterFn={(c, v) => c.lifecycleStage === v} />}>
               <ResponsiveContainer width="100%" height="100%">
@@ -541,7 +634,7 @@ export default function CrmPage() {
           </div>
 
           <ChartCard title="Dia da Semana Preferido" loading={loading} isEmpty={behavioral.weekday.length === 0}
-            actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-semana"
+            actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-semana" onExport={logExport}
               options={[{ value: "seg", label: "Segunda" }, { value: "ter", label: "Terca" }, { value: "qua", label: "Quarta" }, { value: "qui", label: "Quinta" }, { value: "sex", label: "Sexta" }, { value: "sab", label: "Sabado" }, { value: "dom", label: "Domingo" }]}
               filterFn={(c, v) => c.preferredWeekday === v} />}>
             <ResponsiveContainer width="100%" height="100%">
@@ -622,15 +715,18 @@ export default function CrmPage() {
               variant="outline" size="sm"
               className="h-10 gap-1.5 ml-auto"
               onClick={() => {
+                const filters: Record<string, string> = {};
                 const parts: string[] = [];
-                if (segmentFilter !== "all") parts.push(SEGMENT_META[segmentFilter].label);
-                if (dayRangeFilter !== "all") parts.push(`dia-${dayRangeFilter}`);
-                if (lifecycleFilter !== "all") parts.push(LIFECYCLE_META[lifecycleFilter].label);
-                if (hourFilter !== "all") parts.push(HOUR_LABELS[hourFilter]);
-                if (couponFilter !== "all") parts.push(COUPON_META[couponFilter].label);
-                if (weekdayFilter !== "all") parts.push(WEEKDAY_META[weekdayFilter].label);
+                if (segmentFilter !== "all") { parts.push(SEGMENT_META[segmentFilter].label); filters.segmento = segmentFilter; }
+                if (dayRangeFilter !== "all") { parts.push(`dia-${dayRangeFilter}`); filters.faixa_dia = dayRangeFilter; }
+                if (lifecycleFilter !== "all") { parts.push(LIFECYCLE_META[lifecycleFilter].label); filters.lifecycle = lifecycleFilter; }
+                if (hourFilter !== "all") { parts.push(HOUR_LABELS[hourFilter]); filters.turno = hourFilter; }
+                if (couponFilter !== "all") { parts.push(COUPON_META[couponFilter].label); filters.cupom = couponFilter; }
+                if (weekdayFilter !== "all") { parts.push(WEEKDAY_META[weekdayFilter].label); filters.dia_semana = weekdayFilter; }
+                if (searchQuery) filters.busca = searchQuery;
                 const suffix = parts.length > 0 ? parts.join("-").toLowerCase().replace(/[\s()]+/g, "").replace(/-+/g, "-") : "todos";
                 exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
+                logExport("filtered_clients", filters, filteredCustomers.length);
               }}
             >
               <Download className="h-4 w-4" />

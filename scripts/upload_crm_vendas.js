@@ -14,9 +14,19 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
+// Parse --workspace-id argument
+const wsArg = process.argv.find((a) => a.startsWith("--workspace-id="));
+const WORKSPACE_ID = wsArg ? wsArg.split("=")[1] : null;
+
+if (!WORKSPACE_ID) {
+  console.error("Usage: node scripts/upload_crm_vendas.js --workspace-id=YOUR_WORKSPACE_UUID [--csv=PATH]");
+  process.exit(1);
+}
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const CSV_FILE_PATH = '/Users/guilhermepeixoto/Downloads/export_All-CRM-Vendas-modified--_2026-03-10_23-43-33.csv';
+const csvArg = process.argv.find((a) => a.startsWith("--csv="));
+const CSV_FILE_PATH = csvArg ? csvArg.split("=")[1] : '/Users/guilhermepeixoto/Downloads/export_All-CRM-Vendas-modified--_2026-03-10_23-43-33.csv';
 const BATCH_SIZE = 1000;
 
 async function processData() {
@@ -47,6 +57,7 @@ async function processData() {
     }
 
     const record = {
+      workspace_id: WORKSPACE_ID,
       cliente: row.Cliente,
       compras_anteriores: row['Compras anteriores a esta'] ? parseInt(row['Compras anteriores a esta'], 10) : 0,
       cupom: row.cupom,

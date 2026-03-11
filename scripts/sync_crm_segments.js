@@ -5,36 +5,11 @@
  * This enables direct SQL export of contacts by segment without going through Vercel.
  *
  * Prerequisites:
- *   1. Run the following SQL in Supabase to create the target table:
- *
- *   CREATE TABLE crm_customer_segments (
- *     email TEXT PRIMARY KEY,
- *     nome TEXT,
- *     telefone TEXT,
- *     total_compras INTEGER,
- *     total_gasto NUMERIC(12,2),
- *     ticket_medio NUMERIC(12,2),
- *     primeira_compra DATE,
- *     ultima_compra DATE,
- *     dias_sem_comprar INTEGER,
- *     score_recencia INTEGER,
- *     score_frequencia INTEGER,
- *     score_monetario INTEGER,
- *     rfm_score TEXT,
- *     segmento_rfm TEXT,
- *     faixa_dia_mes TEXT,
- *     dia_semana_preferido TEXT,
- *     turno_preferido TEXT,
- *     sensibilidade_cupom TEXT,
- *     estagio_lifecycle TEXT,
- *     cupons_usados TEXT[],
- *     updated_at TIMESTAMPTZ DEFAULT NOW()
- *   );
- *
+ *   1. crm_customer_segments table with workspace_id + email as composite PK
  *   2. Ensure .env.local has NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
  *
  * Usage:
- *   node scripts/sync_crm_segments.js
+ *   node scripts/sync_crm_segments.js --workspace-id=YOUR_WORKSPACE_UUID
  *
  * Example Supabase queries after sync:
  *   SELECT * FROM crm_customer_segments WHERE segmento_rfm = 'champions';
@@ -52,6 +27,15 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not found in .env.local");
+  process.exit(1);
+}
+
+// Parse --workspace-id argument
+const wsArg = process.argv.find((a) => a.startsWith("--workspace-id="));
+const WORKSPACE_ID = wsArg ? wsArg.split("=")[1] : null;
+
+if (!WORKSPACE_ID) {
+  console.error("Usage: node scripts/sync_crm_segments.js --workspace-id=YOUR_WORKSPACE_UUID");
   process.exit(1);
 }
 
@@ -215,9 +199,10 @@ function classifySegment(r, f, m) {
 // --- Main ---
 
 async function main() {
-  console.log("=== CRM Segments Sync ===\n");
+  console.log("=== CRM Segments Sync ===");
+  console.log(`Workspace: ${WORKSPACE_ID}\n`);
 
-  // 1. Fetch all crm_vendas (paginated)
+  // 1. Fetch crm_vendas for this workspace (paginated)
   console.log("Fetching crm_vendas...");
   let allRows = [];
   let from = 0;
@@ -227,6 +212,7 @@ async function main() {
     const { data, error } = await supabase
       .from("crm_vendas")
       .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
+      .eq("workspace_id", WORKSPACE_ID)
       .range(from, from + FETCH_PAGE_SIZE - 1);
 
     if (error) throw new Error(`Supabase fetch error: ${error.message}`);
@@ -271,6 +257,7 @@ async function main() {
     const days = recencyValues[i];
 
     return {
+      workspace_id: WORKSPACE_ID,
       email: c.email,
       nome: c.name || null,
       telefone: c.phone || null,
@@ -308,7 +295,7 @@ async function main() {
 
     const { error } = await supabase
       .from("crm_customer_segments")
-      .upsert(batch, { onConflict: "email" });
+      .upsert(batch, { onConflict: "workspace_id, email" });
 
     if (error) {
       console.error(`Error upserting batch ${i}-${i + batch.length}: ${error.message}`);
