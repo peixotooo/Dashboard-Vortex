@@ -30,6 +30,12 @@ export type RfmSegment =
   | "hibernating"
   | "lost";
 
+export type DayRange = "1-5" | "6-10" | "11-15" | "16-20" | "21-25" | "26-31";
+export type DayOfWeekPref = "weekday" | "weekend";
+export type HourPref = "madrugada" | "manha" | "tarde" | "noite";
+export type CouponSensitivity = "never" | "occasional" | "frequent" | "always";
+export type LifecycleStage = "new" | "returning" | "regular" | "vip";
+
 export interface RfmCustomer {
   email: string;
   name: string;
@@ -47,6 +53,12 @@ export interface RfmCustomer {
   rfmScore: string;
   rfmTotal: number;
   segment: RfmSegment;
+  // Behavioral
+  preferredDayRange: DayRange;
+  preferredDayOfWeek: DayOfWeekPref;
+  preferredHour: HourPref;
+  couponSensitivity: CouponSensitivity;
+  lifecycleStage: LifecycleStage;
 }
 
 export interface RfmSegmentSummary {
@@ -76,6 +88,13 @@ export interface CrmRfmResponse {
     frequency: { bucket: string; count: number }[];
     monetary: { bucket: string; count: number }[];
   };
+  behavioralDistributions: {
+    dayOfMonth: { bucket: string; count: number }[];
+    dayOfWeek: { bucket: string; count: number }[];
+    hourOfDay: { bucket: string; count: number }[];
+    couponUsage: { bucket: string; count: number; color: string }[];
+    lifecycle: { bucket: string; count: number; color: string }[];
+  };
 }
 
 // --- Segment metadata ---
@@ -94,6 +113,20 @@ export const SEGMENT_META: Record<RfmSegment, { label: string; description: stri
   lost:               { label: "Perdidos",          description: "Menor score em todas as dimensoes",                               color: "#4b5563" },
 };
 
+export const LIFECYCLE_META: Record<LifecycleStage, { label: string; color: string }> = {
+  new:       { label: "Novo",       color: "#06b6d4" },
+  returning: { label: "Retornante", color: "#3b82f6" },
+  regular:   { label: "Regular",    color: "#22c55e" },
+  vip:       { label: "VIP",        color: "#f59e0b" },
+};
+
+export const COUPON_META: Record<CouponSensitivity, { label: string; color: string }> = {
+  never:      { label: "Nunca usa",   color: "#6b7280" },
+  occasional: { label: "Ocasional",   color: "#3b82f6" },
+  frequent:   { label: "Frequente",   color: "#f97316" },
+  always:     { label: "Sempre usa",  color: "#ef4444" },
+};
+
 // --- Internal helpers ---
 
 interface AggregatedCustomer {
@@ -105,6 +138,28 @@ interface AggregatedCustomer {
   firstPurchaseTs: number;
   lastPurchaseTs: number;
   coupons: Set<string>;
+  // Behavioral counters
+  dayRangeCounts: Record<DayRange, number>;
+  weekdayCount: number;
+  weekendCount: number;
+  hourCounts: { madrugada: number; manha: number; tarde: number; noite: number };
+  couponPurchases: number;
+}
+
+function getDayRange(day: number): DayRange {
+  if (day <= 5) return "1-5";
+  if (day <= 10) return "6-10";
+  if (day <= 15) return "11-15";
+  if (day <= 20) return "16-20";
+  if (day <= 25) return "21-25";
+  return "26-31";
+}
+
+function getHourPref(hour: number): HourPref {
+  if (hour < 6) return "madrugada";
+  if (hour < 12) return "manha";
+  if (hour < 18) return "tarde";
+  return "noite";
 }
 
 function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
@@ -116,10 +171,16 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
 
     const valor = row.valor ?? 0;
     let purchaseTs = 0;
+    let purchaseDate: Date | null = null;
     if (row.data_compra) {
       const d = new Date(row.data_compra);
-      if (!isNaN(d.getTime())) purchaseTs = d.getTime();
+      if (!isNaN(d.getTime())) {
+        purchaseTs = d.getTime();
+        purchaseDate = d;
+      }
     }
+
+    const hasCoupon = !!(row.cupom && row.cupom.trim());
 
     const existing = map.get(email);
     if (existing) {
@@ -129,10 +190,33 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
       if (row.telefone && row.telefone.trim()) existing.phone = row.telefone.trim();
       if (purchaseTs > 0 && purchaseTs < existing.firstPurchaseTs) existing.firstPurchaseTs = purchaseTs;
       if (purchaseTs > 0 && purchaseTs > existing.lastPurchaseTs) existing.lastPurchaseTs = purchaseTs;
-      if (row.cupom && row.cupom.trim()) existing.coupons.add(row.cupom.trim());
+      if (hasCoupon) {
+        existing.coupons.add(row.cupom!.trim());
+        existing.couponPurchases += 1;
+      }
+      if (purchaseDate) {
+        existing.dayRangeCounts[getDayRange(purchaseDate.getDate())] += 1;
+        const dow = purchaseDate.getDay();
+        if (dow === 0 || dow === 6) existing.weekendCount += 1;
+        else existing.weekdayCount += 1;
+        existing.hourCounts[getHourPref(purchaseDate.getHours())] += 1;
+      }
     } else {
       const coupons = new Set<string>();
-      if (row.cupom && row.cupom.trim()) coupons.add(row.cupom.trim());
+      if (hasCoupon) coupons.add(row.cupom!.trim());
+      const dayRangeCounts: Record<DayRange, number> = { "1-5": 0, "6-10": 0, "11-15": 0, "16-20": 0, "21-25": 0, "26-31": 0 };
+      const hourCounts = { madrugada: 0, manha: 0, tarde: 0, noite: 0 };
+      let weekdayCount = 0;
+      let weekendCount = 0;
+
+      if (purchaseDate) {
+        dayRangeCounts[getDayRange(purchaseDate.getDate())] = 1;
+        const dow = purchaseDate.getDay();
+        if (dow === 0 || dow === 6) weekendCount = 1;
+        else weekdayCount = 1;
+        hourCounts[getHourPref(purchaseDate.getHours())] = 1;
+      }
+
       map.set(email, {
         email,
         name: (row.cliente || "").trim(),
@@ -142,6 +226,11 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         firstPurchaseTs: purchaseTs || Date.now(),
         lastPurchaseTs: purchaseTs || 0,
         coupons,
+        dayRangeCounts,
+        weekdayCount,
+        weekendCount,
+        hourCounts,
+        couponPurchases: hasCoupon ? 1 : 0,
       });
     }
   }
@@ -153,7 +242,6 @@ function assignQuintileScores(values: number[], invert: boolean): number[] {
   const n = values.length;
   if (n === 0) return [];
 
-  // Create indexed array for sorting while preserving original order
   const indexed = values.map((v, i) => ({ value: v, index: i }));
   indexed.sort((a, b) => a.value - b.value);
 
@@ -185,6 +273,30 @@ function classifySegment(r: number, f: number, m: number): RfmSegment {
   if (r >= 2 && r <= 3 && f <= 2 && m <= 2) return "about_to_sleep";
   if (r === 1 && f === 1 && m === 1) return "lost";
   return "hibernating";
+}
+
+function getMaxKey<T extends string>(counts: Record<T, number>): T {
+  let maxKey = Object.keys(counts)[0] as T;
+  let maxVal = 0;
+  for (const [k, v] of Object.entries(counts) as [T, number][]) {
+    if (v > maxVal) { maxVal = v; maxKey = k; }
+  }
+  return maxKey;
+}
+
+function classifyCouponSensitivity(couponPurchases: number, totalPurchases: number): CouponSensitivity {
+  if (totalPurchases === 0 || couponPurchases === 0) return "never";
+  const pct = couponPurchases / totalPurchases;
+  if (pct <= 0.4) return "occasional";
+  if (pct <= 0.7) return "frequent";
+  return "always";
+}
+
+function classifyLifecycle(totalPurchases: number): LifecycleStage {
+  if (totalPurchases === 1) return "new";
+  if (totalPurchases <= 3) return "returning";
+  if (totalPurchases <= 10) return "regular";
+  return "vip";
 }
 
 function median(values: number[]): number {
@@ -258,19 +370,20 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
   const aggregated = aggregateByCustomer(rows);
   const now = Date.now();
 
+  const emptyBehavioral: CrmRfmResponse["behavioralDistributions"] = {
+    dayOfMonth: [], dayOfWeek: [], hourOfDay: [], couponUsage: [], lifecycle: [],
+  };
+
   if (aggregated.length === 0) {
     return {
       customers: [],
       segments: [],
       summary: {
-        totalCustomers: 0,
-        totalRevenue: 0,
-        avgTicket: 0,
-        activeCustomers: 0,
-        avgPurchasesPerCustomer: 0,
-        medianRecency: 0,
+        totalCustomers: 0, totalRevenue: 0, avgTicket: 0,
+        activeCustomers: 0, avgPurchasesPerCustomer: 0, medianRecency: 0,
       },
       distributions: { recency: [], frequency: [], monetary: [] },
+      behavioralDistributions: emptyBehavioral,
     };
   }
 
@@ -287,7 +400,7 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
   const mScores = assignQuintileScores(monetaryValues, false);
 
   // Build RfmCustomer array
-  const fmt = (ts: number) => (ts > 0 ? new Date(ts).toISOString().slice(0, 10) : "—");
+  const fmtDate = (ts: number) => (ts > 0 ? new Date(ts).toISOString().slice(0, 10) : "—");
   const customers: RfmCustomer[] = aggregated.map((c, i) => {
     const r = rScores[i];
     const f = fScores[i];
@@ -301,9 +414,9 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       totalPurchases: c.totalPurchases,
       totalSpent: parseFloat(c.totalSpent.toFixed(2)),
       avgTicket: c.totalPurchases > 0 ? parseFloat((c.totalSpent / c.totalPurchases).toFixed(2)) : 0,
-      firstPurchaseDate: fmt(c.firstPurchaseTs),
-      lastPurchaseDate: fmt(c.lastPurchaseTs),
-      daysSinceLastPurchase: days === 9999 ? days : days,
+      firstPurchaseDate: fmtDate(c.firstPurchaseTs),
+      lastPurchaseDate: fmtDate(c.lastPurchaseTs),
+      daysSinceLastPurchase: days,
       couponsUsed: [...c.coupons],
       recencyScore: r,
       frequencyScore: f,
@@ -311,6 +424,12 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       rfmScore: `${r}-${f}-${m}`,
       rfmTotal: r + f + m,
       segment: classifySegment(r, f, m),
+      // Behavioral
+      preferredDayRange: getMaxKey(c.dayRangeCounts),
+      preferredDayOfWeek: c.weekendCount > c.weekdayCount ? "weekend" : "weekday",
+      preferredHour: getMaxKey(c.hourCounts),
+      couponSensitivity: classifyCouponSensitivity(c.couponPurchases, c.totalPurchases),
+      lifecycleStage: classifyLifecycle(c.totalPurchases),
     };
   });
 
@@ -358,6 +477,35 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
   const recencyDays = customers.map((c) => c.daysSinceLastPurchase).filter((d) => d < 9999);
   const activeCustomers = customers.filter((c) => c.daysSinceLastPurchase <= 90).length;
 
+  // Behavioral distributions
+  const dayRanges: DayRange[] = ["1-5", "6-10", "11-15", "16-20", "21-25", "26-31"];
+  const behavioralDistributions: CrmRfmResponse["behavioralDistributions"] = {
+    dayOfMonth: dayRanges.map((dr) => ({
+      bucket: `Dia ${dr}`,
+      count: customers.filter((c) => c.preferredDayRange === dr).length,
+    })),
+    dayOfWeek: [
+      { bucket: "Dia de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekday").length },
+      { bucket: "Fim de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekend").length },
+    ],
+    hourOfDay: [
+      { bucket: "Madrugada (0-6h)", count: customers.filter((c) => c.preferredHour === "madrugada").length },
+      { bucket: "Manha (6-12h)", count: customers.filter((c) => c.preferredHour === "manha").length },
+      { bucket: "Tarde (12-18h)", count: customers.filter((c) => c.preferredHour === "tarde").length },
+      { bucket: "Noite (18-24h)", count: customers.filter((c) => c.preferredHour === "noite").length },
+    ],
+    couponUsage: (["never", "occasional", "frequent", "always"] as CouponSensitivity[]).map((cs) => ({
+      bucket: COUPON_META[cs].label,
+      count: customers.filter((c) => c.couponSensitivity === cs).length,
+      color: COUPON_META[cs].color,
+    })),
+    lifecycle: (["new", "returning", "regular", "vip"] as LifecycleStage[]).map((ls) => ({
+      bucket: LIFECYCLE_META[ls].label,
+      count: customers.filter((c) => c.lifecycleStage === ls).length,
+      color: LIFECYCLE_META[ls].color,
+    })),
+  };
+
   return {
     customers,
     segments,
@@ -374,5 +522,6 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       frequency: buildFrequencyDistribution(customers),
       monetary: buildMonetaryDistribution(customers),
     },
+    behavioralDistributions,
   };
 }
