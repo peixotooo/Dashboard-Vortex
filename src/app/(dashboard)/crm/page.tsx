@@ -8,6 +8,7 @@ import {
   UserCheck,
   Search,
   Loader2,
+  Download,
 } from "lucide-react";
 import {
   PieChart,
@@ -26,13 +27,14 @@ import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace-context";
 import type {
   RfmCustomer, RfmSegmentSummary, RfmSegment, CrmRfmResponse,
-  DayRange, LifecycleStage,
+  DayRange, DayOfWeekPref, HourPref, CouponSensitivity, LifecycleStage,
 } from "@/lib/crm-rfm";
-import { SEGMENT_META, LIFECYCLE_META } from "@/lib/crm-rfm";
+import { SEGMENT_META, LIFECYCLE_META, COUPON_META } from "@/lib/crm-rfm";
 
 // --- Constants ---
 
@@ -102,15 +104,18 @@ function LifecycleBadge({ stage }: { stage: LifecycleStage }) {
 // --- Chart wrapper for consistent loading/empty ---
 
 function ChartCard({
-  title, loading, isEmpty, height = 250, children,
+  title, loading, isEmpty, height = 250, children, actions,
 }: {
   title: string; loading: boolean; isEmpty: boolean; height?: number;
-  children: React.ReactNode;
+  children: React.ReactNode; actions?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">{title}</CardTitle>
+          {!loading && !isEmpty && actions}
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -126,6 +131,113 @@ function ChartCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// --- CSV export ---
+
+const HOUR_LABELS: Record<HourPref, string> = {
+  madrugada: "Madrugada (0-6h)", manha: "Manha (6-12h)",
+  tarde: "Tarde (12-18h)", noite: "Noite (18-24h)",
+};
+
+const DOW_LABELS: Record<DayOfWeekPref, string> = {
+  weekday: "Dia de semana", weekend: "Fim de semana",
+};
+
+function escapeCsvField(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function exportCustomersCsv(list: RfmCustomer[], filename: string) {
+  if (list.length === 0) return;
+
+  const headers = [
+    "Nome", "Email", "Telefone", "Total Compras", "Total Gasto", "Ticket Medio",
+    "Primeira Compra", "Ultima Compra", "Dias sem Comprar",
+    "Score R", "Score F", "Score M", "Score RFM",
+    "Segmento", "Faixa Dia Mes", "Dia Semana", "Turno",
+    "Sensibilidade Cupom", "Lifecycle", "Cupons Usados",
+  ];
+
+  const rows = list.map((c) => [
+    escapeCsvField(c.name),
+    escapeCsvField(c.email),
+    escapeCsvField(c.phone),
+    String(c.totalPurchases),
+    c.totalSpent.toFixed(2),
+    c.avgTicket.toFixed(2),
+    c.firstPurchaseDate,
+    c.lastPurchaseDate,
+    c.daysSinceLastPurchase >= 9999 ? "" : String(c.daysSinceLastPurchase),
+    String(c.recencyScore),
+    String(c.frequencyScore),
+    String(c.monetaryScore),
+    c.rfmScore,
+    SEGMENT_META[c.segment].label,
+    `Dia ${c.preferredDayRange}`,
+    DOW_LABELS[c.preferredDayOfWeek],
+    HOUR_LABELS[c.preferredHour],
+    COUPON_META[c.couponSensitivity].label,
+    LIFECYCLE_META[c.lifecycleStage].label,
+    escapeCsvField(c.couponsUsed.join("; ")),
+  ].join(","));
+
+  const bom = "\uFEFF";
+  const csv = bom + headers.join(",") + "\n" + rows.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filename}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- Inline export select+button for behavior charts ---
+
+function ExportSelect({
+  options,
+  filterFn,
+  customers,
+  filenamePrefix,
+}: {
+  options: { value: string; label: string }[];
+  filterFn: (c: RfmCustomer, value: string) => boolean;
+  customers: RfmCustomer[];
+  filenamePrefix: string;
+}) {
+  const [selected, setSelected] = React.useState(options[0]?.value ?? "");
+  const count = customers.filter((c) => filterFn(c, selected)).length;
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <Button
+        variant="outline" size="sm"
+        className="h-8 text-xs gap-1"
+        onClick={(e) => {
+          e.stopPropagation();
+          const filtered = customers.filter((c) => filterFn(c, selected));
+          const label = options.find((o) => o.value === selected)?.label ?? selected;
+          exportCustomersCsv(filtered, `${filenamePrefix}-${label}`);
+        }}
+      >
+        <Download className="h-3 w-3" />
+        CSV ({count})
+      </Button>
+    </div>
   );
 }
 
@@ -327,6 +439,18 @@ export default function CrmPage() {
                         <p className="text-sm font-semibold">{seg.avgRecency}d</p>
                       </div>
                     </div>
+                    <Button
+                      variant="outline" size="sm"
+                      className="w-full mt-1 text-xs gap-1.5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const filtered = customers.filter((c) => c.segment === seg.segment);
+                        exportCustomersCsv(filtered, `crm-${seg.label.toLowerCase().replace(/\s+/g, "-")}`);
+                      }}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Exportar CSV ({seg.customerCount})
+                    </Button>
                   </CardContent>
                 </Card>
               ))}
@@ -337,7 +461,10 @@ export default function CrmPage() {
         {/* ===== Tab 3: Behavior ===== */}
         <TabsContent value="behavior" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}>
+            <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-mes"
+                options={[{ value: "1-5", label: "Dia 1-5" }, { value: "6-10", label: "Dia 6-10" }, { value: "11-15", label: "Dia 11-15" }, { value: "16-20", label: "Dia 16-20" }, { value: "21-25", label: "Dia 21-25" }, { value: "26-31", label: "Dia 26-31" }]}
+                filterFn={(c, v) => c.preferredDayRange === v} />}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.dayOfMonth}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
@@ -349,7 +476,10 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Turno Preferido" loading={loading} isEmpty={behavioral.hourOfDay.length === 0}>
+            <ChartCard title="Turno Preferido" loading={loading} isEmpty={behavioral.hourOfDay.length === 0}
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-turno"
+                options={[{ value: "madrugada", label: "Madrugada" }, { value: "manha", label: "Manha" }, { value: "tarde", label: "Tarde" }, { value: "noite", label: "Noite" }]}
+                filterFn={(c, v) => c.preferredHour === v} />}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.hourOfDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
@@ -363,7 +493,10 @@ export default function CrmPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Sensibilidade a Cupom" loading={loading} isEmpty={behavioral.couponUsage.length === 0}>
+            <ChartCard title="Sensibilidade a Cupom" loading={loading} isEmpty={behavioral.couponUsage.length === 0}
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-cupom"
+                options={[{ value: "never", label: "Nunca usa" }, { value: "occasional", label: "Ocasional" }, { value: "frequent", label: "Frequente" }, { value: "always", label: "Sempre usa" }]}
+                filterFn={(c, v) => c.couponSensitivity === v} />}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={behavioral.couponUsage} dataKey="count" nameKey="bucket" cx="50%" cy="50%" outerRadius={90} innerRadius={45} paddingAngle={3}
@@ -377,7 +510,10 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Estagio do Ciclo de Vida" loading={loading} isEmpty={behavioral.lifecycle.length === 0}>
+            <ChartCard title="Estagio do Ciclo de Vida" loading={loading} isEmpty={behavioral.lifecycle.length === 0}
+              actions={<ExportSelect customers={customers} filenamePrefix="crm-lifecycle"
+                options={[{ value: "new", label: "Novo" }, { value: "returning", label: "Retornante" }, { value: "regular", label: "Regular" }, { value: "vip", label: "VIP" }]}
+                filterFn={(c, v) => c.lifecycleStage === v} />}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.lifecycle}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
@@ -394,7 +530,10 @@ export default function CrmPage() {
             </ChartCard>
           </div>
 
-          <ChartCard title="Dia da Semana vs Fim de Semana" loading={loading} isEmpty={behavioral.dayOfWeek.length === 0}>
+          <ChartCard title="Dia da Semana vs Fim de Semana" loading={loading} isEmpty={behavioral.dayOfWeek.length === 0}
+            actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-semana"
+              options={[{ value: "weekday", label: "Dia de semana" }, { value: "weekend", label: "Fim de semana" }]}
+              filterFn={(c, v) => c.preferredDayOfWeek === v} />}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={behavioral.dayOfWeek}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
@@ -438,6 +577,21 @@ export default function CrmPage() {
               <option value="regular">Regular (4-10)</option>
               <option value="vip">VIP (11+)</option>
             </select>
+            <Button
+              variant="outline" size="sm"
+              className="h-10 gap-1.5 ml-auto"
+              onClick={() => {
+                const parts: string[] = [];
+                if (segmentFilter !== "all") parts.push(SEGMENT_META[segmentFilter].label);
+                if (dayRangeFilter !== "all") parts.push(`dia-${dayRangeFilter}`);
+                if (lifecycleFilter !== "all") parts.push(LIFECYCLE_META[lifecycleFilter].label);
+                const suffix = parts.length > 0 ? parts.join("-").toLowerCase().replace(/\s+/g, "-") : "todos";
+                exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
+              }}
+            >
+              <Download className="h-4 w-4" />
+              Exportar CSV ({filteredCustomers.length})
+            </Button>
           </div>
 
           <PerformanceTable
