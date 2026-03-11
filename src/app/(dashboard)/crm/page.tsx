@@ -26,6 +26,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 import { KpiCard } from "@/components/dashboard/kpi-card";
@@ -670,28 +671,18 @@ export default function CrmPage() {
             </Card>
           </div>
 
-          {/* Charts 2x2 */}
+          {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Clientes Antigos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+            <ChartCard title="Novos vs Recorrentes" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyWithCac}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                   <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                   <YAxis tick={{ fill: "#888", fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="returningClients" fill="#6b7280" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Clientes Novos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyWithCac}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="newClients" fill="#4ade80" radius={[4, 4, 0, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="newClients" name="Novos" fill="#4ade80" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="returningClients" name="Recorrentes" fill="#6b7280" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -741,7 +732,6 @@ export default function CrmPage() {
                       <th className="py-3 px-2 text-right">Total Clientes</th>
                       <th className="py-3 px-2 text-right">Tkt Total</th>
                       <th className="py-3 px-2 text-right">Novos</th>
-                      <th className="py-3 px-2 text-right">Novos Club</th>
                       <th className="py-3 px-2 text-right">Tkt Novos</th>
                       <th className="py-3 px-2 text-right">Receita Novos</th>
                       <th className="py-3 px-2 text-right">Antigos</th>
@@ -758,7 +748,6 @@ export default function CrmPage() {
                         <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.totalClients)}</td>
                         <td className="py-3 px-2 text-right">{formatCurrency(row.avgTicket)}</td>
                         <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.newClients)}</td>
-                        <td className="py-3 px-2 text-right text-primary font-semibold">{row.newClubPct.toFixed(2)}%</td>
                         <td className="py-3 px-2 text-right">{formatCurrency(row.avgTicketNew)}</td>
                         <td className="py-3 px-2 text-right">{formatCurrency(row.revenueNew)}</td>
                         <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.returningClients)}</td>

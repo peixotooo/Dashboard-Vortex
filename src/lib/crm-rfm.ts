@@ -567,7 +567,6 @@ export interface MonthlyCohortRow {
   totalClients: number;
   avgTicket: number;
   newClients: number;
-  newClubPct: number;
   avgTicketNew: number;
   revenueNew: number;
   returningClients: number;
@@ -597,12 +596,15 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
   // Sort rows by date
   const dated = rows
     .filter((r) => r.data_compra && r.email)
-    .map((r) => ({
-      email: (r.email || "").trim().toLowerCase(),
-      valor: r.valor ?? 0,
-      date: new Date(r.data_compra!),
-      monthKey: r.data_compra!.slice(0, 7), // "YYYY-MM"
-    }))
+    .map((r) => {
+      const date = new Date(r.data_compra!);
+      return {
+        email: (r.email || "").trim().toLowerCase(),
+        valor: r.valor ?? 0,
+        date,
+        monthKey: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+      };
+    })
     .filter((r) => !isNaN(r.date.getTime()) && r.email.includes("@"))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -623,11 +625,6 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
 
   // Track seen emails globally (chronological)
   const seenEmails = new Set<string>();
-  // Track total purchases per email (for "club" and repurchase)
-  const purchaseCountByEmail = new Map<string, number>();
-  for (const row of dated) {
-    purchaseCountByEmail.set(row.email, (purchaseCountByEmail.get(row.email) || 0) + 1);
-  }
 
   const sortedMonths = [...monthMap.keys()].sort();
   const monthlyData: MonthlyCohortRow[] = [];
@@ -638,9 +635,10 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
 
   for (const monthKey of sortedMonths) {
     const orders = monthMap.get(monthKey)!;
-    const year = parseInt(monthKey.slice(0, 4));
-    const monthIdx = parseInt(monthKey.slice(5, 7)) - 1;
-    const monthLabel = `${MONTH_NAMES_PT[monthIdx]} ${year}`;
+    const [yearStr, monthStr] = monthKey.split("-");
+    const year = parseInt(yearStr);
+    const monthIdx = parseInt(monthStr) - 1;
+    const monthLabel = `${MONTH_NAMES_PT[monthIdx] ?? monthStr} ${year}`;
 
     // Unique clients this month
     const monthEmails = new Set<string>();
@@ -678,12 +676,6 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
     const totalRevenue = revenueNew + revenueReturning;
     const totalOrders = orders.length;
 
-    // "Club" = new clients this month who will go on to buy again (2+ total purchases)
-    let newInClub = 0;
-    for (const email of newEmails) {
-      if ((purchaseCountByEmail.get(email) || 0) >= 2) newInClub++;
-    }
-
     // Repurchase rate: of all cumulative unique clients, how many have 2+ cumulative purchases
     let repeatBuyers = 0;
     for (const count of cumulativePurchases.values()) {
@@ -699,7 +691,6 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
       totalClients,
       avgTicket: totalOrders > 0 ? parseFloat((totalRevenue / totalOrders).toFixed(2)) : 0,
       newClients: newEmails.size,
-      newClubPct: newEmails.size > 0 ? parseFloat(((newInClub / newEmails.size) * 100).toFixed(2)) : 0,
       avgTicketNew: ordersNew > 0 ? parseFloat((revenueNew / ordersNew).toFixed(2)) : 0,
       revenueNew: parseFloat(revenueNew.toFixed(2)),
       returningClients: returningEmails.size,
@@ -714,7 +705,9 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
   // Global summary
   const allEmails = new Set(dated.map((r) => r.email));
   const totalRevenue = dated.reduce((s, r) => s + r.valor, 0);
-  const repeatClients = [...allEmails].filter((e) => (purchaseCountByEmail.get(e) || 0) >= 2).length;
+  const emailCounts = new Map<string, number>();
+  for (const r of dated) emailCounts.set(r.email, (emailCounts.get(r.email) || 0) + 1);
+  const repeatClients = [...allEmails].filter((e) => (emailCounts.get(e) || 0) >= 2).length;
 
   return {
     arpu: allEmails.size > 0 ? parseFloat((totalRevenue / allEmails.size).toFixed(2)) : 0,
