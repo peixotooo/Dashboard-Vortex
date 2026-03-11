@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       if (error) throw new Error(`Supabase error: ${error.message}`);
 
       if (data && data.length > 0) {
-        allRows = allRows.concat(data as CrmVendaRow[]);
+        allRows.push(...(data as CrmVendaRow[]));
         from += PAGE_SIZE;
         hasMore = data.length === PAGE_SIZE;
       } else {

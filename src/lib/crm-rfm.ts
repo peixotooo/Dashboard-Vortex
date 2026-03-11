@@ -505,36 +505,52 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
   const recencyDays = customers.map((c) => c.daysSinceLastPurchase).filter((d) => d < 9999);
   const activeCustomers = customers.filter((c) => c.daysSinceLastPurchase <= 90).length;
 
-  // Behavioral distributions
+  // Behavioral distributions — single pass instead of 27 separate .filter() calls
   const dayRanges: DayRange[] = ["1-5", "6-10", "11-15", "16-20", "21-25", "26-31"];
+  const countDayOfMonth = new Map<string, number>();
+  const countDayOfWeek = new Map<string, number>();
+  const countWeekday = new Map<string, number>();
+  const countHourOfDay = new Map<string, number>();
+  const countCouponUsage = new Map<string, number>();
+  const countLifecycle = new Map<string, number>();
+
+  for (const c of customers) {
+    countDayOfMonth.set(c.preferredDayRange, (countDayOfMonth.get(c.preferredDayRange) || 0) + 1);
+    countDayOfWeek.set(c.preferredDayOfWeek, (countDayOfWeek.get(c.preferredDayOfWeek) || 0) + 1);
+    countWeekday.set(c.preferredWeekday, (countWeekday.get(c.preferredWeekday) || 0) + 1);
+    countHourOfDay.set(c.preferredHour, (countHourOfDay.get(c.preferredHour) || 0) + 1);
+    countCouponUsage.set(c.couponSensitivity, (countCouponUsage.get(c.couponSensitivity) || 0) + 1);
+    countLifecycle.set(c.lifecycleStage, (countLifecycle.get(c.lifecycleStage) || 0) + 1);
+  }
+
   const behavioralDistributions: CrmRfmResponse["behavioralDistributions"] = {
     dayOfMonth: dayRanges.map((dr) => ({
       bucket: `Dia ${dr}`,
-      count: customers.filter((c) => c.preferredDayRange === dr).length,
+      count: countDayOfMonth.get(dr) || 0,
     })),
     dayOfWeek: [
-      { bucket: "Dia de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekday").length },
-      { bucket: "Fim de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekend").length },
+      { bucket: "Dia de semana", count: countDayOfWeek.get("weekday") || 0 },
+      { bucket: "Fim de semana", count: countDayOfWeek.get("weekend") || 0 },
     ],
     weekday: (["seg", "ter", "qua", "qui", "sex", "sab", "dom"] as Weekday[]).map((wd) => ({
       bucket: WEEKDAY_META[wd].label,
-      count: customers.filter((c) => c.preferredWeekday === wd).length,
+      count: countWeekday.get(wd) || 0,
       color: WEEKDAY_META[wd].color,
     })),
     hourOfDay: [
-      { bucket: "Madrugada (0-6h)", count: customers.filter((c) => c.preferredHour === "madrugada").length },
-      { bucket: "Manha (6-12h)", count: customers.filter((c) => c.preferredHour === "manha").length },
-      { bucket: "Tarde (12-18h)", count: customers.filter((c) => c.preferredHour === "tarde").length },
-      { bucket: "Noite (18-24h)", count: customers.filter((c) => c.preferredHour === "noite").length },
+      { bucket: "Madrugada (0-6h)", count: countHourOfDay.get("madrugada") || 0 },
+      { bucket: "Manha (6-12h)", count: countHourOfDay.get("manha") || 0 },
+      { bucket: "Tarde (12-18h)", count: countHourOfDay.get("tarde") || 0 },
+      { bucket: "Noite (18-24h)", count: countHourOfDay.get("noite") || 0 },
     ],
     couponUsage: (["never", "occasional", "frequent", "always"] as CouponSensitivity[]).map((cs) => ({
       bucket: COUPON_META[cs].label,
-      count: customers.filter((c) => c.couponSensitivity === cs).length,
+      count: countCouponUsage.get(cs) || 0,
       color: COUPON_META[cs].color,
     })),
     lifecycle: (["new", "returning", "regular", "vip"] as LifecycleStage[]).map((ls) => ({
       bucket: LIFECYCLE_META[ls].label,
-      count: customers.filter((c) => c.lifecycleStage === ls).length,
+      count: countLifecycle.get(ls) || 0,
       color: LIFECYCLE_META[ls].color,
     })),
   };
@@ -632,6 +648,7 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
   // Track cumulative unique clients and repeat buyers per month
   const cumulativeEmails = new Set<string>();
   const cumulativePurchases = new Map<string, number>();
+  let cumulativeRepeatBuyers = 0;
 
   for (const monthKey of sortedMonths) {
     const orders = monthMap.get(monthKey)!;
@@ -652,8 +669,10 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
 
     for (const order of orders) {
       monthEmails.add(order.email);
-      // Track cumulative purchases
-      cumulativePurchases.set(order.email, (cumulativePurchases.get(order.email) || 0) + 1);
+      // Track cumulative purchases + incremental repeat buyer count
+      const prevCount = cumulativePurchases.get(order.email) || 0;
+      cumulativePurchases.set(order.email, prevCount + 1);
+      if (prevCount === 1) cumulativeRepeatBuyers++;
 
       if (seenEmails.has(order.email)) {
         returningEmails.add(order.email);
@@ -676,13 +695,9 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
     const totalRevenue = revenueNew + revenueReturning;
     const totalOrders = orders.length;
 
-    // Repurchase rate: of all cumulative unique clients, how many have 2+ cumulative purchases
-    let repeatBuyers = 0;
-    for (const count of cumulativePurchases.values()) {
-      if (count >= 2) repeatBuyers++;
-    }
+    // Repurchase rate: use incremental counter instead of iterating all values
     const repurchaseRate = cumulativeEmails.size > 0
-      ? (repeatBuyers / cumulativeEmails.size) * 100
+      ? (cumulativeRepeatBuyers / cumulativeEmails.size) * 100
       : 0;
 
     monthlyData.push({

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Users,
   DollarSign,
@@ -242,6 +242,13 @@ export default function CrmPage() {
   const { workspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchTimerRef = useRef<NodeJS.Timeout>(undefined);
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 300);
+  }, []);
   const [segmentFilter, setSegmentFilter] = useState<RfmSegment | "all">("all");
   const [dayRangeFilter, setDayRangeFilter] = useState<DayRange | "all">("all");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleStage | "all">("all");
@@ -378,14 +385,14 @@ export default function CrmPage() {
     if (hourFilter !== "all") list = list.filter((c) => c.preferredHour === hourFilter);
     if (couponFilter !== "all") list = list.filter((c) => c.couponSensitivity === couponFilter);
     if (weekdayFilter !== "all") list = list.filter((c) => c.preferredWeekday === weekdayFilter);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
       list = list.filter(
         (c) => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.includes(q)
       );
     }
     return list;
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, searchQuery]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, debouncedSearch]);
 
   // Active filters for badge bar
   interface ActiveFilter {
@@ -441,16 +448,16 @@ export default function CrmPage() {
     if (hourFilter !== "all") { parts.push(HOUR_LABELS[hourFilter]); filters.turno = hourFilter; }
     if (couponFilter !== "all") { parts.push(COUPON_META[couponFilter].label); filters.cupom = couponFilter; }
     if (weekdayFilter !== "all") { parts.push(WEEKDAY_META[weekdayFilter].label); filters.dia_semana = weekdayFilter; }
-    if (searchQuery) filters.busca = searchQuery;
+    if (debouncedSearch) filters.busca = debouncedSearch;
     const suffix = parts.length > 0
       ? parts.join("-").toLowerCase().replace(/[\s()]+/g, "").replace(/-+/g, "-")
       : "todos";
     exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
     logExport("hypersegmentation", filters, filteredCustomers.length);
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, searchQuery, filteredCustomers, logExport]);
+  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, debouncedSearch, filteredCustomers, logExport]);
 
   // KPI values — recalculate from filtered list when filters are active
-  const hasActiveFilters = activeFilters.length > 0 || searchQuery.length > 0;
+  const hasActiveFilters = activeFilters.length > 0 || debouncedSearch.length > 0;
   const displaySummary = useMemo(() => {
     if (!hasActiveFilters) return summary;
     const list = filteredCustomers;
@@ -1020,7 +1027,7 @@ export default function CrmPage() {
           <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Buscar por nome, email ou telefone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
+              <Input placeholder="Buscar por nome, email ou telefone..." value={searchQuery} onChange={(e) => handleSearchChange(e.target.value)} className="pl-9" />
             </div>
             <select value={segmentFilter} onChange={(e) => setSegmentFilter(e.target.value as RfmSegment | "all")}
               className={`h-10 rounded-md border px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 ${segmentFilter !== "all" ? "border-primary bg-primary/5" : "border-border bg-card"}`}>
