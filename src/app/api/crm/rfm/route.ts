@@ -23,9 +23,10 @@ export async function GET() {
   try {
     const supabase = createAdminClient();
 
-    // Paginated fetch to handle 50k+ rows
+    // Paginated fetch to handle 78k+ rows
+    // Supabase default limit is 1000 rows per request
     let allRows: CrmVendaRow[] = [];
-    const PAGE_SIZE = 10000;
+    const PAGE_SIZE = 1000;
     let from = 0;
     let hasMore = true;
 
