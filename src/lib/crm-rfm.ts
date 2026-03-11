@@ -15,6 +15,25 @@ export interface CrmVendaRow {
   slug: string | null;
   creator: string | null;
   bubble_unique_id: string | null;
+  // Webhook-enriched fields (nullable — absent for CSV imports)
+  source?: string | null;
+  source_order_id?: string | null;
+  cpf?: string | null;
+  birthdate?: string | null;
+  state?: string | null;
+  city?: string | null;
+  zip?: string | null;
+  neighborhood?: string | null;
+  payment_method?: string | null;
+  installments?: number | null;
+  shipping_method?: string | null;
+  shipping_price?: number | null;
+  delivery_days?: number | null;
+  subtotal?: number | null;
+  discount_price?: number | null;
+  channel?: string | null;
+  items?: unknown[] | null;
+  discounts?: unknown[] | null;
 }
 
 export type RfmSegment =

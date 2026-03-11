@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { encrypt, decrypt } from "@/lib/encryption";
 import { getAdAccounts, setContextToken } from "@/lib/meta-api";
 import { testVndaConnection } from "@/lib/vnda-api";
+import { generateWebhookToken } from "@/lib/vnda-webhook";
 
 function getSupabase(request: NextRequest) {
   return createServerClient(
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     // Get VNDA connection status
     const { data: vndaConnection } = await supabase
       .from("vnda_connections")
-      .select("id, store_host, store_name, created_at")
+      .select("id, store_host, store_name, created_at, webhook_token")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -438,7 +439,7 @@ export async function POST(request: NextRequest) {
         // Upsert connection
         const { data: existingVnda } = await supabase
           .from("vnda_connections")
-          .select("id")
+          .select("id, webhook_token")
           .eq("workspace_id", workspace_id)
           .limit(1)
           .single();
@@ -449,10 +450,24 @@ export async function POST(request: NextRequest) {
             .update({ api_token: encryptedToken, store_host, store_name, updated_at: new Date().toISOString() })
             .eq("id", existingVnda.id);
           if (error) throw error;
+
+          // Generate webhook token if missing
+          if (!existingVnda.webhook_token) {
+            await supabase
+              .from("vnda_connections")
+              .update({ webhook_token: generateWebhookToken() })
+              .eq("id", existingVnda.id);
+          }
         } else {
           const { error } = await supabase
             .from("vnda_connections")
-            .insert({ workspace_id, api_token: encryptedToken, store_host, store_name });
+            .insert({
+              workspace_id,
+              api_token: encryptedToken,
+              store_host,
+              store_name,
+              webhook_token: generateWebhookToken(),
+            });
           if (error) throw error;
         }
 
@@ -472,6 +487,16 @@ export async function POST(request: NextRequest) {
           .eq("workspace_id", workspace_id);
         if (error) throw error;
         return NextResponse.json({ success: true });
+      }
+
+      case "regenerate_vnda_webhook_token": {
+        const newToken = generateWebhookToken();
+        const { error } = await supabase
+          .from("vnda_connections")
+          .update({ webhook_token: newToken, updated_at: new Date().toISOString() })
+          .eq("workspace_id", workspace_id);
+        if (error) throw error;
+        return NextResponse.json({ success: true, webhook_token: newToken });
       }
 
       default:

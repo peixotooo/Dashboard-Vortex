@@ -17,6 +17,9 @@ import {
   ShoppingBag,
   Cpu,
   Mail,
+  Copy,
+  Link,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,7 +106,9 @@ export default function SettingsPage() {
   const [vndaSaved, setVndaSaved] = useState(false);
   const [vndaError, setVndaError] = useState("");
   const [hasVndaConnection, setHasVndaConnection] = useState(false);
-  const [vndaConnectionInfo, setVndaConnectionInfo] = useState<{ store_host?: string; store_name?: string; created_at?: string } | null>(null);
+  const [vndaConnectionInfo, setVndaConnectionInfo] = useState<{ store_host?: string; store_name?: string; created_at?: string; webhook_token?: string } | null>(null);
+  const [webhookCopied, setWebhookCopied] = useState(false);
+  const [regeneratingToken, setRegeneratingToken] = useState(false);
   const [testingVnda, setTestingVnda] = useState(false);
   const [vndaTestResult, setVndaTestResult] = useState<{ ok?: boolean; message?: string } | null>(null);
 
@@ -624,6 +629,39 @@ export default function SettingsPage() {
     } catch {
       // Silent
     }
+  }
+
+  async function handleRegenerateWebhookToken() {
+    if (!workspace) return;
+    if (!confirm("Tem certeza? A URL antiga deixará de funcionar.")) return;
+    setRegeneratingToken(true);
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "regenerate_vnda_webhook_token",
+          workspace_id: workspace.id,
+        }),
+      });
+      const data = await res.json();
+      if (data.webhook_token) {
+        setVndaConnectionInfo((prev) => prev ? { ...prev, webhook_token: data.webhook_token } : prev);
+      }
+    } catch {
+      // Silent
+    } finally {
+      setRegeneratingToken(false);
+    }
+  }
+
+  function copyWebhookUrl() {
+    const token = vndaConnectionInfo?.webhook_token;
+    if (!token) return;
+    const url = `${window.location.origin}/api/webhooks/vnda/orders?token=${token}`;
+    navigator.clipboard.writeText(url);
+    setWebhookCopied(true);
+    setTimeout(() => setWebhookCopied(false), 2000);
   }
 
   return (
@@ -1270,6 +1308,51 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Webhook URL Card */}
+          {hasVndaConnection && isAdmin && vndaConnectionInfo?.webhook_token && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link className="h-5 w-5 text-blue-500" />
+                  Webhook — Pedidos Confirmados
+                </CardTitle>
+                <CardDescription>
+                  Configure esta URL no Admin VNDA &gt; Integrações &gt; Webhooks &gt; Pedido Confirmado.
+                  Cada pedido confirmado será inserido automaticamente no CRM.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>URL do Webhook</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/vnda/orders?token=${vndaConnectionInfo.webhook_token}`}
+                      className="font-mono text-xs"
+                    />
+                    <Button variant="outline" size="icon" onClick={copyWebhookUrl} title="Copiar URL">
+                      {webhookCopied ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRegenerateWebhookToken}
+                    disabled={regeneratingToken}
+                  >
+                    <RotateCcw className={`h-4 w-4 mr-2 ${regeneratingToken ? "animate-spin" : ""}`} />
+                    {regeneratingToken ? "Regenerando..." : "Regenerar Token"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    A URL anterior será invalidada.
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ===== Health Check Tab ===== */}
