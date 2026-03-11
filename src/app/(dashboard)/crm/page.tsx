@@ -13,6 +13,7 @@ import {
   X,
   CalendarIcon,
   SlidersHorizontal,
+  Bot,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -50,6 +51,8 @@ import type {
   MonthlyCohortRow,
 } from "@/lib/crm-rfm";
 import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/crm-rfm";
+import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
+import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 
 // --- Constants ---
 
@@ -396,6 +399,7 @@ export default function CrmPage() {
   const [avgTicketRange, setAvgTicketRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [totalSpentRange, setTotalSpentRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [activeTab, setActiveTab] = useState("metrics");
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
   const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
@@ -485,6 +489,18 @@ export default function CrmPage() {
       // Silent — non-critical
     }
   }, [wsHeaders]);
+
+  // Agent panel → apply suggested filters
+  const handleAgentApplyFilters = useCallback((filters: CrmFilters) => {
+    setSegmentFilter(filters.segmentFilter);
+    setDayRangeFilter(filters.dayRangeFilter);
+    setLifecycleFilter(filters.lifecycleFilter);
+    setHourFilter(filters.hourFilter);
+    setCouponFilter(filters.couponFilter);
+    setWeekdayFilter(filters.weekdayFilter);
+    setActiveTab("customers");
+    if (!customersLoaded) fetchCustomers();
+  }, [customersLoaded, fetchCustomers]);
 
   // Fire-and-forget export log
   const logExport = useCallback(
@@ -1348,6 +1364,22 @@ export default function CrmPage() {
           </>))}
         </TabsContent>
       </Tabs>
+
+      {/* AI Agent Floating Button */}
+      <button
+        onClick={() => setAgentPanelOpen(true)}
+        className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/25 flex items-center justify-center transition-all hover:scale-105 z-40"
+        title="Agente CRM — Sugestoes de hipersegmentacao"
+      >
+        <Bot className="h-6 w-6" />
+      </button>
+
+      {/* CRM Agent Panel */}
+      <CrmAgentPanel
+        open={agentPanelOpen}
+        onOpenChange={setAgentPanelOpen}
+        onApplyFilters={handleAgentApplyFilters}
+      />
     </div>
   );
 }

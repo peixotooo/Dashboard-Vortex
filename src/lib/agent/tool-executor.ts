@@ -1,3 +1,5 @@
+import { generateRfmReport, generateMonthlyCohort } from "@/lib/crm-rfm";
+import type { CrmVendaRow } from "@/lib/crm-rfm";
 import {
   listCampaigns,
   createCampaign,
@@ -719,6 +721,117 @@ export async function executeToolCall(
       } catch (err) {
         return { error: `Erro ao buscar posts: ${err instanceof Error ? err.message : "erro desconhecido"}` };
       }
+    }
+
+    // --- CRM Tools ---
+
+    case "get_crm_overview": {
+      if (!workspaceId || !supabase) {
+        return { error: "CRM nao disponivel (workspace nao configurado)" };
+      }
+      const crmRows: CrmVendaRow[] = [];
+      const CRM_PAGE = 1000;
+      let crmFrom = 0;
+      let crmMore = true;
+      while (crmMore) {
+        const { data, error } = await supabase
+          .from("crm_vendas")
+          .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
+          .eq("workspace_id", workspaceId)
+          .range(crmFrom, crmFrom + CRM_PAGE - 1);
+        if (error) return { error: `Erro ao buscar dados: ${error.message}` };
+        if (data && data.length > 0) {
+          crmRows.push(...(data as CrmVendaRow[]));
+          crmFrom += CRM_PAGE;
+          crmMore = data.length === CRM_PAGE;
+        } else {
+          crmMore = false;
+        }
+      }
+      if (crmRows.length === 0) {
+        return { summary: { totalCustomers: 0 }, segments: [], distributions: {}, behavioral: {} };
+      }
+      const report = generateRfmReport(crmRows);
+      return {
+        summary: report.summary,
+        segments: report.segments,
+        distributions: report.distributions,
+        behavioral: report.behavioralDistributions,
+      };
+    }
+
+    case "get_export_history": {
+      if (!workspaceId || !supabase) {
+        return { error: "CRM nao disponivel (workspace nao configurado)" };
+      }
+      const { data: logs, error: logsErr } = await supabase
+        .from("crm_export_logs")
+        .select("id, export_type, filters, record_count, created_at")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (logsErr) return { error: `Erro ao buscar logs: ${logsErr.message}` };
+      return { logs: logs || [], count: (logs || []).length };
+    }
+
+    case "get_cohort_trends": {
+      if (!workspaceId || !supabase) {
+        return { error: "CRM nao disponivel (workspace nao configurado)" };
+      }
+      const cohortMonths = (toolInput.months as number) || 12;
+      const cohortRows: CrmVendaRow[] = [];
+      const COHORT_PAGE = 1000;
+      let cohortFrom = 0;
+      let cohortMore = true;
+      while (cohortMore) {
+        const { data, error } = await supabase
+          .from("crm_vendas")
+          .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
+          .eq("workspace_id", workspaceId)
+          .range(cohortFrom, cohortFrom + COHORT_PAGE - 1);
+        if (error) return { error: `Erro ao buscar dados: ${error.message}` };
+        if (data && data.length > 0) {
+          cohortRows.push(...(data as CrmVendaRow[]));
+          cohortFrom += COHORT_PAGE;
+          cohortMore = data.length === COHORT_PAGE;
+        } else {
+          cohortMore = false;
+        }
+      }
+      if (cohortRows.length === 0) {
+        return { error: "Sem dados no CRM para gerar coortes" };
+      }
+      const cohort = generateMonthlyCohort(cohortRows, cohortMonths > 0 ? cohortMonths : undefined);
+      return {
+        metrics: {
+          arpu: cohort.arpu,
+          avgOrdersPerClient: cohort.avgOrdersPerClient,
+          repurchaseRate: cohort.repurchaseRate,
+          newClients: cohort.newClients,
+          totalClients: cohort.totalClients,
+          totalRevenue: cohort.totalRevenue,
+        },
+        monthlyData: cohort.monthlyData,
+      };
+    }
+
+    case "get_financial_context": {
+      if (!workspaceId || !supabase) {
+        return { error: "Financeiro nao disponivel (workspace nao configurado)" };
+      }
+      const { data: fin, error: finErr } = await supabase
+        .from("financial_settings")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .single();
+      if (finErr || !fin) {
+        return {
+          product_cost_pct: 25, tax_pct: 6, frete_pct: 6,
+          desconto_pct: 3, other_expenses_pct: 5, invest_pct: 12,
+          note: "Usando valores default — configuracoes financeiras nao encontradas",
+        };
+      }
+      return fin;
     }
 
     default:

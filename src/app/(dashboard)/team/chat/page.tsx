@@ -72,6 +72,10 @@ const TOOL_LABELS: Record<string, string> = {
   analyze_performance: "Analisando Performance",
   list_custom_audiences: "Listando Audiências",
   list_media_gallery: "Consultando Galeria",
+  get_crm_overview: "Analisando CRM",
+  get_export_history: "Verificando Exportacoes",
+  get_cohort_trends: "Analisando Coortes",
+  get_financial_context: "Buscando Dados Financeiros",
 };
 
 const MODEL_LABELS: Record<string, string> = {

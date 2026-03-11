@@ -59,6 +59,17 @@ Voce pode evoluir sua propria personalidade. Se o usuario pedir que voce mude se
 ${projectContext}`
     : "";
 
+  const crmSection = agentSlug === "crm-specialist"
+    ? `\n## Ferramentas de CRM
+- Use **get_crm_overview** para obter resumo da base, segmentos RFM e distribuicoes comportamentais
+- Use **get_export_history** para verificar quais listas ja foram exportadas recentemente
+- Use **get_cohort_trends** para analisar tendencias mensais de retencao e recompra
+- Use **get_financial_context** para dados de margem e LTV
+- SEMPRE busque os dados reais antes de fazer sugestoes
+- Use tags <suggestion>{JSON}</suggestion> para sugestoes estruturadas que o usuario pode aplicar como filtros
+- Pode usar **delegate_to_agent** para acionar copywriting, email-sequence, cold-email, ad-creative, churn-prevention`
+    : "";
+
   const teamToolsSection = isTeamAgent
     ? `\n## Ferramentas de Time
 - Use **create_task** para criar tarefas no kanban e atribuir a membros do time
@@ -79,5 +90,5 @@ ${projectContext}`
 
   return `${soul}
 
-${agentRules}${projectContextSection}${metaContext}${memorySection}${profileSection}${personalitySection}${teamToolsSection}`;
+${agentRules}${projectContextSection}${metaContext}${memorySection}${profileSection}${personalitySection}${teamToolsSection}${crmSection}`;
 }

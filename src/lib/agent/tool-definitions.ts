@@ -832,6 +832,56 @@ const INSTAGRAM_TOOLS: Tool[] = [
   },
 ];
 
+// --- CRM Tools (crm-specialist only) ---
+
+const CRM_TOOLS: Tool[] = [
+  {
+    name: "get_crm_overview",
+    description:
+      "Obtem visao geral do CRM: resumo (total clientes, receita, ticket medio, ativos), segmentos RFM com contagem e receita de cada, e distribuicoes comportamentais (dia do mes, dia da semana, turno, cupom, lifecycle). Dados leves (~5KB). Use SEMPRE como primeiro passo para entender a base.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_export_history",
+    description:
+      "Obtem historico das ultimas 50 exportacoes de listas do CRM. Cada log contem: tipo de exportacao, filtros aplicados, quantidade de registros, e data. Use para verificar quais segmentos ja foram impactados recentemente e evitar fadiga de contato.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_cohort_trends",
+    description:
+      "Obtem dados de coorte mensal: ARPU, media de pedidos por cliente, taxa de recompra, novos vs retornantes por mes. Util para identificar tendencias de retencao e sazonalidade. Parametro months: 6, 12 ou 0 (todo periodo).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        months: {
+          type: "number",
+          description: "Numero de meses para analisar (6, 12, ou 0 para todo o periodo). Default: 12",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_financial_context",
+    description:
+      "Obtem configuracoes financeiras do workspace: margem de contribuicao (MC%), custos, e dados para calcular LTV. Use para enriquecer sugestoes com analise de valor do cliente.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+];
+
 // --- Backward compat: all tools in one array (used by existing /agent page) ---
 
 export const AGENT_TOOLS: Tool[] = [
@@ -864,6 +914,10 @@ export function getToolsForAgent(agentSlug?: string): Tool[] {
   // Ad creative and copywriting agents get Team + Saved + Media Gallery
   if (agentSlug === "ad-creative" || agentSlug === "copywriting") {
     return [...TEAM_TOOLS, ...SAVED_TOOLS, ...MEDIA_GALLERY_TOOLS];
+  }
+  // CRM specialist gets Team + CRM tools
+  if (agentSlug === "crm-specialist") {
+    return [...TEAM_TOOLS, ...CRM_TOOLS];
   }
   // Other team agents get only Team tools
   return TEAM_TOOLS;
