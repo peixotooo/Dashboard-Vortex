@@ -535,6 +535,36 @@ export async function uploadAdImage(formData: FormData): Promise<unknown> {
   return data;
 }
 
+export async function uploadAdVideo(formData: FormData): Promise<unknown> {
+  let accountId = formData.get("account_id") as string || "";
+  if (accountId === "all") accountId = "";
+  if (!accountId) {
+    const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
+    if (accounts.accounts.length === 0) throw new Error("No ad accounts found");
+    accountId = accounts.accounts[0].id;
+  }
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  const token = getToken();
+  formData.set("access_token", token);
+  formData.delete("account_id");
+  
+  // Create a new FormData to ensure we send it correctly for video uploads
+  const videoFormData = new FormData();
+  videoFormData.set("access_token", token);
+  videoFormData.set("source", formData.get("filename") as File);
+
+  const options: RequestInit = {
+    method: "POST",
+    body: videoFormData,
+  };
+
+  const res = await fetch(`${BASE_URL}/${accountId}/advideos`, options);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  return data;
+}
+
 export async function createAdCreative(args: Record<string, unknown>): Promise<unknown> {
   let accountId = (args.account_id as string) || "";
   if (!accountId) {
@@ -591,21 +621,33 @@ export async function createAdCreative(args: Record<string, unknown>): Promise<u
     );
   }
 
-  const linkData: Record<string, unknown> = {
-    image_hash: String(args.image_hash || ""),
-    link: String(linkUrl),
-    message: String(args.body || ""),
-    name: String(args.title || ""),
-    call_to_action: {
-      type: String(args.call_to_action || "LEARN_MORE"),
-      value: { link: String(linkUrl) },
-    },
-  };
-
   const storySpec: Record<string, unknown> = {
     page_id: String(pageId),
-    link_data: linkData,
   };
+
+  if (args.video_id) {
+    storySpec.video_data = {
+      video_id: String(args.video_id),
+      image_url: args.image_url ? String(args.image_url) : undefined, // Optional thumbnail
+      call_to_action: {
+        type: String(args.call_to_action || "LEARN_MORE"),
+        value: { link: String(linkUrl) },
+      },
+      message: String(args.body || ""),
+      title: String(args.title || ""),
+    };
+  } else {
+    storySpec.link_data = {
+      image_hash: String(args.image_hash || ""),
+      link: String(linkUrl),
+      message: String(args.body || ""),
+      name: String(args.title || ""),
+      call_to_action: {
+        type: String(args.call_to_action || "LEARN_MORE"),
+        value: { link: String(linkUrl) },
+      },
+    };
+  }
 
   if (args.instagram_actor_id) {
     storySpec.instagram_actor_id = String(args.instagram_actor_id);

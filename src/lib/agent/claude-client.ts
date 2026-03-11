@@ -109,7 +109,8 @@ function extractChoices(text: string): {
 
 export interface ImageAttachment {
   filename: string;
-  image_hash: string;
+  image_hash?: string;
+  video_id?: string;
   image_url?: string;
 }
 
@@ -190,9 +191,9 @@ export async function runSpecialist(
 
   if (params.imageAttachments && params.imageAttachments.length > 0) {
     const imgList = params.imageAttachments
-      .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
+      .map((a) => `- ${a.filename} (${a.video_id ? `video_id: "${a.video_id}"` : `image_hash: "${a.image_hash}"`})`)
       .join("\n");
-    taskMessage += `\n\n[CRIATIVOS ANEXADOS — já enviados para a conta Meta]\n${imgList}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes. NAO chame list_media_gallery — voce JA TEM as imagens necessárias acima.`;
+    taskMessage += `\n\n[MÍDIAS ANEXADAS — já enviadas para a conta Meta]\n${imgList}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes/video_ids. NAO chame list_media_gallery — voce JA TEM as mídias necessárias acima.`;
   }
 
   // 7. Agentic loop (non-streaming)

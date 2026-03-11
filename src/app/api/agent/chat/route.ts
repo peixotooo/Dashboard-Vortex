@@ -77,16 +77,16 @@ export async function POST(request: NextRequest) {
       accountContext: AccountContext;
       conversationId?: string;
       agentId?: string;
-      attachments?: Array<{ filename: string; image_hash: string; image_url?: string }>;
+      attachments?: Array<{ filename: string; image_hash?: string; video_id?: string; image_url?: string }>;
     } = body;
 
     // Enrich message with attachment context (text part)
     let enrichedMessage = message;
     if (attachments && attachments.length > 0) {
       const list = attachments
-        .map((a) => `- ${a.filename} (image_hash: "${a.image_hash}")`)
+        .map((a) => `- ${a.filename} (${a.video_id ? `video_id: "${a.video_id}"` : `image_hash: "${a.image_hash}"`})`)
         .join("\n");
-      enrichedMessage = `${message}\n\n[CRIATIVOS ANEXADOS NESTA CONVERSA — já enviados para a conta Meta, prontos para uso]\n${list}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes ao criar criativos. NAO chame list_media_gallery — as imagens já estão disponíveis acima.`;
+      enrichedMessage = `${message}\n\n[MÍDIAS ANEXADAS NESTA CONVERSA — já enviadas para a conta Meta, prontas para uso]\n${list}\n\nIMPORTANTE: Use EXATAMENTE estes image_hashes ou video_ids ao criar criativos. NAO chame list_media_gallery — as mídias já estão disponíveis acima.`;
     }
 
     if (!message || !accountId) {
@@ -206,12 +206,13 @@ export async function POST(request: NextRequest) {
       ?.filter((a) => a.image_url)
       .map((a) => a.image_url!);
 
-    // Build structured image attachments for specialist forwarding
+    // Build structured image/video attachments for specialist forwarding
     const readyAttachments = attachments
-      ?.filter((a) => a.image_hash)
+      ?.filter((a) => a.image_hash || a.video_id)
       .map((a) => ({
         filename: a.filename,
         image_hash: a.image_hash,
+        video_id: a.video_id,
         image_url: a.image_url,
       }));
 

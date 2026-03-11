@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadAdImage } from "@/lib/meta-api";
+import { uploadAdImage, uploadAdVideo } from "@/lib/meta-api";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
@@ -10,8 +10,8 @@ async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
     if (!data) {
         await supabase.storage.createBucket(BUCKET_NAME, {
             public: true,
-            fileSizeLimit: 10 * 1024 * 1024, // 10MB
-            allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+            fileSizeLimit: 100 * 1024 * 1024, // 100MB for videos
+            allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
         });
     }
 }
@@ -38,9 +38,16 @@ export async function POST(request: NextRequest) {
         }
 
         // Upload to Meta (using the fresh File copy)
-        const result = await uploadAdImage(formData);
+        let result: unknown;
+        let isVideo = false;
+        if (fileType.startsWith("video/")) {
+            result = await uploadAdVideo(formData);
+            isVideo = true;
+        } else {
+            result = await uploadAdImage(formData);
+        }
 
-        // Upload to Supabase Storage using the saved buffer (for Claude Vision URLs)
+        // Upload to Supabase Storage using the saved buffer (for Claude Vision URLs & gallery preview)
         let imageUrl: string | undefined;
         let storagePath: string | undefined;
         if (fileBuffer) {
@@ -48,7 +55,7 @@ export async function POST(request: NextRequest) {
                 const supabase = createAdminClient();
                 await ensureBucket(supabase);
 
-                const ext = fileName.split(".").pop() || "jpg";
+                const ext = fileName.split(".").pop() || (isVideo ? "mp4" : "jpg");
                 const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
                 const { error } = await supabase.storage
@@ -73,7 +80,16 @@ export async function POST(request: NextRequest) {
         // Auto-register in workspace_media
         const workspaceId = request.headers.get("x-workspace-id");
         const metaResult = result as Record<string, unknown>;
-        const imageHash = (metaResult.images as Array<{ hash: string }> | undefined)?.[0]?.hash;
+        
+        // Extract Meta IDs
+        let imageHash = null;
+        let videoId = null;
+        
+        if (isVideo) {
+            videoId = metaResult.id as string || null;
+        } else {
+            imageHash = (metaResult.images as Array<{ hash: string }> | undefined)?.[0]?.hash || null;
+        }
 
         if (workspaceId && imageUrl) {
             try {
@@ -82,7 +98,8 @@ export async function POST(request: NextRequest) {
                     workspace_id: workspaceId,
                     filename: fileName,
                     image_url: imageUrl,
-                    image_hash: imageHash || null,
+                    image_hash: imageHash, // null for videos
+                    video_id: videoId,     // null for images
                     storage_path: storagePath || null,
                     file_size: fileSize || null,
                     mime_type: fileType,
@@ -93,7 +110,14 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        return NextResponse.json({ ...metaResult, imageUrl });
+        // Normalizing the response so frontend can just use `mediaId` (or hash) and `type`
+        return NextResponse.json({ 
+            ...metaResult, 
+            imageUrl, 
+            imageHash, 
+            videoId, 
+            mediaType: isVideo ? "video" : "image" 
+        });
     } catch (error) {
         return handleAuthError(error);
     }

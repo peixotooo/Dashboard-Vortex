@@ -132,6 +132,7 @@ export default function TeamChatPage() {
     preview: string;
     status: "uploading" | "done" | "error";
     image_hash?: string;
+    video_id?: string;
     image_url?: string;
   }>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -151,13 +152,12 @@ export default function TeamChatPage() {
       if (workspace?.id) headers["x-workspace-id"] = workspace.id;
       const res = await fetch("/api/media", { method: "POST", body: formData, headers });
       const data = await res.json();
-      const images = data.images || {};
-      const firstKey = Object.keys(images)[0];
-      const hash = firstKey ? images[firstKey].hash : null;
-      if (!hash) throw new Error("No image hash");
+      const hash = data.imageHash || null;
+      const videoId = data.videoId || null;
+      if (!hash && !videoId) throw new Error("No media id");
       setAttachments((prev) =>
         prev.map((a) =>
-          a.id === id ? { ...a, status: "done" as const, image_hash: hash, image_url: data.imageUrl } : a
+          a.id === id ? { ...a, status: "done" as const, image_hash: hash, video_id: videoId, image_url: data.imageUrl } : a
         )
       );
     } catch {
@@ -174,9 +174,14 @@ export default function TeamChatPage() {
       preview: item.image_url,
       status: "done" as const,
       image_hash: item.image_hash || undefined,
+      video_id: (item as any).video_id || undefined,
       image_url: item.image_url,
     }));
-    setAttachments((prev) => [...prev, ...newAttachments]);
+    setAttachments((prev) => {
+      // Avoid adding duplicates
+      const newItems = newAttachments.filter(na => !prev.some(pa => pa.id === na.id));
+      return [...prev, ...newItems];
+    });
   }, []);
 
   // Load agents
@@ -371,15 +376,16 @@ export default function TeamChatPage() {
       try {
         // Collect already-uploaded attachments (uploaded immediately on attach)
         const readyAttachments = attachments
-          .filter((a) => a.status === "done" && a.image_hash)
+          .filter((a) => a.status === "done" && (a.image_hash || a.video_id))
           .map((a) => ({
             filename: a.file.name,
-            image_hash: a.image_hash!,
+            image_hash: a.image_hash,
+            video_id: a.video_id,
             image_url: a.image_url,
           }));
-        // Clear attachments and revoke preview URLs
-        attachments.forEach((a) => URL.revokeObjectURL(a.preview));
-        setAttachments([]);
+        
+        // Remove attachment clearing to persist them across requests!
+        // We leave them in the UI and in the attachments array.
 
         const history = messages.map((m) => ({
           role: m.role,
@@ -949,7 +955,7 @@ export default function TeamChatPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 className="hidden"
                 onChange={(e) => {
