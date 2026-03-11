@@ -203,7 +203,7 @@ export async function runSpecialist(
   let fullText = "";
   let continueLoop = true;
   let loopCount = 0;
-  const maxLoops = params.maxLoops ?? 12;
+  const maxLoops = params.maxLoops ?? 25;
   const specialistStartTime = Date.now();
 
   while (continueLoop && loopCount < maxLoops) {
@@ -393,7 +393,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
         let continueLoop = true;
         let assistantFullText = "";
         let loopCount = 0;
-        const MAX_LOOPS = 15;
+        const MAX_LOOPS = 30;
         const startTime = Date.now();
         const TIMEOUT_MS = 250_000; // 250s graceful limit (Vercel max is 300s)
 
@@ -524,7 +524,7 @@ export function createAgentStream(params: AgentStreamParams): ReadableStream {
                       supabase,
                       projectContext,
                       imageAttachments,
-                      maxLoops: delegateInput.complexity === "deep" ? 20 : 12,
+                      maxLoops: delegateInput.complexity === "deep" ? 50 : 30,
                       maxTokens: delegateInput.complexity === "deep" ? 8192 : 4096,
                       providerConfig,
                       timeBudgetMs: remainingMs > 30_000 ? remainingMs : undefined,
