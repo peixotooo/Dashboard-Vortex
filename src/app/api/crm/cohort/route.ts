@@ -63,19 +63,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const cohort = generateMonthlyCohort(allRows);
-
-    // Filter to requested months
-    if (months > 0 && cohort.monthlyData.length > months) {
-      cohort.monthlyData = cohort.monthlyData.slice(-months);
-    }
+    // months=0 means all time; generateMonthlyCohort handles filtering + summary
+    const cohort = generateMonthlyCohort(allRows, months > 0 ? months : undefined);
 
     // Try to get ad spend from Meta (optional)
     let adSpend: Record<string, number> | null = null;
     try {
-      await getAuthenticatedContext(request).catch(() => {});
+      const authResult = await getAuthenticatedContext(request).catch((err: unknown) => {
+        console.log("[CRM Cohort] Auth context failed, using env fallback:", err instanceof Error ? err.message : err);
+        return null;
+      });
 
-      // Calculate date range from cohort data
       const monthKeys = cohort.monthlyData.map((m) => m.monthKey);
       if (monthKeys.length > 0) {
         const startDate = `${monthKeys[0]}-01`;
@@ -84,13 +82,17 @@ export async function GET(request: NextRequest) {
         const lastDay = new Date(y, m, 0).getDate();
         const endDate = `${lastMonth}-${String(lastDay).padStart(2, "0")}`;
 
+        console.log("[CRM Cohort] Fetching Meta spend:", startDate, "to", endDate, "auth:", authResult ? "workspace" : "env");
+
         const result = await getInsights({
           time_range: { since: startDate, until: endDate },
           time_increment: "monthly",
           fields: ["spend"],
         }) as { insights?: Array<{ date_start?: string; spend?: string }> };
 
-        if (result?.insights) {
+        console.log("[CRM Cohort] Meta insights:", result?.insights?.length ?? 0, "rows");
+
+        if (result?.insights && result.insights.length > 0) {
           adSpend = {};
           for (const row of result.insights) {
             if (row.date_start) {

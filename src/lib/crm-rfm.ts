@@ -592,7 +592,7 @@ const MONTH_NAMES_PT = [
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
 
-export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
+export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): CrmMetricsSummary {
   // Sort rows by date
   const dated = rows
     .filter((r) => r.data_compra && r.email)
@@ -702,20 +702,36 @@ export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
     });
   }
 
-  // Global summary
-  const allEmails = new Set(dated.map((r) => r.email));
-  const totalRevenue = dated.reduce((s, r) => s + r.valor, 0);
-  const emailCounts = new Map<string, number>();
-  for (const r of dated) emailCounts.set(r.email, (emailCounts.get(r.email) || 0) + 1);
-  const repeatClients = [...allEmails].filter((e) => (emailCounts.get(e) || 0) >= 2).length;
+  // Filter to requested period
+  let filtered = monthlyData;
+  if (months && months > 0 && monthlyData.length > months) {
+    filtered = monthlyData.slice(-months);
+  }
+
+  // Compute summary from filtered period only
+  const filteredMonthKeys = new Set(filtered.map((m) => m.monthKey));
+  const periodEmails = new Set<string>();
+  let periodOrders = 0;
+  let periodRevenue = 0;
+  for (const row of dated) {
+    if (filteredMonthKeys.has(row.monthKey)) {
+      periodEmails.add(row.email);
+      periodOrders++;
+      periodRevenue += row.valor;
+    }
+  }
+
+  const periodNewClients = filtered.reduce((s, m) => s + m.newClients, 0);
+  const periodUniqueClients = periodEmails.size;
+  const lastMonth = filtered[filtered.length - 1];
 
   return {
-    arpu: allEmails.size > 0 ? parseFloat((totalRevenue / allEmails.size).toFixed(2)) : 0,
-    avgOrdersPerClient: allEmails.size > 0 ? parseFloat((dated.length / allEmails.size).toFixed(2)) : 0,
-    repurchaseRate: allEmails.size > 0 ? parseFloat(((repeatClients / allEmails.size) * 100).toFixed(2)) : 0,
-    newClients: allEmails.size - repeatClients,
-    totalClients: allEmails.size,
-    totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-    monthlyData,
+    arpu: periodUniqueClients > 0 ? parseFloat((periodRevenue / periodUniqueClients).toFixed(2)) : 0,
+    avgOrdersPerClient: periodUniqueClients > 0 ? parseFloat((periodOrders / periodUniqueClients).toFixed(2)) : 0,
+    repurchaseRate: lastMonth?.repurchaseRate ?? 0,
+    newClients: periodNewClients,
+    totalClients: periodUniqueClients,
+    totalRevenue: parseFloat(periodRevenue.toFixed(2)),
+    monthlyData: filtered,
   };
 }

@@ -272,7 +272,7 @@ export default function CrmPage() {
   const [metricsPeriod, setMetricsPeriod] = useState(12);
   const [financialSettings, setFinancialSettings] = useState<{
     product_cost_pct: number; tax_pct: number; frete_pct: number;
-    desconto_pct: number; other_expenses_pct: number;
+    desconto_pct: number; other_expenses_pct: number; invest_pct: number;
   } | null>(null);
 
   // Export logs
@@ -354,6 +354,7 @@ export default function CrmPage() {
         frete_pct: fin.frete_pct ?? 6,
         desconto_pct: fin.desconto_pct ?? 3,
         other_expenses_pct: fin.other_expenses_pct ?? 5,
+        invest_pct: fin.invest_pct ?? 12,
       });
     } catch {
       // Keep empty
@@ -525,9 +526,10 @@ export default function CrmPage() {
 
   // Computed metrics for Metricas tab
   const mcPct = useMemo(() => {
-    if (!financialSettings) return 55; // default
+    if (!financialSettings) return 43; // default with invest
     return 100 - financialSettings.product_cost_pct - financialSettings.tax_pct
-      - financialSettings.frete_pct - financialSettings.desconto_pct - financialSettings.other_expenses_pct;
+      - financialSettings.frete_pct - financialSettings.desconto_pct
+      - financialSettings.other_expenses_pct - financialSettings.invest_pct;
   }, [financialSettings]);
 
   const totalAdSpend = useMemo(() => {
