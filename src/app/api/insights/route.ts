@@ -12,11 +12,14 @@ export async function GET(request: NextRequest) {
     const object_id = searchParams.get("object_id") || "";
     const level = searchParams.get("level") || "account";
     const date_preset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
+    const sinceParam = searchParams.get("since") || "";
+    const untilParam = searchParams.get("until") || "";
+    const customRange = sinceParam && untilParam ? { since: sinceParam, until: untilParam } : undefined;
     const breakdowns = searchParams.get("breakdowns") || "";
     const fields = searchParams.get("fields") || "";
     const include_comparison = searchParams.get("include_comparison") === "true";
 
-    const timeRange = datePresetToTimeRange(date_preset);
+    const timeRange = datePresetToTimeRange(date_preset, customRange);
     const result = await getInsights({
       object_id,
       level,
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (include_comparison) {
-      const prevDates = getPreviousPeriodDates(date_preset);
+      const prevDates = getPreviousPeriodDates(date_preset, customRange);
       const prevResult = await getInsights({
         object_id,
         level,

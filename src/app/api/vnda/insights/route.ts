@@ -7,6 +7,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
+    const sinceParam = searchParams.get("since") || "";
+    const untilParam = searchParams.get("until") || "";
+    const customRange = sinceParam && untilParam ? { since: sinceParam, until: untilParam } : undefined;
     const includeComparison = searchParams.get("include_comparison") === "true";
     const workspaceId = request.headers.get("x-workspace-id") || "";
 
@@ -19,11 +22,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const result = await getVndaDailyReport({ config, datePreset });
+    const result = customRange
+      ? await getVndaDailyReport({ config, startDate: customRange.since, endDate: customRange.until })
+      : await getVndaDailyReport({ config, datePreset });
 
     let comparison = null;
     if (includeComparison) {
-      const prevDates = getPreviousPeriodDates(datePreset);
+      const prevDates = getPreviousPeriodDates(datePreset, customRange);
       const prevResult = await getVndaDailyReport({
         config,
         startDate: prevDates.since,

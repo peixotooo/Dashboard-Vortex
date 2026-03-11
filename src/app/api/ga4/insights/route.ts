@@ -9,9 +9,10 @@ export async function GET(request: NextRequest) {
     const propertyId = searchParams.get("property_id") || undefined;
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
     const includeComparison = searchParams.get("include_comparison") === "true";
-    const startDate = searchParams.get("start_date") || undefined;
-    const endDate = searchParams.get("end_date") || undefined;
+    const startDate = searchParams.get("start_date") || searchParams.get("since") || undefined;
+    const endDate = searchParams.get("end_date") || searchParams.get("until") || undefined;
     const useCustomRange = !!(startDate && endDate);
+    const customRange = useCustomRange ? { since: startDate!, until: endDate! } : undefined;
 
     // Check if GA4 is configured
     if (!process.env.GA4_PROPERTY_ID && !propertyId) {
@@ -34,9 +35,9 @@ export async function GET(request: NextRequest) {
       getGA4GoogleAdsCost({ propertyId, ...dateArgs }).catch(() => null),
     ]);
 
-    // Skip comparison when filtering by specific date (doesn't make sense)
-    if (includeComparison && !useCustomRange) {
-      const prevDates = getPreviousPeriodDates(datePreset);
+    // Comparison: custom range gets previous period based on duration
+    if (includeComparison && (!useCustomRange || datePreset === "custom")) {
+      const prevDates = getPreviousPeriodDates(datePreset, customRange);
       const [prevResult, prevGoogleAds] = await Promise.all([
         getGA4DailyReport({
           propertyId,

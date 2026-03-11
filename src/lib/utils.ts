@@ -45,7 +45,8 @@ export function formatCompact(value: number | string): string {
   return num.toFixed(0);
 }
 
-export function datePresetToTimeRange(preset: DatePreset): { since: string; until: string } {
+export function datePresetToTimeRange(preset: DatePreset, customRange?: { since: string; until: string }): { since: string; until: string } {
+  if (preset === "custom" && customRange) return customRange;
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const sub = (days: number) => {
@@ -81,7 +82,7 @@ export function datePresetToTimeRange(preset: DatePreset): { since: string; unti
   }
 }
 
-export function getPreviousPeriodDates(preset: DatePreset): { since: string; until: string } {
+export function getPreviousPeriodDates(preset: DatePreset, customRange?: { since: string; until: string }): { since: string; until: string } {
   const today = new Date();
   const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -89,6 +90,16 @@ export function getPreviousPeriodDates(preset: DatePreset): { since: string; unt
     const d = new Date(date);
     d.setDate(d.getDate() - days);
     return d;
+  }
+
+  if (preset === "custom" && customRange) {
+    const start = new Date(customRange.since);
+    const end = new Date(customRange.until);
+    const daysDiff = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return {
+      since: fmt(subtractDays(start, daysDiff)),
+      until: fmt(subtractDays(start, 1)),
+    };
   }
 
   switch (preset) {

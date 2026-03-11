@@ -174,7 +174,8 @@ export type DatePreset =
   | "last_30d"
   | "last_90d"
   | "this_month"
-  | "last_month";
+  | "last_month"
+  | "custom";
 
 export type BreakdownType =
   | "age"

@@ -213,6 +213,7 @@ export default function OverviewPage() {
   const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
+  const [customRange, setCustomRange] = useState<{ since: string; until: string } | undefined>();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OverviewData>({
     spend: 0,
@@ -256,6 +257,11 @@ export default function OverviewPage() {
           ? accounts.map((a) => a.id)
           : [accountId];
 
+        // Build date query params — use since/until for custom ranges
+        const dateParams = datePreset === "custom" && customRange
+          ? `date_preset=custom&since=${customRange.since}&until=${customRange.until}`
+          : `date_preset=${datePreset}`;
+
         // Fetch Meta (per-account) + GA4 + VNDA in parallel
         const vndaHeaders: Record<string, string> = {};
         if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
@@ -265,15 +271,15 @@ export default function OverviewPage() {
           Promise.all(
             accountIds.map((id) =>
               fetch(
-                `/api/insights?object_id=${id}&level=account&date_preset=${datePreset}&include_comparison=true`
+                `/api/insights?object_id=${id}&level=account&${dateParams}&include_comparison=true`
               ).then((r) => r.json())
             )
           ),
           fetch(
-            `/api/ga4/insights?date_preset=${datePreset}&include_comparison=true`
+            `/api/ga4/insights?${dateParams}&include_comparison=true`
           ),
           fetch(
-            `/api/vnda/insights?date_preset=${datePreset}&include_comparison=true`,
+            `/api/vnda/insights?${dateParams}&include_comparison=true`,
             { headers: vndaHeaders }
           ),
           workspace?.id
@@ -469,7 +475,7 @@ export default function OverviewPage() {
         for (const [k] of gadsMap) allDatesSet.add(k);
 
         // Filter dates to only include those within the selected period
-        const expectedRange = datePresetToTimeRange(datePreset);
+        const expectedRange = datePresetToTimeRange(datePreset, customRange);
         const allDates = [...allDatesSet]
           .filter((d) => d >= expectedRange.since && d <= expectedRange.until)
           .sort();
@@ -589,7 +595,7 @@ export default function OverviewPage() {
     }
 
     fetchData();
-  }, [datePreset, accountId, accounts, workspace?.id]);
+  }, [datePreset, customRange, accountId, accounts, workspace?.id]);
 
   function calcChange(
     current: number,
@@ -660,7 +666,7 @@ export default function OverviewPage() {
             Visão geral Meta Ads{data.gadsConfigured ? " + Google Ads" : ""}{data.ga4Configured ? " + GA4" : ""}{data.vndaConfigured ? " + VNDA" : ""}
           </p>
         </div>
-        <DateRangePicker value={datePreset} onChange={setDatePreset} />
+        <DateRangePicker value={datePreset} onChange={setDatePreset} customRange={customRange} onCustomRangeChange={setCustomRange} />
       </div>
 
       {/* KPI Cards - Row 1: Revenue metrics */}
