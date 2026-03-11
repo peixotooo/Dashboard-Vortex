@@ -54,11 +54,21 @@ export async function POST(request: NextRequest) {
       workspaceId = ctx.workspaceId;
       userId = ctx.userId;
     } catch {
-      // Will use META_ACCESS_TOKEN from env
+      // Meta connection may not exist (e.g., CRM-only agents).
+      // Fallback: read workspace/user directly from request.
     }
 
     if (accessToken) {
       setContextToken(accessToken);
+    }
+
+    // Ensure workspace and user are resolved even without Meta connection
+    if (!workspaceId) {
+      workspaceId = request.headers.get("x-workspace-id") || null;
+    }
+    if (!userId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      userId = user?.id || null;
     }
 
     const body = await request.json();
