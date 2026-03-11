@@ -438,13 +438,12 @@ export default function CrmPage() {
     return hdrs;
   }, [workspace?.id]);
 
-  const fetchData = useCallback(async () => {
+  // Stage 1: summary only (mount) — ~5KB instead of 10-35MB
+  const fetchSummary = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+      const res = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
       const data = await res.json();
-
-      setCustomers(data.customers || []);
       setSegments(data.segments || []);
       setSummary(data.summary || emptySummary);
       setDistributions(data.distributions || emptyDistributions);
@@ -455,6 +454,25 @@ export default function CrmPage() {
       setLoading(false);
     }
   }, [wsHeaders]);
+
+  // Stage 2: full customers (lazy, on Clientes tab)
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+
+  const fetchCustomers = useCallback(async () => {
+    if (customersLoaded) return;
+    setCustomersLoading(true);
+    try {
+      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+      const data = await res.json();
+      setCustomers(data.customers || []);
+      setCustomersLoaded(true);
+    } catch {
+      // Keep empty state
+    } finally {
+      setCustomersLoading(false);
+    }
+  }, [wsHeaders, customersLoaded]);
 
   const fetchExportLogs = useCallback(async () => {
     try {
@@ -510,11 +528,19 @@ export default function CrmPage() {
     }
   }, [wsHeaders, metricsPeriod]);
 
+  // Stage 1: mount — summary + metrics (light payloads)
   useEffect(() => {
-    fetchData();
-    fetchExportLogs();
+    fetchSummary();
     fetchMetrics();
-  }, [fetchData, fetchExportLogs, fetchMetrics]);
+    fetchExportLogs();
+  }, [fetchSummary, fetchMetrics, fetchExportLogs]);
+
+  // Stage 2: lazy-load customers when Clientes tab is activated
+  useEffect(() => {
+    if (activeTab === "customers" && !customersLoaded) {
+      fetchCustomers();
+    }
+  }, [activeTab, customersLoaded, fetchCustomers]);
 
   // Filtered customers
   const filteredCustomers = useMemo(() => {
@@ -796,6 +822,7 @@ export default function CrmPage() {
 
         {/* ===== Tab 0: Metricas ===== */}
         <TabsContent value="metrics" className="space-y-6">
+          {activeTab === "metrics" && (<>
           {/* Period selector */}
           <div className="flex justify-end">
             <select
@@ -949,10 +976,12 @@ export default function CrmPage() {
               )}
             </CardContent>
           </Card>
+          </>)}
         </TabsContent>
 
         {/* ===== Tab 1: Overview ===== */}
         <TabsContent value="overview" className="space-y-6">
+          {activeTab === "overview" && (<>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title="Distribuicao por Segmento" loading={loading} isEmpty={segmentPieData.length === 0} height={300}>
               <ResponsiveContainer width="100%" height="100%">
@@ -1062,10 +1091,12 @@ export default function CrmPage() {
               )}
             </CardContent>
           </Card>
+          </>)}
         </TabsContent>
 
         {/* ===== Tab 2: Segments ===== */}
         <TabsContent value="segments" className="space-y-6">
+          {activeTab === "segments" && (<>
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1104,10 +1135,12 @@ export default function CrmPage() {
               ))}
             </div>
           )}
+          </>)}
         </TabsContent>
 
         {/* ===== Tab 3: Behavior ===== */}
         <TabsContent value="behavior" className="space-y-6">
+          {activeTab === "behavior" && (<>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
@@ -1195,10 +1228,17 @@ export default function CrmPage() {
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
+          </>)}
         </TabsContent>
 
         {/* ===== Tab 4: Customers ===== */}
         <TabsContent value="customers" className="space-y-4">
+          {activeTab === "customers" && (customersLoading && !customersLoaded ? (
+            <div className="flex flex-col items-center justify-center h-64 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Carregando clientes...</p>
+            </div>
+          ) : (<>
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
             <div className="relative flex-1 max-w-sm">
@@ -1305,6 +1345,7 @@ export default function CrmPage() {
             data={filteredCustomers as unknown as Record<string, unknown>[]}
             loading={loading}
           />
+          </>))}
         </TabsContent>
       </Tabs>
     </div>

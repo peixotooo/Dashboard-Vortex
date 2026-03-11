@@ -84,6 +84,19 @@ export async function GET(request: NextRequest) {
 
     const report = generateRfmReport(allRows);
 
+    // ?fields=summary returns everything EXCEPT the customers array (~5KB vs 10-35MB)
+    const fields = request.nextUrl.searchParams.get("fields");
+    if (fields === "summary") {
+      return NextResponse.json({
+        segments: report.segments,
+        summary: report.summary,
+        distributions: report.distributions,
+        behavioralDistributions: report.behavioralDistributions,
+      }, {
+        headers: { "Cache-Control": "private, max-age=300" },
+      });
+    }
+
     return NextResponse.json(report, {
       headers: { "Cache-Control": "private, max-age=300" },
     });
