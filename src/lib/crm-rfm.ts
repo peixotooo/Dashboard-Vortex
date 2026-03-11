@@ -32,6 +32,7 @@ export type RfmSegment =
 
 export type DayRange = "1-5" | "6-10" | "11-15" | "16-20" | "21-25" | "26-31";
 export type DayOfWeekPref = "weekday" | "weekend";
+export type Weekday = "seg" | "ter" | "qua" | "qui" | "sex" | "sab" | "dom";
 export type HourPref = "madrugada" | "manha" | "tarde" | "noite";
 export type CouponSensitivity = "never" | "occasional" | "frequent" | "always";
 export type LifecycleStage = "new" | "returning" | "regular" | "vip";
@@ -56,6 +57,7 @@ export interface RfmCustomer {
   // Behavioral
   preferredDayRange: DayRange;
   preferredDayOfWeek: DayOfWeekPref;
+  preferredWeekday: Weekday;
   preferredHour: HourPref;
   couponSensitivity: CouponSensitivity;
   lifecycleStage: LifecycleStage;
@@ -91,6 +93,7 @@ export interface CrmRfmResponse {
   behavioralDistributions: {
     dayOfMonth: { bucket: string; count: number }[];
     dayOfWeek: { bucket: string; count: number }[];
+    weekday: { bucket: string; count: number; color: string }[];
     hourOfDay: { bucket: string; count: number }[];
     couponUsage: { bucket: string; count: number; color: string }[];
     lifecycle: { bucket: string; count: number; color: string }[];
@@ -127,7 +130,19 @@ export const COUPON_META: Record<CouponSensitivity, { label: string; color: stri
   always:     { label: "Sempre usa",  color: "#ef4444" },
 };
 
+export const WEEKDAY_META: Record<Weekday, { label: string; color: string }> = {
+  seg: { label: "Segunda", color: "#3b82f6" },
+  ter: { label: "Terca",   color: "#8b5cf6" },
+  qua: { label: "Quarta",  color: "#06b6d4" },
+  qui: { label: "Quinta",  color: "#22c55e" },
+  sex: { label: "Sexta",   color: "#f59e0b" },
+  sab: { label: "Sabado",  color: "#f97316" },
+  dom: { label: "Domingo", color: "#ef4444" },
+};
+
 // --- Internal helpers ---
+
+const JS_DOW_TO_WEEKDAY: Weekday[] = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
 
 interface AggregatedCustomer {
   email: string;
@@ -140,8 +155,7 @@ interface AggregatedCustomer {
   coupons: Set<string>;
   // Behavioral counters
   dayRangeCounts: Record<DayRange, number>;
-  weekdayCount: number;
-  weekendCount: number;
+  weekdayCounts: Record<Weekday, number>;
   hourCounts: { madrugada: number; manha: number; tarde: number; noite: number };
   couponPurchases: number;
 }
@@ -196,9 +210,7 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
       }
       if (purchaseDate) {
         existing.dayRangeCounts[getDayRange(purchaseDate.getDate())] += 1;
-        const dow = purchaseDate.getDay();
-        if (dow === 0 || dow === 6) existing.weekendCount += 1;
-        else existing.weekdayCount += 1;
+        existing.weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] += 1;
         existing.hourCounts[getHourPref(purchaseDate.getHours())] += 1;
       }
     } else {
@@ -206,14 +218,11 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
       if (hasCoupon) coupons.add(row.cupom!.trim());
       const dayRangeCounts: Record<DayRange, number> = { "1-5": 0, "6-10": 0, "11-15": 0, "16-20": 0, "21-25": 0, "26-31": 0 };
       const hourCounts = { madrugada: 0, manha: 0, tarde: 0, noite: 0 };
-      let weekdayCount = 0;
-      let weekendCount = 0;
+      const weekdayCounts: Record<Weekday, number> = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 };
 
       if (purchaseDate) {
         dayRangeCounts[getDayRange(purchaseDate.getDate())] = 1;
-        const dow = purchaseDate.getDay();
-        if (dow === 0 || dow === 6) weekendCount = 1;
-        else weekdayCount = 1;
+        weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] = 1;
         hourCounts[getHourPref(purchaseDate.getHours())] = 1;
       }
 
@@ -227,8 +236,7 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         lastPurchaseTs: purchaseTs || 0,
         coupons,
         dayRangeCounts,
-        weekdayCount,
-        weekendCount,
+        weekdayCounts,
         hourCounts,
         couponPurchases: hasCoupon ? 1 : 0,
       });
@@ -371,7 +379,7 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
   const now = Date.now();
 
   const emptyBehavioral: CrmRfmResponse["behavioralDistributions"] = {
-    dayOfMonth: [], dayOfWeek: [], hourOfDay: [], couponUsage: [], lifecycle: [],
+    dayOfMonth: [], dayOfWeek: [], weekday: [], hourOfDay: [], couponUsage: [], lifecycle: [],
   };
 
   if (aggregated.length === 0) {
@@ -426,7 +434,8 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       segment: classifySegment(r, f, m),
       // Behavioral
       preferredDayRange: getMaxKey(c.dayRangeCounts),
-      preferredDayOfWeek: c.weekendCount > c.weekdayCount ? "weekend" : "weekday",
+      preferredDayOfWeek: (c.weekdayCounts.sab + c.weekdayCounts.dom) > (c.weekdayCounts.seg + c.weekdayCounts.ter + c.weekdayCounts.qua + c.weekdayCounts.qui + c.weekdayCounts.sex) ? "weekend" : "weekday",
+      preferredWeekday: getMaxKey(c.weekdayCounts),
       preferredHour: getMaxKey(c.hourCounts),
       couponSensitivity: classifyCouponSensitivity(c.couponPurchases, c.totalPurchases),
       lifecycleStage: classifyLifecycle(c.totalPurchases),
@@ -488,6 +497,11 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       { bucket: "Dia de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekday").length },
       { bucket: "Fim de semana", count: customers.filter((c) => c.preferredDayOfWeek === "weekend").length },
     ],
+    weekday: (["seg", "ter", "qua", "qui", "sex", "sab", "dom"] as Weekday[]).map((wd) => ({
+      bucket: WEEKDAY_META[wd].label,
+      count: customers.filter((c) => c.preferredWeekday === wd).length,
+      color: WEEKDAY_META[wd].color,
+    })),
     hourOfDay: [
       { bucket: "Madrugada (0-6h)", count: customers.filter((c) => c.preferredHour === "madrugada").length },
       { bucket: "Manha (6-12h)", count: customers.filter((c) => c.preferredHour === "manha").length },

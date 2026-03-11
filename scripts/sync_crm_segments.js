@@ -79,6 +79,8 @@ function getHourPref(hour) {
   return "noite";
 }
 
+const JS_DOW_TO_WEEKDAY = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
+
 function getMaxKey(counts) {
   let maxKey = Object.keys(counts)[0];
   let maxVal = 0;
@@ -137,9 +139,7 @@ function aggregateByCustomer(rows) {
       }
       if (purchaseDate) {
         existing.dayRangeCounts[getDayRange(purchaseDate.getDate())] += 1;
-        const dow = purchaseDate.getDay();
-        if (dow === 0 || dow === 6) existing.weekendCount += 1;
-        else existing.weekdayCount += 1;
+        existing.weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] += 1;
         existing.hourCounts[getHourPref(purchaseDate.getHours())] += 1;
       }
     } else {
@@ -147,14 +147,11 @@ function aggregateByCustomer(rows) {
       if (hasCoupon) coupons.add(row.cupom.trim());
       const dayRangeCounts = { "1-5": 0, "6-10": 0, "11-15": 0, "16-20": 0, "21-25": 0, "26-31": 0 };
       const hourCounts = { madrugada: 0, manha: 0, tarde: 0, noite: 0 };
-      let weekdayCount = 0;
-      let weekendCount = 0;
+      const weekdayCounts = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 };
 
       if (purchaseDate) {
         dayRangeCounts[getDayRange(purchaseDate.getDate())] = 1;
-        const dow = purchaseDate.getDay();
-        if (dow === 0 || dow === 6) weekendCount = 1;
-        else weekdayCount = 1;
+        weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] = 1;
         hourCounts[getHourPref(purchaseDate.getHours())] = 1;
       }
 
@@ -168,8 +165,7 @@ function aggregateByCustomer(rows) {
         lastPurchaseTs: purchaseTs || 0,
         coupons,
         dayRangeCounts,
-        weekdayCount,
-        weekendCount,
+        weekdayCounts,
         hourCounts,
         couponPurchases: hasCoupon ? 1 : 0,
       });
@@ -290,7 +286,8 @@ async function main() {
       rfm_score: `${r}-${f}-${m}`,
       segmento_rfm: classifySegment(r, f, m),
       faixa_dia_mes: getMaxKey(c.dayRangeCounts),
-      dia_semana_preferido: c.weekendCount > c.weekdayCount ? "weekend" : "weekday",
+      dia_semana_preferido: (c.weekdayCounts.sab + c.weekdayCounts.dom) > (c.weekdayCounts.seg + c.weekdayCounts.ter + c.weekdayCounts.qua + c.weekdayCounts.qui + c.weekdayCounts.sex) ? "weekend" : "weekday",
+      dia_semana_individual: getMaxKey(c.weekdayCounts),
       turno_preferido: getMaxKey(c.hourCounts),
       sensibilidade_cupom: classifyCouponSensitivity(c.couponPurchases, c.totalPurchases),
       estagio_lifecycle: classifyLifecycle(c.totalPurchases),

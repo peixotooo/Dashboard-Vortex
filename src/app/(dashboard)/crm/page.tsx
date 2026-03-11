@@ -32,9 +32,9 @@ import { formatCurrency, formatNumber } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace-context";
 import type {
   RfmCustomer, RfmSegmentSummary, RfmSegment, CrmRfmResponse,
-  DayRange, DayOfWeekPref, HourPref, CouponSensitivity, LifecycleStage,
+  DayRange, DayOfWeekPref, HourPref, CouponSensitivity, LifecycleStage, Weekday,
 } from "@/lib/crm-rfm";
-import { SEGMENT_META, LIFECYCLE_META, COUPON_META } from "@/lib/crm-rfm";
+import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/crm-rfm";
 
 // --- Constants ---
 
@@ -56,7 +56,7 @@ const emptyDistributions: CrmRfmResponse["distributions"] = {
 };
 
 const emptyBehavioral: CrmRfmResponse["behavioralDistributions"] = {
-  dayOfMonth: [], dayOfWeek: [], hourOfDay: [], couponUsage: [], lifecycle: [],
+  dayOfMonth: [], dayOfWeek: [], weekday: [], hourOfDay: [], couponUsage: [], lifecycle: [],
 };
 
 // --- Badge components ---
@@ -159,8 +159,8 @@ function exportCustomersCsv(list: RfmCustomer[], filename: string) {
     "Nome", "Email", "Telefone", "Total Compras", "Total Gasto", "Ticket Medio",
     "Primeira Compra", "Ultima Compra", "Dias sem Comprar",
     "Score R", "Score F", "Score M", "Score RFM",
-    "Segmento", "Faixa Dia Mes", "Dia Semana", "Turno",
-    "Sensibilidade Cupom", "Lifecycle", "Cupons Usados",
+    "Segmento", "Faixa Dia Mes", "Dia Semana Pref", "Dia Semana",
+    "Turno", "Sensibilidade Cupom", "Lifecycle", "Cupons Usados",
   ];
 
   const rows = list.map((c) => [
@@ -180,6 +180,7 @@ function exportCustomersCsv(list: RfmCustomer[], filename: string) {
     SEGMENT_META[c.segment].label,
     `Dia ${c.preferredDayRange}`,
     DOW_LABELS[c.preferredDayOfWeek],
+    WEEKDAY_META[c.preferredWeekday].label,
     HOUR_LABELS[c.preferredHour],
     COUPON_META[c.couponSensitivity].label,
     LIFECYCLE_META[c.lifecycleStage].label,
@@ -250,6 +251,9 @@ export default function CrmPage() {
   const [segmentFilter, setSegmentFilter] = useState<RfmSegment | "all">("all");
   const [dayRangeFilter, setDayRangeFilter] = useState<DayRange | "all">("all");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleStage | "all">("all");
+  const [hourFilter, setHourFilter] = useState<HourPref | "all">("all");
+  const [couponFilter, setCouponFilter] = useState<CouponSensitivity | "all">("all");
+  const [weekdayFilter, setWeekdayFilter] = useState<Weekday | "all">("all");
   const [activeTab, setActiveTab] = useState("overview");
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
@@ -289,6 +293,9 @@ export default function CrmPage() {
     if (segmentFilter !== "all") list = list.filter((c) => c.segment === segmentFilter);
     if (dayRangeFilter !== "all") list = list.filter((c) => c.preferredDayRange === dayRangeFilter);
     if (lifecycleFilter !== "all") list = list.filter((c) => c.lifecycleStage === lifecycleFilter);
+    if (hourFilter !== "all") list = list.filter((c) => c.preferredHour === hourFilter);
+    if (couponFilter !== "all") list = list.filter((c) => c.couponSensitivity === couponFilter);
+    if (weekdayFilter !== "all") list = list.filter((c) => c.preferredWeekday === weekdayFilter);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -296,7 +303,7 @@ export default function CrmPage() {
       );
     }
     return list;
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, searchQuery]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, searchQuery]);
 
   // Pie chart data
   const segmentPieData = useMemo(() => {
@@ -317,6 +324,9 @@ export default function CrmPage() {
     setSegmentFilter(segment);
     setDayRangeFilter("all");
     setLifecycleFilter("all");
+    setHourFilter("all");
+    setCouponFilter("all");
+    setWeekdayFilter("all");
     setActiveTab("customers");
   };
 
@@ -530,17 +540,21 @@ export default function CrmPage() {
             </ChartCard>
           </div>
 
-          <ChartCard title="Dia da Semana vs Fim de Semana" loading={loading} isEmpty={behavioral.dayOfWeek.length === 0}
+          <ChartCard title="Dia da Semana Preferido" loading={loading} isEmpty={behavioral.weekday.length === 0}
             actions={<ExportSelect customers={customers} filenamePrefix="crm-dia-semana"
-              options={[{ value: "weekday", label: "Dia de semana" }, { value: "weekend", label: "Fim de semana" }]}
-              filterFn={(c, v) => c.preferredDayOfWeek === v} />}>
+              options={[{ value: "seg", label: "Segunda" }, { value: "ter", label: "Terca" }, { value: "qua", label: "Quarta" }, { value: "qui", label: "Quinta" }, { value: "sex", label: "Sexta" }, { value: "sab", label: "Sabado" }, { value: "dom", label: "Domingo" }]}
+              filterFn={(c, v) => c.preferredWeekday === v} />}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={behavioral.dayOfWeek}>
+              <BarChart data={behavioral.weekday}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
                 <XAxis dataKey="bucket" stroke="#8888a0" fontSize={12} tickLine={false} />
                 <YAxis stroke="#8888a0" fontSize={12} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="count" name="Clientes" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]}>
+                  {(behavioral.weekday || []).map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -577,6 +591,33 @@ export default function CrmPage() {
               <option value="regular">Regular (4-10)</option>
               <option value="vip">VIP (11+)</option>
             </select>
+            <select value={hourFilter} onChange={(e) => setHourFilter(e.target.value as HourPref | "all")}
+              className="h-10 rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <option value="all">Todos os turnos</option>
+              <option value="madrugada">Madrugada (0-6h)</option>
+              <option value="manha">Manha (6-12h)</option>
+              <option value="tarde">Tarde (12-18h)</option>
+              <option value="noite">Noite (18-24h)</option>
+            </select>
+            <select value={couponFilter} onChange={(e) => setCouponFilter(e.target.value as CouponSensitivity | "all")}
+              className="h-10 rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <option value="all">Todos cupons</option>
+              <option value="never">Nunca usa cupom</option>
+              <option value="occasional">Cupom ocasional</option>
+              <option value="frequent">Cupom frequente</option>
+              <option value="always">Sempre usa cupom</option>
+            </select>
+            <select value={weekdayFilter} onChange={(e) => setWeekdayFilter(e.target.value as Weekday | "all")}
+              className="h-10 rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <option value="all">Todos os dias</option>
+              <option value="seg">Segunda</option>
+              <option value="ter">Terca</option>
+              <option value="qua">Quarta</option>
+              <option value="qui">Quinta</option>
+              <option value="sex">Sexta</option>
+              <option value="sab">Sabado</option>
+              <option value="dom">Domingo</option>
+            </select>
             <Button
               variant="outline" size="sm"
               className="h-10 gap-1.5 ml-auto"
@@ -585,7 +626,10 @@ export default function CrmPage() {
                 if (segmentFilter !== "all") parts.push(SEGMENT_META[segmentFilter].label);
                 if (dayRangeFilter !== "all") parts.push(`dia-${dayRangeFilter}`);
                 if (lifecycleFilter !== "all") parts.push(LIFECYCLE_META[lifecycleFilter].label);
-                const suffix = parts.length > 0 ? parts.join("-").toLowerCase().replace(/\s+/g, "-") : "todos";
+                if (hourFilter !== "all") parts.push(HOUR_LABELS[hourFilter]);
+                if (couponFilter !== "all") parts.push(COUPON_META[couponFilter].label);
+                if (weekdayFilter !== "all") parts.push(WEEKDAY_META[weekdayFilter].label);
+                const suffix = parts.length > 0 ? parts.join("-").toLowerCase().replace(/[\s()]+/g, "").replace(/-+/g, "-") : "todos";
                 exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
               }}
             >
