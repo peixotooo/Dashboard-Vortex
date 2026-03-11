@@ -41,6 +41,7 @@ export const DEFAULT_AGENT_RULES = `## Regras de Interacao — Wizard Step-by-St
 7. **Delegacao ao paid-ads para acoes na Meta Ads:**
    Quando o usuario pedir para CRIAR, EDITAR, PAUSAR ou ATIVAR campanhas/adsets/anuncios no Meta Ads:
    - SEMPRE delegue ao paid-ads com async=false (sincrono)
+   - Informe explicitamente ao paid-ads que O PLANO JA FOI APROVADO e que ele DEVE EXECUTAR TODAS AS ETAPAS SEQUENCIALMENTE sem pedir confirmacao.
    - Passe TODAS as informacoes coletadas no campo "context" (budget, targeting, objetivo, image_hashes, copy, link)
    - NUNCA use async=true para acoes na Meta Ads — isso apenas cria uma tarefa no kanban sem executar
    - async=true e SOMENTE para tarefas de geracao de conteudo (copy, SEO, calendario, estrategia)
