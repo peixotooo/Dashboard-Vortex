@@ -18,6 +18,10 @@ import {
   Cell,
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,6 +39,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import type {
   RfmCustomer, RfmSegmentSummary, RfmSegment, CrmRfmResponse,
   DayRange, DayOfWeekPref, HourPref, CouponSensitivity, LifecycleStage, Weekday,
+  MonthlyCohortRow,
 } from "@/lib/crm-rfm";
 import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/crm-rfm";
 
@@ -242,13 +247,32 @@ export default function CrmPage() {
   const [hourFilter, setHourFilter] = useState<HourPref | "all">("all");
   const [couponFilter, setCouponFilter] = useState<CouponSensitivity | "all">("all");
   const [weekdayFilter, setWeekdayFilter] = useState<Weekday | "all">("all");
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("metrics");
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
   const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
   const [summary, setSummary] = useState(emptySummary);
   const [distributions, setDistributions] = useState(emptyDistributions);
   const [behavioral, setBehavioral] = useState(emptyBehavioral);
+
+  // Metrics tab
+  interface MetricsData {
+    arpu: number;
+    avgOrdersPerClient: number;
+    repurchaseRate: number;
+    newClients: number;
+    totalClients: number;
+    totalRevenue: number;
+  }
+  const [metricsData, setMetricsData] = useState<MetricsData | null>(null);
+  const [monthlyData, setMonthlyData] = useState<MonthlyCohortRow[]>([]);
+  const [adSpend, setAdSpend] = useState<Record<string, number> | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(true);
+  const [metricsPeriod, setMetricsPeriod] = useState(12);
+  const [financialSettings, setFinancialSettings] = useState<{
+    product_cost_pct: number; tax_pct: number; frete_pct: number;
+    desconto_pct: number; other_expenses_pct: number;
+  } | null>(null);
 
   // Export logs
   interface ExportLog {
@@ -310,10 +334,38 @@ export default function CrmPage() {
     [wsHeaders, fetchExportLogs]
   );
 
+  const fetchMetrics = useCallback(async () => {
+    setMetricsLoading(true);
+    try {
+      const [cohortRes, finRes] = await Promise.all([
+        fetch(`/api/crm/cohort?months=${metricsPeriod}`, { headers: wsHeaders() }),
+        fetch("/api/financial-settings", { headers: wsHeaders() }),
+      ]);
+      const cohort = await cohortRes.json();
+      const fin = await finRes.json();
+
+      setMetricsData(cohort.metrics || null);
+      setMonthlyData(cohort.monthlyData || []);
+      setAdSpend(cohort.adSpend || null);
+      setFinancialSettings({
+        product_cost_pct: fin.product_cost_pct ?? 25,
+        tax_pct: fin.tax_pct ?? 6,
+        frete_pct: fin.frete_pct ?? 6,
+        desconto_pct: fin.desconto_pct ?? 3,
+        other_expenses_pct: fin.other_expenses_pct ?? 5,
+      });
+    } catch {
+      // Keep empty
+    } finally {
+      setMetricsLoading(false);
+    }
+  }, [wsHeaders, metricsPeriod]);
+
   useEffect(() => {
     fetchData();
     fetchExportLogs();
-  }, [fetchData, fetchExportLogs]);
+    fetchMetrics();
+  }, [fetchData, fetchExportLogs, fetchMetrics]);
 
   // Filtered customers
   const filteredCustomers = useMemo(() => {
@@ -470,6 +522,37 @@ export default function CrmPage() {
     if (key) setWeekdayFilter((prev) => (prev === key ? "all" : key));
   }, []);
 
+  // Computed metrics for Metricas tab
+  const mcPct = useMemo(() => {
+    if (!financialSettings) return 55; // default
+    return 100 - financialSettings.product_cost_pct - financialSettings.tax_pct
+      - financialSettings.frete_pct - financialSettings.desconto_pct - financialSettings.other_expenses_pct;
+  }, [financialSettings]);
+
+  const totalAdSpend = useMemo(() => {
+    if (!adSpend) return null;
+    return Object.values(adSpend).reduce((s, v) => s + v, 0);
+  }, [adSpend]);
+
+  const cacMedio = useMemo(() => {
+    if (totalAdSpend === null || !metricsData || metricsData.newClients === 0) return null;
+    return totalAdSpend / metricsData.newClients;
+  }, [totalAdSpend, metricsData]);
+
+  const ltv = useMemo(() => {
+    if (!metricsData) return 0;
+    return metricsData.arpu * (mcPct / 100);
+  }, [metricsData, mcPct]);
+
+  // Monthly data with CAC computed
+  const monthlyWithCac = useMemo(() => {
+    return monthlyData.map((m) => {
+      const spend = adSpend?.[m.monthKey] ?? null;
+      const cac = spend !== null && m.newClients > 0 ? spend / m.newClients : null;
+      return { ...m, adSpend: spend, cac };
+    });
+  }, [monthlyData, adSpend]);
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -491,6 +574,7 @@ export default function CrmPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="metrics">Metricas</TabsTrigger>
           <TabsTrigger value="overview">Visao Geral</TabsTrigger>
           <TabsTrigger value="segments">Segmentos RFM</TabsTrigger>
           <TabsTrigger value="behavior">Comportamento</TabsTrigger>
@@ -523,6 +607,175 @@ export default function CrmPage() {
             </div>
           </div>
         )}
+
+        {/* ===== Tab 0: Metricas ===== */}
+        <TabsContent value="metrics" className="space-y-6">
+          {/* Period selector */}
+          <div className="flex justify-end">
+            <select
+              value={metricsPeriod}
+              onChange={(e) => setMetricsPeriod(Number(e.target.value))}
+              className="text-sm bg-card border border-border rounded-md px-3 py-1.5 text-foreground"
+            >
+              <option value={6}>Ultimos 6 meses</option>
+              <option value={12}>Ultimos 12 meses</option>
+              <option value={0}>Todo o periodo</option>
+            </select>
+          </div>
+
+          {/* KPI Row 1 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Card className="p-5 text-center">
+              <p className="text-2xl font-bold text-primary">{metricsLoading ? "..." : formatCurrency(metricsData?.arpu ?? 0)}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Receita Media por Cliente (ARPU)</p>
+            </Card>
+            <Card className="p-5 text-center">
+              <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : (metricsData?.avgOrdersPerClient ?? 0).toFixed(2)}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Media Pedidos por Cliente</p>
+            </Card>
+            <Card className="p-5 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatCurrency(ltv)}</p>
+                <span className="text-xs border rounded px-1.5 py-0.5 text-muted-foreground">{mcPct}%</span>
+              </div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">LTV = ARPU * MC%</p>
+            </Card>
+          </div>
+
+          {/* KPI Row 2 */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Card className="p-5 text-center">
+              <div className="flex items-center justify-center gap-3">
+                <div>
+                  <p className="text-xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : (metricsData!.arpu / cacMedio).toFixed(2)}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">ARPU / CAC</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : (ltv / cacMedio).toFixed(2)}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">LTV / CAC</p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-5 text-center">
+              <p className="text-2xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : formatCurrency(cacMedio)}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">CAC Medio</p>
+            </Card>
+            <Card className="p-5 text-center">
+              <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatNumber(metricsData?.newClients ?? 0)}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Clientes Novos</p>
+            </Card>
+            <Card className="p-5 text-center">
+              <p className="text-2xl font-bold text-primary">{metricsLoading ? "..." : `${(metricsData?.repurchaseRate ?? 0).toFixed(2)}%`}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Tx. Recompra</p>
+            </Card>
+          </div>
+
+          {/* Charts 2x2 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ChartCard title="Clientes Antigos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyWithCac}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="returningClients" fill="#6b7280" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Clientes Novos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyWithCac}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="newClients" fill="#4ade80" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Qtd Pedidos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monthlyWithCac}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Area type="monotone" dataKey="totalOrders" stroke="#ffffff" fill="#ffffff10" strokeWidth={2} dot={{ r: 3, fill: "#ffffff" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="CAC" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0 || !adSpend} height={250}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={monthlyWithCac}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "CAC"]} />
+                  <Line type="monotone" dataKey="cac" stroke="#4ade80" strokeWidth={2} dot={{ r: 4, fill: "#4ade80" }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+
+          {/* Monthly table */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Evolucao Mensal</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              {metricsLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : monthlyWithCac.length === 0 ? (
+                <p className="text-muted-foreground text-sm text-center py-8">Sem dados</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="py-3 px-2 text-left">Mes</th>
+                      <th className="py-3 px-2 text-right">Total Clientes</th>
+                      <th className="py-3 px-2 text-right">Tkt Total</th>
+                      <th className="py-3 px-2 text-right">Novos</th>
+                      <th className="py-3 px-2 text-right">Novos Club</th>
+                      <th className="py-3 px-2 text-right">Tkt Novos</th>
+                      <th className="py-3 px-2 text-right">Receita Novos</th>
+                      <th className="py-3 px-2 text-right">Antigos</th>
+                      <th className="py-3 px-2 text-right">Tkt Antigos</th>
+                      <th className="py-3 px-2 text-right">Receita Antigos</th>
+                      <th className="py-3 px-2 text-right">CAC</th>
+                      <th className="py-3 px-2 text-right">Recompra</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyWithCac.map((row) => (
+                      <tr key={row.monthKey} className="border-b border-border/50 hover:bg-muted/20">
+                        <td className="py-3 px-2 font-medium">{row.month}</td>
+                        <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.totalClients)}</td>
+                        <td className="py-3 px-2 text-right">{formatCurrency(row.avgTicket)}</td>
+                        <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.newClients)}</td>
+                        <td className="py-3 px-2 text-right text-primary font-semibold">{row.newClubPct.toFixed(2)}%</td>
+                        <td className="py-3 px-2 text-right">{formatCurrency(row.avgTicketNew)}</td>
+                        <td className="py-3 px-2 text-right">{formatCurrency(row.revenueNew)}</td>
+                        <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.returningClients)}</td>
+                        <td className="py-3 px-2 text-right">{formatCurrency(row.avgTicketReturning)}</td>
+                        <td className="py-3 px-2 text-right">{formatCurrency(row.revenueReturning)}</td>
+                        <td className="py-3 px-2 text-right font-semibold" style={{ color: row.cac !== null ? "#ef4444" : undefined }}>
+                          {row.cac !== null ? formatCurrency(row.cac) : "—"}
+                        </td>
+                        <td className="py-3 px-2 text-right">{row.repurchaseRate.toFixed(2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* ===== Tab 1: Overview ===== */}
         <TabsContent value="overview" className="space-y-6">

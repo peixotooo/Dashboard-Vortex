@@ -558,3 +558,171 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
     behavioralDistributions,
   };
 }
+
+// --- Monthly Cohort Analysis ---
+
+export interface MonthlyCohortRow {
+  month: string;           // "Mar 2025"
+  monthKey: string;        // "2025-03"
+  totalClients: number;
+  avgTicket: number;
+  newClients: number;
+  newClubPct: number;
+  avgTicketNew: number;
+  revenueNew: number;
+  returningClients: number;
+  avgTicketReturning: number;
+  revenueReturning: number;
+  totalOrders: number;
+  totalRevenue: number;
+  repurchaseRate: number;
+}
+
+export interface CrmMetricsSummary {
+  arpu: number;
+  avgOrdersPerClient: number;
+  repurchaseRate: number;
+  newClients: number;
+  totalClients: number;
+  totalRevenue: number;
+  monthlyData: MonthlyCohortRow[];
+}
+
+const MONTH_NAMES_PT = [
+  "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+  "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+];
+
+export function generateMonthlyCohort(rows: CrmVendaRow[]): CrmMetricsSummary {
+  // Sort rows by date
+  const dated = rows
+    .filter((r) => r.data_compra && r.email)
+    .map((r) => ({
+      email: (r.email || "").trim().toLowerCase(),
+      valor: r.valor ?? 0,
+      date: new Date(r.data_compra!),
+      monthKey: r.data_compra!.slice(0, 7), // "YYYY-MM"
+    }))
+    .filter((r) => !isNaN(r.date.getTime()) && r.email.includes("@"))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  if (dated.length === 0) {
+    return {
+      arpu: 0, avgOrdersPerClient: 0, repurchaseRate: 0,
+      newClients: 0, totalClients: 0, totalRevenue: 0, monthlyData: [],
+    };
+  }
+
+  // Group orders by month
+  const monthMap = new Map<string, typeof dated>();
+  for (const row of dated) {
+    const list = monthMap.get(row.monthKey) || [];
+    list.push(row);
+    monthMap.set(row.monthKey, list);
+  }
+
+  // Track seen emails globally (chronological)
+  const seenEmails = new Set<string>();
+  // Track total purchases per email (for "club" and repurchase)
+  const purchaseCountByEmail = new Map<string, number>();
+  for (const row of dated) {
+    purchaseCountByEmail.set(row.email, (purchaseCountByEmail.get(row.email) || 0) + 1);
+  }
+
+  const sortedMonths = [...monthMap.keys()].sort();
+  const monthlyData: MonthlyCohortRow[] = [];
+
+  // Track cumulative unique clients and repeat buyers per month
+  const cumulativeEmails = new Set<string>();
+  const cumulativePurchases = new Map<string, number>();
+
+  for (const monthKey of sortedMonths) {
+    const orders = monthMap.get(monthKey)!;
+    const year = parseInt(monthKey.slice(0, 4));
+    const monthIdx = parseInt(monthKey.slice(5, 7)) - 1;
+    const monthLabel = `${MONTH_NAMES_PT[monthIdx]} ${year}`;
+
+    // Unique clients this month
+    const monthEmails = new Set<string>();
+    const newEmails = new Set<string>();
+    const returningEmails = new Set<string>();
+
+    let revenueNew = 0;
+    let revenueReturning = 0;
+    let ordersNew = 0;
+    let ordersReturning = 0;
+
+    for (const order of orders) {
+      monthEmails.add(order.email);
+      // Track cumulative purchases
+      cumulativePurchases.set(order.email, (cumulativePurchases.get(order.email) || 0) + 1);
+
+      if (seenEmails.has(order.email)) {
+        returningEmails.add(order.email);
+        revenueReturning += order.valor;
+        ordersReturning++;
+      } else {
+        newEmails.add(order.email);
+        revenueNew += order.valor;
+        ordersNew++;
+      }
+    }
+
+    // After processing, mark all as seen
+    for (const email of monthEmails) {
+      seenEmails.add(email);
+      cumulativeEmails.add(email);
+    }
+
+    const totalClients = monthEmails.size;
+    const totalRevenue = revenueNew + revenueReturning;
+    const totalOrders = orders.length;
+
+    // "Club" = new clients this month who will go on to buy again (2+ total purchases)
+    let newInClub = 0;
+    for (const email of newEmails) {
+      if ((purchaseCountByEmail.get(email) || 0) >= 2) newInClub++;
+    }
+
+    // Repurchase rate: of all cumulative unique clients, how many have 2+ cumulative purchases
+    let repeatBuyers = 0;
+    for (const count of cumulativePurchases.values()) {
+      if (count >= 2) repeatBuyers++;
+    }
+    const repurchaseRate = cumulativeEmails.size > 0
+      ? (repeatBuyers / cumulativeEmails.size) * 100
+      : 0;
+
+    monthlyData.push({
+      month: monthLabel,
+      monthKey,
+      totalClients,
+      avgTicket: totalOrders > 0 ? parseFloat((totalRevenue / totalOrders).toFixed(2)) : 0,
+      newClients: newEmails.size,
+      newClubPct: newEmails.size > 0 ? parseFloat(((newInClub / newEmails.size) * 100).toFixed(2)) : 0,
+      avgTicketNew: ordersNew > 0 ? parseFloat((revenueNew / ordersNew).toFixed(2)) : 0,
+      revenueNew: parseFloat(revenueNew.toFixed(2)),
+      returningClients: returningEmails.size,
+      avgTicketReturning: ordersReturning > 0 ? parseFloat((revenueReturning / ordersReturning).toFixed(2)) : 0,
+      revenueReturning: parseFloat(revenueReturning.toFixed(2)),
+      totalOrders,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+      repurchaseRate: parseFloat(repurchaseRate.toFixed(2)),
+    });
+  }
+
+  // Global summary
+  const allEmails = new Set(dated.map((r) => r.email));
+  const totalRevenue = dated.reduce((s, r) => s + r.valor, 0);
+  const repeatClients = [...allEmails].filter((e) => (purchaseCountByEmail.get(e) || 0) >= 2).length;
+
+  return {
+    arpu: allEmails.size > 0 ? parseFloat((totalRevenue / allEmails.size).toFixed(2)) : 0,
+    avgOrdersPerClient: allEmails.size > 0 ? parseFloat((dated.length / allEmails.size).toFixed(2)) : 0,
+    repurchaseRate: allEmails.size > 0 ? parseFloat(((repeatClients / allEmails.size) * 100).toFixed(2)) : 0,
+    newClients: allEmails.size - repeatClients,
+    totalClients: allEmails.size,
+    totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+    monthlyData,
+  };
+}
