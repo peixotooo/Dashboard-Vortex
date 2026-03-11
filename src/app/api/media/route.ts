@@ -88,7 +88,11 @@ export async function POST(request: NextRequest) {
         if (isVideo) {
             videoId = metaResult.id as string || null;
         } else {
-            imageHash = (metaResult.images as Array<{ hash: string }> | undefined)?.[0]?.hash || null;
+            const imagesRecords = metaResult.images as Record<string, { hash: string }> | undefined;
+            if (imagesRecords && Object.keys(imagesRecords).length > 0) {
+                const firstKey = Object.keys(imagesRecords)[0];
+                imageHash = imagesRecords[firstKey].hash;
+            }
         }
 
         if (workspaceId && imageUrl) {

@@ -18,6 +18,7 @@ export interface MediaItem {
   filename: string;
   image_url: string;
   image_hash: string | null;
+  video_id?: string | null;
   created_at: string;
 }
 
@@ -111,14 +112,17 @@ export function GalleryPicker({
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-1">
               {media.map((item) => {
+                const isValid = item.image_hash || item.video_id;
                 const isSelected = selected.has(item.id);
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => toggleSelect(item.id)}
+                    disabled={!isValid}
+                    onClick={() => isValid && toggleSelect(item.id)}
                     className={cn(
-                      "relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer group",
+                      "relative aspect-square rounded-lg overflow-hidden border-2 transition-all group",
+                      !isValid ? "opacity-50 cursor-not-allowed grayscale" : "cursor-pointer",
                       isSelected
                         ? "border-primary ring-2 ring-primary/30"
                         : "border-border hover:border-primary/50"
@@ -134,6 +138,11 @@ export function GalleryPicker({
                         <div className="bg-primary rounded-full p-1">
                           <Check className="h-4 w-4 text-primary-foreground" />
                         </div>
+                      </div>
+                    )}
+                    {!isValid && (
+                      <div className="absolute inset-0 bg-destructive/20 flex flex-col items-center justify-center p-2 text-center text-xs font-semibold text-destructive">
+                        Upload Invalido
                       </div>
                     )}
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
