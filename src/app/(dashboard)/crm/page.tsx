@@ -11,7 +11,14 @@ import {
   Download,
   FileSpreadsheet,
   X,
+  CalendarIcon,
+  SlidersHorizontal,
 } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import type { DateRange } from "react-day-picker";
 import {
   PieChart,
   Pie,
@@ -236,6 +243,135 @@ function exportCustomersCsv(list: RfmCustomer[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// --- Advanced filter popovers ---
+
+function DateRangeFilterPopover({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: { from: string; to: string } | null;
+  onChange: (v: { from: string; to: string } | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<DateRange | undefined>(
+    value ? { from: new Date(value.from + "T00:00:00"), to: new Date(value.to + "T00:00:00") } : undefined
+  );
+  const isActive = value !== null;
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
+  const displayLabel = isActive
+    ? `${format(new Date(value!.from + "T00:00:00"), "dd MMM", { locale: ptBR })} - ${format(new Date(value!.to + "T00:00:00"), "dd MMM yy", { locale: ptBR })}`
+    : label;
+
+  const pendingLabel = pending?.from
+    ? pending.to
+      ? `${format(pending.from, "dd MMM yyyy", { locale: ptBR })} - ${format(pending.to, "dd MMM yyyy", { locale: ptBR })}`
+      : `${format(pending.from, "dd MMM yyyy", { locale: ptBR })} - ...`
+    : null;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o && value) setPending({ from: new Date(value.from + "T00:00:00"), to: new Date(value.to + "T00:00:00") }); }}>
+      <PopoverTrigger asChild>
+        <button className={`flex items-center gap-1.5 h-10 rounded-md border px-3 text-sm text-foreground whitespace-nowrap hover:bg-accent/50 transition-colors ${isActive ? "border-primary bg-primary/5" : "border-border bg-card"}`}>
+          <CalendarIcon className="h-3.5 w-3.5 opacity-60 shrink-0" />
+          {displayLabel}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between px-4 pt-3 pb-1">
+            <span className="text-xs font-medium text-foreground">{label}</span>
+            {pendingLabel && <span className="text-xs text-muted-foreground">{pendingLabel}</span>}
+          </div>
+          <Calendar
+            mode="range"
+            selected={pending}
+            onSelect={setPending}
+            numberOfMonths={2}
+            disabled={{ after: new Date() }}
+            defaultMonth={pending?.from || new Date()}
+          />
+          <div className="flex justify-between px-4 pb-3 pt-1 gap-2">
+            <button onClick={() => { onChange(null); setPending(undefined); setOpen(false); }}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+              Limpar
+            </button>
+            <button
+              onClick={() => { if (pending?.from && pending?.to) { onChange({ from: fmt(pending.from), to: fmt(pending.to) }); setOpen(false); } }}
+              disabled={!(pending?.from && pending?.to)}
+              className={`px-4 py-1.5 text-sm rounded-md font-medium transition-colors ${pending?.from && pending?.to ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground cursor-not-allowed"}`}
+            >
+              Aplicar
+            </button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function NumericRangeFilterPopover({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: { min: number | null; max: number | null };
+  onChange: (v: { min: number | null; max: number | null }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [localMin, setLocalMin] = useState(value.min !== null ? String(value.min) : "");
+  const [localMax, setLocalMax] = useState(value.max !== null ? String(value.max) : "");
+  const isActive = value.min !== null || value.max !== null;
+
+  const handleOpen = (o: boolean) => {
+    setOpen(o);
+    if (o) {
+      setLocalMin(value.min !== null ? String(value.min) : "");
+      setLocalMax(value.max !== null ? String(value.max) : "");
+    }
+  };
+
+  const displayLabel = isActive
+    ? `${label}: ${value.min !== null ? `R$${value.min}` : ""}${value.min !== null && value.max !== null ? " - " : ""}${value.max !== null ? `R$${value.max}` : value.min !== null ? "+" : ""}`
+    : label;
+
+  return (
+    <Popover open={open} onOpenChange={handleOpen}>
+      <PopoverTrigger asChild>
+        <button className={`flex items-center gap-1.5 h-10 rounded-md border px-3 text-sm text-foreground whitespace-nowrap hover:bg-accent/50 transition-colors ${isActive ? "border-primary bg-primary/5" : "border-border bg-card"}`}>
+          <SlidersHorizontal className="h-3.5 w-3.5 opacity-60 shrink-0" />
+          {displayLabel}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-4" align="start">
+        <p className="text-sm font-medium mb-3">{label}</p>
+        <div className="flex gap-2 items-center">
+          <input type="number" placeholder="Min" value={localMin} onChange={(e) => setLocalMin(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+          <span className="text-muted-foreground text-xs shrink-0">-</span>
+          <input type="number" placeholder="Max" value={localMax} onChange={(e) => setLocalMax(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+        </div>
+        <div className="flex justify-between mt-3">
+          <button onClick={() => { onChange({ min: null, max: null }); setLocalMin(""); setLocalMax(""); setOpen(false); }}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            Limpar
+          </button>
+          <button
+            onClick={() => { onChange({ min: localMin !== "" ? Number(localMin) : null, max: localMax !== "" ? Number(localMax) : null }); setOpen(false); }}
+            className="px-4 py-1.5 text-sm rounded-md font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Aplicar
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // --- Page ---
 
 export default function CrmPage() {
@@ -255,6 +391,10 @@ export default function CrmPage() {
   const [hourFilter, setHourFilter] = useState<HourPref | "all">("all");
   const [couponFilter, setCouponFilter] = useState<CouponSensitivity | "all">("all");
   const [weekdayFilter, setWeekdayFilter] = useState<Weekday | "all">("all");
+  const [purchasedDateRange, setPurchasedDateRange] = useState<{ from: string; to: string } | null>(null);
+  const [inactiveDateRange, setInactiveDateRange] = useState<{ from: string; to: string } | null>(null);
+  const [avgTicketRange, setAvgTicketRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
+  const [totalSpentRange, setTotalSpentRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [activeTab, setActiveTab] = useState("metrics");
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
@@ -385,6 +525,12 @@ export default function CrmPage() {
     if (hourFilter !== "all") list = list.filter((c) => c.preferredHour === hourFilter);
     if (couponFilter !== "all") list = list.filter((c) => c.couponSensitivity === couponFilter);
     if (weekdayFilter !== "all") list = list.filter((c) => c.preferredWeekday === weekdayFilter);
+    if (purchasedDateRange) list = list.filter((c) => c.lastPurchaseDate >= purchasedDateRange.from && c.firstPurchaseDate <= purchasedDateRange.to);
+    if (inactiveDateRange) list = list.filter((c) => c.lastPurchaseDate < inactiveDateRange.from);
+    if (avgTicketRange.min !== null) list = list.filter((c) => c.avgTicket >= avgTicketRange.min!);
+    if (avgTicketRange.max !== null) list = list.filter((c) => c.avgTicket <= avgTicketRange.max!);
+    if (totalSpentRange.min !== null) list = list.filter((c) => c.totalSpent >= totalSpentRange.min!);
+    if (totalSpentRange.max !== null) list = list.filter((c) => c.totalSpent <= totalSpentRange.max!);
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       list = list.filter(
@@ -392,7 +538,7 @@ export default function CrmPage() {
       );
     }
     return list;
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, debouncedSearch]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch]);
 
   // Active filters for badge bar
   interface ActiveFilter {
@@ -427,8 +573,30 @@ export default function CrmPage() {
       const meta = WEEKDAY_META[weekdayFilter];
       filters.push({ type: "weekday", value: weekdayFilter, label: meta.label, color: meta.color, onRemove: () => setWeekdayFilter("all") });
     }
+    if (purchasedDateRange) {
+      const f = format(new Date(purchasedDateRange.from + "T00:00:00"), "dd MMM yy", { locale: ptBR });
+      const t = format(new Date(purchasedDateRange.to + "T00:00:00"), "dd MMM yy", { locale: ptBR });
+      filters.push({ type: "purchasedDate", value: `${purchasedDateRange.from}_${purchasedDateRange.to}`, label: `Comprou: ${f} - ${t}`, color: "#10b981", onRemove: () => setPurchasedDateRange(null) });
+    }
+    if (inactiveDateRange) {
+      const f = format(new Date(inactiveDateRange.from + "T00:00:00"), "dd MMM yy", { locale: ptBR });
+      const t = format(new Date(inactiveDateRange.to + "T00:00:00"), "dd MMM yy", { locale: ptBR });
+      filters.push({ type: "inactiveDate", value: `${inactiveDateRange.from}_${inactiveDateRange.to}`, label: `Inativo: ${f} - ${t}`, color: "#ef4444", onRemove: () => setInactiveDateRange(null) });
+    }
+    if (avgTicketRange.min !== null || avgTicketRange.max !== null) {
+      const parts: string[] = [];
+      if (avgTicketRange.min !== null) parts.push(`min R$${avgTicketRange.min}`);
+      if (avgTicketRange.max !== null) parts.push(`max R$${avgTicketRange.max}`);
+      filters.push({ type: "avgTicket", value: `${avgTicketRange.min ?? ""}-${avgTicketRange.max ?? ""}`, label: `Ticket: ${parts.join(" - ")}`, color: "#8b5cf6", onRemove: () => setAvgTicketRange({ min: null, max: null }) });
+    }
+    if (totalSpentRange.min !== null || totalSpentRange.max !== null) {
+      const parts: string[] = [];
+      if (totalSpentRange.min !== null) parts.push(`min R$${totalSpentRange.min}`);
+      if (totalSpentRange.max !== null) parts.push(`max R$${totalSpentRange.max}`);
+      filters.push({ type: "totalSpent", value: `${totalSpentRange.min ?? ""}-${totalSpentRange.max ?? ""}`, label: `Total: ${parts.join(" - ")}`, color: "#06b6d4", onRemove: () => setTotalSpentRange({ min: null, max: null }) });
+    }
     return filters;
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter]);
+  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
 
   const clearAllFilters = useCallback(() => {
     setSegmentFilter("all");
@@ -437,6 +605,10 @@ export default function CrmPage() {
     setHourFilter("all");
     setCouponFilter("all");
     setWeekdayFilter("all");
+    setPurchasedDateRange(null);
+    setInactiveDateRange(null);
+    setAvgTicketRange({ min: null, max: null });
+    setTotalSpentRange({ min: null, max: null });
   }, []);
 
   const handleGlobalExport = useCallback(() => {
@@ -448,13 +620,17 @@ export default function CrmPage() {
     if (hourFilter !== "all") { parts.push(HOUR_LABELS[hourFilter]); filters.turno = hourFilter; }
     if (couponFilter !== "all") { parts.push(COUPON_META[couponFilter].label); filters.cupom = couponFilter; }
     if (weekdayFilter !== "all") { parts.push(WEEKDAY_META[weekdayFilter].label); filters.dia_semana = weekdayFilter; }
+    if (purchasedDateRange) { parts.push(`comprou-${purchasedDateRange.from}-${purchasedDateRange.to}`); filters.comprou_periodo = `${purchasedDateRange.from}_${purchasedDateRange.to}`; }
+    if (inactiveDateRange) { parts.push(`inativo-${inactiveDateRange.from}-${inactiveDateRange.to}`); filters.inativo_periodo = `${inactiveDateRange.from}_${inactiveDateRange.to}`; }
+    if (avgTicketRange.min !== null || avgTicketRange.max !== null) { parts.push(`ticket-${avgTicketRange.min ?? 0}-${avgTicketRange.max ?? "max"}`); filters.ticket_medio = `${avgTicketRange.min ?? ""}-${avgTicketRange.max ?? ""}`; }
+    if (totalSpentRange.min !== null || totalSpentRange.max !== null) { parts.push(`total-${totalSpentRange.min ?? 0}-${totalSpentRange.max ?? "max"}`); filters.compra_acumulada = `${totalSpentRange.min ?? ""}-${totalSpentRange.max ?? ""}`; }
     if (debouncedSearch) filters.busca = debouncedSearch;
     const suffix = parts.length > 0
       ? parts.join("-").toLowerCase().replace(/[\s()]+/g, "").replace(/-+/g, "-")
       : "todos";
     exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
     logExport("hypersegmentation", filters, filteredCustomers.length);
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, debouncedSearch, filteredCustomers, logExport]);
+  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, filteredCustomers, logExport]);
 
   // KPI values — recalculate from filtered list when filters are active
   const hasActiveFilters = activeFilters.length > 0 || debouncedSearch.length > 0;
@@ -1079,6 +1255,28 @@ export default function CrmPage() {
               <option value="sab">Sabado</option>
               <option value="dom">Domingo</option>
             </select>
+
+            {/* --- Advanced filters: date range + numeric range --- */}
+            <DateRangeFilterPopover
+              label="Comprou em periodo"
+              value={purchasedDateRange}
+              onChange={setPurchasedDateRange}
+            />
+            <DateRangeFilterPopover
+              label="Inativo desde"
+              value={inactiveDateRange}
+              onChange={setInactiveDateRange}
+            />
+            <NumericRangeFilterPopover
+              label="Ticket medio"
+              value={avgTicketRange}
+              onChange={setAvgTicketRange}
+            />
+            <NumericRangeFilterPopover
+              label="Compra acumulada"
+              value={totalSpentRange}
+              onChange={setTotalSpentRange}
+            />
           </div>
 
           <PerformanceTable
