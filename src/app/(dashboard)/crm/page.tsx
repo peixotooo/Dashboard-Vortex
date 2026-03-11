@@ -395,6 +395,23 @@ export default function CrmPage() {
     logExport("hypersegmentation", filters, filteredCustomers.length);
   }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, searchQuery, filteredCustomers, logExport]);
 
+  // KPI values — recalculate from filtered list when filters are active
+  const hasActiveFilters = activeFilters.length > 0 || searchQuery.length > 0;
+  const displaySummary = useMemo(() => {
+    if (!hasActiveFilters) return summary;
+    const list = filteredCustomers;
+    const totalRevenue = list.reduce((s, c) => s + c.totalSpent, 0);
+    const activeCustomers = list.filter((c) => c.daysSinceLastPurchase <= 90).length;
+    return {
+      totalCustomers: list.length,
+      totalRevenue,
+      avgTicket: list.length > 0 ? totalRevenue / list.reduce((s, c) => s + c.totalPurchases, 0) : 0,
+      activeCustomers,
+      avgPurchasesPerCustomer: summary.avgPurchasesPerCustomer,
+      medianRecency: summary.medianRecency,
+    };
+  }, [hasActiveFilters, filteredCustomers, summary]);
+
   // Pie chart data
   const segmentPieData = useMemo(() => {
     return segments.filter((s) => s.customerCount > 0).map((s) => ({
@@ -425,7 +442,7 @@ export default function CrmPage() {
 
   const handleDayOfMonthClick = useCallback((data: ChartClickData) => {
     const bucket = data?.bucket ?? data?.payload?.bucket;
-    const key = bucket ? DAYRANGE_LABEL_TO_KEY[`Dia ${bucket}`] : undefined;
+    const key = bucket ? DAYRANGE_LABEL_TO_KEY[bucket] : undefined;
     if (key) setDayRangeFilter((prev) => (prev === key ? "all" : key));
   }, []);
 
@@ -465,10 +482,10 @@ export default function CrmPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard title="Total Clientes" value={formatNumber(summary.totalCustomers)} icon={Users} iconColor="text-purple-400" loading={loading} />
-        <KpiCard title="Ticket Medio" value={formatCurrency(summary.avgTicket)} icon={DollarSign} iconColor="text-success" loading={loading} />
-        <KpiCard title="Receita Total" value={formatCurrency(summary.totalRevenue)} icon={CircleDollarSign} iconColor="text-blue-400" loading={loading} />
-        <KpiCard title="Clientes Ativos" value={formatNumber(summary.activeCustomers)} icon={UserCheck} iconColor="text-orange-400" loading={loading} badge="90 dias" badgeColor="#f97316" />
+        <KpiCard title="Total Clientes" value={formatNumber(displaySummary.totalCustomers)} icon={Users} iconColor="text-purple-400" loading={loading} />
+        <KpiCard title="Ticket Medio" value={formatCurrency(displaySummary.avgTicket)} icon={DollarSign} iconColor="text-success" loading={loading} />
+        <KpiCard title="Receita Total" value={formatCurrency(displaySummary.totalRevenue)} icon={CircleDollarSign} iconColor="text-blue-400" loading={loading} />
+        <KpiCard title="Clientes Ativos" value={formatNumber(displaySummary.activeCustomers)} icon={UserCheck} iconColor="text-orange-400" loading={loading} badge="90 dias" badgeColor="#f97316" />
       </div>
 
       {/* Tabs */}
@@ -674,7 +691,7 @@ export default function CrmPage() {
                   <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]} onClick={handleDayOfMonthClick}>
                     {behavioral.dayOfMonth.map((entry, i) => (
-                      <Cell key={i} fill="#3b82f6" opacity={dayRangeFilter === "all" || DAYRANGE_LABEL_TO_KEY[`Dia ${entry.bucket}`] === dayRangeFilter ? 1 : 0.3} className="cursor-pointer" />
+                      <Cell key={i} fill="#3b82f6" opacity={dayRangeFilter === "all" || DAYRANGE_LABEL_TO_KEY[entry.bucket] === dayRangeFilter ? 1 : 0.3} className="cursor-pointer" />
                     ))}
                   </Bar>
                 </BarChart>
