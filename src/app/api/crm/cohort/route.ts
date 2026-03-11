@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     // Try to get ad spend from Meta (optional)
     let adSpend: Record<string, number> | null = null;
     try {
-      await getAuthenticatedContext(request);
+      await getAuthenticatedContext(request).catch(() => {});
 
       // Calculate date range from cohort data
       const monthKeys = cohort.monthlyData.map((m) => m.monthKey);
@@ -100,8 +100,8 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-    } catch {
-      // Meta not configured — adSpend stays null
+    } catch (metaErr) {
+      console.error("[CRM Cohort] Meta ad spend fetch failed:", metaErr instanceof Error ? metaErr.message : metaErr);
     }
 
     return NextResponse.json({
