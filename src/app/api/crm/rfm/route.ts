@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createAdminClient } from "@/lib/supabase-admin";
 import { generateRfmReport } from "@/lib/crm-rfm";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 
@@ -37,7 +36,9 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Authenticate user
+    // Authenticated client — RLS on crm_vendas enforces workspace isolation
+    // Policy: workspace_id IN (SELECT get_user_workspace_ids())
+    // User can ONLY read rows from workspaces they belong to
     const supabase = createSupabase(request);
     const {
       data: { user },
@@ -51,18 +52,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
     }
 
-    // Use admin client for the heavy data query (bypasses RLS for performance)
-    // but filter explicitly by workspace_id for isolation
-    const admin = createAdminClient();
-
     // Paginated fetch — Supabase default limit is 1000 rows per request
+    // RLS guarantees user can only access their own workspaces even if
+    // workspace_id header is tampered with
     let allRows: CrmVendaRow[] = [];
     const PAGE_SIZE = 1000;
     let from = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const { data, error } = await admin
+      const { data, error } = await supabase
         .from("crm_vendas")
         .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
         .eq("workspace_id", workspaceId)
