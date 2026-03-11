@@ -59,6 +59,16 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .single();
 
+    // Auto-generate webhook token if connection exists but token is missing
+    if (vndaConnection && !vndaConnection.webhook_token) {
+      const newToken = generateWebhookToken();
+      await supabase
+        .from("vnda_connections")
+        .update({ webhook_token: newToken })
+        .eq("id", vndaConnection.id);
+      vndaConnection.webhook_token = newToken;
+    }
+
     return NextResponse.json({
       accounts: accounts || [],
       connection: connection || null,
