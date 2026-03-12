@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Send, Loader2, Filter, Bot, Sparkles } from "lucide-react";
+import { Send, Loader2, Filter, Bot, Sparkles, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -51,8 +51,18 @@ interface Suggestion {
 interface SuggestionsResponse {
   suggestions: Suggestion[];
   analysis?: string;
+  excludedCount?: number;
+  cooldownDays?: number;
   error?: string;
 }
+
+const COOLDOWN_OPTIONS = [
+  { value: 0, label: "Desativado" },
+  { value: 3, label: "3 dias" },
+  { value: 7, label: "7 dias" },
+  { value: 14, label: "14 dias" },
+  { value: 30, label: "30 dias" },
+];
 
 interface CrmAgentPanelProps {
   open: boolean;
@@ -74,6 +84,8 @@ export function CrmAgentPanel({
   const [error, setError] = useState("");
   const [question, setQuestion] = useState("");
   const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
+  const [cooldownDays, setCooldownDays] = useState(7);
+  const [excludedCount, setExcludedCount] = useState(0);
   const hasFetched = useRef(false);
 
   // Auto-fetch on first open
@@ -96,7 +108,10 @@ export function CrmAgentPanel({
           "Content-Type": "application/json",
           "x-workspace-id": workspace?.id || "",
         },
-        body: JSON.stringify(q ? { question: q } : {}),
+        body: JSON.stringify({
+          ...(q ? { question: q } : {}),
+          cooldownDays,
+        }),
       });
 
       if (!res.ok) {
@@ -107,6 +122,7 @@ export function CrmAgentPanel({
       const data: SuggestionsResponse = await res.json();
       setSuggestions(data.suggestions || []);
       setAnalysis(data.analysis || "");
+      setExcludedCount(data.excludedCount || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao buscar sugestoes");
     } finally {
@@ -159,7 +175,7 @@ export function CrmAgentPanel({
             <div className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white shrink-0">
               <Bot className="h-5 w-5" />
             </div>
-            <div>
+            <div className="flex-1">
               <SheetTitle className="text-base">
                 Ana — CRM Intelligence
               </SheetTitle>
@@ -167,6 +183,27 @@ export function CrmAgentPanel({
                 Hipersegmentacoes com alta chance de conversao
               </SheetDescription>
             </div>
+          </div>
+          {/* Cooldown selector */}
+          <div className="flex items-center gap-2 mt-3">
+            <ShieldOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground shrink-0">Nao perturbe:</span>
+            <select
+              value={cooldownDays}
+              onChange={(e) => setCooldownDays(Number(e.target.value))}
+              className="text-xs bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              {COOLDOWN_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {excludedCount > 0 && !loading && (
+              <span className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                {excludedCount} excluidos
+              </span>
+            )}
           </div>
         </SheetHeader>
 

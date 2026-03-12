@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const question: string | undefined = body.question;
+    const cooldownDays: number = typeof body.cooldownDays === "number" ? body.cooldownDays : 7;
 
     // Fetch CRM data and export logs in parallel
     const [crmRows, exportLogs] = await Promise.all([
@@ -53,7 +54,17 @@ export async function POST(request: NextRequest) {
     }
 
     const report = generateRfmReport(crmRows);
-    const customers = report.customers;
+    let customers = report.customers;
+
+    // "Nao Perturbe" — exclude customers from recent exports within cooldown period
+    let excludedCount = 0;
+    if (cooldownDays > 0 && exportLogs.length > 0) {
+      const doNotDisturb = buildDoNotDisturbSet(report.customers, exportLogs, cooldownDays);
+      excludedCount = doNotDisturb.size;
+      if (excludedCount > 0) {
+        customers = customers.filter((c) => !doNotDisturb.has(c.email));
+      }
+    }
 
     // Pre-compute real cross-filter counts so the LLM uses exact numbers
     const crossFilterCounts = computeCrossFilterCounts(customers);
@@ -111,7 +122,14 @@ ${crmContext.segments.map((s) => `- ${s.name} (${s.label}): ${s.count} clientes 
 IMPORTANTE: Use APENAS combinacoes desta lista. O campo "count" e o numero EXATO de clientes.
 ${crossFilterCounts}
 
-### Exportacoes Recentes (evitar fadiga de contato)
+### Filtro "Nao Perturbe"
+${excludedCount > 0
+  ? `- Periodo: ultimos ${cooldownDays} dias
+- ${excludedCount} clientes foram EXCLUIDOS por ja terem sido exportados neste periodo
+- As contagens de cruzamento acima JA refletem essa exclusao`
+  : `- Nenhum cliente excluido (${cooldownDays > 0 ? "sem exportacoes recentes" : "filtro desativado"})`}
+
+### Exportacoes Recentes
 ${crmContext.recentExports.length > 0
   ? crmContext.recentExports.map((e) => `- ${e.date}: ${e.type} (${e.count} registros) filtros: ${JSON.stringify(e.filters)}`).join("\n")
   : "Nenhuma exportacao recente."}
@@ -199,7 +217,7 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
       });
     }
 
-    return NextResponse.json(parsed);
+    return NextResponse.json({ ...parsed, excludedCount, cooldownDays });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Suggestions] Error:", message);
@@ -287,6 +305,54 @@ function computeCrossFilterCounts(customers: RfmCustomer[]): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Replay export log filters on current customer list to build a set of
+ * emails that were exported within the cooldown period.
+ */
+function buildDoNotDisturbSet(
+  customers: RfmCustomer[],
+  exportLogs: ExportLog[],
+  cooldownDays: number
+): Set<string> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - cooldownDays);
+
+  // Map Portuguese filter keys (as saved by handleGlobalExport) → RfmCustomer property
+  const keyMap: Record<string, keyof RfmCustomer> = {
+    segmento: "segment",
+    faixa_dia: "preferredDayRange",
+    lifecycle: "lifecycleStage",
+    turno: "preferredHour",
+    cupom: "couponSensitivity",
+    dia_semana: "preferredWeekday",
+  };
+
+  const emails = new Set<string>();
+
+  for (const log of exportLogs) {
+    if (!log.filters || Object.keys(log.filters).length === 0) continue;
+    if (new Date(log.created_at) < cutoff) continue;
+
+    // Find customers that match ALL filters from this export
+    for (const customer of customers) {
+      let matches = true;
+      for (const [filterKey, filterValue] of Object.entries(log.filters)) {
+        const prop = keyMap[filterKey];
+        if (!prop) continue; // skip non-RFM filters (busca, date ranges, etc.)
+        if (customer[prop] !== filterValue) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        emails.add(customer.email);
+      }
+    }
+  }
+
+  return emails;
 }
 
 interface ExportLog {
