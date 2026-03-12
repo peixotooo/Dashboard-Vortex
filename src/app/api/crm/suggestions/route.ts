@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { callLLM, resolveModel, DEFAULT_PROVIDER_CONFIG } from "@/lib/agent/llm-provider";
 import { generateRfmReport } from "@/lib/crm-rfm";
-import type { CrmVendaRow } from "@/lib/crm-rfm";
+import type { CrmVendaRow, RfmCustomer } from "@/lib/crm-rfm";
 
 export const maxDuration = 60;
 
@@ -53,6 +53,10 @@ export async function POST(request: NextRequest) {
     }
 
     const report = generateRfmReport(crmRows);
+    const customers = report.customers;
+
+    // Pre-compute real cross-filter counts so the LLM uses exact numbers
+    const crossFilterCounts = computeCrossFilterCounts(customers);
 
     // Build concise data for the LLM
     const crmContext = {
@@ -103,6 +107,10 @@ ${crmContext.segments.map((s) => `- ${s.name} (${s.label}): ${s.count} clientes 
 - Cupom: ${JSON.stringify(crmContext.behavioral.couponUsage)}
 - Lifecycle: ${JSON.stringify(crmContext.behavioral.lifecycle)}
 
+### Cruzamentos de Filtros com Contagem REAL
+IMPORTANTE: Use APENAS combinacoes desta lista. O campo "count" e o numero EXATO de clientes.
+${crossFilterCounts}
+
 ### Exportacoes Recentes (evitar fadiga de contato)
 ${crmContext.recentExports.length > 0
   ? crmContext.recentExports.map((e) => `- ${e.date}: ${e.type} (${e.count} registros) filtros: ${JSON.stringify(e.filters)}`).join("\n")
@@ -119,12 +127,14 @@ Os filtros que voce pode sugerir sao:
 
 ## Regras
 1. Retorne EXATAMENTE 3 sugestoes de hipersegmentacao criativas
-2. Cada sugestao DEVE combinar pelo menos 2 filtros diferentes (cross-filter) para hiperpersonalizacao
-3. Estime o numero de clientes com base nos dados (cruzamento dos filtros)
-4. Explique o MOTIVO da sugestao — por que essa combinacao converte
-5. Evite segmentar os mesmos clientes das exportacoes recentes (fadiga)
-6. Considere a data atual para timing (dia da semana, periodo do mes)
-7. Priorize conversao rapida: segmentos com clientes que TEM potencial mas precisam de um empurrao
+2. Cada sugestao DEVE usar combinacoes da lista "Cruzamentos de Filtros" acima — NUNCA invente contagens
+3. O campo "estimatedCount" DEVE ser o valor exato "count" da lista de cruzamentos
+4. Filtros que voce nao quer aplicar devem ser "all" (nao omita nenhum filtro do objeto)
+5. Explique o MOTIVO da sugestao — por que essa combinacao converte
+6. Evite segmentar os mesmos clientes das exportacoes recentes (fadiga)
+7. Considere a data atual para timing (dia da semana, periodo do mes)
+8. Priorize conversao rapida: segmentos com clientes que TEM potencial mas precisam de um empurrao
+9. Escolha combinacoes com pelo menos 10 clientes
 
 ## Formato de Resposta
 Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
@@ -135,12 +145,12 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
       "description": "Descricao breve do publico",
       "reasoning": "Explicacao detalhada de por que esta combinacao tem alta chance de conversao",
       "filters": {
-        "segmentFilter": "...",
-        "lifecycleFilter": "...",
-        "couponFilter": "...",
-        "hourFilter": "...",
-        "weekdayFilter": "...",
-        "dayRangeFilter": "..."
+        "segmentFilter": "valor_ou_all",
+        "lifecycleFilter": "valor_ou_all",
+        "couponFilter": "valor_ou_all",
+        "hourFilter": "valor_ou_all",
+        "weekdayFilter": "valor_ou_all",
+        "dayRangeFilter": "valor_ou_all"
       },
       "estimatedCount": 123,
       "urgency": "alta | media | baixa"
@@ -227,6 +237,56 @@ async function fetchAllCrmRows(
   }
 
   return allRows;
+}
+
+/**
+ * Pre-compute the top cross-filter combinations (segment x lifecycle, segment x coupon, etc.)
+ * so the LLM picks from real counts instead of guessing.
+ */
+function computeCrossFilterCounts(customers: RfmCustomer[]): string {
+  type FilterKey = "segment" | "lifecycleStage" | "couponSensitivity" | "preferredHour" | "preferredWeekday" | "preferredDayRange";
+  const filterMap: Record<string, FilterKey> = {
+    segmentFilter: "segment",
+    lifecycleFilter: "lifecycleStage",
+    couponFilter: "couponSensitivity",
+    hourFilter: "preferredHour",
+    weekdayFilter: "preferredWeekday",
+    dayRangeFilter: "preferredDayRange",
+  };
+  const filterKeys = Object.keys(filterMap) as string[];
+
+  // Generate all pairs of filter dimensions
+  const pairs: [string, string][] = [];
+  for (let i = 0; i < filterKeys.length; i++) {
+    for (let j = i + 1; j < filterKeys.length; j++) {
+      pairs.push([filterKeys[i], filterKeys[j]]);
+    }
+  }
+
+  const lines: string[] = [];
+
+  for (const [fA, fB] of pairs) {
+    const propA = filterMap[fA];
+    const propB = filterMap[fB];
+    // Count each combination
+    const counts = new Map<string, number>();
+    for (const c of customers) {
+      const key = `${c[propA]}|${c[propB]}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    // Sort by count descending, take top 5 per pair
+    const sorted = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    for (const [key, count] of sorted) {
+      if (count < 5) continue;
+      const [valA, valB] = key.split("|");
+      lines.push(`- ${fA}=${valA} + ${fB}=${valB} → ${count} clientes`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 interface ExportLog {
