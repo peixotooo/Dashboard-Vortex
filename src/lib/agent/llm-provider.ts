@@ -114,9 +114,12 @@ export async function callLLM(params: LLMParams): Promise<LLMResponse> {
 async function imageUrlToBase64(url: string): Promise<{ data: string; media_type: string }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch image from URL: ${url}`);
+  const mediaType = res.headers.get("content-type") || "image/png";
+  if (!mediaType.startsWith("image/")) {
+    throw new Error(`URL is not an image (${mediaType}): ${url}`);
+  }
   const arrayBuffer = await res.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const mediaType = res.headers.get("content-type") || "image/png";
   return {
     data: buffer.toString("base64"),
     media_type: mediaType,
