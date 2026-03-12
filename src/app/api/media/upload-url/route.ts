@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext } from "@/lib/api-auth";
 import { generateKey, createPresignedUploadUrl } from "@/lib/b2-storage";
 
 const ALLOWED_MIME_TYPES = [
@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ signedUrl, key });
     } catch (error) {
-        console.error("upload-url error:", error);
-        return handleAuthError(error);
+        const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        console.error("upload-url error:", msg, error instanceof Error ? error.stack : "");
+        return NextResponse.json({ error: msg }, { status: 500 });
     }
 }
