@@ -642,6 +642,13 @@ export default function CrmPage() {
     return filters;
   }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
 
+  // Auto-load customers when any filter is applied
+  useEffect(() => {
+    if (!customersLoaded && activeFilters.length > 0) {
+      fetchCustomers();
+    }
+  }, [customersLoaded, activeFilters.length, fetchCustomers]);
+
   const clearAllFilters = useCallback(() => {
     setSegmentFilter("all");
     setDayRangeFilter("all");
