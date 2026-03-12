@@ -2,12 +2,16 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getClient() {
+    if (!process.env.B2_ENDPOINT || !process.env.B2_KEY_ID || !process.env.B2_APPLICATION_KEY) {
+        throw new Error(`B2 config missing: endpoint=${!!process.env.B2_ENDPOINT} keyId=${!!process.env.B2_KEY_ID} appKey=${!!process.env.B2_APPLICATION_KEY}`);
+    }
     return new S3Client({
-        endpoint: process.env.B2_ENDPOINT!,
+        endpoint: process.env.B2_ENDPOINT,
         region: process.env.B2_REGION || "auto",
+        forcePathStyle: true,
         credentials: {
-            accessKeyId: process.env.B2_KEY_ID!,
-            secretAccessKey: process.env.B2_APPLICATION_KEY!,
+            accessKeyId: process.env.B2_KEY_ID,
+            secretAccessKey: process.env.B2_APPLICATION_KEY,
         },
     });
 }
