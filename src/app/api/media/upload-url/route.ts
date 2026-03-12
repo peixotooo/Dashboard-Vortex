@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ signedUrl, key });
     } catch (error) {
+        console.error("upload-url error:", error);
         return handleAuthError(error);
     }
 }
