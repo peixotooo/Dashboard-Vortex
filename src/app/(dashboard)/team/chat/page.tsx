@@ -23,6 +23,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 import { MessageContent } from "@/components/ui/message-content";
 import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
+import { createClient } from "@/lib/supabase";
 
 interface AgentInfo {
   id: string;
@@ -162,12 +163,14 @@ export default function TeamChatPage() {
         const urlData = await urlRes.json();
         if (!urlRes.ok) throw new Error(urlData.error || "Erro ao gerar URL de upload");
 
-        const uploadRes = await fetch(urlData.signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-        if (!uploadRes.ok) throw new Error("Erro ao enviar vídeo para o storage");
+        // Use Supabase client to upload (handles CORS properly)
+        const supabase = createClient();
+        const { error: uploadError } = await supabase.storage
+          .from("creatives")
+          .uploadToSignedUrl(urlData.path, urlData.token, file, {
+            contentType: file.type,
+          });
+        if (uploadError) throw new Error("Erro ao enviar vídeo para o storage");
 
         const registerRes = await fetch("/api/media", {
           method: "POST",
