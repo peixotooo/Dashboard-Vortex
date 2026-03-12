@@ -153,7 +153,11 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
       ? `Considerando os dados acima, responda: ${question}\n\nInclua sugestoes de segmentacao relevantes na resposta.`
       : "Analise os dados e sugira 3 hipersegmentacoes com alta chance de conversao.";
 
-    const anthropic = new Anthropic();
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "ANTHROPIC_API_KEY nao configurada" }, { status: 500 });
+    }
+    const anthropic = new Anthropic({ apiKey });
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 2000,
