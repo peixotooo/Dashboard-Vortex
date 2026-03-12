@@ -16,10 +16,99 @@ async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
     }
 }
 
+async function handlePreUploadedFile(request: NextRequest, userId: string | null) {
+    const { storage_path, account_id, filename, mime_type, file_size } = await request.json();
+
+    if (!storage_path || !account_id || !filename || !mime_type) {
+        return NextResponse.json(
+            { error: "storage_path, account_id, filename, and mime_type are required" },
+            { status: 400 }
+        );
+    }
+
+    const isVideo = mime_type.startsWith("video/");
+    const supabase = createAdminClient();
+
+    const { data: urlData } = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(storage_path);
+    const imageUrl = urlData.publicUrl;
+
+    let result: any;
+    if (isVideo) {
+        const videoMetaForm = new FormData();
+        videoMetaForm.set("account_id", account_id);
+        videoMetaForm.set("file_url", imageUrl);
+        result = await uploadAdVideo(videoMetaForm);
+    } else {
+        const { data: fileData, error: dlError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .download(storage_path);
+        if (dlError || !fileData) {
+            return NextResponse.json(
+                { error: "Failed to retrieve file from storage" },
+                { status: 500 }
+            );
+        }
+        const buffer = await fileData.arrayBuffer();
+        const imageMetaForm = new FormData();
+        imageMetaForm.set("account_id", account_id);
+        imageMetaForm.set("filename", new File([buffer], filename, { type: mime_type }));
+        result = await uploadAdImage(imageMetaForm);
+    }
+
+    let imageHash = null;
+    let videoId = null;
+
+    if (isVideo) {
+        videoId = result.id || null;
+    } else {
+        const imagesRecords = result.images as Record<string, { hash: string }> | undefined;
+        if (imagesRecords && Object.keys(imagesRecords).length > 0) {
+            const firstKey = Object.keys(imagesRecords)[0];
+            imageHash = imagesRecords[firstKey].hash;
+        }
+    }
+
+    const workspaceId = request.headers.get("x-workspace-id");
+    if (workspaceId) {
+        try {
+            await supabase.from("workspace_media").insert({
+                workspace_id: workspaceId,
+                filename,
+                image_url: imageUrl,
+                image_hash: imageHash,
+                video_id: videoId,
+                storage_path,
+                file_size: file_size || null,
+                mime_type,
+                uploaded_by: userId || null,
+            });
+        } catch (err) {
+            console.error("DB registration error:", err);
+        }
+    }
+
+    return NextResponse.json({
+        ...result,
+        imageUrl,
+        imageHash,
+        videoId,
+        mediaType: isVideo ? "video" : "image",
+    });
+}
+
 export async function POST(request: NextRequest) {
     try {
         const { userId } = await getAuthenticatedContext(request).catch(() => ({ userId: null })) as { userId: string | null };
 
+        // Pre-uploaded files (videos uploaded directly to Supabase via signed URL)
+        const contentType = request.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+            return handlePreUploadedFile(request, userId);
+        }
+
+        // Standard FormData upload (images)
         const formData = await request.formData();
         const file = formData.get("filename") as File | null;
         const accountId = formData.get("account_id") as string || "";

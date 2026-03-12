@@ -128,11 +128,21 @@ export function GalleryPicker({
                         : "border-border hover:border-primary/50"
                     )}
                   >
-                    <img
-                      src={item.image_url}
-                      alt={item.filename}
-                      className="w-full h-full object-cover"
-                    />
+                    {item.video_id ? (
+                      <video
+                        src={item.image_url}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img
+                        src={item.image_url}
+                        alt={item.filename}
+                        className="w-full h-full object-cover"
+                      />
+                    )}
                     {isSelected && (
                       <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
                         <div className="bg-primary rounded-full p-1">

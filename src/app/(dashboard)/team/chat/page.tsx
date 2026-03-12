@@ -145,24 +145,59 @@ export default function TeamChatPage() {
     try {
       const uploadAccId = selectedAccountId || accountId;
       if (!uploadAccId || uploadAccId === "all") throw new Error("Selecione uma conta");
-      
-      const formData = new FormData();
-      formData.append("filename", file, file.name);
-      formData.append("account_id", uploadAccId);
-      
+
       const headers: Record<string, string> = {};
       if (workspace?.id) headers["x-workspace-id"] = workspace.id;
-      
-      const res = await fetch("/api/media", { method: "POST", body: formData, headers });
-      const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.error || "Erro no upload");
-      
+
+      const isVideo = file.type.startsWith("video/");
+      let data: any;
+
+      if (isVideo) {
+        // Videos: upload directly to Supabase via signed URL, then register
+        const urlRes = await fetch("/api/media/upload-url", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        });
+        const urlData = await urlRes.json();
+        if (!urlRes.ok) throw new Error(urlData.error || "Erro ao gerar URL de upload");
+
+        const uploadRes = await fetch(urlData.signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!uploadRes.ok) throw new Error("Erro ao enviar vídeo para o storage");
+
+        const registerRes = await fetch("/api/media", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storage_path: urlData.path,
+            account_id: uploadAccId,
+            filename: file.name,
+            mime_type: file.type,
+            file_size: file.size,
+          }),
+        });
+        data = await registerRes.json();
+        if (!registerRes.ok) throw new Error(data.error || "Erro no registro de mídia");
+      } else {
+        // Images: existing FormData flow
+        const formData = new FormData();
+        formData.append("filename", file, file.name);
+        formData.append("account_id", uploadAccId);
+
+        const res = await fetch("/api/media", { method: "POST", body: formData, headers });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erro no upload");
+      }
+
       const hash = data.imageHash || null;
       const videoId = data.videoId || null;
-      
+
       if (!hash && !videoId) throw new Error("ID de mídia não retornado");
-      
+
       setAttachments((prev) =>
         prev.map((a) =>
           a.id === id ? { ...a, status: "done" as const, image_hash: hash, video_id: videoId, image_url: data.imageUrl } : a
@@ -173,7 +208,6 @@ export default function TeamChatPage() {
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
       );
-      // Optional: you could add a toast here if a toast system exists
     }
   }, [selectedAccountId, accountId, workspace?.id]);
 
@@ -928,11 +962,21 @@ export default function TeamChatPage() {
               <div className="flex gap-2 mb-2 flex-wrap">
                 {attachments.map((att) => (
                   <div key={att.id} className="relative group">
-                    <img
-                      src={att.preview}
-                      alt={att.file.name}
-                      className="h-16 w-16 rounded-lg object-cover border border-border"
-                    />
+                    {(att.file.type.startsWith("video/") || att.video_id) ? (
+                      <video
+                        src={att.preview}
+                        className="h-16 w-16 rounded-lg object-cover border border-border"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img
+                        src={att.preview}
+                        alt={att.file.name}
+                        className="h-16 w-16 rounded-lg object-cover border border-border"
+                      />
+                    )}
                     {att.status === "uploading" && (
                       <div className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center">
                         <Loader2 className="h-5 w-5 text-white animate-spin" />
