@@ -160,6 +160,7 @@ export async function executeToolCall(
         account_id: accountId,
         name: toolInput.name as string,
         image_hash: toolInput.image_hash as string,
+        video_id: toolInput.video_id as string | undefined,
         link: toolInput.link as string,
         title: (toolInput.title as string) || "",
         body: (toolInput.body as string) || "",

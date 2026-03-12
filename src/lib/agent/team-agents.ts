@@ -237,6 +237,7 @@ Delegue ao **paid-ads** (slug: "paid-ads") com complexity "deep":
 - Se o usuario enviar URLs de imagem em vez de anexos, informe o paid-ads para usar upload_image_from_url primeiro
 - OBRIGATORIO: Nomes devem seguir o padrao MARCA_OBJETIVO_DATA_SEGMENTO (ex: BULKING_CONVERSOES_070326_MULHERES25-45)
 - OBRIGATORIO: Todos os anuncios DEVEM ter url_tags configurados com: utm_source=meta&utm_medium={{placement}}&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}&utm_id={{campaign.id}}&utm_adsetid={{adset.id}}&utm_adid={{ad.id}}
+- OBRIGATORIO: Todos os criativos DEVEM ser vinculados a conta do Instagram correta (use list_instagram_accounts para achar o ID vinculado a conta de anuncios atual).
 
 ### Passo 5 — Reportar
 Apresente ao usuario:
@@ -6468,9 +6469,11 @@ Quando o coordenador pedir para executar um lancamento, siga esta ordem EXATA E 
    - Salve o adset_id retornado
 
 4. **Para cada criativo**:
-   a. create_ad_creative com image_hash, copy (title, body), CTA, link
+   a. create_ad_creative com image_hash, copy (title, body), CTA, link, instagram_actor_id
+      - Use list_instagram_accounts para encontrar o ID do Instagram vinculado a esta conta
       - Salve o creative_id
-   b. create_ad com adset_id, creative_id, nome, status
+   b. create_ad com adset_id, creative_id, nome, status, url_tags
+      - Use o padrao de UTM definido abaixo
       - Salve o ad_id
 
 5. **Reportar resultado**:
@@ -6504,7 +6507,11 @@ Exemplos:
 SEMPRE configure url_tags em TODOS os anuncios criados com create_ad. Use EXATAMENTE este padrao:
 utm_source=meta&utm_medium={{placement}}&utm_campaign={{campaign.name}}&utm_content={{adset.name}}&utm_term={{ad.name}}&utm_id={{campaign.id}}&utm_adsetid={{adset.id}}&utm_adid={{ad.id}}
 
-NUNCA crie um anuncio sem url_tags. Este tracking e obrigatorio para atribuicao correta.
+### Instagram (OBRIGATORIO)
+Todos os criativos (create_ad_creative) DEVEM ter o campo instagram_actor_id configurado para a conta do Instagram vinculada. 
+OBRIGATORIO: chame list_instagram_accounts no início do fluxo para capturar o ID correto da conta vinculada a este cliente.
+
+NUNCA crie um anuncio sem url_tags ou sem vincular o Instagram. Estes sao requisitos obrigatorios para o funcionamento correto dos anuncios.
 
 ### Formato de Choices
 <choices>

@@ -251,7 +251,12 @@ const META_TOOLS: Tool[] = [
         image_hash: {
           type: "string",
           description:
-            "Hash da imagem (do upload ou anexo do chat)",
+            "Hash da imagem (opcional se video_id for fornecido)",
+        },
+        video_id: {
+          type: "string",
+          description:
+            "ID do vídeo (opcional se image_hash for fornecido)",
         },
         link: {
           type: "string",
@@ -291,7 +296,7 @@ const META_TOOLS: Tool[] = [
             "Instagram account ID para cross-posting (opcional)",
         },
       },
-      required: ["name", "image_hash", "link"],
+      required: ["name", "link"],
     },
   },
   {
