@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Send, Loader2, Filter, Bot, Sparkles, ShieldOff } from "lucide-react";
+import { Send, Loader2, Filter, Bot, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -56,18 +56,11 @@ interface SuggestionsResponse {
   error?: string;
 }
 
-const COOLDOWN_OPTIONS = [
-  { value: 0, label: "Desativado" },
-  { value: 3, label: "3 dias" },
-  { value: 7, label: "7 dias" },
-  { value: 14, label: "14 dias" },
-  { value: 30, label: "30 dias" },
-];
-
 interface CrmAgentPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApplyFilters: (filters: CrmFilters) => void;
+  cooldownDays: number;
 }
 
 // --- Main Component ---
@@ -76,6 +69,7 @@ export function CrmAgentPanel({
   open,
   onOpenChange,
   onApplyFilters,
+  cooldownDays,
 }: CrmAgentPanelProps) {
   const { workspace } = useWorkspace();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -84,7 +78,6 @@ export function CrmAgentPanel({
   const [error, setError] = useState("");
   const [question, setQuestion] = useState("");
   const [appliedIndex, setAppliedIndex] = useState<number | null>(null);
-  const [cooldownDays, setCooldownDays] = useState(7);
   const [excludedCount, setExcludedCount] = useState(0);
   const hasFetched = useRef(false);
 
@@ -184,27 +177,13 @@ export function CrmAgentPanel({
               </SheetDescription>
             </div>
           </div>
-          {/* Cooldown selector */}
-          <div className="flex items-center gap-2 mt-3">
-            <ShieldOff className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="text-xs text-muted-foreground shrink-0">Nao perturbe:</span>
-            <select
-              value={cooldownDays}
-              onChange={(e) => setCooldownDays(Number(e.target.value))}
-              className="text-xs bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50"
-            >
-              {COOLDOWN_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {excludedCount > 0 && !loading && (
+          {excludedCount > 0 && !loading && (
+            <div className="flex items-center gap-1.5 mt-2">
               <span className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                {excludedCount} excluidos
+                {excludedCount} clientes excluidos (nao perturbe {cooldownDays}d)
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </SheetHeader>
 
         {/* Content */}

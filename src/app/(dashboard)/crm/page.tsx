@@ -14,6 +14,7 @@ import {
   CalendarIcon,
   SlidersHorizontal,
   Bot,
+  ShieldOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -400,6 +401,7 @@ export default function CrmPage() {
   const [totalSpentRange, setTotalSpentRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const [activeTab, setActiveTab] = useState("metrics");
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [cooldownDays, setCooldownDays] = useState(7);
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
   const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
@@ -784,11 +786,28 @@ export default function CrmPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">CRM — Segmentacao de Clientes</h1>
-        <p className="text-muted-foreground text-sm">
-          Analise RFM e comportamental para comunicacoes personalizadas
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">CRM — Segmentacao de Clientes</h1>
+          <p className="text-muted-foreground text-sm">
+            Analise RFM e comportamental para comunicacoes personalizadas
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-1">
+          <ShieldOff className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Nao perturbe:</span>
+          <select
+            value={cooldownDays}
+            onChange={(e) => setCooldownDays(Number(e.target.value))}
+            className="text-xs bg-card border border-border rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+          >
+            <option value={0}>Desativado</option>
+            <option value={3}>3 dias</option>
+            <option value={7}>7 dias</option>
+            <option value={14}>14 dias</option>
+            <option value={30}>30 dias</option>
+          </select>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -1379,6 +1398,7 @@ export default function CrmPage() {
         open={agentPanelOpen}
         onOpenChange={setAgentPanelOpen}
         onApplyFilters={handleAgentApplyFilters}
+        cooldownDays={cooldownDays}
       />
     </div>
   );
