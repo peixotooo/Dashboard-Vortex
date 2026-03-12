@@ -537,6 +537,8 @@ export async function uploadAdImage(formData: FormData): Promise<unknown> {
 
 export async function uploadAdVideo(formData: FormData): Promise<unknown> {
   let accountId = formData.get("account_id") as string || "";
+  const fileUrl = formData.get("file_url") as string || "";
+  
   if (accountId === "all") accountId = "";
   if (!accountId) {
     const accounts = (await getAdAccounts()) as { accounts: Array<{ id: string }> };
@@ -546,13 +548,16 @@ export async function uploadAdVideo(formData: FormData): Promise<unknown> {
   if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
 
   const token = getToken();
-  formData.set("access_token", token);
-  formData.delete("account_id");
   
   // Create a new FormData to ensure we send it correctly for video uploads
   const videoFormData = new FormData();
   videoFormData.set("access_token", token);
-  videoFormData.set("source", formData.get("filename") as File);
+  
+  if (fileUrl) {
+    videoFormData.set("file_url", fileUrl);
+  } else {
+    videoFormData.set("source", formData.get("filename") as File);
+  }
 
   const options: RequestInit = {
     method: "POST",

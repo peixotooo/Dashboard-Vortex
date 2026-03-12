@@ -145,25 +145,35 @@ export default function TeamChatPage() {
     try {
       const uploadAccId = selectedAccountId || accountId;
       if (!uploadAccId || uploadAccId === "all") throw new Error("Selecione uma conta");
+      
       const formData = new FormData();
       formData.append("filename", file, file.name);
       formData.append("account_id", uploadAccId);
+      
       const headers: Record<string, string> = {};
       if (workspace?.id) headers["x-workspace-id"] = workspace.id;
+      
       const res = await fetch("/api/media", { method: "POST", body: formData, headers });
       const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || "Erro no upload");
+      
       const hash = data.imageHash || null;
       const videoId = data.videoId || null;
-      if (!hash && !videoId) throw new Error("No media id");
+      
+      if (!hash && !videoId) throw new Error("ID de mídia não retornado");
+      
       setAttachments((prev) =>
         prev.map((a) =>
           a.id === id ? { ...a, status: "done" as const, image_hash: hash, video_id: videoId, image_url: data.imageUrl } : a
         )
       );
-    } catch {
+    } catch (err: any) {
+      console.error("Upload failed:", err);
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
       );
+      // Optional: you could add a toast here if a toast system exists
     }
   }, [selectedAccountId, accountId, workspace?.id]);
 
