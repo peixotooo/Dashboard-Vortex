@@ -335,12 +335,15 @@ function buildDoNotDisturbSet(
     if (!log.filters || Object.keys(log.filters).length === 0) continue;
     if (new Date(log.created_at) < cutoff) continue;
 
-    // Find customers that match ALL filters from this export
+    // Only consider RFM-based filters (skip busca, date ranges, etc.)
+    const rfmFilters = Object.entries(log.filters).filter(([k]) => keyMap[k]);
+    if (rfmFilters.length === 0) continue; // no RFM filters → can't replay, skip
+
+    // Find customers that match ALL RFM filters from this export
     for (const customer of customers) {
       let matches = true;
-      for (const [filterKey, filterValue] of Object.entries(log.filters)) {
+      for (const [filterKey, filterValue] of rfmFilters) {
         const prop = keyMap[filterKey];
-        if (!prop) continue; // skip non-RFM filters (busca, date ranges, etc.)
         if (customer[prop] !== filterValue) {
           matches = false;
           break;
