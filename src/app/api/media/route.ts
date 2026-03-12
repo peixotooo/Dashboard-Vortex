@@ -2,37 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { uploadAdImage, uploadAdVideo } from "@/lib/meta-api";
 import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-
-const BUCKET_NAME = "creatives";
-
-async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
-    const { data } = await supabase.storage.getBucket(BUCKET_NAME);
-    if (!data) {
-        await supabase.storage.createBucket(BUCKET_NAME, {
-            public: true,
-            fileSizeLimit: 100 * 1024 * 1024, // 100MB for videos
-            allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
-        });
-    }
-}
+import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey } from "@/lib/b2-storage";
 
 async function handlePreUploadedFile(request: NextRequest, userId: string | null) {
-    const { storage_path, account_id, filename, mime_type, file_size } = await request.json();
+    const { storage_key, account_id, filename, mime_type, file_size } = await request.json();
 
-    if (!storage_path || !account_id || !filename || !mime_type) {
+    if (!storage_key || !account_id || !filename || !mime_type) {
         return NextResponse.json(
-            { error: "storage_path, account_id, filename, and mime_type are required" },
+            { error: "storage_key, account_id, filename, and mime_type are required" },
             { status: 400 }
         );
     }
 
     const isVideo = mime_type.startsWith("video/");
-    const supabase = createAdminClient();
-
-    const { data: urlData } = supabase.storage
-        .from(BUCKET_NAME)
-        .getPublicUrl(storage_path);
-    const imageUrl = urlData.publicUrl;
+    const imageUrl = getPublicUrl(storage_key);
 
     let result: any;
     if (isVideo) {
@@ -41,19 +24,10 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
         videoMetaForm.set("file_url", imageUrl);
         result = await uploadAdVideo(videoMetaForm);
     } else {
-        const { data: fileData, error: dlError } = await supabase.storage
-            .from(BUCKET_NAME)
-            .download(storage_path);
-        if (dlError || !fileData) {
-            return NextResponse.json(
-                { error: "Failed to retrieve file from storage" },
-                { status: 500 }
-            );
-        }
-        const buffer = await fileData.arrayBuffer();
+        const buffer = await downloadFile(storage_key);
         const imageMetaForm = new FormData();
         imageMetaForm.set("account_id", account_id);
-        imageMetaForm.set("filename", new File([buffer], filename, { type: mime_type }));
+        imageMetaForm.set("filename", new File([new Uint8Array(buffer)], filename, { type: mime_type }));
         result = await uploadAdImage(imageMetaForm);
     }
 
@@ -72,6 +46,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
 
     const workspaceId = request.headers.get("x-workspace-id");
     if (workspaceId) {
+        const supabase = createAdminClient();
         try {
             await supabase.from("workspace_media").insert({
                 workspace_id: workspaceId,
@@ -79,7 +54,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
                 image_url: imageUrl,
                 image_hash: imageHash,
                 video_id: videoId,
-                storage_path,
+                storage_path: storage_key,
                 file_size: file_size || null,
                 mime_type,
                 uploaded_by: userId || null,
@@ -102,13 +77,13 @@ export async function POST(request: NextRequest) {
     try {
         const { userId } = await getAuthenticatedContext(request).catch(() => ({ userId: null })) as { userId: string | null };
 
-        // Pre-uploaded files (videos uploaded directly to Supabase via signed URL)
+        // Pre-uploaded files (uploaded directly to B2 via presigned URL)
         const contentType = request.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
             return handlePreUploadedFile(request, userId);
         }
 
-        // Standard FormData upload (images)
+        // Standard FormData upload (backward compat for small images)
         const formData = await request.formData();
         const file = formData.get("filename") as File | null;
         const accountId = formData.get("account_id") as string || "";
@@ -123,37 +98,18 @@ export async function POST(request: NextRequest) {
         const fileSize = file.size;
         const isVideo = fileType.startsWith("video/");
 
-        // 1. Upload to Supabase Storage FIRST (mandatory for both now, but critical for videos)
-        const supabase = createAdminClient();
-        await ensureBucket(supabase);
-
-        const ext = fileName.split(".").pop() || (isVideo ? "mp4" : "jpg");
-        const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-        const { error: storageError } = await supabase.storage
-            .from(BUCKET_NAME)
-            .upload(path, fileBuffer, {
-                contentType: fileType,
-                upsert: false,
-            });
-
-        if (storageError) throw new Error(`Storage error: ${storageError.message}`);
-
-        const { data: urlData } = supabase.storage
-            .from(BUCKET_NAME)
-            .getPublicUrl(path);
-        const imageUrl = urlData.publicUrl;
+        // 1. Upload to B2
+        const key = generateKey(fileName);
+        const imageUrl = await uploadFile(key, fileBuffer, fileType);
 
         // 2. Upload to Meta
         let result: any;
         if (isVideo) {
-            // Use file_url for videos to bypass body size limits!
             const videoMetaForm = new FormData();
             videoMetaForm.set("account_id", accountId);
             videoMetaForm.set("file_url", imageUrl);
             result = await uploadAdVideo(videoMetaForm);
         } else {
-            // For images, source upload is fine (usually small)
             const imageMetaForm = new FormData();
             imageMetaForm.set("account_id", accountId);
             imageMetaForm.set("filename", new File([fileBuffer], fileName, { type: fileType }));
@@ -162,10 +118,10 @@ export async function POST(request: NextRequest) {
 
         // Auto-register in workspace_media
         const workspaceId = request.headers.get("x-workspace-id");
-        
+
         let imageHash = null;
         let videoId = null;
-        
+
         if (isVideo) {
             videoId = result.id || null;
         } else {
@@ -177,6 +133,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (workspaceId) {
+            const supabase = createAdminClient();
             try {
                 await supabase.from("workspace_media").insert({
                     workspace_id: workspaceId,
@@ -184,7 +141,7 @@ export async function POST(request: NextRequest) {
                     image_url: imageUrl,
                     image_hash: imageHash,
                     video_id: videoId,
-                    storage_path: path,
+                    storage_path: key,
                     file_size: fileSize || null,
                     mime_type: fileType,
                     uploaded_by: userId || null,
@@ -194,12 +151,12 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        return NextResponse.json({ 
-            ...result, 
-            imageUrl, 
-            imageHash, 
-            videoId, 
-            mediaType: isVideo ? "video" : "image" 
+        return NextResponse.json({
+            ...result,
+            imageUrl,
+            imageHash,
+            videoId,
+            mediaType: isVideo ? "video" : "image",
         });
     } catch (error) {
         console.error("Upload error:", error);
@@ -257,16 +214,20 @@ export async function DELETE(request: NextRequest) {
 
         const supabase = createAdminClient();
 
-        // Fetch the record first to get storage_path
+        // Fetch the record first to get storage_path (B2 key)
         const { data: media } = await supabase
             .from("workspace_media")
             .select("storage_path")
             .eq("id", id)
             .single();
 
-        // Delete from Storage if path exists
+        // Delete from B2 if key exists
         if (media?.storage_path) {
-            await supabase.storage.from(BUCKET_NAME).remove([media.storage_path]);
+            try {
+                await deleteFile(media.storage_path);
+            } catch (err) {
+                console.error("B2 delete error:", err);
+            }
         }
 
         // Delete from DB

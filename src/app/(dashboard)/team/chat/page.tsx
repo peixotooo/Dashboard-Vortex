@@ -23,7 +23,6 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 import { MessageContent } from "@/components/ui/message-content";
 import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
-import { createClient } from "@/lib/supabase";
 
 interface AgentInfo {
   id: string;
@@ -150,51 +149,37 @@ export default function TeamChatPage() {
       const headers: Record<string, string> = {};
       if (workspace?.id) headers["x-workspace-id"] = workspace.id;
 
-      const isVideo = file.type.startsWith("video/");
-      let data: any;
+      // Step 1: Get presigned URL from B2
+      const urlRes = await fetch("/api/media/upload-url", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+      });
+      const urlData = await urlRes.json();
+      if (!urlRes.ok) throw new Error(urlData.error || "Erro ao gerar URL de upload");
 
-      if (isVideo) {
-        // Videos: upload directly to Supabase via signed URL, then register
-        const urlRes = await fetch("/api/media/upload-url", {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
-        });
-        const urlData = await urlRes.json();
-        if (!urlRes.ok) throw new Error(urlData.error || "Erro ao gerar URL de upload");
+      // Step 2: Upload directly to B2 via presigned PUT URL
+      const putRes = await fetch(urlData.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Erro ao enviar arquivo para o storage");
 
-        // Use Supabase client to upload (handles CORS properly)
-        const supabase = createClient();
-        const { error: uploadError } = await supabase.storage
-          .from("creatives")
-          .uploadToSignedUrl(urlData.path, urlData.token, file, {
-            contentType: file.type,
-          });
-        if (uploadError) throw new Error("Erro ao enviar vídeo para o storage");
-
-        const registerRes = await fetch("/api/media", {
-          method: "POST",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            storage_path: urlData.path,
-            account_id: uploadAccId,
-            filename: file.name,
-            mime_type: file.type,
-            file_size: file.size,
-          }),
-        });
-        data = await registerRes.json();
-        if (!registerRes.ok) throw new Error(data.error || "Erro no registro de mídia");
-      } else {
-        // Images: existing FormData flow
-        const formData = new FormData();
-        formData.append("filename", file, file.name);
-        formData.append("account_id", uploadAccId);
-
-        const res = await fetch("/api/media", { method: "POST", body: formData, headers });
-        data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Erro no upload");
-      }
+      // Step 3: Register with Meta + DB
+      const registerRes = await fetch("/api/media", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storage_key: urlData.key,
+          account_id: uploadAccId,
+          filename: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+        }),
+      });
+      const data = await registerRes.json();
+      if (!registerRes.ok) throw new Error(data.error || "Erro no registro de mídia");
 
       const hash = data.imageHash || null;
       const videoId = data.videoId || null;
