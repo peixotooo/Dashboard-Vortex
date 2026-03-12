@@ -150,23 +150,36 @@ export default function TeamChatPage() {
       if (workspace?.id) headers["x-workspace-id"] = workspace.id;
 
       // Step 1: Get presigned URL from B2
+      console.log("[Upload] Step 1: Requesting presigned URL", { filename: file.name, mime_type: file.type });
       const urlRes = await fetch("/api/media/upload-url", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ filename: file.name, mime_type: file.type }),
       });
       const urlData = await urlRes.json();
-      if (!urlRes.ok) throw new Error(urlData.error || "Erro ao gerar URL de upload");
+      if (!urlRes.ok) {
+        console.error("[Upload] Step 1 Failed:", urlData.error);
+        throw new Error(urlData.error || "Erro ao gerar URL de upload");
+      }
 
       // Step 2: Upload directly to B2 via presigned PUT URL
+      console.log("[Upload] Step 2: Uploading to B2", urlData.signedUrl);
       const putRes = await fetch(urlData.signedUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!putRes.ok) throw new Error("Erro ao enviar arquivo para o storage");
+      if (!putRes.ok) {
+        const errorText = await putRes.text();
+        console.error("[Upload] Step 2 Failed:", putRes.status, errorText);
+        throw new Error(`Erro ao enviar arquivo para o storage: ${putRes.status}`);
+      }
 
       // Step 3: Register with Meta + DB
+      console.log("[Upload] Step 3: Registering with Meta + DB", { 
+        storage_key: urlData.key, 
+        account_id: uploadAccId 
+      });
       const registerRes = await fetch("/api/media", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
@@ -179,8 +192,12 @@ export default function TeamChatPage() {
         }),
       });
       const data = await registerRes.json();
-      if (!registerRes.ok) throw new Error(data.error || "Erro no registro de mídia");
+      if (!registerRes.ok) {
+        console.error("[Upload] Step 3 Failed:", data.error);
+        throw new Error(data.error || "Erro no registro de mídia");
+      }
 
+      console.log("[Upload] Success:", data);
       const hash = data.imageHash || null;
       const videoId = data.videoId || null;
 
@@ -193,6 +210,7 @@ export default function TeamChatPage() {
       );
     } catch (err: any) {
       console.error("Upload failed:", err);
+      // alert(`Erro no upload: ${err.message}`); // Optional: show to user
       setAttachments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, status: "error" as const } : a))
       );

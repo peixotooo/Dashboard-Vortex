@@ -36,8 +36,24 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
 }
 
 export function getPublicUrl(key: string): string {
+    const downloadUrl = process.env.B2_DOWNLOAD_URL;
+    if (downloadUrl) {
+        return `${downloadUrl.replace(/\/$/, "")}/${key}`;
+    }
+
     const endpoint = process.env.B2_ENDPOINT!;
     const bucket = getBucket();
+    
+    // Backblaze S3 compatible endpoints usually look like: s3.<region>.backblazeb2.com
+    // The "friendly" URL format is: https://<bucket>.s3.<region>.backblazeb2.com/<key>
+    // OR: https://f00x.backblazeb2.com/file/<bucket>/<key>
+    
+    if (endpoint.includes("backblazeb2.com")) {
+        // Try to construct a friendly URL if possible, otherwise fallback
+        const host = endpoint.replace(/^https?:\/\//, "");
+        return `https://${bucket}.${host}/${key}`;
+    }
+
     return `${endpoint}/${bucket}/${key}`;
 }
 

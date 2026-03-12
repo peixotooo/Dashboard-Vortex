@@ -17,18 +17,32 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
     const isVideo = mime_type.startsWith("video/");
     const imageUrl = getPublicUrl(storage_key);
 
+    console.log(`[MediaAPI] Handling pre-uploaded file: ${filename}, isVideo: ${isVideo}, imageUrl: ${imageUrl}`);
+
     let result: any;
     if (isVideo) {
         const videoMetaForm = new FormData();
         videoMetaForm.set("account_id", account_id);
         videoMetaForm.set("file_url", imageUrl);
-        result = await uploadAdVideo(videoMetaForm);
+        try {
+            result = await uploadAdVideo(videoMetaForm);
+            console.log("[MediaAPI] uploadAdVideo result:", result);
+        } catch (err: any) {
+            console.error("[MediaAPI] uploadAdVideo error:", err.message);
+            return NextResponse.json({ error: `Meta Video Upload Error: ${err.message}` }, { status: 500 });
+        }
     } else {
         const buffer = await downloadFile(storage_key);
         const imageMetaForm = new FormData();
         imageMetaForm.set("account_id", account_id);
         imageMetaForm.set("filename", new File([new Uint8Array(buffer)], filename, { type: mime_type }));
-        result = await uploadAdImage(imageMetaForm);
+        try {
+            result = await uploadAdImage(imageMetaForm);
+            console.log("[MediaAPI] uploadAdImage result:", result);
+        } catch (err: any) {
+            console.error("[MediaAPI] uploadAdImage error:", err.message);
+            return NextResponse.json({ error: `Meta Image Upload Error: ${err.message}` }, { status: 500 });
+        }
     }
 
     let imageHash = null;
