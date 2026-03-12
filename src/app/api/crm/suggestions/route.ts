@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import Anthropic from "@anthropic-ai/sdk";
+import { callLLM } from "@/lib/agent/llm-provider";
 import { generateRfmReport } from "@/lib/crm-rfm";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 
@@ -153,15 +153,17 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
       ? `Considerando os dados acima, responda: ${question}\n\nInclua sugestoes de segmentacao relevantes na resposta.`
       : "Analise os dados e sugira 3 hipersegmentacoes com alta chance de conversao.";
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY nao configurada" }, { status: 500 });
-    }
-    const anthropic = new Anthropic({ apiKey });
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 2000,
+    const provider = process.env.OPENROUTER_API_KEY ? "openrouter" : "anthropic";
+    const model = provider === "openrouter"
+      ? "anthropic/claude-sonnet-4-5-20250929"
+      : "claude-sonnet-4-5-20250929";
+
+    const response = await callLLM({
+      provider,
+      model,
+      maxTokens: 2000,
       system: systemPrompt,
+      tools: [],
       messages: [{ role: "user", content: userMessage }],
     });
 
