@@ -2,22 +2,45 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getClient() {
-    if (!process.env.B2_ENDPOINT || !process.env.B2_KEY_ID || !process.env.B2_APPLICATION_KEY) {
-        throw new Error(`B2 config missing: endpoint=${!!process.env.B2_ENDPOINT} keyId=${!!process.env.B2_KEY_ID} appKey=${!!process.env.B2_APPLICATION_KEY}`);
+    let endpoint = process.env.B2_ENDPOINT;
+    const keyId = process.env.B2_KEY_ID;
+    const appKey = process.env.B2_APPLICATION_KEY;
+
+    if (!endpoint || !keyId || !appKey) {
+        const missing = [];
+        if (!endpoint) missing.push("B2_ENDPOINT");
+        if (!keyId) missing.push("B2_KEY_ID");
+        if (!appKey) missing.push("B2_APPLICATION_KEY");
+        throw new Error(`B2 configuration missing: ${missing.join(", ")}`);
     }
-    return new S3Client({
-        endpoint: process.env.B2_ENDPOINT,
-        region: process.env.B2_REGION || "auto",
-        forcePathStyle: true,
-        credentials: {
-            accessKeyId: process.env.B2_KEY_ID,
-            secretAccessKey: process.env.B2_APPLICATION_KEY,
-        },
-    });
+
+    // Ensure endpoint has protocol
+    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+        endpoint = `https://${endpoint}`;
+    }
+
+    try {
+        return new S3Client({
+            endpoint: endpoint,
+            region: process.env.B2_REGION || "auto",
+            forcePathStyle: true,
+            credentials: {
+                accessKeyId: keyId,
+                secretAccessKey: appKey,
+            },
+        });
+    } catch (err: any) {
+        console.error("[B2] Failed to initialize S3Client:", err);
+        throw new Error(`B2 Client Init Error: ${err.message}`);
+    }
 }
 
 function getBucket() {
-    return process.env.B2_BUCKET_NAME!;
+    const bucket = process.env.B2_BUCKET_NAME;
+    if (!bucket) {
+        throw new Error("B2_BUCKET_NAME is not configured");
+    }
+    return bucket;
 }
 
 export function generateKey(filename: string): string {
