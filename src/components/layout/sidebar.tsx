@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Boxes,
   Contact,
+  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +47,9 @@ const navItems: NavItem[] = [
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/google-ads", label: "Google Ads", icon: CircleDollarSign },
   { href: "/ga4", label: "Google Analytics", icon: LineChart },
-  { href: "/vnda", label: "E-commerce", icon: ShoppingBag },
-  { href: "/products", label: "Produtos", icon: Boxes },
+  { href: "/vnda", label: "Loja", icon: ShoppingBag },
+  { href: "/products", label: "Produtos", icon: Boxes, indent: true },
+  { href: "/shelves", label: "Prateleiras", icon: LayoutGrid, indent: true },
   { href: "/crm", label: "CRM", icon: Contact },
   { href: "/simulador", label: "Financeiro", icon: Landmark },
   { href: "/simulador", label: "Simulador", icon: Calculator, indent: true },
