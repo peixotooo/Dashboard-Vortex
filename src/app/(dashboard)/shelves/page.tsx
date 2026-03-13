@@ -10,6 +10,7 @@ import {
   MousePointerClick,
   Percent,
   Package,
+  BarChart3,
   Copy,
   Check,
   Trash2,
@@ -115,6 +116,12 @@ export default function ShelvesPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncLog | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState<{
+    bestsellers: number;
+    most_popular: number;
+    unmatched: number;
+  } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ShelfConfig | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -217,6 +224,31 @@ export default function ShelvesPage() {
       setSyncResult({ synced: 0, errors: 1, total: 0 });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleSeedFromGA4() {
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      const res = await fetch("/api/shelves/seed", {
+        method: "POST",
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSeedResult({ bestsellers: 0, most_popular: 0, unmatched: 0 });
+      } else {
+        setSeedResult({
+          bestsellers: data.bestsellers,
+          most_popular: data.most_popular,
+          unmatched: data.unmatched,
+        });
+      }
+    } catch {
+      setSeedResult({ bestsellers: 0, most_popular: 0, unmatched: 0 });
+    } finally {
+      setSeeding(false);
     }
   }
 
@@ -468,6 +500,48 @@ export default function ShelvesPage() {
                 Clique em &quot;Sincronizar VNDA&quot; para importar todos os
                 produtos da loja. O catalogo e atualizado automaticamente via
                 webhook quando produtos sao criados ou editados na VNDA.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Seed Rankings from GA4 */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">
+                  Rankings Iniciais (GA4)
+                </CardTitle>
+                <Button
+                  onClick={handleSeedFromGA4}
+                  disabled={seeding}
+                  variant="outline"
+                >
+                  {seeding ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                  )}
+                  Popular do GA4
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {seedResult && (
+                <div className="rounded-lg p-4 mb-4 bg-green-500/10 text-green-600">
+                  <p className="font-medium">Rankings populados</p>
+                  <p className="text-sm mt-1">
+                    {seedResult.bestsellers} mais vendidos ·{" "}
+                    {seedResult.most_popular} mais vistos
+                    {seedResult.unmatched > 0 &&
+                      ` · ${seedResult.unmatched} produtos sem match`}
+                  </p>
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Importa dados de vendas e pageviews do Google Analytics para
+                criar os rankings iniciais de &quot;Mais Vendidos&quot; e
+                &quot;Mais Vistos&quot;. Depois os cron jobs atualizam
+                automaticamente com base nos eventos da loja.
               </p>
             </CardContent>
           </Card>
