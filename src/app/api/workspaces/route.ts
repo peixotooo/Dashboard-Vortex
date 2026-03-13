@@ -4,6 +4,13 @@ import { encrypt, decrypt } from "@/lib/encryption";
 import { getAdAccounts, setContextToken } from "@/lib/meta-api";
 import { testVndaConnection } from "@/lib/vnda-api";
 import { generateWebhookToken } from "@/lib/vnda-webhook";
+import {
+  addDomainToVercel,
+  verifyDomainOnVercel,
+  removeDomainFromVercel,
+  getDomainConfig,
+  isValidDomain,
+} from "@/lib/vercel-domains";
 
 function getSupabase(request: NextRequest) {
   return createServerClient(
@@ -69,10 +76,18 @@ export async function GET(request: NextRequest) {
       vndaConnection.webhook_token = newToken;
     }
 
+    // Get workspace custom domain
+    const { data: wsData } = await supabase
+      .from("workspaces")
+      .select("custom_domain")
+      .eq("id", workspaceId)
+      .single();
+
     return NextResponse.json({
       accounts: accounts || [],
       connection: connection || null,
       vndaConnection: vndaConnection || null,
+      customDomain: wsData?.custom_domain || null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -507,6 +522,105 @@ export async function POST(request: NextRequest) {
           .eq("workspace_id", workspace_id);
         if (error) throw error;
         return NextResponse.json({ success: true, webhook_token: newToken });
+      }
+
+      // --- Custom Domain ---
+
+      case "set_custom_domain": {
+        const { domain } = args;
+
+        if (!domain || !isValidDomain(domain)) {
+          return NextResponse.json(
+            { error: "Domínio inválido" },
+            { status: 400 }
+          );
+        }
+
+        // Check uniqueness
+        const { data: existing } = await supabase
+          .from("workspaces")
+          .select("id")
+          .eq("custom_domain", domain)
+          .neq("id", workspace_id)
+          .limit(1)
+          .single();
+
+        if (existing) {
+          return NextResponse.json(
+            { error: "Este domínio já está em uso por outro workspace" },
+            { status: 400 }
+          );
+        }
+
+        // Add to Vercel
+        const vercelResult = await addDomainToVercel(domain);
+
+        // Save to database
+        const { error: updateError } = await supabase
+          .from("workspaces")
+          .update({ custom_domain: domain })
+          .eq("id", workspace_id);
+
+        if (updateError) throw updateError;
+
+        // Get DNS config
+        const config = await getDomainConfig(domain);
+
+        return NextResponse.json({
+          success: true,
+          domain: vercelResult.name,
+          verified: vercelResult.verified,
+          verification: vercelResult.verification || [],
+          config,
+        });
+      }
+
+      case "verify_domain": {
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("custom_domain")
+          .eq("id", workspace_id)
+          .single();
+
+        if (!ws?.custom_domain) {
+          return NextResponse.json(
+            { error: "Nenhum domínio configurado" },
+            { status: 400 }
+          );
+        }
+
+        const result = await verifyDomainOnVercel(ws.custom_domain);
+        const config = await getDomainConfig(ws.custom_domain);
+
+        return NextResponse.json({
+          success: true,
+          verified: result.verified,
+          verification: result.verification || [],
+          config,
+        });
+      }
+
+      case "remove_domain": {
+        const { data: ws } = await supabase
+          .from("workspaces")
+          .select("custom_domain")
+          .eq("id", workspace_id)
+          .single();
+
+        if (ws?.custom_domain) {
+          await removeDomainFromVercel(ws.custom_domain).catch((err) => {
+            console.error("[Domains] Failed to remove from Vercel:", err);
+          });
+        }
+
+        const { error: updateError } = await supabase
+          .from("workspaces")
+          .update({ custom_domain: null })
+          .eq("id", workspace_id);
+
+        if (updateError) throw updateError;
+
+        return NextResponse.json({ success: true });
       }
 
       default:

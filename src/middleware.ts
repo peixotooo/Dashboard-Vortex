@@ -62,6 +62,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // --- Custom domain resolution ---
+  const host = request.headers.get("host") || "";
+  const isDefaultHost =
+    host.includes("vercel.app") ||
+    host.includes("localhost") ||
+    host.includes("127.0.0.1");
+
+  if (!isDefaultHost && host) {
+    // Check if we already resolved this domain recently (cookie cache)
+    const cached = request.cookies.get("vortex_domain_workspace")?.value;
+
+    if (!cached) {
+      // Lookup workspace by custom_domain
+      const { data: ws } = await supabase
+        .from("workspaces")
+        .select("id")
+        .eq("custom_domain", host)
+        .limit(1)
+        .single();
+
+      if (ws?.id) {
+        supabaseResponse.cookies.set("vortex_domain_workspace", ws.id, {
+          path: "/",
+          maxAge: 300, // 5 minutes cache
+          httpOnly: false, // client needs to read it
+          sameSite: "lax",
+        });
+      }
+    }
+  }
+
   return supabaseResponse;
 }
 

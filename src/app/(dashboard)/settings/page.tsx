@@ -20,6 +20,7 @@ import {
   Copy,
   Link,
   RotateCcw,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,6 +113,17 @@ export default function SettingsPage() {
   const [testingVnda, setTestingVnda] = useState(false);
   const [vndaTestResult, setVndaTestResult] = useState<{ ok?: boolean; message?: string } | null>(null);
 
+  // Custom Domain
+  const [customDomain, setCustomDomain] = useState("");
+  const [customDomainInput, setCustomDomainInput] = useState("");
+  const [domainVerified, setDomainVerified] = useState(false);
+  const [domainVerification, setDomainVerification] = useState<Array<{ type: string; domain: string; value: string }>>([]);
+  const [savingDomain, setSavingDomain] = useState(false);
+  const [verifyingDomain, setVerifyingDomain] = useState(false);
+  const [removingDomain, setRemovingDomain] = useState(false);
+  const [domainMessage, setDomainMessage] = useState("");
+  const [domainError, setDomainError] = useState("");
+
   // LLM Provider
   const [llmProvider, setLlmProvider] = useState<"anthropic" | "openrouter">("anthropic");
   const [allowedModels, setAllowedModels] = useState("");
@@ -139,6 +151,10 @@ export default function SettingsPage() {
       if (data.vndaConnection) {
         setHasVndaConnection(true);
         setVndaConnectionInfo(data.vndaConnection);
+      }
+      if (data.customDomain) {
+        setCustomDomain(data.customDomain);
+        setCustomDomainInput(data.customDomain);
       }
     } catch {
       // Silent
@@ -532,6 +548,103 @@ export default function SettingsPage() {
       setWsError("Erro ao salvar workspace");
     } finally {
       setSavingWs(false);
+    }
+  }
+
+  // === Custom Domain handlers ===
+
+  async function handleSetDomain() {
+    if (!customDomainInput || !workspace) return;
+    setSavingDomain(true);
+    setDomainMessage("");
+    setDomainError("");
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_custom_domain",
+          workspace_id: workspace.id,
+          domain: customDomainInput.toLowerCase().trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setDomainError(data.error);
+      } else {
+        setCustomDomain(data.domain);
+        setDomainVerified(data.verified);
+        setDomainVerification(data.verification || []);
+        setDomainMessage(data.verified ? "Domínio configurado e verificado!" : "Domínio adicionado. Configure o DNS abaixo.");
+      }
+    } catch {
+      setDomainError("Erro ao configurar domínio");
+    } finally {
+      setSavingDomain(false);
+    }
+  }
+
+  async function handleVerifyDomain() {
+    if (!workspace) return;
+    setVerifyingDomain(true);
+    setDomainMessage("");
+    setDomainError("");
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "verify_domain",
+          workspace_id: workspace.id,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setDomainError(data.error);
+      } else {
+        setDomainVerified(data.verified);
+        setDomainVerification(data.verification || []);
+        if (data.verified) {
+          setDomainMessage("DNS verificado! Seu domínio está ativo.");
+        } else {
+          setDomainError("DNS ainda não configurado. Verifique os registros abaixo.");
+        }
+      }
+    } catch {
+      setDomainError("Erro ao verificar domínio");
+    } finally {
+      setVerifyingDomain(false);
+    }
+  }
+
+  async function handleRemoveDomain() {
+    if (!workspace) return;
+    setRemovingDomain(true);
+    setDomainMessage("");
+    setDomainError("");
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "remove_domain",
+          workspace_id: workspace.id,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setDomainError(data.error);
+      } else {
+        setCustomDomain("");
+        setCustomDomainInput("");
+        setDomainVerified(false);
+        setDomainVerification([]);
+        setDomainMessage("Domínio removido com sucesso.");
+      }
+    } catch {
+      setDomainError("Erro ao remover domínio");
+    } finally {
+      setRemovingDomain(false);
     }
   }
 
@@ -1185,6 +1298,118 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Custom Domain */}
+          {isAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5 text-blue-500" />
+                  Domínio Customizado
+                </CardTitle>
+                <CardDescription>
+                  Configure um domínio personalizado para acessar o dashboard (ex: dash.suaempresa.com.br)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {domainMessage && (
+                  <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    <span className="text-sm text-success">{domainMessage}</span>
+                  </div>
+                )}
+                {domainError && (
+                  <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                    <XCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-sm text-destructive">{domainError}</span>
+                  </div>
+                )}
+
+                {customDomain ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 space-y-1">
+                        <Label>Domínio atual</Label>
+                        <p className="text-sm font-mono bg-muted px-3 py-2 rounded-md">{customDomain}</p>
+                      </div>
+                      <Badge variant={domainVerified ? "default" : "secondary"}>
+                        {domainVerified ? "Verificado" : "Pendente"}
+                      </Badge>
+                    </div>
+
+                    {!domainVerified && (
+                      <div className="space-y-3 p-4 border border-border rounded-lg bg-muted/50">
+                        <p className="text-sm font-medium">Configure o DNS do seu domínio:</p>
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                            <span className="text-muted-foreground">Tipo</span>
+                            <span className="text-muted-foreground">Nome</span>
+                            <span className="text-muted-foreground">Valor</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
+                            <span>CNAME</span>
+                            <span>{customDomain.split(".")[0]}</span>
+                            <span>cname.vercel-dns.com</span>
+                          </div>
+                          {domainVerification.map((v, i) => (
+                            <div key={i} className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
+                              <span>{v.type}</span>
+                              <span className="truncate">{v.domain}</span>
+                              <span className="truncate">{v.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      {!domainVerified && (
+                        <Button
+                          onClick={handleVerifyDomain}
+                          disabled={verifyingDomain}
+                          variant="outline"
+                        >
+                          <RefreshCw className={`h-4 w-4 mr-2 ${verifyingDomain ? "animate-spin" : ""}`} />
+                          {verifyingDomain ? "Verificando..." : "Verificar DNS"}
+                        </Button>
+                      )}
+                      <Button
+                        onClick={handleRemoveDomain}
+                        disabled={removingDomain}
+                        variant="destructive"
+                        size="sm"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        {removingDomain ? "Removendo..." : "Remover Domínio"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Domínio</Label>
+                      <Input
+                        value={customDomainInput}
+                        onChange={(e) => setCustomDomainInput(e.target.value)}
+                        placeholder="dash.suaempresa.com.br"
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Informe o subdomínio completo que deseja usar para acessar o dashboard.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleSetDomain}
+                      disabled={savingDomain || !customDomainInput}
+                    >
+                      <Globe className="h-4 w-4 mr-2" />
+                      {savingDomain ? "Configurando..." : "Configurar Domínio"}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ===== VNDA Tab ===== */}

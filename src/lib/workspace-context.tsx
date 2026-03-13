@@ -28,6 +28,7 @@ interface WorkspaceContextType {
   members: WorkspaceMember[];
   userRole: string | null;
   loading: boolean;
+  isDomainLocked: boolean;
   setWorkspaceId: (id: string) => void;
   refreshWorkspaces: () => Promise<void>;
   refreshMembers: () => Promise<void>;
@@ -39,6 +40,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   members: [],
   userRole: null,
   loading: true,
+  isDomainLocked: false,
   setWorkspaceId: () => {},
   refreshWorkspaces: async () => {},
   refreshMembers: async () => {},
@@ -48,12 +50,19 @@ export function useWorkspace() {
   return useContext(WorkspaceContext);
 }
 
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { user, isConfigured } = useAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDomainLocked, setIsDomainLocked] = useState(false);
   const supabaseRef = useRef(createClient());
 
   const fetchWorkspaces = useCallback(async () => {
@@ -76,11 +85,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const ws = (data || []) as Workspace[];
       setWorkspaces(ws);
 
-      // Auto-select first workspace if none selected
+      // Auto-select workspace: domain cookie > localStorage > first
       if (ws.length > 0 && !workspaceId) {
-        const savedId = localStorage.getItem("vortex_workspace_id");
-        const validSaved = ws.find((w) => w.id === savedId);
-        setWorkspaceId(validSaved ? savedId! : ws[0].id);
+        const domainWs = getCookie("vortex_domain_workspace");
+        if (domainWs && ws.find((w) => w.id === domainWs)) {
+          setWorkspaceId(domainWs);
+          setIsDomainLocked(true);
+        } else {
+          const savedId = localStorage.getItem("vortex_workspace_id");
+          const validSaved = ws.find((w) => w.id === savedId);
+          setWorkspaceId(validSaved ? savedId! : ws[0].id);
+        }
       }
     } catch (err) {
       console.error("Workspace fetch exception:", err);
@@ -130,6 +145,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         members,
         userRole,
         loading,
+        isDomainLocked,
         setWorkspaceId,
         refreshWorkspaces: fetchWorkspaces,
         refreshMembers: fetchMembers,
