@@ -36,9 +36,6 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Authenticated client — RLS on crm_vendas enforces workspace isolation
-    // Policy: workspace_id IN (SELECT get_user_workspace_ids())
-    // User can ONLY read rows from workspaces they belong to
     const supabase = createSupabase(request);
     const {
       data: { user },
@@ -52,9 +49,48 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
     }
 
-    // Paginated fetch — Supabase default limit is 1000 rows per request
-    // RLS guarantees user can only access their own workspaces even if
-    // workspace_id header is tampered with
+    const fields = request.nextUrl.searchParams.get("fields");
+
+    // Try to read from snapshot first
+    interface Snapshot {
+      summary: unknown; segments: unknown; distributions: unknown;
+      behavioral: unknown; customers: unknown; computed_at: string;
+    }
+
+    const { data: snapshot } = await supabase
+      .from("crm_rfm_snapshots")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .single() as unknown as { data: Snapshot | null };
+
+    if (snapshot) {
+      if (fields === "summary") {
+        return NextResponse.json({
+          segments: snapshot.segments,
+          summary: snapshot.summary,
+          distributions: snapshot.distributions,
+          behavioralDistributions: snapshot.behavioral,
+          computedAt: snapshot.computed_at,
+        }, {
+          headers: { "Cache-Control": "private, max-age=300" },
+        });
+      }
+
+      return NextResponse.json({
+        customers: snapshot.customers,
+        segments: snapshot.segments,
+        summary: snapshot.summary,
+        distributions: snapshot.distributions,
+        behavioralDistributions: snapshot.behavioral,
+        computedAt: snapshot.computed_at,
+      }, {
+        headers: { "Cache-Control": "private, max-age=300" },
+      });
+    }
+
+    // Fallback: no snapshot exists — compute from raw data (legacy path)
+    console.log("[CRM RFM] No snapshot found, computing from raw data...");
+
     let allRows: CrmVendaRow[] = [];
     const PAGE_SIZE = 1000;
     let from = 0;
@@ -84,8 +120,6 @@ export async function GET(request: NextRequest) {
 
     const report = generateRfmReport(allRows);
 
-    // ?fields=summary returns everything EXCEPT the customers array (~5KB vs 10-35MB)
-    const fields = request.nextUrl.searchParams.get("fields");
     if (fields === "summary") {
       return NextResponse.json({
         segments: report.segments,

@@ -40,26 +40,63 @@ export async function POST(request: NextRequest) {
     const question: string | undefined = body.question;
     const cooldownDays: number = typeof body.cooldownDays === "number" ? body.cooldownDays : 7;
 
-    // Fetch CRM data and export logs in parallel
-    const [crmRows, exportLogs] = await Promise.all([
-      fetchAllCrmRows(supabase, workspaceId),
+    // Try snapshot first, fetch export logs in parallel
+    interface Snapshot {
+      summary: unknown; segments: unknown; behavioral: unknown; customers: unknown;
+    }
+
+    const [snapshotResult, exportLogs] = await Promise.all([
+      supabase
+        .from("crm_rfm_snapshots")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .single() as unknown as Promise<{ data: Snapshot | null; error: unknown }>,
       fetchExportLogs(supabase, workspaceId),
     ]);
 
-    if (crmRows.length === 0) {
+    let reportCustomers: RfmCustomer[];
+    let reportSummary: { totalCustomers: number; totalRevenue: number; avgTicket: number; activeCustomers: number; avgPurchasesPerCustomer: number; medianRecency: number };
+    let reportSegments: Array<{ segment: string; label: string; customerCount: number; totalRevenue: number; avgTicket: number; avgRecency: number }>;
+    let reportBehavioral: Record<string, unknown>;
+
+    if (snapshotResult.data) {
+      // Use snapshot
+      reportCustomers = snapshotResult.data.customers as RfmCustomer[];
+      reportSummary = snapshotResult.data.summary as typeof reportSummary;
+      reportSegments = snapshotResult.data.segments as typeof reportSegments;
+      reportBehavioral = snapshotResult.data.behavioral as Record<string, unknown>;
+    } else {
+      // Fallback: compute from raw data
+      console.log("[CRM Suggestions] No snapshot found, computing from raw data...");
+      const crmRows = await fetchAllCrmRows(supabase, workspaceId);
+
+      if (crmRows.length === 0) {
+        return NextResponse.json({
+          suggestions: [],
+          analysis: "Nenhum dado de CRM encontrado para este workspace. Importe seus dados primeiro.",
+        });
+      }
+
+      const report = generateRfmReport(crmRows);
+      reportCustomers = report.customers;
+      reportSummary = report.summary;
+      reportSegments = report.segments;
+      reportBehavioral = report.behavioralDistributions as unknown as Record<string, unknown>;
+    }
+
+    if (reportCustomers.length === 0) {
       return NextResponse.json({
         suggestions: [],
         analysis: "Nenhum dado de CRM encontrado para este workspace. Importe seus dados primeiro.",
       });
     }
 
-    const report = generateRfmReport(crmRows);
-    let customers = report.customers;
+    let customers = reportCustomers;
 
     // "Nao Perturbe" — exclude customers from recent exports within cooldown period
     let excludedCount = 0;
     if (cooldownDays > 0 && exportLogs.length > 0) {
-      const doNotDisturb = buildDoNotDisturbSet(report.customers, exportLogs, cooldownDays);
+      const doNotDisturb = buildDoNotDisturbSet(reportCustomers, exportLogs, cooldownDays);
       excludedCount = doNotDisturb.size;
       if (excludedCount > 0) {
         customers = customers.filter((c) => !doNotDisturb.has(c.email));
@@ -71,8 +108,8 @@ export async function POST(request: NextRequest) {
 
     // Build concise data for the LLM
     const crmContext = {
-      summary: report.summary,
-      segments: report.segments.map((s) => ({
+      summary: reportSummary,
+      segments: reportSegments.map((s) => ({
         name: s.segment,
         label: s.label,
         count: s.customerCount,
@@ -80,7 +117,7 @@ export async function POST(request: NextRequest) {
         avgTicket: s.avgTicket,
         avgRecency: s.avgRecency,
       })),
-      behavioral: report.behavioralDistributions,
+      behavioral: reportBehavioral,
       recentExports: exportLogs.map((e) => ({
         type: e.export_type,
         filters: e.filters,
@@ -112,11 +149,11 @@ export async function POST(request: NextRequest) {
 ${crmContext.segments.map((s) => `- ${s.name} (${s.label}): ${s.count} clientes | recencia: ${s.avgRecency.toFixed(0)}d | ticket: R$${s.avgTicket.toFixed(0)} | receita: R$${s.revenue.toFixed(0)}`).join("\n")}
 
 ### Distribuicoes Comportamentais
-- Dia da semana: ${JSON.stringify(crmContext.behavioral.weekday)}
-- Horario: ${JSON.stringify(crmContext.behavioral.hourOfDay)}
-- Dia do mes: ${JSON.stringify(crmContext.behavioral.dayOfMonth)}
-- Cupom: ${JSON.stringify(crmContext.behavioral.couponUsage)}
-- Lifecycle: ${JSON.stringify(crmContext.behavioral.lifecycle)}
+- Dia da semana: ${JSON.stringify((crmContext.behavioral as Record<string, unknown>).weekday)}
+- Horario: ${JSON.stringify((crmContext.behavioral as Record<string, unknown>).hourOfDay)}
+- Dia do mes: ${JSON.stringify((crmContext.behavioral as Record<string, unknown>).dayOfMonth)}
+- Cupom: ${JSON.stringify((crmContext.behavioral as Record<string, unknown>).couponUsage)}
+- Lifecycle: ${JSON.stringify((crmContext.behavioral as Record<string, unknown>).lifecycle)}
 
 ### Cruzamentos de Filtros com Contagem REAL
 IMPORTANTE: Use APENAS combinacoes desta lista. O campo "count" e o numero EXATO de clientes.

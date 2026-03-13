@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   Bot,
   ShieldOff,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -428,6 +429,9 @@ export default function CrmPage() {
     desconto_pct: number; other_expenses_pct: number; invest_pct: number;
   } | null>(null);
 
+  // Snapshot recompute
+  const [computing, setComputing] = useState(false);
+
   // Export logs
   interface ExportLog {
     id: string;
@@ -545,6 +549,29 @@ export default function CrmPage() {
       setMetricsLoading(false);
     }
   }, [wsHeaders, metricsPeriod]);
+
+  // Recompute RFM snapshot
+  const handleRecompute = useCallback(async () => {
+    setComputing(true);
+    try {
+      const res = await fetch("/api/crm/compute", {
+        method: "POST",
+        headers: wsHeaders(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error("[CRM] Recompute failed:", data.error);
+      } else {
+        // Reload all data from the fresh snapshot
+        setCustomersLoaded(false);
+        await Promise.all([fetchSummary(), fetchMetrics(), fetchExportLogs()]);
+      }
+    } catch (err) {
+      console.error("[CRM] Recompute error:", err);
+    } finally {
+      setComputing(false);
+    }
+  }, [wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
 
   // Stage 1: mount — summary + metrics (light payloads)
   useEffect(() => {
@@ -800,20 +827,32 @@ export default function CrmPage() {
             Analise RFM e comportamental para comunicacoes personalizadas
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0 mt-1">
-          <ShieldOff className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Nao perturbe:</span>
-          <select
-            value={cooldownDays}
-            onChange={(e) => setCooldownDays(Number(e.target.value))}
-            className="text-xs bg-card border border-border rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        <div className="flex items-center gap-3 shrink-0 mt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={handleRecompute}
+            disabled={computing || loading}
           >
-            <option value={0}>Desativado</option>
-            <option value={3}>3 dias</option>
-            <option value={7}>7 dias</option>
-            <option value={14}>14 dias</option>
-            <option value={30}>30 dias</option>
-          </select>
+            <RefreshCw className={`h-3.5 w-3.5 ${computing ? "animate-spin" : ""}`} />
+            {computing ? "Atualizando..." : "Atualizar dados"}
+          </Button>
+          <div className="flex items-center gap-1.5">
+            <ShieldOff className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Nao perturbe:</span>
+            <select
+              value={cooldownDays}
+              onChange={(e) => setCooldownDays(Number(e.target.value))}
+              className="text-xs bg-card border border-border rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              <option value={0}>Desativado</option>
+              <option value={3}>3 dias</option>
+              <option value={7}>7 dias</option>
+              <option value={14}>14 dias</option>
+              <option value={30}>30 dias</option>
+            </select>
+          </div>
         </div>
       </div>
 
