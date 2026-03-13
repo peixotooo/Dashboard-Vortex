@@ -1,11 +1,12 @@
 /**
  * Vortex Smart Shelves - Script Cliente
- * Substitui SmartHint nas lojas VNDA
+ * Prateleiras inteligentes para lojas VNDA
  *
  * Instalacao via GTM:
  *   var _shelvesKey = "SUA_API_KEY";
+ *   var _shelvesBase = "https://dash.seudominio.com.br";
  *   (function(){var s=document.createElement('script');s.async=true;
- *   s.src='https://SEU_DOMINIO/shelves.js';document.head.appendChild(s)})();
+ *   s.src=_shelvesBase+'/shelves.js';document.head.appendChild(s)})();
  */
 (function () {
   "use strict";
@@ -16,11 +17,9 @@
 
   // Try to detect API_BASE from script src if not explicitly set
   if (!API_BASE) {
-    // document.currentScript works for sync scripts
     if (document.currentScript && document.currentScript.src) {
       API_BASE = document.currentScript.src.replace("/shelves.js", "");
     } else {
-      // For async/GTM-loaded scripts, find our script tag by src
       var scripts = document.querySelectorAll('script[src*="shelves.js"]');
       for (var i = 0; i < scripts.length; i++) {
         if (scripts[i].src.indexOf("shelves.js") !== -1) {
@@ -40,6 +39,8 @@
     console.warn("[Shelves] Could not detect API base URL. Set window._shelvesBase before loading.");
     return;
   }
+
+  console.log("[Shelves] Init | key:", API_KEY.slice(0, 8) + "...", "| base:", API_BASE);
 
   // --- Cookie / Session helpers ---
 
@@ -114,6 +115,84 @@
     return null;
   }
 
+  // --- Auto-injection: create anchor elements at strategic positions ---
+
+  var INJECTION_POINTS = {
+    home: [
+      { after: "section.banners-grid" },
+      { after: "section.products" },
+      { after: "section.section-icons" },
+      { before: "footer, .footer" },
+      { before: "footer, .footer" }
+    ],
+    product: [
+      { after: ".product-description, .product-info, section.product" },
+      { after: "#yv-reviews, .product-reviews" },
+      { before: "footer, .footer" }
+    ],
+    category: [
+      { after: "section.products, .category-products" },
+      { before: "footer, .footer" }
+    ],
+    cart: [
+      { before: "footer, .footer" }
+    ]
+  };
+
+  function findElement(selectorList) {
+    var selectors = selectorList.split(",");
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i].trim());
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function getOrCreateAnchor(shelf, pageType, index) {
+    // 1. Try explicit anchor_selector from config
+    if (shelf.anchor_selector) {
+      var el = document.querySelector(shelf.anchor_selector);
+      if (el) return el;
+    }
+
+    // 2. Check if auto-created anchor already exists
+    var existingId = "vtx-shelf-" + shelf.position;
+    var existing = document.getElementById(existingId);
+    if (existing) return existing;
+
+    // 3. Auto-create and inject at strategic position
+    var anchor = document.createElement("div");
+    anchor.id = existingId;
+    anchor.className = "vtx-shelf-container";
+
+    var points = INJECTION_POINTS[pageType] || [{ before: "footer, .footer" }];
+    var point = points[index] || points[points.length - 1];
+
+    var ref = null;
+    if (point.after) {
+      ref = findElement(point.after);
+      if (ref && ref.parentNode) {
+        ref.parentNode.insertBefore(anchor, ref.nextSibling);
+        console.log("[Shelves] Injected #" + existingId, "after", point.after);
+        return anchor;
+      }
+    }
+    if (point.before) {
+      ref = findElement(point.before);
+      if (ref && ref.parentNode) {
+        ref.parentNode.insertBefore(anchor, ref);
+        console.log("[Shelves] Injected #" + existingId, "before", point.before);
+        return anchor;
+      }
+    }
+
+    // Last resort: append to main or body
+    var container = document.querySelector("main") || document.body;
+    container.appendChild(anchor);
+    console.log("[Shelves] Injected #" + existingId, "at end of", container.tagName);
+    return anchor;
+  }
+
   // --- API calls ---
 
   function fetchJSON(url) {
@@ -157,7 +236,6 @@
       shelf_config_id: shelfConfigId || null,
     };
 
-    // Use sendBeacon for reliability on page unload, fallback to fetch
     var payload = JSON.stringify(body);
     if (navigator.sendBeacon) {
       navigator.sendBeacon(
@@ -174,7 +252,7 @@
     }
   }
 
-  // --- GA4 events (SmartHint-compatible) ---
+  // --- GA4 events ---
 
   function fireGA4Impression(shelf, products) {
     var dl = window.dataLayer;
@@ -186,15 +264,12 @@
       offers: "offers",
       most_popular: "most-popular",
       last_viewed: "last-viewed",
-      what_others_see_now: "others-customers-now",
-      for_you: "for-you",
     };
 
-    var listId = "smarthint-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
+    var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
 
     dl.push({
       event: "view_item_list",
-      category_event: "SmartHint",
       item_list_id: listId,
       item_list_name: shelf.title,
       items: products.map(function (p, idx) {
@@ -222,11 +297,10 @@
       last_viewed: "last-viewed",
     };
 
-    var listId = "smarthint-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
+    var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
 
     dl.push({
       event: "select_item",
-      category_event: "SmartHint",
       item_list_id: listId,
       item_list_name: shelf.title,
       items: [
@@ -258,34 +332,21 @@
         ((product.price - product.sale_price) / product.price) * 100
       );
       priceHTML =
-        '<del>R$' + formatPrice(product.price) + "</del>" +
-        '<ins>R$' + formatPrice(product.sale_price) + "</ins>" +
-        '<span class="max_installments" value="' + product.sale_price + '"></span>';
+        '<div class="price-wrapper">';
       if (pct > 0) {
-        priceHTML =
-          '<span class="discount-tag">-' + pct + "%</span>" + priceHTML;
+        priceHTML += '<span class="vtx-discount-tag">-' + pct + "%</span>";
       }
+      priceHTML +=
+        '<del class="vtx-price-original">R$ ' + formatPrice(product.price) + "</del>" +
+        '<span class="vtx-price-sale">R$ ' + formatPrice(product.sale_price) + "</span>" +
+        '<span class="vtx-installments" data-price="' + product.sale_price + '"></span>' +
+        "</div>";
     } else {
       priceHTML =
-        "<span>R$" + formatPrice(product.price) + "</span>" +
-        '<span class="max_installments" value="' + product.price + '"></span>';
-    }
-
-    // Build tag flags from product tags
-    var flagsHTML = "";
-    if (product.tags && Array.isArray(product.tags)) {
-      product.tags.forEach(function (tag) {
-        if (tag === "mais-vendidos") {
-          flagsHTML +=
-            '<div class="flag topo esquerda">MAIS VENDIDOS</div>';
-        } else if (tag === "lancamentos-flag") {
-          flagsHTML +=
-            '<div class="flag topo esquerda">Lancamentos</div>';
-        } else if (tag === "outlet-flag") {
-          flagsHTML +=
-            '<div class="flag topo direita">Super Desconto</div>';
-        }
-      });
+        '<div class="price-wrapper">' +
+        '<span class="vtx-price">R$ ' + formatPrice(product.price) + "</span>" +
+        '<span class="vtx-installments" data-price="' + product.price + '"></span>' +
+        "</div>";
     }
 
     var imgSrc = product.image_url || "";
@@ -293,78 +354,140 @@
     var link = product.product_url || "#";
 
     // Optimize image URL (800px width via VNDA CDN)
-    if (imgSrc.indexOf("/bulking/") !== -1) {
-      imgSrc = imgSrc.replace("/bulking/", "/800x/bulking/");
+    if (imgSrc.indexOf("cdn.vnda.com.br") !== -1) {
+      imgSrc = imgSrc.replace(/\/(\d+x\/)?/, "/800x/");
     }
-    if (imgSrc2.indexOf("/bulking/") !== -1) {
-      imgSrc2 = imgSrc2.replace("/bulking/", "/800x/bulking/");
+    if (imgSrc2.indexOf("cdn.vnda.com.br") !== -1) {
+      imgSrc2 = imgSrc2.replace(/\/(\d+x\/)?/, "/800x/");
     }
 
     return (
-      '<div class="apoio-sh item" data-shproductid="' + product.product_id + '">' +
-        '<div class="product-block" data-product-box="">' +
-          '<div class="images">' +
-            '<a href="' + link + '">' +
-              '<figure class="image -square">' +
-                '<img alt="' + (product.name || "") + '" src="' + imgSrc + '">' +
-                '<img alt="' + (product.name || "") + '" src="' + imgSrc2 + '">' +
-              "</figure>" +
-              flagsHTML +
-            "</a>" +
-          "</div>" +
-          '<div class="description">' +
-            '<h3 class="name"><a href="' + link + '">' + (product.name || "") + "</a></h3>" +
-            priceHTML +
-          "</div>" +
+      '<div class="product-block" data-vtx-product-id="' + product.product_id + '">' +
+        '<div class="images">' +
+          '<a href="' + link + '">' +
+            '<figure class="image -square">' +
+              '<img alt="' + (product.name || "") + '" src="' + imgSrc + '" loading="lazy">' +
+              '<img alt="' + (product.name || "") + '" src="' + imgSrc2 + '" loading="lazy">' +
+            "</figure>" +
+          "</a>" +
+        "</div>" +
+        '<div class="description">' +
+          '<h3 class="name"><a href="' + link + '">' + (product.name || "") + "</a></h3>" +
+          priceHTML +
         "</div>" +
       "</div>"
     );
   }
 
   function buildShelfHTML(shelf, products) {
-    var cards = products
+    var slides = products
       .map(function (p) {
-        return buildProductCard(p);
+        return '<div class="swiper-slide">' + buildProductCard(p) + "</div>";
       })
       .join("");
 
     return (
-      '<section class="section products carousel container section-home">' +
+      '<section class="section products carousel container vtx-shelf" data-vtx-algorithm="' + shelf.algorithm + '">' +
         '<div class="header">' +
           '<h2 class="title">' + shelf.title + "</h2>" +
         "</div>" +
-        '<div class="content" data-products-carousel="">' +
-          '<div class="slick-it">' +
-            cards +
+        '<div class="swiper vtx-swiper">' +
+          '<div class="swiper-wrapper">' +
+            slides +
           "</div>" +
+          '<div class="swiper-pagination"></div>' +
+          '<div class="swiper-button-prev"></div>' +
+          '<div class="swiper-button-next"></div>' +
         "</div>" +
       "</section>"
     );
   }
 
-  function initSlick(container) {
-    var el = container.querySelector(".slick-it");
-    if (!el) return;
+  function initSwiper(container) {
+    var swiperEl = container.querySelector(".vtx-swiper");
+    if (!swiperEl) return;
 
-    // Wait for jQuery + Slick to be available
     function tryInit() {
-      if (window.jQuery && jQuery.fn.slick) {
-        jQuery(el).slick({
-          dots: true,
-          arrows: true,
-          slidesToShow: 4,
-          slidesToScroll: 1,
-          responsive: [
-            { breakpoint: 1030, settings: { slidesToShow: 4 } },
-            { breakpoint: 660, settings: { slidesToShow: 2 } },
-          ],
+      if (window.Swiper) {
+        new Swiper(swiperEl, {
+          slidesPerView: 2,
+          spaceBetween: 16,
+          pagination: {
+            el: swiperEl.querySelector(".swiper-pagination"),
+            clickable: true,
+          },
+          navigation: {
+            nextEl: swiperEl.querySelector(".swiper-button-next"),
+            prevEl: swiperEl.querySelector(".swiper-button-prev"),
+          },
+          breakpoints: {
+            660: { slidesPerView: 3, spaceBetween: 16 },
+            1030: { slidesPerView: 4, spaceBetween: 20 },
+          },
         });
+        console.log("[Shelves] Swiper initialized");
       } else {
-        // Retry after 200ms (Slick may still be loading)
-        setTimeout(tryInit, 200);
+        setTimeout(tryInit, 300);
       }
     }
     tryInit();
+  }
+
+  // --- Installments ---
+
+  function calculateInstallments(container) {
+    try {
+      var valorMinimoParcela = 12.72;
+      var numeroMaximoParcelas = 6;
+      var els = container.querySelectorAll(".vtx-installments");
+      for (var j = 0; j < els.length; j++) {
+        var val = parseFloat(els[j].getAttribute("data-price"));
+        if (val && val > valorMinimoParcela) {
+          var parcelas = Math.min(
+            Math.floor(val / valorMinimoParcela),
+            numeroMaximoParcelas
+          );
+          if (parcelas >= 2) {
+            var valorParcela = (val / parcelas).toFixed(2).replace(".", ",");
+            els[j].textContent =
+              parcelas + "x de R$ " + valorParcela + " s/ juros";
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // --- Inject minimal CSS ---
+
+  function injectStyles() {
+    var css =
+      ".vtx-shelf-container { width: 100%; }" +
+      ".vtx-shelf { padding: 24px 0; }" +
+      ".vtx-shelf .header { text-align: center; margin-bottom: 20px; }" +
+      ".vtx-shelf .header .title { font-size: 1.4em; font-weight: 600; }" +
+      ".vtx-shelf .product-block { text-align: center; }" +
+      ".vtx-shelf .product-block .images { position: relative; overflow: hidden; }" +
+      ".vtx-shelf .product-block .images figure { margin: 0; }" +
+      ".vtx-shelf .product-block .images img { width: 100%; height: auto; display: block; }" +
+      ".vtx-shelf .product-block .images img:nth-child(2) { display: none; }" +
+      ".vtx-shelf .product-block:hover .images img:first-child { display: none; }" +
+      ".vtx-shelf .product-block:hover .images img:nth-child(2) { display: block; }" +
+      ".vtx-shelf .product-block .description { padding: 12px 8px; }" +
+      ".vtx-shelf .product-block .name { font-size: 0.85em; font-weight: 400; margin: 0 0 8px; line-height: 1.3; }" +
+      ".vtx-shelf .product-block .name a { color: inherit; text-decoration: none; }" +
+      ".vtx-shelf .price-wrapper { font-size: 0.9em; }" +
+      ".vtx-shelf .vtx-price, .vtx-shelf .vtx-price-sale { font-weight: 600; color: #333; }" +
+      ".vtx-shelf .vtx-price-original { color: #999; font-size: 0.85em; text-decoration: line-through; margin-right: 6px; }" +
+      ".vtx-shelf .vtx-discount-tag { display: inline-block; background: #e74c3c; color: #fff; font-size: 0.75em; padding: 2px 6px; border-radius: 3px; margin-right: 6px; }" +
+      ".vtx-shelf .vtx-installments { display: block; font-size: 0.75em; color: #777; margin-top: 4px; }" +
+      ".vtx-shelf .swiper-button-prev, .vtx-shelf .swiper-button-next { color: #333; }" +
+      ".vtx-shelf .swiper-pagination-bullet-active { background: #333; }";
+
+    var style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
   }
 
   // --- Main ---
@@ -373,27 +496,29 @@
     var html = buildShelfHTML(shelf, products);
     anchor.innerHTML = html;
 
-    // Init carousel
-    initSlick(anchor);
+    // Init Swiper carousel
+    initSwiper(anchor);
+
+    // Calculate installments
+    calculateInstallments(anchor);
 
     // Fire GA4 impression
     fireGA4Impression(shelf, products);
 
     // Attach click handlers
-    var links = anchor.querySelectorAll(".apoio-sh a");
-    for (var i = 0; i < links.length; i++) {
-      (function (link, idx) {
-        link.addEventListener("click", function () {
-          var card = link.closest(".apoio-sh");
-          var pid = card ? card.getAttribute("data-shproductid") : null;
-          var product = products[idx] || products.find(function (p) { return p.product_id === pid; });
+    var cards = anchor.querySelectorAll(".product-block[data-vtx-product-id]");
+    for (var i = 0; i < cards.length; i++) {
+      (function (card, idx) {
+        card.addEventListener("click", function (e) {
+          var pid = card.getAttribute("data-vtx-product-id");
+          var product = products.find(function (p) { return p.product_id === pid; }) || products[idx];
 
           if (product) {
             trackEvent("click", pid, shelf.id);
             fireGA4Click(shelf, product, idx);
           }
         });
-      })(links[i], Math.floor(i / 2)); // 2 links per card (image + name)
+      })(cards[i], i);
     }
 
     // Track shelf impression
@@ -404,6 +529,9 @@
     var pageType = detectPageType();
     console.log("[Shelves] Page type:", pageType, "| API_BASE:", API_BASE);
     if (pageType === "other") return;
+
+    // Inject styles
+    injectStyles();
 
     try {
       // Fetch config
@@ -419,7 +547,6 @@
         var pid = extractProductId();
         if (pid) {
           extraParams.product_id = pid;
-          // Track product pageview
           trackEvent("pageview", pid, null);
         }
       }
@@ -440,46 +567,16 @@
       var results = await Promise.all(promises);
 
       // Render each shelf
-      results.forEach(function (result) {
-        if (result.products.length === 0) return;
-
-        var selector =
-          result.shelf.anchor_selector ||
-          "#smarthint-position-" + result.shelf.position;
-        var anchor = document.querySelector(selector);
-
-        if (anchor) {
-          renderShelf(result.shelf, result.products, anchor);
-          console.log("[Shelves] Rendered", result.shelf.algorithm, "at", selector);
-        } else {
-          console.warn("[Shelves] Anchor not found:", selector);
+      results.forEach(function (result, index) {
+        if (result.products.length === 0) {
+          console.warn("[Shelves]", result.shelf.algorithm, "- no products, skipping");
+          return;
         }
+
+        var anchor = getOrCreateAnchor(result.shelf, pageType, index);
+        renderShelf(result.shelf, result.products, anchor);
+        console.log("[Shelves] Rendered", result.shelf.algorithm, "(" + result.products.length + " products)");
       });
-
-      // Installment calculation (Bulking config)
-      try {
-        var valorMinimoParcela = 12.72;
-        var numeroMaximoParcelas = 6;
-        var installmentEls = document.querySelectorAll(
-          ".apoio-sh .max_installments"
-        );
-        for (var j = 0; j < installmentEls.length; j++) {
-          var val = parseFloat(installmentEls[j].getAttribute("value"));
-          if (val && val > valorMinimoParcela) {
-            var parcelas = Math.min(
-              Math.floor(val / valorMinimoParcela),
-              numeroMaximoParcelas
-            );
-            if (parcelas >= 2) {
-              var valorParcela = (val / parcelas).toFixed(2).replace(".", ",");
-              installmentEls[j].textContent =
-                "Ou em " + parcelas + "x de R$ " + valorParcela + " sem juros";
-            }
-          }
-        }
-      } catch (e) {
-        // ignore installment errors
-      }
     } catch (err) {
       console.error("[Shelves] Init error:", err);
     }
