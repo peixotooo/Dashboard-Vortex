@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!validateWebhookPayload(payload)) {
+    console.warn(`[VNDA Webhook] Validation failed for workspace ${workspaceId}: missing id, email, or total`);
     await logWebhook(admin, workspaceId, null, "error", payload, "Payload validation failed: missing id, email, or total");
     // Return 200 to avoid VNDA retries on bad payloads
     return NextResponse.json({ ok: false, reason: "validation_failed" });
@@ -63,17 +64,26 @@ export async function POST(request: NextRequest) {
     if (upsertError) {
       // Check if it's a unique constraint violation (duplicate)
       if (upsertError.code === "23505") {
+        console.log(`[VNDA Webhook] Duplicate order ${orderId} for workspace ${workspaceId}`);
         await logWebhook(admin, workspaceId, orderId, "duplicate", null, null);
         return NextResponse.json({ ok: true, status: "duplicate" });
       }
       throw upsertError;
     }
 
+    console.log(`[VNDA Webhook] Order ${orderId} created for workspace ${workspaceId}`);
     await logWebhook(admin, workspaceId, orderId, "success", null, null);
+
+    // Invalidate snapshot so CRM shows fresh data on next load
+    await admin
+      .from("crm_rfm_snapshots")
+      .delete()
+      .eq("workspace_id", workspaceId);
+
     return NextResponse.json({ ok: true, status: "created" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[VNDA Webhook] Error processing order ${orderId}:`, message);
+    console.error(`[VNDA Webhook] Error processing order ${orderId} for workspace ${workspaceId}:`, message);
     await logWebhook(admin, workspaceId, orderId, "error", payload, message);
     // Return 200 to prevent aggressive retries from VNDA
     return NextResponse.json({ ok: false, reason: "processing_error" });
