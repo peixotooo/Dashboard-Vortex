@@ -210,6 +210,36 @@ export default function ShelvesPage() {
     await loadConfigs();
   }
 
+  async function handleApplyPreset(preset: "home" | "product") {
+    const presets: Record<
+      string,
+      Array<{ page_type: string; position: number; algorithm: string; title: string; max_products: number }>
+    > = {
+      home: [
+        { page_type: "home", position: 1, algorithm: "news", title: "Lancamentos", max_products: 12 },
+        { page_type: "home", position: 2, algorithm: "bestsellers", title: "Mais vendidos", max_products: 12 },
+        { page_type: "home", position: 3, algorithm: "most_popular", title: "Mais vistos", max_products: 12 },
+        { page_type: "home", position: 4, algorithm: "offers", title: "Ofertas especiais", max_products: 12 },
+        { page_type: "home", position: 5, algorithm: "last_viewed", title: "Vistos recentemente", max_products: 12 },
+      ],
+      product: [
+        { page_type: "product", position: 1, algorithm: "bestsellers", title: "Mais vendidos", max_products: 12 },
+        { page_type: "product", position: 2, algorithm: "most_popular", title: "Mais vistos", max_products: 12 },
+        { page_type: "product", position: 3, algorithm: "offers", title: "Ofertas especiais", max_products: 12 },
+      ],
+    };
+
+    const items = presets[preset] || [];
+    for (const item of items) {
+      await fetch("/api/shelves/configs", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(item),
+      });
+    }
+    await loadConfigs();
+  }
+
   async function handleSync() {
     setSyncing(true);
     setSyncResult(null);
@@ -377,6 +407,30 @@ export default function ShelvesPage() {
 
         {/* Configurations Tab */}
         <TabsContent value="configs" className="space-y-6 mt-4">
+          {configs.length === 0 && (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center space-y-4">
+                  <p className="text-muted-foreground">
+                    Nenhuma prateleira configurada. Use um preset para comecar rapidamente:
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    <Button onClick={() => handleApplyPreset("home")}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Preset Home (5 prateleiras)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleApplyPreset("product")}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Preset Produto (3 prateleiras)
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {groupedConfigs.map((group) => (
             <Card key={group.value}>
               <CardHeader className="pb-3">
