@@ -1337,42 +1337,43 @@ export default function SettingsPage() {
                       </Badge>
                     </div>
 
-                    {!domainVerified && (
-                      <div className="space-y-3 p-4 border border-border rounded-lg bg-muted/50">
-                        <p className="text-sm font-medium">Configure o DNS do seu domínio:</p>
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                            <span className="text-muted-foreground">Tipo</span>
-                            <span className="text-muted-foreground">Nome</span>
-                            <span className="text-muted-foreground">Valor</span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
-                            <span>CNAME</span>
-                            <span>{customDomain.split(".")[0]}</span>
-                            <span>cname.vercel-dns.com</span>
-                          </div>
-                          {domainVerification.map((v, i) => (
-                            <div key={i} className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
-                              <span>{v.type}</span>
-                              <span className="truncate">{v.domain}</span>
-                              <span className="truncate">{v.value}</span>
-                            </div>
-                          ))}
+                    <div className="space-y-3 p-4 border border-border rounded-lg bg-muted/50">
+                      <p className="text-sm font-medium">
+                        {domainVerified ? "Configuração de DNS (referência):" : "Configure o DNS do seu domínio:"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        No painel do seu provedor de DNS (Registro.br, Cloudflare, etc.), adicione o registro abaixo:
+                      </p>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2 text-xs font-mono">
+                          <span className="text-muted-foreground">Tipo</span>
+                          <span className="text-muted-foreground">Nome</span>
+                          <span className="text-muted-foreground">Valor</span>
                         </div>
+                        <div className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
+                          <span>CNAME</span>
+                          <span>{customDomain.split(".")[0]}</span>
+                          <span>cname.vercel-dns.com</span>
+                        </div>
+                        {domainVerification.map((v, i) => (
+                          <div key={i} className="grid grid-cols-3 gap-2 text-sm font-mono bg-background p-2 rounded">
+                            <span>{v.type}</span>
+                            <span className="truncate">{v.domain}</span>
+                            <span className="truncate">{v.value}</span>
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
 
                     <div className="flex gap-2">
-                      {!domainVerified && (
-                        <Button
-                          onClick={handleVerifyDomain}
-                          disabled={verifyingDomain}
-                          variant="outline"
-                        >
-                          <RefreshCw className={`h-4 w-4 mr-2 ${verifyingDomain ? "animate-spin" : ""}`} />
-                          {verifyingDomain ? "Verificando..." : "Verificar DNS"}
-                        </Button>
-                      )}
+                      <Button
+                        onClick={handleVerifyDomain}
+                        disabled={verifyingDomain}
+                        variant="outline"
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${verifyingDomain ? "animate-spin" : ""}`} />
+                        {verifyingDomain ? "Verificando..." : "Verificar DNS"}
+                      </Button>
                       <Button
                         onClick={handleRemoveDomain}
                         disabled={removingDomain}
