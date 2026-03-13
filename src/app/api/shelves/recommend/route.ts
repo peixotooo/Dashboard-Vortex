@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { getRecommendations } from "@/lib/shelves/algorithms";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 // Cache durations per algorithm (seconds)
 const CACHE_TTL: Record<string, number> = {
   bestsellers: 300,
@@ -22,13 +28,13 @@ export async function GET(request: NextRequest) {
   if (!algorithm) {
     return NextResponse.json(
       { error: "Missing algorithm parameter" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
   const auth = await validateApiKey(key);
   if (!auth) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: CORS_HEADERS });
   }
 
   try {
@@ -42,8 +48,7 @@ export async function GET(request: NextRequest) {
 
     const ttl = CACHE_TTL[algorithm] ?? 300;
     const headers: HeadersInit = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      ...CORS_HEADERS,
     };
 
     if (ttl > 0) {
@@ -56,7 +61,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[Shelves Recommend]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: CORS_HEADERS });
   }
 }
 

@@ -731,8 +731,9 @@ export default function ShelvesPage() {
                   <pre className="rounded-lg bg-muted p-4 text-xs overflow-x-auto">
                     {`<script>
 var _shelvesKey = "${apiKeys[0]?.key || "SUA_API_KEY"}";
+var _shelvesBase = "${typeof window !== "undefined" ? window.location.origin : "https://SEU_DOMINIO"}";
 (function(){var s=document.createElement('script');s.async=true;
-s.src='${typeof window !== "undefined" ? window.location.origin : "https://SEU_DOMINIO"}/shelves.js';
+s.src=_shelvesBase+'/shelves.js';
 document.head.appendChild(s)})();
 </script>`}
                   </pre>
@@ -742,7 +743,7 @@ document.head.appendChild(s)})();
                     className="absolute top-2 right-2"
                     onClick={() =>
                       copyToClipboard(
-                        `<script>\nvar _shelvesKey = "${apiKeys[0]?.key || "SUA_API_KEY"}";\n(function(){var s=document.createElement('script');s.async=true;\ns.src='${typeof window !== "undefined" ? window.location.origin : "https://SEU_DOMINIO"}/shelves.js';\ndocument.head.appendChild(s)})();\n</script>`
+                        `<script>\nvar _shelvesKey = "${apiKeys[0]?.key || "SUA_API_KEY"}";\nvar _shelvesBase = "${typeof window !== "undefined" ? window.location.origin : "https://SEU_DOMINIO"}";\n(function(){var s=document.createElement('script');s.async=true;\ns.src=_shelvesBase+'/shelves.js';\ndocument.head.appendChild(s)})();\n</script>`
                       )
                     }
                   >

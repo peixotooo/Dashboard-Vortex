@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: CORS_HEADERS });
   }
 
   const {
@@ -24,13 +30,13 @@ export async function POST(request: NextRequest) {
   if (!session_id || !event_type) {
     return NextResponse.json(
       { error: "Missing session_id or event_type" },
-      { status: 400 }
+      { status: 400, headers: CORS_HEADERS }
     );
   }
 
   const auth = await validateApiKey(key as string);
   if (!auth) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: CORS_HEADERS });
   }
 
   const admin = createAdminClient();
@@ -79,15 +85,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { ok: true },
-      {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-        },
-      }
+      { headers: CORS_HEADERS }
     );
   } catch (error) {
     console.error("[Shelves Track]", error);
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ ok: false }, { status: 500, headers: CORS_HEADERS });
   }
 }
 

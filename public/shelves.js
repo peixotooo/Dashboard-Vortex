@@ -12,13 +12,32 @@
 
   // --- Config ---
   var API_KEY = window._shelvesKey || "";
-  var API_BASE =
-    document.currentScript && document.currentScript.src
-      ? document.currentScript.src.replace("/shelves.js", "")
-      : "";
+  var API_BASE = window._shelvesBase || "";
+
+  // Try to detect API_BASE from script src if not explicitly set
+  if (!API_BASE) {
+    // document.currentScript works for sync scripts
+    if (document.currentScript && document.currentScript.src) {
+      API_BASE = document.currentScript.src.replace("/shelves.js", "");
+    } else {
+      // For async/GTM-loaded scripts, find our script tag by src
+      var scripts = document.querySelectorAll('script[src*="shelves.js"]');
+      for (var i = 0; i < scripts.length; i++) {
+        if (scripts[i].src.indexOf("shelves.js") !== -1) {
+          API_BASE = scripts[i].src.replace("/shelves.js", "");
+          break;
+        }
+      }
+    }
+  }
 
   if (!API_KEY) {
     console.warn("[Shelves] Missing _shelvesKey. Set window._shelvesKey before loading.");
+    return;
+  }
+
+  if (!API_BASE) {
+    console.warn("[Shelves] Could not detect API base URL. Set window._shelvesBase before loading.");
     return;
   }
 
@@ -383,12 +402,14 @@
 
   async function init() {
     var pageType = detectPageType();
+    console.log("[Shelves] Page type:", pageType, "| API_BASE:", API_BASE);
     if (pageType === "other") return;
 
     try {
       // Fetch config
       var configData = await fetchConfig(pageType);
       var shelves = configData.shelves || [];
+      console.log("[Shelves] Config loaded:", shelves.length, "shelves for", pageType);
 
       if (shelves.length === 0) return;
 
@@ -407,9 +428,11 @@
       var promises = shelves.map(function (shelf) {
         return fetchRecommend(shelf.algorithm, shelf.max_products, extraParams)
           .then(function (data) {
+            console.log("[Shelves]", shelf.algorithm, "->", (data.products || []).length, "products");
             return { shelf: shelf, products: data.products || [] };
           })
-          .catch(function () {
+          .catch(function (err) {
+            console.error("[Shelves]", shelf.algorithm, "fetch error:", err);
             return { shelf: shelf, products: [] };
           });
       });
@@ -427,6 +450,9 @@
 
         if (anchor) {
           renderShelf(result.shelf, result.products, anchor);
+          console.log("[Shelves] Rendered", result.shelf.algorithm, "at", selector);
+        } else {
+          console.warn("[Shelves] Anchor not found:", selector);
         }
       });
 
