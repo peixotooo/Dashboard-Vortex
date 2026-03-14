@@ -500,7 +500,7 @@
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
       ".vtx-shelf .product-block { position: relative; padding: 0; transition: transform 0.2s; cursor: pointer; text-align: left; }" +
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
-      ".vtx-shelf .images .image { margin: 0; padding-bottom: 150%; position: relative; width: 100%; display: block; }" +
+      ".vtx-shelf .images .image { margin: 0; padding-bottom: 177.78%; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
       ".vtx-shelf .images .image img:nth-child(2) { opacity: 0; }" +
       ".vtx-shelf .product-block:hover .images .image img:nth-child(1) { opacity: 0; }" +
@@ -524,7 +524,7 @@
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
       ".vtx-skel-title { width: 200px; height: 24px; background: #eee; border-radius: 4px; margin: 0 auto 24px; }" +
-      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 2/3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
+      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 9/16; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
       "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
@@ -593,6 +593,15 @@
       '</section>';
   }
 
+  function shuffle(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+
   function fetchWithTimeout(promise, ms) {
     return Promise.race([
       promise,
@@ -646,7 +655,7 @@
 
           fetchWithTimeout(fetchRecommend(shelf, extraParams), 8000)
             .then(function (data) {
-              var products = data.products || [];
+              var products = shuffle(data.products || []);
               console.log("[Shelves] " + shelf.algorithm + " -> " + products.length + " products");
 
               if (products.length === 0) {
