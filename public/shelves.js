@@ -36,8 +36,8 @@
   }
 
   if (!API_BASE) {
-    console.warn("[Shelves] Could not detect API base URL. Set window._shelvesBase before loading.");
-    return;
+    API_BASE = "https://dash.bulking.com.br";
+    console.log("[Shelves] API_BASE fallback used:", API_BASE);
   }
 
   console.log("[Shelves] Init | key:", API_KEY.slice(0, 8) + "...", "| base:", API_BASE);
@@ -360,10 +360,11 @@
     var link = product.product_url || "#";
     
     // Fix link suffix if missing
-    if (link !== "#" && product.product_id && !link.endsWith("-" + product.product_id)) {
+    var sufix = "-" + product.product_id;
+    if (link !== "#" && product.product_id && link.indexOf(sufix, link.length - sufix.length) === -1) {
        // Only append if it doesn't already have a numeric suffix that looks like an ID
        if (!/-\d+$/.test(link)) {
-         link = link.replace(/\/$/, "") + "-" + product.product_id;
+         link = link.replace(/\/$/, "") + sufix;
        }
     }
 
@@ -381,6 +382,7 @@
         '<div class="description">' +
           '<h3 class="name"><a href="' + link + '">' + (product.name || "") + "</a></h3>" +
           priceHTML +
+          '<span class="vtx-installments" data-price="' + (product.sale_price || product.price) + '"></span>' +
         "</div>" +
       "</div>"
     );
@@ -389,7 +391,7 @@
   function cleanUrl(url) {
     if (!url) return "";
     var u = url;
-    if (u.startsWith("//")) u = "https:" + u;
+    if (u && u.indexOf("//") === 0) u = "https:" + u;
     if (u.indexOf("cdn.vnda.com.br") !== -1) {
       u = u.replace(/cdn\.vnda\.com\.br\/(\d+x\/)?/, "cdn.vnda.com.br/800x/");
     }
@@ -413,7 +415,6 @@
           '<div class="swiper-wrapper">' +
             slides +
           "</div>" +
-          '<div class="swiper-pagination"></div>' +
           '<div class="swiper-button-prev"></div>' +
           '<div class="swiper-button-next"></div>' +
         "</div>" +
@@ -430,10 +431,6 @@
         new Swiper(swiperEl, {
           slidesPerView: 2,
           spaceBetween: 16,
-          pagination: {
-            el: swiperEl.querySelector(".swiper-pagination"),
-            clickable: true,
-          },
           navigation: {
             nextEl: swiperEl.querySelector(".swiper-button-next"),
             prevEl: swiperEl.querySelector(".swiper-button-prev"),
@@ -493,31 +490,34 @@
 
   function injectStyles() {
     var css =
-      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; box-sizing: border-box; }" +
+      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1202px; padding: 0 15px; box-sizing: border-box; }" +
       ".vtx-shelf .header { text-align: center; margin-bottom: 24px; position: relative; }" +
       ".vtx-shelf .header .title { font-size: 24px; font-weight: 900; color: #000; text-transform: uppercase; letter-spacing: 1px; margin: 0; }" +
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
       ".vtx-shelf .product-block { position: relative; padding: 0; transition: transform 0.2s; cursor: pointer; text-align: left; }" +
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
-      ".vtx-shelf .images .image { margin: 0; position: relative; width: 100%; display: block; }" +
-      ".vtx-shelf .product-block > .images figure:after { content: ''; display: block; padding-bottom: 150%; }" +
+      ".vtx-shelf .images .image { margin: 0; padding-bottom: 150%; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
       ".vtx-shelf .images .image img:nth-child(2) { opacity: 0; }" +
       ".vtx-shelf .product-block:hover .images .image img:nth-child(1) { opacity: 0; }" +
       ".vtx-shelf .product-block:hover .images .image img:nth-child(2) { opacity: 1; }" +
       ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
+      ".vtx-discount-circle { position: absolute; bottom: 10px; left: 10px; background: #ff0000; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; z-index: 10; }" +
       ".vtx-shelf .description { text-align: left; }" +
       ".vtx-shelf .name { font-size: 13px; font-weight: 600; text-transform: uppercase; color: #333; margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" +
       ".vtx-shelf .name a { color: inherit; text-decoration: none; }" +
+      ".vtx-stars { display: flex !important; align-items: center !important; gap: 2px !important; margin-bottom: 8px !important; white-space: nowrap !important; flex-wrap: nowrap !important; line-height: 1 !important; width: 100% !important; overflow: hidden !important; }" +
+      ".vtx-stars .star { color: #ffd700 !important; font-size: 11px !important; display: inline-block !important; flex-shrink: 0 !important; }" +
+      ".vtx-stars .count { font-size: 10px !important; color: #999 !important; margin-left: 4px !important; font-weight: 500 !important; display: inline-block !important; flex-shrink: 0 !important; }" +
       ".vtx-price-row { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }" +
       ".vtx-price-top { display: flex; align-items: center; gap: 8px; }" +
       ".vtx-price-old { font-size: 12px; color: #999; text-decoration: line-through; }" +
       ".vtx-price-main { font-size: 20px; font-weight: 900; color: #000; line-height: 1; }" +
       ".vtx-discount-badge { background: #ff0000; color: #fff; padding: 2px 4px; font-size: 10px; font-weight: 900; border-radius: 2px; }" +
       ".vtx-installments { font-size: 11px; color: #666; margin-top: 4px; display: block; }" +
-      ".vtx-swiper { padding: 0; position: relative; }" +
+      ".vtx-swiper { padding: 0 0 20px; position: relative; }" +
       ".vtx-swiper .swiper-pagination { display: none !important; }" +
-      ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }" +
+      ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
@@ -551,7 +551,14 @@
       (function (card, idx) {
         card.addEventListener("click", function (e) {
           var pid = card.getAttribute("data-vtx-product-id");
-          var product = products.find(function (p) { return p.product_id === pid; }) || products[idx];
+          var product = null;
+          for (var j = 0; j < products.length; j++) {
+            if (products[j].product_id === pid) {
+              product = products[j];
+              break;
+            }
+          }
+          if (!product) product = products[idx];
 
           if (product) {
             trackEvent("click", pid, shelf.id);
@@ -565,7 +572,7 @@
     trackEvent("impression", null, shelf.id);
   }
 
-  async function init() {
+  function init() {
     var pageType = detectPageType();
     console.log("[Shelves] Page type:", pageType, "| API_BASE:", API_BASE);
     if (pageType === "other") return;
@@ -573,53 +580,66 @@
     // Inject styles
     injectStyles();
 
-    try {
-      // Fetch config
-      var configData = await fetchConfig(pageType);
-      var shelves = configData.shelves || [];
-      console.log("[Shelves] Config loaded:", shelves.length, "shelves for", pageType);
+    // Fetch config
+    fetchConfig(pageType)
+      .then(function (configData) {
+        var shelves = configData.shelves || [];
+        console.log("[Shelves] Config received:", shelves.length, "shelves definitions");
 
-      if (shelves.length === 0) return;
-
-      // Build extra params for product pages
-      var extraParams = {};
-      if (pageType === "product") {
-        var pid = extractProductId();
-        if (pid) {
-          extraParams.product_id = pid;
-          trackEvent("pageview", pid, null);
-        }
-      }
-
-      // Fetch all recommendations in parallel
-      var promises = shelves.map(function (shelf) {
-        return fetchRecommend(shelf.algorithm, shelf.max_products, extraParams)
-          .then(function (data) {
-            console.log("[Shelves]", shelf.algorithm, "->", (data.products || []).length, "products");
-            return { shelf: shelf, products: data.products || [] };
-          })
-          .catch(function (err) {
-            console.error("[Shelves]", shelf.algorithm, "fetch error:", err);
-            return { shelf: shelf, products: [] };
-          });
-      });
-
-      var results = await Promise.all(promises);
-
-      // Render each shelf
-      results.forEach(function (result, index) {
-        if (result.products.length === 0) {
-          console.warn("[Shelves]", result.shelf.algorithm, "- no products, skipping");
+        if (shelves.length === 0) {
+          console.warn("[Shelves] No enabled shelves found for page type:", pageType);
           return;
         }
 
-        var anchor = getOrCreateAnchor(result.shelf, pageType, index);
-        renderShelf(result.shelf, result.products, anchor);
-        console.log("[Shelves] Rendered", result.shelf.algorithm, "(" + result.products.length + " products)");
+        // Build extra params for product pages
+        var extraParams = {};
+        if (pageType === "product") {
+          var pid = extractProductId();
+          if (pid) {
+            extraParams.product_id = pid;
+            trackEvent("pageview", pid, null);
+          }
+        }
+
+        // Fetch all recommendations in parallel
+        var promises = shelves.map(function (shelf) {
+          return fetchRecommend(shelf.algorithm, shelf.max_products, extraParams)
+            .then(function (data) {
+              console.log("[Shelves] " + shelf.algorithm + " -> " + (data.products || []).length + " products");
+              return { shelf: shelf, products: data.products || [] };
+            })
+            .catch(function (err) {
+              console.error("[Shelves] " + shelf.algorithm + " fetch error:", err);
+              return { shelf: shelf, products: [] };
+            });
+        });
+
+        return Promise.all(promises);
+      })
+      .then(function (results) {
+        if (!results) return;
+
+        // Render each shelf
+        results.forEach(function (result, index) {
+          if (result.products.length === 0) {
+            console.warn("[Shelves] " + result.shelf.algorithm + " - no products found");
+            return;
+          }
+
+          console.log("[Shelves] Attempting to render " + result.shelf.algorithm + " at index " + index);
+          var anchor = getOrCreateAnchor(result.shelf, pageType, index);
+          if (!anchor) {
+            console.error("[Shelves] Failed to create anchor for " + result.shelf.algorithm);
+            return;
+          }
+
+          renderShelf(result.shelf, result.products, anchor);
+          console.log("[Shelves] Rendered algorithm '" + result.shelf.algorithm + "' at pos " + result.shelf.position);
+        });
+      })
+      .catch(function (err) {
+        console.error("[Shelves] Fatal Init Error:", err);
       });
-    } catch (err) {
-      console.error("[Shelves] Init error:", err);
-    }
   }
 
   // Run when DOM is ready

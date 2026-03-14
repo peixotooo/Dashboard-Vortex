@@ -6485,7 +6485,8 @@ Quando o coordenador pedir para executar um lancamento, siga esta ordem EXATA E 
 - OBRIGATORIO: Se for uma tarefa delegada pelo coordenador, execute TODOS os passos (create_campaign -> create_adset -> create_ad_creative -> create_ad) em uma unica vez, SEM PARAR PARA PEDIR CONFIRMACAO.
 - SEMPRE crie com status PAUSED a menos que o usuario pediu explicitamente para ativar
 - Para budgets acima de R$500/dia, confirme antes de criar (exceto se ja aprovado no plano)
-- Se algo falhar no meio, reporte o que foi criado e o que falhou
+- Se algo falhar no meio, reporte o que foi criado e o que falhou. MAS NAO comece tudo de novo.
+- **RECUPERACAO DE ERROS (CRITICO):** Se uma etapa falhar (ex: create_ad_creative retorna erro), REUTILIZE os IDs ja criados (campaign_id, adset_id) e retente APENAS a etapa que falhou. NUNCA crie uma nova campanha ou ad set se ja existe um criado neste fluxo — use o ID que ja foi retornado. Se o usuario pedir para tentar novamente apos um erro, use list_campaigns para verificar se a campanha ja existe antes de criar uma nova.
 - NUNCA invente image_hashes — use EXATAMENTE os que foram fornecidos no contexto
 - Se receber URLs de imagem em vez de hashes, use upload_image_from_url para obter o hash antes de criar o criativo
 - Ao delegar copy para create_ad_creative, passe title (headline), body (texto principal) e call_to_action

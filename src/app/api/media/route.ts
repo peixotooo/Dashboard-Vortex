@@ -17,7 +17,8 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
     const isVideo = mime_type.startsWith("video/");
     const imageUrl = getPublicUrl(storage_key);
 
-    console.log(`[MediaAPI] Handling pre-uploaded file: ${filename}, isVideo: ${isVideo}, imageUrl: ${imageUrl}`);
+    console.log(`[MediaAPI] Handling pre-uploaded file: ${filename}, type: ${mime_type}, isVideo: ${isVideo}`);
+    console.log(`[MediaAPI] B2 Public URL: ${imageUrl}`);
 
     let result: any;
     if (isVideo) {
@@ -26,19 +27,22 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
         videoMetaForm.set("file_url", imageUrl);
         try {
             result = await uploadAdVideo(videoMetaForm);
-            console.log("[MediaAPI] uploadAdVideo result:", result);
+            console.log("[MediaAPI] uploadAdVideo result (Meta ID):", result.id);
         } catch (err: any) {
             console.error("[MediaAPI] uploadAdVideo error:", err.message);
             return NextResponse.json({ error: `Meta Video Upload Error: ${err.message}` }, { status: 500 });
         }
     } else {
+        // Meta doesn't support file_url for images in the simple upload endpoint, 
+        // but we still want the image in B2 for our own records and gallery.
+        console.log("[MediaAPI] Downloading image from B2 for Meta upload...");
         const buffer = await downloadFile(storage_key);
         const imageMetaForm = new FormData();
         imageMetaForm.set("account_id", account_id);
         imageMetaForm.set("filename", new File([new Uint8Array(buffer)], filename, { type: mime_type }));
         try {
             result = await uploadAdImage(imageMetaForm);
-            console.log("[MediaAPI] uploadAdImage result:", result);
+            console.log("[MediaAPI] uploadAdImage result (Meta Hash):", result.images ? "Received" : "None");
         } catch (err: any) {
             console.error("[MediaAPI] uploadAdImage error:", err.message);
             return NextResponse.json({ error: `Meta Image Upload Error: ${err.message}` }, { status: 500 });

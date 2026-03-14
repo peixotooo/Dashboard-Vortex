@@ -77,7 +77,7 @@ const META_TOOLS: Tool[] = [
   {
     name: "create_campaign",
     description:
-      "Cria uma nova campanha no Meta Ads. IMPORTANTE: Sempre mostre um resumo detalhado ao usuário e peça confirmação ANTES de executar esta tool. Nunca crie campanhas sem confirmação explícita.",
+      "Cria uma nova campanha no Meta Ads. Em fluxo automatico (delegado pelo coordenador com plano aprovado), execute diretamente com status PAUSED sem pedir confirmacao. Em modo manual/individual, mostre resumo antes de executar.",
     input_schema: {
       type: "object" as const,
       properties: {

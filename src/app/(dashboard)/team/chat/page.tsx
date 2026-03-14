@@ -49,6 +49,12 @@ interface ChatMessage {
   toolCalls?: Array<{ name: string; status: "running" | "done" | "error" }>;
   choices?: Array<{ label: string; value: string }>;
   specialistResponses?: SpecialistResponse[];
+  attachments?: Array<{
+    filename: string;
+    image_url?: string;
+    video_id?: string;
+    image_hash?: string;
+  }>;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -414,6 +420,26 @@ export default function TeamChatPage() {
       setInput("");
       setIsLoading(true);
 
+      // Store attachments locally for this message's history
+      const currentAttachments = attachments
+        .filter((a) => a.status === "done")
+        .map((a) => ({
+          filename: a.file.name,
+          image_url: a.image_url,
+          image_hash: a.image_hash,
+          video_id: a.video_id,
+        }));
+      
+      // Update the user message to include attachments in the UI
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 2]; // The user message we just added
+        if (last && last.role === "user") {
+          last.attachments = currentAttachments;
+        }
+        return updated;
+      });
+
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
@@ -424,18 +450,9 @@ export default function TeamChatPage() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       try {
-        // Collect already-uploaded attachments (uploaded immediately on attach)
-        const readyAttachments = attachments
-          .filter((a) => a.status === "done" && (a.image_hash || a.video_id))
-          .map((a) => ({
-            filename: a.file.name,
-            image_hash: a.image_hash,
-            video_id: a.video_id,
-            image_url: a.image_url,
-          }));
-        
-        // Remove attachment clearing to persist them across requests!
-        // We leave them in the UI and in the attachments array.
+        // Attachments are collected here for the API call
+        const readyAttachments = currentAttachments
+          .filter((a) => a.image_hash || a.video_id);
 
         const history = messages.map((m) => ({
           role: m.role,
@@ -602,6 +619,11 @@ export default function TeamChatPage() {
                 case "conversation_id":
                   setConversationId(event.conversationId);
                   fetchConversations();
+                  break;
+
+                case "done":
+                  // Clear attachments on success
+                  setAttachments([]);
                   break;
 
                 case "error":
@@ -896,6 +918,27 @@ export default function TeamChatPage() {
                 {/* Text */}
                 {msg.content && (
                   <MessageContent content={msg.content} isUser={msg.role === "user"} />
+                )}
+
+                {/* Attachments Display */}
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    {msg.attachments.map((att, i) => (
+                      <div key={i} className="relative rounded-lg overflow-hidden border border-border/10 bg-black/5">
+                        {att.video_id ? (
+                          <div className="h-24 w-24 flex items-center justify-center bg-black/20 text-[10px] text-center p-1">
+                            Video <br/> {att.filename}
+                          </div>
+                        ) : (
+                          <img
+                            src={att.image_url}
+                            alt={att.filename}
+                            className="h-24 w-24 object-cover"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
 
                 {/* Choices */}

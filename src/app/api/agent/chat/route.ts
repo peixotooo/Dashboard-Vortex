@@ -211,10 +211,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Extract image URLs for Claude vision
+    // Extract image URLs for Claude vision (exclude videos)
     const imageUrls = attachments
-      ?.filter((a) => a.image_url)
+      ?.filter((a) => a.image_url && !a.video_id)
       .map((a) => a.image_url!);
+
+    console.log("[Chat] Attachments received:", {
+      total: attachments?.length || 0,
+      images: imageUrls?.length || 0,
+      videos: (attachments?.length || 0) - (imageUrls?.length || 0),
+    });
 
     // Build structured image/video attachments for specialist forwarding
     const readyAttachments = attachments
