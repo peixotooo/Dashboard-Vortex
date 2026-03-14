@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -80,6 +81,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Shift existing shelves down if position is occupied
+    const admin = createAdminClient();
+    const { data: existing } = await admin
+      .from("shelf_configs")
+      .select("id, position")
+      .eq("workspace_id", workspaceId)
+      .eq("page_type", page_type)
+      .gte("position", position)
+      .order("position", { ascending: false });
+
+    if (existing && existing.length > 0) {
+      for (const config of existing) {
+        await admin
+          .from("shelf_configs")
+          .update({ position: config.position + 1 })
+          .eq("id", config.id);
+      }
+    }
+
     const { data, error } = await supabase
       .from("shelf_configs")
       .insert({
@@ -97,12 +117,6 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      if (error.code === "23505") {
-        return NextResponse.json(
-          { error: `Position ${position} already taken for ${page_type} page` },
-          { status: 409 }
-        );
-      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
