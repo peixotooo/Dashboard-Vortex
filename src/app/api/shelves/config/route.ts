@@ -40,11 +40,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500, headers: CORS_HEADERS });
   }
 
-  const shelves = configs || [];
-  console.log("[Shelves Config]", pageType, "->", shelves.length, "shelves:", shelves.map(s => `${s.algorithm}@pos${s.position}(tags:${JSON.stringify(s.tags)})`).join(", "));
-
   return NextResponse.json(
-    { shelves },
+    { shelves: configs || [] },
     {
       headers: {
         ...CORS_HEADERS,

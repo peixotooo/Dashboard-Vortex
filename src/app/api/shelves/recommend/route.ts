@@ -43,7 +43,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    console.log("[Shelves Recommend]", algorithm, "tags:", tags, "limit:", limit);
     const products = await getRecommendations({
       workspaceId: auth.workspaceId,
       algorithm,
@@ -52,7 +51,6 @@ export async function GET(request: NextRequest) {
       limit,
       tags,
     });
-    console.log("[Shelves Recommend]", algorithm, "->", products.length, "products");
 
     const ttl = CACHE_TTL[algorithm] ?? 300;
     const headers: HeadersInit = {

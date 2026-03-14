@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { decrypt } from "@/lib/encryption";
 import {
   listVndaProducts,
+  searchVndaProducts,
   getVndaOrders,
   type VndaSearchProduct,
   type VndaConfig,
@@ -263,26 +264,30 @@ async function getMostPopular(
 async function getCustomTags(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  console.log("[CustomTags] tags received:", JSON.stringify(params.tags));
   if (!params.tags || params.tags.length === 0) {
-    console.log("[CustomTags] No tags, returning empty");
     return [];
   }
 
   const config = await getWorkspaceVndaConfig(params.workspaceId);
   const targetTags = params.tags.map((t) => t.toLowerCase().trim());
-  console.log("[CustomTags] target:", targetTags.join(","));
 
-  const products = await listVndaProducts(config, { per_page: "100" });
-  console.log("[CustomTags] catalog:", products.length, "products");
+  // Use search endpoint - it returns tags (unlike /products which omits them)
+  // Pre-filter by first tag via API, then apply AND logic locally for remaining tags
+  const products = await searchVndaProducts(config, {
+    per_page: "100",
+    tags: params.tags[0],
+    show_only_available: "true",
+  });
 
-  // Log first 3 products' tags for debugging
-  for (let i = 0; i < Math.min(3, products.length); i++) {
-    const p = products[i];
-    const tagNames = (p.tags || []).map((t: { name?: string }) => t.name || "").join(",");
-    console.log("[CustomTags] sample", p.name, "tags:", tagNames);
+  if (targetTags.length === 1) {
+    // Single tag - search already filtered
+    return products
+      .filter((p) => p.available !== false)
+      .slice(0, params.limit)
+      .map((p) => mapVndaToShelf(p, config.storeHost));
   }
 
+  // Multiple tags - apply AND logic for remaining tags
   const matched = products.filter((p) => {
     if (p.available === false || !p.tags || !Array.isArray(p.tags)) return false;
     const productTagNames = p.tags.map((tag) =>
@@ -290,8 +295,6 @@ async function getCustomTags(
     );
     return targetTags.every((target) => productTagNames.includes(target));
   });
-
-  console.log("[CustomTags] matched:", matched.length);
 
   return matched
     .slice(0, params.limit)
