@@ -1,31 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { listVndaProducts, type VndaConfig } from "@/lib/vnda-api";
 import { decrypt } from "@/lib/encryption";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const key = searchParams.get("key");
+  const secret = searchParams.get("secret");
 
-  const auth = await validateApiKey(key);
-  if (!auth) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401, headers: CORS_HEADERS });
+  // Temporary debug - will be removed after diagnosis
+  if (secret !== "vtx_debug_2026") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const admin = createAdminClient();
 
-  // Get shelf configs
+  // Find workspace that has a custom_tags shelf
+  const { data: customShelf } = await admin
+    .from("shelf_configs")
+    .select("*")
+    .eq("algorithm", "custom_tags")
+    .limit(1)
+    .single();
+
+  if (!customShelf) {
+    return NextResponse.json({ error: "No custom_tags shelf found" });
+  }
+
+  const workspaceId = customShelf.workspace_id;
+
+  // Get all configs for this workspace
   const { data: configs } = await admin
     .from("shelf_configs")
     .select("id, position, algorithm, title, tags, enabled, page_type")
-    .eq("workspace_id", auth.workspaceId)
+    .eq("workspace_id", workspaceId)
     .order("page_type")
     .order("position", { ascending: true });
 
@@ -33,12 +40,14 @@ export async function GET(request: NextRequest) {
   const { data: vndaConn } = await admin
     .from("vnda_connections")
     .select("api_token, store_host")
-    .eq("workspace_id", auth.workspaceId)
+    .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
   let sampleProducts: unknown[] = [];
+  let matchSimulation = null;
+
   if (vndaConn?.api_token && vndaConn?.store_host) {
     const config: VndaConfig = {
       apiToken: decrypt(vndaConn.api_token),
@@ -54,19 +63,11 @@ export async function GET(request: NextRequest) {
       tags_type: typeof p.tags,
       tags_is_array: Array.isArray(p.tags),
     }));
-  }
 
-  // Find custom_tags shelf and simulate matching
-  const customTagsShelf = (configs || []).find((c) => c.algorithm === "custom_tags");
-  let matchSimulation = null;
-  if (customTagsShelf && vndaConn?.api_token) {
-    const config: VndaConfig = {
-      apiToken: decrypt(vndaConn.api_token),
-      storeHost: vndaConn.store_host as string,
-    };
+    // Simulate custom_tags matching
     const allProducts = await listVndaProducts(config, { per_page: "100" });
 
-    const shelfTags = customTagsShelf.tags || [];
+    const shelfTags = customShelf.tags || [];
     const targetTags = Array.isArray(shelfTags)
       ? shelfTags.map((t: string) => t.toLowerCase().trim())
       : [];
@@ -84,12 +85,13 @@ export async function GET(request: NextRequest) {
     });
 
     matchSimulation = {
-      shelf_tags_raw: customTagsShelf.tags,
-      shelf_tags_type: typeof customTagsShelf.tags,
+      shelf_tags_raw: customShelf.tags,
+      shelf_tags_type: typeof customShelf.tags,
+      shelf_tags_is_array: Array.isArray(customShelf.tags),
       target_tags: targetTags,
       total_products: allProducts.length,
       products_with_any_tags: productsWithTags.length,
-      sample_product_tags: productsWithTags.slice(0, 3).map((p) => ({
+      sample_product_tags: productsWithTags.slice(0, 5).map((p) => ({
         name: p.name,
         tags: p.tags.map((t) => t.name),
       })),
@@ -100,12 +102,11 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(
     {
-      workspace_id: auth.workspaceId,
-      configs: configs || [],
-      custom_tags_shelf: customTagsShelf || null,
+      custom_shelf: customShelf,
+      all_configs: configs || [],
       match_simulation: matchSimulation,
       sample_products: sampleProducts,
     },
-    { headers: { ...CORS_HEADERS, "Cache-Control": "no-store" } }
+    { headers: { "Cache-Control": "no-store" } }
   );
 }
