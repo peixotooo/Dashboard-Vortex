@@ -55,7 +55,14 @@ function mapVndaToShelf(
   };
 }
 
-async function getWorkspaceVndaConfig(workspaceId: string): Promise<VndaConfig> {
+// --- Per-request memoization ---
+// Caches live for a single serverless invocation. Prevents duplicate API calls
+// when one algorithm falls back to another (e.g., most_popular -> bestsellers).
+
+const configCache = new Map<string, Promise<VndaConfig>>();
+const catalogCache = new Map<string, Promise<VndaSearchProduct[]>>();
+
+async function fetchVndaConfig(workspaceId: string): Promise<VndaConfig> {
   const admin = createAdminClient();
 
   const { data } = await admin
@@ -73,7 +80,6 @@ async function getWorkspaceVndaConfig(workspaceId: string): Promise<VndaConfig> 
     };
   }
 
-  // Fallback to env vars
   const token = process.env.VNDA_API_TOKEN;
   const host = process.env.VNDA_STORE_HOST;
   if (token && host) {
@@ -83,11 +89,35 @@ async function getWorkspaceVndaConfig(workspaceId: string): Promise<VndaConfig> 
   throw new Error("VNDA not configured for this workspace");
 }
 
+function getCachedConfig(workspaceId: string): Promise<VndaConfig> {
+  const cached = configCache.get(workspaceId);
+  if (cached) return cached;
+  const promise = fetchVndaConfig(workspaceId);
+  configCache.set(workspaceId, promise);
+  return promise;
+}
+
+function getCachedCatalog(
+  config: VndaConfig,
+  params: Record<string, string>
+): Promise<VndaSearchProduct[]> {
+  const key = `${config.storeHost}:${JSON.stringify(params)}`;
+  const cached = catalogCache.get(key);
+  if (cached) return cached;
+  const promise = listVndaProducts(config, params);
+  catalogCache.set(key, promise);
+  return promise;
+}
+
 // --- Main entry point ---
 
 export async function getRecommendations(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
+  // Clear caches to prevent stale data across warm invocations
+  configCache.clear();
+  catalogCache.clear();
+
   switch (params.algorithm) {
     case "bestsellers":
       return getBestsellers(params);
@@ -108,16 +138,15 @@ export async function getRecommendations(
 
 // --- Algorithms ---
 
-/** Bestsellers: Top products by real sales revenue (VNDA Orders API, last 30 days) */
+/** Bestsellers: Top products by real sales revenue (VNDA Orders API, last 7 days) */
 async function getBestsellers(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const config = await getCachedConfig(params.workspaceId);
 
-  // Fetch confirmed orders from last 30 days
   const orders = await getVndaOrders({
     config,
-    datePreset: "last_30d",
+    datePreset: "last_7d",
     status: "confirmed",
   });
 
@@ -135,17 +164,14 @@ async function getBestsellers(
   }
 
   if (salesMap.size === 0) {
-    // No orders — fall back to news
     return getNews(params);
   }
 
-  // Sort by revenue descending
   const topNames = [...salesMap.entries()]
     .sort((a, b) => b[1].revenue - a[1].revenue)
     .map(([name]) => name);
 
-  // Fetch product catalog from VNDA to match by name
-  const catalog = await listVndaProducts(config, { per_page: "100" });
+  const catalog = await getCachedCatalog(config, { per_page: "100" });
   const catalogByName = new Map<string, VndaSearchProduct>();
   for (const p of catalog) {
     if (p.available !== false) {
@@ -153,7 +179,6 @@ async function getBestsellers(
     }
   }
 
-  // Match bestsellers to catalog products, preserving sales ranking
   const results: ShelfProduct[] = [];
   for (const name of topNames) {
     const product = catalogByName.get(name);
@@ -163,7 +188,6 @@ async function getBestsellers(
     }
   }
 
-  // If not enough matches, pad with remaining catalog products
   if (results.length < params.limit) {
     const usedIds = new Set(results.map((r) => r.product_id));
     for (const p of catalog) {
@@ -181,10 +205,9 @@ async function getBestsellers(
 async function getNews(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const config = await getCachedConfig(params.workspaceId);
 
-  // /api/v2/products returns newest first by default
-  const products = await listVndaProducts(config, {
+  const products = await getCachedCatalog(config, {
     per_page: String(Math.max(params.limit * 2, 50)),
   });
 
@@ -198,9 +221,9 @@ async function getNews(
 async function getOffers(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const config = await getCachedConfig(params.workspaceId);
 
-  const products = await listVndaProducts(config, { per_page: "100" });
+  const products = await getCachedCatalog(config, { per_page: "50" });
 
   return products
     .filter((p) => p.on_sale && p.available !== false)
@@ -212,9 +235,8 @@ async function getOffers(
 async function getMostPopular(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const config = await getCachedConfig(params.workspaceId);
 
-  // Try GA4 for view-based popularity
   try {
     const ga4Report = await getGA4Report({
       dimensions: ["itemName"],
@@ -225,13 +247,11 @@ async function getMostPopular(
     });
 
     if (ga4Report.rows.length > 0) {
-      // Get product names ranked by views
       const viewedNames = ga4Report.rows
         .filter((r) => r.dimensions.itemName && r.metrics.itemsViewed > 0)
         .map((r) => r.dimensions.itemName);
 
-      // Fetch catalog and match by name
-      const catalog = await listVndaProducts(config, { per_page: "100" });
+      const catalog = await getCachedCatalog(config, { per_page: "100" });
       const catalogByName = new Map<string, VndaSearchProduct>();
       for (const p of catalog) {
         if (p.available !== false) {
@@ -256,7 +276,6 @@ async function getMostPopular(
     // GA4 not configured or failed — fall through to bestsellers
   }
 
-  // Fallback: use bestsellers ranking
   return getBestsellers(params);
 }
 
@@ -268,35 +287,50 @@ async function getCustomTags(
     return [];
   }
 
-  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const config = await getCachedConfig(params.workspaceId);
   const targetTags = params.tags.map((t) => t.toLowerCase().trim());
 
-  // Use search endpoint - it returns tags (unlike /products which omits them)
-  // Pre-filter by first tag via API, then apply AND logic locally for remaining tags
+  // Try search endpoint first (returns tags, unlike /products)
   const products = await searchVndaProducts(config, {
     per_page: "100",
     tags: params.tags[0],
-    show_only_available: "true",
   });
 
-  if (targetTags.length === 1) {
-    // Single tag - search already filtered
-    return products
-      .filter((p) => p.available !== false)
+  if (products.length > 0) {
+    if (targetTags.length === 1) {
+      return products
+        .filter((p) => p.available !== false)
+        .slice(0, params.limit)
+        .map((p) => mapVndaToShelf(p, config.storeHost));
+    }
+
+    // Multiple tags - apply AND logic
+    const matched = products.filter((p) => {
+      if (p.available === false || !p.tags || !Array.isArray(p.tags)) return false;
+      const productTagNames = p.tags.map((tag) =>
+        (tag.name || "").toLowerCase().trim()
+      );
+      return targetTags.every((target) => productTagNames.includes(target));
+    });
+
+    return matched
       .slice(0, params.limit)
       .map((p) => mapVndaToShelf(p, config.storeHost));
   }
 
-  // Multiple tags - apply AND logic for remaining tags
-  const matched = products.filter((p) => {
-    if (p.available === false || !p.tags || !Array.isArray(p.tags)) return false;
+  // Fallback: use /products endpoint + local tag filtering
+  // /products may not return tags, but try anyway (best-effort)
+  const catalog = await getCachedCatalog(config, { per_page: "100" });
+  const fallback = catalog.filter((p) => {
+    if (p.available === false) return false;
+    if (!p.tags || !Array.isArray(p.tags)) return false;
     const productTagNames = p.tags.map((tag) =>
       (tag.name || "").toLowerCase().trim()
     );
-    return targetTags.every((target) => productTagNames.includes(target));
+    return targetTags.some((target) => productTagNames.includes(target));
   });
 
-  return matched
+  return fallback
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
 }
@@ -319,10 +353,9 @@ async function getLastViewed(
 
   if (!history || history.length === 0) return [];
 
-  // Enrich with VNDA data instead of shelf_products table
   try {
-    const config = await getWorkspaceVndaConfig(params.workspaceId);
-    const catalog = await listVndaProducts(config, { per_page: "100" });
+    const config = await getCachedConfig(params.workspaceId);
+    const catalog = await getCachedCatalog(config, { per_page: "50" });
     const catalogById = new Map<string, VndaSearchProduct>();
     for (const p of catalog) {
       catalogById.set(String(p.id), p);

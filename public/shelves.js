@@ -523,9 +523,13 @@
       ".vtx-swiper .swiper-pagination { display: none !important; }" +
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
+      ".vtx-skel-title { width: 200px; height: 24px; background: #eee; border-radius: 4px; margin: 0 auto 24px; }" +
+      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 2/3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
+      "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
         ".vtx-price-main { font-size: 18px; }" +
+        ".vtx-skel-card { flex: 0 0 47%; }" +
       "}";
 
     var style = document.createElement("style");
@@ -576,6 +580,28 @@
     trackEvent("impression", null, shelf.id);
   }
 
+  function showSkeleton(anchor) {
+    anchor.innerHTML =
+      '<section class="vtx-shelf vtx-skeleton">' +
+        '<div class="header"><div class="vtx-skel-title"></div></div>' +
+        '<div style="display:flex;gap:16px;overflow:hidden">' +
+          '<div class="vtx-skel-card"></div>' +
+          '<div class="vtx-skel-card"></div>' +
+          '<div class="vtx-skel-card"></div>' +
+          '<div class="vtx-skel-card"></div>' +
+        '</div>' +
+      '</section>';
+  }
+
+  function fetchWithTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error("Timeout")); }, ms);
+      })
+    ]);
+  }
+
   function init() {
     var pageType = detectPageType();
     console.log("[Shelves] Page type:", pageType, "| API_BASE:", API_BASE);
@@ -605,40 +631,37 @@
           }
         }
 
-        // Fetch all recommendations in parallel
-        var promises = shelves.map(function (shelf) {
-          return fetchRecommend(shelf, extraParams)
-            .then(function (data) {
-              console.log("[Shelves] " + shelf.algorithm + " -> " + (data.products || []).length + " products");
-              return { shelf: shelf, products: data.products || [] };
-            })
-            .catch(function (err) {
-              console.error("[Shelves] " + shelf.algorithm + " fetch error:", err);
-              return { shelf: shelf, products: [] };
-            });
+        // Create anchors and show skeletons immediately
+        var anchors = [];
+        shelves.forEach(function (shelf, index) {
+          var anchor = getOrCreateAnchor(shelf, pageType, index);
+          anchors.push(anchor);
+          if (anchor) showSkeleton(anchor);
         });
 
-        return Promise.all(promises);
-      })
-      .then(function (results) {
-        if (!results) return;
+        // Fetch and render each shelf independently (progressive rendering)
+        shelves.forEach(function (shelf, index) {
+          var anchor = anchors[index];
+          if (!anchor) return;
 
-        // Render each shelf
-        results.forEach(function (result, index) {
-          if (result.products.length === 0) {
-            console.warn("[Shelves] " + result.shelf.algorithm + " - no products found");
-            return;
-          }
+          fetchWithTimeout(fetchRecommend(shelf, extraParams), 8000)
+            .then(function (data) {
+              var products = data.products || [];
+              console.log("[Shelves] " + shelf.algorithm + " -> " + products.length + " products");
 
-          console.log("[Shelves] Attempting to render " + result.shelf.algorithm + " at index " + index);
-          var anchor = getOrCreateAnchor(result.shelf, pageType, index);
-          if (!anchor) {
-            console.error("[Shelves] Failed to create anchor for " + result.shelf.algorithm);
-            return;
-          }
+              if (products.length === 0) {
+                console.warn("[Shelves] " + shelf.algorithm + " - no products found");
+                anchor.innerHTML = "";
+                return;
+              }
 
-          renderShelf(result.shelf, result.products, anchor);
-          console.log("[Shelves] Rendered algorithm '" + result.shelf.algorithm + "' at pos " + result.shelf.position);
+              renderShelf(shelf, products, anchor);
+              console.log("[Shelves] Rendered '" + shelf.algorithm + "' at pos " + shelf.position);
+            })
+            .catch(function (err) {
+              console.error("[Shelves] " + shelf.algorithm + " error:", err);
+              anchor.innerHTML = "";
+            });
         });
       })
       .catch(function (err) {

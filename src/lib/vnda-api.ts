@@ -390,12 +390,7 @@ export async function getVndaProductReport(args: {
 
 // --- Search products ---
 
-export async function searchVndaProducts(
-  config: VndaConfig,
-  params: Record<string, string> = {}
-): Promise<VndaSearchProduct[]> {
-  const { data } = await vndaRequest<unknown>("products/search", config, params);
-  // VNDA search endpoint may return array or wrapper object { results: [...] }
+function extractSearchResults(data: unknown): VndaSearchProduct[] {
   if (Array.isArray(data)) return data;
   if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
@@ -403,6 +398,58 @@ export async function searchVndaProducts(
     if (Array.isArray(obj.products)) return obj.products;
   }
   return [];
+}
+
+export async function searchVndaProducts(
+  config: VndaConfig,
+  params: Record<string, string> = {}
+): Promise<VndaSearchProduct[]> {
+  // Clean params: remove show_only_available (not reliably supported), ensure page
+  const searchParams = { ...params };
+  delete searchParams.show_only_available;
+  if (!searchParams.page) searchParams.page = "1";
+
+  const qs = new URLSearchParams(searchParams).toString();
+
+  // Try store-scoped URL (more reliable for VNDA search)
+  const storeUrl = `https://${config.storeHost}/api/v2/products/search?${qs}`;
+  const headers = {
+    Authorization: `Bearer ${config.apiToken}`,
+    Accept: "application/json",
+  };
+
+  try {
+    let res = await fetch(storeUrl, { headers });
+
+    // If auth fails, retry without auth (search endpoint may be public)
+    if (res.status === 401 || res.status === 403) {
+      res = await fetch(storeUrl, { headers: { Accept: "application/json" } });
+    }
+
+    if (!res.ok) {
+      // Last resort: try the global VNDA API URL
+      res = await fetch(
+        `https://api.vnda.com.br/api/v2/products/search?${qs}`,
+        {
+          headers: {
+            ...headers,
+            "X-Shop-Host": config.storeHost,
+          },
+        }
+      );
+    }
+
+    if (!res.ok) {
+      console.error(`[VNDA Search] ${res.status} from ${storeUrl}`);
+      return [];
+    }
+
+    const data = await res.json();
+    return extractSearchResults(data);
+  } catch (err) {
+    console.error("[VNDA Search] fetch error:", err instanceof Error ? err.message : err);
+    return [];
+  }
 }
 
 // --- List products (plain endpoint, always returns array) ---
