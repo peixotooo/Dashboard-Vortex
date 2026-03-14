@@ -290,21 +290,13 @@ async function getCustomTags(
   const config = await getCachedConfig(params.workspaceId);
   const targetTags = params.tags.map((t) => t.toLowerCase().trim());
 
-  // Try search endpoint first (returns tags, unlike /products)
+  // Use search endpoint (returns tags, unlike /products)
+  // Do NOT pass tags param to VNDA - it causes HTTP 500. Filter locally instead.
   const products = await searchVndaProducts(config, {
     per_page: "100",
-    tags: params.tags[0],
   });
 
   if (products.length > 0) {
-    if (targetTags.length === 1) {
-      return products
-        .filter((p) => p.available !== false)
-        .slice(0, params.limit)
-        .map((p) => mapVndaToShelf(p, config.storeHost));
-    }
-
-    // Multiple tags - apply AND logic
     const matched = products.filter((p) => {
       if (p.available === false || !p.tags || !Array.isArray(p.tags)) return false;
       const productTagNames = p.tags.map((tag) =>
