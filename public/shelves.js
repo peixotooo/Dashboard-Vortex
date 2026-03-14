@@ -493,7 +493,7 @@
 
   function injectStyles() {
     var css =
-      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1200px; padding: 0 15px; box-sizing: border-box; }" +
+      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; box-sizing: border-box; }" +
       ".vtx-shelf .header { text-align: center; margin-bottom: 24px; position: relative; }" +
       ".vtx-shelf .header .title { font-size: 24px; font-weight: 900; color: #000; text-transform: uppercase; letter-spacing: 1px; margin: 0; }" +
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
@@ -515,10 +515,10 @@
       ".vtx-price-main { font-size: 20px; font-weight: 900; color: #000; line-height: 1; }" +
       ".vtx-discount-badge { background: #ff0000; color: #fff; padding: 2px 4px; font-size: 10px; font-weight: 900; border-radius: 2px; }" +
       ".vtx-installments { font-size: 11px; color: #666; margin-top: 4px; display: block; }" +
-      ".vtx-swiper { padding: 0 0 40px; position: relative; }" +
+      ".vtx-swiper { padding: 0; position: relative; }" +
+      ".vtx-swiper .swiper-pagination { display: none !important; }" +
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
-      ".vtx-swiper .swiper-pagination-bullet-active { background: #000; }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
         ".vtx-price-main { font-size: 18px; }" +
