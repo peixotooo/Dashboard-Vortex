@@ -70,6 +70,22 @@ export interface VndaProductRow {
   percentOfTotal: number;
 }
 
+export interface VndaSearchProduct {
+  id: number;
+  active: boolean;
+  available: boolean;
+  slug: string;
+  reference: string;
+  name: string;
+  description: string;
+  image_url: string;
+  url: string;
+  price: number;
+  on_sale: boolean;
+  sale_price: number | null;
+  tags: Array<{ name: string; type: string }>;
+}
+
 // --- Date helpers ---
 
 function datePresetToRange(preset: string): { start: string; end: string } {
@@ -370,6 +386,16 @@ export async function getVndaProductReport(args: {
     .slice(0, args.limit || 20);
 
   return products;
+}
+
+// --- Search products ---
+
+export async function searchVndaProducts(
+  config: VndaConfig,
+  params: Record<string, string> = {}
+): Promise<VndaSearchProduct[]> {
+  const { data } = await vndaRequest<VndaSearchProduct[]>("products/search", config, params);
+  return data || [];
 }
 
 // --- Health check ---
