@@ -15,6 +15,7 @@ const CACHE_TTL: Record<string, number> = {
   offers: 600,
   most_popular: 300,
   last_viewed: 0,
+  custom_tags: 600,
 };
 
 export async function GET(request: NextRequest) {
@@ -24,6 +25,10 @@ export async function GET(request: NextRequest) {
   const consumerId = searchParams.get("consumer_id") || undefined;
   const productId = searchParams.get("product_id") || undefined;
   const limit = Math.min(parseInt(searchParams.get("limit") || "12", 10), 50);
+  const tagsParam = searchParams.get("tags");
+  const tags = tagsParam
+    ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
+    : undefined;
 
   if (!algorithm) {
     return NextResponse.json(
@@ -44,6 +49,7 @@ export async function GET(request: NextRequest) {
       consumerId,
       productId,
       limit,
+      tags,
     });
 
     const ttl = CACHE_TTL[algorithm] ?? 300;

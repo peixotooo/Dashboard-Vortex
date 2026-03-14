@@ -50,6 +50,7 @@ const ALGORITHMS = [
   { value: "offers", label: "Ofertas" },
   { value: "most_popular", label: "Mais Vistos" },
   { value: "last_viewed", label: "Vistos Recentemente" },
+  { value: "custom_tags", label: "Tags Personalizadas" },
 ] as const;
 
 const PAGE_TYPES = [
@@ -79,6 +80,7 @@ interface ShelfConfig {
   title: string;
   max_products: number;
   enabled: boolean;
+  tags: string[];
   created_at: string;
   updated_at: string;
 }
@@ -174,6 +176,7 @@ export default function ShelvesPage() {
     title: string;
     max_products: number;
     anchor_selector: string;
+    tags: string[];
   }) {
     if (editingConfig) {
       await fetch(`/api/shelves/configs/${editingConfig.id}`, {
@@ -466,6 +469,8 @@ export default function ShelvesPage() {
                               · {config.max_products} produtos
                               {config.anchor_selector &&
                                 ` · ${config.anchor_selector}`}
+                              {config.tags && config.tags.length > 0 &&
+                                ` · Tags: ${config.tags.join(", ")}`}
                             </p>
                           </div>
                         </div>
@@ -782,6 +787,7 @@ function ShelfConfigForm({
     title: string;
     max_products: number;
     anchor_selector: string;
+    tags: string[];
   }) => void;
   onCancel: () => void;
 }) {
@@ -797,9 +803,16 @@ function ShelfConfigForm({
   const [anchorSelector, setAnchorSelector] = useState(
     initial?.anchor_selector || ""
   );
+  const [tagsInput, setTagsInput] = useState(
+    initial?.tags?.join(", ") || ""
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const tags = tagsInput
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
     onSubmit({
       page_type: pageType,
       position: parseInt(position, 10),
@@ -807,6 +820,7 @@ function ShelfConfigForm({
       title: title || ALGORITHM_LABELS[algorithm] || algorithm,
       max_products: parseInt(maxProducts, 10) || 12,
       anchor_selector: anchorSelector || "",
+      tags,
     });
   }
 
@@ -856,6 +870,21 @@ function ShelfConfigForm({
           </SelectContent>
         </Select>
       </div>
+
+      {algorithm === "custom_tags" && (
+        <div className="space-y-2">
+          <Label>Tags (separadas por virgula)</Label>
+          <Input
+            placeholder="ex: Verao, Promocao, Lancamento"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Produtos que possuem TODAS essas tags serao exibidos.
+            Use os mesmos nomes das tags cadastradas na VNDA.
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Titulo da prateleira</Label>

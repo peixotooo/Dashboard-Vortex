@@ -47,6 +47,7 @@ export async function PATCH(
       "title",
       "max_products",
       "enabled",
+      "tags",
     ];
     const updates: Record<string, unknown> = {};
     for (const field of allowedFields) {

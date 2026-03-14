@@ -208,13 +208,17 @@
     );
   }
 
-  function fetchRecommend(algorithm, limit, extraParams) {
+  function fetchRecommend(shelf, extraParams) {
     var url =
       API_BASE +
       "/api/shelves/recommend?key=" + API_KEY +
-      "&algorithm=" + algorithm +
+      "&algorithm=" + shelf.algorithm +
       "&consumer_id=" + consumerId +
-      "&limit=" + limit;
+      "&limit=" + shelf.max_products;
+
+    if (shelf.tags && Array.isArray(shelf.tags) && shelf.tags.length > 0) {
+      url += "&tags=" + encodeURIComponent(shelf.tags.join(","));
+    }
 
     if (extraParams) {
       Object.keys(extraParams).forEach(function (k) {
@@ -603,7 +607,7 @@
 
         // Fetch all recommendations in parallel
         var promises = shelves.map(function (shelf) {
-          return fetchRecommend(shelf.algorithm, shelf.max_products, extraParams)
+          return fetchRecommend(shelf, extraParams)
             .then(function (data) {
               console.log("[Shelves] " + shelf.algorithm + " -> " + (data.products || []).length + " products");
               return { shelf: shelf, products: data.products || [] };

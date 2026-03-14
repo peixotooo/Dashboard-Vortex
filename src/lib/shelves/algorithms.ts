@@ -16,6 +16,7 @@ export interface RecommendationParams {
   consumerId?: string;
   productId?: string;
   limit: number;
+  tags?: string[];
 }
 
 export interface ShelfProduct {
@@ -97,6 +98,8 @@ export async function getRecommendations(
       return getMostPopular(params);
     case "last_viewed":
       return getLastViewed(params);
+    case "custom_tags":
+      return getCustomTags(params);
     default:
       throw new Error(`Unknown algorithm: ${params.algorithm}`);
   }
@@ -254,6 +257,32 @@ async function getMostPopular(
 
   // Fallback: use bestsellers ranking
   return getBestsellers(params);
+}
+
+/** CustomTags: Products filtered by specific VNDA tags (AND logic) */
+async function getCustomTags(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  if (!params.tags || params.tags.length === 0) {
+    return [];
+  }
+
+  const config = await getWorkspaceVndaConfig(params.workspaceId);
+  const targetTags = params.tags.map((t) => t.toLowerCase().trim());
+
+  const products = await listVndaProducts(config, { per_page: "100" });
+
+  const matched = products.filter((p) => {
+    if (p.available === false || !p.tags || !Array.isArray(p.tags)) return false;
+    const productTagNames = p.tags.map((tag) =>
+      (tag.name || "").toLowerCase().trim()
+    );
+    return targetTags.every((target) => productTagNames.includes(target));
+  });
+
+  return matched
+    .slice(0, params.limit)
+    .map((p) => mapVndaToShelf(p, config.storeHost));
 }
 
 /** LastViewed: Products viewed by consumer, most recent first */

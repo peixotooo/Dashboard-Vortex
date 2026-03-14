@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const { data: configs, error } = await admin
     .from("shelf_configs")
-    .select("id, position, anchor_selector, algorithm, title, max_products")
+    .select("id, position, anchor_selector, algorithm, title, max_products, tags")
     .eq("workspace_id", auth.workspaceId)
     .eq("page_type", pageType)
     .eq("enabled", true)

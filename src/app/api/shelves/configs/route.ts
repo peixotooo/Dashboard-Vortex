@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { page_type, position, anchor_selector, algorithm, title, max_products, enabled } = body;
+    const { page_type, position, anchor_selector, algorithm, title, max_products, enabled, tags } = body;
 
     if (!page_type || !position || !algorithm || !title) {
       return NextResponse.json(
@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
         title,
         max_products: max_products || 12,
         enabled: enabled !== false,
+        tags: tags || [],
       })
       .select()
       .single();
