@@ -372,7 +372,7 @@
         '<div class="images">' +
           (badgeLabel ? '<div class="vtx-badge">' + badgeLabel + '</div>' : '') +
           '<a href="' + link + '">' +
-            '<figure class="image -square">' +
+            '<figure class="image">' +
               '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc) + '" loading="lazy">' +
               '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc2) + '" loading="lazy">' +
             "</figure>" +
@@ -499,7 +499,8 @@
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
       ".vtx-shelf .product-block { position: relative; padding: 0; transition: transform 0.2s; cursor: pointer; text-align: left; }" +
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
-      ".vtx-shelf .images .image { margin: 0; padding-bottom: 150%; position: relative; width: 100%; display: block; }" +
+      ".vtx-shelf .images .image { margin: 0; position: relative; width: 100%; display: block; }" +
+      ".vtx-shelf .product-block > .images figure:after { content: ''; display: block; padding-bottom: 150%; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
       ".vtx-shelf .images .image img:nth-child(2) { opacity: 0; }" +
       ".vtx-shelf .product-block:hover .images .image img:nth-child(1) { opacity: 0; }" +
