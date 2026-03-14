@@ -1,4 +1,11 @@
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  getVndaConfig,
+  searchVndaProducts,
+  getVndaOrders,
+  type VndaSearchProduct,
+} from "@/lib/vnda-api";
+import { getGA4Report } from "@/lib/ga4-api";
 
 // --- Types ---
 
@@ -21,6 +28,36 @@ export interface ShelfProduct {
   category: string | null;
   tags: unknown;
   in_stock: boolean;
+}
+
+// --- Helpers ---
+
+function mapVndaToShelf(
+  p: VndaSearchProduct,
+  storeHost: string
+): ShelfProduct {
+  return {
+    product_id: String(p.id),
+    name: p.name,
+    price: p.price,
+    sale_price: p.sale_price ?? null,
+    image_url: p.image_url || null,
+    image_url_2: null,
+    product_url: p.url?.startsWith("http")
+      ? p.url
+      : `https://${storeHost}${p.url}`,
+    category: null,
+    tags: { vnda_tags: p.tags, on_sale: p.on_sale },
+    in_stock: p.available,
+  };
+}
+
+async function getWorkspaceVndaConfig(workspaceId: string) {
+  const config = await getVndaConfig(workspaceId);
+  if (!config) {
+    throw new Error("VNDA not configured for this workspace");
+  }
+  return config;
 }
 
 // --- Main entry point ---
@@ -46,142 +83,156 @@ export async function getRecommendations(
 
 // --- Algorithms ---
 
-/** BestSellers: Top products by order count (30-day window) */
-async function getBestsellers(params: RecommendationParams): Promise<ShelfProduct[]> {
-  const admin = createAdminClient();
+/** Bestsellers: Top products by real sales revenue (VNDA Orders API, last 30 days) */
+async function getBestsellers(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const config = await getWorkspaceVndaConfig(params.workspaceId);
 
-  // Try pre-computed rankings first
-  const { data: rankings } = await admin
-    .from("shelf_rankings")
-    .select("product_id")
-    .eq("workspace_id", params.workspaceId)
-    .eq("algorithm", "bestsellers")
-    .order("score", { ascending: false })
-    .limit(params.limit);
+  // Fetch confirmed orders from last 30 days
+  const orders = await getVndaOrders({
+    config,
+    datePreset: "last_30d",
+    status: "confirmed",
+  });
 
-  if (rankings && rankings.length > 0) {
-    const ids = rankings.map((r) => r.product_id);
-    return fetchProductsByIds(params.workspaceId, ids);
+  // Aggregate sales by product name
+  const salesMap = new Map<string, { quantity: number; revenue: number }>();
+  for (const order of orders) {
+    for (const item of order.items || []) {
+      const name = item.product_name;
+      if (!name) continue;
+      const existing = salesMap.get(name) || { quantity: 0, revenue: 0 };
+      existing.quantity += item.quantity || 0;
+      existing.revenue += item.total || 0;
+      salesMap.set(name, existing);
+    }
   }
 
-  // Fallback: compute on-the-fly from events
-  const thirtyDaysAgo = new Date(
-    Date.now() - 30 * 24 * 60 * 60 * 1000
-  ).toISOString();
-
-  const { data: events } = await admin
-    .from("shelf_events")
-    .select("product_id")
-    .eq("workspace_id", params.workspaceId)
-    .eq("event_type", "order")
-    .not("product_id", "is", null)
-    .gte("created_at", thirtyDaysAgo);
-
-  if (!events || events.length === 0) {
-    // No orders yet — fall back to most recent products
+  if (salesMap.size === 0) {
+    // No orders — fall back to news
     return getNews(params);
   }
 
-  const counts = new Map<string, number>();
-  for (const e of events) {
-    counts.set(e.product_id, (counts.get(e.product_id) || 0) + 1);
+  // Sort by revenue descending
+  const topNames = [...salesMap.entries()]
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .map(([name]) => name);
+
+  // Fetch product catalog from VNDA to match by name
+  const catalog = await searchVndaProducts(config, { per_page: "100" });
+  const catalogByName = new Map<string, VndaSearchProduct>();
+  for (const p of catalog) {
+    if (p.available && p.active) {
+      catalogByName.set(p.name, p);
+    }
   }
 
-  const sorted = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
+  // Match bestsellers to catalog products, preserving sales ranking
+  const results: ShelfProduct[] = [];
+  for (const name of topNames) {
+    const product = catalogByName.get(name);
+    if (product) {
+      results.push(mapVndaToShelf(product, config.storeHost));
+      if (results.length >= params.limit) break;
+    }
+  }
+
+  // If not enough matches, pad with remaining catalog products
+  if (results.length < params.limit) {
+    const usedIds = new Set(results.map((r) => r.product_id));
+    for (const p of catalog) {
+      if (results.length >= params.limit) break;
+      if (!usedIds.has(String(p.id)) && p.available && p.active) {
+        results.push(mapVndaToShelf(p, config.storeHost));
+      }
+    }
+  }
+
+  return results;
+}
+
+/** News: Most recent products from VNDA */
+async function getNews(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const config = await getWorkspaceVndaConfig(params.workspaceId);
+
+  const products = await searchVndaProducts(config, {
+    per_page: String(params.limit),
+    sort: "newest",
+  });
+
+  return products
+    .filter((p) => p.available && p.active)
     .slice(0, params.limit)
-    .map(([id]) => id);
-
-  return fetchProductsByIds(params.workspaceId, sorted);
+    .map((p) => mapVndaToShelf(p, config.storeHost));
 }
 
-/** News: Most recent products by created_at */
-async function getNews(params: RecommendationParams): Promise<ShelfProduct[]> {
-  const admin = createAdminClient();
+/** Offers: Products currently on sale from VNDA */
+async function getOffers(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const config = await getWorkspaceVndaConfig(params.workspaceId);
 
-  const { data } = await admin
-    .from("shelf_products")
-    .select(PRODUCT_COLUMNS)
-    .eq("workspace_id", params.workspaceId)
-    .eq("active", true)
-    .eq("in_stock", true)
-    .order("created_at", { ascending: false })
-    .limit(params.limit);
+  const products = await searchVndaProducts(config, { per_page: "100" });
 
-  return (data as ShelfProduct[]) || [];
+  return products
+    .filter((p) => p.on_sale && p.available && p.active)
+    .slice(0, params.limit)
+    .map((p) => mapVndaToShelf(p, config.storeHost));
 }
 
-/** Offers: Products with sale_price set */
-async function getOffers(params: RecommendationParams): Promise<ShelfProduct[]> {
-  const admin = createAdminClient();
-
-  const { data } = await admin
-    .from("shelf_products")
-    .select(PRODUCT_COLUMNS)
-    .eq("workspace_id", params.workspaceId)
-    .eq("active", true)
-    .eq("in_stock", true)
-    .not("sale_price", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(params.limit);
-
-  return (data as ShelfProduct[]) || [];
-}
-
-/** MostPopular: Pageviews with temporal decay (7-day window) */
+/** MostPopular: Most viewed products via GA4 analytics */
 async function getMostPopular(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
-  const admin = createAdminClient();
+  const config = await getWorkspaceVndaConfig(params.workspaceId);
 
-  // Try pre-computed rankings first
-  const { data: rankings } = await admin
-    .from("shelf_rankings")
-    .select("product_id")
-    .eq("workspace_id", params.workspaceId)
-    .eq("algorithm", "most_popular")
-    .order("score", { ascending: false })
-    .limit(params.limit);
+  // Try GA4 for view-based popularity
+  try {
+    const ga4Report = await getGA4Report({
+      dimensions: ["itemName"],
+      metrics: ["itemsViewed"],
+      orderBy: { metric: "itemsViewed", desc: true },
+      limit: 50,
+      datePreset: "last_7d",
+    });
 
-  if (rankings && rankings.length > 0) {
-    const ids = rankings.map((r) => r.product_id);
-    return fetchProductsByIds(params.workspaceId, ids);
+    if (ga4Report.rows.length > 0) {
+      // Get product names ranked by views
+      const viewedNames = ga4Report.rows
+        .filter((r) => r.dimensions.itemName && r.metrics.itemsViewed > 0)
+        .map((r) => r.dimensions.itemName);
+
+      // Fetch catalog and match by name
+      const catalog = await searchVndaProducts(config, { per_page: "100" });
+      const catalogByName = new Map<string, VndaSearchProduct>();
+      for (const p of catalog) {
+        if (p.available && p.active) {
+          catalogByName.set(p.name, p);
+        }
+      }
+
+      const results: ShelfProduct[] = [];
+      for (const name of viewedNames) {
+        const product = catalogByName.get(name);
+        if (product) {
+          results.push(mapVndaToShelf(product, config.storeHost));
+          if (results.length >= params.limit) break;
+        }
+      }
+
+      if (results.length >= Math.min(params.limit, 4)) {
+        return results;
+      }
+    }
+  } catch {
+    // GA4 not configured or failed — fall through to bestsellers
   }
 
-  // Fallback: compute on-the-fly with decay
-  const sevenDaysAgo = new Date(
-    Date.now() - 7 * 24 * 60 * 60 * 1000
-  ).toISOString();
-
-  const { data: events } = await admin
-    .from("shelf_events")
-    .select("product_id, created_at")
-    .eq("workspace_id", params.workspaceId)
-    .eq("event_type", "pageview")
-    .not("product_id", "is", null)
-    .gte("created_at", sevenDaysAgo);
-
-  if (!events || events.length === 0) {
-    return getNews(params);
-  }
-
-  const now = Date.now();
-  const scores = new Map<string, number>();
-
-  for (const e of events) {
-    const ageHours =
-      (now - new Date(e.created_at).getTime()) / (1000 * 60 * 60);
-    // Half-life of 48 hours
-    const decayFactor = Math.exp(-ageHours / 48);
-    scores.set(e.product_id, (scores.get(e.product_id) || 0) + decayFactor);
-  }
-
-  const sorted = [...scores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, params.limit)
-    .map(([id]) => id);
-
-  return fetchProductsByIds(params.workspaceId, sorted);
+  // Fallback: use bestsellers ranking
+  return getBestsellers(params);
 }
 
 /** LastViewed: Products viewed by consumer, most recent first */
@@ -202,38 +253,23 @@ async function getLastViewed(
 
   if (!history || history.length === 0) return [];
 
-  const ids = history.map((h) => h.product_id);
-  return fetchProductsByIds(params.workspaceId, ids);
-}
+  // Enrich with VNDA data instead of shelf_products table
+  try {
+    const config = await getWorkspaceVndaConfig(params.workspaceId);
+    const catalog = await searchVndaProducts(config, { per_page: "100" });
+    const catalogById = new Map<string, VndaSearchProduct>();
+    for (const p of catalog) {
+      catalogById.set(String(p.id), p);
+    }
 
-// --- Helpers ---
-
-const PRODUCT_COLUMNS =
-  "product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock";
-
-/** Fetch products by IDs preserving order */
-async function fetchProductsByIds(
-  workspaceId: string,
-  productIds: string[]
-): Promise<ShelfProduct[]> {
-  if (productIds.length === 0) return [];
-
-  const admin = createAdminClient();
-
-  const { data } = await admin
-    .from("shelf_products")
-    .select(PRODUCT_COLUMNS)
-    .eq("workspace_id", workspaceId)
-    .eq("active", true)
-    .in("product_id", productIds);
-
-  if (!data) return [];
-
-  // Preserve the original order
-  const map = new Map(
-    (data as ShelfProduct[]).map((p) => [p.product_id, p])
-  );
-  return productIds
-    .map((id) => map.get(id))
-    .filter((p): p is ShelfProduct => p != null);
+    return history
+      .map((h) => {
+        const product = catalogById.get(h.product_id);
+        if (!product) return null;
+        return mapVndaToShelf(product, config.storeHost);
+      })
+      .filter((p): p is ShelfProduct => p != null);
+  } catch {
+    return [];
+  }
 }
