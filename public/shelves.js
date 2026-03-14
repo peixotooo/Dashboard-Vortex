@@ -325,49 +325,56 @@
 
   function buildProductCard(product) {
     var hasDiscount = product.sale_price && product.sale_price < product.price;
+    var tags = (product.tags && typeof product.tags === 'object') ? product.tags : {};
+    
+    // Badge based on VNDA tags or algorithm
+    var badgeLabel = "";
+    if (tags.vnda_tags && Array.isArray(tags.vnda_tags)) {
+      var isBestseller = tags.vnda_tags.some(function(t) { return t.name === 'Mais Vendidos'; });
+      if (isBestseller) badgeLabel = "MAIS VENDIDOS";
+    }
+    if (!badgeLabel && (product.algorithm === 'bestsellers' || product.algorithm === 'most_popular')) {
+       badgeLabel = "MAIS VENDIDOS";
+    }
 
     var priceHTML = "";
     if (hasDiscount) {
-      var pct = Math.round(
-        ((product.price - product.sale_price) / product.price) * 100
-      );
+      var pct = Math.round(((product.price - product.sale_price) / product.price) * 100);
       priceHTML =
-        '<div class="price-wrapper">';
-      if (pct > 0) {
-        priceHTML += '<span class="vtx-discount-tag">-' + pct + "%</span>";
-      }
-      priceHTML +=
-        '<del class="vtx-price-original">R$ ' + formatPrice(product.price) + "</del>" +
-        '<span class="vtx-price-sale">R$ ' + formatPrice(product.sale_price) + "</span>" +
-        '<span class="vtx-installments" data-price="' + product.sale_price + '"></span>' +
-        "</div>";
+        '<div class="vtx-price-row">' +
+          '<div class="vtx-price-top">' +
+            (pct > 0 ? '<span class="vtx-discount-badge">-' + pct + '%</span>' : '') +
+            '<span class="vtx-price-old">R$ ' + formatPrice(product.price) + '</span>' +
+          '</div>' +
+          '<span class="vtx-price-main">R$ ' + formatPrice(product.sale_price) + '</span>' +
+        '</div>';
     } else {
       priceHTML =
-        '<div class="price-wrapper">' +
-        '<span class="vtx-price">R$ ' + formatPrice(product.price) + "</span>" +
-        '<span class="vtx-installments" data-price="' + product.price + '"></span>' +
-        "</div>";
+        '<div class="vtx-price-row">' +
+          '<span class="vtx-price-main">R$ ' + formatPrice(product.price) + '</span>' +
+        '</div>';
     }
 
     var imgSrc = product.image_url || "";
     var imgSrc2 = product.image_url_2 || imgSrc;
     var link = product.product_url || "#";
-
-    // Optimize image URL (800px width via VNDA CDN)
-    if (imgSrc.indexOf("cdn.vnda.com.br") !== -1) {
-      imgSrc = imgSrc.replace(/\/(\d+x\/)?/, "/800x/");
-    }
-    if (imgSrc2.indexOf("cdn.vnda.com.br") !== -1) {
-      imgSrc2 = imgSrc2.replace(/\/(\d+x\/)?/, "/800x/");
+    
+    // Fix link suffix if missing
+    if (link !== "#" && product.product_id && !link.endsWith("-" + product.product_id)) {
+       // Only append if it doesn't already have a numeric suffix that looks like an ID
+       if (!/-\d+$/.test(link)) {
+         link = link.replace(/\/$/, "") + "-" + product.product_id;
+       }
     }
 
     return (
       '<div class="product-block" data-vtx-product-id="' + product.product_id + '">' +
         '<div class="images">' +
+          (badgeLabel ? '<div class="vtx-badge">' + badgeLabel + '</div>' : '') +
           '<a href="' + link + '">' +
             '<figure class="image -square">' +
-              '<img alt="' + (product.name || "") + '" src="' + imgSrc + '" loading="lazy">' +
-              '<img alt="' + (product.name || "") + '" src="' + imgSrc2 + '" loading="lazy">' +
+              '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc) + '" loading="lazy">' +
+              '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc2) + '" loading="lazy">' +
             "</figure>" +
           "</a>" +
         "</div>" +
@@ -377,6 +384,16 @@
         "</div>" +
       "</div>"
     );
+  }
+
+  function cleanUrl(url) {
+    if (!url) return "";
+    var u = url;
+    if (u.startsWith("//")) u = "https:" + u;
+    if (u.indexOf("cdn.vnda.com.br") !== -1) {
+      u = u.replace(/cdn\.vnda\.com\.br\/(\d+x\/)?/, "cdn.vnda.com.br/800x/");
+    }
+    return u;
   }
 
   function buildShelfHTML(shelf, products) {
@@ -390,6 +407,7 @@
       '<section class="section products carousel container vtx-shelf" data-vtx-algorithm="' + shelf.algorithm + '">' +
         '<div class="header">' +
           '<h2 class="title">' + shelf.title + "</h2>" +
+          '<a href="/novidades" class="view-all">ver todas <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></a>' +
         "</div>" +
         '<div class="swiper vtx-swiper">' +
           '<div class="swiper-wrapper">' +
@@ -421,12 +439,24 @@
             prevEl: swiperEl.querySelector(".swiper-button-prev"),
           },
           breakpoints: {
-            660: { slidesPerView: 3, spaceBetween: 16 },
+            660: { slidesPerView: 2, spaceBetween: 15 },
             1030: { slidesPerView: 4, spaceBetween: 20 },
           },
         });
         console.log("[Shelves] Swiper initialized");
       } else {
+        // Load Swiper if not present
+        if (!document.getElementById("vtx-swiper-js")) {
+          var s = document.createElement("script");
+          s.id = "vtx-swiper-js";
+          s.src = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js";
+          document.head.appendChild(s);
+          
+          var l = document.createElement("link");
+          l.rel = "stylesheet";
+          l.href = "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css";
+          document.head.appendChild(l);
+        }
         setTimeout(tryInit, 300);
       }
     }
@@ -463,29 +493,38 @@
 
   function injectStyles() {
     var css =
-      ".vtx-shelf-container { width: 100%; }" +
-      ".vtx-shelf { padding: 24px 0; }" +
-      ".vtx-shelf .header { text-align: center; margin-bottom: 20px; }" +
-      ".vtx-shelf .header .title { font-size: 1.4em; font-weight: 600; }" +
-      ".vtx-shelf .product-block { text-align: center; }" +
-      ".vtx-shelf .product-block .images { position: relative; overflow: hidden; }" +
-      ".vtx-shelf .product-block .images figure { margin: 0; }" +
-      ".vtx-shelf .product-block .images img { width: 100%; height: auto; display: block; }" +
-      ".vtx-shelf .product-block .images img:nth-child(2) { display: none; }" +
-      ".vtx-shelf .product-block:hover .images img:first-child { display: none; }" +
-      ".vtx-shelf .product-block:hover .images img:nth-child(2) { display: block; }" +
-      ".vtx-shelf .product-block .description { padding: 12px 8px; }" +
-      ".vtx-shelf .product-block .name { font-size: 0.85em; font-weight: 400; margin: 0 0 8px; line-height: 1.3; }" +
-      ".vtx-shelf .product-block .name a { color: inherit; text-decoration: none; }" +
-      ".vtx-shelf .price-wrapper { font-size: 0.9em; }" +
-      ".vtx-shelf .vtx-price, .vtx-shelf .vtx-price-sale { font-weight: 600; color: #333; }" +
-      ".vtx-shelf .vtx-price-original { color: #999; font-size: 0.85em; text-decoration: line-through; margin-right: 6px; }" +
-      ".vtx-shelf .vtx-discount-tag { display: inline-block; background: #e74c3c; color: #fff; font-size: 0.75em; padding: 2px 6px; border-radius: 3px; margin-right: 6px; }" +
-      ".vtx-shelf .vtx-installments { display: block; font-size: 0.75em; color: #777; margin-top: 4px; }" +
-      ".vtx-shelf .swiper-button-prev, .vtx-shelf .swiper-button-next { color: #333; }" +
-      ".vtx-shelf .swiper-pagination-bullet-active { background: #333; }";
+      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1200px; padding: 0 15px; box-sizing: border-box; }" +
+      ".vtx-shelf .header { text-align: center; margin-bottom: 24px; position: relative; }" +
+      ".vtx-shelf .header .title { font-size: 24px; font-weight: 900; color: #000; text-transform: uppercase; letter-spacing: 1px; margin: 0; }" +
+      ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
+      ".vtx-shelf .product-block { position: relative; padding: 0; transition: transform 0.2s; cursor: pointer; text-align: left; }" +
+      ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
+      ".vtx-shelf .images .image { margin: 0; padding-bottom: 150%; position: relative; width: 100%; display: block; }" +
+      ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
+      ".vtx-shelf .images .image img:nth-child(2) { opacity: 0; }" +
+      ".vtx-shelf .product-block:hover .images .image img:nth-child(1) { opacity: 0; }" +
+      ".vtx-shelf .product-block:hover .images .image img:nth-child(2) { opacity: 1; }" +
+      ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
+      ".vtx-shelf .description { text-align: left; }" +
+      ".vtx-shelf .name { font-size: 13px; font-weight: 600; text-transform: uppercase; color: #333; margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }" +
+      ".vtx-shelf .name a { color: inherit; text-decoration: none; }" +
+      ".vtx-price-row { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }" +
+      ".vtx-price-top { display: flex; align-items: center; gap: 8px; }" +
+      ".vtx-price-old { font-size: 12px; color: #999; text-decoration: line-through; }" +
+      ".vtx-price-main { font-size: 20px; font-weight: 900; color: #000; line-height: 1; }" +
+      ".vtx-discount-badge { background: #ff0000; color: #fff; padding: 2px 4px; font-size: 10px; font-weight: 900; border-radius: 2px; }" +
+      ".vtx-installments { font-size: 11px; color: #666; margin-top: 4px; display: block; }" +
+      ".vtx-swiper { padding: 0 0 40px; position: relative; }" +
+      ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }" +
+      ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
+      ".vtx-swiper .swiper-pagination-bullet-active { background: #000; }" +
+      "@media (max-width: 768px) {" +
+        ".vtx-shelf .header .title { font-size: 18px; }" +
+        ".vtx-price-main { font-size: 18px; }" +
+      "}";
 
     var style = document.createElement("style");
+    style.id = "vtx-shelf-styles";
     style.textContent = css;
     document.head.appendChild(style);
   }
