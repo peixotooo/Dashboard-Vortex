@@ -1,9 +1,10 @@
 import { createAdminClient } from "@/lib/supabase-admin";
+import { decrypt } from "@/lib/encryption";
 import {
-  getVndaConfig,
   searchVndaProducts,
   getVndaOrders,
   type VndaSearchProduct,
+  type VndaConfig,
 } from "@/lib/vnda-api";
 import { getGA4Report } from "@/lib/ga4-api";
 
@@ -52,12 +53,32 @@ function mapVndaToShelf(
   };
 }
 
-async function getWorkspaceVndaConfig(workspaceId: string) {
-  const config = await getVndaConfig(workspaceId);
-  if (!config) {
-    throw new Error("VNDA not configured for this workspace");
+async function getWorkspaceVndaConfig(workspaceId: string): Promise<VndaConfig> {
+  const admin = createAdminClient();
+
+  const { data } = await admin
+    .from("vnda_connections")
+    .select("api_token, store_host")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (data?.api_token && data?.store_host) {
+    return {
+      apiToken: decrypt(data.api_token),
+      storeHost: data.store_host as string,
+    };
   }
-  return config;
+
+  // Fallback to env vars
+  const token = process.env.VNDA_API_TOKEN;
+  const host = process.env.VNDA_STORE_HOST;
+  if (token && host) {
+    return { apiToken: token, storeHost: host };
+  }
+
+  throw new Error("VNDA not configured for this workspace");
 }
 
 // --- Main entry point ---
