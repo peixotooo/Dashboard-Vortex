@@ -394,7 +394,24 @@ export async function searchVndaProducts(
   config: VndaConfig,
   params: Record<string, string> = {}
 ): Promise<VndaSearchProduct[]> {
-  const { data } = await vndaRequest<VndaSearchProduct[]>("products/search", config, params);
+  const { data } = await vndaRequest<unknown>("products/search", config, params);
+  // VNDA search endpoint may return array or wrapper object { results: [...] }
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.results)) return obj.results;
+    if (Array.isArray(obj.products)) return obj.products;
+  }
+  return [];
+}
+
+// --- List products (plain endpoint, always returns array) ---
+
+export async function listVndaProducts(
+  config: VndaConfig,
+  params: Record<string, string> = {}
+): Promise<VndaSearchProduct[]> {
+  const { data } = await vndaRequest<VndaSearchProduct[]>("products", config, params);
   return data || [];
 }
 

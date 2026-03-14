@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { decrypt } from "@/lib/encryption";
 import {
-  searchVndaProducts,
+  listVndaProducts,
   getVndaOrders,
   type VndaSearchProduct,
   type VndaConfig,
@@ -141,10 +141,10 @@ async function getBestsellers(
     .map(([name]) => name);
 
   // Fetch product catalog from VNDA to match by name
-  const catalog = await searchVndaProducts(config, { per_page: "100" });
+  const catalog = await listVndaProducts(config, { per_page: "100" });
   const catalogByName = new Map<string, VndaSearchProduct>();
   for (const p of catalog) {
-    if (p.available && p.active) {
+    if (p.available !== false) {
       catalogByName.set(p.name, p);
     }
   }
@@ -164,7 +164,7 @@ async function getBestsellers(
     const usedIds = new Set(results.map((r) => r.product_id));
     for (const p of catalog) {
       if (results.length >= params.limit) break;
-      if (!usedIds.has(String(p.id)) && p.available && p.active) {
+      if (!usedIds.has(String(p.id)) && p.available !== false) {
         results.push(mapVndaToShelf(p, config.storeHost));
       }
     }
@@ -179,13 +179,13 @@ async function getNews(
 ): Promise<ShelfProduct[]> {
   const config = await getWorkspaceVndaConfig(params.workspaceId);
 
-  const products = await searchVndaProducts(config, {
-    per_page: String(params.limit),
-    sort: "newest",
+  // /api/v2/products returns newest first by default
+  const products = await listVndaProducts(config, {
+    per_page: String(Math.max(params.limit * 2, 50)),
   });
 
   return products
-    .filter((p) => p.available && p.active)
+    .filter((p) => p.available !== false)
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
 }
@@ -196,10 +196,10 @@ async function getOffers(
 ): Promise<ShelfProduct[]> {
   const config = await getWorkspaceVndaConfig(params.workspaceId);
 
-  const products = await searchVndaProducts(config, { per_page: "100" });
+  const products = await listVndaProducts(config, { per_page: "100" });
 
   return products
-    .filter((p) => p.on_sale && p.available && p.active)
+    .filter((p) => p.on_sale && p.available !== false)
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
 }
@@ -227,10 +227,10 @@ async function getMostPopular(
         .map((r) => r.dimensions.itemName);
 
       // Fetch catalog and match by name
-      const catalog = await searchVndaProducts(config, { per_page: "100" });
+      const catalog = await listVndaProducts(config, { per_page: "100" });
       const catalogByName = new Map<string, VndaSearchProduct>();
       for (const p of catalog) {
-        if (p.available && p.active) {
+        if (p.available !== false) {
           catalogByName.set(p.name, p);
         }
       }
@@ -277,7 +277,7 @@ async function getLastViewed(
   // Enrich with VNDA data instead of shelf_products table
   try {
     const config = await getWorkspaceVndaConfig(params.workspaceId);
-    const catalog = await searchVndaProducts(config, { per_page: "100" });
+    const catalog = await listVndaProducts(config, { per_page: "100" });
     const catalogById = new Map<string, VndaSearchProduct>();
     for (const p of catalog) {
       catalogById.set(String(p.id), p);
