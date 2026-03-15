@@ -457,8 +457,31 @@ export default function CampaignsPage() {
         const budgetCents = parseBudgetCents(c);
         const spendPct = hasBudget && budgetCents > 0 ? Math.min(100, (c.spend / (budgetCents / 100)) * 100) : 0;
 
+        // Bar + hint color based on tier
+        const suggestion = c.tier ? getSuggestion(c) : null;
+        const tierBarColor = (() => {
+          switch (c.tier) {
+            case "champion": return "bg-emerald-500";
+            case "potential": return "bg-blue-500";
+            case "scale": return "bg-purple-400";
+            case "profitable": return "bg-cyan-400";
+            case "warning": return "bg-amber-500";
+            case "critical": return "bg-red-500";
+            default: return "bg-muted-foreground/40";
+          }
+        })();
+        const tierHintColor = (() => {
+          switch (c.tier) {
+            case "champion": return "text-emerald-500";
+            case "potential": return "text-blue-500";
+            case "warning": return "text-amber-500";
+            case "critical": return "text-red-500";
+            default: return "text-muted-foreground";
+          }
+        })();
+
         return (
-          <div className="text-right">
+          <div className="text-right min-w-[120px]">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -474,12 +497,17 @@ export default function CampaignsPage() {
                 : "-"}
             </button>
             {hasBudget && spendPct > 0 && (
-              <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
+              <div className="w-full h-1.5 bg-muted rounded-full mt-1 overflow-hidden">
                 <div
-                  className="h-full rounded-full transition-all bg-primary/60"
+                  className={`h-full rounded-full transition-all ${tierBarColor}`}
                   style={{ width: `${spendPct}%` }}
                 />
               </div>
+            )}
+            {hasBudget && suggestion && suggestion.pct !== 0 && (
+              <p className={`text-[10px] font-medium mt-0.5 ${tierHintColor}`}>
+                {suggestion.pct > 0 ? "↑" : "↓"} {suggestion.label} ({suggestion.pct > 0 ? "+" : ""}{suggestion.pct}%)
+              </p>
             )}
           </div>
         );
