@@ -555,8 +555,12 @@ export function CampaignCreateDialog({
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-sm font-semibold">{t.name}</span>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
-                            {t.status}
+                          <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded border ${
+                            t.category === "MARKETING"
+                              ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                              : "bg-sky-500/10 text-sky-400 border-sky-500/20"
+                          }`}>
+                            {t.category === "MARKETING" ? "Marketing" : "Utilidade"}
                           </span>
                           <span className="text-[10px] text-muted-foreground">{t.language}</span>
                         </div>

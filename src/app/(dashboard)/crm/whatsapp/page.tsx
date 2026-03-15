@@ -38,6 +38,12 @@ import {
   Loader2,
   ShieldOff,
   Trash2,
+  Image,
+  Video,
+  Link,
+  Hash,
+  Search,
+  MousePointerClick,
 } from "lucide-react";
 
 // --- Types ---
@@ -161,6 +167,8 @@ export default function WhatsAppPage() {
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showTemplateCreate, setShowTemplateCreate] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateFilter, setTemplateFilter] = useState<"all" | "APPROVED" | "PENDING" | "REJECTED">("all");
 
   const wsHeaders = useCallback(() => {
     return {
@@ -874,10 +882,19 @@ export default function WhatsAppPage() {
 
         {/* ==================== TEMPLATES TAB ==================== */}
         <TabsContent value="templates" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-muted-foreground">
-              {templates.length} template(s) sincronizado(s)
-            </p>
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                {templates.length} template(s) sincronizado(s)
+                {templates.length > 0 && (
+                  <span className="ml-2">
+                    — {templates.filter((t) => t.status === "APPROVED").length} aprovado(s),{" "}
+                    {templates.filter((t) => t.status === "PENDING").length} em analise
+                  </span>
+                )}
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => setShowTemplateCreate(true)}
@@ -898,10 +915,40 @@ export default function WhatsAppPage() {
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-1" />
                 )}
-                Sincronizar da Meta
+                Sincronizar
               </Button>
             </div>
           </div>
+
+          {/* Search + filter */}
+          {templates.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={templateSearch}
+                  onChange={(e) => setTemplateSearch(e.target.value)}
+                  placeholder="Buscar por nome..."
+                  className="pl-9 h-8 text-sm"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                {(["all", "APPROVED", "PENDING", "REJECTED"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setTemplateFilter(f)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      templateFilter === f
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    {f === "all" ? "Todos" : f === "APPROVED" ? "Aprovados" : f === "PENDING" ? "Pendentes" : "Rejeitados"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {templates.length === 0 ? (
             <Card>
@@ -915,45 +962,91 @@ export default function WhatsAppPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {templates.map((t) => (
-                <Card key={t.id}>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{t.name}</span>
-                          <Badge
-                            variant={t.status === "APPROVED" ? "default" : t.status === "REJECTED" ? "destructive" : "secondary"}
-                            className="gap-1"
+              {templates
+                .filter((t) => {
+                  if (templateFilter !== "all" && t.status !== templateFilter) return false;
+                  if (templateSearch && !t.name.toLowerCase().includes(templateSearch.toLowerCase())) return false;
+                  return true;
+                })
+                .map((t) => {
+                  const header = t.components.find((c) => c.type === "HEADER");
+                  const body = t.components.find((c) => c.type === "BODY");
+                  const footer = t.components.find((c) => c.type === "FOOTER");
+                  const buttons = t.components.find((c) => c.type === "BUTTONS");
+                  const vars = (body?.text || "").match(/\{\{\d+\}\}/g);
+
+                  return (
+                    <Card key={t.id}>
+                      <CardContent className="py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium">{t.name}</span>
+                              <Badge
+                                variant={t.status === "APPROVED" ? "default" : t.status === "REJECTED" ? "destructive" : "secondary"}
+                                className="gap-1"
+                              >
+                                {t.status === "APPROVED" && <CheckCircle2 className="h-3 w-3" />}
+                                {t.status === "PENDING" && <Clock className="h-3 w-3" />}
+                                {t.status === "REJECTED" && <AlertCircle className="h-3 w-3" />}
+                                {t.status === "APPROVED" ? "Aprovado" : t.status === "PENDING" ? "Em analise" : t.status === "REJECTED" ? "Rejeitado" : t.status}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={t.category === "MARKETING"
+                                  ? "border-purple-500/30 text-purple-400"
+                                  : "border-sky-500/30 text-sky-400"
+                                }
+                              >
+                                {t.category === "MARKETING" ? "Marketing" : "Utilidade"}
+                              </Badge>
+                            </div>
+                            {/* Meta info row */}
+                            <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                              <span>{t.language}</span>
+                              {header?.format && (
+                                <span className="flex items-center gap-1">
+                                  {header.format === "IMAGE" && <Image className="h-3 w-3" />}
+                                  {header.format === "VIDEO" && <Video className="h-3 w-3" />}
+                                  {header.format === "DOCUMENT" && <FileText className="h-3 w-3" />}
+                                  {header.format === "TEXT" ? "Header texto" : header.format === "IMAGE" ? "Imagem" : header.format === "VIDEO" ? "Video" : header.format === "DOCUMENT" ? "Documento" : header.format}
+                                </span>
+                              )}
+                              {vars && vars.length > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Hash className="h-3 w-3" />
+                                  {vars.length} variavel(is)
+                                </span>
+                              )}
+                              {buttons?.buttons && buttons.buttons.length > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <MousePointerClick className="h-3 w-3" />
+                                  {buttons.buttons.length} botao(oes)
+                                </span>
+                              )}
+                              {footer?.text && (
+                                <span className="truncate max-w-[150px]">Rodape: {footer.text}</span>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-500/10 shrink-0"
+                            onClick={() => handleDeleteTemplate(t.name)}
                           >
-                            {t.status === "APPROVED" && <CheckCircle2 className="h-3 w-3" />}
-                            {t.status === "PENDING" && <Clock className="h-3 w-3" />}
-                            {t.status === "REJECTED" && <AlertCircle className="h-3 w-3" />}
-                            {t.status === "APPROVED" ? "Aprovado" : t.status === "PENDING" ? "Em analise" : t.status === "REJECTED" ? "Rejeitado" : t.status}
-                          </Badge>
-                          <Badge variant="outline">{t.category}</Badge>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Idioma: {t.language}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-500/10"
-                        onClick={() => handleDeleteTemplate(t.name)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    {t.components.find((c) => c.type === "BODY")?.text && (
-                      <p className="text-sm mt-2 text-muted-foreground bg-muted/50 rounded p-2">
-                        {t.components.find((c) => c.type === "BODY")?.text}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                        {body?.text && (
+                          <p className="text-sm mt-2 text-muted-foreground bg-muted/50 rounded p-2 whitespace-pre-wrap">
+                            {body.text}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
             </div>
           )}
         </TabsContent>
