@@ -230,11 +230,19 @@ export default function CampaignsPage() {
     const valid = targets.filter((c) => hasDailyBudget(c));
     if (valid.length === 0) return;
     setBudgetDialogCampaigns(valid);
-    setBudgetPct(0);
     setBudgetMode("percent");
     setBudgetFixedValue("");
     setBudgetOverrides(new Map());
     setBudgetResults(null);
+
+    // Auto-aplicar sugestao para campanha individual
+    if (valid.length === 1 && valid[0].tier) {
+      const suggestion = getSuggestion(valid[0]);
+      setBudgetPct(suggestion.pct);
+    } else {
+      setBudgetPct(0);
+    }
+
     setBudgetDialogOpen(true);
   }
 
@@ -468,9 +476,7 @@ export default function CampaignsPage() {
             {hasBudget && spendPct > 0 && (
               <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    spendPct >= 90 ? "bg-red-500" : spendPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
-                  }`}
+                  className="h-full rounded-full transition-all bg-primary/60"
                   style={{ width: `${spendPct}%` }}
                 />
               </div>
