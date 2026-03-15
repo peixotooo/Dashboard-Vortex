@@ -1354,7 +1354,7 @@ export default function WhatsAppPage() {
                     Preview
                   </div>
                   <div className="p-3 space-y-1">
-                    <div className="bg-white rounded-lg shadow-sm overflow-hidden max-w-[85%]">
+                    <div className="bg-white rounded-lg shadow-sm overflow-hidden max-w-[85%] text-gray-900">
                       {/* Header */}
                       {pHeader?.format === "IMAGE" && (
                         <div className="w-full h-32 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
@@ -1372,7 +1372,7 @@ export default function WhatsAppPage() {
                         </div>
                       )}
                       {pHeader?.format === "TEXT" && pHeader.text && (
-                        <p className="px-2 pt-2 text-sm font-semibold">{pHeader.text}</p>
+                        <p className="px-2 pt-2 text-sm font-semibold text-gray-900">{pHeader.text}</p>
                       )}
 
                       {/* LTO indicator */}
@@ -1385,19 +1385,19 @@ export default function WhatsAppPage() {
 
                       {/* Body */}
                       {pBody?.text && (
-                        <p className="px-2 py-1.5 text-sm whitespace-pre-wrap">{pBody.text}</p>
+                        <p className="px-2 py-1.5 text-sm whitespace-pre-wrap text-gray-900">{pBody.text}</p>
                       )}
 
                       {/* Footer */}
                       {pFooter?.text && (
-                        <p className="px-2 pb-1.5 text-[11px] text-gray-400">{pFooter.text}</p>
+                        <p className="px-2 pb-1.5 text-[11px] text-gray-500">{pFooter.text}</p>
                       )}
 
                       {/* Buttons */}
                       {pButtons?.buttons && pButtons.buttons.length > 0 && (
-                        <div className="border-t">
+                        <div className="border-t border-gray-200">
                           {pButtons.buttons.map((b, i) => (
-                            <div key={i} className="text-center py-1.5 text-sm text-[#00a5f4] border-b last:border-b-0 flex items-center justify-center gap-1">
+                            <div key={i} className="text-center py-1.5 text-sm text-[#00a5f4] border-b border-gray-200 last:border-b-0 flex items-center justify-center gap-1">
                               {b.type === "COPY_CODE" && <Copy className="h-3.5 w-3.5" />}
                               {b.type === "URL" && <Link className="h-3.5 w-3.5" />}
                               {b.type === "PHONE_NUMBER" && <Phone className="h-3.5 w-3.5" />}
@@ -1416,7 +1416,7 @@ export default function WhatsAppPage() {
                           const cBody = card.components.find((c) => c.type === "BODY");
                           const cButtons = card.components.find((c) => c.type === "BUTTONS");
                           return (
-                            <div key={ci} className="bg-white rounded-lg shadow-sm overflow-hidden shrink-0" style={{ width: "160px" }}>
+                            <div key={ci} className="bg-white rounded-lg shadow-sm overflow-hidden shrink-0 text-gray-900" style={{ width: "160px" }}>
                               {cHeader?.format === "IMAGE" ? (
                                 <div className="w-full h-20 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
                                   <Image className="h-5 w-5 text-gray-400" />
@@ -1431,12 +1431,12 @@ export default function WhatsAppPage() {
                                 </div>
                               )}
                               {cBody?.text && (
-                                <p className="px-1.5 py-1 text-[10px] leading-tight line-clamp-3">{cBody.text}</p>
+                                <p className="px-1.5 py-1 text-[10px] leading-tight line-clamp-3 text-gray-900">{cBody.text}</p>
                               )}
                               {cButtons?.buttons && cButtons.buttons.length > 0 && (
-                                <div className="border-t">
+                                <div className="border-t border-gray-200">
                                   {cButtons.buttons.map((b, bi) => (
-                                    <div key={bi} className="text-center py-1 text-[10px] text-[#00a5f4] border-b last:border-b-0">
+                                    <div key={bi} className="text-center py-1 text-[10px] text-[#00a5f4] border-b border-gray-200 last:border-b-0">
                                       {b.text || "Botao"}
                                     </div>
                                   ))}
