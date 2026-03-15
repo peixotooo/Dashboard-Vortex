@@ -22,6 +22,7 @@ import {
   MessageSquare,
   Users,
   Phone,
+  Sparkles,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
@@ -90,6 +91,8 @@ export function CampaignCreateDialog({
 
   // Step 3: Variables
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
+  const [copyPrompt, setCopyPrompt] = useState("");
+  const [copyLoading, setCopyLoading] = useState(false);
 
   // Step 4: Schedule
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
@@ -114,6 +117,8 @@ export function CampaignCreateDialog({
       setSubmitting(false);
       setSubmitError("");
       setSubmitSuccess(false);
+      setCopyPrompt("");
+      setCopyLoading(false);
     }
   }, [open, suggestedName]);
 
@@ -232,6 +237,36 @@ export function CampaignCreateDialog({
         return false;
     }
   }, [step, campaignName, validContacts.length, selectedTemplateId, templateVars.length, variableValues, scheduleMode, scheduledAt]);
+
+  // Generate copy via AI
+  const handleGenerateCopy = useCallback(async () => {
+    if (copyLoading || templateVars.length === 0) return;
+    setCopyLoading(true);
+    try {
+      const res = await fetch("/api/crm/whatsapp/generate-copy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({
+          campaignName: campaignName.trim(),
+          templateBody,
+          variables: templateVars,
+          userPrompt: copyPrompt.trim(),
+        }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.values && Object.keys(data.values).length > 0) {
+        setVariableValues((prev) => ({ ...prev, ...data.values }));
+      }
+    } catch {
+      // Silent — user can fill manually
+    } finally {
+      setCopyLoading(false);
+    }
+  }, [copyLoading, templateVars, workspaceId, campaignName, templateBody, copyPrompt]);
 
   // Submit campaign
   const handleSubmit = useCallback(async () => {
@@ -480,8 +515,43 @@ export function CampaignCreateDialog({
                 </div>
               ) : (
                 <>
+                  {/* AI Copy Assistant */}
+                  <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-sky-400 shrink-0" />
+                      <p className="text-sm font-medium">Assistente de Copy</p>
+                    </div>
+                    <textarea
+                      value={copyPrompt}
+                      onChange={(e) => setCopyPrompt(e.target.value)}
+                      placeholder="Descreva o objetivo da campanha... (ex: reativar clientes inativos com 15% de desconto)"
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+                      rows={2}
+                      disabled={copyLoading}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs"
+                      onClick={handleGenerateCopy}
+                      disabled={copyLoading}
+                    >
+                      {copyLoading ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Gerando...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Gerar com IA
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
                   <p className="text-sm text-muted-foreground">
-                    Preencha as variaveis do template. Use <code className="text-primary">{`{{nome}}`}</code> para inserir o nome do contato automaticamente.
+                    Preencha as variaveis do template abaixo ou use o assistente acima.
                   </p>
                   {templateVars.map((v) => (
                     <div key={v}>
@@ -493,7 +563,7 @@ export function CampaignCreateDialog({
                         onChange={(e) =>
                           setVariableValues((prev) => ({ ...prev, [v]: e.target.value }))
                         }
-                        placeholder={`Valor para ${v} (ex: 10%, {{nome}})`}
+                        placeholder={`Valor para ${v}`}
                       />
                     </div>
                   ))}

@@ -110,13 +110,6 @@ export async function GET(request: NextRequest) {
           ...(msg.variable_values as Record<string, string>),
         };
 
-        // Replace contact-field placeholders
-        if (msg.contact_name) {
-          for (const [key, val] of Object.entries(variables)) {
-            if (val === "{{nome}}") variables[key] = msg.contact_name;
-          }
-        }
-
         const result = await sendTemplateMessage(
           config,
           msg.phone,

@@ -410,6 +410,7 @@ export default function CrmPage() {
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
   const [campaignContacts, setCampaignContacts] = useState<Array<{ name: string; email: string; phone: string }>>([]);
   const [campaignSuggestedName, setCampaignSuggestedName] = useState<string | undefined>();
+  const [pendingCampaign, setPendingCampaign] = useState<{ name: string; filters: CrmFilters } | null>(null);
 
   // Customer row selection
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
@@ -520,7 +521,6 @@ export default function CrmPage() {
 
   // Agent panel → create campaign from suggestion
   const handleAgentCreateCampaign = useCallback((name: string, filters: CrmFilters) => {
-    // Apply filters first
     setSegmentFilter(filters.segmentFilter);
     setDayRangeFilter(filters.dayRangeFilter);
     setLifecycleFilter(filters.lifecycleFilter);
@@ -529,26 +529,28 @@ export default function CrmPage() {
     setWeekdayFilter(filters.weekdayFilter);
     setActiveTab("customers");
     if (!customersLoaded) fetchCustomers();
-    // Store campaign details — dialog will open after filteredCustomers re-computes
+    // Store pending — useEffect will open dialog once customers are loaded
+    setPendingCampaign({ name, filters });
+  }, [customersLoaded, fetchCustomers]);
+
+  // Open campaign dialog once customers are ready (resolves race condition)
+  useEffect(() => {
+    if (!pendingCampaign || !customersLoaded) return;
+    const { name, filters } = pendingCampaign;
+    const filtered = customers.filter((c) => {
+      if (filters.segmentFilter !== "all" && c.segment !== filters.segmentFilter) return false;
+      if (filters.dayRangeFilter !== "all" && c.preferredDayRange !== filters.dayRangeFilter) return false;
+      if (filters.lifecycleFilter !== "all" && c.lifecycleStage !== filters.lifecycleFilter) return false;
+      if (filters.hourFilter !== "all" && c.preferredHour !== filters.hourFilter) return false;
+      if (filters.couponFilter !== "all" && c.couponSensitivity !== filters.couponFilter) return false;
+      if (filters.weekdayFilter !== "all" && c.preferredWeekday !== filters.weekdayFilter) return false;
+      return true;
+    }).map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
+    setCampaignContacts(filtered);
     setCampaignSuggestedName(name);
-    // We need to wait for customers to load before opening the dialog
-    // Use a short timeout to let the filter + fetch settle
-    setTimeout(() => {
-      setCampaignContacts(
-        customers.filter((c) => {
-          let pass = true;
-          if (filters.segmentFilter !== "all") pass = pass && c.segment === filters.segmentFilter;
-          if (filters.dayRangeFilter !== "all") pass = pass && c.preferredDayRange === filters.dayRangeFilter;
-          if (filters.lifecycleFilter !== "all") pass = pass && c.lifecycleStage === filters.lifecycleFilter;
-          if (filters.hourFilter !== "all") pass = pass && c.preferredHour === filters.hourFilter;
-          if (filters.couponFilter !== "all") pass = pass && c.couponSensitivity === filters.couponFilter;
-          if (filters.weekdayFilter !== "all") pass = pass && c.preferredWeekday === filters.weekdayFilter;
-          return pass;
-        }).map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
-      );
-      setCampaignDialogOpen(true);
-    }, 500);
-  }, [customersLoaded, fetchCustomers, customers]);
+    setCampaignDialogOpen(true);
+    setPendingCampaign(null);
+  }, [pendingCampaign, customersLoaded, customers]);
 
   // Fire-and-forget export log
   const logExport = useCallback(
