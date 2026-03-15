@@ -45,7 +45,10 @@ const navItems: NavItem[] = [
   { href: "/team/deliverables", label: "Entregas", icon: FileOutput, indent: true },
   { href: "/team/planning", label: "Planejamento", icon: CalendarDays, indent: true },
   { href: "/agent", label: "Vortex IA", icon: Zap },
-  { href: "/campaigns", label: "Campanhas", icon: Megaphone },
+  { href: "/campaigns", label: "Meta Ads", icon: Megaphone },
+  { href: "/campaigns", label: "Campanhas", icon: Megaphone, indent: true },
+  { href: "/audiences", label: "Audiencias", icon: Users, indent: true },
+  { href: "/creatives", label: "Criativos", icon: Image, indent: true },
   { href: "/google-ads", label: "Google Ads", icon: CircleDollarSign },
   { href: "/ga4", label: "Google Analytics", icon: LineChart },
   { href: "/vnda", label: "Loja", icon: ShoppingBag },
@@ -57,9 +60,7 @@ const navItems: NavItem[] = [
   { href: "/simulador", label: "Simulador", icon: Calculator, indent: true },
   { href: "/simulador/diagnostico", label: "Diagnostico", icon: Search, indent: true },
   { href: "/simulador/escala", label: "Escala", icon: TrendingUp, indent: true },
-  { href: "/simulador/config", label: "Configurações", icon: SlidersHorizontal, indent: true },
-  { href: "/audiences", label: "Audiências", icon: Image },
-  { href: "/creatives", label: "Criativos", icon: Image },
+  { href: "/simulador/config", label: "Configuracoes", icon: SlidersHorizontal, indent: true },
   { href: "/media", label: "Galeria", icon: Image },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -104,20 +105,26 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
-        {navItems.map((item) => {
+        {navItems.map((item, idx) => {
           const isActive =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href) && !navItems.some(
               (other) => other.href !== item.href && other.href.startsWith(item.href) && pathname.startsWith(other.href)
             ));
 
+          // Parent "Meta Ads" highlights when on any child route
+          const isMetaAdsParent = item.label === "Meta Ads";
+          const metaAdsActive = isMetaAdsParent && (
+            pathname.startsWith("/campaigns") || pathname.startsWith("/audiences") || pathname.startsWith("/creatives")
+          );
+
           return (
             <Link
-              key={item.href}
+              key={`${item.href}-${idx}`}
               href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                isActive
+                (isActive || metaAdsActive)
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 collapsed && "justify-center px-2",
