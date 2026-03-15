@@ -84,7 +84,18 @@ async function uploadMediaToMeta(
   return handle;
 }
 
+// Download from B2 and upload to Meta, returning header_handle
+async function urlToHandle(config: WaConfig, mediaUrl: string): Promise<string> {
+  console.error(`[WA Templates] Downloading media from: ${mediaUrl.slice(0, 80)}...`);
+  const fileRes = await fetch(mediaUrl);
+  if (!fileRes.ok) throw new Error(`Erro ao baixar midia: HTTP ${fileRes.status}`);
+  const buffer = Buffer.from(await fileRes.arrayBuffer());
+  const mimeType = fileRes.headers.get("content-type") || "image/jpeg";
+  return uploadMediaToMeta(config.accessToken, buffer, mimeType);
+}
+
 // Convert header_url to header_handle by uploading media to Meta
+// Handles both top-level HEADER components and CAROUSEL card headers
 async function convertHeaderUrlToHandle(
   config: WaConfig,
   components: Record<string, unknown>[]
@@ -95,23 +106,32 @@ async function convertHeaderUrlToHandle(
     const headerUrls = example?.header_url as string[] | undefined;
 
     if (comp.type === "HEADER" && headerUrls?.length) {
-      const mediaUrl = headerUrls[0];
-      console.error(`[WA Templates] Downloading media from: ${mediaUrl.slice(0, 80)}...`);
-
-      // Download from B2
-      const fileRes = await fetch(mediaUrl);
-      if (!fileRes.ok) throw new Error(`Erro ao baixar midia: HTTP ${fileRes.status}`);
-      const buffer = Buffer.from(await fileRes.arrayBuffer());
-      const mimeType = fileRes.headers.get("content-type") || "image/jpeg";
-
-      // Upload to Meta
-      const handle = await uploadMediaToMeta(config.accessToken, buffer, mimeType);
-
-      // Replace header_url with header_handle
+      const handle = await urlToHandle(config, headerUrls[0]);
       result.push({
         ...comp,
         example: { header_handle: [handle] },
       });
+    } else if (comp.type === "CAROUSEL" && Array.isArray(comp.cards)) {
+      // Process each card's HEADER component
+      const processedCards = [];
+      for (const card of comp.cards as Record<string, unknown>[]) {
+        const cardComponents = card.components as Record<string, unknown>[] | undefined;
+        if (!cardComponents) { processedCards.push(card); continue; }
+
+        const processedComps = [];
+        for (const cc of cardComponents) {
+          const ccExample = cc.example as Record<string, unknown> | undefined;
+          const ccUrls = ccExample?.header_url as string[] | undefined;
+          if (cc.type === "HEADER" && ccUrls?.length) {
+            const handle = await urlToHandle(config, ccUrls[0]);
+            processedComps.push({ ...cc, example: { header_handle: [handle] } });
+          } else {
+            processedComps.push(cc);
+          }
+        }
+        processedCards.push({ ...card, components: processedComps });
+      }
+      result.push({ ...comp, cards: processedCards });
     } else {
       result.push(comp);
     }

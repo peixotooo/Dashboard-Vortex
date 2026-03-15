@@ -44,6 +44,11 @@ import {
   Hash,
   Search,
   MousePointerClick,
+  Copy,
+  Timer,
+  Layers,
+  Phone,
+  X,
 } from "lucide-react";
 
 // --- Types ---
@@ -169,6 +174,7 @@ export default function WhatsAppPage() {
   const [showTemplateCreate, setShowTemplateCreate] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateFilter, setTemplateFilter] = useState<"all" | "APPROVED" | "PENDING" | "REJECTED">("all");
+  const [previewTemplate, setPreviewTemplate] = useState<WaTemplate | null>(null);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -973,10 +979,16 @@ export default function WhatsAppPage() {
                   const body = t.components.find((c) => c.type === "BODY");
                   const footer = t.components.find((c) => c.type === "FOOTER");
                   const buttons = t.components.find((c) => c.type === "BUTTONS");
+                  const lto = t.components.find((c) => c.type === "LIMITED_TIME_OFFER");
+                  const carousel = t.components.find((c) => c.type === "CAROUSEL");
                   const vars = (body?.text || "").match(/\{\{\d+\}\}/g);
 
                   return (
-                    <Card key={t.id}>
+                    <Card
+                      key={t.id}
+                      className="cursor-pointer hover:border-primary/40 transition-colors"
+                      onClick={() => setPreviewTemplate(t)}
+                    >
                       <CardContent className="py-4">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
@@ -1000,6 +1012,16 @@ export default function WhatsAppPage() {
                               >
                                 {t.category === "MARKETING" ? "Marketing" : "Utilidade"}
                               </Badge>
+                              {lto && (
+                                <Badge variant="outline" className="border-amber-500/30 text-amber-400 gap-1">
+                                  <Timer className="h-3 w-3" /> Oferta Limitada
+                                </Badge>
+                              )}
+                              {carousel && (
+                                <Badge variant="outline" className="border-blue-500/30 text-blue-400 gap-1">
+                                  <Layers className="h-3 w-3" /> Carrossel
+                                </Badge>
+                              )}
                             </div>
                             {/* Meta info row */}
                             <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
@@ -1024,24 +1046,39 @@ export default function WhatsAppPage() {
                                   {buttons.buttons.length} botao(oes)
                                 </span>
                               )}
+                              {carousel && (
+                                <span className="flex items-center gap-1">
+                                  <Layers className="h-3 w-3" />
+                                  {(carousel as unknown as { cards?: unknown[] }).cards?.length || 0} card(s)
+                                </span>
+                              )}
                               {footer?.text && (
                                 <span className="truncate max-w-[150px]">Rodape: {footer.text}</span>
                               )}
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 hover:text-red-700 hover:bg-red-500/10 shrink-0"
-                            onClick={() => handleDeleteTemplate(t.name)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-muted-foreground hover:text-foreground"
+                              onClick={(e) => { e.stopPropagation(); setPreviewTemplate(t); }}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-500/10"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.name); }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </div>
+                        {/* Body snippet */}
                         {body?.text && (
-                          <p className="text-sm mt-2 text-muted-foreground bg-muted/50 rounded p-2 whitespace-pre-wrap">
-                            {body.text}
-                          </p>
+                          <p className="text-xs mt-2 text-muted-foreground line-clamp-2">{body.text}</p>
                         )}
                       </CardContent>
                     </Card>
@@ -1259,6 +1296,231 @@ export default function WhatsAppPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* ==================== TEMPLATE PREVIEW DIALOG ==================== */}
+      <Dialog open={!!previewTemplate} onOpenChange={(open) => { if (!open) setPreviewTemplate(null); }}>
+        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              {previewTemplate?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {previewTemplate && (() => {
+            const pt = previewTemplate;
+            const pHeader = pt.components.find((c) => c.type === "HEADER");
+            const pBody = pt.components.find((c) => c.type === "BODY");
+            const pFooter = pt.components.find((c) => c.type === "FOOTER");
+            const pButtons = pt.components.find((c) => c.type === "BUTTONS");
+            const pLto = pt.components.find((c) => c.type === "LIMITED_TIME_OFFER");
+            const pCarousel = pt.components.find((c) => c.type === "CAROUSEL") as unknown as { cards?: Array<{ components: Array<{ type: string; text?: string; format?: string; buttons?: Array<{ type: string; text?: string; url?: string; example?: string }> }> }> } | undefined;
+
+            return (
+              <div className="flex-1 overflow-y-auto space-y-4">
+                {/* Meta badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={pt.status === "APPROVED" ? "default" : pt.status === "REJECTED" ? "destructive" : "secondary"}
+                    className="gap-1"
+                  >
+                    {pt.status === "APPROVED" && <CheckCircle2 className="h-3 w-3" />}
+                    {pt.status === "PENDING" && <Clock className="h-3 w-3" />}
+                    {pt.status === "REJECTED" && <AlertCircle className="h-3 w-3" />}
+                    {pt.status === "APPROVED" ? "Aprovado" : pt.status === "PENDING" ? "Em analise" : pt.status === "REJECTED" ? "Rejeitado" : pt.status}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={pt.category === "MARKETING" ? "border-purple-500/30 text-purple-400" : "border-sky-500/30 text-sky-400"}
+                  >
+                    {pt.category === "MARKETING" ? "Marketing" : "Utilidade"}
+                  </Badge>
+                  <Badge variant="outline">{pt.language}</Badge>
+                  {pLto && (
+                    <Badge variant="outline" className="border-amber-500/30 text-amber-400 gap-1">
+                      <Timer className="h-3 w-3" /> Oferta Limitada
+                    </Badge>
+                  )}
+                  {pCarousel && (
+                    <Badge variant="outline" className="border-blue-500/30 text-blue-400 gap-1">
+                      <Layers className="h-3 w-3" /> Carrossel
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Phone mockup */}
+                <div className="mx-auto max-w-xs border-2 rounded-2xl overflow-hidden bg-[#e5ddd5]">
+                  <div className="bg-[#075e54] text-white text-center py-2 text-xs font-medium">
+                    Preview
+                  </div>
+                  <div className="p-3 space-y-1">
+                    <div className="bg-white rounded-lg shadow-sm overflow-hidden max-w-[85%]">
+                      {/* Header */}
+                      {pHeader?.format === "IMAGE" && (
+                        <div className="w-full h-32 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+                          <Image className="h-8 w-8 text-gray-400" />
+                        </div>
+                      )}
+                      {pHeader?.format === "VIDEO" && (
+                        <div className="w-full h-32 bg-gray-800 flex items-center justify-center">
+                          <Video className="h-8 w-8 text-white/60" />
+                        </div>
+                      )}
+                      {pHeader?.format === "DOCUMENT" && (
+                        <div className="w-full h-16 bg-gray-100 flex items-center justify-center gap-2 text-xs text-gray-500">
+                          <FileText className="h-5 w-5" /> Documento
+                        </div>
+                      )}
+                      {pHeader?.format === "TEXT" && pHeader.text && (
+                        <p className="px-2 pt-2 text-sm font-semibold">{pHeader.text}</p>
+                      )}
+
+                      {/* LTO indicator */}
+                      {pLto && (
+                        <div className="px-2 pt-2 flex items-center gap-1">
+                          <Timer className="h-3.5 w-3.5 text-amber-600" />
+                          <span className="text-[11px] font-medium text-amber-600">Oferta com prazo</span>
+                        </div>
+                      )}
+
+                      {/* Body */}
+                      {pBody?.text && (
+                        <p className="px-2 py-1.5 text-sm whitespace-pre-wrap">{pBody.text}</p>
+                      )}
+
+                      {/* Footer */}
+                      {pFooter?.text && (
+                        <p className="px-2 pb-1.5 text-[11px] text-gray-400">{pFooter.text}</p>
+                      )}
+
+                      {/* Buttons */}
+                      {pButtons?.buttons && pButtons.buttons.length > 0 && (
+                        <div className="border-t">
+                          {pButtons.buttons.map((b, i) => (
+                            <div key={i} className="text-center py-1.5 text-sm text-[#00a5f4] border-b last:border-b-0 flex items-center justify-center gap-1">
+                              {b.type === "COPY_CODE" && <Copy className="h-3.5 w-3.5" />}
+                              {b.type === "URL" && <Link className="h-3.5 w-3.5" />}
+                              {b.type === "PHONE_NUMBER" && <Phone className="h-3.5 w-3.5" />}
+                              {b.type === "COPY_CODE" ? "Copiar codigo da oferta" : (b.text || "Botao")}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Carousel cards */}
+                    {pCarousel?.cards && pCarousel.cards.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto pb-1 mt-1 -mx-1 px-1">
+                        {pCarousel.cards.map((card, ci) => {
+                          const cHeader = card.components.find((c) => c.type === "HEADER");
+                          const cBody = card.components.find((c) => c.type === "BODY");
+                          const cButtons = card.components.find((c) => c.type === "BUTTONS");
+                          return (
+                            <div key={ci} className="bg-white rounded-lg shadow-sm overflow-hidden shrink-0" style={{ width: "160px" }}>
+                              {cHeader?.format === "IMAGE" ? (
+                                <div className="w-full h-20 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+                                  <Image className="h-5 w-5 text-gray-400" />
+                                </div>
+                              ) : cHeader?.format === "VIDEO" ? (
+                                <div className="w-full h-20 bg-gray-800 flex items-center justify-center">
+                                  <Video className="h-5 w-5 text-white/60" />
+                                </div>
+                              ) : (
+                                <div className="w-full h-20 bg-gray-200 flex items-center justify-center">
+                                  <Image className="h-5 w-5 text-gray-400" />
+                                </div>
+                              )}
+                              {cBody?.text && (
+                                <p className="px-1.5 py-1 text-[10px] leading-tight line-clamp-3">{cBody.text}</p>
+                              )}
+                              {cButtons?.buttons && cButtons.buttons.length > 0 && (
+                                <div className="border-t">
+                                  {cButtons.buttons.map((b, bi) => (
+                                    <div key={bi} className="text-center py-1 text-[10px] text-[#00a5f4] border-b last:border-b-0">
+                                      {b.text || "Botao"}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Template details */}
+                <div className="space-y-2 text-sm">
+                  <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Detalhes</p>
+                  {pHeader?.format && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Header</span>
+                      <span className="flex items-center gap-1">
+                        {pHeader.format === "IMAGE" && <Image className="h-3.5 w-3.5" />}
+                        {pHeader.format === "VIDEO" && <Video className="h-3.5 w-3.5" />}
+                        {pHeader.format === "DOCUMENT" && <FileText className="h-3.5 w-3.5" />}
+                        {pHeader.format}
+                      </span>
+                    </div>
+                  )}
+                  {pBody?.text && (() => {
+                    const pVars = pBody.text.match(/\{\{\d+\}\}/g);
+                    return pVars && pVars.length > 0 ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Variaveis</span>
+                        <span>{pVars.length} — {pVars.join(", ")}</span>
+                      </div>
+                    ) : null;
+                  })()}
+                  {pButtons?.buttons && pButtons.buttons.length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Botoes</span>
+                      <span>{pButtons.buttons.length} — {pButtons.buttons.map((b) => b.type === "COPY_CODE" ? "Copiar Codigo" : b.type === "URL" ? "URL" : b.type === "QUICK_REPLY" ? "Resposta" : b.type === "PHONE_NUMBER" ? "Telefone" : b.type).join(", ")}</span>
+                    </div>
+                  )}
+                  {pCarousel?.cards && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Cards</span>
+                      <span>{pCarousel.cards.length} cards</span>
+                    </div>
+                  )}
+                  {pButtons?.buttons?.some((b) => b.type === "URL" && b.url) && (
+                    <div>
+                      <span className="text-muted-foreground text-xs">URLs:</span>
+                      {pButtons.buttons.filter((b) => b.type === "URL" && b.url).map((b, i) => (
+                        <p key={i} className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1 mt-1 break-all font-mono">
+                          {b.url}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-2 border-t">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => { handleDeleteTemplate(pt.name); setPreviewTemplate(null); }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Excluir
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => setPreviewTemplate(null)}
+                  >
+                    Fechar
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       <TemplateCreateDialog
         open={showTemplateCreate}
