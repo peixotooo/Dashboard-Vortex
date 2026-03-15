@@ -411,6 +411,9 @@ export default function CrmPage() {
   const [campaignContacts, setCampaignContacts] = useState<Array<{ name: string; email: string; phone: string }>>([]);
   const [campaignSuggestedName, setCampaignSuggestedName] = useState<string | undefined>();
 
+  // Customer row selection
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
   const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
   const [summary, setSummary] = useState(emptySummary);
@@ -650,6 +653,29 @@ export default function CrmPage() {
     return list;
   }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch]);
 
+  // Table data with selection state
+  const tableData = useMemo(() =>
+    filteredCustomers.map((c) => ({ ...c, _selected: selectedEmails.has(c.email) })),
+    [filteredCustomers, selectedEmails]
+  );
+
+  const handleRowSelect = useCallback((row: Record<string, unknown>) => {
+    const email = String(row.email || "");
+    if (!email) return;
+    setSelectedEmails((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  }, []);
+
+  // Selected customers for campaign
+  const selectedCustomers = useMemo(() =>
+    filteredCustomers.filter((c) => selectedEmails.has(c.email)),
+    [filteredCustomers, selectedEmails]
+  );
+
   // Active filters for badge bar
   interface ActiveFilter {
     type: string;
@@ -716,6 +742,7 @@ export default function CrmPage() {
   }, [customersLoaded, activeFilters.length, fetchCustomers]);
 
   const clearAllFilters = useCallback(() => {
+    setSelectedEmails(new Set());
     setSegmentFilter("all");
     setDayRangeFilter("all");
     setLifecycleFilter("all");
@@ -914,38 +941,53 @@ export default function CrmPage() {
         </TabsList>
 
         {/* === Hypersegmentation filter bar === */}
-        {activeFilters.length > 0 && (
+        {(activeFilters.length > 0 || selectedEmails.size > 0) && (
           <div className="flex items-center gap-2 flex-wrap px-1 py-3 border-b border-border/50">
-            <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
-            {activeFilters.map((f) => (
+            {activeFilters.length > 0 && (
+              <>
+                <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
+                {activeFilters.map((f) => (
+                  <button
+                    key={`${f.type}-${f.value}`}
+                    onClick={f.onRemove}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
+                    style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
+                  >
+                    {f.label}
+                    <X className="h-3 w-3" />
+                  </button>
+                ))}
+                <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
+                  Limpar filtros
+                </button>
+              </>
+            )}
+            {selectedEmails.size > 0 && (
               <button
-                key={`${f.type}-${f.value}`}
-                onClick={f.onRemove}
+                onClick={() => setSelectedEmails(new Set())}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
-                style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
+                style={{ color: "#3b82f6", backgroundColor: "#3b82f615", border: "1px solid #3b82f630" }}
               >
-                {f.label}
+                {selectedEmails.size} selecionado{selectedEmails.size > 1 ? "s" : ""}
                 <X className="h-3 w-3" />
               </button>
-            ))}
-            <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
-              Limpar filtros
-            </button>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
                 onClick={() => {
-                  setCampaignContacts(
-                    filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
-                  );
+                  const contacts = selectedEmails.size > 0
+                    ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
+                    : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
+                  setCampaignContacts(contacts);
                   setCampaignSuggestedName(undefined);
                   setCampaignDialogOpen(true);
                 }}
               >
                 <MessageSquareMore className="h-4 w-4" />
-                Campanha WhatsApp ({filteredCustomers.length})
+                Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
               </Button>
               <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
                 <Download className="h-4 w-4" />
@@ -1477,8 +1519,10 @@ export default function CrmPage() {
               { key: "lifecycleStage", label: "Ciclo", align: "center", render: (v) => <LifecycleBadge stage={v as LifecycleStage} /> },
               { key: "preferredDayRange", label: "Dia Mes", align: "center", render: (v) => <span className="text-xs text-muted-foreground">{String(v)}</span> },
             ]}
-            data={filteredCustomers as unknown as Record<string, unknown>[]}
+            data={tableData as unknown as Record<string, unknown>[]}
             loading={loading}
+            onRowClick={handleRowSelect}
+            highlightKey="_selected"
           />
           </>))}
         </TabsContent>
