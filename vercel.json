@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/whatsapp-sender",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/crm-recompute",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

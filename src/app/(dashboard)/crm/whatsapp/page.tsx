@@ -119,6 +119,7 @@ export default function WhatsAppPage() {
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [segments, setSegments] = useState<RfmSegment[]>([]);
   const [creating, setCreating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -200,31 +201,42 @@ export default function WhatsAppPage() {
 
   async function handleSaveConfig() {
     setSavingConfig(true);
+    setErrorMsg(null);
     try {
-      await fetch("/api/crm/whatsapp/config", {
+      const res = await fetch("/api/crm/whatsapp/config", {
         method: "POST",
         headers: wsHeaders(),
         body: JSON.stringify({ phoneNumberId, wabaId, accessToken, displayPhone }),
       });
-      setConfigured(true);
-      setAccessToken("");
-    } catch {
-      // ignore
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao salvar: ${data.error}`);
+      } else {
+        setConfigured(true);
+        setAccessToken("");
+      }
+    } catch (err) {
+      setErrorMsg(`Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`);
     }
     setSavingConfig(false);
   }
 
   async function handleSyncTemplates() {
     setSyncingTemplates(true);
+    setErrorMsg(null);
     try {
       const res = await fetch("/api/crm/whatsapp/templates", {
         method: "POST",
         headers: wsHeaders(),
       });
       const data = await res.json();
-      setTemplates(data.templates || []);
-    } catch {
-      // ignore
+      if (data.error) {
+        setErrorMsg(`Erro ao sincronizar: ${data.error}`);
+      } else {
+        setTemplates(data.templates || []);
+      }
+    } catch (err) {
+      setErrorMsg(`Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`);
     }
     setSyncingTemplates(false);
   }
@@ -367,6 +379,16 @@ export default function WhatsAppPage() {
           </p>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="flex-1">{errorMsg}</div>
+          <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-300">
+            <span className="sr-only">Fechar</span>&times;
+          </button>
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
