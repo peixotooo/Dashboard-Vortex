@@ -52,26 +52,31 @@ export async function POST(request: NextRequest) {
     const config = await getWaConfig(workspaceId);
     if (!config) return NextResponse.json({ error: "WhatsApp não configurado. Salve as credenciais na aba Configuração." }, { status: 400 });
 
-    console.log(`[WA Templates] Syncing for WABA ${config.wabaId}, phone ${config.phoneNumberId}`);
+    console.error(`[WA Templates] Syncing for WABA ${config.wabaId}, phone ${config.phoneNumberId}`);
     const metaTemplates = await syncTemplatesFromMeta(config);
-    console.log(`[WA Templates] Meta returned ${metaTemplates.length} templates`);
+    console.error(`[WA Templates] Meta returned ${metaTemplates.length} templates`);
     const admin = createAdminClient();
 
-    // Upsert all templates
-    for (const t of metaTemplates) {
-      await admin.from("wa_templates").upsert(
-        {
-          workspace_id: workspaceId,
-          meta_id: t.id,
-          name: t.name,
-          language: t.language,
-          category: t.category,
-          status: t.status,
-          components: t.components,
-          synced_at: new Date().toISOString(),
-        },
-        { onConflict: "workspace_id,meta_id", ignoreDuplicates: false }
-      );
+    // Delete existing templates and re-insert (partial index prevents upsert)
+    await admin.from("wa_templates").delete().eq("workspace_id", workspaceId);
+
+    if (metaTemplates.length > 0) {
+      const rows = metaTemplates.map((t) => ({
+        workspace_id: workspaceId,
+        meta_id: t.id,
+        name: t.name,
+        language: t.language,
+        category: t.category,
+        status: t.status,
+        components: t.components,
+        synced_at: new Date().toISOString(),
+      }));
+
+      const { error: insertError } = await admin.from("wa_templates").insert(rows);
+      if (insertError) {
+        console.error("[WA Templates] Insert error:", insertError.message);
+        throw new Error(`Erro ao salvar templates: ${insertError.message}`);
+      }
     }
 
     // Re-fetch to return updated list
@@ -80,6 +85,8 @@ export async function POST(request: NextRequest) {
       .select("*")
       .eq("workspace_id", workspaceId)
       .order("name");
+
+    console.error(`[WA Templates] Saved ${(templates || []).length} templates to DB`);
 
     return NextResponse.json({
       synced: metaTemplates.length,
