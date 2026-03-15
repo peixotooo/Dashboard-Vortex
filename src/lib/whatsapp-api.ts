@@ -78,16 +78,21 @@ export async function saveWaConfig(
 
 export async function syncTemplatesFromMeta(config: WaConfig): Promise<WaTemplate[]> {
   const url = `https://graph.facebook.com/v18.0/${config.wabaId}/message_templates?limit=100`;
+  console.error(`[WA Sync] Fetching: ${url.replace(config.accessToken, "***")}`);
+
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${config.accessToken}` },
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[WA Sync] Meta error ${res.status}: ${text.slice(0, 300)}`);
     throw new Error(`Meta API ${res.status}: ${text.slice(0, 200)}`);
   }
 
   const json = await res.json();
+  console.error(`[WA Sync] Meta returned ${(json.data || []).length} templates, keys: ${Object.keys(json).join(",")}`);
+
   const templates: WaTemplate[] = (json.data || []).map((t: Record<string, unknown>) => ({
     id: t.id as string,
     name: t.name as string,
