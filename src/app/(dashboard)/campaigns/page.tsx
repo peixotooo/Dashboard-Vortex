@@ -136,11 +136,42 @@ export default function CampaignsPage() {
   const [budgetOverrides, setBudgetOverrides] = useState<Map<string, number>>(new Map());
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetResults, setBudgetResults] = useState<Array<{ id: string; success: boolean; error?: string }> | null>(null);
-  // Cooldown: campaign_id -> last adjustment timestamp
+  // Cooldown: campaign_id -> last adjustment timestamp (localStorage-first)
   const [budgetCooldowns, setBudgetCooldowns] = useState<Map<string, string>>(new Map());
   const abortRef = useRef<AbortController | null>(null);
 
   const COOLDOWN_HOURS = 24;
+  const LS_KEY = "vortex_budget_cooldowns";
+
+  function loadCooldownsFromStorage(): Map<string, string> {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return new Map();
+      const parsed = JSON.parse(raw) as Record<string, string>;
+      const map = new Map<string, string>();
+      const cutoff = Date.now() - 48 * 60 * 60 * 1000; // clean entries older than 48h
+      for (const [id, ts] of Object.entries(parsed)) {
+        if (new Date(ts).getTime() > cutoff) map.set(id, ts);
+      }
+      return map;
+    } catch { return new Map(); }
+  }
+
+  function saveCooldownsToStorage(map: Map<string, string>) {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(Object.fromEntries(map)));
+    } catch { /* quota exceeded or SSR */ }
+  }
+
+  function recordCooldowns(campaignIds: string[]) {
+    const now = new Date().toISOString();
+    setBudgetCooldowns((prev) => {
+      const next = new Map(prev);
+      for (const id of campaignIds) next.set(id, now);
+      saveCooldownsToStorage(next);
+      return next;
+    });
+  }
 
   function getCooldownInfo(campaignId: string): { inCooldown: boolean; hoursAgo: number; label: string } | null {
     const ts = budgetCooldowns.get(campaignId);
@@ -227,7 +258,13 @@ export default function CampaignsPage() {
     return () => { abortRef.current?.abort(); };
   }, [fetchCampaigns]);
 
-  // Fetch budget cooldowns whenever campaigns change
+  // Load cooldowns from localStorage on mount + merge with server data
+  useEffect(() => {
+    const local = loadCooldownsFromStorage();
+    setBudgetCooldowns(local);
+  }, []);
+
+  // Also try to fetch from server (supplements localStorage)
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
     const ids = campaigns.map((c) => c.id).join(",");
@@ -236,14 +273,19 @@ export default function CampaignsPage() {
     })
       .then((r) => r.json())
       .then((data) => {
-        const map = new Map<string, string>();
-        // logs are ordered by created_at DESC — keep only the latest per campaign
-        for (const log of data.logs || []) {
-          if (!map.has(log.campaign_id)) {
-            map.set(log.campaign_id, log.created_at);
+        if (!data.logs || data.logs.length === 0) return;
+        setBudgetCooldowns((prev) => {
+          const merged = new Map(prev);
+          for (const log of data.logs) {
+            const existing = merged.get(log.campaign_id);
+            // Keep the most recent timestamp
+            if (!existing || new Date(log.created_at) > new Date(existing)) {
+              merged.set(log.campaign_id, log.created_at);
+            }
           }
-        }
-        setBudgetCooldowns(map);
+          saveCooldownsToStorage(merged);
+          return merged;
+        });
       })
       .catch(() => {});
   }, [campaigns, workspace?.id]);
@@ -335,7 +377,10 @@ export default function CampaignsPage() {
       setBudgetResults(data.results || []);
       const allOk = (data.results || []).every((r: { success: boolean }) => r.success);
       if (allOk) {
-        // Log budget changes (fire-and-forget)
+        // Record cooldowns in localStorage immediately
+        recordCooldowns(budgetDialogCampaigns.map((c) => c.id));
+
+        // Also log to server (fire-and-forget, works when table exists)
         const logEntries = budgetDialogCampaigns.map((c) => ({
           campaign_id: c.id,
           campaign_name: c.name,
