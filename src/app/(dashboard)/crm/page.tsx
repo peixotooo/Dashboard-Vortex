@@ -390,7 +390,7 @@ export default function CrmPage() {
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 300);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(value), 500);
   }, []);
   const [segmentFilter, setSegmentFilter] = useState<RfmSegment | "all">("all");
   const [dayRangeFilter, setDayRangeFilter] = useState<DayRange | "all">("all");
@@ -629,35 +629,27 @@ export default function CrmPage() {
     }
   }, [activeTab, customersLoaded, fetchCustomers]);
 
-  // Filtered customers
+  // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays)
   const filteredCustomers = useMemo(() => {
-    let list = customers;
-    if (segmentFilter !== "all") list = list.filter((c) => c.segment === segmentFilter);
-    if (dayRangeFilter !== "all") list = list.filter((c) => c.preferredDayRange === dayRangeFilter);
-    if (lifecycleFilter !== "all") list = list.filter((c) => c.lifecycleStage === lifecycleFilter);
-    if (hourFilter !== "all") list = list.filter((c) => c.preferredHour === hourFilter);
-    if (couponFilter !== "all") list = list.filter((c) => c.couponSensitivity === couponFilter);
-    if (weekdayFilter !== "all") list = list.filter((c) => c.preferredWeekday === weekdayFilter);
-    if (purchasedDateRange) list = list.filter((c) => c.lastPurchaseDate >= purchasedDateRange.from && c.firstPurchaseDate <= purchasedDateRange.to);
-    if (inactiveDateRange) list = list.filter((c) => c.lastPurchaseDate < inactiveDateRange.from);
-    if (avgTicketRange.min !== null) list = list.filter((c) => c.avgTicket >= avgTicketRange.min!);
-    if (avgTicketRange.max !== null) list = list.filter((c) => c.avgTicket <= avgTicketRange.max!);
-    if (totalSpentRange.min !== null) list = list.filter((c) => c.totalSpent >= totalSpentRange.min!);
-    if (totalSpentRange.max !== null) list = list.filter((c) => c.totalSpent <= totalSpentRange.max!);
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      list = list.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.includes(q)
-      );
-    }
-    return list;
+    const q = debouncedSearch ? debouncedSearch.toLowerCase() : "";
+    return customers.filter((c) => {
+      if (segmentFilter !== "all" && c.segment !== segmentFilter) return false;
+      if (dayRangeFilter !== "all" && c.preferredDayRange !== dayRangeFilter) return false;
+      if (lifecycleFilter !== "all" && c.lifecycleStage !== lifecycleFilter) return false;
+      if (hourFilter !== "all" && c.preferredHour !== hourFilter) return false;
+      if (couponFilter !== "all" && c.couponSensitivity !== couponFilter) return false;
+      if (weekdayFilter !== "all" && c.preferredWeekday !== weekdayFilter) return false;
+      if (purchasedDateRange && (c.lastPurchaseDate < purchasedDateRange.from || c.firstPurchaseDate > purchasedDateRange.to)) return false;
+      if (inactiveDateRange && c.lastPurchaseDate >= inactiveDateRange.from) return false;
+      if (avgTicketRange.min !== null && c.avgTicket < avgTicketRange.min) return false;
+      if (avgTicketRange.max !== null && c.avgTicket > avgTicketRange.max) return false;
+      if (totalSpentRange.min !== null && c.totalSpent < totalSpentRange.min) return false;
+      if (totalSpentRange.max !== null && c.totalSpent > totalSpentRange.max) return false;
+      if (q && !c.name.toLowerCase().includes(q) && !c.email.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
+      return true;
+    });
   }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch]);
 
-  // Table data with selection state
-  const tableData = useMemo(() =>
-    filteredCustomers.map((c) => ({ ...c, _selected: selectedEmails.has(c.email) })),
-    [filteredCustomers, selectedEmails]
-  );
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
     const email = String(row.email || "");
@@ -1519,10 +1511,12 @@ export default function CrmPage() {
               { key: "lifecycleStage", label: "Ciclo", align: "center", render: (v) => <LifecycleBadge stage={v as LifecycleStage} /> },
               { key: "preferredDayRange", label: "Dia Mes", align: "center", render: (v) => <span className="text-xs text-muted-foreground">{String(v)}</span> },
             ]}
-            data={tableData as unknown as Record<string, unknown>[]}
+            data={filteredCustomers as unknown as Record<string, unknown>[]}
             loading={loading}
             onRowClick={handleRowSelect}
-            highlightKey="_selected"
+            selectedSet={selectedEmails}
+            selectedKey="email"
+            pageSize={50}
           />
           </>))}
         </TabsContent>

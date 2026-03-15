@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatCurrency, formatBudget, formatNumber, formatPercent, getStatusBadgeClasses } from "@/lib/utils";
 
 interface Column {
@@ -23,7 +24,10 @@ interface PerformanceTableProps {
   onRowClick?: (row: Record<string, any>) => void;
   actions?: (row: Record<string, any>) => React.ReactNode;
   highlightKey?: string;
+  selectedSet?: Set<string>;
+  selectedKey?: string;
   sortable?: boolean;
+  pageSize?: number;
 }
 
 function formatCell(value: unknown, format?: string): React.ReactNode {
@@ -56,10 +60,20 @@ export function PerformanceTable({
   onRowClick,
   actions,
   highlightKey,
+  selectedSet,
+  selectedKey,
   sortable = false,
+  pageSize,
 }: PerformanceTableProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(0);
+
+  // Reset to page 0 when data changes (filter/search applied)
+  const dataLen = data.length;
+  useEffect(() => {
+    setPage(0);
+  }, [dataLen]);
 
   const sortedData = useMemo(() => {
     if (!sortable || !sortKey) return data;
@@ -71,6 +85,21 @@ export function PerformanceTable({
       return sortDir === "desc" ? bNum - aNum : aNum - bNum;
     });
   }, [data, sortKey, sortDir, sortable]);
+
+  const totalPages = pageSize ? Math.ceil(sortedData.length / pageSize) : 1;
+  const paginatedData = pageSize
+    ? sortedData.slice(page * pageSize, (page + 1) * pageSize)
+    : sortedData;
+
+  function isRowHighlighted(row: Record<string, unknown>): boolean {
+    if (selectedSet && selectedKey) {
+      return selectedSet.has(String(row[selectedKey]));
+    }
+    if (highlightKey) {
+      return !!row[highlightKey];
+    }
+    return false;
+  }
 
   if (loading) {
     return (
@@ -139,7 +168,7 @@ export function PerformanceTable({
               </tr>
             </thead>
             <tbody>
-              {sortedData.length === 0 ? (
+              {paginatedData.length === 0 ? (
                 <tr>
                   <td
                     colSpan={columns.length + (actions ? 1 : 0)}
@@ -149,12 +178,12 @@ export function PerformanceTable({
                   </td>
                 </tr>
               ) : (
-                sortedData.map((row, i) => (
+                paginatedData.map((row, i) => (
                   <tr
                     key={i}
                     className={`border-b border-border/50 transition-colors hover:bg-muted/30 ${
                       onRowClick ? "cursor-pointer" : ""
-                    } ${highlightKey && row[highlightKey] ? "bg-primary/10" : ""}`}
+                    } ${isRowHighlighted(row) ? "bg-primary/10" : ""}`}
                     onClick={() => onRowClick?.(row)}
                   >
                     {columns.map((col) => (
@@ -182,6 +211,37 @@ export function PerformanceTable({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination footer */}
+        {pageSize && sortedData.length > pageSize && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border text-sm text-muted-foreground">
+            <span>
+              Mostrando {page * pageSize + 1}–{Math.min((page + 1) * pageSize, sortedData.length)} de{" "}
+              {sortedData.length.toLocaleString("pt-BR")}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Anterior
+              </button>
+              <span className="px-3 py-1.5 text-sm">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Proximo
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
