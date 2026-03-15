@@ -13,9 +13,19 @@ export interface WaConfig {
 export interface WaTemplateComponent {
   type: string; // HEADER, BODY, FOOTER, BUTTONS
   text?: string;
-  format?: string;
-  example?: { body_text?: string[][] };
-  buttons?: Array<{ type: string; text: string; url?: string }>;
+  format?: string; // TEXT | IMAGE | VIDEO | DOCUMENT (HEADER only)
+  example?: {
+    body_text?: string[][];
+    header_text?: string[];
+    header_url?: string[];
+  };
+  buttons?: Array<{
+    type: string;
+    text: string;
+    url?: string;
+    phone_number?: string;
+    example?: string[];
+  }>;
 }
 
 export interface WaTemplate {
@@ -77,7 +87,7 @@ export async function saveWaConfig(
 // --- Template sync ---
 
 export async function syncTemplatesFromMeta(config: WaConfig): Promise<WaTemplate[]> {
-  const url = `https://graph.facebook.com/v19.0/${config.wabaId}/message_templates?limit=100`;
+  const url = `https://graph.facebook.com/v21.0/${config.wabaId}/message_templates?limit=100`;
   console.error(`[WA Sync] Fetching: ${url.replace(config.accessToken, "***")}`);
 
   const res = await fetch(url, {
@@ -139,7 +149,7 @@ export async function sendTemplateMessage(
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${config.phoneNumberId}/messages`,
+      `https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
@@ -163,6 +173,61 @@ export async function sendTemplateMessage(
       messageId: null,
       error: err instanceof Error ? err.message : "Unknown error",
     };
+  }
+}
+
+// --- Template management ---
+
+export async function createTemplateOnMeta(
+  config: WaConfig,
+  payload: {
+    name: string;
+    language: string;
+    category: string;
+    components: Record<string, unknown>[];
+  }
+): Promise<{ id: string; status: string; category: string }> {
+  const url = `https://graph.facebook.com/v21.0/${config.wabaId}/message_templates`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let detail = text.slice(0, 300);
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed.error?.message || detail;
+    } catch {}
+    throw new Error(`Meta API ${res.status}: ${detail}`);
+  }
+
+  return res.json();
+}
+
+export async function deleteTemplateOnMeta(
+  config: WaConfig,
+  templateName: string
+): Promise<void> {
+  const url = `https://graph.facebook.com/v21.0/${config.wabaId}/message_templates?name=${encodeURIComponent(templateName)}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let detail = text.slice(0, 300);
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed.error?.message || detail;
+    } catch {}
+    throw new Error(`Meta API ${res.status}: ${detail}`);
   }
 }
 

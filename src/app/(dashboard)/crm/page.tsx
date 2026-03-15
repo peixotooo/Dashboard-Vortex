@@ -17,6 +17,8 @@ import {
   ShieldOff,
   RefreshCw,
   MessageSquareMore,
+  FileText,
+  Plus,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -57,6 +59,7 @@ import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/c
 import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
 import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
+import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 
 // --- Constants ---
 
@@ -408,6 +411,7 @@ export default function CrmPage() {
 
   // Campaign dialog
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [campaignContacts, setCampaignContacts] = useState<Array<{ name: string; email: string; phone: string }>>([]);
   const [campaignSuggestedName, setCampaignSuggestedName] = useState<string | undefined>();
   const [pendingCampaign, setPendingCampaign] = useState<{ name: string; filters: CrmFilters } | null>(null);
@@ -967,6 +971,15 @@ export default function CrmPage() {
               </button>
             )}
             <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setTemplateDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Criar Template
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -1549,6 +1562,12 @@ export default function CrmPage() {
         contacts={campaignContacts}
         suggestedName={campaignSuggestedName}
         cooldownDays={cooldownDays}
+      />
+
+      {/* Template Create Dialog */}
+      <TemplateCreateDialog
+        open={templateDialogOpen}
+        onOpenChange={setTemplateDialogOpen}
       />
     </div>
   );

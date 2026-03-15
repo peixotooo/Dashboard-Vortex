@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
+import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import {
   MessageCircle,
   RefreshCw,
@@ -159,6 +160,7 @@ export default function WhatsAppPage() {
   const [segments, setSegments] = useState<RfmSegment[]>([]);
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showTemplateCreate, setShowTemplateCreate] = useState(false);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -319,6 +321,25 @@ export default function WhatsAppPage() {
       setErrorMsg(`Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`);
     }
     setSyncingTemplates(false);
+  }
+
+  async function handleDeleteTemplate(name: string) {
+    if (!confirm(`Excluir o template "${name}"? Esta acao e irreversivel.`)) return;
+    try {
+      const res = await fetch("/api/crm/whatsapp/templates/manage", {
+        method: "DELETE",
+        headers: wsHeaders(),
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        setTemplates((prev) => prev.filter((t) => t.name !== name));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorMsg(`Erro ao excluir: ${data.error || "erro desconhecido"}`);
+      }
+    } catch {
+      setErrorMsg("Erro de rede ao excluir template.");
+    }
   }
 
   async function handleCreateCampaign() {
@@ -857,18 +878,29 @@ export default function WhatsAppPage() {
             <p className="text-sm text-muted-foreground">
               {templates.length} template(s) sincronizado(s)
             </p>
-            <Button
-              onClick={handleSyncTemplates}
-              disabled={syncingTemplates || !configured}
-              variant="outline"
-            >
-              {syncingTemplates ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Sincronizar da Meta
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setShowTemplateCreate(true)}
+                disabled={!configured}
+                size="sm"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Criar Template
+              </Button>
+              <Button
+                onClick={handleSyncTemplates}
+                disabled={syncingTemplates || !configured}
+                variant="outline"
+                size="sm"
+              >
+                {syncingTemplates ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                Sincronizar da Meta
+              </Button>
+            </div>
           </div>
 
           {templates.length === 0 ? (
@@ -891,9 +923,13 @@ export default function WhatsAppPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{t.name}</span>
                           <Badge
-                            variant={t.status === "APPROVED" ? "default" : "secondary"}
+                            variant={t.status === "APPROVED" ? "default" : t.status === "REJECTED" ? "destructive" : "secondary"}
+                            className="gap-1"
                           >
-                            {t.status}
+                            {t.status === "APPROVED" && <CheckCircle2 className="h-3 w-3" />}
+                            {t.status === "PENDING" && <Clock className="h-3 w-3" />}
+                            {t.status === "REJECTED" && <AlertCircle className="h-3 w-3" />}
+                            {t.status === "APPROVED" ? "Aprovado" : t.status === "PENDING" ? "Em analise" : t.status === "REJECTED" ? "Rejeitado" : t.status}
                           </Badge>
                           <Badge variant="outline">{t.category}</Badge>
                         </div>
@@ -901,6 +937,14 @@ export default function WhatsAppPage() {
                           Idioma: {t.language}
                         </p>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-500/10"
+                        onClick={() => handleDeleteTemplate(t.name)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                     {t.components.find((c) => c.type === "BODY")?.text && (
                       <p className="text-sm mt-2 text-muted-foreground bg-muted/50 rounded p-2">
@@ -1122,6 +1166,12 @@ export default function WhatsAppPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <TemplateCreateDialog
+        open={showTemplateCreate}
+        onOpenChange={setShowTemplateCreate}
+        onCreated={() => handleSyncTemplates()}
+      />
     </div>
   );
 }

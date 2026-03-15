@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
-import { generateKey, createPresignedUploadUrl } from "@/lib/b2-storage";
+import { generateKey, createPresignedUploadUrl, getPublicUrl } from "@/lib/b2-storage";
 
 const ALLOWED_MIME_TYPES = [
     "image/jpeg", "image/png", "image/gif", "image/webp",
     "video/mp4", "video/quicktime", "video/x-msvideo", "video/webm",
+    "application/pdf",
 ];
 
 export async function POST(request: NextRequest) {
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
         const key = generateKey(filename);
         const signedUrl = await createPresignedUploadUrl(key, mime_type);
 
-        return NextResponse.json({ signedUrl, key });
+        return NextResponse.json({ signedUrl, key, publicUrl: getPublicUrl(key) });
     } catch (error) {
         const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
         console.error("upload-url error:", msg, error instanceof Error ? error.stack : "");
