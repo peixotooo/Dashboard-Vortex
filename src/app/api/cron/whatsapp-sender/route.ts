@@ -22,11 +22,11 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
 
   try {
-    // Find active campaigns (queued or sending)
+    // Find active campaigns (queued, sending, or scheduled and due)
     const { data: campaigns } = await admin
       .from("wa_campaigns")
-      .select("id, workspace_id, template_id, variable_values, status")
-      .in("status", ["queued", "sending"])
+      .select("id, workspace_id, template_id, variable_values, status, scheduled_at")
+      .or("status.eq.queued,status.eq.sending,and(status.eq.scheduled,scheduled_at.lte.now())")
       .limit(5);
 
     if (!campaigns || campaigns.length === 0) {
@@ -36,11 +36,11 @@ export async function GET(request: NextRequest) {
     let totalProcessed = 0;
 
     for (const campaign of campaigns) {
-      // Mark as sending
-      if (campaign.status === "queued") {
+      // Mark as sending (from queued or scheduled)
+      if (campaign.status === "queued" || campaign.status === "scheduled") {
         await admin
           .from("wa_campaigns")
-          .update({ status: "sending" })
+          .update({ status: "sending", started_at: new Date().toISOString() })
           .eq("id", campaign.id);
       }
 

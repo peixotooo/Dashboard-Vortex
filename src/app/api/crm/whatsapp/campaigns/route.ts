@@ -52,10 +52,21 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at } = body;
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // Determine initial status based on scheduling
+    let initialStatus = "queued";
+    let scheduledAtValue: string | null = null;
+    if (scheduled_at) {
+      const scheduledDate = new Date(scheduled_at);
+      if (scheduledDate > new Date()) {
+        initialStatus = "scheduled";
+        scheduledAtValue = scheduledDate.toISOString();
+      }
     }
 
     const admin = createAdminClient();
@@ -69,8 +80,9 @@ export async function POST(request: NextRequest) {
         template_id: templateId,
         segment_filter: segmentFilter || {},
         variable_values: variableValues || {},
-        status: "draft",
+        status: initialStatus,
         total_messages: contacts.length,
+        ...(scheduledAtValue ? { scheduled_at: scheduledAtValue } : {}),
       })
       .select()
       .single();

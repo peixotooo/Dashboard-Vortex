@@ -16,6 +16,7 @@ import {
   Bot,
   ShieldOff,
   RefreshCw,
+  MessageSquareMore,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -55,6 +56,7 @@ import type {
 import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/crm-rfm";
 import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
 import type { CrmFilters } from "@/components/crm/crm-agent-panel";
+import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 
 // --- Constants ---
 
@@ -404,6 +406,11 @@ export default function CrmPage() {
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   const [cooldownDays, setCooldownDays] = useState(7);
 
+  // Campaign dialog
+  const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
+  const [campaignContacts, setCampaignContacts] = useState<Array<{ name: string; email: string; phone: string }>>([]);
+  const [campaignSuggestedName, setCampaignSuggestedName] = useState<string | undefined>();
+
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
   const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
   const [summary, setSummary] = useState(emptySummary);
@@ -507,6 +514,38 @@ export default function CrmPage() {
     setActiveTab("customers");
     if (!customersLoaded) fetchCustomers();
   }, [customersLoaded, fetchCustomers]);
+
+  // Agent panel → create campaign from suggestion
+  const handleAgentCreateCampaign = useCallback((name: string, filters: CrmFilters) => {
+    // Apply filters first
+    setSegmentFilter(filters.segmentFilter);
+    setDayRangeFilter(filters.dayRangeFilter);
+    setLifecycleFilter(filters.lifecycleFilter);
+    setHourFilter(filters.hourFilter);
+    setCouponFilter(filters.couponFilter);
+    setWeekdayFilter(filters.weekdayFilter);
+    setActiveTab("customers");
+    if (!customersLoaded) fetchCustomers();
+    // Store campaign details — dialog will open after filteredCustomers re-computes
+    setCampaignSuggestedName(name);
+    // We need to wait for customers to load before opening the dialog
+    // Use a short timeout to let the filter + fetch settle
+    setTimeout(() => {
+      setCampaignContacts(
+        customers.filter((c) => {
+          let pass = true;
+          if (filters.segmentFilter !== "all") pass = pass && c.segment === filters.segmentFilter;
+          if (filters.dayRangeFilter !== "all") pass = pass && c.preferredDayRange === filters.dayRangeFilter;
+          if (filters.lifecycleFilter !== "all") pass = pass && c.lifecycleStage === filters.lifecycleFilter;
+          if (filters.hourFilter !== "all") pass = pass && c.preferredHour === filters.hourFilter;
+          if (filters.couponFilter !== "all") pass = pass && c.couponSensitivity === filters.couponFilter;
+          if (filters.weekdayFilter !== "all") pass = pass && c.preferredWeekday === filters.weekdayFilter;
+          return pass;
+        }).map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
+      );
+      setCampaignDialogOpen(true);
+    }, 500);
+  }, [customersLoaded, fetchCustomers, customers]);
 
   // Fire-and-forget export log
   const logExport = useCallback(
@@ -892,7 +931,22 @@ export default function CrmPage() {
             <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
               Limpar filtros
             </button>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  setCampaignContacts(
+                    filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
+                  );
+                  setCampaignSuggestedName(undefined);
+                  setCampaignDialogOpen(true);
+                }}
+              >
+                <MessageSquareMore className="h-4 w-4" />
+                Campanha WhatsApp ({filteredCustomers.length})
+              </Button>
               <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
                 <Download className="h-4 w-4" />
                 Exportar CSV ({filteredCustomers.length})
@@ -1444,7 +1498,16 @@ export default function CrmPage() {
         open={agentPanelOpen}
         onOpenChange={setAgentPanelOpen}
         onApplyFilters={handleAgentApplyFilters}
+        onCreateCampaign={handleAgentCreateCampaign}
         cooldownDays={cooldownDays}
+      />
+
+      {/* Campaign Create Dialog */}
+      <CampaignCreateDialog
+        open={campaignDialogOpen}
+        onOpenChange={setCampaignDialogOpen}
+        contacts={campaignContacts}
+        suggestedName={campaignSuggestedName}
       />
     </div>
   );

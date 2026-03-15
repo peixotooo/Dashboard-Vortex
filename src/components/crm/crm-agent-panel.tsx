@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Send, Loader2, Filter, Bot, Sparkles } from "lucide-react";
+import { Send, Loader2, Filter, Bot, Sparkles, MessageSquareMore } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -60,6 +60,7 @@ interface CrmAgentPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApplyFilters: (filters: CrmFilters) => void;
+  onCreateCampaign?: (name: string, filters: CrmFilters) => void;
   cooldownDays: number;
 }
 
@@ -69,6 +70,7 @@ export function CrmAgentPanel({
   open,
   onOpenChange,
   onApplyFilters,
+  onCreateCampaign,
   cooldownDays,
 }: CrmAgentPanelProps) {
   const { workspace } = useWorkspace();
@@ -276,16 +278,40 @@ export function CrmAgentPanel({
                     ))}
                 </div>
 
-                {/* Apply button */}
-                <Button
-                  size="sm"
-                  variant={appliedIndex === i ? "default" : "outline"}
-                  className="text-xs gap-1 h-7"
-                  onClick={() => handleApplyFilters(s, i)}
-                >
-                  <Filter className="h-3 w-3" />
-                  {appliedIndex === i ? "Filtros Aplicados" : "Aplicar Filtros"}
-                </Button>
+                {/* Action buttons */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={appliedIndex === i ? "default" : "outline"}
+                    className="text-xs gap-1 h-7"
+                    onClick={() => handleApplyFilters(s, i)}
+                  >
+                    <Filter className="h-3 w-3" />
+                    {appliedIndex === i ? "Filtros Aplicados" : "Aplicar Filtros"}
+                  </Button>
+                  {onCreateCampaign && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs gap-1 h-7"
+                      onClick={() => {
+                        const filters: CrmFilters = {
+                          segmentFilter: (s.filters.segmentFilter as RfmSegment) || "all",
+                          dayRangeFilter: (s.filters.dayRangeFilter as DayRange) || "all",
+                          lifecycleFilter: (s.filters.lifecycleFilter as LifecycleStage) || "all",
+                          hourFilter: (s.filters.hourFilter as HourPref) || "all",
+                          couponFilter: (s.filters.couponFilter as CouponSensitivity) || "all",
+                          weekdayFilter: (s.filters.weekdayFilter as Weekday) || "all",
+                        };
+                        onCreateCampaign(s.name, filters);
+                        onOpenChange(false);
+                      }}
+                    >
+                      <MessageSquareMore className="h-3 w-3" />
+                      Criar Campanha
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
 
