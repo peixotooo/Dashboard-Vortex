@@ -60,6 +60,7 @@ import {
 import { formatBudget, formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useAuth } from "@/lib/auth-context";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
@@ -150,6 +151,7 @@ function hasDailyBudget(c: CampaignWithMetrics): boolean {
 export default function CampaignsPage() {
   const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
+  const { user } = useAuth();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [campaigns, setCampaigns] = useState<CampaignWithMetrics[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -457,6 +459,8 @@ export default function CampaignsPage() {
             roas_at_time: c.roas || undefined,
             was_smart: evaluateSmartness(c.tier, pct),
             risk_level: computeRiskLevel(pct),
+            adjusted_by: user?.id || undefined,
+            adjusted_by_email: user?.email || undefined,
           };
         });
         fetch("/api/campaigns/budget-logs", {
@@ -468,7 +472,7 @@ export default function CampaignsPage() {
         // Update local history immediately
         const now = new Date().toISOString();
         setHistoryLogs((prev) => [
-          ...logEntries.map((l) => ({ ...l, source: "dashboard" as const, created_at: now })),
+          ...logEntries.map((l) => ({ ...l, source: "dashboard" as const, created_at: now, adjusted_by_email: user?.email || undefined })),
           ...prev,
         ]);
 
@@ -916,8 +920,11 @@ export default function CampaignsPage() {
                         </Badge>
                       )}
 
-                      {/* Timestamp */}
-                      <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
+                      {/* User + Timestamp */}
+                      <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap text-right">
+                        {log.adjusted_by_email && (
+                          <span className="block">{log.adjusted_by_email.split("@")[0]}</span>
+                        )}
                         {timeAgo(log.created_at)}
                       </span>
                     </div>

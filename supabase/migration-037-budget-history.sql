@@ -6,7 +6,8 @@ ALTER TABLE budget_logs
   ADD COLUMN IF NOT EXISTS revenue_at_time INT,
   ADD COLUMN IF NOT EXISTS was_smart BOOLEAN,
   ADD COLUMN IF NOT EXISTS risk_level TEXT,
-  ADD COLUMN IF NOT EXISTS snapshot_budget INT;
+  ADD COLUMN IF NOT EXISTS snapshot_budget INT,
+  ADD COLUMN IF NOT EXISTS adjusted_by_email TEXT;
 
 -- Aggregated optimization scores per workspace
 CREATE TABLE IF NOT EXISTS budget_optimization_scores (

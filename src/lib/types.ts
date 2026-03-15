@@ -168,6 +168,8 @@ export interface BudgetLogEntry {
   roas_at_time?: number;
   was_smart?: boolean;
   risk_level?: string;
+  adjusted_by?: string;
+  adjusted_by_email?: string;
   created_at: string;
 }
 

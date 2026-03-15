@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   const query = admin
     .from("budget_logs")
     .select(
-      "campaign_id, campaign_name, old_budget, new_budget, change_pct, tier, source, spend_at_time, roas_at_time, was_smart, risk_level, created_at"
+      "campaign_id, campaign_name, old_budget, new_budget, change_pct, tier, source, spend_at_time, roas_at_time, was_smart, risk_level, adjusted_by, adjusted_by_email, created_at"
     )
     .eq("workspace_id", workspaceId)
     .gte("created_at", since)
@@ -93,6 +93,8 @@ export async function POST(request: NextRequest) {
       roas_at_time?: number;
       was_smart?: boolean;
       risk_level?: string;
+      adjusted_by?: string;
+      adjusted_by_email?: string;
     }>;
   };
 
@@ -115,6 +117,8 @@ export async function POST(request: NextRequest) {
     roas_at_time: l.roas_at_time ?? null,
     was_smart: l.was_smart ?? null,
     risk_level: l.risk_level || null,
+    adjusted_by: l.adjusted_by || null,
+    adjusted_by_email: l.adjusted_by_email || null,
   }));
 
   const { error } = await admin.from("budget_logs").insert(rows);
