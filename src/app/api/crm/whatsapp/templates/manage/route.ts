@@ -5,6 +5,7 @@ import {
   getWaConfig,
   createTemplateOnMeta,
   deleteTemplateOnMeta,
+  type WaConfig,
 } from "@/lib/whatsapp-api";
 
 function createSupabase(request: NextRequest) {
@@ -18,6 +19,104 @@ function createSupabase(request: NextRequest) {
       },
     }
   );
+}
+
+// --- Meta resumable upload for header_handle ---
+
+async function getAppId(accessToken: string): Promise<string> {
+  const res = await fetch(
+    `https://graph.facebook.com/v21.0/debug_token?input_token=${accessToken}&access_token=${accessToken}`
+  );
+  if (!res.ok) throw new Error("Nao foi possivel obter APP_ID do token");
+  const data = await res.json();
+  const appId = data.data?.app_id;
+  if (!appId) throw new Error("APP_ID nao encontrado no token");
+  return appId;
+}
+
+async function uploadMediaToMeta(
+  accessToken: string,
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<string> {
+  const appId = await getAppId(accessToken);
+
+  // 1. Create upload session
+  const sessionRes = await fetch(
+    `https://graph.facebook.com/v21.0/${appId}/uploads?file_length=${fileBuffer.length}&file_type=${encodeURIComponent(mimeType)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  if (!sessionRes.ok) {
+    const text = await sessionRes.text().catch(() => "");
+    throw new Error(`Meta upload session error ${sessionRes.status}: ${text.slice(0, 200)}`);
+  }
+  const session = await sessionRes.json();
+  const uploadSessionId = session.id;
+  if (!uploadSessionId) throw new Error("Upload session ID nao retornado pela Meta");
+
+  console.error(`[WA Templates] Upload session created: ${uploadSessionId}`);
+
+  // 2. Upload file binary
+  const uploadRes = await fetch(
+    `https://graph.facebook.com/v21.0/${uploadSessionId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `OAuth ${accessToken}`,
+        file_offset: "0",
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Uint8Array(fileBuffer),
+    }
+  );
+  if (!uploadRes.ok) {
+    const text = await uploadRes.text().catch(() => "");
+    throw new Error(`Meta upload error ${uploadRes.status}: ${text.slice(0, 200)}`);
+  }
+  const uploadResult = await uploadRes.json();
+  const handle = uploadResult.h;
+  if (!handle) throw new Error("header_handle nao retornado pela Meta");
+
+  console.error(`[WA Templates] Media uploaded, handle: ${handle.slice(0, 30)}...`);
+  return handle;
+}
+
+// Convert header_url to header_handle by uploading media to Meta
+async function convertHeaderUrlToHandle(
+  config: WaConfig,
+  components: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  const result = [];
+  for (const comp of components) {
+    const example = comp.example as Record<string, unknown> | undefined;
+    const headerUrls = example?.header_url as string[] | undefined;
+
+    if (comp.type === "HEADER" && headerUrls?.length) {
+      const mediaUrl = headerUrls[0];
+      console.error(`[WA Templates] Downloading media from: ${mediaUrl.slice(0, 80)}...`);
+
+      // Download from B2
+      const fileRes = await fetch(mediaUrl);
+      if (!fileRes.ok) throw new Error(`Erro ao baixar midia: HTTP ${fileRes.status}`);
+      const buffer = Buffer.from(await fileRes.arrayBuffer());
+      const mimeType = fileRes.headers.get("content-type") || "image/jpeg";
+
+      // Upload to Meta
+      const handle = await uploadMediaToMeta(config.accessToken, buffer, mimeType);
+
+      // Replace header_url with header_handle
+      result.push({
+        ...comp,
+        example: { header_handle: [handle] },
+      });
+    } else {
+      result.push(comp);
+    }
+  }
+  return result;
 }
 
 // POST = create a new template on Meta + store locally
@@ -41,7 +140,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, language, category, components } = body;
 
-    // Validate required fields
     if (!name || !language || !category || !components) {
       return NextResponse.json(
         { error: "Campos obrigatorios: name, language, category, components" },
@@ -49,7 +147,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate template name format
     if (!/^[a-z0-9_]+$/.test(name) || name.length > 512) {
       return NextResponse.json(
         { error: "Nome do template deve conter apenas letras minusculas, numeros e underscores (max 512 chars)" },
@@ -57,7 +154,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate category
     if (!["MARKETING", "UTILITY"].includes(category)) {
       return NextResponse.json(
         { error: "Categoria deve ser MARKETING ou UTILITY" },
@@ -67,12 +163,15 @@ export async function POST(request: NextRequest) {
 
     console.error(`[WA Templates] Creating template "${name}" (${category}) for WABA ${config.wabaId}`);
 
+    // Convert any header_url to header_handle by uploading media to Meta
+    const processedComponents = await convertHeaderUrlToHandle(config, components);
+
     // Create on Meta
     const metaResult = await createTemplateOnMeta(config, {
       name,
       language,
       category,
-      components,
+      components: processedComponents,
     });
 
     console.error(`[WA Templates] Meta returned: id=${metaResult.id}, status=${metaResult.status}`);
@@ -96,7 +195,6 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error("[WA Templates] DB insert error:", insertError.message);
-      // Template was created on Meta but failed to save locally — not critical
     }
 
     return NextResponse.json({
@@ -135,10 +233,8 @@ export async function DELETE(request: NextRequest) {
 
     console.error(`[WA Templates] Deleting template "${name}" for WABA ${config.wabaId}`);
 
-    // Delete from Meta
     await deleteTemplateOnMeta(config, name);
 
-    // Delete from local DB
     const admin = createAdminClient();
     await admin
       .from("wa_templates")
