@@ -35,6 +35,8 @@ import {
   AlertCircle,
   Eye,
   Loader2,
+  ShieldOff,
+  Trash2,
 } from "lucide-react";
 
 // --- Types ---
@@ -88,6 +90,15 @@ interface RfmSegment {
   count: number;
 }
 
+interface WaExclusion {
+  id: string;
+  phone: string;
+  contact_name: string | null;
+  reason: string;
+  notes: string | null;
+  created_at: string;
+}
+
 // --- RFM segment labels ---
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -127,6 +138,16 @@ export default function WhatsAppPage() {
 
   // Performance data
   const [perfData, setPerfData] = useState<Record<string, PerformanceData>>({});
+
+  // Compliance
+  const [cooldownDays, setCooldownDays] = useState(7);
+  const [exclusions, setExclusions] = useState<WaExclusion[]>([]);
+  const [exclusionsLoading, setExclusionsLoading] = useState(false);
+  const [newExcPhone, setNewExcPhone] = useState("");
+  const [newExcName, setNewExcName] = useState("");
+  const [newExcReason, setNewExcReason] = useState("manual");
+  const [newExcNotes, setNewExcNotes] = useState("");
+  const [addingExclusion, setAddingExclusion] = useState(false);
 
   // Campaign creation state
   const [showCreate, setShowCreate] = useState(false);
@@ -208,6 +229,19 @@ export default function WhatsAppPage() {
     }
   }, [workspace?.id, wsHeaders]);
 
+  const fetchExclusions = useCallback(async () => {
+    if (!workspace?.id) return;
+    setExclusionsLoading(true);
+    try {
+      const res = await fetch("/api/crm/whatsapp/exclusions", { headers: wsHeaders() });
+      const data = await res.json();
+      setExclusions(data.exclusions || []);
+    } catch {
+      // ignore
+    }
+    setExclusionsLoading(false);
+  }, [workspace?.id, wsHeaders]);
+
   // Fetch performance data for completed/sending campaigns
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
@@ -237,7 +271,8 @@ export default function WhatsAppPage() {
     fetchTemplates();
     fetchCampaigns();
     fetchSegments();
-  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments]);
+    fetchExclusions();
+  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions]);
 
   // --- Actions ---
 
@@ -326,6 +361,7 @@ export default function WhatsAppPage() {
           segmentFilter: { segment: selectedSegment },
           variableValues,
           contacts,
+          cooldownDays,
         }),
       });
       const data = await res.json();
@@ -352,6 +388,46 @@ export default function WhatsAppPage() {
     setSelectedTemplate(null);
     setSelectedSegment("");
     setVariableValues({});
+  }
+
+  async function handleAddExclusion() {
+    if (!newExcPhone.trim()) return;
+    setAddingExclusion(true);
+    try {
+      const res = await fetch("/api/crm/whatsapp/exclusions", {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify({
+          phone: newExcPhone.trim(),
+          contact_name: newExcName.trim() || undefined,
+          reason: newExcReason,
+          notes: newExcNotes.trim() || undefined,
+        }),
+      });
+      if (res.ok) {
+        setNewExcPhone("");
+        setNewExcName("");
+        setNewExcReason("manual");
+        setNewExcNotes("");
+        fetchExclusions();
+      }
+    } catch {
+      // silent
+    }
+    setAddingExclusion(false);
+  }
+
+  async function handleRemoveExclusion(id: string) {
+    try {
+      await fetch("/api/crm/whatsapp/exclusions", {
+        method: "DELETE",
+        headers: wsHeaders(),
+        body: JSON.stringify({ id }),
+      });
+      setExclusions((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      // silent
+    }
   }
 
   function formatPhone(phone: string): string {
@@ -423,6 +499,27 @@ export default function WhatsAppPage() {
             Envie mensagens em massa para seus segmentos via WhatsApp Business API
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <ShieldOff className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Nao perturbe:</span>
+          <Select
+            value={String(cooldownDays)}
+            onValueChange={(v) => setCooldownDays(Number(v))}
+          >
+            <SelectTrigger className="w-[100px] h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Desligado</SelectItem>
+              <SelectItem value="3">3 dias</SelectItem>
+              <SelectItem value="7">7 dias</SelectItem>
+              <SelectItem value="14">14 dias</SelectItem>
+              <SelectItem value="30">30 dias</SelectItem>
+              <SelectItem value="60">60 dias</SelectItem>
+              <SelectItem value="90">90 dias</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {errorMsg && (
@@ -445,6 +542,9 @@ export default function WhatsAppPage() {
           </TabsTrigger>
           <TabsTrigger value="config" className="gap-1.5">
             <Settings className="h-4 w-4" /> Configuracao
+          </TabsTrigger>
+          <TabsTrigger value="exclusions" className="gap-1.5">
+            <ShieldOff className="h-4 w-4" /> Exclusoes
           </TabsTrigger>
         </TabsList>
 
@@ -889,6 +989,135 @@ export default function WhatsAppPage() {
                 )}
                 Salvar Configuracao
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== EXCLUSIONS TAB ==================== */}
+        <TabsContent value="exclusions" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ShieldOff className="h-5 w-5" />
+                Lista de Exclusao
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Contatos nesta lista nunca receberao campanhas de WhatsApp. Use para opt-outs, reclamacoes ou pedidos de remocao.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Add exclusion form */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                <div>
+                  <Label>Telefone *</Label>
+                  <Input
+                    value={newExcPhone}
+                    onChange={(e) => setNewExcPhone(e.target.value)}
+                    placeholder="5562985955001"
+                  />
+                </div>
+                <div>
+                  <Label>Nome (opcional)</Label>
+                  <Input
+                    value={newExcName}
+                    onChange={(e) => setNewExcName(e.target.value)}
+                    placeholder="Nome do contato"
+                  />
+                </div>
+                <div>
+                  <Label>Motivo</Label>
+                  <Select value={newExcReason} onValueChange={setNewExcReason}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">Manual</SelectItem>
+                      <SelectItem value="complaint">Reclamacao</SelectItem>
+                      <SelectItem value="opt_out">Pediu para sair</SelectItem>
+                      <SelectItem value="bounce">Numero invalido</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Observacoes (opcional)</Label>
+                  <Input
+                    value={newExcNotes}
+                    onChange={(e) => setNewExcNotes(e.target.value)}
+                    placeholder="Ex: Reclamou no SAC"
+                  />
+                </div>
+                <Button
+                  onClick={handleAddExclusion}
+                  disabled={addingExclusion || !newExcPhone.trim()}
+                >
+                  {addingExclusion ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Adicionar
+                </Button>
+              </div>
+
+              {/* Exclusions table */}
+              {exclusionsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Carregando...</div>
+              ) : exclusions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <ShieldOff className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>Nenhum contato na lista de exclusao.</p>
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium">Telefone</th>
+                        <th className="text-left px-4 py-2 font-medium">Nome</th>
+                        <th className="text-left px-4 py-2 font-medium">Motivo</th>
+                        <th className="text-left px-4 py-2 font-medium">Observacoes</th>
+                        <th className="text-left px-4 py-2 font-medium">Data</th>
+                        <th className="px-4 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {exclusions.map((exc) => (
+                        <tr key={exc.id} className="hover:bg-muted/30">
+                          <td className="px-4 py-2 font-mono">{exc.phone}</td>
+                          <td className="px-4 py-2">{exc.contact_name || "—"}</td>
+                          <td className="px-4 py-2">
+                            <Badge variant="outline" className="text-xs">
+                              {exc.reason === "manual" && "Manual"}
+                              {exc.reason === "complaint" && "Reclamacao"}
+                              {exc.reason === "opt_out" && "Opt-out"}
+                              {exc.reason === "bounce" && "Bounce"}
+                              {!["manual", "complaint", "opt_out", "bounce"].includes(exc.reason) && exc.reason}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground">{exc.notes || "—"}</td>
+                          <td className="px-4 py-2 text-muted-foreground">
+                            {new Date(exc.created_at).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="px-4 py-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveExclusion(exc.id)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                {exclusions.length} contato(s) na lista de exclusao
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

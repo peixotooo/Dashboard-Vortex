@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
+import { isPhoneBlocked } from "@/lib/wa-compliance";
 
 export const maxDuration = 300;
 
@@ -98,6 +99,16 @@ export async function GET(request: NextRequest) {
 
       // Send each message
       for (const msg of messages) {
+        // Safety net: check exclusion list before sending
+        const blocked = await isPhoneBlocked(campaign.workspace_id, msg.phone);
+        if (blocked) {
+          await admin
+            .from("wa_messages")
+            .update({ status: "failed", error_message: "Blocked by exclusion list" })
+            .eq("id", msg.id);
+          continue;
+        }
+
         // Mark as sending
         await admin
           .from("wa_messages")

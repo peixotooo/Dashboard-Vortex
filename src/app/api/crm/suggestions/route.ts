@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { callLLM, resolveModel, DEFAULT_PROVIDER_CONFIG } from "@/lib/agent/llm-provider";
 import { generateRfmReport } from "@/lib/crm-rfm";
 import type { CrmVendaRow, RfmCustomer } from "@/lib/crm-rfm";
+import { getCooldownPhones, getExcludedPhones } from "@/lib/wa-compliance";
 
 export const maxDuration = 60;
 
@@ -93,10 +94,26 @@ export async function POST(request: NextRequest) {
 
     let customers = reportCustomers;
 
-    // "Nao Perturbe" — exclude customers from recent exports within cooldown period
+    // "Nao Perturbe" — exclude customers from recent exports + WhatsApp sends + blocklist
     let excludedCount = 0;
-    if (cooldownDays > 0 && exportLogs.length > 0) {
-      const doNotDisturb = buildDoNotDisturbSet(reportCustomers, exportLogs, cooldownDays);
+    if (cooldownDays > 0) {
+      const doNotDisturb = exportLogs.length > 0
+        ? buildDoNotDisturbSet(reportCustomers, exportLogs, cooldownDays)
+        : new Set<string>();
+
+      // Also exclude by actual WhatsApp sends and permanent blocklist
+      const [waCooldownPhones, waBlockedPhones] = await Promise.all([
+        getCooldownPhones(workspaceId, cooldownDays),
+        getExcludedPhones(workspaceId),
+      ]);
+
+      for (const customer of reportCustomers) {
+        const phone = customer.phone?.replace(/\D/g, "");
+        if (phone && (waCooldownPhones.has(phone) || waBlockedPhones.has(phone))) {
+          doNotDisturb.add(customer.email);
+        }
+      }
+
       excludedCount = doNotDisturb.size;
       if (excludedCount > 0) {
         customers = customers.filter((c) => !doNotDisturb.has(c.email));

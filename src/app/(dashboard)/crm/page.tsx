@@ -1548,6 +1548,7 @@ export default function CrmPage() {
         onOpenChange={setCampaignDialogOpen}
         contacts={campaignContacts}
         suggestedName={campaignSuggestedName}
+        cooldownDays={cooldownDays}
       />
     </div>
   );

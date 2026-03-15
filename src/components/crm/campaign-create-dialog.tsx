@@ -53,6 +53,7 @@ interface CampaignCreateDialogProps {
   onOpenChange: (open: boolean) => void;
   contacts: Contact[];
   suggestedName?: string;
+  cooldownDays?: number;
 }
 
 // --- Steps ---
@@ -71,6 +72,7 @@ export function CampaignCreateDialog({
   onOpenChange,
   contacts,
   suggestedName,
+  cooldownDays = 7,
 }: CampaignCreateDialogProps) {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id || "";
@@ -101,6 +103,14 @@ export function CampaignCreateDialog({
   const [messageCostUsd, setMessageCostUsd] = useState(0.0625);
   const [exchangeRate, setExchangeRate] = useState(5.50);
 
+  // Compliance
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [complianceResult, setComplianceResult] = useState<{
+    cooldownCount: number;
+    blockedCount: number;
+    allowedCount: number;
+  } | null>(null);
+
   // Submit
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -125,6 +135,8 @@ export function CampaignCreateDialog({
       setAttributionDays(3);
       setMessageCostUsd(0.0625);
       setExchangeRate(5.50);
+      setComplianceResult(null);
+      setComplianceLoading(false);
     }
   }, [open, suggestedName]);
 
@@ -169,6 +181,33 @@ export function CampaignCreateDialog({
     [contacts]
   );
   const invalidCount = contacts.length - validContacts.length;
+
+  // Fetch compliance preview when dialog opens
+  useEffect(() => {
+    if (!open || !workspaceId || validContacts.length === 0) return;
+    setComplianceLoading(true);
+    fetch("/api/crm/whatsapp/compliance-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
+      body: JSON.stringify({
+        phones: validContacts.map((c) => c.phone),
+        cooldownDays,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) {
+          setComplianceResult({
+            cooldownCount: data.cooldownCount || 0,
+            blockedCount: data.blockedCount || 0,
+            allowedCount: data.allowedCount || validContacts.length,
+          });
+        }
+      })
+      .catch(() => setComplianceResult(null))
+      .finally(() => setComplianceLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workspaceId, validContacts.length, cooldownDays]);
 
   // Filtered contacts for display
   const displayContacts = useMemo(() => {
@@ -294,6 +333,7 @@ export function CampaignCreateDialog({
         attribution_window_days: attributionDays,
         message_cost_usd: messageCostUsd,
         exchange_rate: exchangeRate,
+        cooldownDays,
       };
 
       if (scheduleMode === "scheduled" && scheduledAt) {
@@ -320,7 +360,7 @@ export function CampaignCreateDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [campaignName, selectedTemplateId, validContacts, variableValues, templateVars.length, scheduleMode, scheduledAt, workspaceId, attributionDays, messageCostUsd, exchangeRate]);
+  }, [campaignName, selectedTemplateId, validContacts, variableValues, templateVars.length, scheduleMode, scheduledAt, workspaceId, attributionDays, messageCostUsd, exchangeRate, cooldownDays]);
 
   // --- Render ---
 
@@ -401,6 +441,35 @@ export function CampaignCreateDialog({
                     />
                   </div>
                 </div>
+
+                {/* Compliance warnings */}
+                {complianceLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Verificando politica de compliance...
+                  </div>
+                )}
+                {complianceResult && (complianceResult.cooldownCount > 0 || complianceResult.blockedCount > 0) && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-amber-400">
+                      <AlertTriangle className="h-4 w-4" />
+                      {complianceResult.cooldownCount + complianceResult.blockedCount} contatos serao excluidos
+                    </div>
+                    {complianceResult.cooldownCount > 0 && (
+                      <p className="text-xs text-amber-400/80 ml-6">
+                        {complianceResult.cooldownCount} em periodo de cooldown ({cooldownDays}d)
+                      </p>
+                    )}
+                    {complianceResult.blockedCount > 0 && (
+                      <p className="text-xs text-amber-400/80 ml-6">
+                        {complianceResult.blockedCount} na lista de exclusao
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground ml-6">
+                      Serao enviadas para {complianceResult.allowedCount} contatos
+                    </p>
+                  </div>
+                )}
 
                 <div className="border border-border rounded-md max-h-60 overflow-y-auto">
                   <table className="w-full text-xs">

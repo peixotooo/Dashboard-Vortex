@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { filterContacts } from "@/lib/wa-compliance";
 
 export const maxDuration = 120;
 
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays } = body;
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -69,6 +70,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // --- Compliance filtering ---
+    const cdDays = typeof cooldownDays === "number" ? cooldownDays : 7;
+    const complianceResult = await filterContacts(
+      workspaceId,
+      contacts as Array<{ phone: string; name?: string; variables?: Record<string, string> }>,
+      cdDays
+    );
+
+    if (complianceResult.allowed.length === 0) {
+      return NextResponse.json({
+        error: "Todos os contatos foram excluidos pela politica de compliance",
+        compliance: {
+          originalCount: contacts.length,
+          filteredCount: 0,
+          cooldownCount: complianceResult.cooldownCount,
+          blockedCount: complianceResult.blockedCount,
+        },
+      }, { status: 400 });
+    }
+
+    const filteredContacts = complianceResult.allowed;
     const admin = createAdminClient();
 
     // Create campaign
@@ -81,7 +103,7 @@ export async function POST(request: NextRequest) {
         segment_filter: segmentFilter || {},
         variable_values: variableValues || {},
         status: initialStatus,
-        total_messages: contacts.length,
+        total_messages: filteredContacts.length,
         attribution_window_days: attribution_window_days || 3,
         message_cost_usd: message_cost_usd || 0.0625,
         exchange_rate: exchange_rate || 5.50,
@@ -96,8 +118,8 @@ export async function POST(request: NextRequest) {
 
     // Enqueue messages in batches of 500
     const BATCH_SIZE = 500;
-    for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
-      const batch = contacts.slice(i, i + BATCH_SIZE).map((c: { phone: string; name?: string; variables?: Record<string, string> }) => ({
+    for (let i = 0; i < filteredContacts.length; i += BATCH_SIZE) {
+      const batch = filteredContacts.slice(i, i + BATCH_SIZE).map((c) => ({
         workspace_id: workspaceId,
         campaign_id: campaign.id,
         phone: c.phone,
@@ -112,7 +134,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ campaign });
+    return NextResponse.json({
+      campaign,
+      compliance: {
+        originalCount: contacts.length,
+        filteredCount: filteredContacts.length,
+        cooldownCount: complianceResult.cooldownCount,
+        blockedCount: complianceResult.blockedCount,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
