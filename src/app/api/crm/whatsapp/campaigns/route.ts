@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate } = body;
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -82,6 +82,9 @@ export async function POST(request: NextRequest) {
         variable_values: variableValues || {},
         status: initialStatus,
         total_messages: contacts.length,
+        attribution_window_days: attribution_window_days || 3,
+        message_cost_usd: message_cost_usd || 0.0625,
+        exchange_rate: exchange_rate || 5.50,
         ...(scheduledAtValue ? { scheduled_at: scheduledAtValue } : {}),
       })
       .select()

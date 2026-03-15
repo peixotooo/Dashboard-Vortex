@@ -94,9 +94,12 @@ export function CampaignCreateDialog({
   const [copyPrompt, setCopyPrompt] = useState("");
   const [copyLoading, setCopyLoading] = useState(false);
 
-  // Step 4: Schedule
+  // Step 4: Schedule + Attribution
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
   const [scheduledAt, setScheduledAt] = useState("");
+  const [attributionDays, setAttributionDays] = useState(3);
+  const [messageCostUsd, setMessageCostUsd] = useState(0.0625);
+  const [exchangeRate, setExchangeRate] = useState(5.50);
 
   // Submit
   const [submitting, setSubmitting] = useState(false);
@@ -119,6 +122,9 @@ export function CampaignCreateDialog({
       setSubmitSuccess(false);
       setCopyPrompt("");
       setCopyLoading(false);
+      setAttributionDays(3);
+      setMessageCostUsd(0.0625);
+      setExchangeRate(5.50);
     }
   }, [open, suggestedName]);
 
@@ -285,6 +291,9 @@ export function CampaignCreateDialog({
         contacts: contactsPayload,
         variableValues: templateVars.length > 0 ? variableValues : {},
         segmentFilter: {},
+        attribution_window_days: attributionDays,
+        message_cost_usd: messageCostUsd,
+        exchange_rate: exchangeRate,
       };
 
       if (scheduleMode === "scheduled" && scheduledAt) {
@@ -311,7 +320,7 @@ export function CampaignCreateDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [campaignName, selectedTemplateId, validContacts, variableValues, templateVars.length, scheduleMode, scheduledAt, workspaceId]);
+  }, [campaignName, selectedTemplateId, validContacts, variableValues, templateVars.length, scheduleMode, scheduledAt, workspaceId, attributionDays, messageCostUsd, exchangeRate]);
 
   // --- Render ---
 
@@ -604,6 +613,60 @@ export function CampaignCreateDialog({
                     </span>
                   </div>
                 )}
+              </div>
+
+              {/* Attribution / Conversion tracking */}
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <p className="text-sm font-medium">Monitoramento de Conversao</p>
+                <p className="text-xs text-muted-foreground">
+                  Acompanhe se os clientes desta campanha compraram apos receberem a mensagem.
+                </p>
+
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Janela de atribuicao</label>
+                  <select
+                    value={attributionDays}
+                    onChange={(e) => setAttributionDays(Number(e.target.value))}
+                    className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {[1, 3, 5, 7, 14, 30].map((d) => (
+                      <option key={d} value={d}>
+                        {d} {d === 1 ? "dia" : "dias"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Custo por msg (USD)</label>
+                    <Input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={messageCostUsd}
+                      onChange={(e) => setMessageCostUsd(Number(e.target.value) || 0)}
+                      className="h-9 text-sm"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Marketing: $0.0625 | Utilidade: $0.0080</p>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Cambio USD→BRL</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(Number(e.target.value) || 0)}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Custo estimado: <strong className="text-foreground">R$ {(validContacts.length * messageCostUsd * exchangeRate).toFixed(2)}</strong>{" "}
+                  ({validContacts.length} msgs × ${messageCostUsd} × {exchangeRate})
+                </div>
               </div>
 
               {/* Schedule options */}

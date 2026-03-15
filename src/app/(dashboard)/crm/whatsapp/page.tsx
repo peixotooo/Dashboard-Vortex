@@ -66,6 +66,21 @@ interface WaCampaign {
   started_at: string | null;
   completed_at: string | null;
   wa_templates: { name: string; language: string } | null;
+  attribution_window_days?: number;
+  message_cost_usd?: number;
+  exchange_rate?: number;
+}
+
+interface PerformanceData {
+  conversions: number;
+  attributed_revenue: number;
+  total_cost_usd: number;
+  total_cost_brl: number;
+  roi_pct: number;
+  window_days: number;
+  window_active: boolean;
+  window_ends_at: string | null;
+  sent_count: number;
 }
 
 interface RfmSegment {
@@ -109,6 +124,9 @@ export default function WhatsAppPage() {
   // Campaigns state
   const [campaigns, setCampaigns] = useState<WaCampaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+
+  // Performance data
+  const [perfData, setPerfData] = useState<Record<string, PerformanceData>>({});
 
   // Campaign creation state
   const [showCreate, setShowCreate] = useState(false);
@@ -189,6 +207,30 @@ export default function WhatsAppPage() {
       // ignore
     }
   }, [workspace?.id, wsHeaders]);
+
+  // Fetch performance data for completed/sending campaigns
+  useEffect(() => {
+    if (campaigns.length === 0 || !workspace?.id) return;
+    const trackable = campaigns.filter((c) =>
+      ["completed", "sending"].includes(c.status) && c.started_at
+    );
+    if (trackable.length === 0) return;
+
+    for (const c of trackable) {
+      if (perfData[c.id]) continue; // already fetched
+      fetch(`/api/crm/whatsapp/campaigns/${c.id}/performance`, {
+        headers: wsHeaders(),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!data.error) {
+            setPerfData((prev) => ({ ...prev, [c.id]: data }));
+          }
+        })
+        .catch(() => { /* silent */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaigns, workspace?.id]);
 
   useEffect(() => {
     fetchConfig();
@@ -618,48 +660,84 @@ export default function WhatsAppPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {campaigns.map((c) => (
-                <Card key={c.id}>
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{c.name}</span>
-                          {statusBadge(c.status)}
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Template: {c.wa_templates?.name || "—"} | Criada em{" "}
-                          {new Date(c.created_at).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="text-center">
-                          <div className="font-bold">{c.total_messages}</div>
-                          <div className="text-xs text-muted-foreground">Total</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-bold text-blue-600">{c.sent_count}</div>
-                          <div className="text-xs text-muted-foreground">Enviadas</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-bold text-green-600">{c.delivered_count}</div>
-                          <div className="text-xs text-muted-foreground">Entregues</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-bold text-purple-600">{c.read_count}</div>
-                          <div className="text-xs text-muted-foreground">Lidas</div>
-                        </div>
-                        {c.failed_count > 0 && (
-                          <div className="text-center">
-                            <div className="font-bold text-red-600">{c.failed_count}</div>
-                            <div className="text-xs text-muted-foreground">Falhas</div>
+              {campaigns.map((c) => {
+                const perf = perfData[c.id];
+                return (
+                  <Card key={c.id}>
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{c.name}</span>
+                            {statusBadge(c.status)}
                           </div>
-                        )}
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Template: {c.wa_templates?.name || "—"} | Criada em{" "}
+                            {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm">
+                          <div className="text-center">
+                            <div className="font-bold">{c.total_messages}</div>
+                            <div className="text-xs text-muted-foreground">Total</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-blue-600">{c.sent_count}</div>
+                            <div className="text-xs text-muted-foreground">Enviadas</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-green-600">{c.delivered_count}</div>
+                            <div className="text-xs text-muted-foreground">Entregues</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-purple-600">{c.read_count}</div>
+                            <div className="text-xs text-muted-foreground">Lidas</div>
+                          </div>
+                          {c.failed_count > 0 && (
+                            <div className="text-center">
+                              <div className="font-bold text-red-600">{c.failed_count}</div>
+                              <div className="text-xs text-muted-foreground">Falhas</div>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+
+                      {/* Performance / Attribution */}
+                      {perf && (
+                        <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-5 text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">Conversoes:</span>
+                            <span className="font-semibold text-green-600">{perf.conversions} vendas</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">Receita:</span>
+                            <span className="font-semibold text-green-600">
+                              R$ {perf.attributed_revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">Custo:</span>
+                            <span className="font-semibold">
+                              R$ {perf.total_cost_brl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-muted-foreground">ROI:</span>
+                            <span className={`font-semibold ${perf.roi_pct >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {perf.roi_pct.toLocaleString("pt-BR")}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <span className="text-muted-foreground">
+                              Janela: {perf.window_days}d {perf.window_active ? "(ativa)" : "(encerrada)"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
 
