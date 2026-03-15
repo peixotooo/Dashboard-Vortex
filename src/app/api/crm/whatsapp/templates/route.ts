@@ -50,9 +50,11 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const config = await getWaConfig(workspaceId);
-    if (!config) return NextResponse.json({ error: "WhatsApp not configured" }, { status: 400 });
+    if (!config) return NextResponse.json({ error: "WhatsApp não configurado. Salve as credenciais na aba Configuração." }, { status: 400 });
 
+    console.log(`[WA Templates] Syncing for WABA ${config.wabaId}, phone ${config.phoneNumberId}`);
     const metaTemplates = await syncTemplatesFromMeta(config);
+    console.log(`[WA Templates] Meta returned ${metaTemplates.length} templates`);
     const admin = createAdminClient();
 
     // Upsert all templates
@@ -85,6 +87,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[WA Templates] Sync error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

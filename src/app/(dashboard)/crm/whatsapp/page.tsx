@@ -234,6 +234,9 @@ export default function WhatsAppPage() {
         setErrorMsg(`Erro ao sincronizar: ${data.error}`);
       } else {
         setTemplates(data.templates || []);
+        if (data.synced === 0 && (!data.templates || data.templates.length === 0)) {
+          setErrorMsg("Nenhum template encontrado. Verifique se o WABA ID esta correto — ele e diferente do Phone Number ID. Encontre-o no Meta Business Manager > Contas do WhatsApp.");
+        }
       }
     } catch (err) {
       setErrorMsg(`Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`);
