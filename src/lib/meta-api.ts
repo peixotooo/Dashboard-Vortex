@@ -962,7 +962,7 @@ export async function getCampaignsWithMetrics(args: {
 
   // 1. Fetch campaigns with metadata
   const campaignParams: Record<string, string> = {
-    fields: "id,name,status,objective,daily_budget,lifetime_budget",
+    fields: "id,name,status,objective,daily_budget,lifetime_budget,updated_time",
     limit: "200",
     filtering: JSON.stringify([
       { field: "effective_status", operator: "IN", value: statuses },
@@ -1055,6 +1055,7 @@ export async function getCampaignsWithMetrics(args: {
       objective: String(campaign.objective || ""),
       daily_budget: campaign.daily_budget as string | undefined,
       lifetime_budget: campaign.lifetime_budget as string | undefined,
+      updated_time: campaign.updated_time as string | undefined,
       impressions,
       clicks,
       spend,

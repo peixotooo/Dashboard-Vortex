@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/crm-recompute",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/budget-snapshot",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

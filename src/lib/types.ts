@@ -153,6 +153,32 @@ export interface CampaignWithMetrics {
   account_id?: string;
   account_name?: string;
   tier?: "champion" | "potential" | "scale" | "profitable" | "warning" | "critical" | null;
+  updated_time?: string;
+}
+
+export interface BudgetLogEntry {
+  campaign_id: string;
+  campaign_name?: string;
+  old_budget: number;
+  new_budget: number;
+  change_pct: number;
+  tier?: string;
+  source: "dashboard" | "external";
+  spend_at_time?: number;
+  roas_at_time?: number;
+  was_smart?: boolean;
+  risk_level?: string;
+  created_at: string;
+}
+
+export interface OptimizationScores {
+  total_changes: number;
+  smart_changes: number;
+  dashboard_changes: number;
+  external_changes: number;
+  missed_opportunities: number;
+  wasted_spend: number;
+  score: number;
 }
 
 export interface AdAccount {

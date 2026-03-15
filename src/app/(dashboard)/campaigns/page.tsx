@@ -26,6 +26,12 @@ import {
   ShieldCheck,
   ShieldAlert,
   Clock,
+  History,
+  ChevronDown,
+  ChevronRight,
+  Monitor,
+  Globe,
+  BrainCircuit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +63,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
-import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
+import type { DatePreset, CampaignWithMetrics, BudgetLogEntry, OptimizationScores } from "@/lib/types";
 
 const TIER_CONFIG = {
   champion: { label: "Escalar", description: "ROAS acima de 1.5x a media e alto investimento. Aumente o budget — esta gerando muito retorno com volume.", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
@@ -106,6 +112,33 @@ function getRiskZone(pct: number): { label: string; color: string; icon: typeof 
   return { label: "Alto risco", color: "text-red-500", icon: ShieldAlert };
 }
 
+function evaluateSmartness(tier: string | null | undefined, changePct: number): boolean {
+  const isIncrease = changePct > 0;
+  const isScaleTier = ["champion", "potential", "scale"].includes(tier || "");
+  const isReduceTier = ["warning", "critical"].includes(tier || "");
+  if (Math.abs(changePct) > 20) return false; // resets learning phase
+  if (isScaleTier && isIncrease) return true;
+  if (isReduceTier && !isIncrease) return true;
+  return false;
+}
+
+function computeRiskLevel(changePct: number): "low" | "medium" | "high" {
+  const abs = Math.abs(changePct);
+  if (abs <= 10) return "low";
+  if (abs <= 20) return "medium";
+  return "high";
+}
+
+function timeAgo(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}min atras`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h atras`;
+  const days = Math.floor(hours / 24);
+  return `${days}d atras`;
+}
+
 function parseBudgetCents(c: CampaignWithMetrics): number {
   return parseInt(String(c.daily_budget || "0"), 10);
 }
@@ -138,6 +171,12 @@ export default function CampaignsPage() {
   const [budgetResults, setBudgetResults] = useState<Array<{ id: string; success: boolean; error?: string }> | null>(null);
   // Cooldown: campaign_id -> last adjustment timestamp (localStorage-first)
   const [budgetCooldowns, setBudgetCooldowns] = useState<Map<string, string>>(new Map());
+  // Optimization history
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState<BudgetLogEntry[]>([]);
+  const [historyScores, setHistoryScores] = useState<OptimizationScores | null>(null);
+  const [historyPeriod, setHistoryPeriod] = useState("7d");
+  const [historyLoading, setHistoryLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const COOLDOWN_HOURS = 24;
@@ -290,6 +329,29 @@ export default function CampaignsPage() {
       .catch(() => {});
   }, [campaigns, workspace?.id]);
 
+  // Fetch optimization history when section is opened
+  const fetchHistory = useCallback(async () => {
+    if (!workspace?.id) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(
+        `/api/campaigns/budget-logs?period=${historyPeriod}&include_scores=true`,
+        { headers: { "x-workspace-id": workspace.id } }
+      );
+      const data = await res.json();
+      setHistoryLogs(data.logs || []);
+      setHistoryScores(data.scores || null);
+    } catch {
+      // graceful fallback
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [workspace?.id, historyPeriod]);
+
+  useEffect(() => {
+    if (historyOpen) fetchHistory();
+  }, [historyOpen, fetchHistory]);
+
   async function handleAction(action: string, campaignId: string) {
     setActionLoading(campaignId);
     try {
@@ -381,19 +443,34 @@ export default function CampaignsPage() {
         recordCooldowns(budgetDialogCampaigns.map((c) => c.id));
 
         // Also log to server (fire-and-forget, works when table exists)
-        const logEntries = budgetDialogCampaigns.map((c) => ({
-          campaign_id: c.id,
-          campaign_name: c.name,
-          old_budget: parseBudgetCents(c),
-          new_budget: getNewBudget(c),
-          change_pct: getChangePct(c),
-          tier: c.tier || null,
-        }));
+        const logEntries = budgetDialogCampaigns.map((c) => {
+          const pct = getChangePct(c);
+          return {
+            campaign_id: c.id,
+            campaign_name: c.name,
+            old_budget: parseBudgetCents(c),
+            new_budget: getNewBudget(c),
+            change_pct: pct,
+            tier: c.tier || undefined,
+            source: "dashboard",
+            spend_at_time: c.spend ? Math.round(c.spend * 100) : undefined,
+            roas_at_time: c.roas || undefined,
+            was_smart: evaluateSmartness(c.tier, pct),
+            risk_level: computeRiskLevel(pct),
+          };
+        });
         fetch("/api/campaigns/budget-logs", {
           method: "POST",
           headers,
           body: JSON.stringify({ logs: logEntries }),
         }).catch(() => {});
+
+        // Update local history immediately
+        const now = new Date().toISOString();
+        setHistoryLogs((prev) => [
+          ...logEntries.map((l) => ({ ...l, source: "dashboard" as const, created_at: now })),
+          ...prev,
+        ]);
 
         setTimeout(() => {
           setBudgetDialogOpen(false);
@@ -702,6 +779,154 @@ export default function CampaignsPage() {
           iconColor="text-warning"
           loading={initialLoading}
         />
+      </div>
+
+      {/* Historico de Otimizacao */}
+      <div className="border rounded-lg">
+        <button
+          onClick={() => setHistoryOpen(!historyOpen)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium hover:bg-muted/50 transition-colors"
+        >
+          {historyOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          <History className="h-4 w-4 text-muted-foreground" />
+          Historico de Otimizacao
+          {historyLogs.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] h-5 ml-1">
+              {historyLogs.length}
+            </Badge>
+          )}
+        </button>
+
+        {historyOpen && (
+          <div className="px-4 pb-4 space-y-4 border-t">
+            {/* Period selector */}
+            <div className="flex items-center gap-2 pt-3">
+              {(["7d", "30d", "90d"] as const).map((p) => (
+                <Button
+                  key={p}
+                  variant={historyPeriod === p ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setHistoryPeriod(p)}
+                >
+                  {p === "7d" ? "7 dias" : p === "30d" ? "30 dias" : "90 dias"}
+                </Button>
+              ))}
+              {historyLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            </div>
+
+            {/* KPI mini-cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg border bg-card p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total ajustes</p>
+                <p className="text-lg font-bold mt-1">
+                  {historyScores?.total_changes ?? historyLogs.length}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-card p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <BrainCircuit className="h-3 w-3" /> Inteligentes
+                </p>
+                <p className="text-lg font-bold mt-1">
+                  {(() => {
+                    const total = historyScores?.total_changes ?? historyLogs.length;
+                    const smart = historyScores?.smart_changes ?? historyLogs.filter((l) => l.was_smart).length;
+                    return total > 0 ? `${Math.round((smart / total) * 100)}%` : "—";
+                  })()}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-card p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <Monitor className="h-3 w-3" /> Dashboard
+                  <span className="mx-0.5">vs</span>
+                  <Globe className="h-3 w-3" /> Meta
+                </p>
+                <p className="text-lg font-bold mt-1">
+                  {historyScores
+                    ? `${historyScores.dashboard_changes} / ${historyScores.external_changes}`
+                    : `${historyLogs.filter((l) => l.source === "dashboard").length} / ${historyLogs.filter((l) => l.source === "external").length}`}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-card p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" /> Oportunidades perdidas
+                </p>
+                <p className="text-lg font-bold mt-1 text-amber-500">
+                  {historyScores?.missed_opportunities ?? "—"}
+                </p>
+              </div>
+            </div>
+
+            {/* Timeline */}
+            {historyLogs.length === 0 && !historyLoading && (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                Nenhum ajuste registrado neste periodo.
+              </p>
+            )}
+
+            {historyLogs.length > 0 && (
+              <div className="space-y-1 max-h-[320px] overflow-y-auto">
+                {historyLogs.slice(0, 20).map((log, i) => {
+                  const isIncrease = log.change_pct > 0;
+                  return (
+                    <div
+                      key={`${log.campaign_id}-${log.created_at}-${i}`}
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/50 text-sm"
+                    >
+                      {/* Source icon */}
+                      <Tooltip>
+                        <TooltipTrigger>
+                          {log.source === "external" ? (
+                            <Globe className="h-4 w-4 text-blue-500 shrink-0" />
+                          ) : (
+                            <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {log.source === "external" ? "Alterado na Meta" : "Alterado pelo Dashboard"}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      {/* Campaign name */}
+                      <span className="truncate max-w-[180px] text-xs">
+                        {log.campaign_name || log.campaign_id}
+                      </span>
+
+                      {/* Budget change */}
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatBudget(String(log.old_budget))} → {formatBudget(String(log.new_budget))}
+                      </span>
+
+                      {/* Percentage */}
+                      <span className={`text-xs font-medium whitespace-nowrap ${isIncrease ? "text-emerald-500" : "text-red-500"}`}>
+                        {isIncrease ? "+" : ""}{typeof log.change_pct === "number" ? log.change_pct.toFixed(0) : log.change_pct}%
+                      </span>
+
+                      {/* Smart badge */}
+                      {log.was_smart !== undefined && log.was_smart !== null && (
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] h-5 ${
+                            log.was_smart
+                              ? "text-emerald-500 border-emerald-500/30 bg-emerald-500/10"
+                              : "text-red-500 border-red-500/30 bg-red-500/10"
+                          }`}
+                        >
+                          {log.was_smart ? "Inteligente" : "Arriscado"}
+                        </Badge>
+                      )}
+
+                      {/* Timestamp */}
+                      <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">
+                        {timeAgo(log.created_at)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Loading Progress */}

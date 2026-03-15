@@ -6,20 +6,21 @@ let tableEnsured = false;
 async function ensureTable() {
   if (tableEnsured) return;
   const admin = createAdminClient();
-  // Quick probe — if table exists, skip
   const { error } = await admin.from("budget_logs").select("id").limit(1);
   if (!error) {
     tableEnsured = true;
     return;
   }
-  // Table missing — create it via raw SQL through a temporary function
-  // Since we can't run raw SQL via PostgREST, we'll let the first request fail gracefully
-  // and instruct the user to run the migration.
-  // For now, just mark as ensured so we don't keep checking.
   tableEnsured = true;
 }
 
-// GET — fetch recent budget logs for given campaign IDs (last 48h)
+const PERIOD_MS: Record<string, number> = {
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+  "90d": 90 * 24 * 60 * 60 * 1000,
+};
+
+// GET — fetch budget logs with period filter + optional scores
 export async function GET(request: NextRequest) {
   const workspaceId = request.headers.get("x-workspace-id") || "";
   if (!workspaceId) {
@@ -28,14 +29,19 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const campaignIds = searchParams.get("campaign_ids")?.split(",").filter(Boolean) || [];
+  const period = searchParams.get("period") || "7d";
+  const includeScores = searchParams.get("include_scores") === "true";
 
   await ensureTable();
   const admin = createAdminClient();
-  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const ms = PERIOD_MS[period] || PERIOD_MS["7d"];
+  const since = new Date(Date.now() - ms).toISOString();
 
   const query = admin
     .from("budget_logs")
-    .select("campaign_id, old_budget, new_budget, change_pct, tier, created_at")
+    .select(
+      "campaign_id, campaign_name, old_budget, new_budget, change_pct, tier, source, spend_at_time, roas_at_time, was_smart, risk_level, created_at"
+    )
     .eq("workspace_id", workspaceId)
     .gte("created_at", since)
     .order("created_at", { ascending: false });
@@ -47,14 +53,23 @@ export async function GET(request: NextRequest) {
   const { data, error } = await query.limit(500);
 
   if (error) {
-    // Table doesn't exist yet — return empty gracefully
     if (error.code === "PGRST205" || error.code === "42P01") {
-      return NextResponse.json({ logs: [] });
+      return NextResponse.json({ logs: [], scores: null });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ logs: data || [] });
+  let scores = null;
+  if (includeScores) {
+    const { data: scoreData } = await admin
+      .from("budget_optimization_scores")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    scores = scoreData || null;
+  }
+
+  return NextResponse.json({ logs: data || [], scores });
 }
 
 // POST — save budget adjustment logs
@@ -73,6 +88,11 @@ export async function POST(request: NextRequest) {
       new_budget: number;
       change_pct: number;
       tier?: string;
+      source?: string;
+      spend_at_time?: number;
+      roas_at_time?: number;
+      was_smart?: boolean;
+      risk_level?: string;
     }>;
   };
 
@@ -90,13 +110,17 @@ export async function POST(request: NextRequest) {
     new_budget: l.new_budget,
     change_pct: l.change_pct,
     tier: l.tier || null,
+    source: l.source || "dashboard",
+    spend_at_time: l.spend_at_time ?? null,
+    roas_at_time: l.roas_at_time ?? null,
+    was_smart: l.was_smart ?? null,
+    risk_level: l.risk_level || null,
   }));
 
   const { error } = await admin.from("budget_logs").insert(rows);
   if (error) {
-    // Table doesn't exist — silently fail, log will be written once migration runs
     if (error.code === "PGRST205" || error.code === "42P01") {
-      console.error("[budget-logs] Table not found — run migration-036-budget-logs.sql");
+      console.error("[budget-logs] Table not found — run migrations 036 + 037");
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
