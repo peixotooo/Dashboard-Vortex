@@ -25,6 +25,7 @@ import {
   AlertCircle,
   ShieldCheck,
   ShieldAlert,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,7 +136,23 @@ export default function CampaignsPage() {
   const [budgetOverrides, setBudgetOverrides] = useState<Map<string, number>>(new Map());
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetResults, setBudgetResults] = useState<Array<{ id: string; success: boolean; error?: string }> | null>(null);
+  // Cooldown: campaign_id -> last adjustment timestamp
+  const [budgetCooldowns, setBudgetCooldowns] = useState<Map<string, string>>(new Map());
   const abortRef = useRef<AbortController | null>(null);
+
+  const COOLDOWN_HOURS = 24;
+
+  function getCooldownInfo(campaignId: string): { inCooldown: boolean; hoursAgo: number; label: string } | null {
+    const ts = budgetCooldowns.get(campaignId);
+    if (!ts) return null;
+    const hoursAgo = (Date.now() - new Date(ts).getTime()) / (1000 * 60 * 60);
+    const inCooldown = hoursAgo < COOLDOWN_HOURS;
+    const hoursLeft = Math.ceil(COOLDOWN_HOURS - hoursAgo);
+    const label = inCooldown
+      ? `Ajustado ha ${Math.floor(hoursAgo)}h — aguarde mais ${hoursLeft}h`
+      : `Ultimo ajuste ha ${Math.floor(hoursAgo)}h`;
+    return { inCooldown, hoursAgo, label };
+  }
 
   const fetchCampaigns = useCallback(async () => {
     if (!accountId) return;
@@ -209,6 +226,27 @@ export default function CampaignsPage() {
     fetchCampaigns();
     return () => { abortRef.current?.abort(); };
   }, [fetchCampaigns]);
+
+  // Fetch budget cooldowns whenever campaigns change
+  useEffect(() => {
+    if (campaigns.length === 0 || !workspace?.id) return;
+    const ids = campaigns.map((c) => c.id).join(",");
+    fetch(`/api/campaigns/budget-logs?campaign_ids=${ids}`, {
+      headers: { "x-workspace-id": workspace.id },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const map = new Map<string, string>();
+        // logs are ordered by created_at DESC — keep only the latest per campaign
+        for (const log of data.logs || []) {
+          if (!map.has(log.campaign_id)) {
+            map.set(log.campaign_id, log.created_at);
+          }
+        }
+        setBudgetCooldowns(map);
+      })
+      .catch(() => {});
+  }, [campaigns, workspace?.id]);
 
   async function handleAction(action: string, campaignId: string) {
     setActionLoading(campaignId);
@@ -297,6 +335,21 @@ export default function CampaignsPage() {
       setBudgetResults(data.results || []);
       const allOk = (data.results || []).every((r: { success: boolean }) => r.success);
       if (allOk) {
+        // Log budget changes (fire-and-forget)
+        const logEntries = budgetDialogCampaigns.map((c) => ({
+          campaign_id: c.id,
+          campaign_name: c.name,
+          old_budget: parseBudgetCents(c),
+          new_budget: getNewBudget(c),
+          change_pct: getChangePct(c),
+          tier: c.tier || null,
+        }));
+        fetch("/api/campaigns/budget-logs", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ logs: logEntries }),
+        }).catch(() => {});
+
         setTimeout(() => {
           setBudgetDialogOpen(false);
           setSelected(new Set());
@@ -504,11 +557,32 @@ export default function CampaignsPage() {
                 />
               </div>
             )}
-            {hasBudget && suggestion && suggestion.pct !== 0 && (
-              <p className={`text-[10px] font-medium mt-0.5 ${tierHintColor}`}>
-                {suggestion.pct > 0 ? "↑" : "↓"} {suggestion.label} ({suggestion.pct > 0 ? "+" : ""}{suggestion.pct}%)
-              </p>
-            )}
+            {hasBudget && suggestion && suggestion.pct !== 0 && (() => {
+              const cooldown = getCooldownInfo(c.id);
+              if (cooldown?.inCooldown) return null; // hide suggestion during cooldown
+              return (
+                <p className={`text-[10px] font-medium mt-0.5 ${tierHintColor}`}>
+                  {suggestion.pct > 0 ? "↑" : "↓"} {suggestion.label} ({suggestion.pct > 0 ? "+" : ""}{suggestion.pct}%)
+                </p>
+              );
+            })()}
+            {(() => {
+              const cooldown = getCooldownInfo(c.id);
+              if (!cooldown?.inCooldown) return null;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p className="text-[10px] font-medium mt-0.5 text-amber-500 flex items-center justify-end gap-0.5 cursor-help">
+                      <Clock className="h-2.5 w-2.5" />
+                      Cooldown
+                    </p>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs max-w-[220px]">
+                    {cooldown.label}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })()}
           </div>
         );
       },
@@ -939,6 +1013,28 @@ export default function CampaignsPage() {
               </div>
             )}
 
+            {/* Cooldown warning */}
+            {(() => {
+              const inCooldown = budgetDialogCampaigns.filter((c) => getCooldownInfo(c.id)?.inCooldown);
+              if (inCooldown.length === 0) return null;
+              return (
+                <div className="flex items-start gap-2 text-xs p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
+                  <Clock className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium">
+                      {inCooldown.length === budgetDialogCampaigns.length
+                        ? "Todas as campanhas estao em cooldown"
+                        : `${inCooldown.length} campanha${inCooldown.length > 1 ? "s" : ""} em cooldown`}
+                    </p>
+                    <p className="mt-0.5 text-amber-600/80 dark:text-amber-400/80">
+                      Ajustar novamente antes de 24h pode prejudicar a fase de aprendizado da Meta.
+                      Voce pode continuar, mas recomendamos aguardar.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Preview table */}
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
@@ -960,10 +1056,23 @@ export default function CampaignsPage() {
                     const zone = getRiskZone(pct);
                     const ZoneIcon = zone.icon;
                     const changed = current !== newB;
+                    const cooldown = getCooldownInfo(c.id);
 
                     return (
-                      <tr key={c.id} className="border-b border-border/50">
-                        <td className="px-3 py-2 text-sm truncate max-w-[200px]">{c.name}</td>
+                      <tr key={c.id} className={`border-b border-border/50 ${cooldown?.inCooldown ? "bg-amber-500/5" : ""}`}>
+                        <td className="px-3 py-2 text-sm truncate max-w-[200px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate">{c.name}</span>
+                            {cooldown?.inCooldown && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">{cooldown.label}</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-3 py-2 text-center"><TierBadge tier={c.tier} /></td>
                         <td className="px-3 py-2 text-right text-muted-foreground">{formatBudget(String(current))}/dia</td>
                         <td className={`px-3 py-2 text-right font-medium ${changed ? "" : "text-muted-foreground"}`}>
