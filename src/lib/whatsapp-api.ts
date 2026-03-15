@@ -77,7 +77,7 @@ export async function saveWaConfig(
 // --- Template sync ---
 
 export async function syncTemplatesFromMeta(config: WaConfig): Promise<WaTemplate[]> {
-  const url = `https://graph.facebook.com/v18.0/${config.wabaId}/message_templates?limit=100`;
+  const url = `https://graph.facebook.com/v19.0/${config.wabaId}/message_templates?limit=100`;
   console.error(`[WA Sync] Fetching: ${url.replace(config.accessToken, "***")}`);
 
   const res = await fetch(url, {
@@ -139,7 +139,7 @@ export async function sendTemplateMessage(
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v18.0/${config.phoneNumberId}/messages`,
+      `https://graph.facebook.com/v19.0/${config.phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {

@@ -755,24 +755,27 @@ export default function WhatsAppPage() {
               )}
 
               <div>
-                <Label>Phone Number ID</Label>
+                <Label>Phone Number ID (para enviar mensagens)</Label>
                 <Input
                   value={phoneNumberId}
                   onChange={(e) => setPhoneNumberId(e.target.value)}
-                  placeholder="108594078879939"
+                  placeholder="Ex: 108594078879939"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Encontre em Meta Business &gt; WhatsApp &gt; API Setup
+                  Meta Business &gt; WhatsApp &gt; API Setup &gt; Phone number ID
                 </p>
               </div>
 
               <div>
-                <Label>WABA ID (WhatsApp Business Account)</Label>
+                <Label>WABA ID (para listar templates)</Label>
                 <Input
                   value={wabaId}
                   onChange={(e) => setWabaId(e.target.value)}
-                  placeholder="123456789012345"
+                  placeholder="Ex: 105607595847972"
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  E o numero na URL do endpoint de templates: graph.facebook.com/v19.0/<strong>WABA_ID</strong>/message_templates
+                </p>
               </div>
 
               <div>
