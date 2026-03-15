@@ -119,6 +119,20 @@ export async function POST(request: NextRequest) {
       case "update":
         result = await updateCampaign(args);
         break;
+      case "update_budgets": {
+        const updates = args.campaign_updates as Array<{ campaign_id: string; daily_budget: number }>;
+        const results = [];
+        for (const u of updates) {
+          try {
+            await updateCampaign({ campaign_id: u.campaign_id, daily_budget: String(u.daily_budget) });
+            results.push({ id: u.campaign_id, success: true });
+          } catch (err) {
+            results.push({ id: u.campaign_id, success: false, error: String(err) });
+          }
+        }
+        result = { results };
+        break;
+      }
       default:
         result = await createCampaign(args);
     }

@@ -18,6 +18,13 @@ import {
   TrendingUp,
   AlertTriangle,
   OctagonX,
+  Settings2,
+  Lightbulb,
+  X,
+  Check,
+  AlertCircle,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +36,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import Link from "next/link";
 import {
   Select,
@@ -73,6 +86,33 @@ function TierBadge({ tier }: { tier?: string | null }) {
   );
 }
 
+function getSuggestion(c: CampaignWithMetrics): { pct: number; label: string } {
+  switch (c.tier) {
+    case "champion": return { pct: 20, label: "Escalar" };
+    case "potential": return { pct: 20, label: "Aumentar" };
+    case "scale": return { pct: 0, label: "Manter" };
+    case "profitable": return { pct: 10, label: "Aumento cauteloso" };
+    case "warning": return { pct: -15, label: "Reduzir" };
+    case "critical": return { pct: -50, label: "Reduzir urgente" };
+    default: return { pct: 0, label: "Sem sugestao" };
+  }
+}
+
+function getRiskZone(pct: number): { label: string; color: string; icon: typeof ShieldCheck } {
+  const absPct = Math.abs(pct);
+  if (absPct <= 20) return { label: "Zona segura", color: "text-emerald-500", icon: ShieldCheck };
+  if (absPct <= 30) return { label: "Cuidado", color: "text-amber-500", icon: AlertCircle };
+  return { label: "Alto risco", color: "text-red-500", icon: ShieldAlert };
+}
+
+function parseBudgetCents(c: CampaignWithMetrics): number {
+  return parseInt(String(c.daily_budget || "0"), 10);
+}
+
+function hasDailyBudget(c: CampaignWithMetrics): boolean {
+  return !!c.daily_budget && parseInt(String(c.daily_budget), 10) > 0;
+}
+
 export default function CampaignsPage() {
   const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
@@ -86,6 +126,15 @@ export default function CampaignsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [tierFilter, setTierFilter] = useState("all");
   const [pageAccountFilter, setPageAccountFilter] = useState("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
+  const [budgetDialogCampaigns, setBudgetDialogCampaigns] = useState<CampaignWithMetrics[]>([]);
+  const [budgetPct, setBudgetPct] = useState(0);
+  const [budgetMode, setBudgetMode] = useState<"percent" | "fixed">("percent");
+  const [budgetFixedValue, setBudgetFixedValue] = useState("");
+  const [budgetOverrides, setBudgetOverrides] = useState<Map<string, number>>(new Map());
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetResults, setBudgetResults] = useState<Array<{ id: string; success: boolean; error?: string }> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
@@ -177,6 +226,82 @@ export default function CampaignsPage() {
     }
   }
 
+  function openBudgetDialog(targets: CampaignWithMetrics[]) {
+    const valid = targets.filter((c) => hasDailyBudget(c));
+    if (valid.length === 0) return;
+    setBudgetDialogCampaigns(valid);
+    setBudgetPct(0);
+    setBudgetMode("percent");
+    setBudgetFixedValue("");
+    setBudgetOverrides(new Map());
+    setBudgetResults(null);
+    setBudgetDialogOpen(true);
+  }
+
+  function applyTierSuggestions() {
+    const overrides = new Map<string, number>();
+    for (const c of budgetDialogCampaigns) {
+      const suggestion = getSuggestion(c);
+      const current = parseBudgetCents(c);
+      const newBudget = Math.max(100, Math.round(current * (1 + suggestion.pct / 100)));
+      overrides.set(c.id, newBudget);
+    }
+    setBudgetOverrides(overrides);
+    setBudgetMode("percent");
+    setBudgetPct(0); // overrides take precedence
+  }
+
+  function getNewBudget(c: CampaignWithMetrics): number {
+    if (budgetOverrides.has(c.id)) return budgetOverrides.get(c.id)!;
+    const current = parseBudgetCents(c);
+    if (budgetMode === "fixed") {
+      const fixedCents = Math.round(parseFloat(budgetFixedValue || "0") * 100);
+      return Math.max(100, fixedCents);
+    }
+    return Math.max(100, Math.round(current * (1 + budgetPct / 100)));
+  }
+
+  function getChangePct(c: CampaignWithMetrics): number {
+    const current = parseBudgetCents(c);
+    if (current === 0) return 0;
+    const newB = getNewBudget(c);
+    return ((newB - current) / current) * 100;
+  }
+
+  async function handleBudgetConfirm() {
+    setBudgetSaving(true);
+    setBudgetResults(null);
+    const updates = budgetDialogCampaigns.map((c) => ({
+      campaign_id: c.id,
+      daily_budget: getNewBudget(c),
+    }));
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (workspace?.id) headers["x-workspace-id"] = workspace.id;
+
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ action: "update_budgets", campaign_updates: updates }),
+      });
+      const data = await res.json();
+      setBudgetResults(data.results || []);
+      const allOk = (data.results || []).every((r: { success: boolean }) => r.success);
+      if (allOk) {
+        setTimeout(() => {
+          setBudgetDialogOpen(false);
+          setSelected(new Set());
+          fetchCampaigns();
+        }, 1500);
+      }
+    } catch {
+      setBudgetResults([{ id: "error", success: false, error: "Erro de rede" }]);
+    } finally {
+      setBudgetSaving(false);
+    }
+  }
+
   // Filter by page account
   const accountFiltered = useMemo(
     () =>
@@ -221,6 +346,29 @@ export default function CampaignsPage() {
     });
   }, [tierFiltered, sortKey, sortDir]);
 
+  // Selectable campaigns = with daily_budget
+  const selectableCampaigns = useMemo(
+    () => sorted.filter((c) => hasDailyBudget(c)),
+    [sorted]
+  );
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === selectableCampaigns.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectableCampaigns.map((c) => c.id)));
+    }
+  }
+
   // Tier counts
   const tierCounts = useMemo(() => ({
     champion: filtered.filter((c) => c.tier === "champion").length,
@@ -241,6 +389,22 @@ export default function CampaignsPage() {
   const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
   const columns = [
+    {
+      key: "_select",
+      label: "",
+      render: (_val: unknown, row: Record<string, unknown>) => {
+        const canSelect = hasDailyBudget(row as unknown as CampaignWithMetrics);
+        if (!canSelect) return <div className="w-4" />;
+        return (
+          <input
+            type="checkbox"
+            checked={selected.has(String(row.id))}
+            onChange={(e) => { e.stopPropagation(); toggleSelect(String(row.id)); }}
+            className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+          />
+        );
+      },
+    },
     {
       key: "name",
       label: "Campanha",
@@ -279,15 +443,41 @@ export default function CampaignsPage() {
       key: "daily_budget",
       label: "Orcamento",
       align: "right" as const,
-      render: (_val: unknown, row: Record<string, unknown>) => (
-        <span className="text-sm">
-          {row.daily_budget
-            ? `${formatBudget(String(row.daily_budget))}/dia`
-            : row.lifetime_budget
-            ? formatBudget(String(row.lifetime_budget))
-            : "-"}
-        </span>
-      ),
+      render: (_val: unknown, row: Record<string, unknown>) => {
+        const c = row as unknown as CampaignWithMetrics;
+        const hasBudget = hasDailyBudget(c);
+        const budgetCents = parseBudgetCents(c);
+        const spendPct = hasBudget && budgetCents > 0 ? Math.min(100, (c.spend / (budgetCents / 100)) * 100) : 0;
+
+        return (
+          <div className="text-right">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasBudget) openBudgetDialog([c]);
+              }}
+              disabled={!hasBudget}
+              className={`text-sm ${hasBudget ? "hover:text-primary hover:underline cursor-pointer" : ""}`}
+            >
+              {c.daily_budget
+                ? `${formatBudget(String(c.daily_budget))}/dia`
+                : c.lifetime_budget
+                ? formatBudget(String(c.lifetime_budget))
+                : "-"}
+            </button>
+            {hasBudget && spendPct > 0 && (
+              <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    spendPct >= 90 ? "bg-red-500" : spendPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${spendPct}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     { key: "impressions", label: "Impressoes", format: "number" as const, align: "right" as const },
     { key: "clicks", label: "Cliques", format: "number" as const, align: "right" as const },
@@ -415,6 +605,7 @@ export default function CampaignsPage() {
             <SelectItem value="spend">Investimento</SelectItem>
             <SelectItem value="roas">ROAS</SelectItem>
             <SelectItem value="revenue">Receita</SelectItem>
+            <SelectItem value="daily_budget">Orcamento</SelectItem>
             <SelectItem value="ctr">CTR</SelectItem>
             <SelectItem value="impressions">Impressoes</SelectItem>
             <SelectItem value="clicks">Cliques</SelectItem>
@@ -469,9 +660,46 @@ export default function CampaignsPage() {
         </p>
       )}
 
+      {/* Bulk Action Bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg -mt-2">
+          <input
+            type="checkbox"
+            checked={selected.size === selectableCampaigns.length && selectableCampaigns.length > 0}
+            ref={(el) => { if (el) el.indeterminate = selected.size > 0 && selected.size < selectableCampaigns.length; }}
+            onChange={toggleSelectAll}
+            className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+          />
+          <span className="text-sm font-medium">{selected.size} selecionada{selected.size !== 1 ? "s" : ""}</span>
+          <div className="w-px h-5 bg-border" />
+          <Button
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={() => {
+              const targets = sorted.filter((c) => selected.has(c.id));
+              openBudgetDialog(targets);
+            }}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Ajustar Orcamento
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={() => setSelected(new Set())}
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpar
+          </Button>
+        </div>
+      )}
+
       {/* Performance Table */}
       <PerformanceTable
         title={`${sorted.length} campanha${sorted.length !== 1 ? "s" : ""}`}
+        selectedSet={selected}
+        selectedKey="id"
         columns={columns}
         data={sorted as unknown as Array<Record<string, unknown>>}
         loading={initialLoading}
@@ -538,6 +766,232 @@ export default function CampaignsPage() {
           </CardContent>
         </Card>
       )}
+      {/* Budget Adjust Dialog */}
+      <Dialog open={budgetDialogOpen} onOpenChange={(open) => { if (!open) { setBudgetDialogOpen(false); setBudgetResults(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4" />
+              {budgetDialogCampaigns.length === 1
+                ? `Ajustar Orcamento — ${budgetDialogCampaigns[0]?.name}`
+                : `Ajustar Orcamento em Massa (${budgetDialogCampaigns.length} campanhas)`}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-5">
+            {/* Mode selector */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant={budgetMode === "percent" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => { setBudgetMode("percent"); setBudgetOverrides(new Map()); }}
+              >
+                Percentual
+              </Button>
+              <Button
+                variant={budgetMode === "fixed" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => { setBudgetMode("fixed"); setBudgetOverrides(new Map()); }}
+              >
+                Valor Fixo
+              </Button>
+              <div className="flex-1" />
+              {budgetDialogCampaigns.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={applyTierSuggestions}
+                >
+                  <Lightbulb className="h-3.5 w-3.5" />
+                  Sugestao por tier
+                </Button>
+              )}
+              {budgetDialogCampaigns.length === 1 && (() => {
+                const s = getSuggestion(budgetDialogCampaigns[0]);
+                if (s.pct === 0 && s.label === "Sem sugestao") return null;
+                return (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      if (s.pct === 0) return;
+                      setBudgetMode("percent");
+                      setBudgetPct(s.pct);
+                      setBudgetOverrides(new Map());
+                    }}
+                  >
+                    <Lightbulb className="h-3.5 w-3.5" />
+                    {s.label} ({s.pct > 0 ? "+" : ""}{s.pct}%)
+                  </Button>
+                );
+              })()}
+            </div>
+
+            {/* Percent slider */}
+            {budgetMode === "percent" && budgetOverrides.size === 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Ajuste percentual</span>
+                  <span className="text-sm font-medium">{budgetPct > 0 ? "+" : ""}{budgetPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={-50}
+                  max={100}
+                  step={5}
+                  value={budgetPct}
+                  onChange={(e) => setBudgetPct(Number(e.target.value))}
+                  className="w-full accent-primary cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>-50%</span>
+                  <span>0%</span>
+                  <span>+50%</span>
+                  <span>+100%</span>
+                </div>
+
+                {/* Risk zone indicator */}
+                {(() => {
+                  const zone = getRiskZone(budgetPct);
+                  const ZoneIcon = zone.icon;
+                  return (
+                    <div className={`flex items-center gap-1.5 text-xs ${zone.color}`}>
+                      <ZoneIcon className="h-3.5 w-3.5" />
+                      {zone.label}
+                      {Math.abs(budgetPct) <= 20
+                        ? " — nao reseta fase de aprendizado"
+                        : Math.abs(budgetPct) <= 30
+                        ? " — pode resetar fase de aprendizado"
+                        : " — vai resetar fase de aprendizado"}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Fixed value input */}
+            {budgetMode === "fixed" && budgetOverrides.size === 0 && (
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">Novo orcamento diario (R$)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Ex: 50.00"
+                  value={budgetFixedValue}
+                  onChange={(e) => setBudgetFixedValue(e.target.value)}
+                  className="w-48"
+                />
+              </div>
+            )}
+
+            {/* Per-tier override notice */}
+            {budgetOverrides.size > 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                <Lightbulb className="h-3.5 w-3.5 shrink-0" />
+                <span>Sugestao individual por tier aplicada. Cada campanha recebeu um ajuste diferente.</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs ml-auto"
+                  onClick={() => { setBudgetOverrides(new Map()); setBudgetPct(0); }}
+                >
+                  Resetar
+                </Button>
+              </div>
+            )}
+
+            {/* Preview table */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Campanha</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Tier</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Atual</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Novo</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Var.</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground">Risco</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {budgetDialogCampaigns.map((c) => {
+                    const current = parseBudgetCents(c);
+                    const newB = getNewBudget(c);
+                    const pct = getChangePct(c);
+                    const zone = getRiskZone(pct);
+                    const ZoneIcon = zone.icon;
+                    const changed = current !== newB;
+
+                    return (
+                      <tr key={c.id} className="border-b border-border/50">
+                        <td className="px-3 py-2 text-sm truncate max-w-[200px]">{c.name}</td>
+                        <td className="px-3 py-2 text-center"><TierBadge tier={c.tier} /></td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">{formatBudget(String(current))}/dia</td>
+                        <td className={`px-3 py-2 text-right font-medium ${changed ? "" : "text-muted-foreground"}`}>
+                          {formatBudget(String(newB))}/dia
+                        </td>
+                        <td className={`px-3 py-2 text-right ${pct > 0 ? "text-emerald-500" : pct < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                          {pct > 0 ? "+" : ""}{pct.toFixed(0)}%
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <ZoneIcon className={`h-4 w-4 mx-auto ${zone.color}`} />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">{zone.label}</TooltipContent>
+                          </Tooltip>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Info tip */}
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              A Meta recomenda ajustes de no maximo 20% a cada 48-72h para preservar a fase de aprendizado.
+              Alteracoes acima de 20% podem resetar o aprendizado e aumentar o CPA em 25-40%.
+            </p>
+
+            {/* Results */}
+            {budgetResults && (
+              <div className="space-y-1.5">
+                {budgetResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded ${r.success ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}>
+                    {r.success ? <Check className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                    <span>
+                      {r.success
+                        ? `${budgetDialogCampaigns.find((c) => c.id === r.id)?.name || r.id} — atualizado`
+                        : r.error || "Erro desconhecido"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setBudgetDialogOpen(false)} disabled={budgetSaving}>
+              Cancelar
+            </Button>
+            <Button
+              className="ml-auto gap-1.5"
+              onClick={handleBudgetConfirm}
+              disabled={budgetSaving || (budgetMode === "percent" && budgetPct === 0 && budgetOverrides.size === 0) || (budgetMode === "fixed" && !budgetFixedValue && budgetOverrides.size === 0)}
+            >
+              {budgetSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Confirmar Ajuste
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
     </TooltipProvider>
   );
