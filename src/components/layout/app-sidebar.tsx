@@ -134,6 +134,7 @@ const navGroups: NavGroup[] = [
         href: "/crm",
         icon: Contact,
         items: [
+          { title: "CRM", href: "/crm", icon: Contact },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
         ],
       },
