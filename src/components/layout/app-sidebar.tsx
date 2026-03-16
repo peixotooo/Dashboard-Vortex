@@ -183,16 +183,23 @@ function NavCollapsible({ item }: { item: NavItem }) {
       className="group/collapsible"
     >
       <SidebarMenuItem>
-        <CollapsibleTrigger asChild>
-          <SidebarMenuButton
-            tooltip={item.title}
-            isActive={isActive || isChildActive}
-          >
-            <item.icon />
-            <span>{item.title}</span>
-            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-          </SidebarMenuButton>
-        </CollapsibleTrigger>
+        <SidebarMenuButton
+          asChild
+          tooltip={item.title}
+          isActive={isActive || isChildActive}
+        >
+          <div className="flex w-full items-center">
+            <Link href={item.href} className="flex flex-1 items-center gap-2">
+              <item.icon />
+              <span>{item.title}</span>
+            </Link>
+            <CollapsibleTrigger asChild>
+              <button className="flex h-full items-center justify-center px-1">
+                <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+              </button>
+            </CollapsibleTrigger>
+          </div>
+        </SidebarMenuButton>
         <CollapsibleContent>
           <SidebarMenuSub>
             {item.items?.map((sub) => {
@@ -297,7 +304,7 @@ function NavUser() {
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
