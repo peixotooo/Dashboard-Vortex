@@ -46,6 +46,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -60,6 +61,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
 
 type NavSubItem = {
   title: string;
@@ -165,6 +167,8 @@ const navGroups: NavGroup[] = [
 
 function NavCollapsible({ item }: { item: NavItem }) {
   const pathname = usePathname();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   const isChildActive = item.items?.some(
     (sub) =>
@@ -188,16 +192,29 @@ function NavCollapsible({ item }: { item: NavItem }) {
           tooltip={item.title}
           isActive={isActive || isChildActive}
         >
-          <div className="flex w-full items-center">
-            <Link href={item.href} className="flex flex-1 items-center gap-2">
-              <item.icon />
-              <span>{item.title}</span>
+          <div className="flex w-full items-center justify-between">
+            <Link 
+              href={item.href} 
+              className={cn(
+                "flex items-center gap-2 overflow-hidden transition-all duration-200",
+                isCollapsed ? "w-0 flex-1 justify-center" : "flex-1"
+              )}
+            >
+              <item.icon className="shrink-0" />
+              <span className={cn(
+                "truncate transition-opacity duration-200",
+                isCollapsed ? "opacity-0 w-0" : "opacity-100"
+              )}>
+                {item.title}
+              </span>
             </Link>
-            <CollapsibleTrigger asChild>
-              <button className="flex h-full items-center justify-center px-1">
-                <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-              </button>
-            </CollapsibleTrigger>
+            {!isCollapsed && (
+              <CollapsibleTrigger asChild>
+                <button className="flex h-full items-center justify-center px-1">
+                  <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                </button>
+              </CollapsibleTrigger>
+            )}
           </div>
         </SidebarMenuButton>
         <CollapsibleContent>
@@ -226,6 +243,9 @@ function NavCollapsible({ item }: { item: NavItem }) {
 
 function NavSingle({ item }: { item: NavItem }) {
   const pathname = usePathname();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+  
   const isActive =
     pathname === item.href ||
     (item.href !== "/" && pathname.startsWith(item.href));
@@ -233,9 +253,20 @@ function NavSingle({ item }: { item: NavItem }) {
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild tooltip={item.title} isActive={isActive}>
-        <Link href={item.href}>
-          <item.icon />
-          <span>{item.title}</span>
+        <Link 
+          href={item.href} 
+          className={cn(
+            "flex items-center gap-2 overflow-hidden transition-all duration-200",
+            isCollapsed && "justify-center"
+          )}
+        >
+          <item.icon className="shrink-0" />
+          <span className={cn(
+            "truncate transition-opacity duration-200",
+            isCollapsed ? "opacity-0 w-0" : "opacity-100"
+          )}>
+            {item.title}
+          </span>
         </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -244,6 +275,8 @@ function NavSingle({ item }: { item: NavItem }) {
 
 function NavUser() {
   const { user, signOut } = useAuth();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   const initials = React.useMemo(() => {
     if (!user?.email) return "U";
@@ -260,22 +293,29 @@ function NavUser() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              className={cn(
+                "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground transition-all duration-200",
+                isCollapsed && "justify-center px-0"
+              )}
             >
-              <Avatar className="h-8 w-8 rounded-lg">
+              <Avatar className="h-8 w-8 shrink-0 rounded-lg">
                 <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs">
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">
-                  {user?.email?.split("@")[0] ?? "Usuario"}
-                </span>
-                <span className="truncate text-xs text-sidebar-foreground/60">
-                  {user?.email ?? ""}
-                </span>
-              </div>
-              <ChevronsUpDown className="ml-auto size-4" />
+              {!isCollapsed && (
+                <>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">
+                      {user?.email?.split("@")[0] ?? "Usuario"}
+                    </span>
+                    <span className="truncate text-xs text-sidebar-foreground/60">
+                      {user?.email ?? ""}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </>
+              )}
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -303,22 +343,27 @@ function NavUser() {
 }
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton size="lg" asChild className={isCollapsed ? "justify-center px-0" : ""}>
               <Link href="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <Zap className="size-4" />
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Vortex</span>
-                  <span className="truncate text-xs text-sidebar-foreground/60">
-                    Dashboard
-                  </span>
-                </div>
+                {!isCollapsed && (
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">Vortex</span>
+                    <span className="truncate text-xs text-sidebar-foreground/60">
+                      Dashboard
+                    </span>
+                  </div>
+                )}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
