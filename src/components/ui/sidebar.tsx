@@ -211,7 +211,17 @@ const Sidebar = React.forwardRef<
     return (
       <div
         ref={ref}
-        className="group peer hidden shrink-0 md:block text-sidebar-foreground"
+        className={cn(
+          "group peer hidden shrink-0 md:block text-sidebar-foreground transition-[width] duration-200 ease-linear",
+          className
+        )}
+        style={
+          {
+            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+            width: state === "collapsed" ? (collapsible === "icon" ? SIDEBAR_WIDTH_ICON : "0px") : SIDEBAR_WIDTH,
+          } as React.CSSProperties
+        }
         data-state={state}
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-variant={variant}
@@ -220,12 +230,8 @@ const Sidebar = React.forwardRef<
         {/* Gap on desktop */}
         <div
           className={cn(
-            "relative w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
-            "group-data-[collapsible=offcanvas]:w-0",
-            "group-data-[side=right]:rotate-180",
-            variant === "floating" || variant === "inset"
-              ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_theme(spacing.4))]"
-              : "group-data-[collapsible=icon]:w-[--sidebar-width-icon]"
+            "h-full w-full bg-transparent",
+            "group-data-[side=right]:rotate-180"
           )}
         />
         <div
