@@ -29,15 +29,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import type { DatePreset } from "@/lib/types";
-
-const tooltipStyle = {
-  backgroundColor: "#12121a",
-  border: "1px solid #2a2a3e",
-  borderRadius: "8px",
-  color: "#f0f0f5",
-  fontSize: "12px",
-};
 
 interface VndaDailyRow {
   date: string;
@@ -309,6 +302,8 @@ function TopProductsChart({
   products: VndaProductRow[];
   loading: boolean;
 }) {
+  const chart = useChartTheme();
+
   if (loading) {
     return (
       <Card>
@@ -341,10 +336,10 @@ function TopProductsChart({
               layout="vertical"
               margin={{ top: 5, right: 20, left: 100, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
               <XAxis
                 type="number"
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
@@ -353,14 +348,14 @@ function TopProductsChart({
               <YAxis
                 type="category"
                 dataKey="name"
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={11}
                 tickLine={false}
                 axisLine={false}
                 width={95}
               />
               <Tooltip
-                contentStyle={tooltipStyle}
+                contentStyle={chart.tooltipStyle}
                 formatter={(value) => [`R$ ${Number(value ?? 0).toFixed(2)}`, "Receita"]}
               />
               <Legend />
@@ -425,7 +420,7 @@ function ComparisonSection({
       ? [
           {
             name: "Meta",
-            color: "#1877f2",
+            color: "#818cf8",
             orders: metaTotals.purchases,
             revenue: metaTotals.revenue,
             label: "Pixel",

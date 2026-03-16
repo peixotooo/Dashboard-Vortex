@@ -12,6 +12,7 @@ import {
   Legend,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 
 interface TrendChartProps {
   title: string;
@@ -25,6 +26,8 @@ interface TrendChartProps {
 }
 
 export function TrendChart({ title, data, lines, loading = false }: TrendChartProps) {
+  const chart = useChartTheme();
+
   if (loading) {
     return (
       <Card>
@@ -62,29 +65,21 @@ export function TrendChart({ title, data, lines, loading = false }: TrendChartPr
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
               <XAxis
                 dataKey="date"
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
               />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#12121a",
-                  border: "1px solid #2a2a3e",
-                  borderRadius: "8px",
-                  color: "#f0f0f5",
-                  fontSize: "12px",
-                }}
-              />
+              <Tooltip contentStyle={chart.tooltipStyle} />
               <Legend />
               {lines.map((line) => (
                 <Area

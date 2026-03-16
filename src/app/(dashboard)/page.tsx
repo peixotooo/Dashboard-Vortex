@@ -34,6 +34,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import type { DatePreset } from "@/lib/types";
 
 // --- Helpers ---
@@ -644,11 +645,11 @@ export default function OverviewPage() {
 
   // Revenue source badge: VNDA > GA4 > Meta
   const revenueSource = data.vndaConfigured ? "VNDA" : data.ga4Configured ? "GA4" : "Meta";
-  const revenueColor = data.vndaConfigured ? "#10b981" : data.ga4Configured ? "#f97316" : "#1877f2";
+  const revenueColor = data.vndaConfigured ? "#10b981" : data.ga4Configured ? "#f97316" : "#818cf8";
 
   // Investment badge
   const investBadge = data.gadsConfigured ? "Meta + Google" : "Meta";
-  const investColor = data.gadsConfigured ? "#8b5cf6" : "#1877f2";
+  const investColor = data.gadsConfigured ? "#8b5cf6" : "#818cf8";
 
   // ROAS badge
   const roasSources = [data.gadsConfigured ? "Meta + Google" : "Meta"];
@@ -731,7 +732,7 @@ export default function OverviewPage() {
           iconColor="text-blue-400"
           loading={loading}
           badge="Meta"
-          badgeColor="#1877f2"
+          badgeColor="#818cf8"
         />
         {data.gadsConfigured ? (
           <KpiCard
@@ -838,7 +839,7 @@ export default function OverviewPage() {
       <div className="flex items-center gap-3 -mb-4">
         <span className="text-xs font-medium text-muted-foreground">Fonte:</span>
         <span className="flex items-center gap-1">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#1877f2" }} />
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#818cf8" }} />
           <span className="text-xs text-muted-foreground">Meta</span>
         </span>
         <span className="flex items-center gap-1">
@@ -1005,6 +1006,8 @@ function FinancialHealth({
     };
   }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
 
+  const chart = useChartTheme();
+
   if (loading) {
     return (
       <Card>
@@ -1138,30 +1141,24 @@ function FinancialHealth({
                   <stop offset="95%" stopColor={calc.aboveBreakEven ? "#22c55e" : "#ef4444"} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
               <XAxis
                 dataKey="day"
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={11}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(d) => `${d}`}
               />
               <YAxis
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={11}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: "#12121a",
-                  border: "1px solid #2a2a3e",
-                  borderRadius: "8px",
-                  color: "#f0f0f5",
-                  fontSize: "12px",
-                }}
+                contentStyle={chart.tooltipStyle}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(value: any, name: any) => {
                   const label = name === "revenue" ? "Receita Acum." : name === "target" ? "Ritmo Meta" : "Ponto Equilíbrio";
@@ -1420,6 +1417,8 @@ function RoasChart({
   data: DailyRow[];
   loading: boolean;
 }) {
+  const chart = useChartTheme();
+
   if (loading) {
     return (
       <Card>
@@ -1445,29 +1444,23 @@ function RoasChart({
               data={data}
               margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
               <XAxis
                 dataKey="date"
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
               />
               <YAxis
-                stroke="#8888a0"
+                stroke={chart.axis}
                 fontSize={12}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(v) => `${v}x`}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: "#12121a",
-                  border: "1px solid #2a2a3e",
-                  borderRadius: "8px",
-                  color: "#f0f0f5",
-                  fontSize: "12px",
-                }}
+                contentStyle={chart.tooltipStyle}
                 formatter={(value) => [
                   `${Number(value ?? 0).toFixed(2)}x`,
                   "ROAS",

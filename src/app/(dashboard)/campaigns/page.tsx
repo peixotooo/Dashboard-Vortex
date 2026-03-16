@@ -767,7 +767,7 @@ export default function CampaignsPage() {
           iconColor="text-success"
           loading={initialLoading}
           badge="Meta"
-          badgeColor="#1877f2"
+          badgeColor="#818cf8"
         />
         <KpiCard
           title="ROAS Medio"

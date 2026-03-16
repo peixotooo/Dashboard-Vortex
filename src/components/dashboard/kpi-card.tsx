@@ -54,8 +54,10 @@ export function KpiCard({
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                 style={{
-                  color: badgeColor || "#8888a0",
-                  backgroundColor: `${badgeColor || "#8888a0"}15`,
+                  color: badgeColor || "var(--muted-foreground)",
+                  backgroundColor: badgeColor
+                    ? `${badgeColor}15`
+                    : "var(--muted)",
                 }}
               >
                 {badge}

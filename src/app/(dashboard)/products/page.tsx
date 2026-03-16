@@ -34,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import type { DatePreset } from "@/lib/types";
 import type {
   ProductIntelligence,
@@ -43,14 +44,6 @@ import type {
 } from "@/lib/products-intelligence";
 
 // --- Constants ---
-
-const tooltipStyle = {
-  backgroundColor: "#12121a",
-  border: "1px solid #2a2a3e",
-  borderRadius: "8px",
-  color: "#f0f0f5",
-  fontSize: "12px",
-};
 
 const CLASSIFICATION_COLORS: Record<string, string> = {
   estrela: "#f59e0b",
@@ -185,6 +178,7 @@ const emptySummary = {
 
 export default function ProductsPage() {
   const { workspace } = useWorkspace();
+  const chart = useChartTheme();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -398,7 +392,7 @@ export default function ProductsPage() {
                             />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <Tooltip contentStyle={chart.tooltipStyle} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -433,11 +427,11 @@ export default function ProductsPage() {
                       <ComposedChart data={paretoData}>
                         <CartesianGrid
                           strokeDasharray="3 3"
-                          stroke="#2a2a3e"
+                          stroke={chart.grid}
                         />
                         <XAxis
                           dataKey="name"
-                          stroke="#8888a0"
+                          stroke={chart.axis}
                           fontSize={10}
                           tickLine={false}
                           angle={-45}
@@ -446,7 +440,7 @@ export default function ProductsPage() {
                         />
                         <YAxis
                           yAxisId="left"
-                          stroke="#8888a0"
+                          stroke={chart.axis}
                           fontSize={12}
                           tickFormatter={(v) =>
                             `R$${(v / 1000).toFixed(0)}k`
@@ -455,12 +449,12 @@ export default function ProductsPage() {
                         <YAxis
                           yAxisId="right"
                           orientation="right"
-                          stroke="#8888a0"
+                          stroke={chart.axis}
                           fontSize={12}
                           tickFormatter={(v) => `${v}%`}
                           domain={[0, 100]}
                         />
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <Tooltip contentStyle={chart.tooltipStyle} />
                         <Legend />
                         <ReferenceLine
                           yAxisId="right"

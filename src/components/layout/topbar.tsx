@@ -7,6 +7,7 @@ import { AccountSelector } from "@/components/settings/account-selector";
 import { WorkspaceSelector } from "@/components/layout/workspace-selector";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 export function Topbar() {
   return (
@@ -23,6 +24,7 @@ export function Topbar() {
         <WorkspaceSelector />
         <Separator orientation="vertical" className="h-4" />
         <AccountSelector />
+        <ThemeToggle />
         <Button
           variant="ghost"
           size="icon"

@@ -559,7 +559,7 @@ export default function CreativesPage() {
             iconColor={kpis.card2.color}
             loading={initialLoading}
             badge="Meta"
-            badgeColor="#1877f2"
+            badgeColor="#818cf8"
           />
           <KpiCard
             title={kpis.card3.title}

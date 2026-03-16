@@ -28,9 +28,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { TrendChart } from "@/components/dashboard/trend-chart";
 import { useAccount } from "@/lib/account-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import type { DatePreset, BreakdownType, InsightMetrics } from "@/lib/types";
 
-const COLORS = ["#1877f2", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#f97316", "#ec4899"];
+const COLORS = ["#818cf8", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#f97316", "#ec4899"];
 
 const breakdownOptions: { value: BreakdownType; label: string }[] = [
   { value: "age", label: "Idade" },
@@ -40,16 +41,9 @@ const breakdownOptions: { value: BreakdownType; label: string }[] = [
   { value: "country", label: "País" },
 ];
 
-const tooltipStyle = {
-  backgroundColor: "#12121a",
-  border: "1px solid #2a2a3e",
-  borderRadius: "8px",
-  color: "#f0f0f5",
-  fontSize: "12px",
-};
-
 export default function AnalyticsPage() {
   const { accountId } = useAccount();
+  const chart = useChartTheme();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [breakdown, setBreakdown] = useState<BreakdownType>("age");
   const [loading, setLoading] = useState(true);
@@ -235,15 +229,15 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={breakdownData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
                       <XAxis
                         dataKey="name"
-                        stroke="#8888a0"
+                        stroke={chart.axis}
                         fontSize={12}
                         tickLine={false}
                       />
-                      <YAxis stroke="#8888a0" fontSize={12} tickLine={false} />
-                      <Tooltip contentStyle={tooltipStyle} />
+                      <YAxis stroke={chart.axis} fontSize={12} tickLine={false} />
+                      <Tooltip contentStyle={chart.tooltipStyle} />
                       <Legend />
                       <Bar
                         dataKey="impressions"
@@ -288,7 +282,7 @@ export default function AnalyticsPage() {
                           />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={tooltipStyle} />
+                      <Tooltip contentStyle={chart.tooltipStyle} />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>

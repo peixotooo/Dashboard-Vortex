@@ -38,17 +38,10 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import type { DatePreset } from "@/lib/types";
 
 const COLORS = ["#f97316", "#3b82f6", "#22c55e", "#8b5cf6", "#06b6d4", "#ef4444", "#f59e0b", "#ec4899"];
-const tooltipStyle = {
-  backgroundColor: "#12121a",
-  border: "1px solid #2a2a3e",
-  borderRadius: "8px",
-  color: "#f0f0f5",
-  fontSize: "12px",
-};
-
 const DAY_NAMES = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 interface GA4Row {
@@ -79,6 +72,7 @@ interface GA4Totals {
 export default function GA4Page() {
   const { accountId, accounts } = useAccount();
   const { workspace } = useWorkspace();
+  const chart = useChartTheme();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [loading, setLoading] = useState(true);
   const [configured, setConfigured] = useState(true);
@@ -409,10 +403,10 @@ export default function GA4Page() {
                         name: (r.dimensions.itemName || "").slice(0, 20),
                         receita: parseFloat((r.metrics.itemRevenue || 0).toFixed(2)),
                       }))} layout="vertical" margin={{ left: 10, right: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                        <XAxis type="number" stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <YAxis type="category" dataKey="name" stroke="#8888a0" fontSize={11} tickLine={false} width={130} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "Receita"]} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                        <XAxis type="number" stroke={chart.axis} fontSize={12} tickLine={false} />
+                        <YAxis type="category" dataKey="name" stroke={chart.axis} fontSize={11} tickLine={false} width={130} />
+                        <Tooltip contentStyle={chart.tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "Receita"]} />
                         <Bar dataKey="receita" fill="#f97316" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -477,7 +471,7 @@ export default function GA4Page() {
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <Tooltip contentStyle={chart.tooltipStyle} />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -511,11 +505,11 @@ export default function GA4Page() {
                           txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
                         };
                       })}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                        <XAxis dataKey="hora" stroke="#8888a0" fontSize={11} tickLine={false} />
-                        <YAxis yAxisId="left" stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                        <XAxis dataKey="hora" stroke={chart.axis} fontSize={11} tickLine={false} />
+                        <YAxis yAxisId="left" stroke={chart.axis} fontSize={12} tickLine={false} />
+                        <YAxis yAxisId="right" orientation="right" stroke={chart.axis} fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip contentStyle={chart.tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
                         <Legend />
                         <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#f97316" radius={[4, 4, 0, 0]} />
                         <Bar yAxisId="left" dataKey="receita" name="Receita (R$)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -547,11 +541,11 @@ export default function GA4Page() {
                           txConv: sessions > 0 ? parseFloat(((transactions / sessions) * 100).toFixed(2)) : 0,
                         };
                       })}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                        <XAxis dataKey="dia" stroke="#8888a0" fontSize={11} tickLine={false} />
-                        <YAxis yAxisId="left" stroke="#8888a0" fontSize={12} tickLine={false} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                        <XAxis dataKey="dia" stroke={chart.axis} fontSize={11} tickLine={false} />
+                        <YAxis yAxisId="left" stroke={chart.axis} fontSize={12} tickLine={false} />
+                        <YAxis yAxisId="right" orientation="right" stroke={chart.axis} fontSize={12} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip contentStyle={chart.tooltipStyle} formatter={(v, name) => [name === "TX Conv. (%)" ? `${v}%` : name === "Receita (R$)" ? formatCurrency(Number(v)) : v, name]} />
                         <Legend />
                         <Bar yAxisId="left" dataKey="sessoes" name="Sessões" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                         <Bar yAxisId="left" dataKey="receita" name="Receita (R$)" fill="#f97316" radius={[4, 4, 0, 0]} />
@@ -636,12 +630,12 @@ export default function GA4Page() {
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={mergedHourly}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                        <XAxis dataKey="hora" stroke="#8888a0" fontSize={11} tickLine={false} />
-                        <YAxis stroke="#8888a0" fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
-                        <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatCurrency(Number(v)), name]} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                        <XAxis dataKey="hora" stroke={chart.axis} fontSize={11} tickLine={false} />
+                        <YAxis stroke={chart.axis} fontSize={12} tickLine={false} tickFormatter={(v) => `R$${v}`} />
+                        <Tooltip contentStyle={chart.tooltipStyle} formatter={(v, name) => [formatCurrency(Number(v)), name]} />
                         <Legend />
-                        <Bar dataKey="investMeta" name="Invest. Meta (R$)" fill="#1877f2" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="investMeta" name="Invest. Meta (R$)" fill="#818cf8" radius={[4, 4, 0, 0]} />
                         <Bar dataKey="receita" name="Receita (R$)" fill="#22c55e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -757,7 +751,7 @@ export default function GA4Page() {
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <Tooltip contentStyle={chart.tooltipStyle} />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -824,7 +818,7 @@ export default function GA4Page() {
                             <Cell key={i} fill={COLORS[i % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
+                        <Tooltip contentStyle={chart.tooltipStyle} />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>

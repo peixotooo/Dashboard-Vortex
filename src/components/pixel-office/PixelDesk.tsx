@@ -37,7 +37,7 @@ function PixelDeskInner({ working, scale = 3 }: PixelDeskProps) {
           y={-3.5 * scale}
           width={7 * scale}
           height={3 * scale}
-          fill="#1877f2"
+          fill="#818cf8"
           opacity={0.15}
           className="pixel-monitor-glow"
         />

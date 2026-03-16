@@ -60,16 +60,9 @@ import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
 import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Constants ---
-
-const tooltipStyle = {
-  backgroundColor: "#12121a",
-  border: "1px solid #2a2a3e",
-  borderRadius: "8px",
-  color: "#f0f0f5",
-  fontSize: "12px",
-};
 
 const emptySummary: CrmRfmResponse["summary"] = {
   totalCustomers: 0, totalRevenue: 0, avgTicket: 0,
@@ -386,6 +379,7 @@ function NumericRangeFilterPopover({
 
 export default function CrmPage() {
   const { workspace } = useWorkspace();
+  const chart = useChartTheme();
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -1072,10 +1066,10 @@ export default function CrmPage() {
             <ChartCard title="Novos vs Recorrentes" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyWithCac}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={{ fill: chart.axis, fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar dataKey="newClients" name="Novos" fill="#4ade80" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="returningClients" name="Recorrentes" fill="#6b7280" radius={[4, 4, 0, 0]} />
@@ -1086,11 +1080,11 @@ export default function CrmPage() {
             <ChartCard title="Qtd Pedidos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={monthlyWithCac}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Area type="monotone" dataKey="totalOrders" stroke="#ffffff" fill="#ffffff10" strokeWidth={2} dot={{ r: 3, fill: "#ffffff" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={{ fill: chart.axis, fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
+                  <Area type="monotone" dataKey="totalOrders" stroke={chart.series[0]} fill={`${chart.series[0]}20`} strokeWidth={2} dot={{ r: 3, fill: chart.series[0] }} />
                 </AreaChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -1098,10 +1092,10 @@ export default function CrmPage() {
             <ChartCard title="CAC" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0 || !adSpend} height={250}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={monthlyWithCac}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="month" tick={{ fill: "#888", fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis tick={{ fill: "#888", fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "CAC"]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="month" tick={{ fill: chart.axis, fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} />
+                  <Tooltip contentStyle={chart.tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "CAC"]} />
                   <Line type="monotone" dataKey="cac" stroke="#4ade80" strokeWidth={2} dot={{ r: 4, fill: "#4ade80" }} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
@@ -1178,7 +1172,7 @@ export default function CrmPage() {
                         className="cursor-pointer" onClick={() => handleSegmentChartClick(entry)} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                 </PieChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -1186,10 +1180,10 @@ export default function CrmPage() {
             <ChartCard title="Receita por Segmento" loading={loading} isEmpty={revenueBySegmentData.length === 0} height={300}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueBySegmentData} layout="vertical" className="cursor-pointer">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis type="number" stroke="#8888a0" fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
-                  <YAxis type="category" dataKey="name" stroke="#8888a0" fontSize={11} width={120} tickLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value: number | undefined) => [formatCurrency(value ?? 0), "Receita"]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis type="number" stroke={chart.axis} fontSize={12} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis type="category" dataKey="name" stroke={chart.axis} fontSize={11} width={120} tickLine={false} />
+                  <Tooltip contentStyle={chart.tooltipStyle} formatter={(value: number | undefined) => [formatCurrency(value ?? 0), "Receita"]} />
                   <Bar dataKey="revenue" radius={[0, 4, 4, 0]} onClick={handleSegmentChartClick}>
                     {revenueBySegmentData.map((entry, i) => (
                       <Cell key={i} fill={entry.color}
@@ -1206,10 +1200,10 @@ export default function CrmPage() {
             <ChartCard title="Distribuicao de Recencia" loading={loading} isEmpty={distributions.recency.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={distributions.recency}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="bucket" stroke="#8888a0" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#8888a0" fontSize={12} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="bucket" stroke={chart.axis} fontSize={11} tickLine={false} />
+                  <YAxis stroke={chart.axis} fontSize={12} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1218,10 +1212,10 @@ export default function CrmPage() {
             <ChartCard title="Distribuicao de Frequencia" loading={loading} isEmpty={distributions.frequency.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={distributions.frequency}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="bucket" stroke="#8888a0" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#8888a0" fontSize={12} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="bucket" stroke={chart.axis} fontSize={11} tickLine={false} />
+                  <YAxis stroke={chart.axis} fontSize={12} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1329,10 +1323,10 @@ export default function CrmPage() {
             <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.dayOfMonth} className="cursor-pointer">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="bucket" stroke="#8888a0" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#8888a0" fontSize={12} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="bucket" stroke={chart.axis} fontSize={11} tickLine={false} />
+                  <YAxis stroke={chart.axis} fontSize={12} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]} onClick={handleDayOfMonthClick}>
                     {behavioral.dayOfMonth.map((entry, i) => (
                       <Cell key={i} fill="#3b82f6" opacity={dayRangeFilter === "all" || DAYRANGE_LABEL_TO_KEY[entry.bucket] === dayRangeFilter ? 1 : 0.3} className="cursor-pointer" />
@@ -1345,10 +1339,10 @@ export default function CrmPage() {
             <ChartCard title="Turno Preferido" loading={loading} isEmpty={behavioral.hourOfDay.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.hourOfDay} className="cursor-pointer">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="bucket" stroke="#8888a0" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#8888a0" fontSize={12} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="bucket" stroke={chart.axis} fontSize={11} tickLine={false} />
+                  <YAxis stroke={chart.axis} fontSize={12} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]} onClick={handleHourClick}>
                     {behavioral.hourOfDay.map((entry, i) => (
                       <Cell key={i} fill="#f59e0b" opacity={hourFilter === "all" || HOUR_LABEL_TO_KEY[entry.bucket] === hourFilter ? 1 : 0.3} className="cursor-pointer" />
@@ -1371,7 +1365,7 @@ export default function CrmPage() {
                         className="cursor-pointer" onClick={() => handleCouponClick(entry)} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                 </PieChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -1379,10 +1373,10 @@ export default function CrmPage() {
             <ChartCard title="Estagio do Ciclo de Vida" loading={loading} isEmpty={behavioral.lifecycle.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.lifecycle} className="cursor-pointer">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                  <XAxis dataKey="bucket" stroke="#8888a0" fontSize={12} tickLine={false} />
-                  <YAxis stroke="#8888a0" fontSize={12} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="bucket" stroke={chart.axis} fontSize={12} tickLine={false} />
+                  <YAxis stroke={chart.axis} fontSize={12} />
+                  <Tooltip contentStyle={chart.tooltipStyle} />
                   <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]} onClick={handleLifecycleClick}>
                     {behavioral.lifecycle.map((entry, i) => (
                       <Cell key={i} fill={entry.color}
@@ -1398,10 +1392,10 @@ export default function CrmPage() {
           <ChartCard title="Dia da Semana Preferido" loading={loading} isEmpty={behavioral.weekday.length === 0}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={behavioral.weekday} className="cursor-pointer">
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2a3e" />
-                <XAxis dataKey="bucket" stroke="#8888a0" fontSize={12} tickLine={false} />
-                <YAxis stroke="#8888a0" fontSize={12} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                <XAxis dataKey="bucket" stroke={chart.axis} fontSize={12} tickLine={false} />
+                <YAxis stroke={chart.axis} fontSize={12} />
+                <Tooltip contentStyle={chart.tooltipStyle} />
                 <Bar dataKey="count" name="Clientes" radius={[4, 4, 0, 0]} onClick={handleWeekdayClick}>
                   {(behavioral.weekday || []).map((entry, i) => (
                     <Cell key={i} fill={entry.color}
