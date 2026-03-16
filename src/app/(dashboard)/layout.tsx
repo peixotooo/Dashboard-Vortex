@@ -42,7 +42,7 @@ export default function DashboardLayout({
           <AppSidebar />
           <SidebarInset>
             <Topbar />
-            <div className="flex-1 p-6">{children}</div>
+            <div className="flex-1 overflow-x-hidden p-6">{children}</div>
           </SidebarInset>
         </SidebarProvider>
       </AccountProvider>
