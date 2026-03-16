@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { generateRfmReport } from "@/lib/crm-rfm";
-import type { CrmVendaRow } from "@/lib/crm-rfm";
 
-export const maxDuration = 60;
+export const maxDuration = 15;
 
 const EMPTY_RESPONSE = {
   customers: [],
@@ -88,51 +86,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fallback: no snapshot exists — compute from raw data (legacy path)
-    console.log("[CRM RFM] No snapshot found, computing from raw data...");
+    // No snapshot — return empty with pending flag.
+    // Heavy recomputation is handled exclusively by the crm-recompute cron job.
+    console.log("[CRM RFM] No snapshot found, returning pending state.");
 
-    let allRows: CrmVendaRow[] = [];
-    const PAGE_SIZE = 1000;
-    let from = 0;
-    let hasMore = true;
+    // Check if workspace has any crm_vendas data at all (single count query)
+    const { count } = await supabase
+      .from("crm_vendas")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId);
 
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from("crm_vendas")
-        .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
-        .eq("workspace_id", workspaceId)
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error) throw new Error(`Supabase error: ${error.message}`);
-
-      if (data && data.length > 0) {
-        allRows.push(...(data as CrmVendaRow[]));
-        from += PAGE_SIZE;
-        hasMore = data.length === PAGE_SIZE;
-      } else {
-        hasMore = false;
-      }
-    }
-
-    if (allRows.length === 0) {
+    if (!count || count === 0) {
       return NextResponse.json(EMPTY_RESPONSE);
     }
 
-    const report = generateRfmReport(allRows);
-
-    if (fields === "summary") {
-      return NextResponse.json({
-        segments: report.segments,
-        summary: report.summary,
-        distributions: report.distributions,
-        behavioralDistributions: report.behavioralDistributions,
-      }, {
-        headers: { "Cache-Control": "private, max-age=300" },
-      });
-    }
-
-    return NextResponse.json(report, {
-      headers: { "Cache-Control": "private, max-age=300" },
+    return NextResponse.json({
+      ...EMPTY_RESPONSE,
+      pending: true,
+      message: "Dados sendo processados. Atualize em alguns minutos.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

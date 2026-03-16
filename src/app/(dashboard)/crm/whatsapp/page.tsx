@@ -258,7 +258,7 @@ export default function WhatsAppPage() {
     setExclusionsLoading(false);
   }, [workspace?.id, wsHeaders]);
 
-  // Fetch performance data for completed/sending campaigns
+  // Fetch performance data for completed/sending campaigns (batch)
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
     const trackable = campaigns.filter((c) =>
@@ -266,19 +266,21 @@ export default function WhatsAppPage() {
     );
     if (trackable.length === 0) return;
 
-    for (const c of trackable) {
-      if (perfData[c.id]) continue; // already fetched
-      fetch(`/api/crm/whatsapp/campaigns/${c.id}/performance`, {
-        headers: wsHeaders(),
+    const newIds = trackable.filter((c) => !perfData[c.id]).map((c) => c.id);
+    if (newIds.length === 0) return;
+
+    fetch("/api/crm/whatsapp/campaigns/performance", {
+      method: "POST",
+      headers: { ...wsHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: newIds }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.results) {
+          setPerfData((prev) => ({ ...prev, ...data.results }));
+        }
       })
-        .then((r) => r.json())
-        .then((data) => {
-          if (!data.error) {
-            setPerfData((prev) => ({ ...prev, [c.id]: data }));
-          }
-        })
-        .catch(() => { /* silent */ });
-    }
+      .catch(() => { /* silent */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns, workspace?.id]);
 

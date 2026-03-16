@@ -9,6 +9,14 @@ interface AuthResult {
   accessToken: string;
 }
 
+// Helper for timeout
+const withTimeout = async <T>(promise: Promise<T> | T, timeoutMs: number): Promise<T | null> => {
+  const timeoutPromise = new Promise<null>((resolve) => 
+    setTimeout(() => resolve(null), timeoutMs)
+  );
+  return Promise.race([promise as Promise<T>, timeoutPromise]);
+};
+
 export async function getAuthenticatedContext(
   request: NextRequest
 ): Promise<AuthResult> {
@@ -27,9 +35,8 @@ export async function getAuthenticatedContext(
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const authResponse = await withTimeout(supabase.auth.getUser(), 3000);
+  const user = (authResponse as any)?.data?.user || null;
 
   if (!user) {
     throw new AuthError("Not authenticated", 401);
@@ -45,26 +52,36 @@ export async function getAuthenticatedContext(
     throw new AuthError("Workspace not specified", 400);
   }
 
-  // Verify user is a member of this workspace
-  const { data: membership } = await supabase
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", user.id)
-    .single();
+  // Verify membership and get Meta connection in parallel
+  const [membershipResponse, connectionResponse] = await Promise.all([
+    withTimeout(
+      supabase
+        .from("workspace_members")
+        .select("role")
+        .eq("workspace_id", workspaceId)
+        .eq("user_id", user.id)
+        .single(),
+      2000
+    ),
+    withTimeout(
+      supabase
+        .from("meta_connections")
+        .select("access_token")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single(),
+      2000
+    ),
+  ]);
+
+  const membership = (membershipResponse as any)?.data;
 
   if (!membership) {
-    throw new AuthError("Not a member of this workspace", 403);
+    throw new AuthError("Not a member of this workspace (or request timed out)", 403);
   }
 
-  // Get the Meta access token for this workspace
-  const { data: connection } = await supabase
-    .from("meta_connections")
-    .select("access_token")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+  const connection = (connectionResponse as any)?.data;
 
   if (!connection?.access_token) {
     // Fallback to env var during migration

@@ -5,9 +5,14 @@ const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/shelves.js"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
 
-  // Skip middleware for API routes and static files
-  if (pathname.startsWith("/api/") || pathname.startsWith("/_next/")) {
+  // 1. Skip middleware for API, static, and PUBLIC routes immediately for speed
+  if (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next/") ||
+    isPublicRoute
+  ) {
     return NextResponse.next();
   }
 
@@ -44,21 +49,21 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Helper for timeout (used only for custom domain lookup)
+  const withTimeout = async <T>(promise: Promise<T> | T, timeoutMs: number): Promise<T | null> => {
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), timeoutMs)
+    );
+    return Promise.race([promise as Promise<T>, timeoutPromise]);
+  };
 
-  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
+  // 2. Auth check via local session (reads JWT from cookie, no network call)
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user || null;
 
-  if (!user && !isPublicRoute) {
+  if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  if (user && isPublicRoute && !pathname.startsWith("/invite")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
@@ -74,13 +79,17 @@ export async function middleware(request: NextRequest) {
     const cached = request.cookies.get("vortex_domain_workspace")?.value;
 
     if (!cached) {
-      // Lookup workspace by custom_domain
-      const { data: ws } = await supabase
+      // Lookup workspace by custom_domain with timeout
+      const workspaceQuery = supabase
         .from("workspaces")
         .select("id")
         .eq("custom_domain", host)
         .limit(1)
         .single();
+        
+      const workspaceResponse = await withTimeout(workspaceQuery, 600);
+
+      const ws = (workspaceResponse as any)?.data;
 
       if (ws?.id) {
         supabaseResponse.cookies.set("vortex_domain_workspace", ws.id, {

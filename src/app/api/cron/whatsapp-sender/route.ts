@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
-import { isPhoneBlocked } from "@/lib/wa-compliance";
+import { getExcludedPhones } from "@/lib/wa-compliance";
 
 export const maxDuration = 300;
 
@@ -97,15 +97,23 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      // Pre-load exclusion list once (instead of 1 query per message)
+      const excludedPhones = await getExcludedPhones(campaign.workspace_id);
+
+      // Track batch counters to update at the end (instead of SELECT+UPDATE per message)
+      let batchSent = 0;
+      let batchFailed = 0;
+
       // Send each message
       for (const msg of messages) {
-        // Safety net: check exclusion list before sending
-        const blocked = await isPhoneBlocked(campaign.workspace_id, msg.phone);
-        if (blocked) {
+        // Safety net: check exclusion list (in-memory lookup, no DB call)
+        const normalizedPhone = msg.phone.replace(/\D/g, "");
+        if (excludedPhones.has(normalizedPhone)) {
           await admin
             .from("wa_messages")
             .update({ status: "failed", error_message: "Blocked by exclusion list" })
             .eq("id", msg.id);
+          batchFailed++;
           continue;
         }
 
@@ -138,19 +146,7 @@ export async function GET(request: NextRequest) {
               sent_at: new Date().toISOString(),
             })
             .eq("id", msg.id);
-
-          // Increment sent_count
-          const { data: campSent } = await admin
-            .from("wa_campaigns")
-            .select("sent_count")
-            .eq("id", campaign.id)
-            .single();
-          if (campSent) {
-            await admin
-              .from("wa_campaigns")
-              .update({ sent_count: (campSent.sent_count || 0) + 1 })
-              .eq("id", campaign.id);
-          }
+          batchSent++;
         } else {
           await admin
             .from("wa_messages")
@@ -159,23 +155,29 @@ export async function GET(request: NextRequest) {
               error_message: result.error || "Unknown error",
             })
             .eq("id", msg.id);
-
-          // Increment failed_count
-          const { data: camp } = await admin
-            .from("wa_campaigns")
-            .select("failed_count")
-            .eq("id", campaign.id)
-            .single();
-          if (camp) {
-            await admin
-              .from("wa_campaigns")
-              .update({ failed_count: (camp.failed_count || 0) + 1 })
-              .eq("id", campaign.id);
-          }
+          batchFailed++;
         }
 
         totalProcessed++;
         await sleep(DELAY_MS);
+      }
+
+      // Update campaign counters once per batch (instead of per-message SELECT+UPDATE)
+      if (batchSent > 0 || batchFailed > 0) {
+        const { data: camp } = await admin
+          .from("wa_campaigns")
+          .select("sent_count, failed_count")
+          .eq("id", campaign.id)
+          .single();
+        if (camp) {
+          await admin
+            .from("wa_campaigns")
+            .update({
+              sent_count: (camp.sent_count || 0) + batchSent,
+              failed_count: (camp.failed_count || 0) + batchFailed,
+            })
+            .eq("id", campaign.id);
+        }
       }
     }
 

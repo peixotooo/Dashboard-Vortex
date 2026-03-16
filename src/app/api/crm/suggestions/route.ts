@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { callLLM, resolveModel, DEFAULT_PROVIDER_CONFIG } from "@/lib/agent/llm-provider";
-import { generateRfmReport } from "@/lib/crm-rfm";
-import type { CrmVendaRow, RfmCustomer } from "@/lib/crm-rfm";
+import type { RfmCustomer } from "@/lib/crm-rfm";
 import { getCooldownPhones, getExcludedPhones } from "@/lib/wa-compliance";
 
 export const maxDuration = 60;
@@ -67,22 +66,14 @@ export async function POST(request: NextRequest) {
       reportSegments = snapshotResult.data.segments as typeof reportSegments;
       reportBehavioral = snapshotResult.data.behavioral as Record<string, unknown>;
     } else {
-      // Fallback: compute from raw data
-      console.log("[CRM Suggestions] No snapshot found, computing from raw data...");
-      const crmRows = await fetchAllCrmRows(supabase, workspaceId);
-
-      if (crmRows.length === 0) {
-        return NextResponse.json({
-          suggestions: [],
-          analysis: "Nenhum dado de CRM encontrado para este workspace. Importe seus dados primeiro.",
-        });
-      }
-
-      const report = generateRfmReport(crmRows);
-      reportCustomers = report.customers;
-      reportSummary = report.summary;
-      reportSegments = report.segments;
-      reportBehavioral = report.behavioralDistributions as unknown as Record<string, unknown>;
+      // No snapshot — cannot generate suggestions without pre-computed data.
+      // Heavy recomputation is handled exclusively by the crm-recompute cron job.
+      console.log("[CRM Suggestions] No snapshot found, returning pending state.");
+      return NextResponse.json({
+        suggestions: [],
+        analysis: "Dados sendo processados. Atualize em alguns minutos.",
+        pending: true,
+      });
     }
 
     if (reportCustomers.length === 0) {
@@ -280,36 +271,6 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
 }
 
 // --- Helpers ---
-
-async function fetchAllCrmRows(
-  supabase: ReturnType<typeof createServerClient>,
-  workspaceId: string
-): Promise<CrmVendaRow[]> {
-  const allRows: CrmVendaRow[] = [];
-  const PAGE_SIZE = 1000;
-  let from = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    const { data, error } = await supabase
-      .from("crm_vendas")
-      .select("cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores")
-      .eq("workspace_id", workspaceId)
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw new Error(`Supabase error: ${error.message}`);
-
-    if (data && data.length > 0) {
-      allRows.push(...(data as CrmVendaRow[]));
-      from += PAGE_SIZE;
-      hasMore = data.length === PAGE_SIZE;
-    } else {
-      hasMore = false;
-    }
-  }
-
-  return allRows;
-}
 
 /**
  * Pre-compute the top cross-filter combinations (segment x lifecycle, segment x coupon, etc.)

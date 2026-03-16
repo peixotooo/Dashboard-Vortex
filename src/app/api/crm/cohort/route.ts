@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { generateMonthlyCohort } from "@/lib/crm-rfm";
-import type { CrmVendaRow } from "@/lib/crm-rfm";
 import { getInsights } from "@/lib/meta-api";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 
@@ -63,41 +61,16 @@ export async function GET(request: NextRequest) {
         monthlyData = allMonthly;
       }
     } else {
-      // Fallback: compute from raw data
-      console.log("[CRM Cohort] No snapshot found, computing from raw data...");
-      let allRows: CrmVendaRow[] = [];
-      const PAGE_SIZE = 1000;
-      let from = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from("crm_vendas")
-          .select("email, valor, data_compra, cupom")
-          .eq("workspace_id", workspaceId)
-          .range(from, from + PAGE_SIZE - 1);
-
-        if (error) throw new Error(`Supabase error: ${error.message}`);
-
-        if (data && data.length > 0) {
-          allRows.push(...(data as CrmVendaRow[]));
-          from += PAGE_SIZE;
-          hasMore = data.length === PAGE_SIZE;
-        } else {
-          hasMore = false;
-        }
-      }
-
-      const cohort = generateMonthlyCohort(allRows, months > 0 ? months : undefined);
-      metrics = {
-        arpu: cohort.arpu,
-        avgOrdersPerClient: cohort.avgOrdersPerClient,
-        repurchaseRate: cohort.repurchaseRate,
-        newClients: cohort.newClients,
-        totalClients: cohort.totalClients,
-        totalRevenue: cohort.totalRevenue,
-      };
-      monthlyData = cohort.monthlyData;
+      // No snapshot — return empty with pending flag.
+      // Heavy recomputation is handled exclusively by the crm-recompute cron job.
+      console.log("[CRM Cohort] No snapshot found, returning pending state.");
+      return NextResponse.json({
+        metrics: null,
+        monthlyData: [],
+        adSpend: null,
+        pending: true,
+        message: "Dados sendo processados. Atualize em alguns minutos.",
+      });
     }
 
     // Fetch ad spend from all sources (live — changes daily)

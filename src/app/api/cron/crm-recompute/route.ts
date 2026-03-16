@@ -60,19 +60,27 @@ export async function GET(request: NextRequest) {
     }
 
     const results: { workspaceId: string; rowCount: number; customerCount: number }[] = [];
+    const CONCURRENCY = 3;
 
-    for (const workspaceId of workspaceIds) {
-      try {
-        const result = await recomputeRfmSnapshot(admin, workspaceId);
-        results.push({ workspaceId, ...result });
-        console.log(
-          `[CRM Recompute] Workspace ${workspaceId}: ${result.customerCount} customers from ${result.rowCount} rows`
-        );
-      } catch (err) {
-        console.error(
-          `[CRM Recompute] Error for workspace ${workspaceId}:`,
-          err instanceof Error ? err.message : err
-        );
+    // Process workspaces in parallel batches of CONCURRENCY
+    for (let i = 0; i < workspaceIds.length; i += CONCURRENCY) {
+      const batch = workspaceIds.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map(async (workspaceId) => {
+          const result = await recomputeRfmSnapshot(admin, workspaceId);
+          console.log(
+            `[CRM Recompute] Workspace ${workspaceId}: ${result.customerCount} customers from ${result.rowCount} rows`
+          );
+          return { workspaceId, ...result };
+        })
+      );
+
+      for (const r of batchResults) {
+        if (r.status === "fulfilled") {
+          results.push(r.value);
+        } else {
+          console.error(`[CRM Recompute] Error:`, r.reason instanceof Error ? r.reason.message : r.reason);
+        }
       }
     }
 

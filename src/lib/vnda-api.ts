@@ -134,6 +134,16 @@ function formatDateBR(dateStr: string): string {
 
 // --- Get config from database ---
 
+// Helper for timeout
+const withTimeout = async <T>(promise: Promise<T> | T, timeoutMs: number): Promise<T | null> => {
+  const timeoutPromise = new Promise<null>((resolve) => 
+    setTimeout(() => resolve(null), timeoutMs)
+  );
+  return Promise.race([promise as Promise<T>, timeoutPromise]);
+};
+
+// --- Get config from database ---
+
 export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | null> {
   // Try database first
   if (workspaceId) {
@@ -152,13 +162,18 @@ export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | 
         }
       );
 
-      const { data } = await supabase
-        .from("vnda_connections")
-        .select("api_token, store_host")
-        .eq("workspace_id", workspaceId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
+      const connectionResponse = await withTimeout(
+        supabase
+          .from("vnda_connections")
+          .select("api_token, store_host")
+          .eq("workspace_id", workspaceId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single(),
+        2000
+      );
+
+      const data = (connectionResponse as any)?.data;
 
       if (data?.api_token && data?.store_host) {
         return {

@@ -4,21 +4,40 @@ function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
+const PAGE_SIZE = 5000;
+
 /**
- * Fetch phones in the permanent exclusion list.
+ * Fetch phones in the permanent exclusion list (paginated for large tables).
  */
 export async function getExcludedPhones(workspaceId: string): Promise<Set<string>> {
   const admin = createAdminClient();
-  const { data } = await admin
-    .from("wa_exclusions")
-    .select("phone")
-    .eq("workspace_id", workspaceId);
+  const phones = new Set<string>();
+  let from = 0;
+  let hasMore = true;
 
-  return new Set((data || []).map((r: { phone: string }) => normalizePhone(r.phone)));
+  while (hasMore) {
+    const { data } = await admin
+      .from("wa_exclusions")
+      .select("phone")
+      .eq("workspace_id", workspaceId)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (data && data.length > 0) {
+      for (const r of data) {
+        phones.add(normalizePhone((r as { phone: string }).phone));
+      }
+      from += PAGE_SIZE;
+      hasMore = data.length === PAGE_SIZE;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return phones;
 }
 
 /**
- * Fetch phones that were successfully contacted within the cooldown window.
+ * Fetch phones that were successfully contacted within the cooldown window (paginated).
  */
 export async function getCooldownPhones(
   workspaceId: string,
@@ -30,14 +49,31 @@ export async function getCooldownPhones(
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - cooldownDays);
 
-  const { data } = await admin
-    .from("wa_messages")
-    .select("phone")
-    .eq("workspace_id", workspaceId)
-    .in("status", ["sent", "delivered", "read"])
-    .gte("sent_at", cutoff.toISOString());
+  const phones = new Set<string>();
+  let from = 0;
+  let hasMore = true;
 
-  return new Set((data || []).map((r: { phone: string }) => normalizePhone(r.phone)));
+  while (hasMore) {
+    const { data } = await admin
+      .from("wa_messages")
+      .select("phone")
+      .eq("workspace_id", workspaceId)
+      .in("status", ["sent", "delivered", "read"])
+      .gte("sent_at", cutoff.toISOString())
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (data && data.length > 0) {
+      for (const r of data) {
+        phones.add(normalizePhone((r as { phone: string }).phone));
+      }
+      from += PAGE_SIZE;
+      hasMore = data.length === PAGE_SIZE;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return phones;
 }
 
 /**
