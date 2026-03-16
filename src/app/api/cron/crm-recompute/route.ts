@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     let workspaceIds: string[] = [];
 
     if (error || !staleWorkspaces) {
-      // Manual query: workspaces with vendas but no snapshot
+      // Manual query: workspaces with vendas and (no snapshot OR stale snapshot)
       const { data: withVendas } = await admin
         .from("crm_vendas")
         .select("workspace_id")
@@ -31,13 +31,25 @@ export async function GET(request: NextRequest) {
       const uniqueWs = [...new Set((withVendas || []).map((r) => r.workspace_id as string))];
 
       if (uniqueWs.length > 0) {
-        const { data: withSnapshots } = await admin
+        // Find snapshots for these workspaces
+        const { data: snapshots } = await admin
           .from("crm_rfm_snapshots")
-          .select("workspace_id")
+          .select("workspace_id, computed_at")
           .in("workspace_id", uniqueWs);
 
-        const snapshotSet = new Set((withSnapshots || []).map((r) => r.workspace_id as string));
-        workspaceIds = uniqueWs.filter((id) => !snapshotSet.has(id));
+        const snapshotMap = new Map(
+          (snapshots || []).map((s) => [s.workspace_id as string, s.computed_at as string])
+        );
+
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+        workspaceIds = uniqueWs.filter((id) => {
+          const lastComputed = snapshotMap.get(id);
+          // Include if:
+          // 1. No snapshot exists
+          // 2. Snapshot is older than 24h
+          return !lastComputed || lastComputed < oneDayAgo;
+        });
       }
     } else {
       workspaceIds = (staleWorkspaces as { workspace_id: string }[]).map((r) => r.workspace_id);

@@ -83,10 +83,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, status: "created" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[VNDA Webhook] Error processing order ${orderId} for workspace ${workspaceId}:`, message);
-    await logWebhook(admin, workspaceId, orderId, "error", payload, message);
+    const details = err && typeof err === "object" ? JSON.stringify(err) : message;
+    console.error(`[VNDA Webhook] Error processing order ${orderId} for workspace ${workspaceId}:`, message, err);
+    await logWebhook(admin, workspaceId, orderId, "error", payload, details);
     // Return 200 to prevent aggressive retries from VNDA
-    return NextResponse.json({ ok: false, reason: "processing_error" });
+    return NextResponse.json({ ok: false, reason: "processing_error", error: message });
   }
 }
 

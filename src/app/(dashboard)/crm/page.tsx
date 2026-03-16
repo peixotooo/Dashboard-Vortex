@@ -441,6 +441,10 @@ export default function CrmPage() {
   // Snapshot recompute
   const [computing, setComputing] = useState(false);
 
+  // VNDA order sync
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
   // Export logs
   interface ExportLog {
     id: string;
@@ -612,6 +616,32 @@ export default function CrmPage() {
       console.error("[CRM] Recompute error:", err);
     } finally {
       setComputing(false);
+    }
+  }, [wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
+
+  // Sync orders from VNDA API (backfill)
+  const handleVndaSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/crm/vnda-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...wsHeaders() },
+        body: JSON.stringify({ startDate: "2020-01-01" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncResult(`✓ ${data.synced} pedidos sincronizados`);
+        setCustomersLoaded(false);
+        await Promise.all([fetchSummary(), fetchMetrics(), fetchExportLogs()]);
+      } else {
+        setSyncResult(`Erro: ${data.error}`);
+      }
+    } catch (err) {
+      console.error("[CRM] Sync error:", err);
+      setSyncResult("Erro ao sincronizar");
+    } finally {
+      setSyncing(false);
     }
   }, [wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
 
@@ -890,8 +920,22 @@ export default function CrmPage() {
             variant="outline"
             size="sm"
             className="gap-1.5 text-xs"
+            onClick={handleVndaSync}
+            disabled={syncing || computing || loading}
+            title="Importar todos os pedidos VNDA e corrigir contagem de clientes"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Sincronizando..." : "Sincronizar VNDA"}
+          </Button>
+          {syncResult && (
+            <span className="text-xs text-muted-foreground">{syncResult}</span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
             onClick={handleRecompute}
-            disabled={computing || loading}
+            disabled={computing || loading || syncing}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${computing ? "animate-spin" : ""}`} />
             {computing ? "Atualizando..." : "Atualizar dados"}
