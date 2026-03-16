@@ -3,15 +3,17 @@ import { getVndaConfig, getVndaProductReport } from "@/lib/vnda-api";
 import { getGA4Report } from "@/lib/ga4-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import { generateIntelligenceReport } from "@/lib/products-intelligence";
+import { getAuthenticatedContext, AuthError, handleAuthError } from "@/lib/api-auth";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getAuthenticatedContext(request);
+
     const { searchParams } = new URL(request.url);
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
     const includeComparison = searchParams.get("include_comparison") === "true";
     const limit = parseInt(searchParams.get("limit") || "100", 10);
-    const workspaceId = request.headers.get("x-workspace-id") || "";
 
     // Check configurations
     const vndaConfig = await getVndaConfig(workspaceId);
@@ -88,6 +90,7 @@ export async function GET(request: NextRequest) {
       ga4Configured,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[Products Intelligence] Error:", message);
     return NextResponse.json({

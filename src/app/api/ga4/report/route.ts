@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGA4Report } from "@/lib/ga4-api";
+import { getAuthenticatedContext, AuthError, handleAuthError } from "@/lib/api-auth";
 import type { DatePreset } from "@/lib/types";
 
 const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; orderBy?: { metric: string; desc: boolean } }> = {
@@ -52,6 +53,8 @@ const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; 
 
 export async function GET(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request);
+
     const { searchParams } = new URL(request.url);
     const reportType = searchParams.get("report_type") || "";
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
@@ -87,6 +90,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ...result, configured: true });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[GA4 Report] Error:", message);
     return NextResponse.json({ rows: [], configured: false, error: message });

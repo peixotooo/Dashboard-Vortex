@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTokenInfo, healthCheck } from "@/lib/meta-api";
+import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request);
     const result = await getTokenInfo();
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request);
+
     const body = await request.json();
     const { action } = body;
 
@@ -28,7 +31,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

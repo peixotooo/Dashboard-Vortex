@@ -36,11 +36,23 @@
   }
 
   if (!API_BASE) {
-    API_BASE = "https://dash.bulking.com.br";
-    console.log("[Shelves] API_BASE fallback used:", API_BASE);
+    console.error("[Shelves] Missing API_BASE. Set window._shelvesBase or load from correct domain.");
+    return;
   }
 
-  console.log("[Shelves] Init | key:", API_KEY.slice(0, 8) + "...", "| base:", API_BASE);
+  // --- Security helpers ---
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function safeUrl(url) {
+    if (!url) return "#";
+    var u = String(url).trim();
+    if (u.indexOf("http://") === 0 || u.indexOf("https://") === 0 || u.indexOf("/") === 0) return u;
+    return "#";
+  }
 
   // --- Cookie / Session helpers ---
 
@@ -373,20 +385,20 @@
     }
 
     return (
-      '<div class="product-block" data-vtx-product-id="' + product.product_id + '">' +
+      '<div class="product-block" data-vtx-product-id="' + escapeHtml(product.product_id) + '">' +
         '<div class="images">' +
-          (badgeLabel ? '<div class="vtx-badge">' + badgeLabel + '</div>' : '') +
-          '<a href="' + link + '">' +
+          (badgeLabel ? '<div class="vtx-badge">' + escapeHtml(badgeLabel) + '</div>' : '') +
+          '<a href="' + safeUrl(link) + '">' +
             '<figure class="image">' +
-              '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc) + '" loading="lazy">' +
-              '<img alt="' + (product.name || "") + '" src="' + cleanUrl(imgSrc2) + '" loading="lazy">' +
+              '<img alt="' + escapeHtml(product.name) + '" src="' + cleanUrl(imgSrc) + '" loading="lazy">' +
+              '<img alt="' + escapeHtml(product.name) + '" src="' + cleanUrl(imgSrc2) + '" loading="lazy">' +
             "</figure>" +
           "</a>" +
         "</div>" +
         '<div class="description">' +
-          '<h3 class="name"><a href="' + link + '">' + (product.name || "") + "</a></h3>" +
+          '<h3 class="name"><a href="' + safeUrl(link) + '">' + escapeHtml(product.name) + "</a></h3>" +
           priceHTML +
-          '<span class="vtx-installments" data-price="' + (product.sale_price || product.price) + '"></span>' +
+          '<span class="vtx-installments" data-price="' + escapeHtml(product.sale_price || product.price) + '"></span>' +
         "</div>" +
       "</div>"
     );
@@ -410,9 +422,9 @@
       .join("");
 
     return (
-      '<section class="section products carousel container vtx-shelf" data-vtx-algorithm="' + shelf.algorithm + '">' +
+      '<section class="section products carousel container vtx-shelf" data-vtx-algorithm="' + escapeHtml(shelf.algorithm) + '">' +
         '<div class="header">' +
-          '<h2 class="title">' + shelf.title + "</h2>" +
+          '<h2 class="title">' + escapeHtml(shelf.title) + "</h2>" +
           '<a href="/novidades" class="view-all">ver todas <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></a>' +
         "</div>" +
         '<div class="swiper vtx-swiper">' +

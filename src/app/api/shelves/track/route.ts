@@ -27,9 +27,27 @@ export async function POST(request: NextRequest) {
     revenue,
   } = body as Record<string, string | number | undefined>;
 
+  const VALID_EVENT_TYPES = new Set(["pageview", "click", "add_to_cart", "purchase", "impression"]);
+
   if (!session_id || !event_type) {
     return NextResponse.json(
       { error: "Missing session_id or event_type" },
+      { status: 400, headers: CORS_HEADERS }
+    );
+  }
+
+  if (!VALID_EVENT_TYPES.has(event_type as string)) {
+    return NextResponse.json(
+      { error: `Invalid event_type. Valid: ${[...VALID_EVENT_TYPES].join(", ")}` },
+      { status: 400, headers: CORS_HEADERS }
+    );
+  }
+
+  // Validate session_id format (alphanumeric + hyphens/underscores, max 128 chars)
+  const sid = String(session_id);
+  if (sid.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(sid)) {
+    return NextResponse.json(
+      { error: "Invalid session_id format" },
       { status: 400, headers: CORS_HEADERS }
     );
   }

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callTool } from "@/lib/mcp-client";
+import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
+    await getAuthenticatedContext(request);
+
     const { tool, args } = await request.json();
 
     if (!tool || typeof tool !== "string") {
@@ -15,8 +18,6 @@ export async function POST(request: NextRequest) {
     const result = await callTool(tool, args || {});
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error(`MCP tool error: ${message}`);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

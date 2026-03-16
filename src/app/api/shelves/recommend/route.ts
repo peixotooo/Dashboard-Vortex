@@ -18,6 +18,10 @@ const CACHE_TTL: Record<string, number> = {
   custom_tags: 600,
 };
 
+const VALID_ALGORITHMS = new Set(Object.keys(CACHE_TTL));
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 50;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
@@ -27,12 +31,19 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "12", 10), 50);
   const tagsParam = searchParams.get("tags");
   const tags = tagsParam
-    ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
+    ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean).slice(0, MAX_TAGS).map((t) => t.slice(0, MAX_TAG_LENGTH))
     : undefined;
 
   if (!algorithm) {
     return NextResponse.json(
       { error: "Missing algorithm parameter" },
+      { status: 400, headers: CORS_HEADERS }
+    );
+  }
+
+  if (!VALID_ALGORITHMS.has(algorithm)) {
+    return NextResponse.json(
+      { error: `Invalid algorithm. Valid: ${[...VALID_ALGORITHMS].join(", ")}` },
       { status: 400, headers: CORS_HEADERS }
     );
   }
