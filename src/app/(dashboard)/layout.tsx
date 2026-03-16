@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "@/components/layout/sidebar";
+import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { AccountProvider } from "@/lib/account-context";
 import { WorkspaceProvider } from "@/lib/workspace-context";
 import { useAuth } from "@/lib/auth-context";
-import { cn } from "@/lib/utils";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function DashboardLayout({
   children,
@@ -16,10 +16,8 @@ export default function DashboardLayout({
 }) {
   const { user, loading, isConfigured } = useAuth();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    // Only redirect to login if Supabase is configured and user is not authenticated
     if (isConfigured && !loading && !user) {
       router.push("/login");
     }
@@ -33,7 +31,6 @@ export default function DashboardLayout({
     );
   }
 
-  // If Supabase isn't configured, show dashboard without auth
   if (isConfigured && !user) {
     return null;
   }
@@ -41,22 +38,13 @@ export default function DashboardLayout({
   return (
     <WorkspaceProvider>
       <AccountProvider>
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        />
-        <Topbar
-          onMenuClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          collapsed={sidebarCollapsed}
-        />
-        <main
-          className={cn(
-            "min-h-[calc(100vh-4rem)] transition-all duration-300 p-6",
-            sidebarCollapsed ? "ml-16" : "ml-64"
-          )}
-        >
-          {children}
-        </main>
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <Topbar />
+            <div className="flex-1 p-6">{children}</div>
+          </SidebarInset>
+        </SidebarProvider>
       </AccountProvider>
     </WorkspaceProvider>
   );

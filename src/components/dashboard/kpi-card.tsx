@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, type LucideIcon } from "lucide-react";
 
@@ -30,10 +31,13 @@ export function KpiCard({
     return (
       <Card>
         <CardContent className="p-6">
-          <div className="animate-pulse space-y-3">
-            <div className="h-4 w-24 rounded bg-muted" />
-            <div className="h-8 w-32 rounded bg-muted" />
-            <div className="h-3 w-16 rounded bg-muted" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-8 w-8 rounded-lg" />
+          </div>
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-8 w-32" />
+            <Skeleton className="h-3 w-20" />
           </div>
         </CardContent>
       </Card>
