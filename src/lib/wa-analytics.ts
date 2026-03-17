@@ -105,12 +105,15 @@ export async function getPricingAnalytics(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[WA Analytics] pricing_analytics ${res.status}:`, text.slice(0, 500));
     throw new Error(`Meta pricing_analytics ${res.status}: ${text.slice(0, 300)}`);
   }
 
   const json = await res.json();
   const dataPoints: PricingDataPoint[] =
     json.pricing_analytics?.data?.[0]?.data_points || [];
+
+  console.log(`[WA Analytics] pricing_analytics wabaId=${wabaId} dataPoints=${dataPoints.length}`, JSON.stringify(dataPoints).slice(0, 500));
 
   return computeCostBreakdown(dataPoints);
 }
@@ -187,11 +190,13 @@ export async function getTemplateAnalytics(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[WA Analytics] template_analytics ${res.status}:`, text.slice(0, 500));
     throw new Error(`Meta template_analytics ${res.status}: ${text.slice(0, 300)}`);
   }
 
   const json = await res.json();
   const templates = json.template_analytics?.data || [];
+  console.log(`[WA Analytics] template_analytics wabaId=${wabaId} templates=${templates.length}`, JSON.stringify(templates).slice(0, 500));
 
   return templates.map(
     (t: { template_id: string; data_points: TemplateDataPoint[] }) => {

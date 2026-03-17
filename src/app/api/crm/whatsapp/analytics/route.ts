@@ -42,11 +42,12 @@ export async function GET(request: NextRequest) {
 
     const config = await getWaConfig(workspaceId);
     if (!config) {
+      console.error("[WA Analytics Route] No WA config for workspace", workspaceId);
       return NextResponse.json({ error: "WhatsApp not configured" }, { status: 404 });
     }
-
     const params = request.nextUrl.searchParams;
     const period = params.get("period") || "current_month";
+    console.log("[WA Analytics Route] Config found, wabaId=", config.wabaId, "period=", period);
     const view = params.get("view") || "spend";
 
     // Template analytics view
