@@ -676,9 +676,9 @@ export default function EscalaPage() {
                       const d = payload[0]?.payload as { dia: number; projecao: boolean; receitaAcum: number };
                       if (!d) return null;
                       return (
-                        <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3 text-[13px]">
-                          <div className="text-foreground font-bold">Dia {d.dia} {d.projecao ? "(projecao)" : ""}</div>
-                          <div className="text-foreground mt-1">Receita acum: {fmtK(d.receitaAcum)}</div>
+                        <div className="bg-[rgba(10,10,20,0.96)] border border-white/10 rounded-xl px-4 py-3 text-[13px]">
+                          <div className="text-white font-bold">Dia {d.dia} {d.projecao ? "(projecao)" : ""}</div>
+                          <div className="text-white mt-1">Receita acum: {fmtK(d.receitaAcum)}</div>
                         </div>
                       );
                     }}
@@ -721,26 +721,26 @@ export default function EscalaPage() {
                       const d = payload[0]?.payload as typeof calc.enriched[number];
                       if (!d) return null;
                       return (
-                        <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] leading-[1.7] min-w-[260px]">
-                          <div className="text-foreground font-bold text-sm mb-1.5">{d.date}</div>
+                        <div className="bg-[rgba(10,10,20,0.96)] border border-white/10 rounded-xl px-4 py-3.5 text-[13px] leading-[1.7] min-w-[260px]">
+                          <div className="text-white font-bold text-sm mb-1.5">{d.date}</div>
                           <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5">
-                            <span className="text-muted-foreground">Receita</span>
-                            <span className="text-foreground text-right">{formatCurrency(d.revenue)}</span>
-                            <span className="text-muted-foreground">Custos var. ({pct(calc.custosSemAdsPct)})</span>
-                            <span className="text-warning text-right">-{formatCurrency(d.custosVar)}</span>
-                            <span className="text-muted-foreground">Ads ({pct(d.adsPct)})</span>
-                            <span className="text-destructive text-right">-{formatCurrency(d.totalSpend)}</span>
-                            <span className="text-muted-foreground">Custo fixo/dia</span>
-                            <span className="text-muted-foreground text-right">-{formatCurrency(calc.custoFixoDiario)}</span>
+                            <span className="text-zinc-400">Receita</span>
+                            <span className="text-white text-right">{formatCurrency(d.revenue)}</span>
+                            <span className="text-zinc-400">Custos var. ({pct(calc.custosSemAdsPct)})</span>
+                            <span className="text-amber-400 text-right">-{formatCurrency(d.custosVar)}</span>
+                            <span className="text-zinc-400">Ads ({pct(d.adsPct)})</span>
+                            <span className="text-red-400 text-right">-{formatCurrency(d.totalSpend)}</span>
+                            <span className="text-zinc-400">Custo fixo/dia</span>
+                            <span className="text-zinc-400 text-right">-{formatCurrency(calc.custoFixoDiario)}</span>
                           </div>
-                          <div className="border-t border-border/20 mt-2 pt-2">
+                          <div className="border-t border-white/10 mt-2 pt-2">
                             <div className="flex justify-between">
-                              <span className="text-muted-foreground">EBITDA</span>
-                              <span className={`font-extrabold text-[15px] ${d.ebitda >= 0 ? "text-success" : "text-destructive"}`}>
+                              <span className="text-zinc-400">EBITDA</span>
+                              <span className={`font-extrabold text-[15px] ${d.ebitda >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                                 {formatCurrency(d.ebitda)} ({pct(d.ebitdaPct)})
                               </span>
                             </div>
-                            <div className="text-[11px] text-muted-foreground mt-1">
+                            <div className="text-[11px] text-zinc-500 mt-1">
                               Precisava {formatCurrency(d.receitaMin8)} pra 8% de EBITDA
                             </div>
                           </div>
@@ -927,31 +927,31 @@ export default function EscalaPage() {
                         const cpsChanged = d.cpsAdj > calc.avgCps;
                         const txChanged = d.txConvAdj < calc.avgTxConv;
                         return (
-                          <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] min-w-[260px]">
-                            <div className="text-foreground font-bold mb-1.5">Investindo {fmtInt(d.invest)}/dia</div>
+                          <div className="bg-[rgba(10,10,20,0.96)] border border-white/10 rounded-xl px-4 py-3.5 text-[13px] min-w-[260px]">
+                            <div className="text-white font-bold mb-1.5">Investindo {fmtInt(d.invest)}/dia</div>
                             <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[12px]">
-                              <span className="text-muted-foreground">CPS</span>
-                              <span className="text-foreground text-right">
+                              <span className="text-zinc-400">CPS</span>
+                              <span className="text-white text-right">
                                 {formatCurrency(d.cpsAdj)}
-                                {cpsChanged && <span className="text-warning ml-1 text-[10px]">(+{(((d.cpsAdj / calc.avgCps) - 1) * 100).toFixed(0)}%)</span>}
+                                {cpsChanged && <span className="text-amber-400 ml-1 text-[10px]">(+{(((d.cpsAdj / calc.avgCps) - 1) * 100).toFixed(0)}%)</span>}
                               </span>
-                              <span className="text-muted-foreground">TX Conv</span>
-                              <span className="text-foreground text-right">
+                              <span className="text-zinc-400">TX Conv</span>
+                              <span className="text-white text-right">
                                 {d.txConvAdj.toFixed(2)}%
-                                {txChanged && <span className="text-warning ml-1 text-[10px]">({(((d.txConvAdj / calc.avgTxConv) - 1) * 100).toFixed(0)}%)</span>}
+                                {txChanged && <span className="text-amber-400 ml-1 text-[10px]">({(((d.txConvAdj / calc.avgTxConv) - 1) * 100).toFixed(0)}%)</span>}
                               </span>
-                              <span className="text-muted-foreground">Sessoes</span>
-                              <span className="text-foreground text-right">{Math.round(d.sessoes).toLocaleString("pt-BR")}</span>
-                              <span className="text-muted-foreground">Pedidos</span>
-                              <span className="text-foreground text-right">{d.pedidos.toFixed(1)}</span>
-                              <span className="text-muted-foreground">Receita/dia</span>
-                              <span className="text-blue-500 text-right font-semibold">{fmtInt(d.receitaDia)}</span>
+                              <span className="text-zinc-400">Sessoes</span>
+                              <span className="text-white text-right">{Math.round(d.sessoes).toLocaleString("pt-BR")}</span>
+                              <span className="text-zinc-400">Pedidos</span>
+                              <span className="text-white text-right">{d.pedidos.toFixed(1)}</span>
+                              <span className="text-zinc-400">Receita/dia</span>
+                              <span className="text-blue-400 text-right font-semibold">{fmtInt(d.receitaDia)}</span>
                             </div>
-                            <div className="border-t border-border/20 mt-1.5 pt-1.5">
-                              <div className={`font-bold ${d.ebitdaPct >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+                            <div className="border-t border-white/10 mt-1.5 pt-1.5">
+                              <div className={`font-bold ${d.ebitdaPct >= EBITDA_MIN ? "text-emerald-400" : "text-red-400"}`}>
                                 EBITDA: {pct(d.ebitdaPct)} ({fmtInt(d.ebitda)}/dia)
                               </div>
-                              <div className="text-muted-foreground text-[11px] mt-0.5">
+                              <div className="text-zinc-500 text-[11px] mt-0.5">
                                 Receita mes: {fmtK(d.receitaMes)}
                               </div>
                             </div>
