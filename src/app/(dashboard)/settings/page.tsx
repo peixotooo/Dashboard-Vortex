@@ -28,8 +28,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useAuth } from "@/lib/auth-context";
+import { FEATURES, ALL_FEATURE_IDS } from "@/lib/features";
 
 interface MetaAccount {
   id: string;
@@ -79,6 +81,9 @@ export default function SettingsPage() {
   const [inviting, setInviting] = useState(false);
   const [teamMessage, setTeamMessage] = useState("");
   const [teamError, setTeamError] = useState("");
+
+  // Invite feature permissions
+  const [inviteFeatures, setInviteFeatures] = useState<string[]>(ALL_FEATURE_IDS);
 
   // Pending invitations
   interface PendingInvite {
@@ -396,6 +401,10 @@ export default function SettingsPage() {
           workspace_id: workspace.id,
           email: inviteEmail,
           role: inviteRole,
+          features:
+            inviteRole === "member" && inviteFeatures.length < ALL_FEATURE_IDS.length
+              ? inviteFeatures
+              : null,
         }),
       });
       const data = await res.json();
@@ -404,6 +413,7 @@ export default function SettingsPage() {
       } else {
         setTeamMessage("Convite enviado por email!");
         setInviteEmail("");
+        setInviteFeatures(ALL_FEATURE_IDS);
         refreshMembers();
         fetchPendingInvites();
       }
@@ -516,6 +526,41 @@ export default function SettingsPage() {
       }
     } catch {
       setTeamError("Erro ao atualizar papel");
+    }
+  }
+
+  async function handleToggleFeature(userId: string, featureId: string, enabled: boolean) {
+    const member = members.find((m) => m.user_id === userId);
+    if (!member || !workspace) return;
+
+    const currentFeatures = member.features ?? [...ALL_FEATURE_IDS];
+    const newFeatures = enabled
+      ? [...new Set([...currentFeatures, featureId])]
+      : currentFeatures.filter((f) => f !== featureId);
+
+    // If all features enabled, send null (= full access)
+    const featuresToSave =
+      newFeatures.length >= ALL_FEATURE_IDS.length ? null : newFeatures;
+
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_member_features",
+          workspace_id: workspace.id,
+          user_id: userId,
+          features: featuresToSave,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setTeamError(data.error);
+      } else {
+        refreshMembers();
+      }
+    } catch {
+      setTeamError("Erro ao atualizar permissoes");
     }
   }
 
@@ -1207,6 +1252,86 @@ export default function SettingsPage() {
                       {inviting ? "Convidando..." : "Convidar"}
                     </Button>
                   </div>
+                  {inviteRole === "member" && (
+                    <div className="space-y-2 pl-1">
+                      <p className="text-xs text-muted-foreground">
+                        Funcionalidades que este membro tera acesso:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {FEATURES.map((feature) => (
+                          <label key={feature.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={inviteFeatures.includes(feature.id)}
+                              onChange={(e) => {
+                                setInviteFeatures((prev) =>
+                                  e.target.checked
+                                    ? [...prev, feature.id]
+                                    : prev.filter((f) => f !== feature.id)
+                                );
+                              }}
+                              className="h-4 w-4 rounded border-border accent-primary"
+                            />
+                            {feature.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Permissions per member */}
+              {isAdmin && members.filter((m) => m.role === "member").length > 0 && (
+                <div className="pt-4 border-t border-border space-y-3">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    Permissoes por Membro
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Controle quais funcionalidades cada membro pode acessar.
+                    Admins e owners sempre tem acesso total.
+                  </p>
+                  {members
+                    .filter((m) => m.role === "member")
+                    .map((member) => {
+                      const memberFeatures = member.features ?? ALL_FEATURE_IDS;
+                      return (
+                        <div
+                          key={member.user_id}
+                          className="rounded-lg border border-border p-4 space-y-3"
+                        >
+                          <p className="text-sm font-medium">
+                            {member.profile?.full_name || "Membro"}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {FEATURES.map((feature) => (
+                              <div
+                                key={feature.id}
+                                className="flex items-center justify-between gap-2"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm">{feature.label}</p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {feature.description}
+                                  </p>
+                                </div>
+                                <Switch
+                                  checked={memberFeatures.includes(feature.id)}
+                                  onCheckedChange={(checked) => {
+                                    handleToggleFeature(
+                                      member.user_id,
+                                      feature.id,
+                                      checked
+                                    );
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </CardContent>

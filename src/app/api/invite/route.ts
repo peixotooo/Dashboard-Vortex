@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     // Fetch invitation
     const { data: invitation, error: invError } = await supabase
       .from("workspace_invitations")
-      .select("id, email, workspace_id, role, status, expires_at")
+      .select("id, email, workspace_id, role, features, status, expires_at")
       .eq("token", token)
       .single();
 
@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
           workspace_id: invitation.workspace_id,
           user_id: userId,
           role: invitation.role,
+          features: invitation.features ?? null,
         });
 
       if (memberError) {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
@@ -17,6 +17,7 @@ interface WorkspaceMember {
   user_id: string;
   role: "owner" | "admin" | "member";
   joined_at: string;
+  features: string[] | null;
   profile?: {
     full_name: string | null;
   };
@@ -27,6 +28,8 @@ interface WorkspaceContextType {
   workspaces: Workspace[];
   members: WorkspaceMember[];
   userRole: string | null;
+  userFeatures: string[] | null;
+  canAccess: (featureId: string) => boolean;
   loading: boolean;
   isDomainLocked: boolean;
   setWorkspaceId: (id: string) => void;
@@ -39,6 +42,8 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   workspaces: [],
   members: [],
   userRole: null,
+  userFeatures: null,
+  canAccess: () => true,
   loading: true,
   isDomainLocked: false,
   setWorkspaceId: () => {},
@@ -135,7 +140,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [workspaceId, fetchMembers]);
 
   const workspace = workspaces.find((w) => w.id === workspaceId) || null;
-  const userRole = members.find((m) => m.user_id === user?.id)?.role || null;
+  const userMember = members.find((m) => m.user_id === user?.id);
+  const userRole = userMember?.role || null;
+  const userFeatures = userMember?.features ?? null;
+
+  const canAccess = useMemo(() => {
+    return (featureId: string): boolean => {
+      if (userRole === "owner" || userRole === "admin") return true;
+      if (!userFeatures) return true;
+      return userFeatures.includes(featureId);
+    };
+  }, [userRole, userFeatures]);
 
   return (
     <WorkspaceContext.Provider
@@ -144,6 +159,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         workspaces,
         members,
         userRole,
+        userFeatures,
+        canAccess,
         loading,
         isDomainLocked,
         setWorkspaceId,

@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case "invite_member": {
-        const { email, role = "member" } = args;
+        const { email, role = "member", features = null } = args;
 
         // Check if already a member
         const { data: existingProfile } = await supabase
@@ -151,10 +151,20 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Create invitation record
+        // Create invitation record (features only for member role)
+        const inviteData: Record<string, unknown> = {
+          workspace_id,
+          email,
+          role,
+          invited_by: user.id,
+        };
+        if (role === "member" && features) {
+          inviteData.features = features;
+        }
+
         const { data: invitation, error: invError } = await supabase
           .from("workspace_invitations")
-          .insert({ workspace_id, email, role, invited_by: user.id })
+          .insert(inviteData)
           .select("token")
           .single();
 
@@ -620,6 +630,56 @@ export async function POST(request: NextRequest) {
 
         if (updateError) throw updateError;
 
+        return NextResponse.json({ success: true });
+      }
+
+      case "update_member_features": {
+        const { user_id: targetUserId, features } = args;
+
+        // Verify caller is admin/owner
+        const { data: callerMember } = await supabase
+          .from("workspace_members")
+          .select("role")
+          .eq("workspace_id", workspace_id)
+          .eq("user_id", user.id)
+          .single();
+
+        if (!callerMember || !["owner", "admin"].includes(callerMember.role)) {
+          return NextResponse.json(
+            { error: "Sem permissao para alterar permissoes" },
+            { status: 403 }
+          );
+        }
+
+        // Cannot restrict owners or admins
+        const { data: targetMember } = await supabase
+          .from("workspace_members")
+          .select("role")
+          .eq("workspace_id", workspace_id)
+          .eq("user_id", targetUserId)
+          .single();
+
+        if (!targetMember) {
+          return NextResponse.json(
+            { error: "Membro nao encontrado" },
+            { status: 404 }
+          );
+        }
+
+        if (targetMember.role !== "member") {
+          return NextResponse.json(
+            { error: "Apenas membros podem ter permissoes restritas" },
+            { status: 400 }
+          );
+        }
+
+        const { error: updateFeaturesError } = await supabase
+          .from("workspace_members")
+          .update({ features: features ?? null })
+          .eq("workspace_id", workspace_id)
+          .eq("user_id", targetUserId);
+
+        if (updateFeaturesError) throw updateFeaturesError;
         return NextResponse.json({ success: true });
       }
 

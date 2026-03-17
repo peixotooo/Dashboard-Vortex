@@ -31,6 +31,8 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { useWorkspace } from "@/lib/workspace-context";
+import { canAccessPath } from "@/lib/features";
 import {
   Sidebar,
   SidebarContent,
@@ -346,6 +348,18 @@ function NavUser() {
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
+  const { userRole, userFeatures } = useWorkspace();
+
+  const filteredNavGroups = React.useMemo(() => {
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          canAccessPath(item.href, userRole, userFeatures)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [userRole, userFeatures]);
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -372,7 +386,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
 
       <SidebarContent>
-        {navGroups.map((group) => (
+        {filteredNavGroups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>

@@ -8,6 +8,7 @@ import { AccountProvider } from "@/lib/account-context";
 import { WorkspaceProvider } from "@/lib/workspace-context";
 import { useAuth } from "@/lib/auth-context";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { PermissionGate } from "@/components/layout/permission-gate";
 
 export default function DashboardLayout({
   children,
@@ -42,7 +43,9 @@ export default function DashboardLayout({
           <AppSidebar />
           <SidebarInset>
             <Topbar />
-            <div className="flex-1 overflow-x-hidden p-6">{children}</div>
+            <div className="flex-1 overflow-x-hidden p-6">
+              <PermissionGate>{children}</PermissionGate>
+            </div>
           </SidebarInset>
         </SidebarProvider>
       </AccountProvider>
