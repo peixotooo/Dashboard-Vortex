@@ -669,7 +669,7 @@ export default function EscalaPage() {
                   <XAxis dataKey="dia" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
-                    allowEscapeViewBox={{ x: true, y: true }}
+                    allowEscapeViewBox={{ x: false, y: true }}
                     wrapperStyle={{ zIndex: 50 }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
@@ -714,7 +714,7 @@ export default function EscalaPage() {
                   <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
-                    allowEscapeViewBox={{ x: true, y: true }}
+                    allowEscapeViewBox={{ x: false, y: true }}
                     wrapperStyle={{ zIndex: 50 }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
@@ -918,7 +918,7 @@ export default function EscalaPage() {
                       tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
                     />
                     <Tooltip
-                      allowEscapeViewBox={{ x: true, y: true }}
+                      allowEscapeViewBox={{ x: false, y: true }}
                       wrapperStyle={{ zIndex: 50 }}
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null;
