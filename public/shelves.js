@@ -280,6 +280,7 @@
       offers: "offers",
       most_popular: "most-popular",
       last_viewed: "last-viewed",
+      related_products: "related-products",
     };
 
     var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
@@ -311,6 +312,7 @@
       offers: "offers",
       most_popular: "most-popular",
       last_viewed: "last-viewed",
+      related_products: "related-products",
     };
 
     var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);

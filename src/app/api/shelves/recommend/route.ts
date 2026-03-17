@@ -16,6 +16,7 @@ const CACHE_TTL: Record<string, number> = {
   most_popular: 300,
   last_viewed: 0,
   custom_tags: 600,
+  related_products: 300,
 };
 
 const VALID_ALGORITHMS = new Set(Object.keys(CACHE_TTL));

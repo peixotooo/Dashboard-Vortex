@@ -50,6 +50,7 @@ const ALGORITHMS = [
   { value: "offers", label: "Ofertas" },
   { value: "most_popular", label: "Mais Vistos" },
   { value: "last_viewed", label: "Vistos Recentemente" },
+  { value: "related_products", label: "Produtos Relacionados" },
   { value: "custom_tags", label: "Tags Personalizadas" },
 ] as const;
 
@@ -213,7 +214,7 @@ export default function ShelvesPage() {
     await loadConfigs();
   }
 
-  async function handleApplyPreset(preset: "home" | "product") {
+  async function handleApplyPreset(preset: "home" | "product" | "category" | "cart") {
     const presets: Record<
       string,
       Array<{ page_type: string; position: number; algorithm: string; title: string; max_products: number }>
@@ -226,9 +227,19 @@ export default function ShelvesPage() {
         { page_type: "home", position: 5, algorithm: "last_viewed", title: "Vistos recentemente", max_products: 12 },
       ],
       product: [
-        { page_type: "product", position: 1, algorithm: "bestsellers", title: "Mais vendidos", max_products: 12 },
-        { page_type: "product", position: 2, algorithm: "most_popular", title: "Mais vistos", max_products: 12 },
-        { page_type: "product", position: 3, algorithm: "offers", title: "Ofertas especiais", max_products: 12 },
+        { page_type: "product", position: 1, algorithm: "related_products", title: "Produtos relacionados", max_products: 12 },
+        { page_type: "product", position: 2, algorithm: "bestsellers", title: "Mais vendidos", max_products: 12 },
+        { page_type: "product", position: 3, algorithm: "most_popular", title: "Mais vistos", max_products: 12 },
+        { page_type: "product", position: 4, algorithm: "offers", title: "Ofertas especiais", max_products: 12 },
+      ],
+      category: [
+        { page_type: "category", position: 1, algorithm: "bestsellers", title: "Mais vendidos", max_products: 12 },
+        { page_type: "category", position: 2, algorithm: "most_popular", title: "Mais vistos", max_products: 12 },
+        { page_type: "category", position: 3, algorithm: "offers", title: "Ofertas", max_products: 12 },
+      ],
+      cart: [
+        { page_type: "cart", position: 1, algorithm: "bestsellers", title: "Voce tambem vai gostar", max_products: 8 },
+        { page_type: "cart", position: 2, algorithm: "last_viewed", title: "Vistos recentemente", max_products: 8 },
       ],
     };
 
@@ -417,7 +428,7 @@ export default function ShelvesPage() {
                   <p className="text-muted-foreground">
                     Nenhuma prateleira configurada. Use um preset para comecar rapidamente:
                   </p>
-                  <div className="flex justify-center gap-3">
+                  <div className="flex justify-center gap-3 flex-wrap">
                     <Button onClick={() => handleApplyPreset("home")}>
                       <Plus className="mr-2 h-4 w-4" />
                       Preset Home (5 prateleiras)
@@ -427,7 +438,21 @@ export default function ShelvesPage() {
                       onClick={() => handleApplyPreset("product")}
                     >
                       <Plus className="mr-2 h-4 w-4" />
-                      Preset Produto (3 prateleiras)
+                      Preset Produto (4 prateleiras)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleApplyPreset("category")}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Preset Categoria (3 prateleiras)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleApplyPreset("cart")}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Preset Carrinho (2 prateleiras)
                     </Button>
                   </div>
                 </div>
@@ -437,13 +462,29 @@ export default function ShelvesPage() {
           {groupedConfigs.map((group) => (
             <Card key={group.value}>
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  {group.label}
-                  <Badge variant="secondary">
-                    {group.configs.length} prateleira
-                    {group.configs.length !== 1 ? "s" : ""}
-                  </Badge>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    {group.label}
+                    <Badge variant="secondary">
+                      {group.configs.length} prateleira
+                      {group.configs.length !== 1 ? "s" : ""}
+                    </Badge>
+                  </CardTitle>
+                  {group.configs.length === 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        handleApplyPreset(
+                          group.value as "home" | "product" | "category" | "cart"
+                        )
+                      }
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Aplicar preset
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {group.configs.length === 0 ? (

@@ -131,6 +131,8 @@ export async function getRecommendations(
       return getLastViewed(params);
     case "custom_tags":
       return getCustomTags(params);
+    case "related_products":
+      return getRelatedProducts(params);
     default:
       throw new Error(`Unknown algorithm: ${params.algorithm}`);
   }
@@ -363,4 +365,111 @@ async function getLastViewed(
   } catch {
     return [];
   }
+}
+
+/** RelatedProducts: Products similar to the current product by category and tags */
+async function getRelatedProducts(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  if (!params.productId) {
+    return getBestsellers(params);
+  }
+
+  const admin = createAdminClient();
+
+  // Look up the source product in shelf_products (synced catalog)
+  const { data: sourceProduct } = await admin
+    .from("shelf_products")
+    .select("product_id, name, category, tags")
+    .eq("workspace_id", params.workspaceId)
+    .eq("product_id", params.productId)
+    .single();
+
+  if (!sourceProduct) {
+    return getBestsellers(params);
+  }
+
+  const sourceCategory = sourceProduct.category || null;
+  const sourceTags: string[] = Array.isArray(sourceProduct.tags)
+    ? sourceProduct.tags.map((t: string) => t.toLowerCase().trim())
+    : [];
+
+  const fetchLimit = Math.max(params.limit * 5, 50);
+
+  // Query candidates — prioritize same category if available
+  let query = admin
+    .from("shelf_products")
+    .select(
+      "product_id, name, category, tags, price, sale_price, image_url, image_url_2, product_url, in_stock"
+    )
+    .eq("workspace_id", params.workspaceId)
+    .eq("active", true)
+    .eq("in_stock", true)
+    .neq("product_id", params.productId)
+    .limit(fetchLimit);
+
+  if (sourceCategory) {
+    query = query.eq("category", sourceCategory);
+  }
+
+  const { data: candidates } = await query;
+  let allCandidates = candidates || [];
+
+  // If category filter returned too few, fetch from other categories too
+  if (allCandidates.length < params.limit && sourceCategory) {
+    const { data: moreCandidates } = await admin
+      .from("shelf_products")
+      .select(
+        "product_id, name, category, tags, price, sale_price, image_url, image_url_2, product_url, in_stock"
+      )
+      .eq("workspace_id", params.workspaceId)
+      .eq("active", true)
+      .eq("in_stock", true)
+      .neq("product_id", params.productId)
+      .neq("category", sourceCategory)
+      .limit(fetchLimit);
+
+    allCandidates = [...allCandidates, ...(moreCandidates || [])];
+  }
+
+  if (allCandidates.length === 0) {
+    return getBestsellers(params);
+  }
+
+  // Score candidates: same category = +10, each shared tag = +2
+  const scored = allCandidates.map((candidate) => {
+    let score = 0;
+
+    if (sourceCategory && candidate.category === sourceCategory) {
+      score += 10;
+    }
+
+    if (sourceTags.length > 0 && Array.isArray(candidate.tags)) {
+      const candidateTags = (candidate.tags as string[]).map((t: string) =>
+        t.toLowerCase().trim()
+      );
+      for (const tag of sourceTags) {
+        if (candidateTags.includes(tag)) {
+          score += 2;
+        }
+      }
+    }
+
+    return { ...candidate, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  return scored.slice(0, params.limit).map((p) => ({
+    product_id: p.product_id,
+    name: p.name,
+    price: Number(p.price),
+    sale_price: p.sale_price != null ? Number(p.sale_price) : null,
+    image_url: p.image_url || null,
+    image_url_2: p.image_url_2 || null,
+    product_url: p.product_url || null,
+    category: p.category || null,
+    tags: { vnda_tags: p.tags || [] },
+    in_stock: p.in_stock,
+  }));
 }
