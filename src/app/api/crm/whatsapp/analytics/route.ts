@@ -86,7 +86,37 @@ export async function GET(request: NextRequest) {
         month,
       });
 
-      return NextResponse.json(result, {
+      // If pricing_analytics returned no data, try template_analytics as fallback
+      if (result.totalUsd === 0 && result.dataPoints.length === 0) {
+        console.log("[WA Analytics Route] pricing_analytics empty, trying template_analytics fallback");
+        try {
+          const startDate = new Date(Date.UTC(year, month - 1, 1));
+          const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+          const metrics = await getTemplateAnalytics(config.wabaId, config.accessToken, {
+            startTimestamp: Math.floor(startDate.getTime() / 1000),
+            endTimestamp: Math.floor(endDate.getTime() / 1000),
+          });
+          if (metrics.length > 0) {
+            const totalCostUsd = metrics.reduce((sum, m) => sum + m.costUsd, 0);
+            const exchangeRate = 5.8;
+            const totalCostBrl = Math.round(totalCostUsd * exchangeRate * 100) / 100;
+            console.log(`[WA Analytics Route] template_analytics fallback: ${metrics.length} templates, $${totalCostUsd}`);
+            return NextResponse.json({
+              ...result,
+              totalUsd: Math.round(totalCostUsd * 100) / 100,
+              totalBrl: totalCostBrl,
+              source: "template_analytics",
+              templateMetrics: metrics,
+            }, {
+              headers: { "Cache-Control": "private, max-age=300" },
+            });
+          }
+        } catch (err) {
+          console.error("[WA Analytics Route] template_analytics fallback failed:", err instanceof Error ? err.message : err);
+        }
+      }
+
+      return NextResponse.json({ ...result, source: "pricing_analytics" }, {
         headers: { "Cache-Control": "private, max-age=300" },
       });
     }

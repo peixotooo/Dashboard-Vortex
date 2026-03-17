@@ -4,8 +4,6 @@
  * Two endpoints:
  * - pricing_analytics: aggregate volume/cost by WABA (monthly spend)
  * - template_analytics: per-template metrics with real USD cost (campaign ROI)
- *
- * Reference: /Users/guilhermepeixoto/Downloads/WHATSAPP_ANALYTICS_PRICING_MANUAL_1.md
  */
 
 const API_VERSION = "v21.0";
@@ -88,18 +86,23 @@ export async function getPricingAnalytics(
     dimensions = ["PRICING_CATEGORY", "PRICING_TYPE"],
   } = opts;
 
-  let field = `pricing_analytics.start(${startTimestamp}).end(${endTimestamp}).granularity(${granularity})`;
+  // Build URL with separate query params (not field expansion) to avoid encoding issues
+  const params = new URLSearchParams();
+  params.set("fields", "pricing_analytics");
+  params.set("pricing_analytics.start", String(startTimestamp));
+  params.set("pricing_analytics.end", String(endTimestamp));
+  params.set("pricing_analytics.granularity", granularity);
   if (phoneNumbers.length > 0) {
-    field += `.phone_numbers(${JSON.stringify(phoneNumbers)})`;
+    params.set("pricing_analytics.phone_numbers", JSON.stringify(phoneNumbers));
   }
   if (dimensions.length > 0) {
-    field += `.dimensions(${JSON.stringify(dimensions)})`;
+    params.set("pricing_analytics.dimensions", JSON.stringify(dimensions));
   }
 
-  const url = new URL(`${BASE_URL}/${wabaId}`);
-  url.searchParams.set("fields", field);
+  const url = `${BASE_URL}/${wabaId}?${params.toString()}`;
+  console.log(`[WA Analytics] pricing_analytics URL: ${url.replace(/access_token=[^&]+/, "access_token=***")}`);
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -110,10 +113,12 @@ export async function getPricingAnalytics(
   }
 
   const json = await res.json();
+  console.log(`[WA Analytics] pricing_analytics raw response:`, JSON.stringify(json).slice(0, 800));
+
   const dataPoints: PricingDataPoint[] =
     json.pricing_analytics?.data?.[0]?.data_points || [];
 
-  console.log(`[WA Analytics] pricing_analytics wabaId=${wabaId} dataPoints=${dataPoints.length}`, JSON.stringify(dataPoints).slice(0, 500));
+  console.log(`[WA Analytics] pricing_analytics wabaId=${wabaId} dataPoints=${dataPoints.length}`);
 
   return computeCostBreakdown(dataPoints);
 }
@@ -173,18 +178,23 @@ export async function getTemplateAnalytics(
     metricTypes = ["SENT", "DELIVERED", "READ", "COST", "CLICKED"],
   } = opts;
 
-  let field = `template_analytics.start(${startTimestamp}).end(${endTimestamp}).granularity(DAILY)`;
+  // Build URL with separate query params (not field expansion)
+  const params = new URLSearchParams();
+  params.set("fields", "template_analytics");
+  params.set("template_analytics.start", String(startTimestamp));
+  params.set("template_analytics.end", String(endTimestamp));
+  params.set("template_analytics.granularity", "DAILY");
   if (templateIds.length > 0) {
-    field += `.template_ids(${JSON.stringify(templateIds)})`;
+    params.set("template_analytics.template_ids", JSON.stringify(templateIds));
   }
   if (metricTypes.length > 0) {
-    field += `.metric_types(${JSON.stringify(metricTypes)})`;
+    params.set("template_analytics.metric_types", JSON.stringify(metricTypes));
   }
 
-  const url = new URL(`${BASE_URL}/${wabaId}`);
-  url.searchParams.set("fields", field);
+  const url = `${BASE_URL}/${wabaId}?${params.toString()}`;
+  console.log(`[WA Analytics] template_analytics URL: ${url.replace(/access_token=[^&]+/, "access_token=***")}`);
 
-  const res = await fetch(url.toString(), {
+  const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -196,7 +206,7 @@ export async function getTemplateAnalytics(
 
   const json = await res.json();
   const templates = json.template_analytics?.data || [];
-  console.log(`[WA Analytics] template_analytics wabaId=${wabaId} templates=${templates.length}`, JSON.stringify(templates).slice(0, 500));
+  console.log(`[WA Analytics] template_analytics wabaId=${wabaId} templates=${templates.length}`, JSON.stringify(templates).slice(0, 800));
 
   return templates.map(
     (t: { template_id: string; data_points: TemplateDataPoint[] }) => {

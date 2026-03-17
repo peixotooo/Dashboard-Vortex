@@ -110,7 +110,19 @@ interface MonthlySpend {
     costUsd: number;
     costBrl: number;
   }>;
-  period: { start: string; end: string };
+  period?: { start: string; end: string };
+  source?: "pricing_analytics" | "template_analytics";
+  templateMetrics?: Array<{
+    templateId: string;
+    sent: number;
+    delivered: number;
+    read: number;
+    costUsd: number;
+    clicked: number;
+    deliveryRate: number;
+    openRate: number;
+    ctr: number;
+  }>;
 }
 
 interface RfmSegment {
@@ -627,17 +639,49 @@ export default function WhatsAppPage() {
               <CardContent className="py-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Gasto WhatsApp — Mes Atual</p>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Gasto WhatsApp — Mes Atual
+                      {monthlySpend.totalUsd === 0 && monthlySpend.breakdown.length === 0 && !monthlySpend.templateMetrics && (
+                        <span className="ml-2 text-amber-500">(estimado)</span>
+                      )}
+                      {monthlySpend.source === "template_analytics" && (
+                        <span className="ml-2 text-blue-500">(via Template Analytics)</span>
+                      )}
+                    </p>
                     <div className="flex items-baseline gap-2">
                       <span className="text-2xl font-bold">
-                        R$ {monthlySpend.totalBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        {(() => {
+                          // If both APIs returned 0, show estimate from campaigns
+                          if (monthlySpend.totalUsd === 0 && !monthlySpend.templateMetrics) {
+                            const thisMonth = new Date();
+                            const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+                            const totalSent = campaigns
+                              .filter((c) => c.started_at && new Date(c.started_at) >= monthStart)
+                              .reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                            const estBrl = totalSent * (campaigns[0]?.message_cost_usd || 0.0625) * (campaigns[0]?.exchange_rate || 5.80);
+                            return `~R$ ${estBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+                          }
+                          return `R$ ${monthlySpend.totalBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+                        })()}
                       </span>
                       <span className="text-sm text-muted-foreground">
-                        (US$ {monthlySpend.totalUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })})
+                        {(() => {
+                          if (monthlySpend.totalUsd === 0 && !monthlySpend.templateMetrics) {
+                            const thisMonth = new Date();
+                            const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+                            const totalSent = campaigns
+                              .filter((c) => c.started_at && new Date(c.started_at) >= monthStart)
+                              .reduce((sum, c) => sum + (c.sent_count || 0), 0);
+                            const estUsd = totalSent * (campaigns[0]?.message_cost_usd || 0.0625);
+                            return `(~US$ ${estUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })})`;
+                          }
+                          return `(US$ ${monthlySpend.totalUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })})`;
+                        })()}
                       </span>
                     </div>
                   </div>
                   <div className="flex gap-4 text-xs">
+                    {/* Show pricing_analytics breakdown if available */}
                     {monthlySpend.breakdown
                       .filter((b) => b.volume > 0)
                       .map((b, i) => (
@@ -660,6 +704,45 @@ export default function WhatsAppPage() {
                           </div>
                         </div>
                       ))}
+                    {/* Show template metrics if from fallback */}
+                    {monthlySpend.templateMetrics && monthlySpend.templateMetrics.length > 0 && (
+                      <>
+                        <div className="text-center">
+                          <div className="font-semibold">
+                            {monthlySpend.templateMetrics.reduce((s, m) => s + m.sent, 0).toLocaleString("pt-BR")}
+                          </div>
+                          <div className="text-muted-foreground">Enviadas</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="font-semibold">
+                            {monthlySpend.templateMetrics.reduce((s, m) => s + m.delivered, 0).toLocaleString("pt-BR")}
+                          </div>
+                          <div className="text-muted-foreground">Entregues</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="font-semibold">
+                            {monthlySpend.templateMetrics.reduce((s, m) => s + m.read, 0).toLocaleString("pt-BR")}
+                          </div>
+                          <div className="text-muted-foreground">Lidas</div>
+                        </div>
+                      </>
+                    )}
+                    {/* Show estimate info when both APIs returned 0 */}
+                    {monthlySpend.totalUsd === 0 && monthlySpend.breakdown.length === 0 && !monthlySpend.templateMetrics && campaigns.length > 0 && (
+                      <div className="text-center">
+                        <div className="font-semibold">
+                          {campaigns
+                            .filter((c) => {
+                              const thisMonth = new Date();
+                              const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+                              return c.started_at && new Date(c.started_at) >= monthStart;
+                            })
+                            .reduce((sum, c) => sum + (c.sent_count || 0), 0)
+                            .toLocaleString("pt-BR")}
+                        </div>
+                        <div className="text-muted-foreground">Msgs este mes</div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
