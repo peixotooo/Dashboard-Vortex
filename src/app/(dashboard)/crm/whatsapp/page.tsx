@@ -276,21 +276,6 @@ export default function WhatsAppPage() {
     setExclusionsLoading(false);
   }, [workspace?.id, wsHeaders]);
 
-  const fetchMonthlySpend = useCallback(async () => {
-    if (!workspace?.id || !configured) return;
-    setSpendLoading(true);
-    try {
-      const res = await fetch("/api/crm/whatsapp/analytics?period=current_month", {
-        headers: wsHeaders(),
-      });
-      const data = await res.json();
-      if (!data.error) setMonthlySpend(data);
-    } catch {
-      // silent — card just won't render
-    }
-    setSpendLoading(false);
-  }, [workspace?.id, configured, wsHeaders]);
-
   // Fetch performance data for completed/sending campaigns (batch)
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
@@ -323,8 +308,23 @@ export default function WhatsAppPage() {
     fetchCampaigns();
     fetchSegments();
     fetchExclusions();
-    fetchMonthlySpend();
-  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions, fetchMonthlySpend]);
+  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions]);
+
+  // Separate effect for monthly spend — only runs after config is loaded
+  useEffect(() => {
+    if (!workspace?.id || !configured) return;
+    setSpendLoading(true);
+    fetch("/api/crm/whatsapp/analytics?period=current_month", {
+      headers: wsHeaders(),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) setMonthlySpend(data);
+      })
+      .catch(() => { /* silent */ })
+      .finally(() => setSpendLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.id, configured]);
 
   // --- Actions ---
 

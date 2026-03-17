@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWaConfig } from "@/lib/whatsapp-api";
-import { getTemplateAnalytics, toTimestamp } from "@/lib/wa-analytics";
+import { getTemplateAnalytics } from "@/lib/wa-analytics";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
