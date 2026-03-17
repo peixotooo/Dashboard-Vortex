@@ -95,6 +95,22 @@ interface PerformanceData {
   window_active: boolean;
   window_ends_at: string | null;
   sent_count: number;
+  real_cost_usd?: number;
+  real_cost_brl?: number;
+  cost_source?: "meta_api" | "estimated";
+}
+
+interface MonthlySpend {
+  totalUsd: number;
+  totalBrl: number;
+  breakdown: Array<{
+    category: string;
+    type: string;
+    volume: number;
+    costUsd: number;
+    costBrl: number;
+  }>;
+  period: { start: string; end: string };
 }
 
 interface RfmSegment {
@@ -150,6 +166,8 @@ export default function WhatsAppPage() {
 
   // Performance data
   const [perfData, setPerfData] = useState<Record<string, PerformanceData>>({});
+  const [monthlySpend, setMonthlySpend] = useState<MonthlySpend | null>(null);
+  const [spendLoading, setSpendLoading] = useState(false);
 
   // Compliance
   const [cooldownDays, setCooldownDays] = useState(7);
@@ -258,6 +276,21 @@ export default function WhatsAppPage() {
     setExclusionsLoading(false);
   }, [workspace?.id, wsHeaders]);
 
+  const fetchMonthlySpend = useCallback(async () => {
+    if (!workspace?.id || !configured) return;
+    setSpendLoading(true);
+    try {
+      const res = await fetch("/api/crm/whatsapp/analytics?period=current_month", {
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (!data.error) setMonthlySpend(data);
+    } catch {
+      // silent — card just won't render
+    }
+    setSpendLoading(false);
+  }, [workspace?.id, configured, wsHeaders]);
+
   // Fetch performance data for completed/sending campaigns (batch)
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
@@ -290,7 +323,8 @@ export default function WhatsAppPage() {
     fetchCampaigns();
     fetchSegments();
     fetchExclusions();
-  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions]);
+    fetchMonthlySpend();
+  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions, fetchMonthlySpend]);
 
   // --- Actions ---
 
@@ -587,6 +621,56 @@ export default function WhatsAppPage() {
 
         {/* ==================== CAMPAIGNS TAB ==================== */}
         <TabsContent value="campaigns" className="space-y-4">
+          {/* Monthly Spend Card */}
+          {monthlySpend && (
+            <Card className="border-blue-500/20 bg-blue-500/5">
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Gasto WhatsApp — Mes Atual</p>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold">
+                        R$ {monthlySpend.totalBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        (US$ {monthlySpend.totalUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 text-xs">
+                    {monthlySpend.breakdown
+                      .filter((b) => b.volume > 0)
+                      .map((b, i) => (
+                        <div key={i} className="text-center">
+                          <div className="font-semibold">
+                            {b.volume.toLocaleString("pt-BR")}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {b.category === "MARKETING" ? "Marketing" :
+                             b.category === "UTILITY" ? "Utility" :
+                             b.category === "AUTHENTICATION" ? "Auth" : b.category}
+                            {b.type !== "REGULAR" && (
+                              <span className="text-green-600 ml-1">
+                                {b.type === "FREE_CUSTOMER_SERVICE" ? "(gratis CSW)" : "(gratis FEP)"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground">
+                            R$ {b.costBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {spendLoading && !monthlySpend && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando gastos...
+            </div>
+          )}
+
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted-foreground">
               {campaigns.length} campanha(s)
@@ -855,14 +939,28 @@ export default function WhatsAppPage() {
                           <div className="flex items-center gap-1.5">
                             <span className="text-muted-foreground">Custo:</span>
                             <span className="font-semibold">
-                              R$ {perf.total_cost_brl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                              R$ {(perf.real_cost_brl ?? perf.total_cost_brl).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                             </span>
+                            {perf.cost_source === "meta_api" && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 text-blue-600 border-blue-600/30">Meta</Badge>
+                            )}
+                            {perf.cost_source === "estimated" && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 text-muted-foreground">Est.</Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-muted-foreground">ROI:</span>
-                            <span className={`font-semibold ${perf.roi_pct >= 0 ? "text-green-600" : "text-red-600"}`}>
-                              {perf.roi_pct.toLocaleString("pt-BR")}%
-                            </span>
+                            {(() => {
+                              const costBrl = perf.real_cost_brl ?? perf.total_cost_brl;
+                              const roi = costBrl > 0
+                                ? Math.round(((perf.attributed_revenue - costBrl) / costBrl) * 100)
+                                : 0;
+                              return (
+                                <span className={`font-semibold ${roi >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                  {roi.toLocaleString("pt-BR")}%
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="flex items-center gap-1.5 ml-auto">
                             <span className="text-muted-foreground">

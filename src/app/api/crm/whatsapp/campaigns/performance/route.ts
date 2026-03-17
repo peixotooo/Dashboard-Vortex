@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getWaConfig } from "@/lib/whatsapp-api";
+import { getTemplateAnalytics, toTimestamp } from "@/lib/wa-analytics";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -46,10 +48,10 @@ export async function POST(request: NextRequest) {
     const campaignIds = ids.slice(0, 20);
     const admin = createAdminClient();
 
-    // 1. Fetch all campaigns in one query
+    // 1. Fetch all campaigns in one query (include template_id for real cost lookup)
     const { data: campaigns } = await admin
       .from("wa_campaigns")
-      .select("id, started_at, completed_at, sent_count, total_messages, attribution_window_days, message_cost_usd, exchange_rate, status")
+      .select("id, started_at, completed_at, sent_count, total_messages, attribution_window_days, message_cost_usd, exchange_rate, status, template_id")
       .in("id", campaignIds)
       .eq("workspace_id", workspaceId);
 
@@ -156,9 +158,129 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // 5. Try to enrich with real costs from Meta template_analytics
+    await enrichWithRealCosts(admin, workspaceId, campaigns, results);
+
     return NextResponse.json({ results });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Fetches real costs from Meta's template_analytics API and merges them
+ * into the results. Never throws — failures silently keep estimated costs.
+ */
+async function enrichWithRealCosts(
+  admin: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  campaigns: Array<{
+    id: string;
+    template_id: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    exchange_rate: number | null;
+  }>,
+  results: Record<string, unknown>
+): Promise<void> {
+  try {
+    // Only process campaigns started within last 90 days (API lookback limit)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    const eligibleCampaigns = campaigns.filter(
+      (c) => c.started_at && c.template_id && new Date(c.started_at) >= ninetyDaysAgo
+    );
+
+    if (eligibleCampaigns.length === 0) {
+      // Mark all as estimated
+      for (const id of Object.keys(results)) {
+        const r = results[id] as Record<string, unknown>;
+        r.cost_source = "estimated";
+      }
+      return;
+    }
+
+    // Get Meta template IDs (numeric) from wa_templates
+    const templateUuids = [...new Set(eligibleCampaigns.map((c) => c.template_id!))];
+    const { data: templates } = await admin
+      .from("wa_templates")
+      .select("id, meta_id")
+      .in("id", templateUuids);
+
+    const uuidToMetaId = new Map<string, string>();
+    for (const t of templates || []) {
+      if (t.meta_id) uuidToMetaId.set(t.id, t.meta_id);
+    }
+
+    if (uuidToMetaId.size === 0) {
+      for (const id of Object.keys(results)) {
+        const r = results[id] as Record<string, unknown>;
+        r.cost_source = "estimated";
+      }
+      return;
+    }
+
+    // Get WA config for API access
+    const config = await getWaConfig(workspaceId);
+    if (!config) {
+      for (const id of Object.keys(results)) {
+        const r = results[id] as Record<string, unknown>;
+        r.cost_source = "estimated";
+      }
+      return;
+    }
+
+    // Determine time range spanning all eligible campaigns
+    let earliest = Infinity;
+    let latest = 0;
+    for (const c of eligibleCampaigns) {
+      const start = new Date(c.started_at!).getTime() / 1000;
+      const end = c.completed_at
+        ? new Date(c.completed_at).getTime() / 1000
+        : Math.floor(Date.now() / 1000);
+      if (start < earliest) earliest = start;
+      if (end > latest) latest = end;
+    }
+
+    // Fetch template analytics from Meta (up to 10 template IDs per call)
+    const metaIds = [...new Set(uuidToMetaId.values())].map(Number).filter((n) => !isNaN(n));
+    const metrics = await getTemplateAnalytics(config.wabaId, config.accessToken, {
+      startTimestamp: Math.floor(earliest),
+      endTimestamp: Math.floor(latest) + 86400, // +1 day buffer
+      templateIds: metaIds.slice(0, 10),
+    });
+
+    // Map: metaId → costUsd
+    const metaIdToCost = new Map<string, number>();
+    for (const m of metrics) {
+      metaIdToCost.set(m.templateId, m.costUsd);
+    }
+
+    // Enrich results
+    for (const campaign of campaigns) {
+      const r = results[campaign.id] as Record<string, unknown>;
+      if (!r) continue;
+
+      const metaId = campaign.template_id ? uuidToMetaId.get(campaign.template_id) : null;
+      const realCost = metaId ? metaIdToCost.get(metaId) : undefined;
+
+      if (realCost !== undefined) {
+        const rate = campaign.exchange_rate || 5.50;
+        r.real_cost_usd = realCost;
+        r.real_cost_brl = Math.round(realCost * rate * 100) / 100;
+        r.cost_source = "meta_api";
+      } else {
+        r.cost_source = "estimated";
+      }
+    }
+  } catch (err) {
+    // Never let analytics failure break the endpoint
+    console.error("[WA Performance] Real cost enrichment failed:", err instanceof Error ? err.message : err);
+    for (const id of Object.keys(results)) {
+      const r = results[id] as Record<string, unknown>;
+      r.cost_source = "estimated";
+    }
   }
 }
