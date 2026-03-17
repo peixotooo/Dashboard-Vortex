@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TrendingUp, CheckCircle2, Target } from "lucide-react";
 import {
   BarChart,
@@ -115,13 +115,19 @@ export default function EscalaPage() {
   const [vndaShipping, setVndaShipping] = useState(0);
   const [vndaDiscount, setVndaDiscount] = useState(0);
   const [vndaConfigured, setVndaConfigured] = useState(false);
+  const [ga4Configured, setGa4Configured] = useState(false);
   const [finSettings, setFinSettings] = useState<FinancialSettings>(FIN_DEFAULTS);
+  const abortRef = useRef<AbortController | null>(null);
   const [simInvest, setSimInvest] = useState(3200);
   const [cpsDecay, setCpsDecay] = useState(15);   // % inflacao CPS ao dobrar invest
   const [convDecay, setConvDecay] = useState(10);  // % queda TX Conv ao dobrar invest
 
   useEffect(() => {
-    if (!accountId || accounts.length === 0) return;
+    if (!accountId || accounts.length === 0 || !workspace?.id) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     async function fetchData() {
       setLoading(true);
@@ -129,25 +135,22 @@ export default function EscalaPage() {
         const datePreset = "last_30d";
         const accountIds = accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
-        const vndaHeaders: Record<string, string> = {};
-        if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
+        const vndaHeaders: Record<string, string> = { "x-workspace-id": workspace!.id };
 
         const [insightsResults, ga4Res, vndaRes, finRes] = await Promise.all([
           Promise.all(
             accountIds.map((id) =>
-              fetch(`/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`).then((r) => r.json())
+              fetch(`/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`, { signal: controller.signal }).then((r) => r.json())
             )
           ),
-          fetch(`/api/ga4/insights?date_preset=${datePreset}`),
-          fetch(`/api/vnda/insights?date_preset=${datePreset}`, { headers: vndaHeaders }),
-          workspace?.id
-            ? fetch("/api/financial-settings", { headers: vndaHeaders })
-            : Promise.resolve(null),
+          fetch(`/api/ga4/insights?date_preset=${datePreset}`, { signal: controller.signal }),
+          fetch(`/api/vnda/insights?date_preset=${datePreset}`, { headers: vndaHeaders, signal: controller.signal }),
+          fetch("/api/financial-settings", { headers: vndaHeaders, signal: controller.signal }),
         ]);
 
         const ga4Data = await ga4Res.json();
         const vndaData = await vndaRes.json();
-        const settings: FinancialSettings = finRes ? await finRes.json() : FIN_DEFAULTS;
+        const settings: FinancialSettings = await finRes.json();
         setFinSettings(settings);
 
         // Process Meta daily data
@@ -181,7 +184,8 @@ export default function EscalaPage() {
         }
 
         // GA4
-        const ga4Configured = ga4Data.configured === true;
+        const isGa4Configured = ga4Data.configured === true;
+        setGa4Configured(isGa4Configured);
         const ga4Insights: Array<{ dateRaw: string; sessions: number; transactions: number; revenue: number }> =
           (ga4Data.insights || []).map((row: Record<string, unknown>) => ({
             dateRaw: (row.dateRaw as string) || "",
@@ -243,8 +247,8 @@ export default function EscalaPage() {
           const googleAdsCost = gadsDay?.cost ?? 0;
           const totalDaySpend = spend + googleAdsCost;
 
-          const revenue = isVndaConfigured ? (vndaDay?.revenue ?? 0) : ga4Configured ? (ga4Day?.revenue ?? 0) : (metaDay?.metaRevenue ?? 0);
-          const transactions = isVndaConfigured ? (vndaDay?.orders ?? 0) : ga4Configured ? (ga4Day?.transactions ?? 0) : (metaDay?.metaPurchases ?? 0);
+          const revenue = isVndaConfigured ? (vndaDay?.revenue ?? 0) : isGa4Configured ? (ga4Day?.revenue ?? 0) : (metaDay?.metaRevenue ?? 0);
+          const transactions = isVndaConfigured ? (vndaDay?.orders ?? 0) : isGa4Configured ? (ga4Day?.transactions ?? 0) : (metaDay?.metaPurchases ?? 0);
           const sessions = ga4Day?.sessions ?? 0;
 
           return {
@@ -260,18 +264,19 @@ export default function EscalaPage() {
         });
 
         setTrendData(trend);
-        const rev = isVndaConfigured ? vndaTotals.revenue : ga4Configured ? ga4Totals.revenue : totalMetaRevenue;
+        const rev = isVndaConfigured ? vndaTotals.revenue : isGa4Configured ? ga4Totals.revenue : totalMetaRevenue;
         setTotalRevenue(rev);
         // Total investment from last_30d (same as Overview)
         setTotalInvestment(totalSpend + gadsTotalCost);
-      } catch {
-        // Keep defaults
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
       } finally {
         setLoading(false);
       }
     }
 
     fetchData();
+    return () => { abortRef.current?.abort(); };
   }, [accountId, accounts, workspace?.id]);
 
   // --- Calculations ---
@@ -438,6 +443,9 @@ export default function EscalaPage() {
     return { sessoes, pedidos, cpsAdj, txConvAdj, receitaDia, ebitda, ebitdaPct, receitaMes };
   }, [simInvest, calc, cpsDecay, convDecay]);
 
+  const revenueSource = vndaConfigured ? "VNDA" : ga4Configured ? "GA4" : "Meta";
+  const revenueColor = vndaConfigured ? "#10b981" : ga4Configured ? "#f97316" : "#818cf8";
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -468,6 +476,9 @@ export default function EscalaPage() {
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
           Objetivo: maximizar receita mantendo EBITDA entre 8% e 10%
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-2" style={{ color: revenueColor, backgroundColor: `${revenueColor}15` }}>
+            Receita: {revenueSource}
+          </span>
         </p>
       </div>
 
