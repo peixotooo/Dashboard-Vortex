@@ -662,16 +662,19 @@ export default function EscalaPage() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
               Receita Acumulada no Mes
             </h3>
-            <div className="h-[220px]">
+            <div className="h-[220px]" style={{ overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={calc.accumData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                   <XAxis dataKey="dia" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    wrapperStyle={{ zIndex: 50 }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
                       const d = payload[0]?.payload as { dia: number; projecao: boolean; receitaAcum: number };
+                      if (!d) return null;
                       return (
                         <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3 text-[13px]">
                           <div className="text-foreground font-bold">Dia {d.dia} {d.projecao ? "(projecao)" : ""}</div>
@@ -704,16 +707,19 @@ export default function EscalaPage() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3.5">
               EBITDA R$ por Dia
             </h3>
-            <div className="h-[220px]">
+            <div className="h-[220px]" style={{ overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={calc.enriched} barSize={28}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                   <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    wrapperStyle={{ zIndex: 50 }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
                       const d = payload[0]?.payload as typeof calc.enriched[number];
+                      if (!d) return null;
                       return (
                         <div className="bg-[rgba(10,10,20,0.96)] border border-border/30 rounded-xl px-4 py-3.5 text-[13px] leading-[1.7] min-w-[260px]">
                           <div className="text-foreground font-bold text-sm mb-1.5">{d.date}</div>
@@ -912,9 +918,12 @@ export default function EscalaPage() {
                       tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
                     />
                     <Tooltip
+                      allowEscapeViewBox={{ x: true, y: true }}
+                      wrapperStyle={{ zIndex: 50 }}
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null;
                         const d = payload[0]?.payload as typeof calc.simData[number];
+                        if (!d) return null;
                         const cpsChanged = d.cpsAdj > calc.avgCps;
                         const txChanged = d.txConvAdj < calc.avgTxConv;
                         return (
