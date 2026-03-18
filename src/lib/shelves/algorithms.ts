@@ -367,7 +367,36 @@ async function getLastViewed(
   }
 }
 
-/** RelatedProducts: Products similar to the current product by category and tags */
+/** Extract normalized tag strings from mixed tag formats (strings or {name} objects) */
+function normalizeTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .map((t: unknown) => {
+      if (typeof t === "string") return t;
+      if (t && typeof t === "object" && "name" in t) return String((t as { name: unknown }).name);
+      return "";
+    })
+    .filter(Boolean)
+    .map((t) => t.toLowerCase().trim());
+}
+
+/** Extract meaningful keywords from a product name, filtering stopwords */
+const STOPWORDS = new Set([
+  "de", "da", "do", "das", "dos", "em", "com", "para", "por", "e", "ou",
+  "um", "uma", "uns", "umas", "o", "a", "os", "as", "no", "na", "nos", "nas",
+  "ao", "aos", "pelo", "pela", "que", "se", "c", "p", "s", "m", "l", "g",
+  "pp", "gg", "xg", "ml", "kg", "cm", "un", "und", "pct", "cx", "kit",
+]);
+
+function extractNameKeywords(name: string): string[] {
+  return name
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove accents
+    .split(/[\s\-\/\|,.:;()+]+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
+}
+
+/** RelatedProducts: Products similar by name keywords, tags, and category */
 async function getRelatedProducts(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
@@ -390,14 +419,11 @@ async function getRelatedProducts(
   }
 
   const sourceCategory = sourceProduct.category || null;
-  const sourceTags: string[] = Array.isArray(sourceProduct.tags)
-    ? sourceProduct.tags.map((t: string) => t.toLowerCase().trim())
-    : [];
+  const sourceTags = normalizeTags(sourceProduct.tags);
+  const sourceKeywords = extractNameKeywords(sourceProduct.name);
 
-  const fetchLimit = Math.max(params.limit * 5, 50);
-
-  // Query candidates — prioritize same category if available
-  let query = admin
+  // Fetch all active candidates (broad query — scoring decides relevance)
+  const { data: candidates } = await admin
     .from("shelf_products")
     .select(
       "product_id, name, category, tags, price, sale_price, image_url, image_url_2, product_url, in_stock"
@@ -406,51 +432,37 @@ async function getRelatedProducts(
     .eq("active", true)
     .eq("in_stock", true)
     .neq("product_id", params.productId)
-    .limit(fetchLimit);
+    .limit(200);
 
-  if (sourceCategory) {
-    query = query.eq("category", sourceCategory);
-  }
-
-  const { data: candidates } = await query;
-  let allCandidates = candidates || [];
-
-  // If category filter returned too few, fetch from other categories too
-  if (allCandidates.length < params.limit && sourceCategory) {
-    const { data: moreCandidates } = await admin
-      .from("shelf_products")
-      .select(
-        "product_id, name, category, tags, price, sale_price, image_url, image_url_2, product_url, in_stock"
-      )
-      .eq("workspace_id", params.workspaceId)
-      .eq("active", true)
-      .eq("in_stock", true)
-      .neq("product_id", params.productId)
-      .neq("category", sourceCategory)
-      .limit(fetchLimit);
-
-    allCandidates = [...allCandidates, ...(moreCandidates || [])];
-  }
-
-  if (allCandidates.length === 0) {
+  if (!candidates || candidates.length === 0) {
     return getBestsellers(params);
   }
 
-  // Score candidates: same category = +10, each shared tag = +2
-  const scored = allCandidates.map((candidate) => {
+  // Score candidates by similarity
+  const scored = candidates.map((candidate) => {
     let score = 0;
 
+    // Same category = +10
     if (sourceCategory && candidate.category === sourceCategory) {
       score += 10;
     }
 
-    if (sourceTags.length > 0 && Array.isArray(candidate.tags)) {
-      const candidateTags = (candidate.tags as string[]).map((t: string) =>
-        t.toLowerCase().trim()
-      );
+    // Shared tags = +3 each
+    if (sourceTags.length > 0) {
+      const candidateTags = normalizeTags(candidate.tags);
       for (const tag of sourceTags) {
         if (candidateTags.includes(tag)) {
-          score += 2;
+          score += 3;
+        }
+      }
+    }
+
+    // Shared name keywords = +5 each (strong collection signal)
+    if (sourceKeywords.length > 0) {
+      const candidateKeywords = extractNameKeywords(candidate.name);
+      for (const kw of sourceKeywords) {
+        if (candidateKeywords.includes(kw)) {
+          score += 5;
         }
       }
     }
@@ -458,9 +470,17 @@ async function getRelatedProducts(
     return { ...candidate, score };
   });
 
-  scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  // Filter out zero-score (unrelated) products, sort by score desc
+  const relevant = scored
+    .filter((p) => p.score > 0)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-  return scored.slice(0, params.limit).map((p) => ({
+  // If no relevant products found, fall back to bestsellers
+  if (relevant.length === 0) {
+    return getBestsellers(params);
+  }
+
+  return relevant.slice(0, params.limit).map((p) => ({
     product_id: p.product_id,
     name: p.name,
     price: Number(p.price),
