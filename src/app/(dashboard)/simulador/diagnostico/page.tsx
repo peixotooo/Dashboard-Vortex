@@ -101,7 +101,6 @@ export default function DiagnosticoPage() {
   const { workspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
   const [trendData, setTrendData] = useState<DailyRow[]>([]);
-  const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalInvestment, setTotalInvestment] = useState(0);
   const [vndaShipping, setVndaShipping] = useState(0);
   const [vndaDiscount, setVndaDiscount] = useState(0);
@@ -265,8 +264,6 @@ export default function DiagnosticoPage() {
 
         setTrendData(trend);
 
-        const rev = isVndaConfigured ? vndaTotals.revenue : isGa4Configured ? ga4Totals.revenue : totalMetaRevenue;
-        setTotalRevenue(rev);
         setTotalInvestment(totalSpend + gadsTotalCost);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;

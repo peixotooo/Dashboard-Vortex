@@ -531,22 +531,11 @@ export default function OverviewPage() {
           };
         });
 
-        // --- Calculate totals ---
-        // Priority: VNDA > GA4 > Meta for revenue/orders
-        const totalRevenue = vndaConfigured
-          ? vndaTotals.revenue
-          : ga4Configured
-            ? ga4Totals.revenue
-            : totalMetaRevenue;
-        const totalPedidos = vndaConfigured
-          ? vndaTotals.orders
-          : ga4Configured
-            ? ga4Totals.transactions
-            : totalMetaPurchases;
-        const totalSessions = ga4Configured
-          ? ga4Totals.sessions
-          : 0;
-        const totalInvestment = totalSpend + gadsTotals.cost;
+        // --- Calculate totals from trendData (already filtered by datePreset) ---
+        const totalRevenue = trendData.reduce((s, d) => s + d.revenue, 0);
+        const totalPedidos = trendData.reduce((s, d) => s + d.pedidos, 0);
+        const totalSessions = trendData.reduce((s, d) => s + d.sessions, 0);
+        const totalInvestment = trendData.reduce((s, d) => s + d.totalSpend, 0);
         const totalRoas =
           totalInvestment > 0 ? totalRevenue / totalInvestment : 0;
         const totalTicketMedio =
@@ -816,10 +805,7 @@ export default function OverviewPage() {
       {/* Financial Health */}
       <FinancialHealth
         trendData={data.trendData}
-        totalRevenue={data.revenue}
         totalInvestment={data.totalInvestment}
-        vndaShipping={data.vndaShipping}
-        vndaDiscount={data.vndaDiscount}
         vndaConfigured={data.vndaConfigured}
         finSettings={data.finSettings}
         loading={loading}
@@ -887,19 +873,13 @@ export default function OverviewPage() {
 
 function FinancialHealth({
   trendData,
-  totalRevenue,
   totalInvestment,
-  vndaShipping,
-  vndaDiscount,
   vndaConfigured,
   finSettings,
   loading,
 }: {
   trendData: DailyRow[];
-  totalRevenue: number;
   totalInvestment: number;
-  vndaShipping: number;
-  vndaDiscount: number;
   vndaConfigured: boolean;
   finSettings: FinancialSettings;
   loading: boolean;
@@ -934,9 +914,10 @@ function FinancialHealth({
       : 0;
 
     // --- VALORES REAIS: para monitoramento/desvios (NÃO afetam Meta/PE) ---
-    const investPercReal = totalRevenue > 0 ? (totalInvestment / totalRevenue) * 100 : 0;
-    const fretePercReal = totalRevenue > 0 && vndaConfigured ? (vndaShipping / totalRevenue) * 100 : 0;
-    const descontoPercReal = totalRevenue > 0 && vndaConfigured ? (vndaDiscount / totalRevenue) * 100 : 0;
+    const monthInvestment = monthData.reduce((s, d) => s + d.totalSpend, 0);
+    const investPercReal = monthRevenue > 0 ? (monthInvestment / monthRevenue) * 100 : 0;
+    const fretePercReal = frete_pct;     // Sem dado diário de frete — usa valor configurado
+    const descontoPercReal = desconto_pct; // Sem dado diário de desconto — usa valor configurado
 
     // Desvios: real vs planejado
     const investDeviation = investPercReal - invest_pct;
@@ -1004,7 +985,7 @@ function FinancialHealth({
       seasonalityWeight: (monthly_seasonality?.[currentMonth] ?? 8.33),
       chartData,
     };
-  }, [trendData, totalRevenue, totalInvestment, vndaShipping, vndaDiscount, vndaConfigured, finSettings]);
+  }, [trendData, totalInvestment, vndaConfigured, finSettings]);
 
   const chart = useChartTheme();
 

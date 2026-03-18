@@ -110,7 +110,6 @@ export default function EscalaPage() {
   const { workspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
   const [trendData, setTrendData] = useState<DailyRow[]>([]);
-  const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalInvestment, setTotalInvestment] = useState(0);
   const [vndaShipping, setVndaShipping] = useState(0);
   const [vndaDiscount, setVndaDiscount] = useState(0);
@@ -264,8 +263,6 @@ export default function EscalaPage() {
         });
 
         setTrendData(trend);
-        const rev = isVndaConfigured ? vndaTotals.revenue : isGa4Configured ? ga4Totals.revenue : totalMetaRevenue;
-        setTotalRevenue(rev);
         // Total investment from last_30d (same as Overview)
         setTotalInvestment(totalSpend + gadsTotalCost);
       } catch (err) {
