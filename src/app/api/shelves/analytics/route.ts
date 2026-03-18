@@ -51,11 +51,12 @@ export async function GET(request: NextRequest) {
       .eq("workspace_id", workspaceId);
 
     // Get event counts per shelf
+    // shelves.js sends "impression" (with shelf_config_id) and "click" (with shelf_config_id)
     const { data: impressionEvents } = await admin
       .from("shelf_events")
       .select("shelf_config_id, event_type")
       .eq("workspace_id", workspaceId)
-      .in("event_type", ["pageview", "click"])
+      .in("event_type", ["impression", "click"])
       .not("shelf_config_id", "is", null)
       .gte("created_at", since);
 
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
       const id = event.shelf_config_id;
       if (!id) continue;
       const stats = shelfStats.get(id) || { impressions: 0, clicks: 0 };
-      if (event.event_type === "pageview") stats.impressions++;
+      if (event.event_type === "impression") stats.impressions++;
       else if (event.event_type === "click") stats.clicks++;
       shelfStats.set(id, stats);
     }
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       .from("shelf_events")
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", workspaceId)
-      .eq("event_type", "pageview")
+      .eq("event_type", "impression")
       .not("shelf_config_id", "is", null)
       .gte("created_at", since);
 
