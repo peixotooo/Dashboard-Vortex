@@ -233,14 +233,25 @@ function mapVndaProduct(
     (p.variants || []).some((v) => v.available !== false);
 
   // Build tags from category_tags and tag_names
-  const tags = [...(p.category_tags || []), ...(p.tag_names || [])];
+  const tags: any[] = [...((p as any).category_tags || []), ...((p as any).tag_names || [])];
+
+  // Try to find a reliable category
+  let category = p.category_name || null;
+  if (!category && Array.isArray(tags)) {
+    const catTag = tags.find((t) => 
+      t && typeof t === "object" && (t.tag_type === "product_category" || t.type === "product_category")
+    );
+    if (catTag && catTag.name) {
+      category = catTag.name;
+    }
+  }
 
   return {
     workspace_id: workspaceId,
     product_id: String(p.id),
     sku: p.sku || p.reference || null,
     name: p.name,
-    category: p.category_name || null,
+    category: category,
     tags: tags.length > 0 ? tags : [],
     price: p.price,
     sale_price: p.on_sale && p.sale_price ? p.sale_price : null,

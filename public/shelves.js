@@ -95,11 +95,19 @@
   // --- Page detection ---
 
   function detectPageType() {
-    var path = window.location.pathname;
-    if (path === "/" || path === "/home") return "home";
-    if (/\/(produto|produtos|product)\//.test(path)) return "product";
-    if (/\/(categoria|categorias|category|c)\//.test(path)) return "category";
+    var path = window.location.pathname.toLowerCase();
+    if (path === "/" || path === "/home" || path === "") return "home";
+
+    // VNDA patterns
+    if (/\/(produto|product|p)\//.test(path)) return "product";
+    if (/\/(categoria|category|c)\//.test(path)) return "category";
     if (/\/(carrinho|cart|checkout)/.test(path)) return "cart";
+    
+    // Fallback detection by DOM elements
+    if (document.querySelector('[data-product-id]') || document.querySelector('.product-section')) {
+       return "product";
+    }
+
     return "other";
   }
 
@@ -114,11 +122,16 @@
 
     // Try VNDA product page JSON
     try {
-      var jsonScript = document.querySelector('script[type="application/ld+json"]');
-      if (jsonScript) {
-        var ld = JSON.parse(jsonScript.textContent);
+      var jsonScripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (var i = 0; i < jsonScripts.length; i++) {
+        var ld = JSON.parse(jsonScripts[i].textContent);
         if (ld.sku) return ld.sku;
         if (ld["@type"] === "Product" && ld.productID) return ld.productID;
+        if (Array.isArray(ld)) {
+           for (var j = 0; j < ld.length; j++) {
+             if (ld[j]["@type"] === "Product" && ld[j].sku) return ld[j].sku;
+           }
+        }
       }
     } catch (e) {
       // ignore
@@ -627,7 +640,15 @@
 
   function init() {
     var pageType = detectPageType();
-    console.log("[Shelves] Page type:", pageType, "| API_BASE:", API_BASE);
+    var productId = extractProductId();
+
+    console.log("[Shelves] Initializing on page type:", pageType, "with product ID:", productId);
+
+    if (pageType === "product" && !productId) {
+      console.warn("[Shelves] Product page detected but no product ID found. Retrying in 1s...");
+      setTimeout(init, 1000);
+      return;
+    }
     if (pageType === "other") return;
 
     // Inject styles
