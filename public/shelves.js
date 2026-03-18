@@ -151,9 +151,10 @@
       { before: "footer, .footer" }
     ],
     product: [
-      { after: ".product-description, .product-info, section.product" },
-      { after: "#yv-reviews, .product-reviews" },
-      { before: "footer, .footer" }
+      { before: "#yv-reviews, .product-reviews, footer, .footer" },
+      { before: "#yv-reviews, .product-reviews, footer, .footer" },
+      { before: "#yv-reviews, .product-reviews, footer, .footer" },
+      { before: "#yv-reviews, .product-reviews, footer, .footer" }
     ],
     category: [
       { after: "section.products, .category-products" },
