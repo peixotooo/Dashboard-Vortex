@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/cron/whatsapp-sender",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/crm-recompute",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/budget-snapshot",

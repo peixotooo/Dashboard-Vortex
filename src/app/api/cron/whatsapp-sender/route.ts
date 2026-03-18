@@ -117,12 +117,6 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Mark as sending
-        await admin
-          .from("wa_messages")
-          .update({ status: "sending" })
-          .eq("id", msg.id);
-
         // Merge campaign-level and message-level variables
         const variables = {
           ...(campaign.variable_values as Record<string, string>),

@@ -19,6 +19,15 @@ export function createAdminClient(): SupabaseClient {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      fetch: (input, init) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+          clearTimeout(timeout)
+        );
+      },
+    },
   });
 
   return adminClient;

@@ -58,8 +58,13 @@ export async function middleware(request: NextRequest) {
   };
 
   // 2. Auth check via local session (reads JWT from cookie, no network call)
-  const { data: { session } } = await supabase.auth.getSession();
-  const user = session?.user || null;
+  let user: import("@supabase/supabase-js").User | null = null;
+  try {
+    const sessionResult = await withTimeout(supabase.auth.getSession(), 4000);
+    user = (sessionResult as { data: { session: { user: import("@supabase/supabase-js").User } | null } })?.data?.session?.user || null;
+  } catch {
+    user = null;
+  }
 
   if (!user) {
     const url = request.nextUrl.clone();
@@ -107,6 +112,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|shelves\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|shelves\\.js|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

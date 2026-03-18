@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     }
 
     const results: { workspaceId: string; rowCount: number; customerCount: number }[] = [];
-    const CONCURRENCY = 3;
+    const CONCURRENCY = 1;
 
     // Process workspaces in parallel batches of CONCURRENCY
     for (let i = 0; i < workspaceIds.length; i += CONCURRENCY) {
