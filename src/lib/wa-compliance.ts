@@ -6,10 +6,19 @@ function normalizePhone(phone: string): string {
 
 const PAGE_SIZE = 5000;
 
+// Module-level cache (persists across warm invocations of the same Function)
+const exclusionCache = new Map<string, { phones: Set<string>; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
- * Fetch phones in the permanent exclusion list (paginated for large tables).
+ * Fetch phones in the permanent exclusion list (cached with 5min TTL, paginated for large tables).
  */
 export async function getExcludedPhones(workspaceId: string): Promise<Set<string>> {
+  const cached = exclusionCache.get(workspaceId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.phones;
+  }
+
   const admin = createAdminClient();
   const phones = new Set<string>();
   let from = 0;
@@ -33,6 +42,7 @@ export async function getExcludedPhones(workspaceId: string): Promise<Set<string
     }
   }
 
+  exclusionCache.set(workspaceId, { phones, expiresAt: Date.now() + CACHE_TTL_MS });
   return phones;
 }
 

@@ -5,8 +5,9 @@ import { getExcludedPhones } from "@/lib/wa-compliance";
 
 export const maxDuration = 300;
 
-const BATCH_SIZE = 50;
-const DELAY_MS = 50; // ~20 msgs/sec, well under Meta's 80/sec limit
+const BATCH_SIZE = 200;
+const PARALLEL = 10;  // micro-batch size for Meta API calls
+const DELAY_MS = 50;  // between micro-batches (~20 msgs/sec per parallel slot)
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,66 +98,110 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // Pre-load exclusion list once (instead of 1 query per message)
+      // Pre-load exclusion list once (cached with TTL in wa-compliance)
       const excludedPhones = await getExcludedPhones(campaign.workspace_id);
 
-      // Track batch counters to update at the end (instead of SELECT+UPDATE per message)
-      let batchSent = 0;
-      let batchFailed = 0;
-
-      // Send each message
+      // --- Separate blocked phones in-memory (no DB calls) ---
+      type Msg = (typeof messages)[number];
+      const toSend: Msg[] = [];
+      const blockedIds: string[] = [];
       for (const msg of messages) {
-        // Safety net: check exclusion list (in-memory lookup, no DB call)
-        const normalizedPhone = msg.phone.replace(/\D/g, "");
-        if (excludedPhones.has(normalizedPhone)) {
-          await admin
-            .from("wa_messages")
-            .update({ status: "failed", error_message: "Blocked by exclusion list" })
-            .eq("id", msg.id);
-          batchFailed++;
-          continue;
-        }
-
-        // Merge campaign-level and message-level variables
-        const variables = {
-          ...(campaign.variable_values as Record<string, string>),
-          ...(msg.variable_values as Record<string, string>),
-        };
-
-        const result = await sendTemplateMessage(
-          config,
-          msg.phone,
-          template.name,
-          template.language,
-          Object.keys(variables).length > 0 ? variables : undefined
-        );
-
-        if (result.messageId) {
-          await admin
-            .from("wa_messages")
-            .update({
-              status: "sent",
-              meta_message_id: result.messageId,
-              sent_at: new Date().toISOString(),
-            })
-            .eq("id", msg.id);
-          batchSent++;
+        if (excludedPhones.has(msg.phone.replace(/\D/g, ""))) {
+          blockedIds.push(msg.id);
         } else {
-          await admin
-            .from("wa_messages")
-            .update({
-              status: "failed",
-              error_message: result.error || "Unknown error",
-            })
-            .eq("id", msg.id);
-          batchFailed++;
+          toSend.push(msg);
         }
-
-        totalProcessed++;
-        await sleep(DELAY_MS);
       }
 
-      // Update campaign counters once per batch (instead of per-message SELECT+UPDATE)
+      // --- Send in parallel micro-batches ---
+      const sentResults: { id: string; messageId: string }[] = [];
+      const failedIds: string[] = [];
+
+      for (let i = 0; i < toSend.length; i += PARALLEL) {
+        const chunk = toSend.slice(i, i + PARALLEL);
+        const results = await Promise.allSettled(
+          chunk.map(async (msg) => {
+            const variables = {
+              ...(campaign.variable_values as Record<string, string> | null),
+              ...(msg.variable_values as Record<string, string> | null),
+            };
+            const hasVars = Object.keys(variables).length > 0;
+            const result = await sendTemplateMessage(
+              config,
+              msg.phone,
+              template.name,
+              template.language,
+              hasVars ? variables : undefined
+            );
+            return { id: msg.id, messageId: result.messageId, error: result.error };
+          })
+        );
+
+        for (let j = 0; j < results.length; j++) {
+          const r = results[j];
+          if (r.status === "fulfilled" && r.value.messageId) {
+            sentResults.push({ id: r.value.id, messageId: r.value.messageId });
+          } else {
+            const id = r.status === "fulfilled" ? r.value.id : chunk[j]?.id;
+            if (id) failedIds.push(id);
+          }
+        }
+
+        // Rate limit between micro-batches
+        if (i + PARALLEL < toSend.length) await sleep(DELAY_MS);
+      }
+
+      // --- Batch DB updates ---
+
+      // Blocked: 1 query
+      if (blockedIds.length > 0) {
+        await admin
+          .from("wa_messages")
+          .update({ status: "failed", error_message: "Blocked by exclusion list" })
+          .in("id", blockedIds);
+      }
+
+      // Failed: 1 query
+      if (failedIds.length > 0) {
+        await admin
+          .from("wa_messages")
+          .update({ status: "failed", error_message: "send_error" })
+          .in("id", failedIds);
+      }
+
+      // Sent: batch update status+sent_at (1 query) + meta_message_id in parallel chunks
+      if (sentResults.length > 0) {
+        const now = new Date().toISOString();
+
+        // 1 query for common fields
+        await admin
+          .from("wa_messages")
+          .update({ status: "sent", sent_at: now })
+          .in("id", sentResults.map((r) => r.id));
+
+        // meta_message_id needs per-message value — parallel chunks of 50
+        for (let i = 0; i < sentResults.length; i += 50) {
+          const chunk = sentResults.slice(i, i + 50);
+          await Promise.all(
+            chunk.map((r) =>
+              admin
+                .from("wa_messages")
+                .update({ meta_message_id: r.messageId })
+                .eq("id", r.id)
+            )
+          );
+        }
+      }
+
+      const batchSent = sentResults.length;
+      const batchFailed = blockedIds.length + failedIds.length;
+      totalProcessed += batchSent + batchFailed;
+
+      console.log(
+        `[WA Sender] Campaign ${campaign.id}: sent=${batchSent} failed=${batchFailed} blocked=${blockedIds.length}`
+      );
+
+      // Update campaign counters once per batch
       if (batchSent > 0 || batchFailed > 0) {
         const { data: camp } = await admin
           .from("wa_campaigns")
