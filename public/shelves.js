@@ -430,6 +430,16 @@
     return u;
   }
 
+  function getViewAllUrl(algorithm) {
+    switch (algorithm) {
+      case "news":           return "/lancamentos";
+      case "bestsellers":    return "/mais-vendidos";
+      case "offers":         return "/mais-vendidos";
+      case "most_popular":   return "/mais-vendidos";
+      default:               return "/todos";
+    }
+  }
+
   function buildShelfHTML(shelf, products) {
     var slides = products
       .map(function (p) {
@@ -441,7 +451,7 @@
       '<section class="section products carousel container vtx-shelf" data-vtx-algorithm="' + escapeHtml(shelf.algorithm) + '">' +
         '<div class="header">' +
           '<h2 class="title">' + escapeHtml(shelf.title) + "</h2>" +
-          '<a href="/novidades" class="view-all">ver todas <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></a>' +
+          '<a href="' + getViewAllUrl(shelf.algorithm) + '" class="view-all">ver todas <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></a>' +
         "</div>" +
         '<div class="swiper vtx-swiper">' +
           '<div class="swiper-wrapper">' +
