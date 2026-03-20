@@ -25,7 +25,7 @@ export default function ForgotPasswordPage() {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
+        redirectTo: "https://dashboard-vortex.vercel.app/auth/callback?type=recovery",
       });
 
       if (error) {
