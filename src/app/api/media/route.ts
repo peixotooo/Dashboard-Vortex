@@ -4,6 +4,49 @@ import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey } from "@/lib/b2-storage";
 
+// Register file already in B2 — no Meta upload
+async function handleRegisterOnly(request: NextRequest, userId: string | null) {
+    const { storage_key, filename, mime_type, file_size } = await request.json();
+
+    if (!storage_key || !filename || !mime_type) {
+        return NextResponse.json(
+            { error: "storage_key, filename, and mime_type are required" },
+            { status: 400 }
+        );
+    }
+
+    const imageUrl = getPublicUrl(storage_key);
+    const workspaceId = request.headers.get("x-workspace-id");
+
+    if (!workspaceId) {
+        return NextResponse.json({ error: "x-workspace-id header required" }, { status: 400 });
+    }
+
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.from("workspace_media").insert({
+        workspace_id: workspaceId,
+        filename,
+        image_url: imageUrl,
+        image_hash: null,
+        storage_path: storage_key,
+        file_size: file_size || null,
+        mime_type,
+        uploaded_by: userId || null,
+    }).select("id").single();
+
+    if (error) {
+        console.error("DB registration error:", error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+        id: data.id,
+        imageUrl,
+        filename,
+        mediaType: mime_type.startsWith("video/") ? "video" : "image",
+    });
+}
+
 async function handlePreUploadedFile(request: NextRequest, userId: string | null) {
     const { storage_key, account_id, filename, mime_type, file_size } = await request.json();
 
@@ -33,7 +76,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
             return NextResponse.json({ error: `Meta Video Upload Error: ${err.message}` }, { status: 500 });
         }
     } else {
-        // Meta doesn't support file_url for images in the simple upload endpoint, 
+        // Meta doesn't support file_url for images in the simple upload endpoint,
         // but we still want the image in B2 for our own records and gallery.
         console.log("[MediaAPI] Downloading image from B2 for Meta upload...");
         const buffer = await downloadFile(storage_key);
@@ -95,9 +138,15 @@ export async function POST(request: NextRequest) {
     try {
         const { userId } = await getAuthenticatedContext(request).catch(() => ({ userId: null })) as { userId: string | null };
 
-        // Pre-uploaded files (uploaded directly to B2 via presigned URL)
         const contentType = request.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
+            // Check if this is a register-only request (no Meta upload)
+            const cloned = request.clone();
+            const body = await cloned.json();
+            if (!body.account_id) {
+                return handleRegisterOnly(request, userId);
+            }
+            // Pre-uploaded files with Meta integration
             return handlePreUploadedFile(request, userId);
         }
 
