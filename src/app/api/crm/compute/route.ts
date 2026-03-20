@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { recomputeRfmSnapshot } from "@/lib/crm-compute";
 
 export const maxDuration = 120;
@@ -40,7 +41,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
     }
 
-    const result = await recomputeRfmSnapshot(supabase, workspaceId);
+    const admin = createAdminClient();
+    const result = await recomputeRfmSnapshot(admin, workspaceId);
 
     return NextResponse.json({
       ok: true,

@@ -2,7 +2,7 @@ import { generateRfmReport, generateMonthlyCohort } from "@/lib/crm-rfm";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const PAGE_SIZE = 5000;
+const PAGE_SIZE = 1000; // Supabase default max rows per request
 
 /**
  * Recomputes the RFM snapshot for a workspace.

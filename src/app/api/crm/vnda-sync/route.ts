@@ -210,10 +210,10 @@ export async function POST(request: NextRequest) {
   }
 
   const endDate = body.endDate || new Date().toISOString().slice(0, 10);
-  // Default to fetching 90 days of history
+  // Default to fetching 2 years of history
   const startDate = body.startDate || (() => {
     const d = new Date();
-    d.setDate(d.getDate() - 90);
+    d.setDate(d.getDate() - 730);
     return d.toISOString().slice(0, 10);
   })();
 
