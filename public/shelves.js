@@ -799,8 +799,9 @@
         "[data-checkout-total]"
       ];
       for (var i = 0; i < selectors.length; i++) {
-        var el = document.querySelector(selectors[i]);
-        if (el) {
+        var els = document.querySelectorAll(selectors[i]);
+        for (var j = 0; j < els.length; j++) {
+          var el = els[j];
           var val = parseBRL(el.textContent || el.getAttribute("data-cart-total") || el.getAttribute("data-total-price"));
           if (val > 0) return callback(val);
         }
@@ -870,10 +871,12 @@
     }
 
     // MutationObserver for cart total changes in DOM
-    var cartEl = document.querySelector("[data-cart-total], .cart-total, .cart-drawer-total, .cart-drawer-subtotal-value, .cart-drawer-total-value");
-    if (cartEl) {
+    var cartEls = document.querySelectorAll("[data-cart-total], .cart-total, .cart-drawer-total, .cart-drawer-subtotal-value, .cart-drawer-total-value");
+    if (cartEls.length > 0) {
       var observer = new MutationObserver(debouncedUpdate);
-      observer.observe(cartEl, { childList: true, characterData: true, subtree: true });
+      for (var k = 0; k < cartEls.length; k++) {
+        observer.observe(cartEls[k], { childList: true, characterData: true, subtree: true });
+      }
     }
   }
 
