@@ -761,8 +761,16 @@
 
   function parseBRL(text) {
     if (!text) return 0;
-    var clean = String(text).replace(/[^\d,.]/g, "").replace(/\./g, "").replace(",", ".");
-    return parseFloat(clean) || 0;
+    // Extract the first valid price format (e.g. "R$ 178,00" -> "178,00")
+    // This avoids merging numbers like "12x de R$ 18,27" into "1218.27"
+    var match = String(text).match(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/);
+    if (match) {
+      var clean = match[1].replace(/\./g, "").replace(",", ".");
+      return parseFloat(clean) || 0;
+    }
+    // Fallback
+    var cleanFallback = String(text).replace(/[^\d,.]/g, "").replace(/\./g, "").replace(",", ".");
+    return parseFloat(cleanFallback) || 0;
   }
 
   function formatBRL(value) {
@@ -870,14 +878,9 @@
       };
     }
 
-    // MutationObserver for cart total changes in DOM
-    var cartEls = document.querySelectorAll("[data-cart-total], .cart-total, .cart-drawer-total, .cart-drawer-subtotal-value, .cart-drawer-total-value");
-    if (cartEls.length > 0) {
-      var observer = new MutationObserver(debouncedUpdate);
-      for (var k = 0; k < cartEls.length; k++) {
-        observer.observe(cartEls[k], { childList: true, characterData: true, subtree: true });
-      }
-    }
+    // MutationObserver for cart total changes anywhere in the body
+    var observer = new MutationObserver(debouncedUpdate);
+    observer.observe(document.body, { childList: true, characterData: true, subtree: true });
   }
 
 
