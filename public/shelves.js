@@ -790,6 +790,8 @@
         ".CartDrawer-total",
         "#cart-total",
         "[data-total-price]",
+        ".cart-drawer-subtotal-value",
+        ".cart-drawer-total-value"
       ];
       for (var i = 0; i < selectors.length; i++) {
         var el = document.querySelector(selectors[i]);
@@ -800,7 +802,9 @@
       }
 
       // 3. Fetch /carrinho and parse (last resort)
-      fetch("/carrinho", { credentials: "same-origin" })
+      // Use include_bundle_items=true to avoid 302 redirect on some VNDA stores
+      fetch("/carrinho?include_bundle_items=true", { credentials: "same-origin" })
+
         .then(function (r) { return r.text(); })
         .then(function (html) {
           var doc = new DOMParser().parseFromString(html, "text/html");
@@ -861,12 +865,13 @@
     }
 
     // MutationObserver for cart total changes in DOM
-    var cartEl = document.querySelector("[data-cart-total], .cart-total, .cart-drawer-total");
+    var cartEl = document.querySelector("[data-cart-total], .cart-total, .cart-drawer-total, .cart-drawer-subtotal-value, .cart-drawer-total-value");
     if (cartEl) {
       var observer = new MutationObserver(debouncedUpdate);
       observer.observe(cartEl, { childList: true, characterData: true, subtree: true });
     }
   }
+
 
   function initGiftBar() {
     fetchJSON(API_BASE + "/api/gift-bar/public-config?key=" + API_KEY)
@@ -983,13 +988,22 @@
         }
 
         // Initial cart read
-        getCartTotal(updateBar);
+        getCartTotal(function (total) {
+          updateBar(total);
+          // If total is 0, retry once after 2 seconds (some themes load cart async)
+          if (total === 0) {
+            setTimeout(function () {
+              getCartTotal(updateBar);
+            }, 2000);
+          }
+        });
 
         // Listen for cart changes
         setupCartListeners(updateBar);
 
         console.log("[GiftBar] Initialized, position:", cfg.position, "threshold:", cfg.threshold);
       })
+
       .catch(function (err) {
         // Gift bar is optional - never break the page
         console.warn("[GiftBar] Init error:", err);
