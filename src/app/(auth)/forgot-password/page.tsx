@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ArrowLeft } from "lucide-react";
 
-export default function LoginPage() {
+export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -19,12 +20,12 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setMessage("");
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
       });
 
       if (error) {
@@ -32,9 +33,9 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      setMessage("Se o e-mail estiver cadastrado, você receberá um link de recuperação em instantes.");
     } catch {
-      setError("Erro ao fazer login. Tente novamente.");
+      setError("Erro ao processar solicitação. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -46,9 +47,9 @@ export default function LoginPage() {
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
           <span className="text-2xl font-bold text-primary">V</span>
         </div>
-        <CardTitle className="text-2xl">Dashboard Vortex</CardTitle>
+        <CardTitle className="text-2xl">Recuperar Senha</CardTitle>
         <CardDescription>
-          Entre com sua conta para acessar o dashboard
+          Informe seu e-mail para receber um link de redefinição
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -56,6 +57,11 @@ export default function LoginPage() {
           {error && (
             <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
               {error}
+            </div>
+          )}
+          {message && (
+            <div className="rounded-lg bg-primary/10 p-3 text-sm text-primary">
+              {message}
             </div>
           )}
 
@@ -71,36 +77,19 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Senha</Label>
-              <Button
-                variant="link"
-                className="h-auto p-0 text-xs font-normal"
-                onClick={() => router.push("/forgot-password")}
-                type="button"
-              >
-                Esqueci minha senha
-              </Button>
-            </div>
-            <Input
-              id="password"
-              type="password"
-              placeholder="Sua senha"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Entrando..." : "Entrar"}
+          <Button type="submit" className="w-full" disabled={loading || !!message}>
+            {loading ? "Enviando..." : "Enviar link de recuperação"}
           </Button>
 
-          <p className="text-center text-sm text-muted-foreground">
-            Acesso apenas por convite
-          </p>
+          <Button
+            variant="ghost"
+            className="w-full"
+            onClick={() => router.push("/login")}
+            type="button"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Voltar para o login
+          </Button>
         </form>
       </CardContent>
     </Card>
