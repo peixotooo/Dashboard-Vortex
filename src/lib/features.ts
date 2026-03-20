@@ -39,8 +39,8 @@ export const FEATURES: Feature[] = [
   {
     id: "loja",
     label: "Loja",
-    description: "Produtos e Prateleiras",
-    routes: ["/vnda", "/products", "/shelves"],
+    description: "Produtos, Prateleiras e Régua de Brinde",
+    routes: ["/vnda", "/products", "/shelves", "/gift-bar"],
   },
   {
     id: "crm",

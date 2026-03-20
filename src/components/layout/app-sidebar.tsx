@@ -27,6 +27,7 @@ import {
   Boxes,
   Contact,
   LayoutGrid,
+  Gift,
   LogOut,
   ChevronsUpDown,
 } from "lucide-react";
@@ -129,6 +130,7 @@ const navGroups: NavGroup[] = [
         items: [
           { title: "Produtos", href: "/products", icon: Boxes },
           { title: "Prateleiras", href: "/shelves", icon: LayoutGrid },
+          { title: "Régua de Brinde", href: "/gift-bar", icon: Gift },
         ],
       },
       {

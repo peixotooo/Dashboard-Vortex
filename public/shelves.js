@@ -755,10 +755,255 @@
       });
   }
 
+  // ============================================================
+  // --- Gift Progress Bar (Régua de Brinde) ---
+  // ============================================================
+
+  function parseBRL(text) {
+    if (!text) return 0;
+    var clean = String(text).replace(/[^\d,.]/g, "").replace(/\./g, "").replace(",", ".");
+    return parseFloat(clean) || 0;
+  }
+
+  function formatBRL(value) {
+    var parts = parseFloat(value).toFixed(2).split(".");
+    return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + parts[1];
+  }
+
+  function getCartTotal(callback) {
+    try {
+      // 1. Try global cart objects (VNDA themes)
+      if (window.cart && typeof window.cart.total === "number") {
+        return callback(window.cart.total);
+      }
+      if (window.vnda && window.vnda.cart && typeof window.vnda.cart.total === "number") {
+        return callback(window.vnda.cart.total);
+      }
+
+      // 2. Try DOM: cart total elements
+      var selectors = [
+        "[data-cart-total]",
+        ".cart-total",
+        ".order-total .value",
+        ".cart-subtotal",
+        ".cart-drawer-total",
+        ".CartDrawer-total",
+        "#cart-total",
+        "[data-total-price]",
+      ];
+      for (var i = 0; i < selectors.length; i++) {
+        var el = document.querySelector(selectors[i]);
+        if (el) {
+          var val = parseBRL(el.textContent || el.getAttribute("data-cart-total") || el.getAttribute("data-total-price"));
+          if (val > 0) return callback(val);
+        }
+      }
+
+      // 3. Fetch /carrinho and parse (last resort)
+      fetch("/carrinho", { credentials: "same-origin" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          for (var j = 0; j < selectors.length; j++) {
+            var found = doc.querySelector(selectors[j]);
+            if (found) {
+              var v = parseBRL(found.textContent || found.getAttribute("data-cart-total") || found.getAttribute("data-total-price"));
+              if (v > 0) return callback(v);
+            }
+          }
+          callback(0);
+        })
+        .catch(function () { callback(0); });
+    } catch (e) {
+      callback(0);
+    }
+  }
+
+  function setupCartListeners(onUpdate) {
+    var CART_EVENTS = [
+      "vnda:cart-drawer-added-item",
+      "vnda:cart-drawer-deleted-item",
+      "vnda:cart-drawer-updated-item",
+      "vnda:cart-drawer-coupon-added",
+      "vnda:cart-drawer-coupon-removed",
+    ];
+
+    var debounceTimer = null;
+    function debouncedUpdate() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () {
+        getCartTotal(onUpdate);
+      }, 500);
+    }
+
+    // Listen for VNDA cart events
+    CART_EVENTS.forEach(function (evt) {
+      window.addEventListener(evt, debouncedUpdate);
+    });
+
+    // Intercept fetch calls to cart endpoints
+    if (window.fetch && !window._vtxFetchPatched) {
+      var origFetch = window.fetch;
+      window._vtxFetchPatched = true;
+      window.fetch = function () {
+        var result = origFetch.apply(this, arguments);
+        var url = typeof arguments[0] === "string" ? arguments[0] : (arguments[0] && arguments[0].url) || "";
+        if (url.indexOf("/carrinho") !== -1 || url.indexOf("/cart") !== -1) {
+          result.then(function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function () {
+              getCartTotal(onUpdate);
+            }, 800);
+          }).catch(function () {});
+        }
+        return result;
+      };
+    }
+
+    // MutationObserver for cart total changes in DOM
+    var cartEl = document.querySelector("[data-cart-total], .cart-total, .cart-drawer-total");
+    if (cartEl) {
+      var observer = new MutationObserver(debouncedUpdate);
+      observer.observe(cartEl, { childList: true, characterData: true, subtree: true });
+    }
+  }
+
+  function initGiftBar() {
+    fetchJSON(API_BASE + "/api/gift-bar/public-config?key=" + API_KEY)
+      .then(function (data) {
+        if (!data.gift_bar) return;
+        var cfg = data.gift_bar;
+
+        var pageType = detectPageType();
+
+        // Check if bar should show on this page
+        if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
+
+        // Inject styles
+        var css =
+          "#vtx-gift-bar{position:sticky;z-index:9999;" +
+            "background:" + escapeHtml(cfg.bg_color) + ";" +
+            "color:" + escapeHtml(cfg.text_color) + ";" +
+            "padding:10px 16px;" +
+            "font-family:'Inter',system-ui,sans-serif;" +
+            "font-size:" + escapeHtml(cfg.font_size) + ";" +
+            "box-shadow:0 1px 3px rgba(0,0,0,.1);" +
+            (cfg.position === "bottom" ? "bottom:0;" : "top:0;") +
+          "}" +
+          "#vtx-gift-bar.vtx-gb-achieved{" +
+            "background:" + escapeHtml(cfg.achieved_bg_color) + "!important;" +
+            "color:" + escapeHtml(cfg.achieved_text_color) + "!important;" +
+          "}" +
+          ".vtx-gb-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}" +
+          ".vtx-gb-img{width:32px;height:32px;object-fit:contain;border-radius:4px}" +
+          ".vtx-gb-content{flex:1}" +
+          ".vtx-gb-text{margin:0 0 6px;font-weight:600;text-align:center}" +
+          ".vtx-gb-track{width:100%;height:" + escapeHtml(cfg.bar_height) + ";" +
+            "background:" + escapeHtml(cfg.bar_bg_color) + ";" +
+            "border-radius:999px;overflow:hidden}" +
+          ".vtx-gb-fill{height:100%;" +
+            "background:" + escapeHtml(cfg.bar_color) + ";" +
+            "border-radius:999px;transition:width .5s ease;width:0}" +
+          "@media(max-width:768px){" +
+            "#vtx-gift-bar{padding:8px 12px;font-size:12px}" +
+            ".vtx-gb-img{width:24px;height:24px}" +
+          "}";
+
+        var style = document.createElement("style");
+        style.id = "vtx-gift-bar-styles";
+        style.textContent = css;
+        document.head.appendChild(style);
+
+        // Create bar element
+        var bar = document.createElement("div");
+        bar.id = "vtx-gift-bar";
+        bar.innerHTML =
+          '<div class="vtx-gb-inner">' +
+            (cfg.gift_image_url ?
+              '<img class="vtx-gb-img" src="' + escapeHtml(cfg.gift_image_url) + '" alt="' + escapeHtml(cfg.gift_name) + '" onerror="this.style.display=\'none\'">' : "") +
+            '<div class="vtx-gb-content">' +
+              '<p class="vtx-gb-text"></p>' +
+              '<div class="vtx-gb-track">' +
+                '<div class="vtx-gb-fill"></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+
+        // Insert in page
+        if (cfg.position === "bottom") {
+          document.body.appendChild(bar);
+        } else {
+          document.body.insertBefore(bar, document.body.firstChild);
+        }
+
+        var giftAchieved = false;
+
+        function updateBar(cartTotal) {
+          var textEl = bar.querySelector(".vtx-gb-text");
+          var fillEl = bar.querySelector(".vtx-gb-fill");
+          if (!textEl || !fillEl) return;
+
+          var pct = Math.min((cartTotal / cfg.threshold) * 100, 100);
+          var remaining = Math.max(cfg.threshold - cartTotal, 0);
+
+          var message;
+          if (cartTotal <= 0) {
+            message = cfg.message_empty;
+            bar.classList.remove("vtx-gb-achieved");
+          } else if (cartTotal >= cfg.threshold) {
+            message = cfg.message_achieved;
+            bar.classList.add("vtx-gb-achieved");
+          } else {
+            message = cfg.message_progress;
+            bar.classList.remove("vtx-gb-achieved");
+          }
+
+          // Interpolate placeholders
+          message = message
+            .replace(/\{remaining\}/g, formatBRL(remaining))
+            .replace(/\{threshold\}/g, formatBRL(cfg.threshold))
+            .replace(/\{gift\}/g, cfg.gift_name)
+            .replace(/\{total\}/g, formatBRL(cartTotal));
+
+          textEl.textContent = message;
+          fillEl.style.width = pct + "%";
+
+          // Fire GA4 event once when threshold reached
+          if (cartTotal >= cfg.threshold && !giftAchieved) {
+            giftAchieved = true;
+            if (window.dataLayer) {
+              window.dataLayer.push({
+                event: "vtx_gift_bar_achieved",
+                gift_name: cfg.gift_name,
+                cart_total: cartTotal,
+                threshold: cfg.threshold,
+              });
+            }
+          }
+        }
+
+        // Initial cart read
+        getCartTotal(updateBar);
+
+        // Listen for cart changes
+        setupCartListeners(updateBar);
+
+        console.log("[GiftBar] Initialized, position:", cfg.position, "threshold:", cfg.threshold);
+      })
+      .catch(function (err) {
+        // Gift bar is optional - never break the page
+        console.warn("[GiftBar] Init error:", err);
+      });
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", function () {
+      init();
+      initGiftBar();
+    });
   } else {
     init();
+    initGiftBar();
   }
 })();
