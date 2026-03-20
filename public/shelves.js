@@ -96,16 +96,32 @@
 
   function detectPageType() {
     var path = window.location.pathname.toLowerCase();
+    var body = document.body;
+
     if (path === "/" || path === "/home" || path === "") return "home";
 
-    // VNDA patterns
+    // VNDA specific body classes / data attributes (most reliable)
+    if (body.classList.contains("page-product") || body.getAttribute("data-page") === "product") {
+      return "product";
+    }
+    if (
+      body.classList.contains("page-tag") ||
+      body.classList.contains("page-category") ||
+      body.getAttribute("data-page") === "tag" ||
+      body.getAttribute("data-page") === "category"
+    ) {
+      return "category";
+    }
+
+    // VNDA patterns in URL
     if (/\/(produto|product|p)\//.test(path)) return "product";
     if (/\/(categoria|category|c)\//.test(path)) return "category";
     if (/\/(carrinho|cart|checkout)/.test(path)) return "cart";
-    
-    // Fallback detection by DOM elements
-    if (document.querySelector('[data-product-id]') || document.querySelector('.product-section')) {
-       return "product";
+
+    // Fallback detection by DOM elements - ONLY if not already detected as something else
+    // We check for .product-section which is more specific than just any [data-product-id]
+    if (document.querySelector(".product-section") || document.querySelector(".main-product-container")) {
+      return "product";
     }
 
     return "other";
@@ -116,21 +132,36 @@
     var meta = document.querySelector('meta[property="product:retailer_item_id"]');
     if (meta && meta.content) return meta.content;
 
-    // Try data attribute
-    var el = document.querySelector("[data-product-id]");
+    // Try VNDA hidden input (common in many themes)
+    var rmktId = document.getElementById("rmkt-product-id");
+    if (rmktId && rmktId.value) return rmktId.value;
+
+    // Try data attribute on a main container (avoiding individual product cards in a list)
+    var el = document.querySelector(".product-section [data-product-id], .main-product [data-product-id], #product-form [data-product-id]");
+    if (el) return el.getAttribute("data-product-id");
+
+    // Generic data attribute check (if the above didn't find specific ones)
+    if (!el) {
+       el = document.querySelector("[data-product-id]");
+       // If we're on a category page (detected earlier), we shouldn't trust a random data-product-id
+       if (el && detectPageType() === "category") return null;
+    }
     if (el) return el.getAttribute("data-product-id");
 
     // Try VNDA product page JSON
     try {
       var jsonScripts = document.querySelectorAll('script[type="application/ld+json"]');
       for (var i = 0; i < jsonScripts.length; i++) {
-        var ld = JSON.parse(jsonScripts[i].textContent);
-        if (ld.sku) return ld.sku;
-        if (ld["@type"] === "Product" && ld.productID) return ld.productID;
-        if (Array.isArray(ld)) {
-           for (var j = 0; j < ld.length; j++) {
-             if (ld[j]["@type"] === "Product" && ld[j].sku) return ld[j].sku;
-           }
+        var content = jsonScripts[i].textContent;
+        if (content.indexOf('"@type":"Product"') !== -1 || content.indexOf('"@type": "Product"') !== -1) {
+          var ld = JSON.parse(content);
+          if (ld.sku) return ld.sku;
+          if (ld["@type"] === "Product" && ld.productID) return ld.productID;
+          if (Array.isArray(ld)) {
+            for (var j = 0; j < ld.length; j++) {
+              if (ld[j]["@type"] === "Product" && ld[j].sku) return ld[j].sku;
+            }
+          }
         }
       }
     } catch (e) {
