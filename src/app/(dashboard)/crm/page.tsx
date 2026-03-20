@@ -467,6 +467,27 @@ export default function CrmPage() {
     try {
       const res = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
       const data = await res.json();
+
+      // If snapshot is missing but data exists, auto-trigger compute and poll
+      if (data.pending) {
+        setComputing(true);
+        const compRes = await fetch("/api/crm/compute", {
+          method: "POST",
+          headers: wsHeaders(),
+        });
+        if (compRes.ok) {
+          // Snapshot ready — re-fetch summary
+          const res2 = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
+          const data2 = await res2.json();
+          setSegments(data2.segments || []);
+          setSummary(data2.summary || emptySummary);
+          setDistributions(data2.distributions || emptyDistributions);
+          setBehavioral(data2.behavioralDistributions || emptyBehavioral);
+        }
+        setComputing(false);
+        return;
+      }
+
       setSegments(data.segments || []);
       setSummary(data.summary || emptySummary);
       setDistributions(data.distributions || emptyDistributions);
