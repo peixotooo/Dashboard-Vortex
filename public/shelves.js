@@ -897,7 +897,7 @@
 
         // Inject styles
         var css =
-          "#vtx-gift-bar{position:sticky;z-index:9999;" +
+          "#vtx-gift-bar{position:sticky;z-index:90;" +
             "background:" + escapeHtml(cfg.bg_color) + ";" +
             "color:" + escapeHtml(cfg.text_color) + ";" +
             "padding:10px 16px;" +
@@ -921,7 +921,7 @@
             "background:" + escapeHtml(cfg.bar_color) + ";" +
             "border-radius:999px;transition:width .5s ease;width:0}" +
           "@media(max-width:768px){" +
-            "#vtx-gift-bar{padding:8px 12px;font-size:12px}" +
+            "#vtx-gift-bar{position:relative;padding:8px 12px;font-size:12px}" +
             ".vtx-gb-img{width:24px;height:24px}" +
           "}";
 
