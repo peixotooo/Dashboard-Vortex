@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedContext } from "@/lib/api-auth";
+import { createServerClient } from "@supabase/ssr";
 import { generateKey, createPresignedUploadUrl, getPublicUrl } from "@/lib/b2-storage";
 
 const ALLOWED_MIME_TYPES = [
@@ -10,7 +10,16 @@ const ALLOWED_MIME_TYPES = [
 
 export async function POST(request: NextRequest) {
     try {
-        await getAuthenticatedContext(request);
+        // Auth check only — no workspace/Meta needed for presigned URL
+        const supabase = createServerClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            { cookies: { getAll() { return request.cookies.getAll(); }, setAll() {} } }
+        );
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+        }
 
         const { filename, mime_type } = await request.json();
 
