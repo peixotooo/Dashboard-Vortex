@@ -997,71 +997,70 @@ export default function CrmPage() {
           <TabsTrigger value="customers">Clientes</TabsTrigger>
         </TabsList>
 
-        {/* === Hypersegmentation filter bar === */}
-        {(activeFilters.length > 0 || selectedEmails.size > 0) && (
-          <div className="flex items-center gap-2 flex-wrap px-1 py-3 border-b border-border/50">
-            {activeFilters.length > 0 && (
-              <>
-                <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
-                {activeFilters.map((f) => (
-                  <button
-                    key={`${f.type}-${f.value}`}
-                    onClick={f.onRemove}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
-                    style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
-                  >
-                    {f.label}
-                    <X className="h-3 w-3" />
-                  </button>
-                ))}
-                <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
-                  Limpar filtros
+        {/* === Action buttons — always visible === */}
+        <div className="flex items-center gap-2 flex-wrap px-1 py-3 border-b border-border/50">
+          {/* Filter chips (only when filters active) */}
+          {activeFilters.length > 0 && (
+            <>
+              <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
+              {activeFilters.map((f) => (
+                <button
+                  key={`${f.type}-${f.value}`}
+                  onClick={f.onRemove}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
+                  style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
+                >
+                  {f.label}
+                  <X className="h-3 w-3" />
                 </button>
-              </>
-            )}
-            {selectedEmails.size > 0 && (
-              <button
-                onClick={() => setSelectedEmails(new Set())}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
-                style={{ color: "#3b82f6", backgroundColor: "#3b82f615", border: "1px solid #3b82f630" }}
-              >
-                {selectedEmails.size} selecionado{selectedEmails.size > 1 ? "s" : ""}
-                <X className="h-3 w-3" />
+              ))}
+              <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
+                Limpar filtros
               </button>
-            )}
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setTemplateDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-                Criar Template
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => {
-                  const contacts = selectedEmails.size > 0
-                    ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
-                    : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
-                  setCampaignContacts(contacts);
-                  setCampaignSuggestedName(undefined);
-                  setCampaignDialogOpen(true);
-                }}
-              >
-                <MessageSquareMore className="h-4 w-4" />
-                Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
-              </Button>
-              <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
-                <Download className="h-4 w-4" />
-                Exportar CSV ({filteredCustomers.length})
-              </Button>
-            </div>
+            </>
+          )}
+          {selectedEmails.size > 0 && (
+            <button
+              onClick={() => setSelectedEmails(new Set())}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
+              style={{ color: "#3b82f6", backgroundColor: "#3b82f615", border: "1px solid #3b82f630" }}
+            >
+              {selectedEmails.size} selecionado{selectedEmails.size > 1 ? "s" : ""}
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setTemplateDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Criar Template
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                const contacts = selectedEmails.size > 0
+                  ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
+                  : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
+                setCampaignContacts(contacts);
+                setCampaignSuggestedName(undefined);
+                setCampaignDialogOpen(true);
+              }}
+            >
+              <MessageSquareMore className="h-4 w-4" />
+              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+            </Button>
+            <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
+              <Download className="h-4 w-4" />
+              Exportar CSV ({filteredCustomers.length})
+            </Button>
           </div>
-        )}
+        </div>
 
         {/* ===== Tab 0: Metricas ===== */}
         <TabsContent value="metrics" className="space-y-6">
