@@ -946,8 +946,18 @@
           '</div>';
 
         // Insert in page
+        var isMobile = window.innerWidth <= 768;
         if (cfg.position === "bottom") {
           document.body.appendChild(bar);
+        } else if (isMobile) {
+          // On mobile, insert after the header/nav to avoid interfering
+          // with VNDA's fixed buy button and sticky header layout
+          var header = document.querySelector("header, .header, nav.main-nav, .top-bar, #header");
+          if (header) {
+            header.parentNode.insertBefore(bar, header.nextSibling);
+          } else {
+            document.body.insertBefore(bar, document.body.firstChild);
+          }
         } else {
           document.body.insertBefore(bar, document.body.firstChild);
         }
