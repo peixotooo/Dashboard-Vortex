@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 export const maxDuration = 15;
 
@@ -48,16 +49,23 @@ export async function GET(request: NextRequest) {
     }
 
     const fields = request.nextUrl.searchParams.get("fields");
+    const admin = createAdminClient();
 
     // Try to read from snapshot first
+    // For summary view (dashboard), skip the heavy `customers` JSONB column (~35MB)
+    const columns = fields === "summary"
+      ? "summary, segments, distributions, behavioral, computed_at, row_count"
+      : "*";
+
     interface Snapshot {
       summary: unknown; segments: unknown; distributions: unknown;
-      behavioral: unknown; customers: unknown; computed_at: string;
+      behavioral: unknown; customers?: unknown; computed_at: string;
+      row_count?: number;
     }
 
-    const { data: snapshot } = await supabase
+    const { data: snapshot } = await admin
       .from("crm_rfm_snapshots")
-      .select("*")
+      .select(columns)
       .eq("workspace_id", workspaceId)
       .single() as unknown as { data: Snapshot | null };
 
@@ -91,7 +99,7 @@ export async function GET(request: NextRequest) {
     console.log("[CRM RFM] No snapshot found, returning pending state.");
 
     // Check if workspace has any crm_vendas data at all (single count query)
-    const { count } = await supabase
+    const { count } = await admin
       .from("crm_vendas")
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", workspaceId);
