@@ -791,7 +791,12 @@
         "#cart-total",
         "[data-total-price]",
         ".cart-drawer-subtotal-value",
-        ".cart-drawer-total-value"
+        ".cart-drawer-total-value",
+        "tr.total .value",
+        ".summary-total",
+        ".c-summary__total-value",
+        "p.total span",
+        "[data-checkout-total]"
       ];
       for (var i = 0; i < selectors.length; i++) {
         var el = document.querySelector(selectors[i]);
