@@ -92,15 +92,23 @@ export async function getInstagramAccounts(accountId: string): Promise<unknown> 
   if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
 
   // 1. Try ad account's direct instagram_accounts edge
-  const data = await graphRequest(`/${accountId}/instagram_accounts`, {
-    fields: "id,username,profile_pic",
-    limit: "50",
-  });
-  const result = data as { data?: unknown[] };
-  const accounts = result.data || [];
+  try {
+    const data = await graphRequest(`/${accountId}/instagram_accounts`, {
+      fields: "id,username,profile_picture_url",
+      limit: "50",
+    });
+    const result = data as { data?: Array<{ id: string; username: string; profile_picture_url?: string }> };
+    const accounts = (result.data || []).map((a) => ({
+      id: a.id,
+      username: a.username,
+      profile_pic: a.profile_picture_url,
+    }));
 
-  if (accounts.length > 0) {
-    return { instagram_accounts: accounts };
+    if (accounts.length > 0) {
+      return { instagram_accounts: accounts };
+    }
+  } catch {
+    // Direct lookup failed, try fallback via Pages
   }
 
   // 2. Fallback: get Instagram accounts connected to Pages the user manages
