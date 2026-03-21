@@ -32,6 +32,7 @@ import {
   Monitor,
   Globe,
   BrainCircuit,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1093,6 +1094,11 @@ export default function CampaignsPage() {
           const id = row.id as string;
           return (
             <div className="flex items-center justify-end gap-1">
+              <Link href={`/campaigns/${id}/edit`} onClick={(e) => e.stopPropagation()}>
+                <Button variant="ghost" size="icon" className="h-7 w-7" title="Editar">
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
               {status === "ACTIVE" ? (
                 <Button
                   variant="ghost"

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ArrowLeft, CheckCircle2, Loader2, Image as ImageIcon } from "lucide-react";
+import { ChevronRight, ArrowLeft, CheckCircle2, Loader2, Image as ImageIcon, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -99,7 +99,7 @@ export default function NewCampaignWizard() {
                 setInstagramAccountId(data.instagram_accounts[0].id);
             }
         } catch {
-            // Non-critical — Instagram account is optional
+            // Instagram accounts fetch failed
         }
     }, [accountId]);
 
@@ -237,7 +237,7 @@ export default function NewCampaignWizard() {
     };
 
     const isStep1Valid = campaignData.name.trim() !== "";
-    const isStep2Valid = adSetData.name.trim() !== "";
+    const isStep2Valid = adSetData.name.trim() !== "" && instagramAccountId !== "";
     const isStep3Valid = adData.name.trim() !== "" && adData.link.trim() !== "" && mediaFile !== null;
 
     return (
@@ -388,7 +388,7 @@ export default function NewCampaignWizard() {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium">Conta do Instagram</label>
+                                    <label className="text-sm font-medium">Conta do Instagram *</label>
                                     {instagramAccounts.length > 0 ? (
                                         <Select
                                             value={instagramAccountId}
@@ -402,7 +402,10 @@ export default function NewCampaignWizard() {
                                             </SelectContent>
                                         </Select>
                                     ) : (
-                                        <p className="text-xs text-muted-foreground pt-2">Nenhuma conta Instagram vinculada a esta conta de anúncios.</p>
+                                        <div className="text-xs text-destructive pt-2 flex items-center gap-1.5">
+                                            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                            Nenhuma conta Instagram vinculada. É obrigatório vincular uma conta para criar campanhas.
+                                        </div>
                                     )}
                                 </div>
                             </div>

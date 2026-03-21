@@ -207,6 +207,12 @@ export async function updateCampaign(args: Record<string, unknown>): Promise<unk
   return graphRequest(`/${campaignId}`, params, "POST");
 }
 
+export async function getCampaign(args: { campaign_id: string }): Promise<unknown> {
+  return graphRequest(`/${args.campaign_id}`, {
+    fields: "id,name,status,objective,daily_budget,lifetime_budget,account_id,created_time",
+  });
+}
+
 // ============ Ad Sets ============
 
 export async function listAdSets(args: {
@@ -313,6 +319,16 @@ export async function createAdSet(args: Record<string, unknown>): Promise<unknow
   return graphRequest(`/${accountId}/adsets`, params, "POST");
 }
 
+export async function updateAdSet(args: Record<string, unknown>): Promise<unknown> {
+  const adSetId = String(args.adset_id);
+  const params: Record<string, string> = {};
+  if (args.name) params.name = String(args.name);
+  if (args.status) params.status = String(args.status);
+  if (args.optimization_goal) params.optimization_goal = String(args.optimization_goal);
+  if (args.daily_budget) params.daily_budget = String(args.daily_budget);
+  return graphRequest(`/${adSetId}`, params, "POST");
+}
+
 // ============ Ads ============
 
 export async function listAds(args: {
@@ -338,7 +354,7 @@ export async function listAds(args: {
   }
 
   const data = await graphRequest(path, {
-    fields: "id,name,status,effective_status,campaign_id,adset_id,creative,created_time",
+    fields: "id,name,status,effective_status,campaign_id,adset_id,creative,created_time,url_tags",
     limit: String(args.limit || 25),
   });
   const result = data as { data?: unknown[] };
@@ -359,6 +375,16 @@ export async function createAd(args: Record<string, unknown>): Promise<unknown> 
   if (args.url_tags) params.url_tags = String(args.url_tags);
 
   return graphRequest(`/${accountId}/ads`, params, "POST");
+}
+
+export async function updateAd(args: Record<string, unknown>): Promise<unknown> {
+  const adId = String(args.ad_id);
+  const params: Record<string, string> = {};
+  if (args.name) params.name = String(args.name);
+  if (args.status) params.status = String(args.status);
+  if (args.creative) params.creative = JSON.stringify(args.creative);
+  if (args.url_tags) params.url_tags = String(args.url_tags);
+  return graphRequest(`/${adId}`, params, "POST");
 }
 
 // ============ Insights ============
