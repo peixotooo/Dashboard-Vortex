@@ -176,7 +176,7 @@ export default function EditCampaignPage() {
           campaign_id: String(campaign.id),
           adset_id: adset ? String(adset.id) : "",
           ad_id: ad ? String(ad.id) : "",
-          creative_id: creative?.creative?.id || creative?.id || "",
+          creative_id: (creative?.creative || creative)?.id || "",
           account_id: acctId,
           original_image_hash: "",
           original_objective: String(campaign.objective || ""),
@@ -218,18 +218,19 @@ export default function EditCampaignPage() {
         }
 
         // Pre-fill creative data from object_story_spec
+        // getCreativeDetails returns { creative: {actual data}, ads, metrics }
         if (creative) {
-          const spec =
-            creative.object_story_spec || creative.creative?.object_story_spec;
-          const linkData = spec?.link_data || {};
+          const creativeObj = creative.creative || creative;
+          const spec = creativeObj.object_story_spec || {};
+          const linkData = spec.link_data || {};
 
-          const creativeTitle = linkData.name || creative.title || "";
+          const creativeTitle = linkData.name || creativeObj.title || "";
           const creativeBody =
-            linkData.message || creative.body || "";
+            linkData.message || creativeObj.body || "";
           const creativeLink = linkData.link || "";
           const creativeCta =
             linkData.call_to_action?.type || "LEARN_MORE";
-          const creativeIgId = spec?.instagram_actor_id || "";
+          const creativeIgId = spec.instagram_actor_id || "";
           const creativeImageHash = linkData.image_hash || "";
 
           setAdData((prev) => ({
@@ -246,8 +247,8 @@ export default function EditCampaignPage() {
 
           // Set image preview from creative
           const imageUrl =
-            creative.image_url ||
-            creative.thumbnail_url ||
+            creativeObj.image_url ||
+            creativeObj.thumbnail_url ||
             linkData.picture;
           if (imageUrl) {
             setMediaPreview(imageUrl);

@@ -90,12 +90,61 @@ async function getUserId(): Promise<string> {
 
 export async function getInstagramAccounts(accountId: string): Promise<unknown> {
   if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  // 1. Try ad account's direct instagram_accounts edge
   const data = await graphRequest(`/${accountId}/instagram_accounts`, {
     fields: "id,username,profile_pic",
     limit: "50",
   });
   const result = data as { data?: unknown[] };
-  return { instagram_accounts: result.data || [] };
+  const accounts = result.data || [];
+
+  if (accounts.length > 0) {
+    return { instagram_accounts: accounts };
+  }
+
+  // 2. Fallback: get Instagram accounts connected to Pages the user manages
+  try {
+    const pagesRes = (await getPages()) as {
+      pages: Array<{ id: string; name: string }>;
+    };
+
+    const igAccounts: Array<{ id: string; username: string; profile_pic?: string }> = [];
+    const seenIds = new Set<string>();
+
+    for (const page of (pagesRes.pages || []).slice(0, 5)) {
+      try {
+        const igData = await graphRequest(`/${page.id}`, {
+          fields: "instagram_business_account{id,username,profile_picture_url}",
+        }) as {
+          instagram_business_account?: {
+            id: string;
+            username: string;
+            profile_picture_url?: string;
+          };
+        };
+
+        if (igData.instagram_business_account && !seenIds.has(igData.instagram_business_account.id)) {
+          seenIds.add(igData.instagram_business_account.id);
+          igAccounts.push({
+            id: igData.instagram_business_account.id,
+            username: igData.instagram_business_account.username,
+            profile_pic: igData.instagram_business_account.profile_picture_url,
+          });
+        }
+      } catch {
+        // Skip pages that fail
+      }
+    }
+
+    if (igAccounts.length > 0) {
+      return { instagram_accounts: igAccounts };
+    }
+  } catch {
+    // Pages lookup failed
+  }
+
+  return { instagram_accounts: [] };
 }
 
 // ============ Ad Accounts ============
