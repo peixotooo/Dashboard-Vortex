@@ -597,9 +597,9 @@ export default function CampaignsPage() {
       key: "name",
       label: "Campanha",
       render: (val: unknown, row: Record<string, unknown>) => (
-        <div className="max-w-[250px]">
+        <div>
           <div className="flex items-center gap-1.5">
-            <p className="text-sm font-medium truncate">{String(val)}</p>
+            <p className="text-sm font-medium">{String(val)}</p>
             <TierBadge tier={row.tier as string} />
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -1343,9 +1343,9 @@ export default function CampaignsPage() {
 
                     return (
                       <tr key={c.id} className={`border-b border-border/50 ${cooldown?.inCooldown ? "bg-amber-500/5" : ""}`}>
-                        <td className="px-3 py-2 text-sm truncate max-w-[200px]">
+                        <td className="px-3 py-2 text-sm">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate">{c.name}</span>
+                            <span>{c.name}</span>
                             {cooldown?.inCooldown && (
                               <Tooltip>
                                 <TooltipTrigger>
