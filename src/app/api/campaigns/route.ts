@@ -14,25 +14,58 @@ import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCampaigns } from "@/lib/agent/memory";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
 
-function classifyCampaigns(campaigns: CampaignWithMetrics[]): CampaignWithMetrics[] {
+const FINANCIAL_DEFAULTS = {
+  frete_pct: 6,
+  desconto_pct: 3,
+  tax_pct: 6,
+  product_cost_pct: 25,
+  other_expenses_pct: 5,
+  monthly_fixed_costs: 160000,
+  annual_revenue_target: 8000000,
+};
+
+interface FinancialSettings {
+  frete_pct: number;
+  desconto_pct: number;
+  tax_pct: number;
+  product_cost_pct: number;
+  other_expenses_pct: number;
+  monthly_fixed_costs: number;
+  annual_revenue_target: number;
+}
+
+function classifyCampaigns(
+  campaigns: CampaignWithMetrics[],
+  financialSettings?: FinancialSettings | null
+): CampaignWithMetrics[] {
   const withSpend = campaigns.filter((c) => c.spend > 0);
   if (withSpend.length < 3) return campaigns;
 
-  const avgRoas = withSpend.reduce((s, c) => s + c.roas, 0) / withSpend.length;
+  // Calculate financial thresholds
+  const fs = financialSettings || FINANCIAL_DEFAULTS;
+  const mc = 100 - fs.frete_pct - fs.desconto_pct - fs.tax_pct - fs.product_cost_pct - fs.other_expenses_pct;
+  const monthlyRevenue = fs.annual_revenue_target / 12;
+  const fixedCostPct = monthlyRevenue > 0 ? (fs.monthly_fixed_costs / monthlyRevenue) * 100 : 0;
+  const availableForAds = mc - fixedCostPct;
+
+  const breakevenRoas = availableForAds > 0 ? 100 / availableForAds : 3;
+  const healthyRoas = (availableForAds - 8) > 0 ? 100 / (availableForAds - 8) : breakevenRoas * 1.3;
+
+  // Portfolio metrics (for volume classification)
   const avgSpend = withSpend.reduce((s, c) => s + c.spend, 0) / withSpend.length;
 
   return campaigns.map((c) => {
     if (c.spend <= 0) return { ...c, tier: null };
 
-    const highRoas = c.roas >= avgRoas * 1.5;
+    const aboveHealthy = c.roas >= healthyRoas;
+    const aboveBreakeven = c.roas >= breakevenRoas;
     const highSpend = c.spend >= avgSpend;
-    const veryHighSpend = c.spend >= avgSpend * 2;
 
     let tier: CampaignWithMetrics["tier"] = null;
-    if (highRoas && highSpend) tier = "champion";
-    else if (highRoas) tier = "potential";
-    else if (veryHighSpend && c.roas >= 1.0) tier = "scale";
-    else if (c.roas >= 1.0) tier = "profitable";
+    if (aboveHealthy && highSpend) tier = "champion";
+    else if (aboveHealthy) tier = "potential";
+    else if (aboveBreakeven && highSpend) tier = "scale";
+    else if (aboveBreakeven) tier = "profitable";
     else if (c.roas > 0) tier = "warning";
     else tier = "critical";
 
@@ -54,20 +87,11 @@ export async function GET(request: NextRequest) {
       const statuses = statusesParam ? statusesParam.split(",") : ["ACTIVE"];
       const timeRange = datePresetToTimeRange(date_preset);
 
-      const result = await getCampaignsWithMetrics({
-        account_id,
-        time_range: timeRange,
-        statuses,
-      });
-
-      const classified = classifyCampaigns(result.campaigns);
-
-      // Auto-save classified campaigns to DB (fire-and-forget)
       const workspaceId = request.headers.get("x-workspace-id") || "";
-      if (workspaceId) {
-        const toSave = classified.filter((c) => c.tier === "champion" || c.tier === "potential" || c.tier === "scale");
-        if (toSave.length > 0) {
-          const supabase = createServerClient(
+
+      // Fetch campaigns + financial settings in parallel
+      const supabase = workspaceId
+        ? createServerClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
@@ -78,7 +102,31 @@ export async function GET(request: NextRequest) {
                 setAll() {},
               },
             }
-          );
+          )
+        : null;
+
+      const [result, financialSettings] = await Promise.all([
+        getCampaignsWithMetrics({
+          account_id,
+          time_range: timeRange,
+          statuses,
+        }),
+        workspaceId && supabase
+          ? supabase
+              .from("workspace_financial_settings")
+              .select("frete_pct,desconto_pct,tax_pct,product_cost_pct,other_expenses_pct,monthly_fixed_costs,annual_revenue_target")
+              .eq("workspace_id", workspaceId)
+              .maybeSingle()
+              .then(({ data }) => data as FinancialSettings | null)
+          : Promise.resolve(null),
+      ]);
+
+      const classified = classifyCampaigns(result.campaigns, financialSettings);
+
+      // Auto-save classified campaigns to DB (fire-and-forget)
+      if (workspaceId && supabase) {
+        const toSave = classified.filter((c) => c.tier === "champion" || c.tier === "potential" || c.tier === "scale");
+        if (toSave.length > 0) {
           syncSavedCampaigns(supabase, workspaceId, toSave, date_preset).catch(
             () => {}
           );

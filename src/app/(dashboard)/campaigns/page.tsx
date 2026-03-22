@@ -163,6 +163,7 @@ export default function CampaignsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [tierFilter, setTierFilter] = useState("all");
   const [pageAccountFilter, setPageAccountFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "ACTIVE" | "PAUSED">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
   const [budgetDialogCampaigns, setBudgetDialogCampaigns] = useState<CampaignWithMetrics[]>([]);
@@ -240,7 +241,6 @@ export default function CampaignsPage() {
 
     setCampaigns([]);
     setInitialLoading(true);
-    setPageAccountFilter("all");
     setLoadingProgress(isMulti ? { total: accountIds.length, loaded: 0 } : null);
 
     const headers: Record<string, string> = {};
@@ -499,13 +499,22 @@ export default function CampaignsPage() {
     [campaigns, pageAccountFilter]
   );
 
+  // Filter by status
+  const statusFiltered = useMemo(
+    () =>
+      statusFilter === "all"
+        ? accountFiltered
+        : accountFiltered.filter((c) => c.status === statusFilter),
+    [accountFiltered, statusFilter]
+  );
+
   // Filter by name
   const filtered = useMemo(
     () =>
-      accountFiltered.filter((c) =>
+      statusFiltered.filter((c) =>
         c.name?.toLowerCase().includes(filter.toLowerCase())
       ),
-    [accountFiltered, filter]
+    [statusFiltered, filter]
   );
 
   // Filter by tier
@@ -972,6 +981,17 @@ export default function CampaignsPage() {
             <div className="w-px h-6 bg-border mx-1" />
           </>
         )}
+
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | "ACTIVE" | "PAUSED")}>
+          <SelectTrigger className="w-36 h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos Status</SelectItem>
+            <SelectItem value="ACTIVE">Ativas</SelectItem>
+            <SelectItem value="PAUSED">Pausadas</SelectItem>
+          </SelectContent>
+        </Select>
 
         <Input
           placeholder="Buscar campanhas..."
