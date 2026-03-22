@@ -535,10 +535,13 @@ export default function CampaignsPage() {
       if (aActive !== bActive) return aActive - bActive;
 
       // Secondary: user-chosen sort key
-      const aVal = (a as unknown as Record<string, unknown>)[sortKey] ?? 0;
-      const bVal = (b as unknown as Record<string, unknown>)[sortKey] ?? 0;
-      const aNum = typeof aVal === "number" ? aVal : parseFloat(String(aVal)) || 0;
-      const bNum = typeof bVal === "number" ? bVal : parseFloat(String(bVal)) || 0;
+      const getSortVal = (c: CampaignWithMetrics) => {
+        if (sortKey === "cps") return c.purchases > 0 ? c.spend / c.purchases : Infinity;
+        const v = (c as unknown as Record<string, unknown>)[sortKey] ?? 0;
+        return typeof v === "number" ? v : parseFloat(String(v)) || 0;
+      };
+      const aNum = getSortVal(a);
+      const bNum = getSortVal(b);
       return sortDir === "desc" ? bNum - aNum : aNum - bNum;
     });
   }, [tierFiltered, sortKey, sortDir]);
@@ -723,12 +726,6 @@ export default function CampaignsPage() {
         );
       },
     },
-    { key: "impressions", label: "Impressoes", format: "number" as const, align: "right" as const },
-    { key: "clicks", label: "Cliques", format: "number" as const, align: "right" as const },
-    { key: "ctr", label: "CTR", format: "percent" as const, align: "right" as const },
-    { key: "cpc", label: "CPC", format: "currency" as const, align: "right" as const },
-    { key: "spend", label: "Investimento", format: "currency" as const, align: "right" as const },
-    { key: "revenue", label: "Receita", format: "currency" as const, align: "right" as const },
     {
       key: "roas",
       label: "ROAS",
@@ -737,6 +734,22 @@ export default function CampaignsPage() {
         <span className="font-medium">{Number(val || 0).toFixed(2)}x</span>
       ),
     },
+    { key: "spend", label: "Investimento", format: "currency" as const, align: "right" as const },
+    { key: "revenue", label: "Receita", format: "currency" as const, align: "right" as const },
+    {
+      key: "cps",
+      label: "CPS",
+      align: "right" as const,
+      render: (_val: unknown, row: Record<string, unknown>) => {
+        const c = row as unknown as CampaignWithMetrics;
+        if (!c.purchases || c.purchases === 0) return <span className="text-muted-foreground">—</span>;
+        return <span>{formatCurrency(c.spend / c.purchases)}</span>;
+      },
+    },
+    { key: "impressions", label: "Impressoes", format: "number" as const, align: "right" as const },
+    { key: "clicks", label: "Cliques", format: "number" as const, align: "right" as const },
+    { key: "ctr", label: "CTR", format: "percent" as const, align: "right" as const },
+    { key: "cpc", label: "CPC", format: "currency" as const, align: "right" as const },
   ];
 
   return (
@@ -1008,9 +1021,10 @@ export default function CampaignsPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="spend">Investimento</SelectItem>
             <SelectItem value="roas">ROAS</SelectItem>
+            <SelectItem value="spend">Investimento</SelectItem>
             <SelectItem value="revenue">Receita</SelectItem>
+            <SelectItem value="cps">CPS</SelectItem>
             <SelectItem value="daily_budget">Orcamento</SelectItem>
             <SelectItem value="ctr">CTR</SelectItem>
             <SelectItem value="impressions">Impressoes</SelectItem>
