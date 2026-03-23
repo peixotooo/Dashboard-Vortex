@@ -11,6 +11,7 @@ import {
   ShoppingBag,
   Users,
   Image,
+  BookOpen,
   Settings,
   Zap,
   MessageSquare,
@@ -166,7 +167,10 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Conteudo",
-    items: [{ title: "Galeria", href: "/media", icon: Image }],
+    items: [
+      { title: "Galeria", href: "/media", icon: Image },
+      { title: "Brandbook", href: "/brandbook", icon: BookOpen },
+    ],
   },
 ];
 
