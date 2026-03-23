@@ -148,7 +148,7 @@ export async function getQrCode(
 }
 
 export async function listGroups(config: WapiConfig): Promise<WapiGroup[]> {
-  return wapiRequest(config, "/group/list-groups");
+  return wapiRequest(config, "/group/get-all-groups");
 }
 
 export async function sendText(
