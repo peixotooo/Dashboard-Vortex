@@ -27,6 +27,8 @@ interface GalleryPickerProps {
   onOpenChange: (open: boolean) => void;
   workspaceId: string;
   onSelect: (items: MediaItem[]) => void;
+  skipMetaValidation?: boolean;
+  singleSelect?: boolean;
 }
 
 export function GalleryPicker({
@@ -34,6 +36,8 @@ export function GalleryPicker({
   onOpenChange,
   workspaceId,
   onSelect,
+  skipMetaValidation = false,
+  singleSelect = false,
 }: GalleryPickerProps) {
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +71,10 @@ export function GalleryPicker({
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
+      if (singleSelect) {
+        // Toggle: if already selected, deselect; otherwise select only this
+        return prev.has(id) ? new Set() : new Set([id]);
+      }
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -84,9 +92,11 @@ export function GalleryPicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Galeria de Mídias</DialogTitle>
+          <DialogTitle>Galeria de Midias</DialogTitle>
           <DialogDescription>
-            Selecione imagens já enviadas para usar na conversa
+            {singleSelect
+              ? "Selecione uma imagem para enviar"
+              : "Selecione imagens ja enviadas para usar na conversa"}
           </DialogDescription>
         </DialogHeader>
 
@@ -112,7 +122,9 @@ export function GalleryPicker({
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 p-1">
               {media.map((item) => {
-                const isValid = item.image_hash || item.video_id;
+                const isValid = skipMetaValidation
+                  ? !!item.image_url
+                  : item.image_hash || item.video_id;
                 const isSelected = selected.has(item.id);
                 return (
                   <button
@@ -176,7 +188,7 @@ export function GalleryPicker({
             disabled={selected.size === 0}
             size="sm"
           >
-            Usar selecionadas
+            {singleSelect ? "Usar selecionada" : "Usar selecionadas"}
           </Button>
         </div>
       </DialogContent>

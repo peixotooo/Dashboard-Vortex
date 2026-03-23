@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,22 +34,35 @@ import {
   Music,
   MessageSquare,
   X,
+  Clock,
+  Upload,
+  Image as ImageLucide,
+  History,
 } from "lucide-react";
+import { FormattingToolbar } from "@/components/whatsapp/formatting-toolbar";
+import { EmojiPicker } from "@/components/whatsapp/emoji-picker";
+import { SchedulePicker } from "@/components/whatsapp/schedule-picker";
+import { PresetManager, type Preset } from "@/components/whatsapp/preset-manager";
+import { DispatchLog } from "@/components/whatsapp/dispatch-log";
+import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 // --- Types ---
 
 interface WapiGroup {
   id: string;
   name: string;
-  description?: string;
-  participants?: number;
 }
 
 interface SendResult {
+  dispatch_id?: string;
+  status?: string;
+  scheduled_at?: string;
   total: number;
-  sent: number;
-  failed: number;
-  results: Array<{
+  sent?: number;
+  failed?: number;
+  results?: Array<{
     group: string;
     name?: string;
     sent: boolean;
@@ -81,6 +94,11 @@ export default function WhatsAppGroupsPage() {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [groupSearch, setGroupSearch] = useState("");
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [groupsCached, setGroupsCached] = useState(false);
+
+  // Presets
+  const [presets, setPresets] = useState<Preset[]>([]);
 
   // Send state
   const [messageType, setMessageType] = useState<string>("text");
@@ -92,6 +110,16 @@ export default function WhatsAppGroupsPage() {
   const [delayMessage, setDelayMessage] = useState(1);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+
+  // Gallery
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Textarea ref for formatting toolbar
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Messages
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -170,31 +198,60 @@ export default function WhatsAppGroupsPage() {
     setQrLoading(false);
   }, [workspace?.id, configured, wsHeaders]);
 
-  const fetchGroups = useCallback(async () => {
-    if (!workspace?.id || !configured) return;
-    setGroupsLoading(true);
-    setErrorMsg(null);
+  const fetchGroups = useCallback(
+    async (refresh = false) => {
+      if (!workspace?.id || !configured) return;
+      setGroupsLoading(true);
+      setErrorMsg(null);
+      try {
+        const url = refresh
+          ? "/api/whatsapp-groups/groups?refresh=true"
+          : "/api/whatsapp-groups/groups";
+        const res = await fetch(url, { headers: wsHeaders() });
+        const data = await res.json();
+        if (data.error) {
+          setErrorMsg(data.error);
+        } else {
+          setGroups(data.groups || []);
+          setSyncedAt(data.synced_at || null);
+          setGroupsCached(data.cached || false);
+        }
+      } catch (err) {
+        setErrorMsg(
+          `Erro ao carregar grupos: ${err instanceof Error ? err.message : "desconhecido"}`
+        );
+      }
+      setGroupsLoading(false);
+    },
+    [workspace?.id, configured, wsHeaders]
+  );
+
+  const fetchPresets = useCallback(async () => {
+    if (!workspace?.id) return;
     try {
-      const res = await fetch("/api/whatsapp-groups/groups", {
+      const res = await fetch("/api/whatsapp-groups/presets", {
         headers: wsHeaders(),
       });
-      const data = await res.json();
-      if (data.error) {
-        setErrorMsg(data.error);
-      } else {
-        setGroups(data.groups || []);
+      if (res.ok) {
+        const data = await res.json();
+        setPresets(data.presets || []);
       }
-    } catch (err) {
-      setErrorMsg(
-        `Erro ao carregar grupos: ${err instanceof Error ? err.message : "desconhecido"}`
-      );
+    } catch {
+      // ignore
     }
-    setGroupsLoading(false);
-  }, [workspace?.id, configured, wsHeaders]);
+  }, [workspace?.id, wsHeaders]);
 
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  // Auto-load cached groups when configured
+  useEffect(() => {
+    if (configured) {
+      fetchGroups(false);
+      fetchPresets();
+    }
+  }, [configured]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Actions ---
 
@@ -250,6 +307,7 @@ export default function WhatsAppGroupsPage() {
           fileName: fileName || undefined,
           extension: fileExtension || undefined,
           delayMessage,
+          scheduled_at: scheduledAt ? scheduledAt.toISOString() : undefined,
         }),
       });
       const data = await res.json();
@@ -264,6 +322,87 @@ export default function WhatsAppGroupsPage() {
       );
     }
     setSending(false);
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !workspace?.id) return;
+
+    setUploading(true);
+    setErrorMsg(null);
+    try {
+      // Step 1: Get presigned URL
+      const urlRes = await fetch("/api/media/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mime_type: file.type,
+        }),
+      });
+      const { signedUrl, key, publicUrl } = await urlRes.json();
+
+      // Step 2: Upload to B2
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", signedUrl);
+        xhr.setRequestHeader("Content-Type", file.type);
+        xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error("Upload failed")));
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(file);
+      });
+
+      // Step 3: Register in DB with tag
+      const regRes = await fetch("/api/media", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({
+          storage_key: key,
+          filename: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+          tags: ["wapi-groups"],
+        }),
+      });
+      const regData = await regRes.json();
+
+      setMediaUrl(regData.imageUrl || publicUrl);
+      setMediaPreview(regData.imageUrl || publicUrl);
+    } catch (err) {
+      setErrorMsg(
+        `Erro no upload: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleGallerySelect(items: MediaItem[]) {
+    if (items[0]) {
+      setMediaUrl(items[0].image_url);
+      setMediaPreview(items[0].image_url);
+    }
+  }
+
+  function handleEmojiInsert(emoji: string) {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setMessageText((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = messageText.slice(0, start);
+    const after = messageText.slice(end);
+    setMessageText(`${before}${emoji}${after}`);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const pos = start + emoji.length;
+      textarea.setSelectionRange(pos, pos);
+    });
   }
 
   function toggleGroup(id: string) {
@@ -293,6 +432,10 @@ export default function WhatsAppGroupsPage() {
     }
   }
 
+  function applyPreset(jids: string[]) {
+    setSelectedGroups(new Set(jids));
+  }
+
   const filteredGroups = groups.filter(
     (g) =>
       !groupSearch ||
@@ -304,6 +447,8 @@ export default function WhatsAppGroupsPage() {
     selectedGroups.size > 0 &&
     ((messageType === "text" && messageText.trim().length > 0) ||
       (messageType !== "text" && mediaUrl.trim().length > 0));
+
+  const isScheduled = scheduledAt !== null;
 
   // --- Render ---
 
@@ -373,6 +518,9 @@ export default function WhatsAppGroupsPage() {
           </TabsTrigger>
           <TabsTrigger value="send" className="gap-1.5">
             <Send className="h-4 w-4" /> Enviar
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5">
+            <History className="h-4 w-4" /> Historico
           </TabsTrigger>
           <TabsTrigger value="config" className="gap-1.5">
             <Settings className="h-4 w-4" /> Configuracao
@@ -500,16 +648,27 @@ export default function WhatsAppGroupsPage() {
         {/* ==================== GROUPS TAB ==================== */}
         <TabsContent value="groups" className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {groups.length} grupo(s)
-              {selectedGroups.size > 0 && (
-                <span className="ml-2 text-primary font-medium">
-                  | {selectedGroups.size} selecionado(s)
-                </span>
+            <div>
+              <p className="text-sm text-muted-foreground">
+                {groups.length} grupo(s)
+                {selectedGroups.size > 0 && (
+                  <span className="ml-2 text-primary font-medium">
+                    | {selectedGroups.size} selecionado(s)
+                  </span>
+                )}
+              </p>
+              {syncedAt && (
+                <p className="text-xs text-muted-foreground">
+                  Sincronizado em{" "}
+                  {format(new Date(syncedAt), "dd/MM/yyyy 'as' HH:mm", {
+                    locale: ptBR,
+                  })}
+                  {groupsCached && " (cache)"}
+                </p>
               )}
-            </p>
+            </div>
             <Button
-              onClick={fetchGroups}
+              onClick={() => fetchGroups(true)}
               disabled={groupsLoading || !configured || !connected}
               variant="outline"
               size="sm"
@@ -519,7 +678,7 @@ export default function WhatsAppGroupsPage() {
               ) : (
                 <RefreshCw className="h-4 w-4 mr-1" />
               )}
-              Carregar Grupos
+              Recarregar da API
             </Button>
           </div>
 
@@ -548,6 +707,15 @@ export default function WhatsAppGroupsPage() {
 
           {groups.length > 0 && (
             <>
+              {/* Presets */}
+              <PresetManager
+                presets={presets}
+                selectedGroups={selectedGroups}
+                onApplyPreset={applyPreset}
+                onPresetsChange={fetchPresets}
+                workspaceId={workspace?.id || ""}
+              />
+
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -647,7 +815,11 @@ export default function WhatsAppGroupsPage() {
                 <CardContent className="space-y-4">
                   <div>
                     <Label>Tipo de mensagem</Label>
-                    <Select value={messageType} onValueChange={setMessageType}>
+                    <Select value={messageType} onValueChange={(v) => {
+                      setMessageType(v);
+                      setMediaUrl("");
+                      setMediaPreview(null);
+                    }}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -681,36 +853,103 @@ export default function WhatsAppGroupsPage() {
                     </Select>
                   </div>
 
-                  {/* Text message */}
+                  {/* Text message with formatting toolbar */}
                   {messageType === "text" && (
                     <div>
                       <Label>Mensagem</Label>
-                      <Textarea
-                        value={messageText}
-                        onChange={(e) => setMessageText(e.target.value)}
-                        placeholder="Digite sua mensagem..."
-                        rows={5}
-                      />
+                      <div className="border rounded-md focus-within:ring-1 focus-within:ring-ring">
+                        <div className="flex items-center gap-1 px-2 py-1 border-b bg-muted/30">
+                          <FormattingToolbar
+                            textareaRef={textareaRef}
+                            value={messageText}
+                            onChange={setMessageText}
+                          />
+                          <div className="w-px h-5 bg-border mx-1" />
+                          <EmojiPicker onSelect={handleEmojiInsert} />
+                        </div>
+                        <Textarea
+                          ref={textareaRef}
+                          value={messageText}
+                          onChange={(e) => setMessageText(e.target.value)}
+                          placeholder="Digite sua mensagem..."
+                          rows={5}
+                          className="border-0 focus-visible:ring-0 rounded-t-none"
+                        />
+                      </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Formatacao: *negrito*, _italico_, ~tachado~,
-                        ```monoespaco```
+                        Use a barra de ferramentas ou: *negrito*, _italico_,
+                        ~tachado~, ```monoespaco```
                       </p>
                     </div>
                   )}
 
-                  {/* Image */}
+                  {/* Image with gallery integration */}
                   {messageType === "image" && (
                     <>
                       <div>
-                        <Label>URL da imagem</Label>
-                        <Input
-                          value={mediaUrl}
-                          onChange={(e) => setMediaUrl(e.target.value)}
-                          placeholder="https://exemplo.com/imagem.jpg"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Formatos aceitos: PNG, JPEG, JPG
-                        </p>
+                        <Label>Imagem</Label>
+                        {mediaPreview ? (
+                          <div className="relative mt-2 inline-block">
+                            <img
+                              src={mediaPreview}
+                              alt="Preview"
+                              className="max-h-40 rounded-lg border"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMediaUrl("");
+                                setMediaPreview(null);
+                              }}
+                              className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 mt-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setGalleryOpen(true)}
+                            >
+                              <ImageLucide className="h-4 w-4 mr-1.5" />
+                              Escolher da Galeria
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={uploading}
+                            >
+                              {uploading ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                              ) : (
+                                <Upload className="h-4 w-4 mr-1.5" />
+                              )}
+                              Enviar nova
+                            </Button>
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/gif,image/webp"
+                              className="hidden"
+                              onChange={handleFileUpload}
+                            />
+                          </div>
+                        )}
+                        {!mediaPreview && (
+                          <div className="mt-2">
+                            <Input
+                              value={mediaUrl}
+                              onChange={(e) => setMediaUrl(e.target.value)}
+                              placeholder="Ou cole uma URL: https://..."
+                              className="text-sm"
+                            />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <Label>Legenda (opcional)</Label>
@@ -829,6 +1068,15 @@ export default function WhatsAppGroupsPage() {
                     </p>
                   </div>
 
+                  {/* Schedule */}
+                  <div>
+                    <Label>Agendamento</Label>
+                    <SchedulePicker
+                      value={scheduledAt}
+                      onChange={setScheduledAt}
+                    />
+                  </div>
+
                   {/* Send button */}
                   <Button
                     onClick={handleSend}
@@ -837,10 +1085,14 @@ export default function WhatsAppGroupsPage() {
                   >
                     {sending ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : isScheduled ? (
+                      <Clock className="h-4 w-4 mr-2" />
                     ) : (
                       <Send className="h-4 w-4 mr-2" />
                     )}
-                    Enviar para {selectedGroups.size} grupo(s)
+                    {isScheduled
+                      ? `Agendar envio para ${selectedGroups.size} grupo(s)`
+                      : `Enviar agora para ${selectedGroups.size} grupo(s)`}
                   </Button>
                 </CardContent>
               </Card>
@@ -849,73 +1101,116 @@ export default function WhatsAppGroupsPage() {
               {sendResult && (
                 <Card
                   className={
-                    sendResult.failed === 0
-                      ? "border-green-500/30"
-                      : "border-amber-500/30"
+                    sendResult.status === "scheduled"
+                      ? "border-blue-500/30"
+                      : sendResult.failed === 0
+                        ? "border-green-500/30"
+                        : "border-amber-500/30"
                   }
                 >
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
-                      {sendResult.failed === 0 ? (
+                      {sendResult.status === "scheduled" ? (
+                        <Clock className="h-5 w-5 text-blue-500" />
+                      ) : sendResult.failed === 0 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
                       ) : (
                         <AlertCircle className="h-5 w-5 text-amber-500" />
                       )}
-                      Resultado do Envio
+                      {sendResult.status === "scheduled"
+                        ? "Envio Agendado"
+                        : "Resultado do Envio"}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="flex gap-4 text-sm">
-                      <div className="text-center">
-                        <div className="font-bold text-lg">
-                          {sendResult.total}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Total
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="font-bold text-lg text-green-600">
-                          {sendResult.sent}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Enviadas
-                        </div>
-                      </div>
-                      {sendResult.failed > 0 && (
-                        <div className="text-center">
-                          <div className="font-bold text-lg text-red-600">
-                            {sendResult.failed}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Falhas
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {sendResult.results.some((r) => !r.sent) && (
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-red-400">
-                          Erros:
+                    {sendResult.status === "scheduled" ? (
+                      <div className="text-sm">
+                        <p>
+                          Mensagem agendada para{" "}
+                          <strong>
+                            {sendResult.scheduled_at &&
+                              format(
+                                new Date(sendResult.scheduled_at),
+                                "dd/MM/yyyy 'as' HH:mm",
+                                { locale: ptBR }
+                              )}
+                          </strong>
                         </p>
-                        {sendResult.results
-                          .filter((r) => !r.sent)
-                          .map((r, i) => (
-                            <div
-                              key={i}
-                              className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1"
-                            >
-                              {r.name || r.group}: {r.error}
-                            </div>
-                          ))}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Sera enviada para {sendResult.total} grupo(s). Veja o
+                          status na aba Historico.
+                        </p>
                       </div>
+                    ) : (
+                      <>
+                        <div className="flex gap-4 text-sm">
+                          <div className="text-center">
+                            <div className="font-bold text-lg">
+                              {sendResult.total}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Total
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-lg text-green-600">
+                              {sendResult.sent}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Enviadas
+                            </div>
+                          </div>
+                          {(sendResult.failed ?? 0) > 0 && (
+                            <div className="text-center">
+                              <div className="font-bold text-lg text-red-600">
+                                {sendResult.failed}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Falhas
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {sendResult.results?.some((r) => !r.sent) && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-red-400">
+                              Erros:
+                            </p>
+                            {sendResult.results
+                              .filter((r) => !r.sent)
+                              .map((r, i) => (
+                                <div
+                                  key={i}
+                                  className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1"
+                                >
+                                  {r.name || r.group}: {r.error}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </CardContent>
                 </Card>
               )}
             </>
           )}
+        </TabsContent>
+
+        {/* ==================== HISTORY TAB ==================== */}
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Historico de Disparos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DispatchLog workspaceId={workspace?.id || ""} />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ==================== CONFIG TAB ==================== */}
@@ -985,6 +1280,16 @@ export default function WhatsAppGroupsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Gallery Picker Dialog */}
+      <GalleryPicker
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        workspaceId={workspace?.id || ""}
+        onSelect={handleGallerySelect}
+        skipMetaValidation
+        singleSelect
+      />
     </div>
   );
 }

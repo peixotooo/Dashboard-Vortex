@@ -6,7 +6,7 @@ import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey } from 
 
 // Register file already in B2 — no Meta upload
 async function handleRegisterOnly(request: NextRequest, userId: string | null) {
-    const { storage_key, filename, mime_type, file_size } = await request.json();
+    const { storage_key, filename, mime_type, file_size, tags } = await request.json();
 
     if (!storage_key || !filename || !mime_type) {
         return NextResponse.json(
@@ -31,6 +31,7 @@ async function handleRegisterOnly(request: NextRequest, userId: string | null) {
         storage_path: storage_key,
         file_size: file_size || null,
         mime_type,
+        tags: tags || [],
         uploaded_by: userId || null,
     }).select("id").single();
 
@@ -256,6 +257,11 @@ export async function GET(request: NextRequest) {
 
         if (search) {
             query = query.ilike("filename", `%${search}%`);
+        }
+
+        const tag = searchParams.get("tag");
+        if (tag) {
+            query = query.contains("tags", [tag]);
         }
 
         const { data, count, error } = await query;

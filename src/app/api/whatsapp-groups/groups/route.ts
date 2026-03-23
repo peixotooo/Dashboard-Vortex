@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { getWapiConfig, listGroups } from "@/lib/wapi-api";
 
 function createSupabase(request: NextRequest) {
@@ -33,6 +34,31 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
 
+    const refresh = request.nextUrl.searchParams.get("refresh") === "true";
+    const admin = createAdminClient();
+
+    // If not refreshing, try to return cached groups
+    if (!refresh) {
+      const { data: cached } = await admin
+        .from("wapi_groups")
+        .select("group_jid, group_name, synced_at")
+        .eq("workspace_id", workspaceId)
+        .order("group_name");
+
+      if (cached && cached.length > 0) {
+        const groups = cached.map((g) => ({
+          id: g.group_jid,
+          name: g.group_name,
+        }));
+        return NextResponse.json({
+          groups,
+          synced_at: cached[0].synced_at,
+          cached: true,
+        });
+      }
+    }
+
+    // Refresh from W-API
     const config = await getWapiConfig(workspaceId);
     if (!config)
       return NextResponse.json(
@@ -42,8 +68,7 @@ export async function GET(request: NextRequest) {
 
     const raw = await listGroups(config);
 
-    // W-API pode retornar array direto, ou objeto wrapper
-    // Normalizar para array de { id, name }
+    // Normalize W-API response
     let groupList: Array<{ id: string; name: string }> = [];
 
     if (Array.isArray(raw)) {
@@ -52,9 +77,10 @@ export async function GET(request: NextRequest) {
         name: (g.name || g.subject || g.groupName || "Sem nome") as string,
       }));
     } else if (raw && typeof raw === "object") {
-      // Pode vir como { groups: [...] } ou { data: [...] } etc
       const obj = raw as Record<string, unknown>;
-      const arr = (obj.groups || obj.data || obj.result || []) as Array<Record<string, unknown>>;
+      const arr = (obj.groups || obj.data || obj.result || []) as Array<
+        Record<string, unknown>
+      >;
       if (Array.isArray(arr)) {
         groupList = arr.map((g) => ({
           id: (g.id || g.jid || g.groupId || "") as string,
@@ -63,12 +89,36 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Filtrar apenas grupos validos (com @g.us no id)
+    // Filter valid groups
     groupList = groupList.filter((g) => g.id && g.id.includes("@g.us"));
 
-    console.log(`[W-API Groups] Raw keys: ${typeof raw === "object" && raw ? Object.keys(raw as object).join(",") : typeof raw}, normalized: ${groupList.length} groups`);
+    // Upsert into wapi_groups cache
+    const now = new Date().toISOString();
+    if (groupList.length > 0) {
+      const rows = groupList.map((g) => ({
+        workspace_id: workspaceId,
+        group_jid: g.id,
+        group_name: g.name,
+        synced_at: now,
+      }));
 
-    return NextResponse.json({ groups: groupList });
+      await admin
+        .from("wapi_groups")
+        .upsert(rows, { onConflict: "workspace_id,group_jid" });
+
+      // Remove stale groups not in fresh list
+      await admin
+        .from("wapi_groups")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .lt("synced_at", now);
+    }
+
+    return NextResponse.json({
+      groups: groupList,
+      synced_at: now,
+      cached: false,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

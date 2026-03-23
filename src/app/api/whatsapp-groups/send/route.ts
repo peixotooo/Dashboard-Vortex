@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
       fileName,
       extension,
       delayMessage,
+      scheduled_at,
     } = body as {
       groups: Array<{ jid: string; name?: string }>;
       messageType: WapiMessageType;
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
       fileName?: string;
       extension?: string;
       delayMessage?: number;
+      scheduled_at?: string;
     };
 
     if (!groups || groups.length === 0) {
@@ -80,13 +82,59 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createAdminClient();
+    const delay = delayMessage ?? 1;
+
+    // Create dispatch record
+    const isScheduled =
+      scheduled_at && new Date(scheduled_at).getTime() > Date.now();
+
+    const { data: dispatch, error: dispatchError } = await admin
+      .from("wapi_group_dispatches")
+      .insert({
+        workspace_id: workspaceId,
+        message_type: messageType,
+        content: message || caption || null,
+        media_url: mediaUrl || null,
+        file_name: fileName || null,
+        file_extension: extension || null,
+        delay_seconds: delay,
+        status: isScheduled ? "scheduled" : "sending",
+        scheduled_at: isScheduled ? scheduled_at : null,
+        started_at: isScheduled ? null : new Date().toISOString(),
+        target_groups: groups.map((g) => ({
+          jid: g.jid,
+          name: g.name || null,
+        })),
+        total_groups: groups.length,
+        sent_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (dispatchError || !dispatch) {
+      return NextResponse.json(
+        { error: "Failed to create dispatch" },
+        { status: 500 }
+      );
+    }
+
+    // If scheduled, return immediately — cron will process
+    if (isScheduled) {
+      return NextResponse.json({
+        dispatch_id: dispatch.id,
+        status: "scheduled",
+        scheduled_at,
+        total: groups.length,
+      });
+    }
+
+    // Send immediately
     const results: Array<{
       group: string;
       name?: string;
       sent: boolean;
       error?: string;
     }> = [];
-    const delay = delayMessage ?? 1;
 
     for (const group of groups) {
       try {
@@ -144,18 +192,23 @@ export async function POST(request: NextRequest) {
 
         const sent = !sendResult.error;
 
-        await admin.from("wapi_group_messages").insert({
-          workspace_id: workspaceId,
-          group_jid: group.jid,
-          group_name: group.name || null,
-          message_type: messageType,
-          content: message || caption || null,
-          media_url: mediaUrl || null,
-          file_name: fileName || null,
-          status: sent ? "sent" : "failed",
-          error_message: sendResult.error || null,
-          sent_by: user.id,
-        });
+        try {
+          await admin.from("wapi_group_messages").insert({
+            workspace_id: workspaceId,
+            dispatch_id: dispatch.id,
+            group_jid: group.jid,
+            group_name: group.name || null,
+            message_type: messageType,
+            content: message || caption || null,
+            media_url: mediaUrl || null,
+            file_name: fileName || null,
+            status: sent ? "sent" : "failed",
+            error_message: sendResult.error || null,
+            sent_by: user.id,
+          });
+        } catch {
+          // ignore logging error
+        }
 
         results.push({
           group: group.jid,
@@ -169,6 +222,7 @@ export async function POST(request: NextRequest) {
         try {
           await admin.from("wapi_group_messages").insert({
             workspace_id: workspaceId,
+            dispatch_id: dispatch.id,
             group_jid: group.jid,
             group_name: group.name || null,
             message_type: messageType,
@@ -183,13 +237,30 @@ export async function POST(request: NextRequest) {
           // ignore logging error
         }
 
-        results.push({ group: group.jid, name: group.name, sent: false, error: errMsg });
+        results.push({
+          group: group.jid,
+          name: group.name,
+          sent: false,
+          error: errMsg,
+        });
       }
     }
 
     const sentCount = results.filter((r) => r.sent).length;
 
+    // Update dispatch with final counts
+    await admin
+      .from("wapi_group_dispatches")
+      .update({
+        status: "completed",
+        sent_count: sentCount,
+        failed_count: groups.length - sentCount,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", dispatch.id);
+
     return NextResponse.json({
+      dispatch_id: dispatch.id,
       results,
       total: groups.length,
       sent: sentCount,

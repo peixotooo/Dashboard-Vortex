@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/budget-snapshot",
       "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/wapi-group-sender",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
