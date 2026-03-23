@@ -126,10 +126,25 @@ export async function getInstanceStatus(
 
 export async function getQrCode(
   config: WapiConfig
-): Promise<{ error: boolean; instanceId: string; qrcode: string }> {
-  return wapiRequest(config, "/instance/qr-code", {
-    extraParams: { image: "enable" },
+): Promise<{ qrcode: string }> {
+  const params = new URLSearchParams({
+    instanceId: config.instanceId,
+    image: "enable",
   });
+  const url = `https://api.w-api.app/v1/instance/qr-code?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.token}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`W-API ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  // image=enable retorna PNG binario - converter para data URI base64
+  const buffer = await res.arrayBuffer();
+  const base64 = Buffer.from(buffer).toString("base64");
+  return { qrcode: `data:image/png;base64,${base64}` };
 }
 
 export async function listGroups(config: WapiConfig): Promise<WapiGroup[]> {

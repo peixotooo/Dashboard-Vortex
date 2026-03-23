@@ -44,7 +44,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       qrcode: qr.qrcode,
-      instanceId: qr.instanceId,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
