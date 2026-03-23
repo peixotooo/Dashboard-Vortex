@@ -780,20 +780,56 @@ export default function WhatsAppGroupsPage() {
 
         {/* ==================== SEND TAB ==================== */}
         <TabsContent value="send" className="space-y-4">
+          {/* Preset quick-select */}
+          {presets.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Selecao rapida por preset
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {presets.map((preset) => {
+                  const isActive =
+                    preset.group_jids.length > 0 &&
+                    preset.group_jids.every((jid) => selectedGroups.has(jid));
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPreset(preset.group_jids)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                        isActive
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted/50 hover:bg-muted border-border text-foreground"
+                      }`}
+                    >
+                      <Users className="h-3 w-3" />
+                      {preset.name}
+                      <span className="text-xs opacity-70">
+                        ({preset.group_jids.length})
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {selectedGroups.size === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
                 <Users className="h-10 w-10 mx-auto mb-3 opacity-40" />
                 <p>Nenhum grupo selecionado.</p>
                 <p className="text-xs mt-1">
-                  Selecione grupos na aba{" "}
+                  {presets.length > 0
+                    ? "Use um preset acima ou selecione grupos na aba "
+                    : "Selecione grupos na aba "}
                   <button
                     onClick={() => setActiveTab("groups")}
                     className="text-primary underline"
                   >
                     Grupos
-                  </button>{" "}
-                  antes de enviar.
+                  </button>
+                  .
                 </p>
               </CardContent>
             </Card>
