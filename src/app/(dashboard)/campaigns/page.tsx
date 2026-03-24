@@ -65,7 +65,8 @@ import { useAuth } from "@/lib/auth-context";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
-import type { DatePreset, CampaignWithMetrics, BudgetLogEntry, OptimizationScores } from "@/lib/types";
+import type { DatePreset, CampaignWithMetrics, BudgetLogEntry, OptimizationScores, CooldownInfo, ActivityEntry } from "@/lib/types";
+import { ActivityHistory } from "@/components/campaigns/activity-history";
 
 const TIER_CONFIG = {
   champion: { label: "Escalar", description: "ROAS acima de 1.5x a media e alto investimento. Aumente o budget — esta gerando muito retorno com volume.", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
@@ -173,8 +174,8 @@ export default function CampaignsPage() {
   const [budgetOverrides, setBudgetOverrides] = useState<Map<string, number>>(new Map());
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetResults, setBudgetResults] = useState<Array<{ id: string; success: boolean; error?: string }> | null>(null);
-  // Cooldown: campaign_id -> last adjustment timestamp (localStorage-first)
-  const [budgetCooldowns, setBudgetCooldowns] = useState<Map<string, string>>(new Map());
+  // Cooldown: campaign_id -> { at, source, actor } (localStorage-first)
+  const [budgetCooldowns, setBudgetCooldowns] = useState<Map<string, CooldownInfo>>(new Map());
   // Optimization history
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLogs, setHistoryLogs] = useState<BudgetLogEntry[]>([]);
@@ -186,46 +187,50 @@ export default function CampaignsPage() {
   const COOLDOWN_HOURS = 24;
   const LS_KEY = "vortex_budget_cooldowns";
 
-  function loadCooldownsFromStorage(): Map<string, string> {
+  function loadCooldownsFromStorage(): Map<string, CooldownInfo> {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return new Map();
-      const parsed = JSON.parse(raw) as Record<string, string>;
-      const map = new Map<string, string>();
+      const parsed = JSON.parse(raw) as Record<string, CooldownInfo | string>;
+      const map = new Map<string, CooldownInfo>();
       const cutoff = Date.now() - 48 * 60 * 60 * 1000; // clean entries older than 48h
-      for (const [id, ts] of Object.entries(parsed)) {
-        if (new Date(ts).getTime() > cutoff) map.set(id, ts);
+      for (const [id, val] of Object.entries(parsed)) {
+        // Backwards compat: old format was just a timestamp string
+        const info: CooldownInfo = typeof val === "string" ? { at: val, source: "dashboard" } : val;
+        if (new Date(info.at).getTime() > cutoff) map.set(id, info);
       }
       return map;
     } catch { return new Map(); }
   }
 
-  function saveCooldownsToStorage(map: Map<string, string>) {
+  function saveCooldownsToStorage(map: Map<string, CooldownInfo>) {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(Object.fromEntries(map)));
     } catch { /* quota exceeded or SSR */ }
   }
 
-  function recordCooldowns(campaignIds: string[]) {
+  function recordCooldowns(campaignIds: string[], source: CooldownInfo["source"] = "dashboard", actor?: string) {
     const now = new Date().toISOString();
     setBudgetCooldowns((prev) => {
       const next = new Map(prev);
-      for (const id of campaignIds) next.set(id, now);
+      for (const id of campaignIds) next.set(id, { at: now, source, actor: actor || user?.email?.split("@")[0] });
       saveCooldownsToStorage(next);
       return next;
     });
   }
 
-  function getCooldownInfo(campaignId: string): { inCooldown: boolean; hoursAgo: number; label: string } | null {
-    const ts = budgetCooldowns.get(campaignId);
-    if (!ts) return null;
-    const hoursAgo = (Date.now() - new Date(ts).getTime()) / (1000 * 60 * 60);
+  function getCooldownInfo(campaignId: string): { inCooldown: boolean; hoursAgo: number; label: string; source: string; actor?: string } | null {
+    const info = budgetCooldowns.get(campaignId);
+    if (!info) return null;
+    const hoursAgo = (Date.now() - new Date(info.at).getTime()) / (1000 * 60 * 60);
     const inCooldown = hoursAgo < COOLDOWN_HOURS;
     const hoursLeft = Math.ceil(COOLDOWN_HOURS - hoursAgo);
+    const sourceLabel = info.source === "dashboard" ? "Dashboard" : info.source === "ads-manager" ? "Ads Manager" : info.source === "business-suite" ? "Business Suite" : "externamente";
+    const actorStr = info.actor ? ` por ${info.actor}` : "";
     const label = inCooldown
-      ? `Ajustado ha ${Math.floor(hoursAgo)}h — aguarde mais ${hoursLeft}h`
-      : `Ultimo ajuste ha ${Math.floor(hoursAgo)}h`;
-    return { inCooldown, hoursAgo, label };
+      ? `Alterado ha ${Math.floor(hoursAgo)}h${actorStr} via ${sourceLabel} — aguarde mais ${hoursLeft}h`
+      : `Ultimo ajuste ha ${Math.floor(hoursAgo)}h${actorStr} via ${sourceLabel}`;
+    return { inCooldown, hoursAgo, label, source: info.source, actor: info.actor };
   }
 
   const fetchCampaigns = useCallback(async () => {
@@ -306,10 +311,12 @@ export default function CampaignsPage() {
     setBudgetCooldowns(local);
   }, []);
 
-  // Also try to fetch from server (supplements localStorage)
+  // Also try to fetch from server (budget-logs + activities API for external cooldowns)
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
     const ids = campaigns.map((c) => c.id).join(",");
+
+    // 1. Budget logs (existing)
     fetch(`/api/campaigns/budget-logs?campaign_ids=${ids}`, {
       headers: { "x-workspace-id": workspace.id },
     })
@@ -320,9 +327,12 @@ export default function CampaignsPage() {
           const merged = new Map(prev);
           for (const log of data.logs) {
             const existing = merged.get(log.campaign_id);
-            // Keep the most recent timestamp
-            if (!existing || new Date(log.created_at) > new Date(existing)) {
-              merged.set(log.campaign_id, log.created_at);
+            if (!existing || new Date(log.created_at) > new Date(existing.at)) {
+              merged.set(log.campaign_id, {
+                at: log.created_at,
+                source: log.source === "external" ? "ads-manager" : "dashboard",
+                actor: log.adjusted_by_email?.split("@")[0],
+              });
             }
           }
           saveCooldownsToStorage(merged);
@@ -330,7 +340,47 @@ export default function CampaignsPage() {
         });
       })
       .catch(() => {});
-  }, [campaigns, workspace?.id]);
+
+    // 2. Activities API — detect external budget/status changes in last 24h
+    if (accountId && accountId !== "all") {
+      fetch(`/api/campaigns/activities?account_id=${accountId}&period=7d&category=BUDGET`, {
+        headers: { "x-workspace-id": workspace.id },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          const activities = (data.activities || []) as ActivityEntry[];
+          if (activities.length === 0) return;
+          const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+          // Build a name→id map from loaded campaigns
+          const nameToId = new Map<string, string>();
+          for (const c of campaigns) nameToId.set(c.name, c.id);
+
+          setBudgetCooldowns((prev) => {
+            const merged = new Map(prev);
+            for (const act of activities) {
+              if (act.source === "dashboard") continue; // skip our own changes
+              const actTime = new Date(act.event_time).getTime();
+              if (actTime < cutoff24h) continue;
+              // Try to match campaign by object_id or object_name
+              let campaignId = act.object_type === "CAMPAIGN" ? act.object_id : "";
+              if (!campaignId) campaignId = nameToId.get(act.object_name) || "";
+              if (!campaignId) continue;
+              const existing = merged.get(campaignId);
+              if (!existing || new Date(act.event_time) > new Date(existing.at)) {
+                merged.set(campaignId, {
+                  at: act.event_time,
+                  source: act.source,
+                  actor: act.actor_name,
+                });
+              }
+            }
+            saveCooldownsToStorage(merged);
+            return merged;
+          });
+        })
+        .catch(() => {});
+    }
+  }, [campaigns, workspace?.id, accountId]);
 
   // Fetch optimization history when section is opened
   const fetchHistory = useCallback(async () => {
@@ -708,15 +758,16 @@ export default function CampaignsPage() {
             {(() => {
               const cooldown = getCooldownInfo(c.id);
               if (!cooldown?.inCooldown) return null;
+              const isExternal = cooldown.source !== "dashboard";
               return (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <p className="text-[10px] font-medium mt-0.5 text-amber-500 flex items-center justify-end gap-0.5 cursor-help">
+                    <p className={`text-[10px] font-medium mt-0.5 flex items-center justify-end gap-0.5 cursor-help ${isExternal ? "text-blue-500" : "text-amber-500"}`}>
                       <Clock className="h-2.5 w-2.5" />
-                      Cooldown
+                      Cooldown{cooldown.actor ? ` \u00b7 ${cooldown.actor}` : ""}
                     </p>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs max-w-[220px]">
+                  <TooltipContent side="top" className="text-xs max-w-[260px]">
                     {cooldown.label}
                   </TooltipContent>
                 </Tooltip>
@@ -958,6 +1009,11 @@ export default function CampaignsPage() {
           </div>
         )}
       </div>
+
+      {/* Historico de Alteracoes (Meta Activities) */}
+      {accountId && accountId !== "all" && workspace?.id && (
+        <ActivityHistory accountId={accountId} workspaceId={workspace.id} />
+      )}
 
       {/* Loading Progress */}
       {loadingProgress && (

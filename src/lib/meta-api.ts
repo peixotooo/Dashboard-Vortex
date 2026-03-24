@@ -1156,6 +1156,62 @@ export async function getCampaignsWithMetrics(args: {
   return { campaigns: merged };
 }
 
+// ============ Activities ============
+
+export interface MetaActivity {
+  event_time: string;
+  actor_id: string;
+  actor_name: string;
+  application_id?: string;
+  application_name?: string;
+  event_type: string;
+  translated_event_type?: string;
+  object_id: string;
+  object_name: string;
+  object_type: string;
+  extra_data?: string;
+  date_time_in_timezone?: string;
+}
+
+export async function getAccountActivities(args: {
+  account_id: string;
+  since?: number;
+  until?: number;
+  category?: string;
+  limit?: number;
+}): Promise<{ activities: MetaActivity[] }> {
+  let accountId = args.account_id;
+  if (!accountId.startsWith("act_")) accountId = `act_${accountId}`;
+
+  const params: Record<string, string> = {
+    fields:
+      "event_time,actor_id,actor_name,application_id,application_name,event_type,translated_event_type,object_id,object_name,object_type,extra_data,date_time_in_timezone",
+    limit: String(args.limit || 100),
+  };
+
+  if (args.since) params.since = String(args.since);
+  if (args.until) params.until = String(args.until);
+  if (args.category) params.category = args.category;
+
+  const data = await graphRequest(`/${accountId}/activities`, params);
+  const result = data as { data?: MetaActivity[]; paging?: { next?: string } };
+  let allActivities = result.data || [];
+
+  let nextUrl = result.paging?.next;
+  const MAX_PAGES = 10;
+  let pageCount = 0;
+  while (nextUrl && pageCount < MAX_PAGES) {
+    const res = await fetch(nextUrl);
+    const pageData = await res.json();
+    if (pageData.error) break;
+    allActivities = [...allActivities, ...(pageData.data || [])];
+    nextUrl = pageData.paging?.next;
+    pageCount++;
+  }
+
+  return { activities: allActivities };
+}
+
 // ============ Auth & Health ============
 
 export async function getTokenInfo(): Promise<unknown> {

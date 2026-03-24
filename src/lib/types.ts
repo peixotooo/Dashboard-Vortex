@@ -183,6 +183,31 @@ export interface OptimizationScores {
   score: number;
 }
 
+export type ActivitySource = "dashboard" | "ads-manager" | "business-suite" | "other";
+
+export interface ActivityEntry {
+  event_time: string;
+  actor_name: string;
+  application_name?: string;
+  event_type: string;
+  translated_event_type?: string;
+  object_id: string;
+  object_name: string;
+  object_type: string;
+  extra_data?: Record<string, unknown>;
+  date_time_in_timezone?: string;
+  source: ActivitySource;
+  change_description?: string;
+  old_value?: string;
+  new_value?: string;
+}
+
+export interface CooldownInfo {
+  at: string;
+  source: ActivitySource | "external";
+  actor?: string;
+}
+
 export interface AdAccount {
   id: string;
   account_id: string;
