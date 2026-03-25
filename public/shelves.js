@@ -1039,6 +1039,7 @@
     if (document.getElementById("vtx-promo-tag-styles")) return;
 
     var css =
+      // Badge on listing/category cards (absolute over image)
       ".vtx-promo-tag {" +
         "position: absolute; z-index: 10; pointer-events: none;" +
         "font-family: inherit;" +
@@ -1049,7 +1050,16 @@
       ".vtx-promo-tag--top-left { top: 8px; left: 8px; }" +
       ".vtx-promo-tag--top-right { top: 8px; right: 8px; }" +
       ".vtx-promo-tag--bottom-left { bottom: 8px; left: 8px; }" +
-      ".vtx-promo-tag--bottom-right { bottom: 8px; right: 8px; }";
+      ".vtx-promo-tag--bottom-right { bottom: 8px; right: 8px; }" +
+      // Badge on product detail page (inline block, not absolute)
+      ".vtx-promo-tag--pdp {" +
+        "position: static; display: inline-block; pointer-events: none;" +
+        "font-family: inherit;" +
+        "font-weight: 700; text-transform: uppercase;" +
+        "line-height: 1.2; white-space: nowrap;" +
+        "box-sizing: border-box;" +
+        "margin: 8px 0;" +
+      "}";
 
     var style = document.createElement("style");
     style.id = "vtx-promo-tag-styles";
@@ -1057,37 +1067,73 @@
     document.head.appendChild(style);
   }
 
-  function applyPromoTags(matches) {
-    // Find native store product cards
+  function createBadgeElement(rule, isPdp) {
+    var badge = document.createElement("div");
+    badge.className = isPdp
+      ? "vtx-promo-tag vtx-promo-tag--pdp"
+      : "vtx-promo-tag vtx-promo-tag--" + (rule.badge_position || "top-left");
+    badge.textContent = rule.badge_text;
+    badge.style.backgroundColor = rule.badge_bg_color || "#ff0000";
+    badge.style.color = rule.badge_text_color || "#ffffff";
+    badge.style.fontSize = rule.badge_font_size || "11px";
+    badge.style.borderRadius = rule.badge_border_radius || "4px";
+    badge.style.padding = rule.badge_padding || "4px 8px";
+    return badge;
+  }
+
+  function applyPromoTagsPDP(matches) {
+    // Product detail page: inject a single badge above the buy button
+    if (document.querySelector(".vtx-promo-tag--pdp")) return;
+
+    // Get product ID from meta/hidden input (single product on page)
+    var productId = extractProductId();
+    if (!productId || !matches[productId]) return;
+
+    var rule = matches[productId][0];
+    var badge = createBadgeElement(rule, true);
+
+    // Try to insert before the buy/add-to-cart button
+    var buyBtn = document.querySelector(
+      ".buy-button-container, .product-buy, #buy-button, " +
+      "[data-cart-add], .add-to-cart, form.product-form .submit, " +
+      "button.buy-btn, .product-actions, .product-buy-area"
+    );
+    if (buyBtn) {
+      buyBtn.parentNode.insertBefore(badge, buyBtn);
+      return;
+    }
+
+    // Fallback: insert before the product form submit or quantity selector
+    var form = document.querySelector("#product-form, .product-form, form[action*='carrinho']");
+    if (form) {
+      form.parentNode.insertBefore(badge, form);
+      return;
+    }
+
+    // Last fallback: insert after price area
+    var price = document.querySelector(".product-price, .prices, .price");
+    if (price) {
+      price.parentNode.insertBefore(badge, price.nextSibling);
+    }
+  }
+
+  function applyPromoTagsListing(matches) {
+    // Category/listing pages: inject badge over product card images
     var cards = document.querySelectorAll("[data-product-id]");
-    // Also find Vortex shelf cards
     var vtxCards = document.querySelectorAll("[data-vtx-product-id]");
 
     function processCard(card, idAttr) {
       var productId = card.getAttribute(idAttr);
       if (!productId || !matches[productId]) return;
-
-      // Skip if already tagged
       if (card.querySelector(".vtx-promo-tag")) return;
 
-      // Use highest-priority rule (first in array, already sorted)
       var rule = matches[productId][0];
+      var badge = createBadgeElement(rule, false);
 
-      var badge = document.createElement("div");
-      badge.className = "vtx-promo-tag vtx-promo-tag--" + (rule.badge_position || "top-left");
-      badge.textContent = rule.badge_text;
-      badge.style.backgroundColor = rule.badge_bg_color || "#ff0000";
-      badge.style.color = rule.badge_text_color || "#ffffff";
-      badge.style.fontSize = rule.badge_font_size || "11px";
-      badge.style.borderRadius = rule.badge_border_radius || "4px";
-      badge.style.padding = rule.badge_padding || "4px 8px";
-
-      // Find image container (VNDA themes have varying structures)
+      // Find image container
       var imgContainer = card.querySelector(
         ".product-image, .product-img, .image, figure, .images, .product-block .images"
       );
-
-      // If we found an img element directly, use its parent
       if (imgContainer && imgContainer.tagName === "IMG") {
         imgContainer = imgContainer.parentElement;
       }
@@ -1105,6 +1151,15 @@
     }
     for (var j = 0; j < vtxCards.length; j++) {
       processCard(vtxCards[j], "data-vtx-product-id");
+    }
+  }
+
+  function applyPromoTags(matches) {
+    var pageType = detectPageType();
+    if (pageType === "product") {
+      applyPromoTagsPDP(matches);
+    } else {
+      applyPromoTagsListing(matches);
     }
   }
 
