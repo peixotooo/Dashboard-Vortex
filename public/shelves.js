@@ -1118,7 +1118,7 @@
   }
 
   function applyPromoTagsListing(matches) {
-    // Category/listing pages: inject badge over product card images
+    // Category/listing pages: inject inline badge in description area of card
     var cards = document.querySelectorAll("[data-product-id]");
     var vtxCards = document.querySelectorAll("[data-vtx-product-id]");
 
@@ -1128,22 +1128,30 @@
       if (card.querySelector(".vtx-promo-tag")) return;
 
       var rule = matches[productId][0];
-      var badge = createBadgeElement(rule, false);
+      // Use inline badge (like PDP) to avoid overlapping size selectors
+      var badge = createBadgeElement(rule, true);
 
-      // Find image container
-      var imgContainer = card.querySelector(
-        ".product-image, .product-img, .image, figure, .images, .product-block .images"
+      // Try to insert into the description/info area of the card
+      var descArea = card.querySelector(
+        ".description, .product-info, .product-details, .product-content, .info"
       );
-      if (imgContainer && imgContainer.tagName === "IMG") {
-        imgContainer = imgContainer.parentElement;
+      if (descArea) {
+        // Insert as first child of description area (before product name)
+        descArea.insertBefore(badge, descArea.firstChild);
+        return;
       }
 
-      var target = imgContainer || card;
-      var computedPos = window.getComputedStyle(target).position;
-      if (computedPos === "static") {
-        target.style.position = "relative";
+      // Fallback: insert after the image container
+      var imgContainer = card.querySelector(
+        ".product-image, .product-img, .image, figure, .images"
+      );
+      if (imgContainer) {
+        imgContainer.parentNode.insertBefore(badge, imgContainer.nextSibling);
+        return;
       }
-      target.appendChild(badge);
+
+      // Last fallback: append to card
+      card.appendChild(badge);
     }
 
     for (var i = 0; i < cards.length; i++) {
