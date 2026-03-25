@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
@@ -14,6 +14,8 @@ import {
   X,
   Package,
   ImageIcon,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -837,6 +839,61 @@ function PullMLModal({
 }
 
 // -------------------------------------------------------------------
+// Group products: parent + children
+// -------------------------------------------------------------------
+interface ProductGroup {
+  parent: HubProduct;
+  children: HubProduct[];
+}
+
+function groupProducts(products: HubProduct[]): ProductGroup[] {
+  const parentMap = new Map<string, HubProduct>();
+  const childrenMap = new Map<string, HubProduct[]>();
+  const standalones: HubProduct[] = [];
+
+  // First pass: index all products by SKU and collect children
+  const bySku = new Map<string, HubProduct>();
+  for (const p of products) bySku.set(p.sku, p);
+
+  for (const p of products) {
+    if (p.ecc_pai_sku) {
+      // It's a child — group under parent
+      const arr = childrenMap.get(p.ecc_pai_sku) || [];
+      arr.push(p);
+      childrenMap.set(p.ecc_pai_sku, arr);
+    }
+  }
+
+  // Second pass: build groups
+  const usedAsChild = new Set<string>();
+  for (const children of childrenMap.values()) {
+    for (const c of children) usedAsChild.add(c.sku);
+  }
+
+  const groups: ProductGroup[] = [];
+  const processed = new Set<string>();
+
+  for (const p of products) {
+    if (processed.has(p.sku)) continue;
+    if (usedAsChild.has(p.sku)) continue; // will be rendered as child
+
+    const children = childrenMap.get(p.sku) || [];
+    groups.push({ parent: p, children });
+    processed.add(p.sku);
+    for (const c of children) processed.add(c.sku);
+  }
+
+  // Orphans (children whose parent isn't in this page)
+  for (const p of products) {
+    if (!processed.has(p.sku)) {
+      groups.push({ parent: p, children: [] });
+    }
+  }
+
+  return groups;
+}
+
+// -------------------------------------------------------------------
 // Main Page
 // -------------------------------------------------------------------
 export default function HubProdutosPage() {
@@ -848,6 +905,18 @@ export default function HubProdutosPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Expand/collapse groups
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  function toggleExpand(sku: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(sku)) next.delete(sku);
+      else next.add(sku);
+      return next;
+    });
+  }
 
   // Filters
   const [search, setSearch] = useState("");
@@ -1081,127 +1150,201 @@ export default function HubProdutosPage() {
                       />
                     </th>
                     <th className="p-3 w-12"></th>
-                    <th className="p-3 text-left font-medium">SKU</th>
-                    <th className="p-3 text-left font-medium">Nome</th>
+                    <th className="p-3 text-left font-medium">Produto</th>
                     <th className="p-3 text-right font-medium">Preco</th>
                     <th className="p-3 text-right font-medium">Estoque</th>
                     <th className="p-3 text-center font-medium">Source</th>
                     <th className="p-3 text-center font-medium">ML ID</th>
                     <th className="p-3 text-center font-medium">Status</th>
-                    <th className="p-3 text-center font-medium">Vinculado</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p) => {
-                    const isChild = !!p.ecc_pai_sku;
+                  {groupProducts(products).map((group) => {
+                    const p = group.parent;
+                    const hasChildren = group.children.length > 0;
+                    const isExpanded = expandedGroups.has(p.sku);
                     const displayPreco = p.preco ?? p.ml_preco;
                     const displayEstoque = p.estoque ?? p.ml_estoque ?? 0;
 
                     return (
-                    <tr
-                      key={p.id}
-                      className={`border-t hover:bg-muted/30 ${
-                        selected.has(p.id) ? "bg-primary/5" : ""
-                      } ${isChild ? "bg-muted/10" : ""}`}
-                    >
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(p.id)}
-                          onChange={() => toggleSelect(p.id)}
-                          className="rounded"
-                        />
-                      </td>
-                      <td className="p-3">
-                        {!isChild && p.fotos && p.fotos.length > 0 ? (
-                          <div className="relative w-10 h-10">
-                            <Image
-                              src={p.fotos[0]}
-                              alt={p.nome || p.sku}
-                              fill
-                              className="rounded object-cover bg-muted"
-                              sizes="40px"
-                              unoptimized
+                      <React.Fragment key={p.id}>
+                        {/* ── Parent / standalone row ── */}
+                        <tr
+                          className={`border-t hover:bg-muted/30 ${
+                            selected.has(p.id) ? "bg-primary/5" : ""
+                          } ${hasChildren ? "cursor-pointer" : ""}`}
+                          onClick={() => hasChildren && toggleExpand(p.sku)}
+                        >
+                          <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(p.id)}
+                              onChange={() => toggleSelect(p.id)}
+                              className="rounded"
                             />
-                            {p.fotos.length > 1 && (
-                              <span className="absolute -bottom-1 -right-1 bg-background border text-[10px] font-medium px-1 rounded-full leading-tight">
-                                +{p.fotos.length - 1}
-                              </span>
+                          </td>
+                          <td className="p-3">
+                            {p.fotos && p.fotos.length > 0 ? (
+                              <div className="relative w-10 h-10">
+                                <Image
+                                  src={p.fotos[0]}
+                                  alt={p.nome || p.sku}
+                                  fill
+                                  className="rounded object-cover bg-muted"
+                                  sizes="40px"
+                                  unoptimized
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                              </div>
                             )}
-                          </div>
-                        ) : isChild ? (
-                          <div className="w-10 h-10 flex items-center justify-center">
-                            <span className="text-muted-foreground text-xs">↳</span>
-                          </div>
-                        ) : (
-                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                        )}
-                      </td>
-                      <td className={`p-3 font-mono text-xs ${isChild ? "pl-6" : "font-semibold"}`}>
-                        {p.sku}
-                        {isChild && p.atributos && Object.keys(p.atributos).length > 0 && (
-                          <div className="text-[11px] text-muted-foreground font-normal mt-0.5">
-                            {Object.values(p.atributos).join(" / ")}
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 truncate max-w-[250px]">
-                        {isChild ? (
-                          <span className="text-muted-foreground">{p.nome || "-"}</span>
-                        ) : (
-                          p.nome || "-"
-                        )}
-                      </td>
-                      <td className="p-3 text-right">
-                        {displayPreco != null
-                          ? displayPreco.toLocaleString("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            })
-                          : "-"}
-                      </td>
-                      <td className="p-3 text-right">{displayEstoque}</td>
-                      <td className="p-3 text-center">
-                        <SourceBadge source={p.source} />
-                      </td>
-                      <td className="p-3 text-center">
-                        {p.ml_item_id ? (
-                          p.ml_permalink ? (
-                            <a
-                              href={p.ml_permalink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                            >
-                              {p.ml_item_id}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          ) : (
-                            <span className="text-xs font-mono">
-                              {p.ml_item_id}
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            -
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        <SyncBadge status={p.sync_status} />
-                      </td>
-                      <td className="p-3 text-center">
-                        {p.linked ? (
-                          <Check className="h-4 w-4 text-green-500 mx-auto" />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            -
-                          </span>
-                        )}
-                      </td>
-                    </tr>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-start gap-2">
+                              {hasChildren && (
+                                <button
+                                  type="button"
+                                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleExpand(p.sku);
+                                  }}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </button>
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-medium truncate max-w-[300px]">
+                                  {p.nome || p.sku}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="font-mono text-xs text-muted-foreground">
+                                    {p.sku}
+                                  </span>
+                                  {hasChildren && (
+                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                                      {group.children.length} var.
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-right font-medium">
+                            {displayPreco != null
+                              ? displayPreco.toLocaleString("pt-BR", {
+                                  style: "currency",
+                                  currency: "BRL",
+                                })
+                              : "-"}
+                          </td>
+                          <td className="p-3 text-right font-medium">{displayEstoque}</td>
+                          <td className="p-3 text-center">
+                            <SourceBadge source={p.source} />
+                          </td>
+                          <td className="p-3 text-center">
+                            {p.ml_item_id ? (
+                              p.ml_permalink ? (
+                                <a
+                                  href={p.ml_permalink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {p.ml_item_id}
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <span className="text-xs font-mono">{p.ml_item_id}</span>
+                              )
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center">
+                            <SyncBadge status={p.sync_status} />
+                          </td>
+                        </tr>
+
+                        {/* ── Child variation rows ── */}
+                        {hasChildren && isExpanded &&
+                          group.children.map((child) => {
+                            const childPreco = child.preco ?? child.ml_preco;
+                            const childEstoque = child.estoque ?? child.ml_estoque ?? 0;
+                            const attrs = child.atributos && Object.keys(child.atributos).length > 0
+                              ? Object.values(child.atributos).join(" / ")
+                              : null;
+
+                            return (
+                              <tr
+                                key={child.id}
+                                className={`border-t border-dashed hover:bg-muted/30 ${
+                                  selected.has(child.id) ? "bg-primary/5" : ""
+                                }`}
+                              >
+                                <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.has(child.id)}
+                                    onChange={() => toggleSelect(child.id)}
+                                    className="rounded"
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <div className="w-10 h-6 flex items-center justify-center">
+                                    <div className="w-4 h-px bg-border" />
+                                  </div>
+                                </td>
+                                <td className="p-3 pl-10">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-1 h-6 rounded-full bg-blue-400/40 shrink-0" />
+                                    <div className="min-w-0">
+                                      {attrs ? (
+                                        <span className="text-sm">{attrs}</span>
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">
+                                          Variacao
+                                        </span>
+                                      )}
+                                      <div className="font-mono text-[11px] text-muted-foreground truncate max-w-[250px]">
+                                        {child.sku}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right text-muted-foreground">
+                                  {childPreco != null
+                                    ? childPreco.toLocaleString("pt-BR", {
+                                        style: "currency",
+                                        currency: "BRL",
+                                      })
+                                    : "-"}
+                                </td>
+                                <td className="p-3 text-right text-muted-foreground">
+                                  {childEstoque}
+                                </td>
+                                <td className="p-3" />
+                                <td className="p-3 text-center">
+                                  {child.ml_variation_id && (
+                                    <span className="text-[11px] font-mono text-muted-foreground">
+                                      v:{child.ml_variation_id}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <SyncBadge status={child.sync_status} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
