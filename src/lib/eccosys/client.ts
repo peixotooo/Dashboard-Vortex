@@ -3,8 +3,16 @@ interface EccosysConfig {
   ambiente: string;
 }
 
-/** Allowed ambiente values — prevents SSRF */
-const VALID_AMBIENTES = ["homolog", "producao", "sandbox"];
+/**
+ * Validates that an ambiente name is a safe hostname component.
+ * Prevents SSRF by allowing only alphanumeric chars and hyphens
+ * (no dots, slashes, colons, or other URL-special characters).
+ */
+const SAFE_AMBIENTE_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function isValidAmbiente(ambiente: string): boolean {
+  return SAFE_AMBIENTE_RE.test(ambiente);
+}
 
 class EccosysClient {
   private lastRequest = 0;
@@ -24,9 +32,9 @@ class EccosysClient {
     const ambiente = (process.env.ECCOSYS_AMBIENTE || "producao").toLowerCase();
 
     if (!apiToken) return null;
-    if (!VALID_AMBIENTES.includes(ambiente)) {
+    if (!isValidAmbiente(ambiente)) {
       throw new Error(
-        `ECCOSYS_AMBIENTE invalido: "${ambiente}". Valores aceitos: ${VALID_AMBIENTES.join(", ")}`
+        `ECCOSYS_AMBIENTE invalido: "${ambiente}". Use apenas letras, numeros e hifens.`
       );
     }
 
@@ -39,7 +47,7 @@ class EccosysClient {
   }
 
   private getBaseUrl(config: EccosysConfig): string {
-    if (!VALID_AMBIENTES.includes(config.ambiente)) {
+    if (!isValidAmbiente(config.ambiente)) {
       throw new Error(`Ambiente Eccosys invalido: ${config.ambiente}`);
     }
     return `https://${config.ambiente}.eccosys.com.br/api`;
@@ -146,7 +154,7 @@ class EccosysClient {
    * Test connection with explicit credentials (for settings page).
    */
   async testConnection(apiToken: string, ambiente: string): Promise<boolean> {
-    if (!VALID_AMBIENTES.includes(ambiente)) {
+    if (!isValidAmbiente(ambiente)) {
       throw new Error(`Ambiente Eccosys invalido: ${ambiente}`);
     }
     await this.throttle();
