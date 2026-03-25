@@ -133,6 +133,13 @@ export async function GET(req: NextRequest) {
 /**
  * POST — Import selected ML items into the hub.
  * Body: { item_ids: ["MLB1374737433"] }
+ *
+ * For items WITH variations:
+ *   - Creates a parent row (ml_variation_id = null, ecc_pai_sku = null)
+ *   - Creates child rows per variation (ecc_pai_sku = parent SKU)
+ *
+ * For items WITHOUT variations:
+ *   - Creates a single row with preco + estoque filled
  */
 export async function POST(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -154,6 +161,7 @@ export async function POST(req: NextRequest) {
   let imported = 0;
   let linked = 0;
   const errors: Array<{ item_id: string; error: string }> = [];
+  const now = new Date().toISOString();
 
   for (const itemId of itemIds) {
     try {
@@ -162,60 +170,120 @@ export async function POST(req: NextRequest) {
       const fotos = (item.pictures || []).map((p) => picUrl(p)).filter(Boolean);
 
       if (item.variations && item.variations.length > 0) {
-        // One row per variation
+        // ---------------------------------------------------------------
+        // Product WITH variations → parent row + child rows
+        // ---------------------------------------------------------------
+
+        // Determine parent SKU (must not collide with any variation SKU)
+        const variationSkus = new Set(
+          item.variations.map((v) => v.seller_sku).filter(Boolean)
+        );
+        let parentSku = item.seller_custom_field || `ML-${item.id}`;
+        if (variationSkus.has(parentSku)) {
+          parentSku = `ML-${item.id}`;
+        }
+
+        const totalEstoque = item.variations.reduce(
+          (sum, v) => sum + (v.available_quantity || 0),
+          0
+        );
+
+        // Check linking for parent
+        const { data: parentLink } = await supabase
+          .from("hub_products")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("sku", parentSku)
+          .eq("source", "eccosys")
+          .single();
+        const parentLinked = !!parentLink;
+        if (parentLinked) linked++;
+
+        // Upsert parent row
+        await supabase.from("hub_products").upsert(
+          {
+            workspace_id: workspaceId,
+            sku: parentSku,
+            nome: item.title,
+            preco: item.price,
+            estoque: totalEstoque,
+            fotos,
+            ml_item_id: item.id,
+            ml_variation_id: null,
+            ml_category_id: item.category_id,
+            ml_status: item.status,
+            ml_permalink: item.permalink,
+            ml_preco: item.price,
+            ml_estoque: totalEstoque,
+            ecc_pai_sku: null,
+            source: "ml" as const,
+            linked: parentLinked,
+            sync_status: "synced" as const,
+            last_ml_sync: now,
+            updated_at: now,
+          },
+          { onConflict: "workspace_id,sku" }
+        );
+        imported++;
+
+        // Upsert child rows
         for (const variation of item.variations) {
-          const sku =
-            variation.seller_sku ||
-            item.seller_custom_field ||
-            `ML-${item.id}-${variation.id}`;
+          const childSku =
+            variation.seller_sku || `ML-${item.id}-${variation.id}`;
 
           const atributos: Record<string, string> = {};
           for (const attr of variation.attribute_combinations || []) {
             atributos[attr.id.toLowerCase()] = attr.value_name;
           }
 
-          // Check if SKU exists in hub (for linking)
-          const { data: existingBySku } = await supabase
+          // Build descriptive name: "Title — Cor: Azul, Tamanho: G"
+          const attrLabel = Object.values(atributos).join(", ");
+          const childNome = attrLabel
+            ? `${item.title} — ${attrLabel}`
+            : item.title;
+
+          const { data: childLink } = await supabase
             .from("hub_products")
             .select("id")
             .eq("workspace_id", workspaceId)
-            .eq("sku", sku)
+            .eq("sku", childSku)
             .eq("source", "eccosys")
             .single();
+          const childLinked = !!childLink;
+          if (childLinked) linked++;
 
-          const isLinked = !!existingBySku;
-          if (isLinked) linked++;
-
-          const row = {
-            workspace_id: workspaceId,
-            ml_item_id: item.id,
-            ml_variation_id: variation.id,
-            ml_category_id: item.category_id,
-            ml_status: item.status,
-            ml_permalink: item.permalink,
-            ml_preco: variation.price,
-            ml_estoque: variation.available_quantity,
-            nome: item.title,
-            sku,
-            fotos,
-            atributos,
-            source: "ml" as const,
-            linked: isLinked,
-            sync_status: "synced" as const,
-            last_ml_sync: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-
-          await supabase
-            .from("hub_products")
-            .upsert(row, { onConflict: "workspace_id,sku" });
-
+          await supabase.from("hub_products").upsert(
+            {
+              workspace_id: workspaceId,
+              sku: childSku,
+              nome: childNome,
+              preco: variation.price,
+              estoque: variation.available_quantity,
+              fotos,
+              atributos,
+              ecc_pai_sku: parentSku,
+              ml_item_id: item.id,
+              ml_variation_id: variation.id,
+              ml_category_id: item.category_id,
+              ml_status: item.status,
+              ml_permalink: item.permalink,
+              ml_preco: variation.price,
+              ml_estoque: variation.available_quantity,
+              source: "ml" as const,
+              linked: childLinked,
+              sync_status: "synced" as const,
+              last_ml_sync: now,
+              updated_at: now,
+            },
+            { onConflict: "workspace_id,sku" }
+          );
           imported++;
         }
       } else {
-        // Simple product — one row
-        const sku =
-          item.seller_custom_field || `ML-${item.id}`;
+        // ---------------------------------------------------------------
+        // Simple product — single row with preco + estoque
+        // ---------------------------------------------------------------
+        const sku = item.seller_custom_field || `ML-${item.id}`;
 
         const { data: existingBySku } = await supabase
           .from("hub_products")
@@ -228,27 +296,28 @@ export async function POST(req: NextRequest) {
         const isLinked = !!existingBySku;
         if (isLinked) linked++;
 
-        const row = {
-          workspace_id: workspaceId,
-          ml_item_id: item.id,
-          ml_category_id: item.category_id,
-          ml_status: item.status,
-          ml_permalink: item.permalink,
-          ml_preco: item.price,
-          ml_estoque: item.available_quantity,
-          nome: item.title,
-          sku,
-          fotos,
-          source: "ml" as const,
-          linked: isLinked,
-          sync_status: "synced" as const,
-          last_ml_sync: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        await supabase
-          .from("hub_products")
-          .upsert(row, { onConflict: "workspace_id,sku" });
+        await supabase.from("hub_products").upsert(
+          {
+            workspace_id: workspaceId,
+            sku,
+            nome: item.title,
+            preco: item.price,
+            estoque: item.available_quantity,
+            fotos,
+            ml_item_id: item.id,
+            ml_category_id: item.category_id,
+            ml_status: item.status,
+            ml_permalink: item.permalink,
+            ml_preco: item.price,
+            ml_estoque: item.available_quantity,
+            source: "ml" as const,
+            linked: isLinked,
+            sync_status: "synced" as const,
+            last_ml_sync: now,
+            updated_at: now,
+          },
+          { onConflict: "workspace_id,sku" }
+        );
 
         imported++;
       }
@@ -261,7 +330,10 @@ export async function POST(req: NextRequest) {
         entity_id: itemId,
         direction: "ml_to_hub",
         status: "ok",
-        details: { title: item.title, variations: item.variations?.length || 0 },
+        details: {
+          title: item.title,
+          variations: item.variations?.length || 0,
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";

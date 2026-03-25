@@ -17,11 +17,13 @@ export async function GET(req: NextRequest) {
 
   const supabase = createAdminClient();
 
+  // Order: parents first (ecc_pai_sku null), then children grouped by parent SKU
   let query = supabase
     .from("hub_products")
     .select("*", { count: "exact" })
     .eq("workspace_id", workspaceId)
-    .order("updated_at", { ascending: false })
+    .order("ecc_pai_sku", { ascending: true, nullsFirst: true })
+    .order("sku", { ascending: true })
     .range(page * pageSize, (page + 1) * pageSize - 1);
 
   if (search) {

@@ -1092,12 +1092,17 @@ export default function HubProdutosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map((p) => (
+                  {products.map((p) => {
+                    const isChild = !!p.ecc_pai_sku;
+                    const displayPreco = p.preco ?? p.ml_preco;
+                    const displayEstoque = p.estoque ?? p.ml_estoque ?? 0;
+
+                    return (
                     <tr
                       key={p.id}
                       className={`border-t hover:bg-muted/30 ${
                         selected.has(p.id) ? "bg-primary/5" : ""
-                      }`}
+                      } ${isChild ? "bg-muted/10" : ""}`}
                     >
                       <td className="p-3 text-center">
                         <input
@@ -1108,7 +1113,7 @@ export default function HubProdutosPage() {
                         />
                       </td>
                       <td className="p-3">
-                        {p.fotos && p.fotos.length > 0 ? (
+                        {!isChild && p.fotos && p.fotos.length > 0 ? (
                           <div className="relative w-10 h-10">
                             <Image
                               src={p.fotos[0]}
@@ -1124,25 +1129,40 @@ export default function HubProdutosPage() {
                               </span>
                             )}
                           </div>
+                        ) : isChild ? (
+                          <div className="w-10 h-10 flex items-center justify-center">
+                            <span className="text-muted-foreground text-xs">↳</span>
+                          </div>
                         ) : (
                           <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
                             <ImageIcon className="h-4 w-4 text-muted-foreground" />
                           </div>
                         )}
                       </td>
-                      <td className="p-3 font-mono text-xs">{p.sku}</td>
+                      <td className={`p-3 font-mono text-xs ${isChild ? "pl-6" : "font-semibold"}`}>
+                        {p.sku}
+                        {isChild && p.atributos && Object.keys(p.atributos).length > 0 && (
+                          <div className="text-[11px] text-muted-foreground font-normal mt-0.5">
+                            {Object.values(p.atributos).join(" / ")}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-3 truncate max-w-[250px]">
-                        {p.nome || "-"}
+                        {isChild ? (
+                          <span className="text-muted-foreground">{p.nome || "-"}</span>
+                        ) : (
+                          p.nome || "-"
+                        )}
                       </td>
                       <td className="p-3 text-right">
-                        {p.preco != null
-                          ? p.preco.toLocaleString("pt-BR", {
+                        {displayPreco != null
+                          ? displayPreco.toLocaleString("pt-BR", {
                               style: "currency",
                               currency: "BRL",
                             })
                           : "-"}
                       </td>
-                      <td className="p-3 text-right">{p.estoque}</td>
+                      <td className="p-3 text-right">{displayEstoque}</td>
                       <td className="p-3 text-center">
                         <SourceBadge source={p.source} />
                       </td>
@@ -1182,7 +1202,8 @@ export default function HubProdutosPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
