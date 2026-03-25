@@ -19,6 +19,18 @@
     {
       "path": "/api/cron/wapi-group-sender",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/check-faturados",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-stock",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-token",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

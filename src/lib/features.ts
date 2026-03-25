@@ -49,6 +49,12 @@ export const FEATURES: Feature[] = [
     routes: ["/crm", "/whatsapp-groups"],
   },
   {
+    id: "hub",
+    label: "Hub ML",
+    description: "Integracao Eccosys e Mercado Livre",
+    routes: ["/hub"],
+  },
+  {
     id: "financeiro",
     label: "Financeiro",
     description: "Simulador, Diagnostico, Escala e Configuracoes",

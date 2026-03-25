@@ -31,6 +31,10 @@ import {
   Gift,
   LogOut,
   ChevronsUpDown,
+  ArrowLeftRight,
+  Package,
+  ShoppingCart,
+  FileText,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -142,6 +146,22 @@ const navGroups: NavGroup[] = [
           { title: "CRM", href: "/crm", icon: Contact },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
           { title: "WhatsApp Grupos", href: "/whatsapp-groups", icon: Users },
+        ],
+      },
+    ],
+  },
+  {
+    label: "Hub",
+    items: [
+      {
+        title: "Hub ML",
+        href: "/hub",
+        icon: ArrowLeftRight,
+        items: [
+          { title: "Dashboard", href: "/hub", icon: LayoutDashboard },
+          { title: "Produtos", href: "/hub/produtos", icon: Package },
+          { title: "Pedidos", href: "/hub/pedidos", icon: ShoppingCart },
+          { title: "Logs", href: "/hub/logs", icon: FileText },
         ],
       },
     ],

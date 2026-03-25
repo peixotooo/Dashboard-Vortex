@@ -1,0 +1,180 @@
+// ============================================================
+// Hub Eccosys <-> Mercado Livre — Database types
+// ============================================================
+
+export interface EccosysConnection {
+  id: string;
+  workspace_id: string;
+  api_token: string; // encrypted
+  ambiente: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MLCredential {
+  id: string;
+  workspace_id: string;
+  ml_user_id: number;
+  ml_nickname: string | null;
+  access_token: string; // encrypted
+  refresh_token: string; // encrypted
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HubProductSource = "eccosys" | "ml";
+export type HubProductSyncStatus = "draft" | "ready" | "synced" | "error";
+
+export interface HubProduct {
+  id: string;
+  workspace_id: string;
+
+  // Eccosys side
+  ecc_id: number | null;
+  sku: string;
+  nome: string | null;
+  preco: number | null;
+  preco_promocional: number | null;
+  estoque: number;
+  gtin: string | null;
+  peso: number | null;
+  largura: number | null;
+  altura: number | null;
+  comprimento: number | null;
+  descricao: string | null;
+  fotos: string[] | null;
+  situacao: string;
+  ecc_pai_id: number | null;
+  ecc_pai_sku: string | null;
+  atributos: Record<string, string>;
+
+  // ML side
+  ml_item_id: string | null;
+  ml_variation_id: number | null;
+  ml_category_id: string | null;
+  ml_status: string | null;
+  ml_permalink: string | null;
+  ml_preco: number | null;
+  ml_estoque: number | null;
+
+  // Control
+  source: HubProductSource;
+  linked: boolean;
+  sync_status: HubProductSyncStatus;
+  last_ecc_sync: string | null;
+  last_ml_sync: string | null;
+  error_msg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HubOrderSyncStatus =
+  | "pending"
+  | "imported"
+  | "error"
+  | "ignored"
+  | "tracking_sent";
+
+export interface HubOrderItem {
+  sku: string;
+  nome: string;
+  qtd: number;
+  preco: number;
+  ml_item_id: string;
+}
+
+export interface HubOrder {
+  id: string;
+  workspace_id: string;
+
+  // ML side
+  ml_order_id: number;
+  ml_shipment_id: number | null;
+  ml_status: string | null;
+  ml_date: string | null;
+  buyer_name: string | null;
+  buyer_doc: string | null;
+  buyer_email: string | null;
+  total: number | null;
+  frete: number;
+  items: HubOrderItem[];
+  endereco: Record<string, unknown> | null;
+  pagamento: Record<string, unknown> | null;
+
+  // Eccosys side
+  ecc_pedido_id: number | null;
+  ecc_numero: string | null;
+  ecc_situacao: number | null;
+  ecc_nfe_numero: string | null;
+  ecc_rastreio: string | null;
+
+  // Control
+  sync_status: HubOrderSyncStatus;
+  error_msg: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HubLogAction =
+  | "pull_eccosys"
+  | "push_ml"
+  | "pull_ml"
+  | "pull_order"
+  | "push_order_eccosys"
+  | "sync_nfe"
+  | "sync_stock"
+  | "webhook_received"
+  | "error";
+
+export interface HubLog {
+  id: string;
+  workspace_id: string;
+  action: HubLogAction;
+  entity: string | null;
+  entity_id: string | null;
+  direction: string | null;
+  status: "ok" | "error";
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// ============================================================
+// Eccosys API response types
+// ============================================================
+
+export interface EccosysProduto {
+  id: number;
+  codigo: string;
+  nome: string;
+  preco: number;
+  precoPromocional: number | null;
+  gtin: string | null;
+  peso: number | null;
+  largura: number | null;
+  altura: number | null;
+  comprimento: number | null;
+  descricaoEcommerce: string | null;
+  situacao: string;
+  idProdutoPai: number | null;
+  codigoPai: string | null;
+  foto1: string | null;
+  foto2: string | null;
+  foto3: string | null;
+  foto4: string | null;
+  foto5: string | null;
+  foto6: string | null;
+}
+
+export interface EccosysEstoque {
+  estoqueDisponivel: number;
+}
+
+export interface EccosysAtributo {
+  nome: string;
+  valor: string;
+}
+
+export interface EccosysImagem {
+  url: string;
+}
