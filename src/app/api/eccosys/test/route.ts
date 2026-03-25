@@ -1,24 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { eccosys } from "@/lib/eccosys/client";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { api_token, ambiente } = body;
+  // Authenticate user
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll: () => req.cookies.getAll(), setAll() {} } }
+  );
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  if (!api_token || !ambiente) {
+  const config = eccosys.getConfig();
+  if (!config) {
     return NextResponse.json(
-      { error: "api_token e ambiente sao obrigatorios" },
+      { ok: false, message: "ECCOSYS_API_TOKEN nao configurado nas env vars da Vercel." },
       { status: 400 }
     );
   }
 
   try {
-    const ok = await eccosys.testConnection(api_token, ambiente.trim());
+    const ok = await eccosys.testConnection(config.apiToken, config.ambiente);
     if (ok) {
-      return NextResponse.json({ ok: true, message: "Conexao com Eccosys OK" });
+      return NextResponse.json({
+        ok: true,
+        message: `Conexao OK — ambiente: ${config.ambiente}`,
+      });
     }
     return NextResponse.json(
-      { ok: false, message: "Falha na autenticacao. Verifique o token." },
+      { ok: false, message: "Falha na autenticacao. Verifique ECCOSYS_API_TOKEN na Vercel." },
       { status: 401 }
     );
   } catch (err) {

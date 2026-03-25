@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { eccosys } from "@/lib/eccosys/client";
 
 export async function GET(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -9,15 +10,11 @@ export async function GET(req: NextRequest) {
 
   const supabase = createAdminClient();
 
-  const [eccConn, mlCred, productCounts, pendingOrders, recentErrors] =
-    await Promise.all([
-      // Eccosys connection
-      supabase
-        .from("eccosys_connections")
-        .select("ambiente")
-        .eq("workspace_id", workspaceId)
-        .single(),
+  // Eccosys config comes from env vars now
+  const eccConfig = eccosys.getConfig();
 
+  const [mlCred, productCounts, pendingOrders, recentErrors] =
+    await Promise.all([
       // ML credentials
       supabase
         .from("ml_credentials")
@@ -54,8 +51,8 @@ export async function GET(req: NextRequest) {
   const linkedProducts = products.filter((p) => p.linked).length;
 
   return NextResponse.json({
-    eccosysConnected: !!eccConn.data,
-    eccosysAmbiente: eccConn.data?.ambiente ?? null,
+    eccosysConnected: !!eccConfig,
+    eccosysAmbiente: eccConfig?.ambiente ?? null,
     mlConnected: !!mlCred.data,
     mlNickname: mlCred.data?.ml_nickname ?? null,
     totalProducts,

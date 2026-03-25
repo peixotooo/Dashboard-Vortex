@@ -4,9 +4,11 @@ const ALGORITHM = "aes-256-gcm";
 
 function getKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
-  if (!key || key.length < 32) {
-    // Fallback: no encryption (dev mode)
-    return Buffer.alloc(32, 0);
+  if (!key || key.length < 64) {
+    throw new Error(
+      "ENCRYPTION_KEY is missing or invalid. Must be a 64-char hex string (32 bytes). " +
+      "Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    );
   }
   return Buffer.from(key, "hex");
 }

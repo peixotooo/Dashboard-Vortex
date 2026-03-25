@@ -1,11 +1,10 @@
-import { createAdminClient } from "@/lib/supabase-admin";
-import { decrypt } from "@/lib/encryption";
-import type { EccosysConnection } from "@/types/hub";
-
 interface EccosysConfig {
   apiToken: string;
   ambiente: string;
 }
+
+/** Allowed ambiente values — prevents SSRF */
+const VALID_AMBIENTES = ["homolog", "producao", "sandbox"];
 
 class EccosysClient {
   private lastRequest = 0;
@@ -16,22 +15,33 @@ class EccosysClient {
     this.lastRequest = Date.now();
   }
 
-  async getConfig(workspaceId: string): Promise<EccosysConfig | null> {
-    const supabase = createAdminClient();
-    const { data } = await supabase
-      .from("eccosys_connections")
-      .select("api_token, ambiente")
-      .eq("workspace_id", workspaceId)
-      .single<Pick<EccosysConnection, "api_token" | "ambiente">>();
+  /**
+   * Read credentials from environment variables.
+   * Token is stored in Vercel env — never touches the database.
+   */
+  getConfig(): EccosysConfig | null {
+    const apiToken = process.env.ECCOSYS_API_TOKEN;
+    const ambiente = (process.env.ECCOSYS_AMBIENTE || "producao").toLowerCase();
 
-    if (!data) return null;
-    return {
-      apiToken: decrypt(data.api_token),
-      ambiente: data.ambiente,
-    };
+    if (!apiToken) return null;
+    if (!VALID_AMBIENTES.includes(ambiente)) {
+      throw new Error(
+        `ECCOSYS_AMBIENTE invalido: "${ambiente}". Valores aceitos: ${VALID_AMBIENTES.join(", ")}`
+      );
+    }
+
+    return { apiToken, ambiente };
+  }
+
+  /** Check if env vars are configured */
+  isConfigured(): boolean {
+    return !!process.env.ECCOSYS_API_TOKEN;
   }
 
   private getBaseUrl(config: EccosysConfig): string {
+    if (!VALID_AMBIENTES.includes(config.ambiente)) {
+      throw new Error(`Ambiente Eccosys invalido: ${config.ambiente}`);
+    }
     return `https://${config.ambiente}.eccosys.com.br/api`;
   }
 
@@ -44,11 +54,11 @@ class EccosysClient {
 
   async get<T = unknown>(
     path: string,
-    workspaceId: string,
+    _workspaceId?: string,
     params?: Record<string, string>
   ): Promise<T> {
-    const config = await this.getConfig(workspaceId);
-    if (!config) throw new Error("Eccosys nao configurado para este workspace.");
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado. Defina ECCOSYS_API_TOKEN nas env vars da Vercel.");
 
     await this.throttle();
     const url = new URL(this.getBaseUrl(config) + path);
@@ -67,10 +77,10 @@ class EccosysClient {
   async post<T = unknown>(
     path: string,
     body: unknown,
-    workspaceId: string
+    _workspaceId?: string
   ): Promise<T> {
-    const config = await this.getConfig(workspaceId);
-    if (!config) throw new Error("Eccosys nao configurado para este workspace.");
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado. Defina ECCOSYS_API_TOKEN nas env vars da Vercel.");
 
     await this.throttle();
     const res = await fetch(this.getBaseUrl(config) + path, {
@@ -88,10 +98,10 @@ class EccosysClient {
   async put<T = unknown>(
     path: string,
     body: unknown,
-    workspaceId: string
+    _workspaceId?: string
   ): Promise<T> {
-    const config = await this.getConfig(workspaceId);
-    if (!config) throw new Error("Eccosys nao configurado para este workspace.");
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado. Defina ECCOSYS_API_TOKEN nas env vars da Vercel.");
 
     await this.throttle();
     const res = await fetch(this.getBaseUrl(config) + path, {
@@ -112,14 +122,14 @@ class EccosysClient {
    */
   async listAll<T = unknown>(
     path: string,
-    workspaceId: string,
+    _workspaceId?: string,
     params?: Record<string, string>,
     pageSize = 50
   ): Promise<T[]> {
     const results: T[] = [];
     let offset = 0;
     while (true) {
-      const page = await this.get<T[]>(path, workspaceId, {
+      const page = await this.get<T[]>(path, undefined, {
         ...params,
         $offset: String(offset),
         $count: String(pageSize),
@@ -133,9 +143,12 @@ class EccosysClient {
   }
 
   /**
-   * Direct config-based request (for testing connection before saving).
+   * Test connection with explicit credentials (for settings page).
    */
   async testConnection(apiToken: string, ambiente: string): Promise<boolean> {
+    if (!VALID_AMBIENTES.includes(ambiente)) {
+      throw new Error(`Ambiente Eccosys invalido: ${ambiente}`);
+    }
     await this.throttle();
     const url = `https://${ambiente}.eccosys.com.br/api/produtos?$count=1`;
     const res = await fetch(url, {

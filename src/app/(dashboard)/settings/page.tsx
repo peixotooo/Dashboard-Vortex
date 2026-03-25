@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Shield,
   CheckCircle,
@@ -21,6 +22,7 @@ import {
   Link,
   RotateCcw,
   Globe,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -136,6 +138,19 @@ export default function SettingsPage() {
   const [providerSaved, setProviderSaved] = useState(false);
   const [providerError, setProviderError] = useState("");
 
+  // Eccosys Connection (env-var based — read-only status)
+  const [eccosysConfigured, setEccosysConfigured] = useState(false);
+  const [eccosysAmbiente, setEccosysAmbiente] = useState<string | null>(null);
+  const [testingEccosys, setTestingEccosys] = useState(false);
+  const [eccosysTestResult, setEccosysTestResult] = useState<{
+    ok?: boolean;
+    message?: string;
+  } | null>(null);
+
+  // Tab from URL (e.g. /settings?tab=eccosys)
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+
   // Load workspace data
   const loadWorkspaceData = useCallback(async () => {
     if (!workspace?.id) return;
@@ -161,6 +176,16 @@ export default function SettingsPage() {
         setCustomDomain(data.customDomain);
         setCustomDomainInput(data.customDomain);
       }
+    } catch {
+      // Silent
+    }
+
+    // Load Eccosys connection status (env-var based)
+    try {
+      const eccRes = await fetch("/api/eccosys/connections");
+      const eccData = await eccRes.json();
+      setEccosysConfigured(!!eccData.configured);
+      setEccosysAmbiente(eccData.ambiente ?? null);
     } catch {
       // Silent
     }
@@ -822,6 +847,25 @@ export default function SettingsPage() {
     setTimeout(() => setWebhookCopied(false), 2000);
   }
 
+  // === Eccosys handlers ===
+
+  async function handleTestEccosysConnection() {
+    setTestingEccosys(true);
+    setEccosysTestResult(null);
+    try {
+      const res = await fetch("/api/eccosys/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      setEccosysTestResult(await res.json());
+    } catch {
+      setEccosysTestResult({ ok: false, message: "Erro ao testar conexao" });
+    } finally {
+      setTestingEccosys(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -831,8 +875,8 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue={isAdmin ? "meta" : "team"}>
-        <TabsList>
+      <Tabs defaultValue={tabFromUrl && isAdmin ? tabFromUrl : isAdmin ? "meta" : "team"}>
+        <TabsList className="flex flex-wrap h-auto gap-1">
           {isAdmin && (
             <TabsTrigger value="meta">
               <Key className="h-4 w-4 mr-2" />
@@ -851,6 +895,12 @@ export default function SettingsPage() {
             <TabsTrigger value="vnda">
               <ShoppingBag className="h-4 w-4 mr-2" />
               VNDA
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="eccosys">
+              <Settings className="h-4 w-4 mr-2" />
+              Eccosys
             </TabsTrigger>
           )}
           {isAdmin && (
@@ -1704,6 +1754,90 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ===== Eccosys Tab ===== */}
+        <TabsContent value="eccosys" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-orange-500" />
+                Conexao Eccosys ERP
+              </CardTitle>
+              <CardDescription>
+                Token configurado diretamente nas variaveis de ambiente da Vercel para maxima seguranca.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Status */}
+              <div className={`flex items-center gap-2 p-3 rounded-lg ${eccosysConfigured ? "bg-orange-500/10" : "bg-destructive/10"}`}>
+                {eccosysConfigured ? (
+                  <CheckCircle className="h-4 w-4 text-orange-500" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-destructive" />
+                )}
+                <span className={`text-sm ${eccosysConfigured ? "text-orange-600 dark:text-orange-400" : "text-destructive"}`}>
+                  {eccosysConfigured
+                    ? <>Token configurado · Ambiente: <strong>{eccosysAmbiente}</strong></>
+                    : "Token nao configurado"}
+                </span>
+              </div>
+
+              {/* Test button */}
+              {eccosysConfigured && isAdmin && (
+                <Button
+                  variant="outline"
+                  onClick={handleTestEccosysConnection}
+                  disabled={testingEccosys}
+                >
+                  {testingEccosys ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Testando...
+                    </>
+                  ) : (
+                    "Testar Conexao"
+                  )}
+                </Button>
+              )}
+
+              {eccosysTestResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg ${eccosysTestResult.ok ? "bg-success/10" : "bg-destructive/10"}`}>
+                  {eccosysTestResult.ok ? (
+                    <CheckCircle className="h-4 w-4 text-success" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-destructive" />
+                  )}
+                  <span className={`text-sm ${eccosysTestResult.ok ? "text-success" : "text-destructive"}`}>
+                    {eccosysTestResult.message}
+                  </span>
+                </div>
+              )}
+
+              {/* Instructions */}
+              <div className="rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground space-y-2">
+                <p className="font-medium text-sm text-foreground">Como configurar:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>
+                    Acesse o painel da Vercel &gt; Settings &gt; Environment Variables
+                  </li>
+                  <li>
+                    Adicione <code className="bg-muted px-1 rounded">ECCOSYS_API_TOKEN</code> com o Bearer token
+                  </li>
+                  <li>
+                    Adicione <code className="bg-muted px-1 rounded">ECCOSYS_AMBIENTE</code> com o valor{" "}
+                    <code className="bg-muted px-1 rounded">producao</code>,{" "}
+                    <code className="bg-muted px-1 rounded">homolog</code> ou{" "}
+                    <code className="bg-muted px-1 rounded">sandbox</code>
+                  </li>
+                  <li>Faca um redeploy para aplicar as variaveis</li>
+                </ol>
+                <p className="pt-1">
+                  O token nunca toca o banco de dados — fica encriptado nos servidores da Vercel.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ===== Health Check Tab ===== */}

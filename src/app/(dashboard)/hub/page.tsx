@@ -105,7 +105,7 @@ export default function HubPage() {
               </div>
               {!stats?.eccosysConnected && !loading && (
                 <Button variant="outline" size="sm" asChild>
-                  <Link href="/settings">Configurar</Link>
+                  <Link href="/settings?tab=eccosys">Configurar</Link>
                 </Button>
               )}
             </div>
