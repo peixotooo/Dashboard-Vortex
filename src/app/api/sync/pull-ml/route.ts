@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
+import type { MLData } from "@/types/hub";
 
 export const maxDuration = 120;
 
@@ -13,12 +14,38 @@ interface MLItem {
   id: string;
   title: string;
   price: number;
+  base_price?: number;
+  original_price?: number;
+  currency_id?: string;
   available_quantity: number;
+  sold_quantity?: number;
   status: string;
+  sub_status?: string[];
   permalink: string;
   category_id: string;
+  domain_id?: string;
   seller_custom_field?: string;
+  listing_type_id?: string;
+  condition?: string;
+  buying_mode?: string;
+  warranty?: string;
+  catalog_listing?: boolean;
+  catalog_product_id?: string;
+  health?: number;
+  tags?: string[];
+  channels?: string[];
+  date_created?: string;
+  last_updated?: string;
+  start_time?: string;
   pictures?: MLPicture[];
+  shipping?: {
+    mode?: string;
+    free_shipping?: boolean;
+    logistic_type?: string;
+    local_pick_up?: boolean;
+    store_pick_up?: boolean;
+    tags?: string[];
+  };
   variations?: Array<{
     id: number;
     seller_sku?: string;
@@ -32,6 +59,64 @@ interface MLItem {
 /** Extract best quality URL from ML picture (prefer HTTPS secure_url) */
 function picUrl(pic: MLPicture): string {
   return pic.secure_url || pic.url;
+}
+
+/**
+ * Batch-fetch visit counts for ML items.
+ * ML supports up to 50 IDs per request via /items/visits?ids=MLB1,MLB2,...
+ */
+async function fetchVisitsBatch(
+  itemIds: string[],
+  workspaceId: string
+): Promise<Map<string, number>> {
+  const visits = new Map<string, number>();
+
+  for (let i = 0; i < itemIds.length; i += 50) {
+    const batch = itemIds.slice(i, i + 50);
+    try {
+      const result = await ml.get<Record<string, number>>(
+        `/items/visits?ids=${batch.join(",")}`,
+        workspaceId
+      );
+      if (result && typeof result === "object") {
+        for (const [id, count] of Object.entries(result)) {
+          visits.set(id, count);
+        }
+      }
+    } catch {
+      // Visits endpoint failure is non-critical
+    }
+  }
+
+  return visits;
+}
+
+/** Extract enriched ML data from item response + visits count */
+function extractMLData(item: MLItem, visits: number | null): MLData {
+  return {
+    listing_type_id: item.listing_type_id || "gold_special",
+    condition: item.condition || "new",
+    buying_mode: item.buying_mode || "buy_it_now",
+    original_price: item.original_price ?? null,
+    base_price: item.base_price ?? null,
+    currency_id: item.currency_id || "BRL",
+    catalog_listing: item.catalog_listing ?? false,
+    catalog_product_id: item.catalog_product_id ?? null,
+    domain_id: item.domain_id ?? null,
+    free_shipping: item.shipping?.free_shipping ?? false,
+    shipping_mode: item.shipping?.mode ?? null,
+    logistic_type: item.shipping?.logistic_type ?? null,
+    sold_quantity: item.sold_quantity ?? 0,
+    health: item.health ?? null,
+    visits,
+    warranty: item.warranty ?? null,
+    tags: item.tags || [],
+    sub_status: item.sub_status || [],
+    channels: item.channels || [],
+    date_created: item.date_created || new Date().toISOString(),
+    last_updated: item.last_updated || new Date().toISOString(),
+    start_time: item.start_time ?? null,
+  };
 }
 
 /**
@@ -106,10 +191,17 @@ export async function GET(req: NextRequest) {
         ml_item_id: item.id,
         title: item.title,
         price: item.price,
+        original_price: item.original_price ?? null,
         quantity: item.available_quantity,
+        sold_quantity: item.sold_quantity ?? 0,
         status: item.status,
         permalink: item.permalink,
         category_id: item.category_id,
+        listing_type_id: item.listing_type_id ?? null,
+        condition: item.condition ?? null,
+        free_shipping: item.shipping?.free_shipping ?? false,
+        logistic_type: item.shipping?.logistic_type ?? null,
+        health: item.health ?? null,
         sku: item.seller_custom_field || null,
         skus,
         thumbnail: item.pictures?.[0] ? picUrl(item.pictures[0]) : null,
@@ -157,6 +249,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Pre-fetch visits for all items being imported
+  const visitsMap = await fetchVisitsBatch(itemIds, workspaceId);
+
   const supabase = createAdminClient();
   let imported = 0;
   let linked = 0;
@@ -168,6 +263,7 @@ export async function POST(req: NextRequest) {
       const item = await ml.get<MLItem>(`/items/${itemId}`, workspaceId);
 
       const fotos = (item.pictures || []).map((p) => picUrl(p)).filter(Boolean);
+      const mlData = extractMLData(item, visitsMap.get(item.id) ?? null);
 
       if (item.variations && item.variations.length > 0) {
         // ---------------------------------------------------------------
@@ -215,6 +311,7 @@ export async function POST(req: NextRequest) {
             ml_permalink: item.permalink,
             ml_preco: item.price,
             ml_estoque: totalEstoque,
+            ml_data: mlData,
             ecc_pai_sku: null,
             source: "ml" as const,
             linked: parentLinked,
@@ -269,6 +366,7 @@ export async function POST(req: NextRequest) {
               ml_permalink: item.permalink,
               ml_preco: variation.price,
               ml_estoque: variation.available_quantity,
+              ml_data: mlData,
               source: "ml" as const,
               linked: childLinked,
               sync_status: "synced" as const,
@@ -310,6 +408,7 @@ export async function POST(req: NextRequest) {
             ml_permalink: item.permalink,
             ml_preco: item.price,
             ml_estoque: item.available_quantity,
+            ml_data: mlData,
             source: "ml" as const,
             linked: isLinked,
             sync_status: "synced" as const,

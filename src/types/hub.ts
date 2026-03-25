@@ -26,6 +26,32 @@ export interface MLCredential {
 export type HubProductSource = "eccosys" | "ml";
 export type HubProductSyncStatus = "draft" | "ready" | "synced" | "error";
 
+// ML enriched data (stored in hub_products.ml_data JSONB)
+export interface MLData {
+  listing_type_id: string;
+  condition: string;
+  buying_mode: string;
+  original_price: number | null;
+  base_price: number | null;
+  currency_id: string;
+  catalog_listing: boolean;
+  catalog_product_id: string | null;
+  domain_id: string | null;
+  free_shipping: boolean;
+  shipping_mode: string | null;
+  logistic_type: string | null;
+  sold_quantity: number;
+  health: number | null;
+  visits: number | null;
+  warranty: string | null;
+  tags: string[];
+  sub_status: string[];
+  channels: string[];
+  date_created: string;
+  last_updated: string;
+  start_time: string | null;
+}
+
 export interface HubProduct {
   id: string;
   workspace_id: string;
@@ -57,6 +83,7 @@ export interface HubProduct {
   ml_permalink: string | null;
   ml_preco: number | null;
   ml_estoque: number | null;
+  ml_data: MLData | null;
 
   // Control
   source: HubProductSource;

@@ -16,6 +16,14 @@ import {
   ImageIcon,
   ChevronDown,
   ChevronRight,
+  Star,
+  Truck,
+  Zap,
+  Eye,
+  ShoppingCart,
+  Crown,
+  TrendingUp,
+  Tag,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,8 +43,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useWorkspace } from "@/lib/workspace-context";
-import type { HubProduct } from "@/types/hub";
+import type { HubProduct, MLData } from "@/types/hub";
 
 // -------------------------------------------------------------------
 // Sync status badge
@@ -65,6 +79,132 @@ function SourceBadge({ source }: { source: string }) {
     <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
       ML
     </Badge>
+  );
+}
+
+// -------------------------------------------------------------------
+// ML Listing Type Badge
+// -------------------------------------------------------------------
+function ListingTypeBadge({ type }: { type: string }) {
+  const map: Record<string, { label: string; className: string; icon: boolean }> = {
+    gold_special: {
+      label: "Premium",
+      className: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300",
+      icon: true,
+    },
+    gold_pro: {
+      label: "Classico",
+      className: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300",
+      icon: true,
+    },
+    free: {
+      label: "Gratis",
+      className: "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400",
+      icon: false,
+    },
+  };
+  const badge = map[type] || { label: type, className: "bg-gray-100 text-gray-600 border-gray-300", icon: false };
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badge.className}`}>
+      {badge.icon && <Star className="h-2.5 w-2.5" />}
+      {badge.label}
+    </span>
+  );
+}
+
+// -------------------------------------------------------------------
+// Shipping Badge
+// -------------------------------------------------------------------
+function ShippingBadge({ mlData }: { mlData: MLData }) {
+  if (mlData.logistic_type === "fulfillment") {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300 dark:bg-green-900/30 dark:text-green-300">
+        <Zap className="h-2.5 w-2.5" />
+        Full
+      </span>
+    );
+  }
+  if (mlData.free_shipping) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 dark:bg-green-900/20 dark:text-green-400">
+        <Truck className="h-2.5 w-2.5" />
+        Frete Gratis
+      </span>
+    );
+  }
+  return null;
+}
+
+// -------------------------------------------------------------------
+// Health Score (quality meter)
+// -------------------------------------------------------------------
+function HealthScore({ health }: { health: number | null }) {
+  if (health == null) return null;
+  const pct = Math.round(health * 100);
+  const color =
+    pct >= 80
+      ? "bg-green-500"
+      : pct >= 50
+        ? "bg-yellow-500"
+        : "bg-red-500";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="inline-flex items-center gap-1 cursor-default">
+          <TrendingUp className="h-2.5 w-2.5 text-muted-foreground" />
+          <div className="w-10 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full ${color}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-muted-foreground">{pct}</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>Qualidade do anuncio: {pct}%</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// -------------------------------------------------------------------
+// ML Detail Chips Row
+// -------------------------------------------------------------------
+function MLDetailChips({ mlData }: { mlData: MLData }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 mt-1">
+      <ListingTypeBadge type={mlData.listing_type_id} />
+      <ShippingBadge mlData={mlData} />
+
+      {mlData.condition === "used" && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-200 dark:bg-orange-900/20 dark:text-orange-400">
+          <Tag className="h-2.5 w-2.5" />
+          Usado
+        </span>
+      )}
+
+      {mlData.catalog_listing && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200 dark:bg-purple-900/20 dark:text-purple-400">
+          <Crown className="h-2.5 w-2.5" />
+          Catalogo
+        </span>
+      )}
+
+      {mlData.sold_quantity > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+          <ShoppingCart className="h-2.5 w-2.5" />
+          {mlData.sold_quantity} vendidos
+        </span>
+      )}
+
+      {mlData.visits != null && mlData.visits > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+          <Eye className="h-2.5 w-2.5" />
+          {mlData.visits.toLocaleString("pt-BR")}
+        </span>
+      )}
+
+      <HealthScore health={mlData.health} />
+    </div>
   );
 }
 
@@ -515,7 +655,9 @@ interface MLListItem {
   ml_item_id: string;
   title: string;
   price: number;
+  original_price: number | null;
   quantity: number;
+  sold_quantity: number;
   status: string;
   permalink: string;
   sku: string | null;
@@ -524,6 +666,11 @@ interface MLListItem {
   photos_count: number;
   variations_count: number;
   already_in_hub: boolean;
+  listing_type_id: string | null;
+  condition: string | null;
+  free_shipping: boolean;
+  logistic_type: string | null;
+  health: number | null;
 }
 
 function PullMLModal({
@@ -618,7 +765,7 @@ function PullMLModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Puxar Anuncios do Mercado Livre</DialogTitle>
           <DialogDescription>
@@ -677,7 +824,7 @@ function PullMLModal({
                       <th className="p-3 w-10"></th>
                       <th className="p-3 w-12"></th>
                       <th className="p-3 text-left font-medium">SKU / ID</th>
-                      <th className="p-3 text-left font-medium">Titulo</th>
+                      <th className="p-3 text-left font-medium">Anuncio</th>
                       <th className="p-3 text-right font-medium">Preco</th>
                       <th className="p-3 text-center font-medium">Fotos</th>
                       <th className="p-3 text-center font-medium">Var.</th>
@@ -748,14 +895,47 @@ function PullMLModal({
                             </a>
                           </div>
                         </td>
-                        <td className="p-3 truncate max-w-[200px]">
-                          {item.title}
+                        <td className="p-3 max-w-[250px]">
+                          <div className="truncate">{item.title}</div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {item.listing_type_id && (
+                              <ListingTypeBadge type={item.listing_type_id} />
+                            )}
+                            {item.logistic_type === "fulfillment" && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 dark:text-green-400">
+                                <Zap className="h-2.5 w-2.5" />
+                                Full
+                              </span>
+                            )}
+                            {item.free_shipping && item.logistic_type !== "fulfillment" && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 dark:text-green-400">
+                                <Truck className="h-2.5 w-2.5" />
+                                Frete Gratis
+                              </span>
+                            )}
+                            {item.sold_quantity > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {item.sold_quantity} vendidos
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 text-right">
-                          {item.price?.toLocaleString("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          })}
+                          {item.original_price != null &&
+                           item.original_price > item.price && (
+                            <div className="text-[10px] text-muted-foreground line-through">
+                              {item.original_price.toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL",
+                              })}
+                            </div>
+                          )}
+                          <div>
+                            {item.price?.toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            })}
+                          </div>
                         </td>
                         <td className="p-3 text-center">
                           {item.photos_count > 0 ? (
@@ -847,14 +1027,9 @@ interface ProductGroup {
 }
 
 function groupProducts(products: HubProduct[]): ProductGroup[] {
-  const parentMap = new Map<string, HubProduct>();
   const childrenMap = new Map<string, HubProduct[]>();
-  const standalones: HubProduct[] = [];
 
   // First pass: index all products by SKU and collect children
-  const bySku = new Map<string, HubProduct>();
-  for (const p of products) bySku.set(p.sku, p);
-
   for (const p of products) {
     if (p.ecc_pai_sku) {
       // It's a child — group under parent
@@ -922,6 +1097,7 @@ export default function HubProdutosPage() {
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [syncFilter, setSyncFilter] = useState("");
+  const [listingTypeFilter, setListingTypeFilter] = useState("");
 
   // Modals
   const [showPullEccosys, setShowPullEccosys] = useState(false);
@@ -944,6 +1120,7 @@ export default function HubProdutosPage() {
       if (search) params.set("search", search);
       if (sourceFilter) params.set("source", sourceFilter);
       if (syncFilter) params.set("sync_status", syncFilter);
+      if (listingTypeFilter) params.set("listing_type", listingTypeFilter);
 
       const res = await fetch(`/api/hub/products?${params}`, {
         headers: { "x-workspace-id": workspace.id },
@@ -956,7 +1133,7 @@ export default function HubProdutosPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, search, sourceFilter, syncFilter]);
+  }, [workspace?.id, page, search, sourceFilter, syncFilter, listingTypeFilter]);
 
   useEffect(() => {
     fetchProducts();
@@ -996,426 +1173,453 @@ export default function HubProdutosPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Produtos do Hub</h1>
-          <p className="text-sm text-muted-foreground">
-            {total} produto(s) no hub
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowPullEccosys(true)}
-          >
-            <ArrowDownToLine className="h-4 w-4 mr-2" />
-            Puxar do Eccosys
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowPullML(true)}
-          >
-            <ArrowDownToLine className="h-4 w-4 mr-2" />
-            Puxar do ML
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              if (selected.size > 0) {
-                setShowPushML(true);
-              }
-            }}
-            disabled={selected.size === 0}
-          >
-            <ArrowUpFromLine className="h-4 w-4 mr-2" />
-            Publicar no ML
-          </Button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar SKU ou nome..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setPage(0);
-                    fetchProducts();
-                  }
-                }}
-                className="pl-9"
-              />
-            </div>
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="eccosys">Eccosys</SelectItem>
-                <SelectItem value="ml">ML</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={syncFilter} onValueChange={setSyncFilter}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="draft">Rascunho</SelectItem>
-                <SelectItem value="synced">Sincronizado</SelectItem>
-                <SelectItem value="error">Erro</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setSearch("");
-                setSourceFilter("");
-                setSyncFilter("");
-                setPage(0);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bulk Actions */}
-      {selected.size > 0 && (
-        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
-          <span className="text-sm font-medium">
-            {selected.size} selecionado(s)
-          </span>
-          <Button size="sm" onClick={() => setShowPushML(true)}>
-            <ArrowUpFromLine className="h-4 w-4 mr-1" />
-            Publicar no ML
-          </Button>
-          <Button variant="destructive" size="sm" onClick={handleDelete}>
-            <Trash2 className="h-4 w-4 mr-1" />
-            Remover
-          </Button>
-        </div>
-      )}
-
-      {/* Products Table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : products.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Package className="h-10 w-10 mb-3" />
-              <p className="text-sm font-medium">Nenhum produto no hub</p>
-              <p className="text-xs mt-1">
-                Comece puxando produtos do Eccosys ou Mercado Livre
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-4"
-                onClick={() => setShowPullEccosys(true)}
-              >
-                <ArrowDownToLine className="h-4 w-4 mr-2" />
-                Puxar do Eccosys
-              </Button>
-            </div>
-          ) : (
-            <div className="overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b">
-                  <tr>
-                    <th className="p-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={
-                          selected.size === products.length &&
-                          products.length > 0
-                        }
-                        onChange={toggleSelectAll}
-                        className="rounded"
-                      />
-                    </th>
-                    <th className="p-3 w-12"></th>
-                    <th className="p-3 text-left font-medium">Produto</th>
-                    <th className="p-3 text-right font-medium">Preco</th>
-                    <th className="p-3 text-right font-medium">Estoque</th>
-                    <th className="p-3 text-center font-medium">Source</th>
-                    <th className="p-3 text-center font-medium">ML ID</th>
-                    <th className="p-3 text-center font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupProducts(products).map((group) => {
-                    const p = group.parent;
-                    const hasChildren = group.children.length > 0;
-                    const isExpanded = expandedGroups.has(p.sku);
-                    const displayPreco = p.preco ?? p.ml_preco;
-                    const displayEstoque = p.estoque ?? p.ml_estoque ?? 0;
-
-                    return (
-                      <React.Fragment key={p.id}>
-                        {/* ── Parent / standalone row ── */}
-                        <tr
-                          className={`border-t hover:bg-muted/30 ${
-                            selected.has(p.id) ? "bg-primary/5" : ""
-                          } ${hasChildren ? "cursor-pointer" : ""}`}
-                          onClick={() => hasChildren && toggleExpand(p.sku)}
-                        >
-                          <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={selected.has(p.id)}
-                              onChange={() => toggleSelect(p.id)}
-                              className="rounded"
-                            />
-                          </td>
-                          <td className="p-3">
-                            {p.fotos && p.fotos.length > 0 ? (
-                              <div className="relative w-10 h-10">
-                                <Image
-                                  src={p.fotos[0]}
-                                  alt={p.nome || p.sku}
-                                  fill
-                                  className="rounded object-cover bg-muted"
-                                  sizes="40px"
-                                  unoptimized
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex items-start gap-2">
-                              {hasChildren && (
-                                <button
-                                  type="button"
-                                  className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpand(p.sku);
-                                  }}
-                                >
-                                  {isExpanded ? (
-                                    <ChevronDown className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronRight className="h-4 w-4" />
-                                  )}
-                                </button>
-                              )}
-                              <div className="min-w-0">
-                                <div className="font-medium truncate max-w-[300px]">
-                                  {p.nome || p.sku}
-                                </div>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="font-mono text-xs text-muted-foreground">
-                                    {p.sku}
-                                  </span>
-                                  {hasChildren && (
-                                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
-                                      {group.children.length} var.
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-3 text-right font-medium">
-                            {displayPreco != null
-                              ? displayPreco.toLocaleString("pt-BR", {
-                                  style: "currency",
-                                  currency: "BRL",
-                                })
-                              : "-"}
-                          </td>
-                          <td className="p-3 text-right font-medium">{displayEstoque}</td>
-                          <td className="p-3 text-center">
-                            <SourceBadge source={p.source} />
-                          </td>
-                          <td className="p-3 text-center">
-                            {p.ml_item_id ? (
-                              p.ml_permalink ? (
-                                <a
-                                  href={p.ml_permalink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {p.ml_item_id}
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              ) : (
-                                <span className="text-xs font-mono">{p.ml_item_id}</span>
-                              )
-                            ) : (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <SyncBadge status={p.sync_status} />
-                          </td>
-                        </tr>
-
-                        {/* ── Child variation rows ── */}
-                        {hasChildren && isExpanded &&
-                          group.children.map((child) => {
-                            const childPreco = child.preco ?? child.ml_preco;
-                            const childEstoque = child.estoque ?? child.ml_estoque ?? 0;
-                            const attrs = child.atributos && Object.keys(child.atributos).length > 0
-                              ? Object.values(child.atributos).join(" / ")
-                              : null;
-
-                            return (
-                              <tr
-                                key={child.id}
-                                className={`border-t border-dashed hover:bg-muted/30 ${
-                                  selected.has(child.id) ? "bg-primary/5" : ""
-                                }`}
-                              >
-                                <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selected.has(child.id)}
-                                    onChange={() => toggleSelect(child.id)}
-                                    className="rounded"
-                                  />
-                                </td>
-                                <td className="p-3">
-                                  <div className="w-10 h-6 flex items-center justify-center">
-                                    <div className="w-4 h-px bg-border" />
-                                  </div>
-                                </td>
-                                <td className="p-3 pl-10">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-1 h-6 rounded-full bg-blue-400/40 shrink-0" />
-                                    <div className="min-w-0">
-                                      {attrs ? (
-                                        <span className="text-sm">{attrs}</span>
-                                      ) : (
-                                        <span className="text-sm text-muted-foreground">
-                                          Variacao
-                                        </span>
-                                      )}
-                                      <div className="font-mono text-[11px] text-muted-foreground truncate max-w-[250px]">
-                                        {child.sku}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="p-3 text-right text-muted-foreground">
-                                  {childPreco != null
-                                    ? childPreco.toLocaleString("pt-BR", {
-                                        style: "currency",
-                                        currency: "BRL",
-                                      })
-                                    : "-"}
-                                </td>
-                                <td className="p-3 text-right text-muted-foreground">
-                                  {childEstoque}
-                                </td>
-                                <td className="p-3" />
-                                <td className="p-3 text-center">
-                                  {child.ml_variation_id && (
-                                    <span className="text-[11px] font-mono text-muted-foreground">
-                                      v:{child.ml_variation_id}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="p-3 text-center">
-                                  <SyncBadge status={child.sync_status} />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Pagination */}
-      {total > 50 && (
+    <TooltipProvider>
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            Pagina {page + 1} de {Math.ceil(total / 50)}
-          </span>
+          <div>
+            <h1 className="text-2xl font-bold">Produtos do Hub</h1>
+            <p className="text-sm text-muted-foreground">
+              {total} produto(s) no hub
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => setShowPullEccosys(true)}
             >
-              Anterior
+              <ArrowDownToLine className="h-4 w-4 mr-2" />
+              Puxar do Eccosys
             </Button>
             <Button
               variant="outline"
               size="sm"
-              disabled={!products.length || products.length < 50}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => setShowPullML(true)}
             >
-              Proxima
+              <ArrowDownToLine className="h-4 w-4 mr-2" />
+              Puxar do ML
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (selected.size > 0) {
+                  setShowPushML(true);
+                }
+              }}
+              disabled={selected.size === 0}
+            >
+              <ArrowUpFromLine className="h-4 w-4 mr-2" />
+              Publicar no ML
             </Button>
           </div>
         </div>
-      )}
 
-      {/* Pull Eccosys Modal */}
-      {workspace?.id && (
-        <PullEccosysModal
-          open={showPullEccosys}
-          onClose={() => setShowPullEccosys(false)}
-          workspaceId={workspace.id}
-          onDone={fetchProducts}
-        />
-      )}
+        {/* Filters */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar SKU ou nome..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setPage(0);
+                      fetchProducts();
+                    }
+                  }}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="Source" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="eccosys">Eccosys</SelectItem>
+                  <SelectItem value="ml">ML</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={syncFilter} onValueChange={setSyncFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="draft">Rascunho</SelectItem>
+                  <SelectItem value="synced">Sincronizado</SelectItem>
+                  <SelectItem value="error">Erro</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={listingTypeFilter} onValueChange={setListingTypeFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Tipo Anuncio" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="gold_special">Premium</SelectItem>
+                  <SelectItem value="gold_pro">Classico</SelectItem>
+                  <SelectItem value="free">Gratis</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setSearch("");
+                  setSourceFilter("");
+                  setSyncFilter("");
+                  setListingTypeFilter("");
+                  setPage(0);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Push to ML Modal */}
-      {workspace?.id && (
-        <PushMLModal
-          open={showPushML}
-          onClose={() => setShowPushML(false)}
-          workspaceId={workspace.id}
-          selectedSkus={products
-            .filter((p) => selected.has(p.id) && !p.ml_item_id)
-            .map((p) => p.sku)}
-          onDone={() => {
-            setSelected(new Set());
-            fetchProducts();
-          }}
-        />
-      )}
+        {/* Bulk Actions */}
+        {selected.size > 0 && (
+          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
+            <span className="text-sm font-medium">
+              {selected.size} selecionado(s)
+            </span>
+            <Button size="sm" onClick={() => setShowPushML(true)}>
+              <ArrowUpFromLine className="h-4 w-4 mr-1" />
+              Publicar no ML
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              Remover
+            </Button>
+          </div>
+        )}
 
-      {/* Pull ML Modal */}
-      {workspace?.id && (
-        <PullMLModal
-          open={showPullML}
-          onClose={() => setShowPullML(false)}
-          workspaceId={workspace.id}
-          onDone={fetchProducts}
-        />
-      )}
-    </div>
+        {/* Products Table */}
+        <Card>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : products.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Package className="h-10 w-10 mb-3" />
+                <p className="text-sm font-medium">Nenhum produto no hub</p>
+                <p className="text-xs mt-1">
+                  Comece puxando produtos do Eccosys ou Mercado Livre
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => setShowPullEccosys(true)}
+                >
+                  <ArrowDownToLine className="h-4 w-4 mr-2" />
+                  Puxar do Eccosys
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 border-b">
+                    <tr>
+                      <th className="p-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={
+                            selected.size === products.length &&
+                            products.length > 0
+                          }
+                          onChange={toggleSelectAll}
+                          className="rounded"
+                        />
+                      </th>
+                      <th className="p-3 w-12"></th>
+                      <th className="p-3 text-left font-medium">Produto</th>
+                      <th className="p-3 text-right font-medium">Preco</th>
+                      <th className="p-3 text-right font-medium">Estoque</th>
+                      <th className="p-3 text-center font-medium">Source</th>
+                      <th className="p-3 text-center font-medium">ML ID</th>
+                      <th className="p-3 text-center font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupProducts(products).map((group) => {
+                      const p = group.parent;
+                      const hasChildren = group.children.length > 0;
+                      const isExpanded = expandedGroups.has(p.sku);
+                      const displayPreco = p.preco ?? p.ml_preco;
+                      const displayEstoque = p.estoque ?? p.ml_estoque ?? 0;
+                      const mlData = p.ml_data as MLData | null;
+
+                      return (
+                        <React.Fragment key={p.id}>
+                          {/* -- Parent / standalone row -- */}
+                          <tr
+                            className={`border-t hover:bg-muted/30 ${
+                              selected.has(p.id) ? "bg-primary/5" : ""
+                            } ${hasChildren ? "cursor-pointer" : ""}`}
+                            onClick={() => hasChildren && toggleExpand(p.sku)}
+                          >
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(p.id)}
+                                onChange={() => toggleSelect(p.id)}
+                                className="rounded"
+                              />
+                            </td>
+                            <td className="p-3">
+                              {p.fotos && p.fotos.length > 0 ? (
+                                <div className="relative w-10 h-10">
+                                  <Image
+                                    src={p.fotos[0]}
+                                    alt={p.nome || p.sku}
+                                    fill
+                                    className="rounded object-cover bg-muted"
+                                    sizes="40px"
+                                    unoptimized
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-start gap-2">
+                                {hasChildren && (
+                                  <button
+                                    type="button"
+                                    className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleExpand(p.sku);
+                                    }}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown className="h-4 w-4" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate max-w-[300px]">
+                                    {p.nome || p.sku}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="font-mono text-xs text-muted-foreground">
+                                      {p.sku}
+                                    </span>
+                                    {hasChildren && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                                        {group.children.length} var.
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {mlData && <MLDetailChips mlData={mlData} />}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 text-right">
+                              {mlData?.original_price != null &&
+                               mlData.original_price > (displayPreco ?? 0) && (
+                                <div className="text-[10px] text-muted-foreground line-through">
+                                  {mlData.original_price.toLocaleString("pt-BR", {
+                                    style: "currency",
+                                    currency: "BRL",
+                                  })}
+                                </div>
+                              )}
+                              <div className="font-medium">
+                                {displayPreco != null
+                                  ? displayPreco.toLocaleString("pt-BR", {
+                                      style: "currency",
+                                      currency: "BRL",
+                                    })
+                                  : "-"}
+                              </div>
+                            </td>
+                            <td className="p-3 text-right font-medium">{displayEstoque}</td>
+                            <td className="p-3 text-center">
+                              <SourceBadge source={p.source} />
+                            </td>
+                            <td className="p-3 text-center">
+                              {p.ml_item_id ? (
+                                p.ml_permalink ? (
+                                  <a
+                                    href={p.ml_permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {p.ml_item_id}
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                ) : (
+                                  <span className="text-xs font-mono">{p.ml_item_id}</span>
+                                )
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <SyncBadge status={p.sync_status} />
+                            </td>
+                          </tr>
+
+                          {/* -- Child variation rows -- */}
+                          {hasChildren && isExpanded &&
+                            group.children.map((child) => {
+                              const childPreco = child.preco ?? child.ml_preco;
+                              const childEstoque = child.estoque ?? child.ml_estoque ?? 0;
+                              const attrs = child.atributos && Object.keys(child.atributos).length > 0
+                                ? Object.values(child.atributos).join(" / ")
+                                : null;
+
+                              return (
+                                <tr
+                                  key={child.id}
+                                  className={`border-t border-dashed hover:bg-muted/30 ${
+                                    selected.has(child.id) ? "bg-primary/5" : ""
+                                  }`}
+                                >
+                                  <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selected.has(child.id)}
+                                      onChange={() => toggleSelect(child.id)}
+                                      className="rounded"
+                                    />
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="w-10 h-6 flex items-center justify-center">
+                                      <div className="w-4 h-px bg-border" />
+                                    </div>
+                                  </td>
+                                  <td className="p-3 pl-10">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-1 h-6 rounded-full bg-blue-400/40 shrink-0" />
+                                      <div className="min-w-0">
+                                        {attrs ? (
+                                          <span className="text-sm">{attrs}</span>
+                                        ) : (
+                                          <span className="text-sm text-muted-foreground">
+                                            Variacao
+                                          </span>
+                                        )}
+                                        <div className="font-mono text-[11px] text-muted-foreground truncate max-w-[250px]">
+                                          {child.sku}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-right text-muted-foreground">
+                                    {childPreco != null
+                                      ? childPreco.toLocaleString("pt-BR", {
+                                          style: "currency",
+                                          currency: "BRL",
+                                        })
+                                      : "-"}
+                                  </td>
+                                  <td className="p-3 text-right text-muted-foreground">
+                                    {childEstoque}
+                                  </td>
+                                  <td className="p-3" />
+                                  <td className="p-3 text-center">
+                                    {child.ml_variation_id && (
+                                      <span className="text-[11px] font-mono text-muted-foreground">
+                                        v:{child.ml_variation_id}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <SyncBadge status={child.sync_status} />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pagination */}
+        {total > 50 && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Pagina {page + 1} de {Math.ceil(total / 50)}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!products.length || products.length < 50}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Proxima
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Pull Eccosys Modal */}
+        {workspace?.id && (
+          <PullEccosysModal
+            open={showPullEccosys}
+            onClose={() => setShowPullEccosys(false)}
+            workspaceId={workspace.id}
+            onDone={fetchProducts}
+          />
+        )}
+
+        {/* Push to ML Modal */}
+        {workspace?.id && (
+          <PushMLModal
+            open={showPushML}
+            onClose={() => setShowPushML(false)}
+            workspaceId={workspace.id}
+            selectedSkus={products
+              .filter((p) => selected.has(p.id) && !p.ml_item_id)
+              .map((p) => p.sku)}
+            onDone={() => {
+              setSelected(new Set());
+              fetchProducts();
+            }}
+          />
+        )}
+
+        {/* Pull ML Modal */}
+        {workspace?.id && (
+          <PullMLModal
+            open={showPullML}
+            onClose={() => setShowPullML(false)}
+            workspaceId={workspace.id}
+            onDone={fetchProducts}
+          />
+        )}
+      </div>
+    </TooltipProvider>
   );
 }

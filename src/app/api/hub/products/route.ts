@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
   const source = searchParams.get("source") || "";
   const syncStatus = searchParams.get("sync_status") || "";
   const linkedOnly = searchParams.get("linked") === "true";
+  const listingType = searchParams.get("listing_type") || "";
 
   const supabase = createAdminClient();
 
@@ -37,6 +38,9 @@ export async function GET(req: NextRequest) {
   }
   if (linkedOnly) {
     query = query.eq("linked", true);
+  }
+  if (listingType) {
+    query = query.eq("ml_data->>listing_type_id", listingType);
   }
 
   const { data, count, error } = await query;
