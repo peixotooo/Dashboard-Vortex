@@ -1783,8 +1783,8 @@ export default function SettingsPage() {
                 </span>
               </div>
 
-              {/* Test button */}
-              {eccosysConfigured && isAdmin && (
+              {/* Test button — always visible for admins */}
+              {isAdmin && (
                 <Button
                   variant="outline"
                   onClick={handleTestEccosysConnection}
