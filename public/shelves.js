@@ -1031,14 +1031,128 @@
       });
   }
 
+  // =====================================================================
+  // PROMO TAGS MODULE - Injects promotional badges into product cards
+  // =====================================================================
+
+  function injectPromoTagStyles() {
+    if (document.getElementById("vtx-promo-tag-styles")) return;
+
+    var css =
+      ".vtx-promo-tag {" +
+        "position: absolute; z-index: 10; pointer-events: none;" +
+        "font-family: inherit;" +
+        "font-weight: 700; text-transform: uppercase;" +
+        "line-height: 1.2; white-space: nowrap;" +
+        "box-sizing: border-box;" +
+      "}" +
+      ".vtx-promo-tag--top-left { top: 8px; left: 8px; }" +
+      ".vtx-promo-tag--top-right { top: 8px; right: 8px; }" +
+      ".vtx-promo-tag--bottom-left { bottom: 8px; left: 8px; }" +
+      ".vtx-promo-tag--bottom-right { bottom: 8px; right: 8px; }";
+
+    var style = document.createElement("style");
+    style.id = "vtx-promo-tag-styles";
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  function applyPromoTags(matches) {
+    // Find native store product cards
+    var cards = document.querySelectorAll("[data-product-id]");
+    // Also find Vortex shelf cards
+    var vtxCards = document.querySelectorAll("[data-vtx-product-id]");
+
+    function processCard(card, idAttr) {
+      var productId = card.getAttribute(idAttr);
+      if (!productId || !matches[productId]) return;
+
+      // Skip if already tagged
+      if (card.querySelector(".vtx-promo-tag")) return;
+
+      // Use highest-priority rule (first in array, already sorted)
+      var rule = matches[productId][0];
+
+      var badge = document.createElement("div");
+      badge.className = "vtx-promo-tag vtx-promo-tag--" + (rule.badge_position || "top-left");
+      badge.textContent = rule.badge_text;
+      badge.style.backgroundColor = rule.badge_bg_color || "#ff0000";
+      badge.style.color = rule.badge_text_color || "#ffffff";
+      badge.style.fontSize = rule.badge_font_size || "11px";
+      badge.style.borderRadius = rule.badge_border_radius || "4px";
+      badge.style.padding = rule.badge_padding || "4px 8px";
+
+      // Find image container (VNDA themes have varying structures)
+      var imgContainer = card.querySelector(
+        ".product-image, .product-img, .image, figure, .images, .product-block .images"
+      );
+
+      // If we found an img element directly, use its parent
+      if (imgContainer && imgContainer.tagName === "IMG") {
+        imgContainer = imgContainer.parentElement;
+      }
+
+      var target = imgContainer || card;
+      var computedPos = window.getComputedStyle(target).position;
+      if (computedPos === "static") {
+        target.style.position = "relative";
+      }
+      target.appendChild(badge);
+    }
+
+    for (var i = 0; i < cards.length; i++) {
+      processCard(cards[i], "data-product-id");
+    }
+    for (var j = 0; j < vtxCards.length; j++) {
+      processCard(vtxCards[j], "data-vtx-product-id");
+    }
+  }
+
+  function observeNewProducts(matches) {
+    if (!window.MutationObserver) return;
+
+    var debounceTimer = null;
+    var observer = new MutationObserver(function () {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () {
+        applyPromoTags(matches);
+      }, 200);
+    });
+
+    var target = document.querySelector("main") || document.querySelector(".products") || document.body;
+    observer.observe(target, { childList: true, subtree: true });
+  }
+
+  function initPromoTags() {
+    if (!API_KEY || !API_BASE) return;
+
+    fetchJSON(API_BASE + "/api/promo-tags/products?key=" + API_KEY)
+      .then(function (data) {
+        if (!data.matches || Object.keys(data.matches).length === 0) return;
+
+        var matches = data.matches;
+        console.log("[PromoTags] Loaded", Object.keys(matches).length, "product matches");
+
+        injectPromoTagStyles();
+        applyPromoTags(matches);
+        observeNewProducts(matches);
+      })
+      .catch(function (err) {
+        // Promo tags are optional - never break the page
+        console.warn("[PromoTags] Init error:", err);
+      });
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
       init();
       initGiftBar();
+      initPromoTags();
     });
   } else {
     init();
     initGiftBar();
+    initPromoTags();
   }
 })();
