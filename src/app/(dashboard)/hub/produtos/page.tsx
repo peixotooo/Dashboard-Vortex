@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -12,6 +13,7 @@ import {
   Check,
   X,
   Package,
+  ImageIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -515,7 +517,9 @@ interface MLListItem {
   status: string;
   permalink: string;
   sku: string | null;
+  skus: string[];
   thumbnail: string | null;
+  photos_count: number;
   variations_count: number;
   already_in_hub: boolean;
 }
@@ -612,7 +616,7 @@ function PullMLModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Puxar Anuncios do Mercado Livre</DialogTitle>
           <DialogDescription>
@@ -669,10 +673,11 @@ function PullMLModal({
                   <thead className="bg-muted/50 sticky top-0">
                     <tr>
                       <th className="p-3 w-10"></th>
-                      <th className="p-3 text-left font-medium">ID</th>
+                      <th className="p-3 w-12"></th>
+                      <th className="p-3 text-left font-medium">SKU / ID</th>
                       <th className="p-3 text-left font-medium">Titulo</th>
                       <th className="p-3 text-right font-medium">Preco</th>
-                      <th className="p-3 text-right font-medium">Qtd</th>
+                      <th className="p-3 text-center font-medium">Fotos</th>
                       <th className="p-3 text-center font-medium">Var.</th>
                       <th className="p-3 text-center font-medium">Status</th>
                     </tr>
@@ -700,19 +705,48 @@ function PullMLModal({
                             />
                           )}
                         </td>
-                        <td className="p-3 font-mono text-xs">
-                          <a
-                            href={item.permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {item.ml_item_id}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
+                        <td className="p-3">
+                          {item.thumbnail ? (
+                            <img
+                              src={item.thumbnail}
+                              alt=""
+                              className="w-10 h-10 rounded object-cover bg-muted"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                              <Package className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
                         </td>
-                        <td className="p-3 truncate max-w-[250px]">
+                        <td className="p-3">
+                          <div className="flex flex-col gap-0.5">
+                            {item.skus.length > 0 ? (
+                              <span className="font-mono text-xs font-semibold">
+                                {item.skus[0]}
+                                {item.skus.length > 1 && (
+                                  <span className="text-muted-foreground font-normal">
+                                    {" "}+{item.skus.length - 1}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-xs text-muted-foreground italic">
+                                sem SKU
+                              </span>
+                            )}
+                            <a
+                              href={item.permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline inline-flex items-center gap-1 text-[11px]"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {item.ml_item_id}
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </div>
+                        </td>
+                        <td className="p-3 truncate max-w-[200px]">
                           {item.title}
                         </td>
                         <td className="p-3 text-right">
@@ -721,7 +755,15 @@ function PullMLModal({
                             currency: "BRL",
                           })}
                         </td>
-                        <td className="p-3 text-right">{item.quantity}</td>
+                        <td className="p-3 text-center">
+                          {item.photos_count > 0 ? (
+                            <Badge variant="outline" className="text-xs">
+                              {item.photos_count}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">0</span>
+                          )}
+                        </td>
                         <td className="p-3 text-center">
                           {item.variations_count > 0 ? (
                             <Badge variant="outline" className="text-xs">
@@ -1038,6 +1080,7 @@ export default function HubProdutosPage() {
                         className="rounded"
                       />
                     </th>
+                    <th className="p-3 w-12"></th>
                     <th className="p-3 text-left font-medium">SKU</th>
                     <th className="p-3 text-left font-medium">Nome</th>
                     <th className="p-3 text-right font-medium">Preco</th>
@@ -1063,6 +1106,29 @@ export default function HubProdutosPage() {
                           onChange={() => toggleSelect(p.id)}
                           className="rounded"
                         />
+                      </td>
+                      <td className="p-3">
+                        {p.fotos && p.fotos.length > 0 ? (
+                          <div className="relative w-10 h-10">
+                            <Image
+                              src={p.fotos[0]}
+                              alt={p.nome || p.sku}
+                              fill
+                              className="rounded object-cover bg-muted"
+                              sizes="40px"
+                              unoptimized
+                            />
+                            {p.fotos.length > 1 && (
+                              <span className="absolute -bottom-1 -right-1 bg-background border text-[10px] font-medium px-1 rounded-full leading-tight">
+                                +{p.fotos.length - 1}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 font-mono text-xs">{p.sku}</td>
                       <td className="p-3 truncate max-w-[250px]">

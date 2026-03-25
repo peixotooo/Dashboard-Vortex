@@ -4,6 +4,11 @@ import { ml } from "@/lib/ml/client";
 
 export const maxDuration = 120;
 
+interface MLPicture {
+  url: string;
+  secure_url?: string;
+}
+
 interface MLItem {
   id: string;
   title: string;
@@ -13,14 +18,20 @@ interface MLItem {
   permalink: string;
   category_id: string;
   seller_custom_field?: string;
-  pictures?: Array<{ url: string }>;
+  pictures?: MLPicture[];
   variations?: Array<{
     id: number;
     seller_sku?: string;
     price: number;
     available_quantity: number;
     attribute_combinations?: Array<{ id: string; value_name: string }>;
+    picture_ids?: string[];
   }>;
+}
+
+/** Extract best quality URL from ML picture (prefer HTTPS secure_url) */
+function picUrl(pic: MLPicture): string {
+  return pic.secure_url || pic.url;
 }
 
 /**
@@ -79,19 +90,34 @@ export async function GET(req: NextRequest) {
 
     const existingIds = new Set((existing || []).map((r) => r.ml_item_id));
 
-    const result = items.map((item) => ({
-      ml_item_id: item.id,
-      title: item.title,
-      price: item.price,
-      quantity: item.available_quantity,
-      status: item.status,
-      permalink: item.permalink,
-      category_id: item.category_id,
-      sku: item.seller_custom_field || null,
-      thumbnail: item.pictures?.[0]?.url || null,
-      variations_count: item.variations?.length || 0,
-      already_in_hub: existingIds.has(item.id),
-    }));
+    const result = items.map((item) => {
+      // Collect SKUs: seller_custom_field + all variation seller_skus
+      const skus: string[] = [];
+      if (item.seller_custom_field) skus.push(item.seller_custom_field);
+      if (item.variations) {
+        for (const v of item.variations) {
+          if (v.seller_sku && !skus.includes(v.seller_sku)) {
+            skus.push(v.seller_sku);
+          }
+        }
+      }
+
+      return {
+        ml_item_id: item.id,
+        title: item.title,
+        price: item.price,
+        quantity: item.available_quantity,
+        status: item.status,
+        permalink: item.permalink,
+        category_id: item.category_id,
+        sku: item.seller_custom_field || null,
+        skus,
+        thumbnail: item.pictures?.[0] ? picUrl(item.pictures[0]) : null,
+        photos_count: item.pictures?.length || 0,
+        variations_count: item.variations?.length || 0,
+        already_in_hub: existingIds.has(item.id),
+      };
+    });
 
     return NextResponse.json({
       items: result,
@@ -133,7 +159,7 @@ export async function POST(req: NextRequest) {
     try {
       const item = await ml.get<MLItem>(`/items/${itemId}`, workspaceId);
 
-      const fotos = (item.pictures || []).map((p) => p.url).filter(Boolean);
+      const fotos = (item.pictures || []).map((p) => picUrl(p)).filter(Boolean);
 
       if (item.variations && item.variations.length > 0) {
         // One row per variation
