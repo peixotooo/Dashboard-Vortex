@@ -45,6 +45,10 @@ interface MLItemFull {
     local_pick_up: boolean;
     free_shipping: boolean;
   };
+  variations?: Array<{
+    id: number;
+    attribute_combinations: Array<{ id: string; name: string; value_name: string | null }>;
+  }>;
 }
 
 // Known Eccosys → ML attribute name mapping (fallback dictionary)
@@ -77,6 +81,17 @@ function normalize(s: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+// Fuzzy match: "genero tray" matches "genero" (one contains/starts with the other)
+function fuzzyMatch(a: string, b: string): boolean {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (na === nb) return true;
+  // One starts with the other (handles "genero tray" vs "genero")
+  if (na.startsWith(nb + " ") || nb.startsWith(na + " ")) return true;
+  if (na.startsWith(nb) || nb.startsWith(na)) return true;
+  return false;
 }
 
 // Extract photos from Eccosys product (images endpoint returns string[])
@@ -378,12 +393,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 7. Build enrichment
+    // 7. Merge all Eccosys attributes (parent + children) for enrichment
+    const allEccAttrs: Record<string, string> = { ...parentAtributos };
+    for (const child of childrenDetails) {
+      for (const [k, v] of Object.entries(child.atributos)) {
+        if (!allEccAttrs[k]) allEccAttrs[k] = v;
+      }
+    }
+
     const enrichment = buildEnrichment(
       topCategory,
       categoryAttrs,
       crossRef,
-      sampleAtributos
+      sampleAtributos,
+      allEccAttrs
     );
 
     // 8. Build warnings
@@ -468,7 +491,8 @@ function buildEnrichment(
   category: { category_id: string; name: string; path: string } | null,
   categoryAttrs: MLCategoryAttribute[],
   crossRef: { mlItem: MLItemFull; mlItemId: string } | null,
-  sampleEccAttrs: Record<string, string>
+  sampleEccAttrs: Record<string, string>,
+  allEccAttrs: Record<string, string> = {}
 ): MLEnrichment {
   const mlItem = crossRef?.mlItem;
 
@@ -476,6 +500,16 @@ function buildEnrichment(
   if (mlItem?.attributes) {
     for (const a of mlItem.attributes) {
       if (a.value_name) refAttrMap.set(a.id, a.value_name);
+    }
+  }
+  // Also extract from variations (COLOR, SIZE etc. live here for multi-variation items)
+  if (mlItem?.variations?.length) {
+    for (const variation of mlItem.variations) {
+      for (const combo of variation.attribute_combinations) {
+        if (combo.value_name && !refAttrMap.has(combo.id)) {
+          refAttrMap.set(combo.id, combo.value_name);
+        }
+      }
     }
   }
 
@@ -503,6 +537,32 @@ function buildEnrichment(
       source = "cross_ref";
     }
 
+    // Try to fill from Eccosys attributes (fuzzy match by name)
+    if (!valueName) {
+      for (const [eccKey, eccVal] of Object.entries(allEccAttrs)) {
+        if (fuzzyMatch(eccKey, catAttr.name)) {
+          valueName = eccVal;
+          source = "eccosys";
+          break;
+        }
+      }
+    }
+    // Also try via KNOWN_ATTR_MAP
+    if (!valueName) {
+      for (const [eccNorm, mlId] of Object.entries(KNOWN_ATTR_MAP)) {
+        if (mlId === catAttr.id) {
+          for (const [eccKey, eccVal] of Object.entries(allEccAttrs)) {
+            if (fuzzyMatch(eccKey, eccNorm)) {
+              valueName = eccVal;
+              source = "eccosys";
+              break;
+            }
+          }
+          if (valueName) break;
+        }
+      }
+    }
+
     if (!valueName) {
       source = "default";
     }
@@ -515,10 +575,10 @@ function buildEnrichment(
       source: valueName ? source : "default",
     });
 
+    // Map Eccosys variation attributes to ML attribute IDs (fuzzy)
     if (isVariation) {
-      const normalizedAttrName = normalize(catAttr.name);
       for (const eccKey of Object.keys(sampleEccAttrs)) {
-        if (normalize(eccKey) === normalizedAttrName) {
+        if (fuzzyMatch(eccKey, catAttr.name)) {
           variationAttrMap[eccKey] = catAttr.id;
         }
       }
@@ -526,7 +586,7 @@ function buildEnrichment(
         for (const [eccNorm, mlId] of Object.entries(KNOWN_ATTR_MAP)) {
           if (mlId === catAttr.id) {
             for (const eccKey of Object.keys(sampleEccAttrs)) {
-              if (normalize(eccKey) === eccNorm) {
+              if (fuzzyMatch(eccKey, eccNorm)) {
                 variationAttrMap[eccKey] = catAttr.id;
               }
             }
