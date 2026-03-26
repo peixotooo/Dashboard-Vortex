@@ -24,6 +24,7 @@ import {
   Crown,
   TrendingUp,
   Tag,
+  PackageOpen,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -205,6 +206,137 @@ function MLDetailChips({ mlData }: { mlData: MLData }) {
 
       <HealthScore health={mlData.health} />
     </div>
+  );
+}
+
+// -------------------------------------------------------------------
+// Inline Stock Editor (for sob_demanda products)
+// -------------------------------------------------------------------
+function InlineStockEditor({
+  productId,
+  currentStock,
+  workspaceId,
+  onUpdated,
+}: {
+  productId: string;
+  currentStock: number;
+  workspaceId: string;
+  onUpdated: () => void;
+}) {
+  const [value, setValue] = useState(String(currentStock));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setValue(String(currentStock));
+  }, [currentStock]);
+
+  async function save() {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 0 || num === currentStock) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const res = await fetch("/api/hub/products", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ id: productId, estoque: num }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        onUpdated();
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <input
+        type="number"
+        min="0"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+        className="w-16 h-7 text-right text-sm font-medium rounded border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+      {saved && <Check className="h-3 w-3 text-green-500" />}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------
+// Sob Demanda Toggle
+// -------------------------------------------------------------------
+function SobDemandaToggle({
+  productId,
+  sobDemanda,
+  workspaceId,
+  onUpdated,
+}: {
+  productId: string;
+  sobDemanda: boolean;
+  workspaceId: string;
+  onUpdated: () => void;
+}) {
+  const [toggling, setToggling] = useState(false);
+
+  async function toggle() {
+    setToggling(true);
+    try {
+      await fetch("/api/hub/products", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ id: productId, sob_demanda: !sobDemanda }),
+      });
+      onUpdated();
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggle();
+          }}
+          disabled={toggling}
+          className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border transition-colors ${
+            sobDemanda
+              ? "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300"
+              : "bg-transparent text-muted-foreground border-dashed border-muted-foreground/30 hover:border-muted-foreground/60"
+          }`}
+        >
+          {toggling ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          ) : (
+            <PackageOpen className="h-2.5 w-2.5" />
+          )}
+          {sobDemanda ? "Sob Demanda" : "S.D."}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {sobDemanda
+          ? "Estoque virtual controlado pelo Hub. Clique para desativar."
+          : "Clique para ativar estoque virtual (sob demanda)"}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1098,6 +1230,7 @@ export default function HubProdutosPage() {
   const [sourceFilter, setSourceFilter] = useState("");
   const [syncFilter, setSyncFilter] = useState("");
   const [listingTypeFilter, setListingTypeFilter] = useState("");
+  const [sobDemandaFilter, setSobDemandaFilter] = useState(false);
 
   // Modals
   const [showPullEccosys, setShowPullEccosys] = useState(false);
@@ -1121,6 +1254,7 @@ export default function HubProdutosPage() {
       if (sourceFilter) params.set("source", sourceFilter);
       if (syncFilter) params.set("sync_status", syncFilter);
       if (listingTypeFilter) params.set("listing_type", listingTypeFilter);
+      if (sobDemandaFilter) params.set("sob_demanda", "true");
 
       const res = await fetch(`/api/hub/products?${params}`, {
         headers: { "x-workspace-id": workspace.id },
@@ -1133,7 +1267,7 @@ export default function HubProdutosPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, search, sourceFilter, syncFilter, listingTypeFilter]);
+  }, [workspace?.id, page, search, sourceFilter, syncFilter, listingTypeFilter, sobDemandaFilter]);
 
   useEffect(() => {
     fetchProducts();
@@ -1266,6 +1400,15 @@ export default function HubProdutosPage() {
                 </SelectContent>
               </Select>
               <Button
+                variant={sobDemandaFilter ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSobDemandaFilter(!sobDemandaFilter)}
+                className="gap-1"
+              >
+                <PackageOpen className="h-3.5 w-3.5" />
+                Sob Demanda
+              </Button>
+              <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => {
@@ -1273,6 +1416,7 @@ export default function HubProdutosPage() {
                   setSourceFilter("");
                   setSyncFilter("");
                   setListingTypeFilter("");
+                  setSobDemandaFilter(false);
                   setPage(0);
                 }}
               >
@@ -1447,9 +1591,30 @@ export default function HubProdutosPage() {
                                   : "-"}
                               </div>
                             </td>
-                            <td className="p-3 text-right font-medium">{displayEstoque}</td>
+                            <td className="p-3 text-right">
+                              {p.sob_demanda && workspace?.id ? (
+                                <InlineStockEditor
+                                  productId={p.id}
+                                  currentStock={displayEstoque}
+                                  workspaceId={workspace.id}
+                                  onUpdated={fetchProducts}
+                                />
+                              ) : (
+                                <span className="font-medium">{displayEstoque}</span>
+                              )}
+                            </td>
                             <td className="p-3 text-center">
-                              <SourceBadge source={p.source} />
+                              <div className="flex items-center justify-center gap-1">
+                                <SourceBadge source={p.source} />
+                                {workspace?.id && p.ml_item_id && (
+                                  <SobDemandaToggle
+                                    productId={p.id}
+                                    sobDemanda={p.sob_demanda}
+                                    workspaceId={workspace.id}
+                                    onUpdated={fetchProducts}
+                                  />
+                                )}
+                              </div>
                             </td>
                             <td className="p-3 text-center">
                               {p.ml_item_id ? (
@@ -1531,7 +1696,16 @@ export default function HubProdutosPage() {
                                       : "-"}
                                   </td>
                                   <td className="p-3 text-right text-muted-foreground">
-                                    {childEstoque}
+                                    {child.sob_demanda && workspace?.id ? (
+                                      <InlineStockEditor
+                                        productId={child.id}
+                                        currentStock={childEstoque}
+                                        workspaceId={workspace.id}
+                                        onUpdated={fetchProducts}
+                                      />
+                                    ) : (
+                                      childEstoque
+                                    )}
                                   </td>
                                   <td className="p-3" />
                                   <td className="p-3 text-center">

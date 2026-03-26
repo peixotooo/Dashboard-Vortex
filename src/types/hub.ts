@@ -88,6 +88,7 @@ export interface HubProduct {
   // Control
   source: HubProductSource;
   linked: boolean;
+  sob_demanda: boolean;
   sync_status: HubProductSyncStatus;
   last_ecc_sync: string | null;
   last_ml_sync: string | null;

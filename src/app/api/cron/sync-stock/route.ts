@@ -59,7 +59,8 @@ export async function GET(request: NextRequest) {
         .eq("workspace_id", wsId)
         .eq("linked", true)
         .not("ml_item_id", "is", null)
-        .eq("sync_status", "synced");
+        .eq("sync_status", "synced")
+        .neq("sob_demanda", true);
 
       if (!products || products.length === 0) {
         results.push(wsResult);

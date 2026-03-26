@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
     .eq("workspace_id", workspaceId)
     .eq("linked", true)
     .not("ml_item_id", "is", null)
-    .eq("sync_status", "synced");
+    .eq("sync_status", "synced")
+    .neq("sob_demanda", true);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

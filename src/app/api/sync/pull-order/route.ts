@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
-import type { HubOrderItem } from "@/types/hub";
+import type { HubOrderItem, HubProduct } from "@/types/hub";
 
 export const maxDuration = 60;
 
@@ -152,9 +152,90 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    // Check if this order already exists (to avoid double stock deduction)
+    const { data: existingOrder } = await supabase
+      .from("hub_orders")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("ml_order_id", orderId)
+      .single();
+
+    const isNewOrder = !existingOrder;
+
     await supabase
       .from("hub_orders")
       .upsert(row, { onConflict: "workspace_id,ml_order_id" });
+
+    // Deduct virtual stock for sob_demanda products (only for new orders)
+    let stockDeducted = 0;
+    if (isNewOrder && order.status === "paid") {
+      for (const item of items) {
+        try {
+          const { data: product } = await supabase
+            .from("hub_products")
+            .select("*")
+            .eq("workspace_id", workspaceId)
+            .eq("sku", item.sku)
+            .eq("sob_demanda", true)
+            .single();
+
+          if (!product) continue;
+
+          const prev = (product as HubProduct).estoque ?? 0;
+          const newStock = Math.max(0, prev - item.qtd);
+
+          await supabase
+            .from("hub_products")
+            .update({
+              estoque: newStock,
+              ml_estoque: newStock,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", (product as HubProduct).id);
+
+          // Push updated stock to ML
+          if ((product as HubProduct).ml_item_id) {
+            try {
+              if ((product as HubProduct).ml_variation_id) {
+                await ml.put(
+                  `/items/${(product as HubProduct).ml_item_id}/variations/${(product as HubProduct).ml_variation_id}`,
+                  { available_quantity: newStock },
+                  workspaceId
+                );
+              } else {
+                await ml.put(
+                  `/items/${(product as HubProduct).ml_item_id}`,
+                  { available_quantity: newStock },
+                  workspaceId
+                );
+              }
+            } catch {
+              // ML push failure is non-blocking
+            }
+          }
+
+          stockDeducted++;
+
+          await supabase.from("hub_logs").insert({
+            workspace_id: workspaceId,
+            action: "sync_stock",
+            entity: "product",
+            entity_id: item.sku,
+            direction: "hub_to_ml",
+            status: "ok",
+            details: {
+              reason: "order_sale",
+              ml_order_id: orderId,
+              old_stock: prev,
+              new_stock: newStock,
+              qty_sold: item.qtd,
+            },
+          });
+        } catch {
+          // Individual item deduction failure is non-blocking
+        }
+      }
+    }
 
     // Log
     await supabase.from("hub_logs").insert({
@@ -169,10 +250,11 @@ export async function POST(req: NextRequest) {
         buyer: buyerName,
         total: order.total_amount,
         items_count: items.length,
+        stock_deducted: stockDeducted,
       },
     });
 
-    return NextResponse.json({ ok: true, ml_order_id: orderId });
+    return NextResponse.json({ ok: true, ml_order_id: orderId, stock_deducted: stockDeducted });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
 
