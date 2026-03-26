@@ -152,36 +152,61 @@ export async function GET(req: NextRequest) {
 
     // 2. Find children by parent's codigo (SKU)
     const parentCodigo = parent.codigo;
+    const parentId = parent.id;
     let children: EccosysProduto[] = [];
 
-    try {
-      const childSearchResults = await eccosys.listAll<EccosysProduto>(
-        "/produtos",
-        workspaceId,
-        { $filter: parentCodigo, $situacao: "A" },
-        100
-      );
-      children = childSearchResults.filter(
-        (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
-      );
-    } catch {
-      // Children search may fail — continue with empty list
-    }
-
-    // If no children found with $situacao filter, try without
+    // Strategy A: Try Eccosys field filter by idProdutoPai
     if (children.length === 0) {
       try {
-        const childSearchResults = await eccosys.listAll<EccosysProduto>(
+        const res = await eccosys.listAll<EccosysProduto>(
           "/produtos",
           workspaceId,
-          { $filter: parentCodigo },
+          { idProdutoPai: String(parentId) },
           100
         );
-        children = childSearchResults.filter(
-          (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
+        children = res.filter((p) => String(p.id) !== String(parentId));
+      } catch {
+        // Field filter may not be supported
+      }
+    }
+
+    // Strategy B: Try $filter text search (works for text SKUs)
+    if (children.length === 0) {
+      try {
+        const res = await eccosys.listAll<EccosysProduto>(
+          "/produtos",
+          workspaceId,
+          { $filter: parentCodigo, $situacao: "A" },
+          100
+        );
+        children = res.filter(
+          (p) => p.codigoPai === parentCodigo && String(p.id) !== String(parentId)
         );
       } catch {
-        // Continue with no children
+        // $filter may return 404 for numeric codes
+      }
+    }
+
+    // Strategy C: Sequential direct lookups by code pattern ({parentCode}-1, -2, ...)
+    // This is the most reliable fallback for numeric codes
+    if (children.length === 0) {
+      let consecutiveMisses = 0;
+      for (let n = 1; n <= 50 && consecutiveMisses < 3; n++) {
+        const childCode = `${parentCodigo}-${n}`;
+        try {
+          const child = await eccosys.get<EccosysProduto>(
+            `/produtos/${childCode}`,
+            workspaceId
+          );
+          if (child?.codigo) {
+            children.push(child);
+            consecutiveMisses = 0;
+          } else {
+            consecutiveMisses++;
+          }
+        } catch {
+          consecutiveMisses++;
+        }
       }
     }
 
@@ -220,23 +245,39 @@ export async function GET(req: NextRequest) {
       ].filter((f): f is string => !!f);
     }
 
-    // Fetch attributes for first child (to detect variation attrs like Cor, Tamanho)
-    let sampleAtributos: Record<string, string> = {};
-    if (children.length > 0) {
+    // Fetch stock + attributes for each child
+    const childrenDetails: Array<{
+      child: EccosysProduto;
+      estoque: number;
+      atributos: Record<string, string>;
+    }> = [];
+
+    for (const child of children) {
+      let estoque = 0;
+      try {
+        const est = await eccosys.get<{ estoqueDisponivel?: number }>(
+          `/estoques/${encodeURIComponent(child.codigo)}`,
+          workspaceId
+        );
+        estoque = est?.estoqueDisponivel ?? 0;
+      } catch { /* continue with 0 */ }
+
+      let atributos: Record<string, string> = {};
       try {
         const attrs = await eccosys.get<Array<{ nome: string; valor: string }>>(
-          `/produtos/${children[0].id}/atributos`,
+          `/produtos/${child.id}/atributos`,
           workspaceId
         );
         if (Array.isArray(attrs)) {
-          sampleAtributos = Object.fromEntries(
-            attrs.map((a) => [a.nome, a.valor])
-          );
+          atributos = Object.fromEntries(attrs.map((a) => [a.nome, a.valor]));
         }
-      } catch {
-        /* no attributes */
-      }
+      } catch { /* no attributes */ }
+
+      childrenDetails.push({ child, estoque, atributos });
     }
+
+    // Sample attributes from first child (to detect variation attrs like Cor, Tamanho)
+    const sampleAtributos = childrenDetails[0]?.atributos || {};
 
     // Check which SKUs are already in hub
     const allSkus = [parent.codigo, ...children.map((c) => c.codigo)];
@@ -248,7 +289,7 @@ export async function GET(req: NextRequest) {
       .in("sku", allSkus);
     const existingSkus = new Set((existing || []).map((r) => r.sku));
 
-    // 3. Predict ML category from parent title
+    // 3. Predict ML category from parent title (PUBLIC API — no auth needed)
     let predictions: Array<{
       category_id: string;
       name: string;
@@ -256,19 +297,11 @@ export async function GET(req: NextRequest) {
       probability: string;
     }> = [];
 
-    let mlConnected = false;
     try {
-      mlConnected = await ml.isConnected(workspaceId);
-    } catch {
-      /* ML not connected */
-    }
-
-    if (mlConnected) {
-      try {
-        const preds = await ml.get<MLCategoryPrediction[]>(
-          `/sites/MLB/category_predictor/predict?title=${encodeURIComponent(parent.nome)}`,
-          workspaceId
-        );
+      const predUrl = `https://api.mercadolibre.com/sites/MLB/category_predictor/predict?title=${encodeURIComponent(parent.nome)}`;
+      const predRes = await fetch(predUrl);
+      if (predRes.ok) {
+        const preds: MLCategoryPrediction[] = await predRes.json();
         if (Array.isArray(preds)) {
           predictions = preds.map((p) => ({
             category_id: p.id,
@@ -278,23 +311,24 @@ export async function GET(req: NextRequest) {
             probability: p.prediction_probability,
           }));
         }
-      } catch {
-        /* prediction may fail */
       }
+    } catch {
+      /* prediction may fail */
     }
 
     const topCategory = predictions[0] || null;
 
-    // 4. Fetch ML category required attributes
+    // 4. Fetch ML category required attributes (PUBLIC API — no auth needed)
     let categoryAttrs: MLCategoryAttribute[] = [];
-    if (topCategory && mlConnected) {
+    if (topCategory) {
       try {
-        const attrs = await ml.get<MLCategoryAttribute[]>(
-          `/categories/${topCategory.category_id}/attributes`,
-          workspaceId
-        );
-        if (Array.isArray(attrs)) {
-          categoryAttrs = attrs;
+        const attrUrl = `https://api.mercadolibre.com/categories/${topCategory.category_id}/attributes`;
+        const attrRes = await fetch(attrUrl);
+        if (attrRes.ok) {
+          const attrs: MLCategoryAttribute[] = await attrRes.json();
+          if (Array.isArray(attrs)) {
+            categoryAttrs = attrs;
+          }
         }
       } catch {
         /* attrs may fail */
@@ -302,8 +336,16 @@ export async function GET(req: NextRequest) {
     }
 
     // 5. Cross-reference with existing ML product in same category
+    //    (needs ML auth to fetch /items/{id})
     let crossRef: { mlItem: MLItemFull; mlItemId: string; title: string } | null =
       null;
+
+    let mlConnected = false;
+    try {
+      mlConnected = await ml.isConnected(workspaceId);
+    } catch {
+      /* ML not connected */
+    }
 
     if (topCategory && mlConnected) {
       try {
@@ -395,14 +437,14 @@ export async function GET(req: NextRequest) {
         estoque: parentEstoque,
         already_in_hub: existingSkus.has(parent.codigo),
       },
-      children: children.map((c) => ({
-        ecc_id: c.id,
-        sku: c.codigo,
-        nome: c.nome,
-        preco: c.preco,
-        estoque: 0, // stock fetched during POST
-        atributos: sampleAtributos, // same shape for all children (attr values vary)
-        already_in_hub: existingSkus.has(c.codigo),
+      children: childrenDetails.map((d) => ({
+        ecc_id: d.child.id,
+        sku: d.child.codigo,
+        nome: d.child.nome,
+        preco: d.child.preco,
+        estoque: d.estoque,
+        atributos: d.atributos,
+        already_in_hub: existingSkus.has(d.child.codigo),
       })),
       enrichment,
       predictions,
