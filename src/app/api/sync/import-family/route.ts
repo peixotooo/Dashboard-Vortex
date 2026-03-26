@@ -460,6 +460,7 @@ export async function GET(req: NextRequest) {
         foto: parentFotos[0] || null,
         estoque: parentEstoque,
         already_in_hub: existingSkus.has(parent.codigo),
+        atributos: parentAtributos,
       },
       children: childrenDetails.map((d) => ({
         ecc_id: d.product.id,
@@ -805,5 +806,178 @@ export async function POST(req: NextRequest) {
     errors,
     parent_sku: parentSku,
     results,
+  });
+}
+
+// -------------------------------------------------------------------
+// PATCH — Re-enrich for a different ML category
+// Body: { category_id, all_ecc_attrs, sample_variation_attrs }
+// Returns updated enrichment + warnings + cross_ref
+// -------------------------------------------------------------------
+
+export async function PATCH(req: NextRequest) {
+  const workspaceId = req.headers.get("x-workspace-id");
+  if (!workspaceId) {
+    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  }
+
+  const body = await req.json();
+  const categoryId: string = body.category_id;
+  const allEccAttrs: Record<string, string> = body.all_ecc_attrs || {};
+  const sampleVariationAttrs: Record<string, string> = body.sample_variation_attrs || {};
+
+  if (!categoryId) {
+    return NextResponse.json({ error: "category_id required" }, { status: 400 });
+  }
+
+  // 1. Fetch category attributes from ML public API
+  let categoryAttrs: MLCategoryAttribute[] = [];
+  try {
+    const attrRes = await fetch(
+      `https://api.mercadolibre.com/categories/${categoryId}/attributes`
+    );
+    if (attrRes.ok) {
+      const attrs = await attrRes.json();
+      if (Array.isArray(attrs)) categoryAttrs = attrs;
+    }
+  } catch { /* attrs may fail */ }
+
+  // 2. Fetch category name/path
+  let categoryName = "";
+  let categoryPath = "";
+  try {
+    const catRes = await fetch(
+      `https://api.mercadolibre.com/categories/${categoryId}`
+    );
+    if (catRes.ok) {
+      const cat = await catRes.json();
+      categoryName = cat.name || "";
+      const pathNames = (cat.path_from_root || []).map(
+        (p: { name: string }) => p.name
+      );
+      categoryPath = pathNames.join(" > ");
+    }
+  } catch { /* category info may fail */ }
+
+  // 3. Cross-ref in the new category
+  const supabase = createAdminClient();
+  let crossRef: { mlItem: MLItemFull; mlItemId: string; title: string } | null = null;
+
+  let mlConnected = false;
+  try {
+    mlConnected = await ml.isConnected(workspaceId);
+  } catch { /* ML not connected */ }
+
+  if (mlConnected) {
+    // Strategy A: hub lookup
+    try {
+      const { data: candidates } = await supabase
+        .from("hub_products")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .eq("ml_category_id", categoryId)
+        .not("ml_item_id", "is", null)
+        .is("ecc_pai_sku", null)
+        .limit(5);
+
+      if (candidates && candidates.length > 0) {
+        const best = [...candidates].sort((a, b) => {
+          const aLen = (a.ml_enrichment?.attributes || []).length;
+          const bLen = (b.ml_enrichment?.attributes || []).length;
+          return bLen - aLen;
+        })[0];
+
+        if (best.ml_item_id) {
+          const mlItem = await ml.get<MLItemFull>(
+            `/items/${best.ml_item_id}`,
+            workspaceId
+          );
+          crossRef = {
+            mlItem,
+            mlItemId: best.ml_item_id,
+            title: (best as HubProduct).nome || mlItem.title,
+          };
+        }
+      }
+    } catch { /* hub cross ref failed */ }
+
+    // Strategy B: ML API fallback
+    if (!crossRef) {
+      try {
+        const { data: creds } = await supabase
+          .from("ml_credentials")
+          .select("ml_user_id")
+          .eq("workspace_id", workspaceId)
+          .limit(1)
+          .single();
+
+        if (creds?.ml_user_id) {
+          const searchRes = await ml.get<{ results: string[] }>(
+            `/users/${creds.ml_user_id}/items/search?category=${categoryId}&status=active&limit=5`,
+            workspaceId
+          );
+          const itemIds = searchRes?.results || [];
+          for (const itemId of itemIds) {
+            try {
+              const mlItem = await ml.get<MLItemFull>(
+                `/items/${itemId}`,
+                workspaceId
+              );
+              if (mlItem?.attributes?.length > 0) {
+                crossRef = { mlItem, mlItemId: itemId, title: mlItem.title };
+                break;
+              }
+            } catch { /* skip item */ }
+          }
+        }
+      } catch { /* ML API fallback not critical */ }
+    }
+  }
+
+  // 4. Build enrichment
+  const category = { category_id: categoryId, name: categoryName, path: categoryPath };
+  const enrichment = buildEnrichment(
+    category,
+    categoryAttrs,
+    crossRef,
+    sampleVariationAttrs,
+    allEccAttrs
+  );
+
+  // 5. Build warnings
+  const warnings: Array<{ type: string; message: string; attribute_id?: string }> = [];
+
+  if (!crossRef) {
+    warnings.push({
+      type: "no_cross_ref",
+      message: "Nenhum produto ML encontrado nesta categoria para usar como modelo",
+    });
+  }
+
+  for (const attr of enrichment.attributes) {
+    if (attr.required && !attr.value_name) {
+      warnings.push({
+        type: "missing_required_attr",
+        message: `Atributo obrigatorio "${attr.name}" nao preenchido`,
+        attribute_id: attr.id,
+      });
+    }
+  }
+
+  for (const key of Object.keys(sampleVariationAttrs)) {
+    if (!enrichment.variation_attr_map[key]) {
+      warnings.push({
+        type: "unmapped_variation_attr",
+        message: `Atributo de variacao "${key}" nao mapeado para atributo ML`,
+      });
+    }
+  }
+
+  return NextResponse.json({
+    enrichment,
+    warnings,
+    cross_ref: crossRef
+      ? { ml_item_id: crossRef.mlItemId, title: crossRef.title }
+      : null,
   });
 }

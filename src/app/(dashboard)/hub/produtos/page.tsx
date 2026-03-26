@@ -361,6 +361,7 @@ interface FamilyPreview {
     foto: string | null;
     estoque: number;
     already_in_hub: boolean;
+    atributos?: Record<string, string>;
   };
   children: Array<{
     ecc_id: number;
@@ -466,6 +467,52 @@ function ImportFamilyModal({
       setStep("result");
     } finally {
       setImporting(false);
+    }
+  }
+
+  const [reEnriching, setReEnriching] = useState(false);
+
+  async function handleCategoryChange(categoryId: string) {
+    if (!preview || !enrichment) return;
+
+    // Merge all Eccosys attributes (parent + children)
+    const allEccAttrs: Record<string, string> = {
+      ...(preview.parent.atributos || {}),
+    };
+    for (const child of preview.children) {
+      for (const [k, v] of Object.entries(child.atributos || {})) {
+        if (!allEccAttrs[k]) allEccAttrs[k] = v;
+      }
+    }
+    const sampleVariationAttrs = preview.children[0]?.atributos || {};
+
+    setReEnriching(true);
+    try {
+      const res = await fetch("/api/sync/import-family", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({
+          category_id: categoryId,
+          all_ecc_attrs: allEccAttrs,
+          sample_variation_attrs: sampleVariationAttrs,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.enrichment) {
+        setEnrichment(data.enrichment);
+        setPreview({
+          ...preview,
+          warnings: data.warnings || [],
+          cross_ref: data.cross_ref,
+        });
+      }
+    } catch {
+      /* re-enrich failed, keep current enrichment */
+    } finally {
+      setReEnriching(false);
     }
   }
 
@@ -637,31 +684,24 @@ function ImportFamilyModal({
                   {preview.predictions.length > 0 ? (
                     <Select
                       value={enrichment.category_id}
-                      onValueChange={(val) => {
-                        const pred = preview.predictions.find(
-                          (p) => p.category_id === val
-                        );
-                        if (pred) {
-                          setEnrichment({
-                            ...enrichment,
-                            category_id: pred.category_id,
-                            category_name: pred.name,
-                            category_path: pred.path,
-                          });
-                        }
-                      }}
+                      onValueChange={handleCategoryChange}
+                      disabled={reEnriching}
                     >
                       <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Selecione..." />
+                        {reEnriching ? (
+                          <span className="flex items-center gap-1.5 text-xs">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Carregando atributos...
+                          </span>
+                        ) : (
+                          <SelectValue placeholder="Selecione..." />
+                        )}
                       </SelectTrigger>
                       <SelectContent>
                         {preview.predictions.map((p) => (
                           <SelectItem key={p.category_id} value={p.category_id}>
                             <span className="text-xs">
-                              {p.name}{" "}
-                              <span className="text-muted-foreground">
-                                ({(parseFloat(p.probability) * 100).toFixed(0)}%)
-                              </span>
+                              {p.name}
                             </span>
                           </SelectItem>
                         ))}
