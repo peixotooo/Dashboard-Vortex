@@ -88,18 +88,39 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. Search Eccosys for parent + children
-    const searchResults = await eccosys.listAll<EccosysProduto>(
-      "/produtos",
-      workspaceId,
-      { $filter: parentSku, $situacao: "A" },
-      100
-    );
+    // 1. Find parent product in Eccosys
+    // Support both numeric ID and SKU code as input
+    let parent: EccosysProduto | undefined;
 
-    // Find exact parent (codigo matches AND is not itself a child)
-    const parent = searchResults.find(
-      (p) => p.codigo === parentSku && !p.idProdutoPai
-    );
+    const isNumericId = /^\d+$/.test(parentSku);
+
+    if (isNumericId) {
+      // Try direct lookup by Eccosys product ID
+      try {
+        const directProduct = await eccosys.get<EccosysProduto>(
+          `/produtos/${parentSku}`,
+          workspaceId
+        );
+        if (directProduct && !directProduct.idProdutoPai) {
+          parent = directProduct;
+        }
+      } catch {
+        // ID not found — will try text search below
+      }
+    }
+
+    if (!parent) {
+      // Search by text (SKU or name)
+      const searchResults = await eccosys.listAll<EccosysProduto>(
+        "/produtos",
+        workspaceId,
+        { $filter: parentSku, $situacao: "A" },
+        100
+      );
+      parent = searchResults.find(
+        (p) => p.codigo === parentSku && !p.idProdutoPai
+      );
+    }
 
     if (!parent) {
       return NextResponse.json(
@@ -108,12 +129,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Find children by codigoPai
-    const children = searchResults.filter(
-      (p) => p.codigoPai === parentSku && p.id !== parent.id
+    // 2. Find children by parent's codigo (SKU)
+    const parentCodigo = parent.codigo;
+    const childSearchResults = await eccosys.listAll<EccosysProduto>(
+      "/produtos",
+      workspaceId,
+      { $filter: parentCodigo, $situacao: "A" },
+      100
     );
 
-    // 2. Fetch parent details (images, stock, attributes)
+    const children = childSearchResults.filter(
+      (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
+    );
+
+    // 3. Fetch parent details (images, stock, attributes)
     let parentEstoque = 0;
     try {
       const est = await eccosys.get<{ estoqueDisponivel?: number }>(
