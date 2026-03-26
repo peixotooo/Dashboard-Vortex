@@ -178,6 +178,7 @@ export type HubLogAction =
   | "push_order_eccosys"
   | "sync_nfe"
   | "sync_stock"
+  | "sync_price"
   | "republish_ml"
   | "webhook_received"
   | "error";

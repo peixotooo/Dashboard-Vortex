@@ -132,10 +132,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { id, estoque, sob_demanda } = body as {
+  const { id, estoque, sob_demanda, preco, preco_promocional } = body as {
     id: string;
     estoque?: number;
     sob_demanda?: boolean;
+    preco?: number;
+    preco_promocional?: number | null;
   };
 
   if (!id) {
@@ -166,6 +168,14 @@ export async function PATCH(req: NextRequest) {
   if (typeof estoque === "number" && estoque >= 0) {
     updates.estoque = estoque;
     updates.ml_estoque = estoque;
+  }
+
+  if (typeof preco === "number" && preco > 0) {
+    updates.preco = preco;
+  }
+
+  if (preco_promocional !== undefined) {
+    updates.preco_promocional = preco_promocional;
   }
 
   // Apply DB update
@@ -276,5 +286,70 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ updated: true, ml_synced: !!shouldPushStock });
+  // If product has ML item and we're updating price, push to ML
+  const shouldPushPrice =
+    typeof preco === "number" &&
+    preco > 0 &&
+    product.ml_item_id;
+
+  if (shouldPushPrice) {
+    try {
+      if (product.ml_variation_id) {
+        await ml.put(
+          `/items/${product.ml_item_id}/variations/${product.ml_variation_id}`,
+          { price: preco },
+          workspaceId
+        );
+      } else {
+        await ml.put(
+          `/items/${product.ml_item_id}`,
+          { price: preco },
+          workspaceId
+        );
+      }
+
+      await supabase
+        .from("hub_products")
+        .update({ ml_preco: preco, last_ml_sync: new Date().toISOString() })
+        .eq("id", id);
+
+      await supabase.from("hub_logs").insert({
+        workspace_id: workspaceId,
+        action: "sync_price",
+        entity: "product",
+        entity_id: product.sku,
+        direction: "hub_to_ml",
+        status: "ok",
+        details: {
+          reason: "manual_edit",
+          old_price: product.preco,
+          new_price: preco,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro ao atualizar preco no ML";
+
+      await supabase.from("hub_logs").insert({
+        workspace_id: workspaceId,
+        action: "sync_price",
+        entity: "product",
+        entity_id: product.sku,
+        direction: "hub_to_ml",
+        status: "error",
+        details: { error: message },
+      });
+
+      return NextResponse.json({
+        updated: true,
+        ml_price_synced: false,
+        error: message,
+      });
+    }
+  }
+
+  return NextResponse.json({
+    updated: true,
+    ml_synced: !!shouldPushStock,
+    ml_price_synced: !!shouldPushPrice,
+  });
 }

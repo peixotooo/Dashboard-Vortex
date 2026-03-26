@@ -295,13 +295,17 @@ export async function POST(req: NextRequest) {
         const parentLinked = !!parentLink;
         if (parentLinked) linked++;
 
+        // Determine preco vs preco_promocional from ML original_price
+        const hasPromo = item.original_price != null && item.original_price > item.price;
+
         // Upsert parent row
         await supabase.from("hub_products").upsert(
           {
             workspace_id: workspaceId,
             sku: parentSku,
             nome: item.title,
-            preco: item.price,
+            preco: hasPromo ? item.original_price! : item.price,
+            preco_promocional: hasPromo ? item.price : null,
             estoque: totalEstoque,
             fotos,
             ml_item_id: item.id,
@@ -349,12 +353,15 @@ export async function POST(req: NextRequest) {
           const childLinked = !!childLink;
           if (childLinked) linked++;
 
+          const childHasPromo = item.original_price != null && item.original_price > variation.price;
+
           await supabase.from("hub_products").upsert(
             {
               workspace_id: workspaceId,
               sku: childSku,
               nome: childNome,
-              preco: variation.price,
+              preco: childHasPromo ? item.original_price! : variation.price,
+              preco_promocional: childHasPromo ? variation.price : null,
               estoque: variation.available_quantity,
               fotos,
               atributos,
@@ -394,12 +401,15 @@ export async function POST(req: NextRequest) {
         const isLinked = !!existingBySku;
         if (isLinked) linked++;
 
+        const simpleHasPromo = item.original_price != null && item.original_price > item.price;
+
         await supabase.from("hub_products").upsert(
           {
             workspace_id: workspaceId,
             sku,
             nome: item.title,
-            preco: item.price,
+            preco: simpleHasPromo ? item.original_price! : item.price,
+            preco_promocional: simpleHasPromo ? item.price : null,
             estoque: item.available_quantity,
             fotos,
             ml_item_id: item.id,

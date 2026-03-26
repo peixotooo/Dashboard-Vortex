@@ -26,6 +26,8 @@ import {
   Tag,
   PackageOpen,
   Send,
+  DollarSign,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types/hub";
 
@@ -278,6 +289,118 @@ function InlineStockEditor({
       />
       {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
       {saved && <Check className="h-3 w-3 text-green-500" />}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------
+// Inline Price Editor (preco + preco_promocional)
+// -------------------------------------------------------------------
+function InlinePriceEditor({
+  productId,
+  currentPreco,
+  currentPrecoPromo,
+  workspaceId,
+  onUpdated,
+}: {
+  productId: string;
+  currentPreco: number;
+  currentPrecoPromo: number | null;
+  workspaceId: string;
+  onUpdated: () => void;
+}) {
+  const [value, setValue] = useState(currentPreco.toFixed(2));
+  const [promoValue, setPromoValue] = useState(
+    currentPrecoPromo != null ? currentPrecoPromo.toFixed(2) : ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setValue(currentPreco.toFixed(2));
+    setPromoValue(currentPrecoPromo != null ? currentPrecoPromo.toFixed(2) : "");
+  }, [currentPreco, currentPrecoPromo]);
+
+  async function savePreco() {
+    const num = parseFloat(value);
+    if (isNaN(num) || num <= 0 || num === currentPreco) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const res = await fetch("/api/hub/products", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ id: productId, preco: num }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        onUpdated();
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePromo() {
+    const num = promoValue ? parseFloat(promoValue) : null;
+    if (num !== null && (isNaN(num) || num < 0)) return;
+    if (num === currentPrecoPromo) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      const res = await fetch("/api/hub/products", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ id: productId, preco_promocional: num }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        onUpdated();
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-muted-foreground w-4">R$</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={savePreco}
+          onKeyDown={(e) => { if (e.key === "Enter") savePreco(); }}
+          className="w-20 h-7 text-right text-sm font-medium rounded border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+        {saved && <Check className="h-3 w-3 text-green-500" />}
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-green-600 w-4">P</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={promoValue}
+          onChange={(e) => setPromoValue(e.target.value)}
+          onBlur={savePromo}
+          onKeyDown={(e) => { if (e.key === "Enter") savePromo(); }}
+          placeholder="—"
+          className="w-20 h-6 text-right text-xs rounded border border-dashed border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring text-green-600"
+        />
+      </div>
     </div>
   );
 }
@@ -1773,6 +1896,263 @@ function groupProducts(products: HubProduct[]): ProductGroup[] {
 }
 
 // -------------------------------------------------------------------
+// Bulk Price Sheet (sidebar)
+// -------------------------------------------------------------------
+type BulkOp = "set" | "increase_pct" | "decrease_pct" | "increase_fixed" | "decrease_fixed";
+
+const BULK_OP_LABELS: Record<BulkOp, string> = {
+  set: "Definir valor fixo",
+  increase_pct: "Aumentar %",
+  decrease_pct: "Diminuir %",
+  increase_fixed: "Aumentar R$",
+  decrease_fixed: "Diminuir R$",
+};
+
+function computePreview(current: number, op: BulkOp, val: number): number {
+  switch (op) {
+    case "set": return val;
+    case "increase_pct": return Math.round(current * (1 + val / 100) * 100) / 100;
+    case "decrease_pct": return Math.round(current * (1 - val / 100) * 100) / 100;
+    case "increase_fixed": return Math.round((current + val) * 100) / 100;
+    case "decrease_fixed": return Math.round(Math.max(0, current - val) * 100) / 100;
+  }
+}
+
+function BulkPriceSheet({
+  open,
+  onOpenChange,
+  workspaceId,
+  selectedIds,
+  products,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  workspaceId: string;
+  selectedIds: Set<string>;
+  products: HubProduct[];
+  onDone: () => void;
+}) {
+  const [field, setField] = useState<"preco" | "preco_promocional">("preco");
+  const [operation, setOperation] = useState<BulkOp>("increase_pct");
+  const [value, setValue] = useState("");
+  const [pushToMl, setPushToMl] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [result, setResult] = useState<{ updated: number; ml_synced: number; errors: Array<{ sku: string; error: string }> } | null>(null);
+
+  const numValue = parseFloat(value) || 0;
+
+  // Get selected products for preview
+  const selectedProducts = products.filter((p) => selectedIds.has(p.id));
+  const previewItems = selectedProducts.slice(0, 10).map((p) => {
+    const current = field === "preco"
+      ? (p.preco ?? p.ml_preco ?? 0)
+      : (p.preco_promocional ?? p.preco ?? 0);
+    const newPrice = numValue > 0 ? computePreview(current, operation, numValue) : current;
+    return { sku: p.sku, current, newPrice, hasML: !!p.ml_item_id };
+  });
+
+  async function handleApply() {
+    if (numValue <= 0) return;
+    setApplying(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/hub/products/bulk-price", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({
+          ids: Array.from(selectedIds),
+          operation,
+          value: numValue,
+          field,
+          push_to_ml: pushToMl,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResult(data);
+        onDone();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setResult({ updated: 0, ml_synced: 0, errors: [{ sku: "-", error: data.error || "Erro desconhecido" }] });
+      }
+    } catch {
+      setResult({ updated: 0, ml_synced: 0, errors: [{ sku: "-", error: "Erro de conexao" }] });
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Alterar Precos em Massa
+          </SheetTitle>
+          <SheetDescription>
+            {selectedIds.size} produto(s) selecionado(s)
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-5 mt-6">
+          {/* Field */}
+          <div className="space-y-2">
+            <Label>Campo</Label>
+            <Select value={field} onValueChange={(v) => setField(v as "preco" | "preco_promocional")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="preco">Preco (R$)</SelectItem>
+                <SelectItem value="preco_promocional">Preco Promocional</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Operation */}
+          <div className="space-y-2">
+            <Label>Operacao</Label>
+            <Select value={operation} onValueChange={(v) => setOperation(v as BulkOp)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.entries(BULK_OP_LABELS) as [BulkOp, string][]).map(([k, label]) => (
+                  <SelectItem key={k} value={k}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Value */}
+          <div className="space-y-2">
+            <Label>
+              Valor {operation.includes("pct") ? "(%)" : "(R$)"}
+            </Label>
+            <Input
+              type="number"
+              step={operation.includes("pct") ? "1" : "0.01"}
+              min="0"
+              placeholder={operation.includes("pct") ? "Ex: 10" : "Ex: 5.00"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
+
+          {/* Push to ML toggle */}
+          {field === "preco" && (
+            <div className="flex items-center justify-between">
+              <Label htmlFor="push-ml" className="text-sm">
+                Sincronizar com Mercado Livre
+              </Label>
+              <Switch
+                id="push-ml"
+                checked={pushToMl}
+                onCheckedChange={setPushToMl}
+              />
+            </div>
+          )}
+
+          {/* Preview */}
+          {numValue > 0 && previewItems.length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Preview</Label>
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="p-2 text-left">SKU</th>
+                      <th className="p-2 text-right">Atual</th>
+                      <th className="p-2 text-right">Novo</th>
+                      {field === "preco" && <th className="p-2 text-center">ML</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewItems.map((item) => (
+                      <tr key={item.sku} className="border-t">
+                        <td className="p-2 font-mono truncate max-w-[120px]">{item.sku}</td>
+                        <td className="p-2 text-right text-muted-foreground">
+                          {item.current.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </td>
+                        <td className={`p-2 text-right font-medium ${item.newPrice > item.current ? "text-green-600" : item.newPrice < item.current ? "text-red-600" : ""}`}>
+                          {item.newPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </td>
+                        {field === "preco" && (
+                          <td className="p-2 text-center">
+                            {item.hasML && pushToMl ? (
+                              <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300">Sync</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {selectedProducts.length > 10 && (
+                  <div className="p-2 text-[11px] text-muted-foreground text-center border-t bg-muted/30">
+                    ... e mais {selectedProducts.length - 10} produto(s)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Result */}
+          {result && (
+            <div className={`rounded-md p-3 text-sm ${result.errors.length > 0 ? "bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" : "bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800"}`}>
+              <div className="flex items-center gap-2 font-medium">
+                {result.errors.length > 0 ? (
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                ) : (
+                  <Check className="h-4 w-4 text-green-600" />
+                )}
+                {result.updated} atualizado(s)
+                {result.ml_synced > 0 && `, ${result.ml_synced} sincronizado(s) no ML`}
+              </div>
+              {result.errors.length > 0 && (
+                <div className="mt-2 text-xs space-y-1">
+                  {result.errors.slice(0, 5).map((e, i) => (
+                    <div key={i} className="text-red-600">
+                      {e.sku}: {e.error}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Apply button */}
+          <Button
+            className="w-full"
+            onClick={handleApply}
+            disabled={applying || numValue <= 0 || selectedIds.size === 0}
+          >
+            {applying ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Aplicando...
+              </>
+            ) : (
+              <>
+                <DollarSign className="h-4 w-4 mr-2" />
+                Aplicar Alteracoes ({selectedIds.size})
+              </>
+            )}
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// -------------------------------------------------------------------
 // Main Page
 // -------------------------------------------------------------------
 export default function HubProdutosPage() {
@@ -1819,6 +2199,7 @@ export default function HubProdutosPage() {
   const [showPushML, setShowPushML] = useState(false);
   const [showPullML, setShowPullML] = useState(false);
   const [showImportFamily, setShowImportFamily] = useState(false);
+  const [showBulkPrice, setShowBulkPrice] = useState(false);
 
   // Open modal from URL param
   useEffect(() => {
@@ -2109,6 +2490,10 @@ export default function HubProdutosPage() {
               <ArrowUpFromLine className="h-4 w-4 mr-1" />
               Publicar no ML
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowBulkPrice(true)}>
+              <DollarSign className="h-4 w-4 mr-1" />
+              Alterar Precos
+            </Button>
             <Button variant="destructive" size="sm" onClick={handleDelete}>
               <Trash2 className="h-4 w-4 mr-1" />
               Remover
@@ -2249,23 +2634,33 @@ export default function HubProdutosPage() {
                               </div>
                             </td>
                             <td className="p-3 text-right">
-                              {mlData?.original_price != null &&
-                               mlData.original_price > (displayPreco ?? 0) && (
-                                <div className="text-[10px] text-muted-foreground line-through">
-                                  {mlData.original_price.toLocaleString("pt-BR", {
-                                    style: "currency",
-                                    currency: "BRL",
-                                  })}
+                              {workspace?.id ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <InlinePriceEditor
+                                    productId={p.id}
+                                    currentPreco={p.preco ?? p.ml_preco ?? 0}
+                                    currentPrecoPromo={p.preco_promocional ?? null}
+                                    workspaceId={workspace.id}
+                                    onUpdated={fetchProducts}
+                                  />
+                                  {p.ml_item_id && p.preco != null && p.ml_preco != null && Math.abs(p.preco - p.ml_preco) > 0.01 && (
+                                    <Tooltip>
+                                      <TooltipTrigger>
+                                        <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Preco no ML difere: {p.ml_preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="font-medium">
+                                  {displayPreco != null
+                                    ? displayPreco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                                    : "-"}
                                 </div>
                               )}
-                              <div className="font-medium">
-                                {displayPreco != null
-                                  ? displayPreco.toLocaleString("pt-BR", {
-                                      style: "currency",
-                                      currency: "BRL",
-                                    })
-                                  : "-"}
-                              </div>
                             </td>
                             <td className="p-3 text-right">
                               {p.sob_demanda && workspace?.id && !hasChildren ? (
@@ -2408,13 +2803,22 @@ export default function HubProdutosPage() {
                                       </div>
                                     </div>
                                   </td>
-                                  <td className="p-3 text-right text-muted-foreground">
-                                    {childPreco != null
-                                      ? childPreco.toLocaleString("pt-BR", {
-                                          style: "currency",
-                                          currency: "BRL",
-                                        })
-                                      : "-"}
+                                  <td className="p-3 text-right">
+                                    {workspace?.id ? (
+                                      <InlinePriceEditor
+                                        productId={child.id}
+                                        currentPreco={child.preco ?? child.ml_preco ?? 0}
+                                        currentPrecoPromo={child.preco_promocional ?? null}
+                                        workspaceId={workspace.id}
+                                        onUpdated={fetchProducts}
+                                      />
+                                    ) : (
+                                      <span className="text-muted-foreground">
+                                        {childPreco != null
+                                          ? childPreco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                                          : "-"}
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="p-3 text-right text-muted-foreground">
                                     {child.sob_demanda && workspace?.id ? (
@@ -2522,6 +2926,20 @@ export default function HubProdutosPage() {
             onClose={() => setShowPullML(false)}
             workspaceId={workspace.id}
             onDone={fetchProducts}
+          />
+        )}
+
+        {/* Bulk Price Sheet */}
+        {workspace?.id && (
+          <BulkPriceSheet
+            open={showBulkPrice}
+            onOpenChange={setShowBulkPrice}
+            workspaceId={workspace.id}
+            selectedIds={selected}
+            products={products}
+            onDone={() => {
+              fetchProducts();
+            }}
           />
         )}
       </div>
