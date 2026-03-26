@@ -117,15 +117,17 @@ export async function POST(req: NextRequest) {
         // Stock endpoint may fail for some products — continue with 0
       }
 
-      // 3. Fetch images
+      // 3. Fetch images (Eccosys returns string[] directly from /imagens)
       let fotos: string[] = [];
       try {
-        const imagens = await eccosys.get<Array<{ url: string }>>(
+        const imagens = await eccosys.get<unknown>(
           `/produtos/${eccId}/imagens`,
           workspaceId
         );
         if (Array.isArray(imagens)) {
-          fotos = imagens.map((img) => img.url).filter(Boolean);
+          fotos = imagens
+            .map((item) => (typeof item === "string" ? item : (item as { url?: string })?.url))
+            .filter((u): u is string => !!u);
         }
       } catch {
         // Fallback to inline photo fields
@@ -143,16 +145,16 @@ export async function POST(req: NextRequest) {
         ].filter((f): f is string => !!f);
       }
 
-      // 4. Fetch attributes
+      // 4. Fetch attributes (Eccosys uses descricao + valor)
       let atributos: Record<string, string> = {};
       try {
-        const attrs = await eccosys.get<Array<{ nome: string; valor: string }>>(
+        const attrs = await eccosys.get<Array<{ descricao?: string; nome?: string; valor: string }>>(
           `/produtos/${eccId}/atributos`,
           workspaceId
         );
         if (Array.isArray(attrs)) {
           atributos = Object.fromEntries(
-            attrs.map((a) => [a.nome, a.valor])
+            attrs.map((a) => [a.descricao || a.nome || "", a.valor]).filter(([k]) => !!k)
           );
         }
       } catch {

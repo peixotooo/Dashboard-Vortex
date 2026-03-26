@@ -18,7 +18,7 @@ class EccosysClient {
   private lastRequest = 0;
 
   private async throttle() {
-    const wait = 1100 - (Date.now() - this.lastRequest);
+    const wait = 1000 - (Date.now() - this.lastRequest);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     this.lastRequest = Date.now();
   }

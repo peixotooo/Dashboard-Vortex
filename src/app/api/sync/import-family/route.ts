@@ -66,8 +66,23 @@ function normalize(s: string): string {
     .trim();
 }
 
+// Extract photos from Eccosys product (images endpoint returns string[])
+function extractPhotos(product: EccosysProduto, imgs?: unknown): string[] {
+  // The /produtos/{id}/imagens endpoint returns string[] directly
+  if (Array.isArray(imgs)) {
+    const urls = imgs
+      .map((item) => (typeof item === "string" ? item : (item as { url?: string })?.url))
+      .filter((u): u is string => !!u);
+    if (urls.length > 0) return urls;
+  }
+  // Fallback to inline foto1-foto4 fields
+  return [product.foto1, product.foto2, product.foto3, product.foto4, product.foto5, product.foto6]
+    .filter((f): f is string => !!f);
+}
+
 // -------------------------------------------------------------------
 // GET — Preview family + ML enrichment
+// Uses Eccosys individual GET which returns _Skus, _Atributos, _Estoque
 // -------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
@@ -88,199 +103,116 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. Find parent product in Eccosys
-    // Support both numeric ID and SKU code as input
+    // 1. Fetch parent product via GET /produtos/{id ou codigo}
+    //    This returns _Skus, _Atributos, _Estoque, _FichaTecnica embedded
     let parent: EccosysProduto | undefined;
 
-    const isNumericId = /^\d+$/.test(parentSku);
-
-    // Strategy A: Try direct lookup by Eccosys product ID
-    if (isNumericId) {
-      try {
-        const directProduct = await eccosys.get<EccosysProduto>(
-          `/produtos/${parentSku}`,
-          workspaceId
-        );
-        if (directProduct?.codigo && !directProduct.idProdutoPai) {
-          parent = directProduct;
+    try {
+      const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+        `/produtos/${encodeURIComponent(parentSku)}`,
+        workspaceId
+      );
+      // API may return single object or array
+      const prod = Array.isArray(result) ? result[0] : result;
+      if (prod?.codigo) {
+        // Verify it's a parent (idProdutoMaster === "0" or 0) or simple product
+        const masterIdStr = String(prod.idProdutoMaster ?? "0");
+        if (masterIdStr === "0" || !prod.idProdutoMaster) {
+          parent = prod;
         }
-      } catch {
-        // Not an internal ID — continue to text search
       }
-    }
-
-    // Strategy B: Text search with $filter (handles SKU/name)
-    if (!parent) {
-      try {
-        const searchResults = await eccosys.listAll<EccosysProduto>(
-          "/produtos",
-          workspaceId,
-          { $filter: parentSku, $situacao: "A" },
-          100
-        );
-        parent = searchResults.find(
-          (p) => p.codigo === parentSku && !p.idProdutoPai
-        );
-      } catch {
-        // $filter may return 404 for certain queries
-      }
-    }
-
-    // Strategy C: Text search without situacao restriction
-    if (!parent) {
-      try {
-        const searchResults = await eccosys.listAll<EccosysProduto>(
-          "/produtos",
-          workspaceId,
-          { $filter: parentSku },
-          100
-        );
-        parent = searchResults.find(
-          (p) => p.codigo === parentSku && !p.idProdutoPai
-        );
-      } catch {
-        // Still not found
-      }
+    } catch {
+      // Direct lookup failed
     }
 
     if (!parent) {
       return NextResponse.json(
-        { error: `Produto pai "${parentSku}" nao encontrado no Eccosys. Verifique o codigo e tente novamente.` },
+        {
+          error: `Produto pai "${parentSku}" nao encontrado no Eccosys. Verifique o codigo e tente novamente.`,
+        },
         { status: 404 }
       );
     }
 
-    // 2. Find children by parent's codigo (SKU)
-    const parentCodigo = parent.codigo;
-    const parentId = parent.id;
-    let children: EccosysProduto[] = [];
+    // 2. Get children from _Skus (embedded in the parent response)
+    const childSkus = parent._Skus || [];
 
-    // Strategy A: Try Eccosys field filter by idProdutoPai
-    if (children.length === 0) {
-      try {
-        const res = await eccosys.listAll<EccosysProduto>(
-          "/produtos",
-          workspaceId,
-          { idProdutoPai: String(parentId) },
-          100
-        );
-        children = res.filter((p) => String(p.id) !== String(parentId));
-      } catch {
-        // Field filter may not be supported
-      }
-    }
-
-    // Strategy B: Try $filter text search (works for text SKUs)
-    if (children.length === 0) {
-      try {
-        const res = await eccosys.listAll<EccosysProduto>(
-          "/produtos",
-          workspaceId,
-          { $filter: parentCodigo, $situacao: "A" },
-          100
-        );
-        children = res.filter(
-          (p) => p.codigoPai === parentCodigo && String(p.id) !== String(parentId)
-        );
-      } catch {
-        // $filter may return 404 for numeric codes
-      }
-    }
-
-    // Strategy C: Sequential direct lookups by code pattern ({parentCode}-1, -2, ...)
-    // This is the most reliable fallback for numeric codes
-    if (children.length === 0) {
-      let consecutiveMisses = 0;
-      for (let n = 1; n <= 50 && consecutiveMisses < 3; n++) {
-        const childCode = `${parentCodigo}-${n}`;
-        try {
-          const child = await eccosys.get<EccosysProduto>(
-            `/produtos/${childCode}`,
-            workspaceId
-          );
-          if (child?.codigo) {
-            children.push(child);
-            consecutiveMisses = 0;
-          } else {
-            consecutiveMisses++;
-          }
-        } catch {
-          consecutiveMisses++;
-        }
-      }
-    }
-
-    // 3. Fetch parent details (images, stock, attributes)
-    let parentEstoque = 0;
-    try {
-      const est = await eccosys.get<{ estoqueDisponivel?: number }>(
-        `/estoques/${encodeURIComponent(parent.codigo)}`,
-        workspaceId
-      );
-      parentEstoque = est?.estoqueDisponivel ?? 0;
-    } catch {
-      /* stock may not exist */
-    }
-
-    let parentFotos: string[] = [];
-    try {
-      const imgs = await eccosys.get<Array<{ url: string }>>(
-        `/produtos/${parent.id}/imagens`,
-        workspaceId
-      );
-      if (Array.isArray(imgs)) {
-        parentFotos = imgs.map((i) => i.url).filter(Boolean);
-      }
-    } catch {
-      /* fallback to inline */
-    }
-    if (parentFotos.length === 0) {
-      parentFotos = [
-        parent.foto1,
-        parent.foto2,
-        parent.foto3,
-        parent.foto4,
-        parent.foto5,
-        parent.foto6,
-      ].filter((f): f is string => !!f);
-    }
-
-    // Fetch stock + attributes for each child
+    // Fetch full details for each child via GET /produtos/{id}
     const childrenDetails: Array<{
-      child: EccosysProduto;
+      product: EccosysProduto;
       estoque: number;
       atributos: Record<string, string>;
+      fotos: string[];
     }> = [];
 
-    for (const child of children) {
-      let estoque = 0;
+    for (const sku of childSkus) {
       try {
-        const est = await eccosys.get<{ estoqueDisponivel?: number }>(
-          `/estoques/${encodeURIComponent(child.codigo)}`,
+        const childResult = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+          `/produtos/${sku.id}`,
           workspaceId
         );
-        estoque = est?.estoqueDisponivel ?? 0;
-      } catch { /* continue with 0 */ }
+        const child = Array.isArray(childResult) ? childResult[0] : childResult;
+        if (!child?.codigo) continue;
 
-      let atributos: Record<string, string> = {};
-      try {
-        const attrs = await eccosys.get<Array<{ nome: string; valor: string }>>(
-          `/produtos/${child.id}/atributos`,
-          workspaceId
-        );
-        if (Array.isArray(attrs)) {
-          atributos = Object.fromEntries(attrs.map((a) => [a.nome, a.valor]));
+        // Stock from embedded _Estoque or fallback to /estoques/{codigo}
+        let estoque = child._Estoque?.estoqueDisponivel ?? 0;
+        if (!child._Estoque) {
+          try {
+            const est = await eccosys.get<{ estoqueDisponivel?: number }>(
+              `/estoques/${encodeURIComponent(child.codigo)}`,
+              workspaceId
+            );
+            estoque = est?.estoqueDisponivel ?? 0;
+          } catch { /* continue with 0 */ }
         }
-      } catch { /* no attributes */ }
 
-      childrenDetails.push({ child, estoque, atributos });
+        // Attributes from embedded _Atributos (descricao + valor)
+        const atributos: Record<string, string> = {};
+        if (Array.isArray(child._Atributos)) {
+          for (const a of child._Atributos) {
+            if (a.descricao && a.valor) {
+              atributos[a.descricao] = a.valor;
+            }
+          }
+        }
+
+        // Images
+        let imgs: unknown;
+        try {
+          imgs = await eccosys.get(`/produtos/${sku.id}/imagens`, workspaceId);
+        } catch { /* no images */ }
+        const fotos = extractPhotos(child, imgs);
+
+        childrenDetails.push({ product: child, estoque, atributos, fotos });
+      } catch {
+        // Skip failed children
+      }
     }
 
-    // Sample attributes from first child (to detect variation attrs like Cor, Tamanho)
+    // 3. Parent details
+    const parentEstoque = parent._Estoque?.estoqueDisponivel ?? 0;
+
+    let parentImgs: unknown;
+    try {
+      parentImgs = await eccosys.get(`/produtos/${parent.id}/imagens`, workspaceId);
+    } catch { /* no images */ }
+    const parentFotos = extractPhotos(parent, parentImgs);
+
+    // Parent attributes from _Atributos
+    const parentAtributos: Record<string, string> = {};
+    if (Array.isArray(parent._Atributos)) {
+      for (const a of parent._Atributos) {
+        if (a.descricao && a.valor) {
+          parentAtributos[a.descricao] = a.valor;
+        }
+      }
+    }
+
+    // Sample attributes from first child (for variation attribute mapping)
     const sampleAtributos = childrenDetails[0]?.atributos || {};
 
     // Check which SKUs are already in hub
-    const allSkus = [parent.codigo, ...children.map((c) => c.codigo)];
+    const allSkus = [parent.codigo, ...childrenDetails.map((c) => c.product.codigo)];
     const supabase = createAdminClient();
     const { data: existing } = await supabase
       .from("hub_products")
@@ -289,7 +221,7 @@ export async function GET(req: NextRequest) {
       .in("sku", allSkus);
     const existingSkus = new Set((existing || []).map((r) => r.sku));
 
-    // 3. Predict ML category from parent title (PUBLIC API — no auth needed)
+    // 4. Predict ML category from parent title (PUBLIC API — no auth needed)
     let predictions: Array<{
       category_id: string;
       name: string;
@@ -318,7 +250,7 @@ export async function GET(req: NextRequest) {
 
     const topCategory = predictions[0] || null;
 
-    // 4. Fetch ML category required attributes (PUBLIC API — no auth needed)
+    // 5. Fetch ML category required attributes (PUBLIC API — no auth needed)
     let categoryAttrs: MLCategoryAttribute[] = [];
     if (topCategory) {
       try {
@@ -335,8 +267,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 5. Cross-reference with existing ML product in same category
-    //    (needs ML auth to fetch /items/{id})
+    // 6. Cross-reference with existing ML product in same category
     let crossRef: { mlItem: MLItemFull; mlItemId: string; title: string } | null =
       null;
 
@@ -355,7 +286,7 @@ export async function GET(req: NextRequest) {
           .eq("workspace_id", workspaceId)
           .eq("ml_category_id", topCategory.category_id)
           .not("ml_item_id", "is", null)
-          .is("ecc_pai_sku", null) // prefer parents
+          .is("ecc_pai_sku", null)
           .limit(1)
           .single();
 
@@ -375,7 +306,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 6. Build enrichment
+    // 7. Build enrichment
     const enrichment = buildEnrichment(
       topCategory,
       categoryAttrs,
@@ -383,7 +314,7 @@ export async function GET(req: NextRequest) {
       sampleAtributos
     );
 
-    // 7. Build warnings
+    // 8. Build warnings
     const warnings: Array<{
       type: string;
       message: string;
@@ -405,7 +336,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Check for missing required attrs
     for (const attr of enrichment.attributes) {
       if (attr.required && !attr.value_name) {
         warnings.push({
@@ -416,7 +346,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Check unmapped variation attrs
     const eccAttrKeys = Object.keys(sampleAtributos);
     for (const key of eccAttrKeys) {
       if (!enrichment.variation_attr_map[key]) {
@@ -438,13 +367,13 @@ export async function GET(req: NextRequest) {
         already_in_hub: existingSkus.has(parent.codigo),
       },
       children: childrenDetails.map((d) => ({
-        ecc_id: d.child.id,
-        sku: d.child.codigo,
-        nome: d.child.nome,
-        preco: d.child.preco,
+        ecc_id: d.product.id,
+        sku: d.product.codigo,
+        nome: d.product.nome,
+        preco: d.product.preco,
         estoque: d.estoque,
         atributos: d.atributos,
-        already_in_hub: existingSkus.has(d.child.codigo),
+        already_in_hub: existingSkus.has(d.product.codigo),
       })),
       enrichment,
       predictions,
@@ -471,7 +400,6 @@ function buildEnrichment(
 ): MLEnrichment {
   const mlItem = crossRef?.mlItem;
 
-  // Extract cross-ref attribute values for quick lookup
   const refAttrMap = new Map<string, string>();
   if (mlItem?.attributes) {
     for (const a of mlItem.attributes) {
@@ -479,7 +407,6 @@ function buildEnrichment(
     }
   }
 
-  // Build attributes list from ML category required/optional attrs
   const attributes: MLEnrichmentAttr[] = [];
   const variationAttrMap: Record<string, string> = {};
 
@@ -489,24 +416,16 @@ function buildEnrichment(
     const isReadOnly = !!tags.read_only;
     const isVariation = !!tags.allow_variations;
 
-    // Skip read-only attrs (ML fills them automatically)
     if (isReadOnly) continue;
 
-    // Try to fill value:
-    // 1. From cross-ref
     let valueName = refAttrMap.get(catAttr.id) || "";
     let source: MLEnrichmentAttr["source"] = "cross_ref";
 
-    // 2. From Eccosys data (for GTIN, etc.)
-    if (!valueName) {
-      if (catAttr.id === "GTIN") {
-        // GTIN not available in preview (only on individual products)
-        valueName = "";
-        source = "eccosys";
-      }
+    if (!valueName && catAttr.id === "GTIN") {
+      valueName = "";
+      source = "eccosys";
     }
 
-    // 3. Defaults for common attrs
     if (!valueName && catAttr.id === "BRAND" && refAttrMap.has("BRAND")) {
       valueName = refAttrMap.get("BRAND") || "";
       source = "cross_ref";
@@ -524,7 +443,6 @@ function buildEnrichment(
       source: valueName ? source : "default",
     });
 
-    // Map variation attributes
     if (isVariation) {
       const normalizedAttrName = normalize(catAttr.name);
       for (const eccKey of Object.keys(sampleEccAttrs)) {
@@ -532,7 +450,6 @@ function buildEnrichment(
           variationAttrMap[eccKey] = catAttr.id;
         }
       }
-      // Fallback to known map
       if (!Object.values(variationAttrMap).includes(catAttr.id)) {
         for (const [eccNorm, mlId] of Object.entries(KNOWN_ATTR_MAP)) {
           if (mlId === catAttr.id) {
@@ -547,7 +464,6 @@ function buildEnrichment(
     }
   }
 
-  // Extract sale_terms from cross-ref or use defaults
   const saleTerms: Array<{ id: string; value_name: string }> = [];
   if (mlItem?.sale_terms) {
     for (const st of mlItem.sale_terms) {
@@ -563,7 +479,6 @@ function buildEnrichment(
     );
   }
 
-  // Shipping from cross-ref or defaults
   const shipping = mlItem?.shipping
     ? {
         mode: mlItem.shipping.mode || "me2",
@@ -590,6 +505,7 @@ function buildEnrichment(
 
 // -------------------------------------------------------------------
 // POST — Confirm import with enrichment
+// Uses GET /produtos/{id} which returns all nested data
 // -------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
@@ -603,7 +519,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const parentSku: string = body.parent_sku;
-  const eccIds: number[] = body.ecc_ids || [];
+  const eccIds: (number | string)[] = body.ecc_ids || [];
   const enrichment: MLEnrichment | null = body.enrichment || null;
 
   if (!parentSku || eccIds.length === 0) {
@@ -622,64 +538,52 @@ export async function POST(req: NextRequest) {
 
   for (const eccId of eccIds) {
     try {
-      // Fetch full product details
-      const produto = await eccosys.get<EccosysProduto>(
+      // Fetch full product details (includes _Estoque, _Atributos, etc.)
+      const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
         `/produtos/${eccId}`,
         workspaceId
       );
+      const produto = Array.isArray(result) ? result[0] : result;
 
-      // Fetch stock
-      let estoque = 0;
-      try {
-        const est = await eccosys.get<{ estoqueDisponivel?: number }>(
-          `/estoques/${encodeURIComponent(produto.codigo)}`,
-          workspaceId
-        );
-        estoque = est?.estoqueDisponivel ?? 0;
-      } catch {
-        /* continue with 0 */
+      if (!produto?.codigo) {
+        results.push({ sku: `id:${eccId}`, status: "error", error: "Produto nao encontrado" });
+        continue;
       }
 
-      // Fetch images
+      // Stock: prefer embedded _Estoque, fallback to /estoques/{codigo}
+      let estoque = produto._Estoque?.estoqueDisponivel ?? 0;
+      if (!produto._Estoque) {
+        try {
+          const est = await eccosys.get<{ estoqueDisponivel?: number }>(
+            `/estoques/${encodeURIComponent(produto.codigo)}`,
+            workspaceId
+          );
+          estoque = est?.estoqueDisponivel ?? 0;
+        } catch { /* continue with 0 */ }
+      }
+
+      // Images: /produtos/{id}/imagens returns string[] directly
       let fotos: string[] = [];
       try {
-        const imgs = await eccosys.get<Array<{ url: string }>>(
-          `/produtos/${eccId}/imagens`,
-          workspaceId
-        );
-        if (Array.isArray(imgs)) {
-          fotos = imgs.map((i) => i.url).filter(Boolean);
-        }
+        const imgs = await eccosys.get(`/produtos/${produto.id}/imagens`, workspaceId);
+        fotos = extractPhotos(produto, imgs);
       } catch {
-        /* fallback */
-      }
-      if (fotos.length === 0) {
-        fotos = [
-          produto.foto1,
-          produto.foto2,
-          produto.foto3,
-          produto.foto4,
-          produto.foto5,
-          produto.foto6,
-        ].filter((f): f is string => !!f);
+        fotos = extractPhotos(produto);
       }
 
-      // Fetch attributes
-      let atributos: Record<string, string> = {};
-      try {
-        const attrs = await eccosys.get<Array<{ nome: string; valor: string }>>(
-          `/produtos/${eccId}/atributos`,
-          workspaceId
-        );
-        if (Array.isArray(attrs)) {
-          atributos = Object.fromEntries(attrs.map((a) => [a.nome, a.valor]));
+      // Attributes from _Atributos (descricao + valor)
+      const atributos: Record<string, string> = {};
+      if (Array.isArray(produto._Atributos)) {
+        for (const a of produto._Atributos) {
+          if (a.descricao && a.valor) {
+            atributos[a.descricao] = a.valor;
+          }
         }
-      } catch {
-        /* no attributes */
       }
 
-      // Determine if this is the parent or a child
-      const isParent = produto.codigo === parentSku && !produto.idProdutoPai;
+      // Determine parent vs child
+      const masterIdStr = String(produto.idProdutoMaster ?? "0");
+      const isParent = masterIdStr === "0" || !produto.idProdutoMaster;
 
       const row = {
         workspace_id: workspaceId,
@@ -697,8 +601,8 @@ export async function POST(req: NextRequest) {
         descricao: produto.descricaoEcommerce,
         fotos,
         situacao: produto.situacao || "A",
-        ecc_pai_id: produto.idProdutoPai,
-        ecc_pai_sku: produto.codigoPai,
+        ecc_pai_id: isParent ? null : Number(produto.idProdutoMaster) || produto.idProdutoPai,
+        ecc_pai_sku: isParent ? null : (produto.codigoPai || parentSku),
         atributos,
         source: "eccosys" as const,
         sync_status: enrichment?.category_id ? ("ready" as const) : ("draft" as const),
@@ -730,7 +634,6 @@ export async function POST(req: NextRequest) {
   const imported = results.filter((r) => r.status === "imported").length;
   const errors = results.filter((r) => r.status === "error").length;
 
-  // Log
   await supabase.from("hub_logs").insert({
     workspace_id: workspaceId,
     action: "import_family",

@@ -202,30 +202,61 @@ export interface EccosysProduto {
   codigo: string;
   nome: string;
   preco: number;
+  precoDe: number | null;
+  precoCusto: number | null;
   precoPromocional: number | null;
   gtin: string | null;
+  gtinEmbalagem: string | null;
   peso: number | null;
+  pesoLiq: number | null;
+  pesoBruto: number | null;
   largura: number | null;
   altura: number | null;
   comprimento: number | null;
   descricaoEcommerce: string | null;
+  descricaoComplementar: string | null;
   situacao: string;
+  unidade: string | null;
+  cf: string | null; // NCM
+  origem: string | null;
+  // Parent reference: "0" = pai/simples, outro = ID do pai
+  idProdutoMaster: string;
+  // Legado (manter compat com codigo existente)
   idProdutoPai: number | null;
   codigoPai: string | null;
+  // Categorizacao
+  idTagMarcaArvore: string | null;
+  idTagDepartamentoArvore: string | null;
+  idTagCategoriaArvore: string | null;
+  idTagSubcategoriaArvore: string | null;
+  idFornecedor: string | null;
+  // Fotos inline
   foto1: string | null;
   foto2: string | null;
   foto3: string | null;
   foto4: string | null;
   foto5: string | null;
   foto6: string | null;
+  // Dados aninhados (apenas no GET individual /produtos/{id})
+  _Skus?: Array<{ id: number; codigo: string; gtin: string; gtinEmbalagem: string }>;
+  _Atributos?: Array<{ id: number; descricao: string; valor: string }>;
+  _Estoque?: { estoqueReal: number; estoqueDisponivel: number; codigo: string; nome: string };
+  _FichaTecnica?: Array<{ descricaoDetalhada: string }>;
+  _VinculosPlataforma?: Array<{ idPlataforma: number; nomePlataforma: string; vinculoPai: string; vinculo: string }>;
+  _Componentes?: Array<{ idProduto: number; quantidade: number }>;
 }
 
 export interface EccosysEstoque {
+  estoqueReal: number;
   estoqueDisponivel: number;
+  codigo: string;
+  nome: string;
+  idProduto: string;
 }
 
 export interface EccosysAtributo {
-  nome: string;
+  id: number;
+  descricao: string;
   valor: string;
 }
 
