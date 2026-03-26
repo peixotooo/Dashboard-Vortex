@@ -24,10 +24,11 @@ interface MLCategoryAttribute {
 }
 
 interface MLCategoryPrediction {
-  id: string;
-  name: string;
-  prediction_probability: string;
-  path_from_root?: Array<{ id: string; name: string }>;
+  domain_id: string;
+  domain_name: string;
+  category_id: string;
+  category_name: string;
+  attributes: unknown[];
 }
 
 interface MLItemFull {
@@ -222,6 +223,7 @@ export async function GET(req: NextRequest) {
     const existingSkus = new Set((existing || []).map((r) => r.sku));
 
     // 4. Predict ML category from parent title (PUBLIC API — no auth needed)
+    //    Uses /sites/MLB/domain_discovery/search endpoint
     let predictions: Array<{
       category_id: string;
       name: string;
@@ -230,18 +232,25 @@ export async function GET(req: NextRequest) {
     }> = [];
 
     try {
-      const predUrl = `https://api.mercadolibre.com/sites/MLB/category_predictor/predict?title=${encodeURIComponent(parent.nome)}`;
+      const predUrl = `https://api.mercadolibre.com/sites/MLB/domain_discovery/search?q=${encodeURIComponent(parent.nome)}`;
       const predRes = await fetch(predUrl);
       if (predRes.ok) {
         const preds: MLCategoryPrediction[] = await predRes.json();
         if (Array.isArray(preds)) {
-          predictions = preds.map((p) => ({
-            category_id: p.id,
-            name: p.name,
-            path:
-              p.path_from_root?.map((n) => n.name).join(" > ") || p.name,
-            probability: p.prediction_probability,
-          }));
+          // Deduplicate by category_id (same category can appear multiple times)
+          const seen = new Set<string>();
+          predictions = preds
+            .filter((p) => {
+              if (seen.has(p.category_id)) return false;
+              seen.add(p.category_id);
+              return true;
+            })
+            .map((p) => ({
+              category_id: p.category_id,
+              name: p.category_name,
+              path: `${p.domain_name} > ${p.category_name}`,
+              probability: "domain_discovery",
+            }));
         }
       }
     } catch {
