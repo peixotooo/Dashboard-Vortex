@@ -32,6 +32,28 @@ const SKIP_ATTR_IDS = new Set([
   "PRODUCT_DATA_SOURCE",
 ]);
 
+// Sale terms the seller is not allowed to set (auto-managed by ML)
+const SKIP_SALE_TERMS = new Set(["INSTALLMENTS_CAMPAIGN"]);
+
+/**
+ * Clean sale terms from enrichment, filtering out disallowed ones.
+ */
+function cleanSaleTerms(
+  terms: Array<{ id: string; value_name: string }> | undefined
+): Array<{ id: string; value_name: string }> {
+  const cleaned = (terms || [])
+    .filter((t) => t.id && t.value_name && !SKIP_SALE_TERMS.has(t.id))
+    .map((t) => ({ id: t.id, value_name: t.value_name }));
+  // Ensure at least WARRANTY defaults
+  if (!cleaned.some((t) => t.id === "WARRANTY_TYPE")) {
+    cleaned.push(
+      { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
+      { id: "WARRANTY_TIME", value_name: "90 dias" }
+    );
+  }
+  return cleaned;
+}
+
 /**
  * Clean enrichment attributes: only {id, value_name}, skip empty and internal attrs.
  */
@@ -119,13 +141,14 @@ function buildUPPayload(
     }
   }
 
-  // Add SIZE_GRID_ID + SIZE_GRID_ROW_ID if grid available
+  // Add SIZE_GRID_ID + SIZE_GRID_ROW_ID only if grid map lookup succeeded
   const sizeGridId = enr?.attributes?.find((a) => a.id === "SIZE_GRID_ID")?.value_name;
   const sizeValue = varAttrs.find((a) => a.id === "SIZE")?.value_name;
   const gridRowId = sizeValue ? sizeGridMap[sizeValue] : undefined;
+  const hasValidGrid = Object.keys(sizeGridMap).length > 0;
 
   const gridAttrs: Array<{ id: string; value_name: string }> = [];
-  if (sizeGridId) {
+  if (sizeGridId && hasValidGrid) {
     gridAttrs.push({ id: "SIZE_GRID_ID", value_name: sizeGridId });
   }
   if (gridRowId) {
@@ -145,7 +168,7 @@ function buildUPPayload(
     category_id: enr?.category_id || categoryId,
     price: Number(product.preco || parent.preco || 0),
     currency_id: "BRL",
-    available_quantity: product.estoque || 0,
+    available_quantity: Math.max(product.estoque || 0, 1),
     buying_mode: enr?.buying_mode || "buy_it_now",
     listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
@@ -164,12 +187,7 @@ function buildUPPayload(
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
       free_shipping: enr?.shipping?.free_shipping ?? false,
     },
-    sale_terms: enr?.sale_terms?.length
-      ? enr.sale_terms.map((t) => ({ id: t.id, value_name: t.value_name }))
-      : [
-          { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
-          { id: "WARRANTY_TIME", value_name: "90 dias" },
-        ],
+    sale_terms: cleanSaleTerms(enr?.sale_terms),
   };
 }
 
@@ -198,7 +216,7 @@ function buildSimpleUPPayload(
     category_id: enr?.category_id || categoryId,
     price: Number(product.preco),
     currency_id: "BRL",
-    available_quantity: product.estoque || 0,
+    available_quantity: Math.max(product.estoque || 0, 1),
     buying_mode: enr?.buying_mode || "buy_it_now",
     listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
@@ -215,12 +233,7 @@ function buildSimpleUPPayload(
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
       free_shipping: enr?.shipping?.free_shipping ?? false,
     },
-    sale_terms: enr?.sale_terms?.length
-      ? enr.sale_terms.map((t) => ({ id: t.id, value_name: t.value_name }))
-      : [
-          { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
-          { id: "WARRANTY_TIME", value_name: "90 dias" },
-        ],
+    sale_terms: cleanSaleTerms(enr?.sale_terms),
   };
 }
 
