@@ -13,57 +13,156 @@ interface PushResult {
   error?: string;
 }
 
-// -------------------------------------------------------------------
-// Build ML payload for a simple product (no variations)
-// Uses ml_enrichment when available, falls back to hardcoded defaults
-// -------------------------------------------------------------------
-function buildSimplePayload(
-  product: HubProduct,
-  categoryId: string
-) {
-  const enr = product.ml_enrichment;
+// Attribute IDs that should NOT be sent in the payload
+// (either added separately with special formatting or auto-managed by ML)
+const SKIP_ATTR_IDS = new Set([
+  "SIZE",
+  "SIZE_GRID_ROW_ID",
+  "ITEM_CONDITION",
+  "SELLER_SKU",
+  "SELLER_PACKAGE_WIDTH",
+  "SELLER_PACKAGE_LENGTH",
+  "SELLER_PACKAGE_HEIGHT",
+  "SELLER_PACKAGE_WEIGHT",
+  "GTIN",
+  "EMPTY_GTIN_REASON",
+  "MPN",
+  "IS_KIT",
+  "PRODUCT_DATA_SOURCE",
+]);
 
-  // Attributes: prefer enrichment, fallback to hardcoded
-  const attributes: Array<{ id: string; value_name: string }> = [];
-  if (enr?.attributes?.length) {
-    for (const a of enr.attributes) {
-      if (a.value_name) attributes.push({ id: a.id, value_name: a.value_name });
+/**
+ * Clean enrichment attributes: only {id, value_name}, skip empty and internal attrs.
+ */
+function cleanAttributes(
+  attrs: Array<{ id: string; value_name?: string }> | undefined
+): Array<{ id: string; value_name: string }> {
+  if (!attrs?.length) return [];
+  return attrs
+    .filter((a) => a.value_name && !SKIP_ATTR_IDS.has(a.id))
+    .map((a) => ({ id: a.id, value_name: a.value_name! }));
+}
+
+/**
+ * Build package dimension attributes from product data.
+ * ML requires values with units: "25 cm", "300 g"
+ */
+function buildPackageDimAttrs(product: HubProduct) {
+  const h = product.altura || 3;
+  const w = product.largura || 25;
+  const l = product.comprimento || 25;
+  const weight = product.peso || 0.3;
+  return [
+    { id: "SELLER_PACKAGE_HEIGHT", value_name: `${h} cm` },
+    { id: "SELLER_PACKAGE_WIDTH", value_name: `${w} cm` },
+    { id: "SELLER_PACKAGE_LENGTH", value_name: `${l} cm` },
+    { id: "SELLER_PACKAGE_WEIGHT", value_name: `${Math.round(weight * 1000)} g` },
+  ];
+}
+
+/**
+ * Fetch size grid row mapping from ML API.
+ * Returns a map from size name (e.g. "P") to grid row ID (e.g. "2748024:1").
+ */
+async function fetchSizeGridMap(
+  gridId: string,
+  workspaceId: string
+): Promise<Record<string, string>> {
+  try {
+    const grid = await ml.get<{
+      rows: Array<{
+        id: string;
+        attributes: Array<{
+          id: string;
+          values: Array<{ name: string }>;
+        }>;
+      }>;
+    }>(`/catalog/charts/${gridId}`, workspaceId);
+
+    const map: Record<string, string> = {};
+    for (const row of grid.rows || []) {
+      const sizeAttr = row.attributes?.find((a) => a.id === "SIZE");
+      const sizeName = sizeAttr?.values?.[0]?.name;
+      if (sizeName) map[sizeName] = row.id;
     }
-  } else {
-    attributes.push({ id: "BRAND", value_name: "Bulking" });
+    return map;
+  } catch {
+    return {};
   }
-  // Always include GTIN if available and not already present
-  if (product.gtin && !attributes.some((a) => a.id === "GTIN")) {
-    attributes.push({ id: "GTIN", value_name: product.gtin });
+}
+
+// -------------------------------------------------------------------
+// Build UP-model payload for a single product (no variations, has family_name)
+// Each child in a variation group gets its own POST /items call
+// -------------------------------------------------------------------
+function buildUPPayload(
+  product: HubProduct,
+  parent: HubProduct,
+  categoryId: string,
+  sizeGridMap: Record<string, string>
+) {
+  const enr = parent.ml_enrichment;
+  const baseAttrs = cleanAttributes(enr?.attributes);
+  const varAttrMap = enr?.variation_attr_map || {};
+
+  // Add variation-specific attributes (e.g. SIZE from child)
+  const varAttrs: Array<{ id: string; value_name: string }> = [];
+  if (product.atributos) {
+    for (const [key, val] of Object.entries(product.atributos)) {
+      const mlAttrId = varAttrMap[key];
+      if (mlAttrId && val) {
+        varAttrs.push({ id: mlAttrId, value_name: String(val) });
+      }
+    }
   }
 
-  // Dimensions string
-  const dimensions =
-    product.largura && product.altura && product.comprimento && product.peso
-      ? `${product.altura}x${product.largura}x${product.comprimento},${(product.peso * 1000).toFixed(0)}`
-      : null;
+  // Add SIZE_GRID_ID + SIZE_GRID_ROW_ID if grid available
+  const sizeGridId = enr?.attributes?.find((a) => a.id === "SIZE_GRID_ID")?.value_name;
+  const sizeValue = varAttrs.find((a) => a.id === "SIZE")?.value_name;
+  const gridRowId = sizeValue ? sizeGridMap[sizeValue] : undefined;
+
+  const gridAttrs: Array<{ id: string; value_name: string }> = [];
+  if (sizeGridId) {
+    gridAttrs.push({ id: "SIZE_GRID_ID", value_name: sizeGridId });
+  }
+  if (gridRowId) {
+    gridAttrs.push({ id: "SIZE_GRID_ROW_ID", value_name: gridRowId });
+  }
+
+  // GTIN from child product
+  const gtinAttrs: Array<{ id: string; value_name: string }> = [];
+  if (product.gtin) {
+    gtinAttrs.push({ id: "GTIN", value_name: product.gtin });
+  }
+
+  const familyName = (parent.nome || parent.sku).substring(0, 60);
 
   return {
-    title: (product.nome || product.sku).substring(0, 60),
+    family_name: familyName,
     category_id: enr?.category_id || categoryId,
-    price: Number(product.preco),
+    price: Number(product.preco || parent.preco || 0),
     currency_id: "BRL",
-    available_quantity: product.estoque,
+    available_quantity: product.estoque || 0,
     buying_mode: enr?.buying_mode || "buy_it_now",
     listing_type_id: enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
-    description: { plain_text: product.descricao || product.nome || "" },
-    pictures: (product.fotos || []).map((url) => ({ source: url })),
+    description: { plain_text: parent.descricao || parent.nome || "" },
+    pictures: (parent.fotos || []).map((url) => ({ source: url })),
     seller_custom_field: product.sku,
-    attributes,
+    attributes: [
+      ...baseAttrs,
+      ...varAttrs,
+      ...gridAttrs,
+      ...buildPackageDimAttrs(parent),
+      ...gtinAttrs,
+    ],
     shipping: {
       mode: enr?.shipping?.mode || "me2",
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
       free_shipping: enr?.shipping?.free_shipping ?? false,
-      ...(dimensions ? { dimensions } : {}),
     },
     sale_terms: enr?.sale_terms?.length
-      ? enr.sale_terms
+      ? enr.sale_terms.map((t) => ({ id: t.id, value_name: t.value_name }))
       : [
           { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
           { id: "WARRANTY_TIME", value_name: "90 dias" },
@@ -72,68 +171,44 @@ function buildSimplePayload(
 }
 
 // -------------------------------------------------------------------
-// Build ML payload for a product with variations (parent + children)
-// Uses ml_enrichment when available, falls back to hardcoded defaults
+// Build UP-model payload for a simple product (no parent/children)
 // -------------------------------------------------------------------
-function buildVariationPayload(
-  parent: HubProduct,
-  children: HubProduct[],
-  categoryId: string
-) {
-  const enr = parent.ml_enrichment;
+function buildSimpleUPPayload(product: HubProduct, categoryId: string) {
+  const enr = product.ml_enrichment;
+  const baseAttrs = cleanAttributes(enr?.attributes);
 
-  // Collect all unique photos from children + parent
-  const allPhotos = [
-    ...new Set([
-      ...(parent.fotos || []),
-      ...children.flatMap((c) => c.fotos || []),
-    ]),
-  ];
-
-  // Attributes: prefer enrichment
-  const attributes: Array<{ id: string; value_name: string }> = [];
-  if (enr?.attributes?.length) {
-    for (const a of enr.attributes) {
-      if (a.value_name) attributes.push({ id: a.id, value_name: a.value_name });
-    }
-  } else {
-    attributes.push({ id: "BRAND", value_name: "Bulking" });
+  // GTIN
+  const gtinAttrs: Array<{ id: string; value_name: string }> = [];
+  if (product.gtin && !baseAttrs.some((a) => a.id === "GTIN")) {
+    gtinAttrs.push({ id: "GTIN", value_name: product.gtin });
   }
 
-  // Variation attribute map from enrichment
-  const varAttrMap = enr?.variation_attr_map || {};
+  const familyName = (product.nome || product.sku).substring(0, 60);
 
   return {
-    title: (parent.nome || parent.sku).substring(0, 60),
+    family_name: familyName,
     category_id: enr?.category_id || categoryId,
-    price: Number(parent.preco || children[0]?.preco || 0),
+    price: Number(product.preco),
     currency_id: "BRL",
+    available_quantity: product.estoque || 0,
     buying_mode: enr?.buying_mode || "buy_it_now",
     listing_type_id: enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
-    description: { plain_text: parent.descricao || parent.nome || "" },
-    pictures: allPhotos.map((url) => ({ source: url })),
-    seller_custom_field: parent.sku,
-    attributes,
-    variations: children.map((child) => ({
-      available_quantity: child.estoque,
-      price: Number(child.preco || parent.preco || 0),
-      seller_sku: child.sku,
-      picture_ids: [],
-      attribute_combinations: Object.entries(child.atributos || {})
-        .filter(([key]) => !!varAttrMap[key])
-        .map(([key, val]) => ({
-          id: varAttrMap[key],
-          value_name: String(val),
-        })),
-    })),
+    description: { plain_text: product.descricao || product.nome || "" },
+    pictures: (product.fotos || []).map((url) => ({ source: url })),
+    seller_custom_field: product.sku,
+    attributes: [
+      ...baseAttrs,
+      ...buildPackageDimAttrs(product),
+      ...gtinAttrs,
+    ],
     shipping: {
       mode: enr?.shipping?.mode || "me2",
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
       free_shipping: enr?.shipping?.free_shipping ?? false,
     },
     sale_terms: enr?.sale_terms?.length
-      ? enr.sale_terms
+      ? enr.sale_terms.map((t) => ({ id: t.id, value_name: t.value_name }))
       : [
           { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
           { id: "WARRANTY_TIME", value_name: "90 dias" },
@@ -143,6 +218,7 @@ function buildVariationPayload(
 
 /**
  * POST — Publish selected hub products to Mercado Livre.
+ * Uses the UP (User Products) model: each variation = individual POST /items with family_name.
  * Body: { skus: string[], category_id: string, validate_only?: boolean }
  */
 export async function POST(req: NextRequest) {
@@ -197,13 +273,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Group by ecc_pai_sku to identify variation families
-  // Products with null ecc_pai_sku are simple (unless they're a parent of children in the batch)
-  // Products with same ecc_pai_sku form a variation group
   const variationGroups = new Map<string, HubProduct[]>();
   const potentialSimple: HubProduct[] = [];
 
   for (const p of hubProducts) {
-    // Skip products already published to ML
     if (p.ml_item_id) continue;
 
     if (p.ecc_pai_sku) {
@@ -223,11 +296,11 @@ export async function POST(req: NextRequest) {
   const results: PushResult[] = [];
 
   // -------------------------------------------------------------------
-  // Publish simple products
+  // Publish simple products (UP model, individual items)
   // -------------------------------------------------------------------
   for (const product of simpleProducts) {
     try {
-      const payload = buildSimplePayload(product, categoryId);
+      const payload = buildSimpleUPPayload(product, categoryId);
 
       if (validateOnly) {
         await ml.post("/items/validate", payload, workspaceId);
@@ -241,7 +314,6 @@ export async function POST(req: NextRequest) {
         status: string;
       }>("/items", payload, workspaceId);
 
-      // Update hub_products with ML data
       await supabase
         .from("hub_products")
         .update({
@@ -257,7 +329,6 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", product.id);
 
-      // Log success
       await supabase.from("hub_logs").insert({
         workspace_id: workspaceId,
         action: "push_ml",
@@ -265,10 +336,7 @@ export async function POST(req: NextRequest) {
         entity_id: product.sku,
         direction: "hub_to_ml",
         status: "ok",
-        details: {
-          ml_item_id: result.id,
-          ml_permalink: result.permalink,
-        },
+        details: { ml_item_id: result.id, ml_permalink: result.permalink },
       });
 
       results.push({
@@ -280,7 +348,6 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
 
-      // Update hub_products with error
       await supabase
         .from("hub_products")
         .update({
@@ -305,11 +372,11 @@ export async function POST(req: NextRequest) {
   }
 
   // -------------------------------------------------------------------
-  // Publish variation groups
+  // Publish variation groups (UP model: each child = individual POST)
   // -------------------------------------------------------------------
   for (const [paiSku, children] of variationGroups) {
     try {
-      // Find parent product (may or may not be in the selection)
+      // Find parent product
       let parent: HubProduct | undefined;
       const { data: parentData } = await supabase
         .from("hub_products")
@@ -319,91 +386,116 @@ export async function POST(req: NextRequest) {
         .single();
 
       parent = parentData as HubProduct | undefined;
+      if (!parent) parent = children[0];
 
-      // If no parent row, use first child as base
-      if (!parent) {
-        parent = children[0];
-      }
+      // Fetch size grid mapping if enrichment has SIZE_GRID_ID
+      const sizeGridId = parent.ml_enrichment?.attributes?.find(
+        (a) => a.id === "SIZE_GRID_ID"
+      )?.value_name;
+      const sizeGridMap = sizeGridId
+        ? await fetchSizeGridMap(sizeGridId, workspaceId)
+        : {};
 
-      const payload = buildVariationPayload(parent, children, categoryId);
-
-      if (validateOnly) {
-        await ml.post("/items/validate", payload, workspaceId);
-        children.forEach((c) =>
-          results.push({ sku: c.sku, status: "published" })
-        );
-        continue;
-      }
-
-      const result = await ml.post<{
-        id: string;
-        permalink: string;
-        status: string;
-        variations: Array<{ id: number; seller_sku: string }>;
-      }>("/items", payload, workspaceId);
-
-      // Update parent product
-      if (parentData) {
-        await supabase
-          .from("hub_products")
-          .update({
-            ml_item_id: result.id,
-            ml_permalink: result.permalink,
-            ml_status: result.status,
-            sync_status: "synced",
-            last_ml_sync: new Date().toISOString(),
-            error_msg: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", parent.id);
-      }
-
-      // Update each child with variation_id
+      // Publish each child individually
       for (const child of children) {
-        const mlVariation = result.variations?.find(
-          (v) => v.seller_sku === child.sku
-        );
+        try {
+          const payload = buildUPPayload(child, parent!, categoryId, sizeGridMap);
 
+          if (validateOnly) {
+            await ml.post("/items/validate", payload, workspaceId);
+            results.push({ sku: child.sku, status: "published" });
+            continue;
+          }
+
+          const result = await ml.post<{
+            id: string;
+            permalink: string;
+            status: string;
+          }>("/items", payload, workspaceId);
+
+          await supabase
+            .from("hub_products")
+            .update({
+              ml_item_id: result.id,
+              ml_permalink: result.permalink,
+              ml_status: result.status,
+              ml_preco: Number(child.preco),
+              ml_estoque: child.estoque,
+              sync_status: "synced",
+              last_ml_sync: new Date().toISOString(),
+              error_msg: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", child.id);
+
+          results.push({
+            sku: child.sku,
+            status: "published",
+            ml_item_id: result.id,
+            ml_permalink: result.permalink,
+          });
+        } catch (childErr) {
+          const message =
+            childErr instanceof Error ? childErr.message : "Erro desconhecido";
+
+          await supabase
+            .from("hub_products")
+            .update({
+              sync_status: "error",
+              error_msg: message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", child.id);
+
+          results.push({ sku: child.sku, status: "error", error: message });
+        }
+      }
+
+      // Update parent with first successful child's ML data
+      const firstSuccessSku = results.find(
+        (r) =>
+          r.status === "published" &&
+          children.some((c) => c.sku === r.sku)
+      );
+
+      if (firstSuccessSku && parentData) {
         await supabase
           .from("hub_products")
           .update({
-            ml_item_id: result.id,
-            ml_variation_id: mlVariation?.id || null,
-            ml_permalink: result.permalink,
-            ml_status: result.status,
+            ml_item_id: firstSuccessSku.ml_item_id || null,
+            ml_permalink: firstSuccessSku.ml_permalink || null,
+            ml_status: "active",
             sync_status: "synced",
             last_ml_sync: new Date().toISOString(),
             error_msg: null,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", child.id);
-
-        results.push({
-          sku: child.sku,
-          status: "published",
-          ml_item_id: result.id,
-          ml_permalink: result.permalink,
-        });
+          .eq("id", parent!.id);
       }
 
-      // Log success
+      // Log
+      const childResults = results.filter((r) =>
+        children.some((c) => c.sku === r.sku)
+      );
+      const allOk = childResults.every((r) => r.status === "published");
+
       await supabase.from("hub_logs").insert({
         workspace_id: workspaceId,
         action: "push_ml",
         entity: "product",
         entity_id: paiSku,
         direction: "hub_to_ml",
-        status: "ok",
+        status: allOk ? "ok" : "partial",
         details: {
-          ml_item_id: result.id,
+          model: "user_products",
           variation_count: children.length,
           skus: children.map((c) => c.sku),
+          results: childResults,
         },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
 
-      // Mark all children as error
       for (const child of children) {
         await supabase
           .from("hub_products")
@@ -424,10 +516,7 @@ export async function POST(req: NextRequest) {
         entity_id: paiSku,
         direction: "hub_to_ml",
         status: "error",
-        details: {
-          error: message,
-          skus: children.map((c) => c.sku),
-        },
+        details: { error: message, skus: children.map((c) => c.sku) },
       });
     }
   }
