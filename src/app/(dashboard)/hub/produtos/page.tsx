@@ -57,6 +57,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types/hub";
 
@@ -1744,8 +1745,15 @@ export default function HubProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // Tabs
+  const [activeTab, setActiveTab] = useState("all");
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+
   // Publish to ML inline
   const [publishingGroup, setPublishingGroup] = useState<string | null>(null);
+
+  // Republish with different listing type
+  const [republishingGroup, setRepublishingGroup] = useState<string | null>(null);
 
   // Expand/collapse groups
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -1785,7 +1793,8 @@ export default function HubProdutosPage() {
     if (!workspace?.id) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page) });
+      const params = new URLSearchParams({ page: String(page), counts: "true" });
+      if (activeTab && activeTab !== "all") params.set("tab", activeTab);
       if (search) params.set("search", search);
       if (sourceFilter) params.set("source", sourceFilter);
       if (syncFilter) params.set("sync_status", syncFilter);
@@ -1799,11 +1808,12 @@ export default function HubProdutosPage() {
         const data = await res.json();
         setProducts(data.products);
         setTotal(data.total);
+        if (data.tab_counts) setTabCounts(data.tab_counts);
       }
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, search, sourceFilter, syncFilter, listingTypeFilter, sobDemandaFilter]);
+  }, [workspace?.id, page, search, sourceFilter, syncFilter, listingTypeFilter, sobDemandaFilter, activeTab]);
 
   useEffect(() => {
     fetchProducts();
@@ -1872,6 +1882,34 @@ export default function HubProdutosPage() {
     }
   }
 
+  async function handleRepublishGroup(group: ProductGroup, listingType: string) {
+    if (!workspace?.id) return;
+    const parent = group.parent;
+    const allSkus = [parent.sku, ...group.children.map((c) => c.sku)];
+
+    setRepublishingGroup(parent.sku);
+    try {
+      const res = await fetch("/api/sync/republish-ml", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({ skus: allSkus, listing_type_id: listingType }),
+      });
+      if (res.ok) {
+        fetchProducts();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Erro ao republicar no ML");
+      }
+    } catch {
+      alert("Erro de conexao ao republicar");
+    } finally {
+      setRepublishingGroup(null);
+    }
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-4">
@@ -1922,6 +1960,24 @@ export default function HubProdutosPage() {
           </div>
         </div>
 
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setPage(0); setSourceFilter(""); }}>
+          <TabsList>
+            <TabsTrigger value="all">
+              Todos{tabCounts.all != null ? ` (${tabCounts.all})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="eccosys">
+              Eccosys{tabCounts.eccosys != null ? ` (${tabCounts.eccosys})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="ml">
+              Mercado Livre{tabCounts.ml != null ? ` (${tabCounts.ml})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="vinculados">
+              Vinculados{tabCounts.vinculados != null ? ` (${tabCounts.vinculados})` : ""}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Filters */}
         <Card>
           <CardContent className="p-4">
@@ -1941,6 +1997,7 @@ export default function HubProdutosPage() {
                   className="pl-9"
                 />
               </div>
+              {activeTab === "all" && (
               <Select value={sourceFilter} onValueChange={setSourceFilter}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Source" />
@@ -1951,6 +2008,7 @@ export default function HubProdutosPage() {
                   <SelectItem value="ml">ML</SelectItem>
                 </SelectContent>
               </Select>
+              )}
               <Select value={syncFilter} onValueChange={setSyncFilter}>
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Status" />
@@ -1991,6 +2049,7 @@ export default function HubProdutosPage() {
                   setSyncFilter("");
                   setListingTypeFilter("");
                   setSobDemandaFilter(false);
+                  setActiveTab("all");
                   setPage(0);
                 }}
               >
@@ -2169,7 +2228,7 @@ export default function HubProdutosPage() {
                               </div>
                             </td>
                             <td className="p-3 text-right">
-                              {p.sob_demanda && workspace?.id ? (
+                              {p.sob_demanda && workspace?.id && !hasChildren ? (
                                 <InlineStockEditor
                                   productId={p.id}
                                   currentStock={displayEstoque}
@@ -2195,18 +2254,38 @@ export default function HubProdutosPage() {
                             </td>
                             <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {p.ml_item_id ? (
-                                p.ml_permalink ? (
-                                  <a
-                                    href={p.ml_permalink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                  >
-                                    {p.ml_item_id}
-                                    <ExternalLink className="h-3 w-3" />
-                                  </a>
+                                republishingGroup === p.sku ? (
+                                  <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled>
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Republicando...
+                                  </Button>
                                 ) : (
-                                  <span className="text-xs font-mono">{p.ml_item_id}</span>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                                        {p.ml_item_id}
+                                        <ExternalLink className="h-3 w-3" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      {p.ml_permalink && (
+                                        <DropdownMenuItem asChild>
+                                          <a href={p.ml_permalink} target="_blank" rel="noopener noreferrer">
+                                            Ver anuncio
+                                            <ExternalLink className="h-3 w-3 ml-auto" />
+                                          </a>
+                                        </DropdownMenuItem>
+                                      )}
+                                      <DropdownMenuItem onClick={() => handleRepublishGroup(group, "gold_special")}>
+                                        Republicar como Classico
+                                        <span className="ml-auto text-xs text-muted-foreground">Comissao menor</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleRepublishGroup(group, "gold_pro")}>
+                                        Republicar como Premium
+                                        <span className="ml-auto text-xs text-muted-foreground">Mais visibilidade</span>
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 )
                               ) : p.ml_enrichment?.category_id ? (
                                 publishingGroup === p.sku ? (

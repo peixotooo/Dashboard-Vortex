@@ -17,6 +17,8 @@ export async function GET(req: NextRequest) {
   const linkedOnly = searchParams.get("linked") === "true";
   const listingType = searchParams.get("listing_type") || "";
   const sobDemandaOnly = searchParams.get("sob_demanda") === "true";
+  const tab = searchParams.get("tab") || "";
+  const wantCounts = searchParams.get("counts") === "true";
 
   const supabase = createAdminClient();
 
@@ -29,17 +31,28 @@ export async function GET(req: NextRequest) {
     .order("sku", { ascending: true })
     .range(page * pageSize, (page + 1) * pageSize - 1);
 
+  // Tab-based filtering (overrides source/linked params)
+  if (tab === "eccosys") {
+    query = query.eq("source", "eccosys").is("ml_item_id", null);
+  } else if (tab === "ml") {
+    query = query.eq("source", "ml").is("ecc_id", null);
+  } else if (tab === "vinculados") {
+    query = query.eq("linked", true);
+  } else {
+    // "all" tab — apply individual filters
+    if (source) {
+      query = query.eq("source", source);
+    }
+    if (linkedOnly) {
+      query = query.eq("linked", true);
+    }
+  }
+
   if (search) {
     query = query.or(`sku.ilike.%${search}%,nome.ilike.%${search}%`);
   }
-  if (source) {
-    query = query.eq("source", source);
-  }
   if (syncStatus) {
     query = query.eq("sync_status", syncStatus);
-  }
-  if (linkedOnly) {
-    query = query.eq("linked", true);
   }
   if (listingType) {
     query = query.eq("ml_data->>listing_type_id", listingType);
@@ -54,12 +67,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Tab counts (lightweight head-only queries)
+  let tabCounts: Record<string, number> | undefined;
+  if (wantCounts) {
+    const [allRes, eccRes, mlRes, linkedRes] = await Promise.all([
+      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId),
+      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("source", "eccosys").is("ml_item_id", null),
+      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("source", "ml").is("ecc_id", null),
+      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("linked", true),
+    ]);
+    tabCounts = {
+      all: allRes.count ?? 0,
+      eccosys: eccRes.count ?? 0,
+      ml: mlRes.count ?? 0,
+      vinculados: linkedRes.count ?? 0,
+    };
+  }
+
   return NextResponse.json({
     products: data || [],
     total: count ?? 0,
     page,
     pageSize,
     hasMore: (data?.length ?? 0) === pageSize,
+    ...(tabCounts && { tab_counts: tabCounts }),
   });
 }
 
@@ -145,6 +176,43 @@ export async function PATCH(req: NextRequest) {
 
   if (updateErr) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
+  }
+
+  // Cascade sob_demanda toggle to children (if this product is a parent)
+  if (typeof sob_demanda === "boolean") {
+    const { data: children } = await supabase
+      .from("hub_products")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("ecc_pai_sku", product.sku);
+
+    if (children && children.length > 0) {
+      await supabase
+        .from("hub_products")
+        .update({ sob_demanda, updated_at: new Date().toISOString() })
+        .in("id", children.map((c: { id: string }) => c.id));
+    }
+  }
+
+  // If child stock changed, recalculate parent stock as sum of all children
+  if (typeof estoque === "number" && estoque >= 0 && product.ecc_pai_sku) {
+    const { data: siblings } = await supabase
+      .from("hub_products")
+      .select("id, estoque")
+      .eq("workspace_id", workspaceId)
+      .eq("ecc_pai_sku", product.ecc_pai_sku);
+
+    if (siblings && siblings.length > 0) {
+      const parentStock = siblings.reduce((sum: number, s: { id: string; estoque: number }) => {
+        return sum + (s.id === id ? estoque : (s.estoque || 0));
+      }, 0);
+
+      await supabase
+        .from("hub_products")
+        .update({ estoque: parentStock, ml_estoque: parentStock, updated_at: new Date().toISOString() })
+        .eq("workspace_id", workspaceId)
+        .eq("sku", product.ecc_pai_sku);
+    }
   }
 
   // If product has ML item and we're updating stock, push to ML
