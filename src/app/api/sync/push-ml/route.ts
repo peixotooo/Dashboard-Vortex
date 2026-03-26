@@ -423,9 +423,13 @@ export async function POST(req: NextRequest) {
       const resolvedPics = await resolveEccosysImageUrls(parent!.fotos || []);
 
       // Publish each child individually
+      // Track if grid was rejected so we skip it for remaining children
+      let gridRejected = false;
+
       for (const child of children) {
         try {
-          const payload = buildUPPayload(child, parent!, categoryId, sizeGridMap, resolvedPics, listingTypeId || undefined);
+          const effectiveGridMap = gridRejected ? {} : sizeGridMap;
+          let payload = buildUPPayload(child, parent!, categoryId, effectiveGridMap, resolvedPics, listingTypeId || undefined);
 
           if (validateOnly) {
             await ml.post("/items/validate", payload, workspaceId);
@@ -433,11 +437,28 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          const result = await ml.post<{
-            id: string;
-            permalink: string;
-            status: string;
-          }>("/items", payload, workspaceId);
+          let result: { id: string; permalink: string; status: string };
+          try {
+            result = await ml.post<{
+              id: string;
+              permalink: string;
+              status: string;
+            }>("/items", payload, workspaceId);
+          } catch (firstErr) {
+            // If grid ID was rejected, retry without grid attrs
+            const errMsg = firstErr instanceof Error ? firstErr.message : "";
+            if (errMsg.includes("invalid.fashion_grid.grid_id.values") && !gridRejected) {
+              gridRejected = true;
+              payload = buildUPPayload(child, parent!, categoryId, {}, resolvedPics, listingTypeId || undefined);
+              result = await ml.post<{
+                id: string;
+                permalink: string;
+                status: string;
+              }>("/items", payload, workspaceId);
+            } else {
+              throw firstErr;
+            }
+          }
 
           await supabase
             .from("hub_products")
