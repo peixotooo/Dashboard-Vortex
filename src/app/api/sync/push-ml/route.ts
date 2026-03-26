@@ -15,67 +15,106 @@ interface PushResult {
 
 // -------------------------------------------------------------------
 // Build ML payload for a simple product (no variations)
+// Uses ml_enrichment when available, falls back to hardcoded defaults
 // -------------------------------------------------------------------
 function buildSimplePayload(
   product: HubProduct,
   categoryId: string
 ) {
+  const enr = product.ml_enrichment;
+
+  // Attributes: prefer enrichment, fallback to hardcoded
+  const attributes: Array<{ id: string; value_name: string }> = [];
+  if (enr?.attributes?.length) {
+    for (const a of enr.attributes) {
+      if (a.value_name) attributes.push({ id: a.id, value_name: a.value_name });
+    }
+  } else {
+    attributes.push({ id: "BRAND", value_name: "Bulking" });
+  }
+  // Always include GTIN if available and not already present
+  if (product.gtin && !attributes.some((a) => a.id === "GTIN")) {
+    attributes.push({ id: "GTIN", value_name: product.gtin });
+  }
+
+  // Dimensions string
+  const dimensions =
+    product.largura && product.altura && product.comprimento && product.peso
+      ? `${product.altura}x${product.largura}x${product.comprimento},${(product.peso * 1000).toFixed(0)}`
+      : null;
+
   return {
     title: (product.nome || product.sku).substring(0, 60),
-    category_id: categoryId,
+    category_id: enr?.category_id || categoryId,
     price: Number(product.preco),
     currency_id: "BRL",
     available_quantity: product.estoque,
-    buying_mode: "buy_it_now",
-    listing_type_id: "gold_special",
-    condition: "new",
+    buying_mode: enr?.buying_mode || "buy_it_now",
+    listing_type_id: enr?.listing_type_id || "gold_special",
+    condition: enr?.condition || "new",
     description: { plain_text: product.descricao || product.nome || "" },
     pictures: (product.fotos || []).map((url) => ({ source: url })),
     seller_custom_field: product.sku,
-    attributes: [
-      { id: "BRAND", value_name: "Bulking" },
-      ...(product.gtin ? [{ id: "GTIN", value_name: product.gtin }] : []),
-    ],
+    attributes,
     shipping: {
-      mode: "me2",
-      local_pick_up: false,
-      free_shipping: false,
-      ...(product.largura && product.altura && product.comprimento && product.peso
-        ? {
-            dimensions: `${product.altura}x${product.largura}x${product.comprimento},${(product.peso * 1000).toFixed(0)}`,
-          }
-        : {}),
+      mode: enr?.shipping?.mode || "me2",
+      local_pick_up: enr?.shipping?.local_pick_up ?? false,
+      free_shipping: enr?.shipping?.free_shipping ?? false,
+      ...(dimensions ? { dimensions } : {}),
     },
-    sale_terms: [
-      { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
-      { id: "WARRANTY_TIME", value_name: "90 dias" },
-    ],
+    sale_terms: enr?.sale_terms?.length
+      ? enr.sale_terms
+      : [
+          { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
+          { id: "WARRANTY_TIME", value_name: "90 dias" },
+        ],
   };
 }
 
 // -------------------------------------------------------------------
 // Build ML payload for a product with variations (parent + children)
+// Uses ml_enrichment when available, falls back to hardcoded defaults
 // -------------------------------------------------------------------
 function buildVariationPayload(
   parent: HubProduct,
   children: HubProduct[],
   categoryId: string
 ) {
-  // Collect all unique photos from children
-  const allPhotos = [...new Set(children.flatMap((c) => c.fotos || []))];
+  const enr = parent.ml_enrichment;
+
+  // Collect all unique photos from children + parent
+  const allPhotos = [
+    ...new Set([
+      ...(parent.fotos || []),
+      ...children.flatMap((c) => c.fotos || []),
+    ]),
+  ];
+
+  // Attributes: prefer enrichment
+  const attributes: Array<{ id: string; value_name: string }> = [];
+  if (enr?.attributes?.length) {
+    for (const a of enr.attributes) {
+      if (a.value_name) attributes.push({ id: a.id, value_name: a.value_name });
+    }
+  } else {
+    attributes.push({ id: "BRAND", value_name: "Bulking" });
+  }
+
+  // Variation attribute map from enrichment
+  const varAttrMap = enr?.variation_attr_map || {};
 
   return {
     title: (parent.nome || parent.sku).substring(0, 60),
-    category_id: categoryId,
+    category_id: enr?.category_id || categoryId,
     price: Number(parent.preco || children[0]?.preco || 0),
     currency_id: "BRL",
-    buying_mode: "buy_it_now",
-    listing_type_id: "gold_special",
-    condition: "new",
+    buying_mode: enr?.buying_mode || "buy_it_now",
+    listing_type_id: enr?.listing_type_id || "gold_special",
+    condition: enr?.condition || "new",
     description: { plain_text: parent.descricao || parent.nome || "" },
     pictures: allPhotos.map((url) => ({ source: url })),
     seller_custom_field: parent.sku,
-    attributes: [{ id: "BRAND", value_name: "Bulking" }],
+    attributes,
     variations: children.map((child) => ({
       available_quantity: child.estoque,
       price: Number(child.preco || parent.preco || 0),
@@ -83,20 +122,22 @@ function buildVariationPayload(
       picture_ids: [],
       attribute_combinations: Object.entries(child.atributos || {}).map(
         ([key, val]) => ({
-          id: key.toUpperCase(),
+          id: varAttrMap[key] || key.toUpperCase(),
           value_name: String(val),
         })
       ),
     })),
     shipping: {
-      mode: "me2",
-      local_pick_up: false,
-      free_shipping: false,
+      mode: enr?.shipping?.mode || "me2",
+      local_pick_up: enr?.shipping?.local_pick_up ?? false,
+      free_shipping: enr?.shipping?.free_shipping ?? false,
     },
-    sale_terms: [
-      { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
-      { id: "WARRANTY_TIME", value_name: "90 dias" },
-    ],
+    sale_terms: enr?.sale_terms?.length
+      ? enr.sale_terms
+      : [
+          { id: "WARRANTY_TYPE", value_name: "Garantia do vendedor" },
+          { id: "WARRANTY_TIME", value_name: "90 dias" },
+        ],
   };
 }
 
@@ -115,9 +156,9 @@ export async function POST(req: NextRequest) {
   const categoryId: string = body.category_id;
   const validateOnly: boolean = body.validate_only === true;
 
-  if (skus.length === 0 || !categoryId) {
+  if (skus.length === 0) {
     return NextResponse.json(
-      { error: "skus (array) e category_id sao obrigatorios" },
+      { error: "skus (array) obrigatorio" },
       { status: 400 }
     );
   }
@@ -139,6 +180,21 @@ export async function POST(req: NextRequest) {
   }
 
   const hubProducts = products as HubProduct[];
+
+  // Validate: either category_id in body or all products have enrichment
+  if (!categoryId) {
+    const missing = hubProducts.filter(
+      (p) => !p.ml_item_id && !p.ml_enrichment?.category_id
+    );
+    if (missing.length > 0) {
+      return NextResponse.json(
+        {
+          error: `category_id obrigatorio (ou use Importar Familia para enriquecer). SKUs sem categoria: ${missing.map((p) => p.sku).join(", ")}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
 
   // Group by ecc_pai_sku to identify variation families
   // Products with null ecc_pai_sku are simple

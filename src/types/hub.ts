@@ -52,6 +52,30 @@ export interface MLData {
   start_time: string | null;
 }
 
+// ML enrichment data prepared FOR publishing (stored in hub_products.ml_enrichment JSONB)
+export interface MLEnrichmentAttr {
+  id: string;          // ML attribute ID: "BRAND", "COLOR", "MODEL"
+  name: string;        // human-readable name
+  value_name: string;  // actual value
+  required: boolean;
+  source: "eccosys" | "cross_ref" | "manual" | "default";
+}
+
+export interface MLEnrichment {
+  category_id: string;
+  category_name: string;
+  category_path: string;
+  listing_type_id: string;
+  condition: string;
+  buying_mode: string;
+  attributes: MLEnrichmentAttr[];
+  variation_attr_map: Record<string, string>; // { "Cor": "COLOR", "Tamanho": "SIZE" }
+  sale_terms: Array<{ id: string; value_name: string }>;
+  shipping: { mode: string; local_pick_up: boolean; free_shipping: boolean };
+  cross_ref_source: string | null; // ml_item_id used as template
+  enriched_at: string;
+}
+
 export interface HubProduct {
   id: string;
   workspace_id: string;
@@ -84,6 +108,7 @@ export interface HubProduct {
   ml_preco: number | null;
   ml_estoque: number | null;
   ml_data: MLData | null;
+  ml_enrichment: MLEnrichment | null;
 
   // Control
   source: HubProductSource;
@@ -146,6 +171,7 @@ export interface HubOrder {
 
 export type HubLogAction =
   | "pull_eccosys"
+  | "import_family"
   | "push_ml"
   | "pull_ml"
   | "pull_order"

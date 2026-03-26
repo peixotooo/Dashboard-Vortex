@@ -51,7 +51,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/lib/workspace-context";
-import type { HubProduct, MLData } from "@/types/hub";
+import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types/hub";
 
 // -------------------------------------------------------------------
 // Sync status badge
@@ -337,6 +337,496 @@ function SobDemandaToggle({
           : "Clique para ativar estoque virtual (sob demanda)"}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// -------------------------------------------------------------------
+// Import Family Modal (Eccosys parent + children + ML enrichment)
+// -------------------------------------------------------------------
+
+interface FamilyPreview {
+  parent: {
+    ecc_id: number;
+    sku: string;
+    nome: string;
+    preco: number;
+    foto: string | null;
+    estoque: number;
+    already_in_hub: boolean;
+  };
+  children: Array<{
+    ecc_id: number;
+    sku: string;
+    nome: string;
+    preco: number;
+    estoque: number;
+    atributos: Record<string, string>;
+    already_in_hub: boolean;
+  }>;
+  enrichment: MLEnrichment;
+  predictions: Array<{
+    category_id: string;
+    name: string;
+    path: string;
+    probability: string;
+  }>;
+  warnings: Array<{ type: string; message: string; attribute_id?: string }>;
+  cross_ref: { ml_item_id: string; title: string } | null;
+}
+
+function ImportFamilyModal({
+  open,
+  onClose,
+  workspaceId,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workspaceId: string;
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState<"search" | "preview" | "result">("search");
+  const [parentSku, setParentSku] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [preview, setPreview] = useState<FamilyPreview | null>(null);
+  const [enrichment, setEnrichment] = useState<MLEnrichment | null>(null);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{
+    imported: number;
+    errors: number;
+  } | null>(null);
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setStep("search");
+      setParentSku("");
+      setPreview(null);
+      setEnrichment(null);
+      setError("");
+      setResult(null);
+    }
+  }, [open]);
+
+  async function handleSearch() {
+    if (!parentSku.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/sync/import-family?parent_sku=${encodeURIComponent(parentSku.trim())}`,
+        { headers: { "x-workspace-id": workspaceId } }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Erro ao buscar familia");
+        return;
+      }
+      setPreview(data);
+      setEnrichment(data.enrichment);
+      setStep("preview");
+    } catch {
+      setError("Erro de conexao");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleImport() {
+    if (!preview || !enrichment) return;
+    setImporting(true);
+    try {
+      const eccIds = [
+        preview.parent.ecc_id,
+        ...preview.children.map((c) => c.ecc_id),
+      ];
+      const res = await fetch("/api/sync/import-family", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({
+          parent_sku: preview.parent.sku,
+          ecc_ids: eccIds,
+          enrichment,
+        }),
+      });
+      const data = await res.json();
+      setResult({ imported: data.imported || 0, errors: data.errors || 0 });
+      setStep("result");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function updateEnrichmentAttr(attrId: string, value: string) {
+    if (!enrichment) return;
+    setEnrichment({
+      ...enrichment,
+      attributes: enrichment.attributes.map((a) =>
+        a.id === attrId ? { ...a, value_name: value, source: "manual" as const } : a
+      ),
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Importar Familia de Produtos</DialogTitle>
+          <DialogDescription>
+            Insira o codigo do produto pai para importar toda a familia com
+            enriquecimento ML automatico.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Step 1: Search */}
+        {step === "search" && (
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Codigo do produto pai (ex: BLK-001)"
+                value={parentSku}
+                onChange={(e) => setParentSku(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearch();
+                }}
+                disabled={loading}
+                autoFocus
+              />
+              <Button onClick={handleSearch} disabled={loading || !parentSku.trim()}>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Search className="h-4 w-4 mr-2" />
+                )}
+                Buscar
+              </Button>
+            </div>
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded">
+                {error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 2: Preview */}
+        {step === "preview" && preview && enrichment && (
+          <div className="flex-1 overflow-auto space-y-4">
+            {/* Parent card */}
+            <div className="flex items-center gap-4 p-3 border rounded-lg bg-muted/30">
+              {preview.parent.foto && (
+                <Image
+                  src={preview.parent.foto}
+                  alt={preview.parent.nome}
+                  width={56}
+                  height={56}
+                  className="rounded object-cover"
+                  unoptimized
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{preview.parent.nome}</p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  {preview.parent.sku}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-medium">
+                  {preview.parent.preco?.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Estoque: {preview.parent.estoque}
+                </p>
+              </div>
+              {preview.parent.already_in_hub && (
+                <Badge variant="outline" className="text-green-600 border-green-300 text-xs">
+                  Ja no Hub
+                </Badge>
+              )}
+            </div>
+
+            {/* Children table */}
+            {preview.children.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2">
+                  Variacoes ({preview.children.length})
+                </h4>
+                <div className="border rounded-lg overflow-auto max-h-[200px]">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="p-2 text-left text-xs font-medium">SKU</th>
+                        <th className="p-2 text-left text-xs font-medium">Atributos</th>
+                        <th className="p-2 text-right text-xs font-medium">Preco</th>
+                        <th className="p-2 text-center text-xs font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.children.map((c) => (
+                        <tr key={c.ecc_id} className="border-t">
+                          <td className="p-2 font-mono text-xs">{c.sku}</td>
+                          <td className="p-2 text-xs">
+                            {Object.entries(c.atributos || {})
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(", ") || "—"}
+                          </td>
+                          <td className="p-2 text-right text-xs">
+                            {c.preco?.toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            })}
+                          </td>
+                          <td className="p-2 text-center">
+                            {c.already_in_hub ? (
+                              <Badge
+                                variant="outline"
+                                className="text-green-600 border-green-300 text-[10px]"
+                              >
+                                No Hub
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">
+                                Novo
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ML Enrichment Section */}
+            <div className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-yellow-500" />
+                  Enriquecimento ML
+                </h4>
+                {preview.cross_ref && (
+                  <span className="text-[11px] text-muted-foreground">
+                    Modelo: {preview.cross_ref.ml_item_id} —{" "}
+                    {preview.cross_ref.title?.substring(0, 40)}
+                  </span>
+                )}
+              </div>
+
+              {/* Category */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Categoria ML
+                  </label>
+                  {preview.predictions.length > 0 ? (
+                    <Select
+                      value={enrichment.category_id}
+                      onValueChange={(val) => {
+                        const pred = preview.predictions.find(
+                          (p) => p.category_id === val
+                        );
+                        if (pred) {
+                          setEnrichment({
+                            ...enrichment,
+                            category_id: pred.category_id,
+                            category_name: pred.name,
+                            category_path: pred.path,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {preview.predictions.map((p) => (
+                          <SelectItem key={p.category_id} value={p.category_id}>
+                            <span className="text-xs">
+                              {p.name}{" "}
+                              <span className="text-muted-foreground">
+                                ({(parseFloat(p.probability) * 100).toFixed(0)}%)
+                              </span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={enrichment.category_id}
+                      onChange={(e) =>
+                        setEnrichment({
+                          ...enrichment,
+                          category_id: e.target.value,
+                        })
+                      }
+                      placeholder="ID da categoria ML"
+                      className="mt-1"
+                    />
+                  )}
+                  {enrichment.category_path && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                      {enrichment.category_path}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Tipo de Anuncio
+                  </label>
+                  <Select
+                    value={enrichment.listing_type_id}
+                    onValueChange={(val) =>
+                      setEnrichment({ ...enrichment, listing_type_id: val })
+                    }
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gold_special">Premium</SelectItem>
+                      <SelectItem value="gold_pro">Classico</SelectItem>
+                      <SelectItem value="free">Gratis</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Required Attributes */}
+              {enrichment.attributes.filter((a) => a.required).length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Atributos Obrigatorios
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    {enrichment.attributes
+                      .filter((a) => a.required)
+                      .map((attr) => (
+                        <div key={attr.id} className="flex items-center gap-2">
+                          <label className="text-xs min-w-[80px] truncate" title={attr.name}>
+                            {attr.name}
+                          </label>
+                          <Input
+                            value={attr.value_name}
+                            onChange={(e) =>
+                              updateEnrichmentAttr(attr.id, e.target.value)
+                            }
+                            placeholder={attr.name}
+                            className={`h-7 text-xs ${
+                              !attr.value_name
+                                ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20"
+                                : ""
+                            }`}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Variation Mapping */}
+              {Object.keys(enrichment.variation_attr_map).length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Mapeamento de Variacoes
+                  </label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {Object.entries(enrichment.variation_attr_map).map(
+                      ([eccKey, mlId]) => (
+                        <Badge
+                          key={eccKey}
+                          variant="outline"
+                          className="text-xs font-mono"
+                        >
+                          {eccKey} → {mlId}
+                        </Badge>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {preview.warnings.length > 0 && (
+                <div className="space-y-1">
+                  {preview.warnings.map((w, i) => (
+                    <p
+                      key={i}
+                      className={`text-xs px-2 py-1 rounded ${
+                        w.type === "missing_required_attr"
+                          ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+                          : "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400"
+                      }`}
+                    >
+                      {w.message}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t pt-3">
+              <span className="text-sm text-muted-foreground">
+                {1 + preview.children.length} produto(s) para importar
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setStep("search");
+                    setPreview(null);
+                  }}
+                >
+                  Voltar
+                </Button>
+                <Button onClick={handleImport} disabled={importing}>
+                  {importing ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <ArrowDownToLine className="h-4 w-4 mr-2" />
+                  )}
+                  Importar Familia
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Result */}
+        {step === "result" && result && (
+          <div className="flex flex-col items-center justify-center py-8 space-y-4">
+            <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+              <Check className="h-6 w-6 text-green-600" />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="font-medium">Importacao concluida</p>
+              <p className="text-sm text-muted-foreground">
+                {result.imported} importado(s)
+                {result.errors > 0 && `, ${result.errors} erro(s)`}
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                onDone();
+                onClose();
+              }}
+            >
+              Fechar
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1236,6 +1726,7 @@ export default function HubProdutosPage() {
   const [showPullEccosys, setShowPullEccosys] = useState(false);
   const [showPushML, setShowPushML] = useState(false);
   const [showPullML, setShowPullML] = useState(false);
+  const [showImportFamily, setShowImportFamily] = useState(false);
 
   // Open modal from URL param
   useEffect(() => {
@@ -1243,6 +1734,7 @@ export default function HubProdutosPage() {
     if (action === "pull-eccosys") setShowPullEccosys(true);
     if (action === "push-ml") setShowPushML(true);
     if (action === "pull-ml") setShowPullML(true);
+    if (action === "import-family") setShowImportFamily(true);
   }, [searchParams]);
 
   const fetchProducts = useCallback(async () => {
@@ -1317,6 +1809,14 @@ export default function HubProdutosPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowImportFamily(true)}
+            >
+              <Package className="h-4 w-4 mr-2" />
+              Importar Familia
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1756,6 +2256,16 @@ export default function HubProdutosPage() {
               </Button>
             </div>
           </div>
+        )}
+
+        {/* Import Family Modal */}
+        {workspace?.id && (
+          <ImportFamilyModal
+            open={showImportFamily}
+            onClose={() => setShowImportFamily(false)}
+            workspaceId={workspace.id}
+            onDone={fetchProducts}
+          />
         )}
 
         {/* Pull Eccosys Modal */}
