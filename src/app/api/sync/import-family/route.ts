@@ -94,53 +94,96 @@ export async function GET(req: NextRequest) {
 
     const isNumericId = /^\d+$/.test(parentSku);
 
+    // Strategy A: Try direct lookup by Eccosys product ID
     if (isNumericId) {
-      // Try direct lookup by Eccosys product ID
       try {
         const directProduct = await eccosys.get<EccosysProduto>(
           `/produtos/${parentSku}`,
           workspaceId
         );
-        if (directProduct && !directProduct.idProdutoPai) {
+        if (directProduct?.codigo && !directProduct.idProdutoPai) {
           parent = directProduct;
         }
       } catch {
-        // ID not found — will try text search below
+        // Not an internal ID — continue to text search
+      }
+    }
+
+    // Strategy B: Text search with $filter (handles SKU/name)
+    if (!parent) {
+      try {
+        const searchResults = await eccosys.listAll<EccosysProduto>(
+          "/produtos",
+          workspaceId,
+          { $filter: parentSku, $situacao: "A" },
+          100
+        );
+        parent = searchResults.find(
+          (p) => p.codigo === parentSku && !p.idProdutoPai
+        );
+      } catch {
+        // $filter may return 404 for certain queries
+      }
+    }
+
+    // Strategy C: Text search without situacao restriction
+    if (!parent) {
+      try {
+        const searchResults = await eccosys.listAll<EccosysProduto>(
+          "/produtos",
+          workspaceId,
+          { $filter: parentSku },
+          100
+        );
+        parent = searchResults.find(
+          (p) => p.codigo === parentSku && !p.idProdutoPai
+        );
+      } catch {
+        // Still not found
       }
     }
 
     if (!parent) {
-      // Search by text (SKU or name)
-      const searchResults = await eccosys.listAll<EccosysProduto>(
-        "/produtos",
-        workspaceId,
-        { $filter: parentSku, $situacao: "A" },
-        100
-      );
-      parent = searchResults.find(
-        (p) => p.codigo === parentSku && !p.idProdutoPai
-      );
-    }
-
-    if (!parent) {
       return NextResponse.json(
-        { error: `Produto pai "${parentSku}" nao encontrado no Eccosys` },
+        { error: `Produto pai "${parentSku}" nao encontrado no Eccosys. Verifique o codigo e tente novamente.` },
         { status: 404 }
       );
     }
 
     // 2. Find children by parent's codigo (SKU)
     const parentCodigo = parent.codigo;
-    const childSearchResults = await eccosys.listAll<EccosysProduto>(
-      "/produtos",
-      workspaceId,
-      { $filter: parentCodigo, $situacao: "A" },
-      100
-    );
+    let children: EccosysProduto[] = [];
 
-    const children = childSearchResults.filter(
-      (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
-    );
+    try {
+      const childSearchResults = await eccosys.listAll<EccosysProduto>(
+        "/produtos",
+        workspaceId,
+        { $filter: parentCodigo, $situacao: "A" },
+        100
+      );
+      children = childSearchResults.filter(
+        (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
+      );
+    } catch {
+      // Children search may fail — continue with empty list
+    }
+
+    // If no children found with $situacao filter, try without
+    if (children.length === 0) {
+      try {
+        const childSearchResults = await eccosys.listAll<EccosysProduto>(
+          "/produtos",
+          workspaceId,
+          { $filter: parentCodigo },
+          100
+        );
+        children = childSearchResults.filter(
+          (p) => p.codigoPai === parentCodigo && p.id !== parent!.id
+        );
+      } catch {
+        // Continue with no children
+      }
+    }
 
     // 3. Fetch parent details (images, stock, attributes)
     let parentEstoque = 0;
