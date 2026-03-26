@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
+import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
 export const maxDuration = 120;
@@ -99,7 +100,9 @@ function buildUPPayload(
   product: HubProduct,
   parent: HubProduct,
   categoryId: string,
-  sizeGridMap: Record<string, string>
+  sizeGridMap: Record<string, string>,
+  resolvedPictures: string[],
+  listingTypeOverride?: string
 ) {
   const enr = parent.ml_enrichment;
   const baseAttrs = cleanAttributes(enr?.attributes);
@@ -144,10 +147,10 @@ function buildUPPayload(
     currency_id: "BRL",
     available_quantity: product.estoque || 0,
     buying_mode: enr?.buying_mode || "buy_it_now",
-    listing_type_id: enr?.listing_type_id || "gold_special",
+    listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
     description: { plain_text: parent.descricao || parent.nome || "" },
-    pictures: (parent.fotos || []).map((url) => ({ source: url })),
+    pictures: resolvedPictures.map((url) => ({ source: url })),
     seller_custom_field: product.sku,
     attributes: [
       ...baseAttrs,
@@ -173,7 +176,12 @@ function buildUPPayload(
 // -------------------------------------------------------------------
 // Build UP-model payload for a simple product (no parent/children)
 // -------------------------------------------------------------------
-function buildSimpleUPPayload(product: HubProduct, categoryId: string) {
+function buildSimpleUPPayload(
+  product: HubProduct,
+  categoryId: string,
+  resolvedPictures: string[],
+  listingTypeOverride?: string
+) {
   const enr = product.ml_enrichment;
   const baseAttrs = cleanAttributes(enr?.attributes);
 
@@ -192,10 +200,10 @@ function buildSimpleUPPayload(product: HubProduct, categoryId: string) {
     currency_id: "BRL",
     available_quantity: product.estoque || 0,
     buying_mode: enr?.buying_mode || "buy_it_now",
-    listing_type_id: enr?.listing_type_id || "gold_special",
+    listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
     description: { plain_text: product.descricao || product.nome || "" },
-    pictures: (product.fotos || []).map((url) => ({ source: url })),
+    pictures: resolvedPictures.map((url) => ({ source: url })),
     seller_custom_field: product.sku,
     attributes: [
       ...baseAttrs,
@@ -219,7 +227,7 @@ function buildSimpleUPPayload(product: HubProduct, categoryId: string) {
 /**
  * POST — Publish selected hub products to Mercado Livre.
  * Uses the UP (User Products) model: each variation = individual POST /items with family_name.
- * Body: { skus: string[], category_id: string, validate_only?: boolean }
+ * Body: { skus: string[], category_id: string, listing_type_id?: string, validate_only?: boolean }
  */
 export async function POST(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -230,6 +238,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const skus: string[] = body.skus || [];
   const categoryId: string = body.category_id;
+  const listingTypeId: string = body.listing_type_id || "";
   const validateOnly: boolean = body.validate_only === true;
 
   if (skus.length === 0) {
@@ -300,7 +309,8 @@ export async function POST(req: NextRequest) {
   // -------------------------------------------------------------------
   for (const product of simpleProducts) {
     try {
-      const payload = buildSimpleUPPayload(product, categoryId);
+      const pics = await resolveEccosysImageUrls(product.fotos || []);
+      const payload = buildSimpleUPPayload(product, categoryId, pics, listingTypeId || undefined);
 
       if (validateOnly) {
         await ml.post("/items/validate", payload, workspaceId);
@@ -396,10 +406,13 @@ export async function POST(req: NextRequest) {
         ? await fetchSizeGridMap(sizeGridId, workspaceId)
         : {};
 
+      // Resolve Eccosys image URLs once for all children (they share parent photos)
+      const resolvedPics = await resolveEccosysImageUrls(parent!.fotos || []);
+
       // Publish each child individually
       for (const child of children) {
         try {
-          const payload = buildUPPayload(child, parent!, categoryId, sizeGridMap);
+          const payload = buildUPPayload(child, parent!, categoryId, sizeGridMap, resolvedPics, listingTypeId || undefined);
 
           if (validateOnly) {
             await ml.post("/items/validate", payload, workspaceId);

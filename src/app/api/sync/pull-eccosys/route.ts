@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { EccosysProduto } from "@/types/hub";
 
 export const maxDuration = 120;
@@ -144,6 +145,9 @@ export async function POST(req: NextRequest) {
           produto.foto6,
         ].filter((f): f is string => !!f);
       }
+
+      // Resolve Eccosys redirect URLs to CDN URLs (ML can't follow redirects)
+      fotos = await resolveEccosysImageUrls(fotos);
 
       // 4. Fetch attributes (Eccosys uses descricao + valor)
       let atributos: Record<string, string> = {};

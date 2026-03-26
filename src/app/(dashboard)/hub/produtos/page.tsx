@@ -51,6 +51,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types/hub";
 
@@ -1087,6 +1093,7 @@ function PushMLModal({
 }) {
   const [predictions, setPredictions] = useState<CategoryPrediction[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("");
+  const [listingType, setListingType] = useState<"gold_special" | "gold_pro">("gold_special");
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState<{
@@ -1094,11 +1101,12 @@ function PushMLModal({
     errors: number;
   } | null>(null);
 
-  // Predict category when modal opens
+  // Reset when modal opens
   useEffect(() => {
     if (!open || selectedSkus.length === 0) return;
     setPredictions([]);
     setSelectedCategory("");
+    setListingType("gold_special");
     setResult(null);
   }, [open, selectedSkus]);
 
@@ -1135,6 +1143,7 @@ function PushMLModal({
         body: JSON.stringify({
           skus: selectedSkus,
           category_id: selectedCategory,
+          listing_type_id: listingType,
         }),
       });
       if (res.ok) {
@@ -1245,6 +1254,37 @@ function PushMLModal({
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="font-mono text-xs"
                 />
+              </div>
+            </div>
+
+            {/* Listing type selector */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tipo de anuncio</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setListingType("gold_special")}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${
+                    listingType === "gold_special"
+                      ? "border-primary bg-primary/5 font-medium"
+                      : "border-muted hover:bg-muted"
+                  }`}
+                >
+                  <div>Classico</div>
+                  <div className="text-xs text-muted-foreground">Comissao menor</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setListingType("gold_pro")}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${
+                    listingType === "gold_pro"
+                      ? "border-primary bg-primary/5 font-medium"
+                      : "border-muted hover:bg-muted"
+                  }`}
+                >
+                  <div>Premium</div>
+                  <div className="text-xs text-muted-foreground">Mais visibilidade</div>
+                </button>
               </div>
             </div>
 
@@ -1802,7 +1842,7 @@ export default function HubProdutosPage() {
     fetchProducts();
   }
 
-  async function handlePublishGroup(group: ProductGroup) {
+  async function handlePublishGroup(group: ProductGroup, listingType: string = "gold_special") {
     if (!workspace?.id) return;
     const parent = group.parent;
     const allSkus = [parent.sku, ...group.children.map((c) => c.sku)];
@@ -1817,7 +1857,7 @@ export default function HubProdutosPage() {
           "Content-Type": "application/json",
           "x-workspace-id": workspace.id,
         },
-        body: JSON.stringify({ skus: allSkus, category_id: categoryId }),
+        body: JSON.stringify({ skus: allSkus, category_id: categoryId, listing_type_id: listingType }),
       });
       if (res.ok) {
         fetchProducts();
@@ -2169,20 +2209,31 @@ export default function HubProdutosPage() {
                                   <span className="text-xs font-mono">{p.ml_item_id}</span>
                                 )
                               ) : p.ml_enrichment?.category_id ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs gap-1"
-                                  disabled={publishingGroup === p.sku}
-                                  onClick={() => handlePublishGroup(group)}
-                                >
-                                  {publishingGroup === p.sku ? (
+                                publishingGroup === p.sku ? (
+                                  <Button variant="outline" size="sm" className="h-7 text-xs gap-1" disabled>
                                     <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Send className="h-3 w-3" />
-                                  )}
-                                  Publicar
-                                </Button>
+                                    Publicando...
+                                  </Button>
+                                ) : (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+                                        <Send className="h-3 w-3" />
+                                        Publicar
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => handlePublishGroup(group, "gold_special")}>
+                                        Classico
+                                        <span className="ml-auto text-xs text-muted-foreground">Comissao menor</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handlePublishGroup(group, "gold_pro")}>
+                                        Premium
+                                        <span className="ml-auto text-xs text-muted-foreground">Mais visibilidade</span>
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )
                               ) : (
                                 <span className="text-xs text-muted-foreground">-</span>
                               )}

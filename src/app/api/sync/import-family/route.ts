@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import { ml } from "@/lib/ml/client";
 import type {
   EccosysProduto,
@@ -182,7 +183,7 @@ export async function GET(req: NextRequest) {
         try {
           imgs = await eccosys.get(`/produtos/${sku.id}/imagens`, workspaceId);
         } catch { /* no images */ }
-        const fotos = extractPhotos(child, imgs);
+        const fotos = await resolveEccosysImageUrls(extractPhotos(child, imgs));
 
         childrenDetails.push({ product: child, estoque, atributos, fotos });
       } catch {
@@ -199,7 +200,7 @@ export async function GET(req: NextRequest) {
     try {
       parentImgs = await eccosys.get(`/produtos/${parent.id}/imagens`, workspaceId);
     } catch { /* no images */ }
-    const parentFotos = extractPhotos(parent, parentImgs);
+    const parentFotos = await resolveEccosysImageUrls(extractPhotos(parent, parentImgs));
 
     // Parent attributes from _Atributos
     const parentAtributos: Record<string, string> = {};
@@ -577,9 +578,9 @@ export async function POST(req: NextRequest) {
       let fotos: string[] = [];
       try {
         const imgs = await eccosys.get(`/produtos/${produto.id}/imagens`, workspaceId);
-        fotos = extractPhotos(produto, imgs);
+        fotos = await resolveEccosysImageUrls(extractPhotos(produto, imgs));
       } catch {
-        fotos = extractPhotos(produto);
+        fotos = await resolveEccosysImageUrls(extractPhotos(produto));
       }
 
       // Attributes from _Atributos (descricao + valor)
