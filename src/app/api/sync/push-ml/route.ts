@@ -120,12 +120,12 @@ function buildVariationPayload(
       price: Number(child.preco || parent.preco || 0),
       seller_sku: child.sku,
       picture_ids: [],
-      attribute_combinations: Object.entries(child.atributos || {}).map(
-        ([key, val]) => ({
-          id: varAttrMap[key] || key.toUpperCase(),
+      attribute_combinations: Object.entries(child.atributos || {})
+        .filter(([key]) => !!varAttrMap[key])
+        .map(([key, val]) => ({
+          id: varAttrMap[key],
           value_name: String(val),
-        })
-      ),
+        })),
     })),
     shipping: {
       mode: enr?.shipping?.mode || "me2",
@@ -197,10 +197,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Group by ecc_pai_sku to identify variation families
-  // Products with null ecc_pai_sku are simple
+  // Products with null ecc_pai_sku are simple (unless they're a parent of children in the batch)
   // Products with same ecc_pai_sku form a variation group
-  const simpleProducts: HubProduct[] = [];
   const variationGroups = new Map<string, HubProduct[]>();
+  const potentialSimple: HubProduct[] = [];
 
   for (const p of hubProducts) {
     // Skip products already published to ML
@@ -211,9 +211,14 @@ export async function POST(req: NextRequest) {
       group.push(p);
       variationGroups.set(p.ecc_pai_sku, group);
     } else {
-      simpleProducts.push(p);
+      potentialSimple.push(p);
     }
   }
+
+  // Filter out parents that have children in the variation groups
+  const simpleProducts = potentialSimple.filter(
+    (p) => !variationGroups.has(p.sku)
+  );
 
   const results: PushResult[] = [];
 

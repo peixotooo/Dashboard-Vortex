@@ -190,8 +190,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3. Parent details
-    const parentEstoque = parent._Estoque?.estoqueDisponivel ?? 0;
+    // 3. Parent details — stock is sum of children (or own stock if no children)
+    const parentEstoque = childrenDetails.length > 0
+      ? childrenDetails.reduce((sum, d) => sum + d.estoque, 0)
+      : (parent._Estoque?.estoqueDisponivel ?? 0);
 
     let parentImgs: unknown;
     try {
@@ -642,6 +644,24 @@ export async function POST(req: NextRequest) {
 
   const imported = results.filter((r) => r.status === "imported").length;
   const errors = results.filter((r) => r.status === "error").length;
+
+  // Update parent stock = sum of children's stock
+  if (imported > 0) {
+    const { data: children } = await supabase
+      .from("hub_products")
+      .select("estoque")
+      .eq("workspace_id", workspaceId)
+      .eq("ecc_pai_sku", parentSku);
+
+    if (children && children.length > 0) {
+      const totalStock = children.reduce((sum, c) => sum + (c.estoque ?? 0), 0);
+      await supabase
+        .from("hub_products")
+        .update({ estoque: totalStock, updated_at: new Date().toISOString() })
+        .eq("workspace_id", workspaceId)
+        .eq("sku", parentSku);
+    }
+  }
 
   await supabase.from("hub_logs").insert({
     workspace_id: workspaceId,

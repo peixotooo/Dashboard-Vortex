@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Tag,
   PackageOpen,
+  Send,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1703,6 +1704,9 @@ export default function HubProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // Publish to ML inline
+  const [publishingGroup, setPublishingGroup] = useState<string | null>(null);
+
   // Expand/collapse groups
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
@@ -1796,6 +1800,36 @@ export default function HubProdutosPage() {
     });
     setSelected(new Set());
     fetchProducts();
+  }
+
+  async function handlePublishGroup(group: ProductGroup) {
+    if (!workspace?.id) return;
+    const parent = group.parent;
+    const allSkus = [parent.sku, ...group.children.map((c) => c.sku)];
+    const categoryId = parent.ml_enrichment?.category_id;
+    if (!categoryId) return;
+
+    setPublishingGroup(parent.sku);
+    try {
+      const res = await fetch("/api/sync/push-ml", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({ skus: allSkus, category_id: categoryId }),
+      });
+      if (res.ok) {
+        fetchProducts();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Erro ao publicar no ML");
+      }
+    } catch {
+      alert("Erro de conexao ao publicar");
+    } finally {
+      setPublishingGroup(null);
+    }
   }
 
   return (
@@ -1998,7 +2032,10 @@ export default function HubProdutosPage() {
                       const hasChildren = group.children.length > 0;
                       const isExpanded = expandedGroups.has(p.sku);
                       const displayPreco = p.preco ?? p.ml_preco;
-                      const displayEstoque = p.estoque ?? p.ml_estoque ?? 0;
+                      // Parent stock = sum of children when they exist
+                      const displayEstoque = hasChildren
+                        ? group.children.reduce((sum, c) => sum + (c.estoque ?? c.ml_estoque ?? 0), 0)
+                        : (p.estoque ?? p.ml_estoque ?? 0);
                       const mlData = p.ml_data as MLData | null;
 
                       return (
@@ -2116,7 +2153,7 @@ export default function HubProdutosPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                               {p.ml_item_id ? (
                                 p.ml_permalink ? (
                                   <a
@@ -2124,7 +2161,6 @@ export default function HubProdutosPage() {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                    onClick={(e) => e.stopPropagation()}
                                   >
                                     {p.ml_item_id}
                                     <ExternalLink className="h-3 w-3" />
@@ -2132,6 +2168,21 @@ export default function HubProdutosPage() {
                                 ) : (
                                   <span className="text-xs font-mono">{p.ml_item_id}</span>
                                 )
+                              ) : p.ml_enrichment?.category_id ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1"
+                                  disabled={publishingGroup === p.sku}
+                                  onClick={() => handlePublishGroup(group)}
+                                >
+                                  {publishingGroup === p.sku ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                  Publicar
+                                </Button>
                               ) : (
                                 <span className="text-xs text-muted-foreground">-</span>
                               )}
