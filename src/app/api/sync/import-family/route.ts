@@ -57,6 +57,17 @@ const KNOWN_ATTR_MAP: Record<string, string> = {
   material: "MATERIAL",
   peso: "WEIGHT",
   genero: "GENDER",
+  marca: "BRAND",
+  estilo: "STYLE",
+  tipo: "TYPE",
+  estampa: "PATTERN",
+  manga: "SLEEVE_TYPE",
+  comprimento: "GARMENT_LENGTH",
+  decote: "NECKLINE",
+  ocasiao: "OCCASION",
+  tecido: "FABRIC_TYPE",
+  formato: "SHAPE",
+  capacidade: "CAPACITY",
 };
 
 // Normalize for accent-insensitive, case-insensitive matching
@@ -291,30 +302,79 @@ export async function GET(req: NextRequest) {
     }
 
     if (topCategory && mlConnected) {
+      // Strategy A: search hub for best candidate (most complete enrichment)
       try {
-        const { data: refProduct } = await supabase
+        const { data: candidates } = await supabase
           .from("hub_products")
           .select("*")
           .eq("workspace_id", workspaceId)
           .eq("ml_category_id", topCategory.category_id)
           .not("ml_item_id", "is", null)
           .is("ecc_pai_sku", null)
-          .limit(1)
-          .single();
+          .limit(5);
 
-        if (refProduct?.ml_item_id) {
-          const mlItem = await ml.get<MLItemFull>(
-            `/items/${refProduct.ml_item_id}`,
-            workspaceId
-          );
-          crossRef = {
-            mlItem,
-            mlItemId: refProduct.ml_item_id,
-            title: (refProduct as HubProduct).nome || mlItem.title,
-          };
+        if (candidates && candidates.length > 0) {
+          // Prefer candidate with the most enrichment attributes
+          const best = [...candidates].sort((a, b) => {
+            const aLen = (a.ml_enrichment?.attributes || []).length;
+            const bLen = (b.ml_enrichment?.attributes || []).length;
+            return bLen - aLen;
+          })[0];
+
+          if (best.ml_item_id) {
+            const mlItem = await ml.get<MLItemFull>(
+              `/items/${best.ml_item_id}`,
+              workspaceId
+            );
+            crossRef = {
+              mlItem,
+              mlItemId: best.ml_item_id,
+              title: (best as HubProduct).nome || mlItem.title,
+            };
+          }
         }
       } catch {
-        /* no cross ref available */
+        /* hub cross ref failed */
+      }
+
+      // Strategy B: fallback — search seller's ML items in same category
+      if (!crossRef) {
+        try {
+          const { data: creds } = await supabase
+            .from("ml_credentials")
+            .select("ml_user_id")
+            .eq("workspace_id", workspaceId)
+            .limit(1)
+            .single();
+
+          if (creds?.ml_user_id) {
+            const searchRes = await ml.get<{ results: string[] }>(
+              `/users/${creds.ml_user_id}/items/search?category=${topCategory.category_id}&status=active&limit=5`,
+              workspaceId
+            );
+            const itemIds = searchRes?.results || [];
+            for (const itemId of itemIds) {
+              try {
+                const mlItem = await ml.get<MLItemFull>(
+                  `/items/${itemId}`,
+                  workspaceId
+                );
+                if (mlItem?.attributes?.length > 0) {
+                  crossRef = {
+                    mlItem,
+                    mlItemId: itemId,
+                    title: mlItem.title,
+                  };
+                  break;
+                }
+              } catch {
+                /* skip item */
+              }
+            }
+          }
+        } catch {
+          /* ML API fallback not critical */
+        }
       }
     }
 
