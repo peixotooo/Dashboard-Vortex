@@ -4,6 +4,28 @@ import { ml } from "@/lib/ml/client";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
+/**
+ * Upload pictures to ML via multipart, return picture IDs.
+ * ML cannot download from Eccosys CDN URLs, so we download and re-upload.
+ */
+async function uploadPicturesToML(
+  urls: string[],
+  workspaceId: string
+): Promise<Array<{ id: string }>> {
+  const resolvedUrls = await resolveEccosysImageUrls(urls);
+  const pictureIds: Array<{ id: string }> = [];
+  for (const url of resolvedUrls) {
+    try {
+      const id = await ml.uploadPicture(url, workspaceId);
+      pictureIds.push({ id });
+    } catch (err) {
+      console.error(`Failed to upload picture ${url}:`, err);
+      // Skip failed uploads instead of blocking publish
+    }
+  }
+  return pictureIds;
+}
+
 export const maxDuration = 120;
 
 interface PushResult {
@@ -18,6 +40,7 @@ interface PushResult {
 // (either added separately with special formatting or auto-managed by ML)
 const SKIP_ATTR_IDS = new Set([
   "SIZE",
+  "SIZE_GRID_ID",
   "SIZE_GRID_ROW_ID",
   "ITEM_CONDITION",
   "SELLER_SKU",
@@ -123,7 +146,7 @@ function buildUPPayload(
   parent: HubProduct,
   categoryId: string,
   sizeGridMap: Record<string, string>,
-  resolvedPictures: string[],
+  pictures: Array<{ id: string }>,
   listingTypeOverride?: string
 ) {
   const enr = parent.ml_enrichment;
@@ -173,7 +196,7 @@ function buildUPPayload(
     listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
     description: { plain_text: parent.descricao || parent.nome || "" },
-    pictures: resolvedPictures.map((url) => ({ source: url })),
+    pictures,
     seller_custom_field: product.sku,
     attributes: [
       ...baseAttrs,
@@ -197,7 +220,7 @@ function buildUPPayload(
 function buildSimpleUPPayload(
   product: HubProduct,
   categoryId: string,
-  resolvedPictures: string[],
+  pictures: Array<{ id: string }>,
   listingTypeOverride?: string
 ) {
   const enr = product.ml_enrichment;
@@ -221,7 +244,7 @@ function buildSimpleUPPayload(
     listing_type_id: listingTypeOverride || enr?.listing_type_id || "gold_special",
     condition: enr?.condition || "new",
     description: { plain_text: product.descricao || product.nome || "" },
-    pictures: resolvedPictures.map((url) => ({ source: url })),
+    pictures,
     seller_custom_field: product.sku,
     attributes: [
       ...baseAttrs,
@@ -322,7 +345,7 @@ export async function POST(req: NextRequest) {
   // -------------------------------------------------------------------
   for (const product of simpleProducts) {
     try {
-      const pics = await resolveEccosysImageUrls(product.fotos || []);
+      const pics = await uploadPicturesToML(product.fotos || [], workspaceId);
       const payload = buildSimpleUPPayload(product, categoryId, pics, listingTypeId || undefined);
 
       if (validateOnly) {
@@ -420,7 +443,7 @@ export async function POST(req: NextRequest) {
         : {};
 
       // Resolve Eccosys image URLs once for all children (they share parent photos)
-      const resolvedPics = await resolveEccosysImageUrls(parent!.fotos || []);
+      const resolvedPics = await uploadPicturesToML(parent!.fotos || [], workspaceId);
 
       // Publish each child individually
       // Track if grid was rejected so we skip it for remaining children

@@ -140,6 +140,42 @@ class MLClient {
   }
 
   /**
+   * Upload an image to ML by downloading from URL and re-uploading as multipart.
+   * Returns the ML picture ID (e.g. "909874-MLB109544132577_032026").
+   */
+  async uploadPicture(
+    imageUrl: string,
+    workspaceId: string
+  ): Promise<string> {
+    await this.throttle();
+    const token = await this.getToken(workspaceId);
+
+    // Download image
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`);
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+
+    // Upload as multipart
+    const formData = new FormData();
+    const blob = new Blob([imgBuffer], { type: "image/jpeg" });
+    const filename = imageUrl.split("/").pop() || "image.jpg";
+    formData.append("file", blob, filename);
+
+    const res = await fetch(`${ML_BASE}/pictures/items/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`ML picture upload ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    return data.id;
+  }
+
+  /**
    * Check if ML credentials exist for the workspace.
    */
   async isConnected(workspaceId: string): Promise<boolean> {
