@@ -94,6 +94,36 @@ function fuzzyMatch(a: string, b: string): boolean {
   return false;
 }
 
+/**
+ * Extract variation value from child name by comparing with parent name.
+ * e.g. parent="REGATA FULL HEAVY PRETA", child="REGATA FULL HEAVY PRETA P" → "P"
+ */
+function extractVariationFromName(childName: string, parentName: string): string {
+  if (!childName || !parentName) return "";
+  // Try prefix stripping
+  const cn = childName.trim();
+  const pn = parentName.trim();
+  if (cn.startsWith(pn)) {
+    const suffix = cn.slice(pn.length).trim();
+    if (suffix) return suffix;
+  }
+  // Fallback: compare word by word, take extra trailing words from child
+  const parentWords = pn.split(/\s+/);
+  const childWords = cn.split(/\s+/);
+  if (childWords.length > parentWords.length) {
+    return childWords.slice(parentWords.length).join(" ");
+  }
+  return "";
+}
+
+/**
+ * Parse Eccosys "Tipo da Variação" into a clean attribute key.
+ * "Tamanho Tray" → "Tamanho", "Cor Tray" → "Cor"
+ */
+function parseVariationType(tipoVariacao: string): string {
+  return tipoVariacao.replace(/\s*tray\s*$/i, "").trim();
+}
+
 // Extract photos from Eccosys product (images endpoint returns string[])
 function extractPhotos(product: EccosysProduto, imgs?: unknown): string[] {
   // The /produtos/{id}/imagens endpoint returns string[] directly
@@ -234,6 +264,23 @@ export async function GET(req: NextRequest) {
       for (const a of parent._Atributos) {
         if (a.descricao && a.valor) {
           parentAtributos[a.descricao] = a.valor;
+        }
+      }
+    }
+
+    // Inject variation attribute from name diff when "Tipo da Variação" present
+    // e.g. parent has "Tipo da Variação": "Tamanho Tray", child name ends with "P"
+    const tipoVariacao = parentAtributos["Tipo da Variação"] || parentAtributos["Tipo da Variacao"];
+    if (tipoVariacao && childrenDetails.length > 0) {
+      const varKey = parseVariationType(tipoVariacao);
+      if (varKey) {
+        for (const child of childrenDetails) {
+          if (!child.atributos[varKey]) {
+            const extracted = extractVariationFromName(child.product.nome, parent.nome);
+            if (extracted) {
+              child.atributos[varKey] = extracted;
+            }
+          }
         }
       }
     }
@@ -669,6 +716,24 @@ export async function POST(req: NextRequest) {
     error?: string;
   }> = [];
 
+  // Pre-fetch parent name + "Tipo da Variação" for size extraction from names
+  let parentNome = "";
+  let variationKey = "";
+  try {
+    const parentResult = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+      `/produtos/${encodeURIComponent(parentSku)}`,
+      workspaceId
+    );
+    const parentProd = Array.isArray(parentResult) ? parentResult[0] : parentResult;
+    if (parentProd?.nome) parentNome = parentProd.nome;
+    if (Array.isArray(parentProd?._Atributos)) {
+      const tipoVar = parentProd._Atributos.find(
+        (a) => a.descricao === "Tipo da Variação" || a.descricao === "Tipo da Variacao"
+      );
+      if (tipoVar?.valor) variationKey = parseVariationType(tipoVar.valor);
+    }
+  } catch { /* parent pre-fetch not critical */ }
+
   for (const eccId of eccIds) {
     try {
       // Fetch full product details (includes _Estoque, _Atributos, etc.)
@@ -717,6 +782,14 @@ export async function POST(req: NextRequest) {
       // Determine parent vs child
       const masterIdStr = String(produto.idProdutoMaster ?? "0");
       const isParent = masterIdStr === "0" || !produto.idProdutoMaster;
+
+      // Inject variation attribute from name diff (same as GET handler)
+      if (!isParent && variationKey && parentNome && !atributos[variationKey]) {
+        const extracted = extractVariationFromName(produto.nome, parentNome);
+        if (extracted) {
+          atributos[variationKey] = extracted;
+        }
+      }
 
       const row = {
         workspace_id: workspaceId,

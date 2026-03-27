@@ -164,6 +164,29 @@ function buildUPPayload(
     }
   }
 
+  // Fallback: if SIZE is still missing, extract from child name vs parent name
+  // e.g. parent="REGATA FULL HEAVY PRETA", child="REGATA FULL HEAVY PRETA P" → SIZE="P"
+  if (!varAttrs.some((a) => a.id === "SIZE")) {
+    const childName = (product.nome || "").trim();
+    const parentName = (parent.nome || "").trim();
+    if (childName && parentName && childName !== parentName) {
+      let sizeFromName = "";
+      if (childName.startsWith(parentName)) {
+        sizeFromName = childName.slice(parentName.length).trim();
+      } else {
+        // Compare word by word
+        const pw = parentName.split(/\s+/);
+        const cw = childName.split(/\s+/);
+        if (cw.length > pw.length) {
+          sizeFromName = cw.slice(pw.length).join(" ");
+        }
+      }
+      if (sizeFromName) {
+        varAttrs.push({ id: "SIZE", value_name: sizeFromName });
+      }
+    }
+  }
+
   // Add SIZE_GRID_ID + SIZE_GRID_ROW_ID only if grid map lookup succeeded
   const sizeGridId = enr?.attributes?.find((a) => a.id === "SIZE_GRID_ID")?.value_name;
   const sizeValue = varAttrs.find((a) => a.id === "SIZE")?.value_name;
