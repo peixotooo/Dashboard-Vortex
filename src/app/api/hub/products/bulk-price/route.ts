@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
+import { applyPromoPrice, removePromoPrice } from "@/lib/ml/promo";
 import type { HubProduct } from "@/types/hub";
 
 export const maxDuration = 120;
@@ -142,6 +143,25 @@ export async function POST(req: NextRequest) {
           mlSynced++;
         } catch (err) {
           const message = err instanceof Error ? err.message : "Erro ML";
+          errors.push({ sku: row.sku, error: message });
+        }
+      }
+
+      // Push promo to ML if linked and field is preco_promocional
+      if (push_to_ml && field === "preco_promocional" && row.ml_item_id) {
+        try {
+          const effectivePreco = row.preco || row.ml_preco || 0;
+
+          if (newPrice > 0 && newPrice < effectivePreco) {
+            const promoResult = await applyPromoPrice(row.ml_item_id, newPrice, workspaceId);
+            if (promoResult.applied) mlSynced++;
+            else if (promoResult.error) errors.push({ sku: row.sku, error: promoResult.error });
+          } else if (newPrice <= 0) {
+            const removeResult = await removePromoPrice(row.ml_item_id, workspaceId);
+            if (removeResult.removed) mlSynced++;
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Erro ML promo";
           errors.push({ sku: row.sku, error: message });
         }
       }
