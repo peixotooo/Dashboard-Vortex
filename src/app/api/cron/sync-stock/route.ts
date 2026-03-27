@@ -114,19 +114,21 @@ export async function GET(request: NextRequest) {
             wsId
           );
           const newStock = estoque.estoqueDisponivel;
-          const stockChanged = newStock !== row.ml_estoque;
+          // ML requires available_quantity >= 1
+          const mlStock = Math.max(newStock, 1);
+          const stockChanged = mlStock !== row.ml_estoque;
 
           if (stockChanged) {
             if (row.ml_variation_id) {
               await ml.put(
                 `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
-                { available_quantity: newStock },
+                { available_quantity: mlStock },
                 wsId
               );
             } else {
               await ml.put(
                 `/items/${row.ml_item_id}`,
-                { available_quantity: newStock },
+                { available_quantity: mlStock },
                 wsId
               );
             }
@@ -183,7 +185,7 @@ export async function GET(request: NextRequest) {
             };
             if (stockChanged) {
               updates.estoque = newStock;
-              updates.ml_estoque = newStock;
+              updates.ml_estoque = mlStock;
             }
             if (priceChanged && eccPrice) {
               updates.preco = eccPrice.preco;

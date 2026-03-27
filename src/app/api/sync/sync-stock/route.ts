@@ -53,25 +53,26 @@ export async function POST(req: NextRequest) {
 
       const newStock = estoque.estoqueDisponivel;
 
+      // ML requires available_quantity >= 1
+      const mlStock = Math.max(newStock, 1);
+
       // Compare with current ML stock
-      if (newStock === row.ml_estoque) {
+      if (mlStock === row.ml_estoque) {
         skipped++;
         continue;
       }
 
       // Update ML
       if (row.ml_variation_id) {
-        // Variation product
         await ml.put(
           `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
-          { available_quantity: newStock },
+          { available_quantity: mlStock },
           workspaceId
         );
       } else {
-        // Simple product
         await ml.put(
           `/items/${row.ml_item_id}`,
-          { available_quantity: newStock },
+          { available_quantity: mlStock },
           workspaceId
         );
       }
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
         .from("hub_products")
         .update({
           estoque: newStock,
-          ml_estoque: newStock,
+          ml_estoque: mlStock,
           last_ecc_sync: new Date().toISOString(),
           last_ml_sync: new Date().toISOString(),
           updated_at: new Date().toISOString(),
