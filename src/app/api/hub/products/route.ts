@@ -51,7 +51,10 @@ export async function GET(req: NextRequest) {
   if (search) {
     query = query.or(`sku.ilike.%${search}%,nome.ilike.%${search}%`);
   }
-  if (syncStatus) {
+  if (syncStatus === "linked") {
+    // Vinculado = synced + has both Eccosys and ML IDs
+    query = query.eq("sync_status", "synced").not("ecc_id", "is", null).not("ml_item_id", "is", null);
+  } else if (syncStatus) {
     query = query.eq("sync_status", syncStatus);
   }
   if (listingType) {

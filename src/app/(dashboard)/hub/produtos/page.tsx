@@ -75,17 +75,24 @@ import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types
 // -------------------------------------------------------------------
 // Sync status badge
 // -------------------------------------------------------------------
-function SyncBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: string }> = {
-    draft: { label: "Rascunho", variant: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-    ready: { label: "Pronto", variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" },
-    synced: { label: "Sincronizado", variant: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" },
-    error: { label: "Erro", variant: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" },
+function SyncBadge({ status, eccId, mlItemId }: { status: string; eccId?: number | null; mlItemId?: string | null }) {
+  // Full chain: Eccosys → Hub → ML
+  const isLinked = status === "synced" && !!eccId && !!mlItemId;
+  const map: Record<string, { label: string; variant: string; desc: string }> = {
+    draft: { label: "Rascunho", variant: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", desc: "Produto importado, ainda nao publicado no ML" },
+    ready: { label: "Pronto", variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", desc: "Dados completos, pronto para publicar" },
+    synced: { label: "Sincronizado", variant: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300", desc: "Publicado e ativo no Mercado Livre" },
+    linked: { label: "Vinculado", variant: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300", desc: "Vinculado na cadeia completa: Eccosys \u2194 Hub \u2194 ML" },
+    error: { label: "Erro", variant: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300", desc: "Falha na publicacao ou sincronizacao" },
   };
-  const badge = map[status] || map.draft;
+  const key = isLinked ? "linked" : status;
+  const badge = map[key] || map.draft;
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge.variant}`}>
-      {badge.label}
+    <span className="inline-flex items-center gap-1 group relative">
+      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge.variant}`}>
+        {badge.label}
+      </span>
+      <span className="text-[10px] text-muted-foreground cursor-help" title={badge.desc}>?</span>
     </span>
   );
 }
@@ -2438,6 +2445,7 @@ export default function HubProdutosPage() {
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="draft">Rascunho</SelectItem>
                   <SelectItem value="synced">Sincronizado</SelectItem>
+                  <SelectItem value="linked">Vinculado</SelectItem>
                   <SelectItem value="error">Erro</SelectItem>
                 </SelectContent>
               </Select>
@@ -2753,7 +2761,7 @@ export default function HubProdutosPage() {
                               )}
                             </td>
                             <td className="p-3 text-center">
-                              <SyncBadge status={p.sync_status} />
+                              <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} />
                             </td>
                           </tr>
 
@@ -2841,7 +2849,7 @@ export default function HubProdutosPage() {
                                     )}
                                   </td>
                                   <td className="p-3 text-center">
-                                    <SyncBadge status={child.sync_status} />
+                                    <SyncBadge status={child.sync_status} eccId={child.ecc_id} mlItemId={child.ml_item_id} />
                                   </td>
                                 </tr>
                               );
