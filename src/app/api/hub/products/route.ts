@@ -354,7 +354,7 @@ export async function PATCH(req: NextRequest) {
   // If product has ML item and we're updating preco_promocional, push promo to ML
   let promoSynced = false;
   if (preco_promocional !== undefined && product.ml_item_id) {
-    const effectivePreco = (typeof preco === "number" ? preco : product.preco) || 0;
+    const effectivePreco = (typeof preco === "number" ? preco : product.preco) || product.ml_preco || 0;
 
     if (preco_promocional && preco_promocional > 0 && preco_promocional < effectivePreco) {
       // Apply or update promo

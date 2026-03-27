@@ -165,7 +165,7 @@ export async function GET(request: NextRequest) {
 
             // Promotional price changed
             const currentPromo = row.preco_promocional ?? null;
-            const effectivePreco = newPreco || row.preco || 0;
+            const effectivePreco = newPreco || row.preco || row.ml_preco || 0;
 
             if (newPromo !== currentPromo) {
               if (newPromo && newPromo > 0 && newPromo < effectivePreco && row.ml_item_id) {
