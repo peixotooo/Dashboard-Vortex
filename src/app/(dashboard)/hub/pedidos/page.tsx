@@ -52,6 +52,10 @@ function OrderStatusBadge({ status }: { status: string }) {
       label: "Rastreio Enviado",
       variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
     },
+    nfe_sent: {
+      label: "NF-e Enviada",
+      variant: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+    },
   };
   const badge = map[status] || map.pending;
   return (
@@ -223,6 +227,7 @@ export default function HubPedidosPage() {
                 <SelectItem value="imported">Importado</SelectItem>
                 <SelectItem value="error">Erro</SelectItem>
                 <SelectItem value="tracking_sent">Rastreio Enviado</SelectItem>
+                <SelectItem value="nfe_sent">NF-e Enviada</SelectItem>
                 <SelectItem value="ignored">Ignorado</SelectItem>
               </SelectContent>
             </Select>
@@ -276,8 +281,15 @@ export default function HubPedidosPage() {
                 <tbody>
                   {orders.map((order) => (
                     <tr key={order.id} className="border-t hover:bg-muted/30">
-                      <td className="p-3 font-mono text-xs">
-                        {order.ml_order_id}
+                      <td className="p-3">
+                        <div className="font-mono text-xs font-medium">
+                          {order.ml_pack_id || order.ml_order_id}
+                        </div>
+                        {order.ml_pack_id && (
+                          <div className="font-mono text-[10px] text-muted-foreground mt-0.5">
+                            order {order.ml_order_id}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 text-xs whitespace-nowrap">
                         {order.ml_date
@@ -322,9 +334,16 @@ export default function HubPedidosPage() {
                       </td>
                       <td className="p-3 text-center">
                         {order.ecc_nfe_numero ? (
-                          <span className="text-xs font-mono">
-                            {order.ecc_nfe_numero}
-                          </span>
+                          <div>
+                            <span className="text-xs font-mono">
+                              {order.ecc_nfe_numero}
+                            </span>
+                            {order.nfe_xml_sent_at ? (
+                              <div className="text-[10px] text-green-600 mt-0.5">ML ok</div>
+                            ) : (
+                              <div className="text-[10px] text-muted-foreground mt-0.5">pendente</div>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
