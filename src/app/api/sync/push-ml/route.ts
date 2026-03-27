@@ -26,7 +26,7 @@ async function uploadPicturesToML(
   return pictureIds;
 }
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 interface PushResult {
   sku: string;
@@ -140,31 +140,44 @@ async function fetchSizeGridMap(
 /**
  * Apply promotional price via ML seller-promotions API (PRICE_DISCOUNT).
  * ML requires: publish item at full price first, then apply discount separately.
+ * Includes delay + retry because ML needs time to index a freshly-published item.
  * Non-critical — failure is logged but doesn't block the publish.
  */
 async function applyPromoPrice(
   mlItemId: string,
   dealPrice: number,
-  workspaceId: string
+  workspaceId: string,
+  retries = 2
 ): Promise<{ applied: boolean; error?: string }> {
-  try {
-    const now = new Date();
-    const finish = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // max 14 days
-    await ml.post(
-      `/seller-promotions/items/${mlItemId}?app_version=v2`,
-      {
-        deal_price: dealPrice,
-        promotion_type: "PRICE_DISCOUNT",
-        start_date: now.toISOString().split(".")[0],
-        finish_date: finish.toISOString().split(".")[0],
-      },
-      workspaceId
-    );
-    return { applied: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro promo";
-    return { applied: false, error: message };
+  // Wait 3s before first attempt — ML needs time to activate a new listing
+  await new Promise((r) => setTimeout(r, 3000));
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const now = new Date();
+      const finish = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // max 14 days
+      await ml.post(
+        `/seller-promotions/items/${mlItemId}?app_version=v2`,
+        {
+          deal_price: dealPrice,
+          promotion_type: "PRICE_DISCOUNT",
+          start_date: now.toISOString().split(".")[0],
+          finish_date: finish.toISOString().split(".")[0],
+        },
+        workspaceId
+      );
+      return { applied: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro promo";
+      if (attempt < retries) {
+        // Wait longer before retry (5s, 10s)
+        await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+        continue;
+      }
+      return { applied: false, error: message };
+    }
   }
+  return { applied: false, error: "Exhausted retries" };
 }
 
 // -------------------------------------------------------------------
@@ -434,6 +447,12 @@ export async function POST(req: NextRequest) {
       let promoResult: { applied: boolean; error?: string } | null = null;
       if (product.preco_promocional && product.preco_promocional > 0 && product.preco_promocional < (product.preco ?? 0)) {
         promoResult = await applyPromoPrice(result.id, product.preco_promocional, workspaceId);
+        if (promoResult && !promoResult.applied) {
+          await supabase
+            .from("hub_products")
+            .update({ error_msg: `Publicado, mas promo falhou: ${promoResult.error}` })
+            .eq("id", product.id);
+        }
       }
 
       await supabase.from("hub_logs").insert({
@@ -545,9 +564,10 @@ export async function POST(req: NextRequest) {
           }
 
           // Apply promotional price if set
+          let childPromoResult: { applied: boolean; error?: string } | null = null;
           const promoPrice = child.preco_promocional ?? parent!.preco_promocional;
           if (promoPrice && promoPrice > 0 && promoPrice < (child.preco ?? parent!.preco ?? 0)) {
-            await applyPromoPrice(result.id, promoPrice, workspaceId);
+            childPromoResult = await applyPromoPrice(result.id, promoPrice, workspaceId);
           }
 
           await supabase
@@ -562,10 +582,26 @@ export async function POST(req: NextRequest) {
               sync_status: "synced",
               linked: true,
               last_ml_sync: new Date().toISOString(),
-              error_msg: null,
+              error_msg: childPromoResult && !childPromoResult.applied
+                ? `Publicado, mas promo falhou: ${childPromoResult.error}`
+                : null,
               updated_at: new Date().toISOString(),
             })
             .eq("id", child.id);
+
+          await supabase.from("hub_logs").insert({
+            workspace_id: workspaceId,
+            action: "push_ml",
+            entity: "product",
+            entity_id: child.sku,
+            direction: "hub_to_ml",
+            status: "ok",
+            details: {
+              ml_item_id: result.id,
+              ml_permalink: result.permalink,
+              promo: childPromoResult,
+            },
+          });
 
           results.push({
             sku: child.sku,
