@@ -445,7 +445,6 @@
         '<div class="description">' +
           '<h3 class="name"><a href="' + safeUrl(link) + '">' + escapeHtml(product.name) + "</a></h3>" +
           priceHTML +
-          '<span class="vtx-installments" data-price="' + escapeHtml(product.sale_price || product.price) + '"></span>' +
         "</div>" +
       "</div>"
     );
@@ -533,31 +532,6 @@
     tryInit();
   }
 
-  // --- Installments ---
-
-  function calculateInstallments(container) {
-    try {
-      var valorMinimoParcela = 12.72;
-      var numeroMaximoParcelas = 6;
-      var els = container.querySelectorAll(".vtx-installments");
-      for (var j = 0; j < els.length; j++) {
-        var val = parseFloat(els[j].getAttribute("data-price"));
-        if (val && val > valorMinimoParcela) {
-          var parcelas = Math.min(
-            Math.floor(val / valorMinimoParcela),
-            numeroMaximoParcelas
-          );
-          if (parcelas >= 2) {
-            var valorParcela = (val / parcelas).toFixed(2).replace(".", ",");
-            els[j].textContent =
-              parcelas + "x de R$ " + valorParcela + " s/ juros";
-          }
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
 
   // --- Inject minimal CSS ---
 
@@ -587,7 +561,6 @@
       ".vtx-price-old { font-size: 12px; color: #999; text-decoration: line-through; }" +
       ".vtx-price-main { font-size: 20px; font-weight: 900; color: #000; line-height: 1; }" +
       ".vtx-discount-badge { background: #ff0000; color: #fff; padding: 2px 4px; font-size: 10px; font-weight: 900; border-radius: 2px; }" +
-      ".vtx-installments { font-size: 11px; color: #666; margin-top: 4px; display: block; }" +
       ".vtx-swiper { padding: 0 0 20px; position: relative; }" +
       ".vtx-swiper .swiper-pagination { display: none !important; }" +
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
@@ -615,9 +588,6 @@
 
     // Init Swiper carousel
     initSwiper(anchor);
-
-    // Calculate installments
-    calculateInstallments(anchor);
 
     // Fire GA4 impression
     fireGA4Impression(shelf, products);
