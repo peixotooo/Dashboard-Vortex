@@ -72,15 +72,24 @@ export async function POST(req: NextRequest) {
   if (pendingOrders.length > 0) {
     try {
       // Binary search for total order count (~15 requests at 1 req/s)
+      // Eccosys returns 404 when offset exceeds total — treat as empty
+      const probeOffset = async (offset: number): Promise<boolean> => {
+        try {
+          const probe = await eccosys.get<EccosysPedido[]>(
+            "/pedidos",
+            workspaceId,
+            { $offset: String(offset), $count: "1" }
+          );
+          return Array.isArray(probe) && probe.length > 0;
+        } catch {
+          return false; // 404 or other error = no orders at this offset
+        }
+      };
+
       let lo = 0, hi = 200000;
       while (lo < hi) {
         const mid = Math.floor((lo + hi) / 2);
-        const probe = await eccosys.get<EccosysPedido[]>(
-          "/pedidos",
-          workspaceId,
-          { $offset: String(mid), $count: "1" }
-        );
-        if (Array.isArray(probe) && probe.length > 0) {
+        if (await probeOffset(mid)) {
           lo = mid + 1;
         } else {
           hi = mid;
@@ -94,11 +103,16 @@ export async function POST(req: NextRequest) {
       const pageSize = 100;
 
       for (let offset = startOffset; offset < totalOrders; offset += pageSize) {
-        const batch = await eccosys.get<EccosysPedido[]>(
-          "/pedidos",
-          workspaceId,
-          { $offset: String(offset), $count: String(pageSize) }
-        );
+        let batch: EccosysPedido[];
+        try {
+          batch = await eccosys.get<EccosysPedido[]>(
+            "/pedidos",
+            workspaceId,
+            { $offset: String(offset), $count: String(pageSize) }
+          );
+        } catch {
+          break; // 404 = no more orders
+        }
         if (!Array.isArray(batch) || batch.length === 0) break;
 
         for (const ecc of batch) {
