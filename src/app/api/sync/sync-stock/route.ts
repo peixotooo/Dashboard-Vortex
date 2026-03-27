@@ -43,15 +43,35 @@ export async function POST(req: NextRequest) {
   let skipped = 0;
   const errors: Array<{ sku: string; error: string }> = [];
 
+  // Fetch ALL stocks in bulk to avoid per-SKU requests
+  const eccStockMap = new Map<string, number>();
+  try {
+    const allStocks = await eccosys.listAll<EccosysEstoque>(
+      "/estoques",
+      workspaceId,
+      undefined,
+      100
+    );
+    for (const es of allStocks) {
+      eccStockMap.set(es.codigo, es.estoqueDisponivel);
+    }
+  } catch {
+    // If bulk fetch fails, fall back to per-SKU below
+  }
+
   for (const row of products as HubProduct[]) {
     try {
-      // Get current Eccosys stock
-      const estoque = await eccosys.get<EccosysEstoque>(
-        `/estoques/${encodeURIComponent(row.sku)}`,
-        workspaceId
-      );
-
-      const newStock = estoque.estoqueDisponivel;
+      // Get current Eccosys stock (from bulk map or individual fallback)
+      let newStock: number;
+      if (eccStockMap.has(row.sku)) {
+        newStock = eccStockMap.get(row.sku)!;
+      } else {
+        const estoque = await eccosys.get<EccosysEstoque>(
+          `/estoques/${encodeURIComponent(row.sku)}`,
+          workspaceId
+        );
+        newStock = estoque.estoqueDisponivel;
+      }
 
       // ML requires available_quantity >= 1
       const mlStock = Math.max(newStock, 1);

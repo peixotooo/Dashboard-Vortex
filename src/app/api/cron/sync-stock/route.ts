@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
       wsResult.total = products.length;
 
       // Fetch ALL Eccosys products in bulk to build price map
-      // This avoids one API call per product for price info
       const eccPriceMap = new Map<string, { preco: number; precoPromocional: number | null }>();
       try {
         const allEccProducts = await eccosys.listAll<EccosysProduto>(
@@ -92,16 +91,29 @@ export async function GET(request: NextRequest) {
           100
         );
         for (const ep of allEccProducts) {
-          eccPriceMap.set(
-            ep.codigo,
-            {
-              preco: ep.preco,
-              precoPromocional: ep.precoPromocional ?? null,
-            }
-          );
+          eccPriceMap.set(ep.codigo, {
+            preco: ep.preco,
+            precoPromocional: ep.precoPromocional ?? null,
+          });
         }
       } catch {
         // If bulk fetch fails, continue with stock-only sync
+      }
+
+      // Fetch ALL Eccosys stock in bulk to avoid per-SKU requests
+      const eccStockMap = new Map<string, number>();
+      try {
+        const allStocks = await eccosys.listAll<EccosysEstoque>(
+          "/estoques",
+          wsId,
+          undefined,
+          100
+        );
+        for (const es of allStocks) {
+          eccStockMap.set(es.codigo, es.estoqueDisponivel);
+        }
+      } catch {
+        // If bulk fetch fails, fall back to per-SKU below
       }
 
       const now = new Date().toISOString();
@@ -109,11 +121,17 @@ export async function GET(request: NextRequest) {
       for (const row of products as HubProduct[]) {
         try {
           // --- Stock sync ---
-          const estoque = await eccosys.get<EccosysEstoque>(
-            `/estoques/${encodeURIComponent(row.sku)}`,
-            wsId
-          );
-          const newStock = estoque.estoqueDisponivel;
+          let newStock: number;
+          if (eccStockMap.has(row.sku)) {
+            newStock = eccStockMap.get(row.sku)!;
+          } else {
+            // Fallback: individual request if bulk didn't include this SKU
+            const estoque = await eccosys.get<EccosysEstoque>(
+              `/estoques/${encodeURIComponent(row.sku)}`,
+              wsId
+            );
+            newStock = estoque.estoqueDisponivel;
+          }
           // ML requires available_quantity >= 1
           const mlStock = Math.max(newStock, 1);
           const stockChanged = mlStock !== row.ml_estoque;
