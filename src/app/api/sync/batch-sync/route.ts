@@ -12,9 +12,11 @@ interface EccosysPedido {
   numero: string;
   numeroDaOrdemDeCompra?: string;
   numeroPedido?: string;
+  pedidoOriginal?: string;
   situacao: number;
   nfeNumero?: string;
   rastreamento?: string;
+  [key: string]: unknown;
 }
 
 interface SyncResult {
@@ -61,7 +63,54 @@ export async function POST(req: NextRequest) {
     (o) => o.sync_status === "tracking_sent" && !o.nfe_xml_sent_at
   );
 
-  // 2. Process pending orders: find each in Eccosys individually and link
+  // 2. Fetch Eccosys orders in batch and build lookup map
+  //    Eccosys filters are unreliable, so fetch all recent orders and match locally
+  const eccRefMap = new Map<string, EccosysPedido>();
+
+  if (pendingOrders.length > 0) {
+    try {
+      let offset = 0;
+      const maxPages = 5; // 500 orders max
+      for (let page = 0; page < maxPages; page++) {
+        const batch = await eccosys.get<EccosysPedido[]>(
+          "/pedidos",
+          workspaceId,
+          { $offset: String(offset), $count: "100" }
+        );
+        if (!Array.isArray(batch) || batch.length === 0) break;
+
+        for (const ecc of batch) {
+          // Index by all string/number fields that might contain an ML reference
+          const refs: string[] = [];
+          if (ecc.numeroDaOrdemDeCompra) refs.push(ecc.numeroDaOrdemDeCompra);
+          if (ecc.numeroPedido) refs.push(ecc.numeroPedido);
+          if (ecc.pedidoOriginal) refs.push(ecc.pedidoOriginal);
+          // Also scan any field whose value looks like an ML order ID
+          for (const [, val] of Object.entries(ecc)) {
+            const s = String(val ?? "");
+            if (s.length >= 10 && /^\d+$/.test(s)) {
+              refs.push(s);
+            }
+          }
+          for (const ref of refs) {
+            eccRefMap.set(ref, ecc);
+          }
+        }
+
+        if (batch.length < 100) break;
+        offset += 100;
+      }
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: `Erro ao buscar pedidos Eccosys: ${err instanceof Error ? err.message : "desconhecido"}`,
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  // 3. Process pending orders: find in Eccosys map and link
   for (const order of pendingOrders) {
     const result: SyncResult = {
       ml_order_id: order.ml_order_id,
@@ -69,54 +118,12 @@ export async function POST(req: NextRequest) {
     };
 
     try {
-      // Search Eccosys by numeroPedido = "ML-{ml_order_id}" (how push-order creates them)
-      let eccOrder: EccosysPedido | null = null;
-
-      try {
-        const matches = await eccosys.get<EccosysPedido[]>(
-          "/pedidos",
-          workspaceId,
-          {
-            $offset: "0",
-            $count: "5",
-            $numeroPedido: `ML-${order.ml_order_id}`,
-          }
-        );
-        if (Array.isArray(matches) && matches.length > 0) {
-          // Verify the match is actually correct
-          const match = matches.find(
-            (m) =>
-              m.numeroPedido === `ML-${order.ml_order_id}` ||
-              m.numeroDaOrdemDeCompra === String(order.ml_order_id)
-          );
-          if (match) eccOrder = match;
-        }
-      } catch {
-        // Filter may not be supported, try by numeroDaOrdemDeCompra
-      }
-
-      // Fallback: search by numeroDaOrdemDeCompra
-      if (!eccOrder) {
-        try {
-          const matches = await eccosys.get<EccosysPedido[]>(
-            "/pedidos",
-            workspaceId,
-            {
-              $offset: "0",
-              $count: "5",
-              $numeroDaOrdemDeCompra: String(order.ml_order_id),
-            }
-          );
-          if (Array.isArray(matches) && matches.length > 0) {
-            const match = matches.find(
-              (m) => m.numeroDaOrdemDeCompra === String(order.ml_order_id)
-            );
-            if (match) eccOrder = match;
-          }
-        } catch {
-          // Filter may not be supported
-        }
-      }
+      // Try multiple reference formats
+      const eccOrder =
+        eccRefMap.get(String(order.ml_order_id)) ||
+        eccRefMap.get(`ML-${order.ml_order_id}`) ||
+        (order.ml_pack_id ? eccRefMap.get(String(order.ml_pack_id)) : null) ||
+        null;
 
       if (!eccOrder) {
         results.push(result);
