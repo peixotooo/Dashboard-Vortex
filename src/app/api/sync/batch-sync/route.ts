@@ -63,19 +63,31 @@ export async function POST(req: NextRequest) {
     (o) => o.sync_status === "tracking_sent" && !o.nfe_xml_sent_at
   );
 
-  // 2. Fetch Eccosys orders in batch and build lookup map
-  //    Eccosys filters are unreliable, so fetch all recent orders and match locally
+  // 2. Fetch recent Eccosys orders and build lookup map
+  //    Eccosys returns oldest-first by default, so use date filter for recent ones
   const eccRefMap = new Map<string, EccosysPedido>();
 
   if (pendingOrders.length > 0) {
     try {
+      // Find the earliest order date from hub orders to use as start filter
+      const dates = pendingOrders
+        .map((o) => o.ml_date || o.created_at)
+        .filter(Boolean)
+        .map((d: string) => new Date(d));
+      const earliest = dates.length > 0
+        ? new Date(Math.min(...dates.map((d) => d.getTime())))
+        : new Date();
+      // Go back 30 days from earliest to be safe
+      earliest.setDate(earliest.getDate() - 30);
+      const dataInicial = earliest.toISOString().split("T")[0];
+
       let offset = 0;
-      const maxPages = 5; // 500 orders max
+      const maxPages = 20; // 2000 orders max
       for (let page = 0; page < maxPages; page++) {
         const batch = await eccosys.get<EccosysPedido[]>(
           "/pedidos",
           workspaceId,
-          { $offset: String(offset), $count: "100" }
+          { $offset: String(offset), $count: "100", $dataInicial: dataInicial }
         );
         if (!Array.isArray(batch) || batch.length === 0) break;
 
