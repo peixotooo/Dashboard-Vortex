@@ -409,7 +409,22 @@ export async function POST(req: NextRequest) {
     tracking_sent: results.filter((r) => r.tracking_sent).length,
     nfe_sent: results.filter((r) => r.nfe_sent).length,
     errors: results.filter((r) => r.action === "error").length,
+    ecc_orders_fetched: eccRefMap.size,
   };
 
-  return NextResponse.json({ summary, results });
+  // Debug: include sample Eccosys order + all refs in map
+  const sampleEccKeys = Array.from(eccRefMap.keys()).slice(0, 30);
+  const sampleEccOrder = eccRefMap.size > 0
+    ? Object.fromEntries(
+        Object.entries(eccRefMap.values().next().value || {}).filter(
+          ([, v]) => v !== null && v !== undefined && v !== ""
+        )
+      )
+    : null;
+
+  return NextResponse.json({
+    summary,
+    results,
+    _debug: { sampleEccKeys, sampleEccOrder },
+  });
 }
