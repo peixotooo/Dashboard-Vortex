@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
+import { applyPromoPrice, removePromoPrice } from "@/lib/ml/promo";
 
 export async function GET(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -350,9 +351,53 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // If product has ML item and we're updating preco_promocional, push promo to ML
+  let promoSynced = false;
+  if (preco_promocional !== undefined && product.ml_item_id) {
+    const effectivePreco = (typeof preco === "number" ? preco : product.preco) || 0;
+
+    if (preco_promocional && preco_promocional > 0 && preco_promocional < effectivePreco) {
+      // Apply or update promo
+      const promoResult = await applyPromoPrice(product.ml_item_id, preco_promocional, workspaceId);
+      promoSynced = promoResult.applied;
+
+      await supabase.from("hub_logs").insert({
+        workspace_id: workspaceId,
+        action: "sync_promo",
+        entity: "product",
+        entity_id: product.sku,
+        direction: "hub_to_ml",
+        status: promoResult.applied ? "ok" : "error",
+        details: {
+          reason: "manual_edit",
+          deal_price: preco_promocional,
+          ...(promoResult.error ? { error: promoResult.error } : {}),
+        },
+      });
+    } else if (preco_promocional === null || preco_promocional === 0) {
+      // Remove promo
+      const removeResult = await removePromoPrice(product.ml_item_id, workspaceId);
+      promoSynced = removeResult.removed;
+
+      await supabase.from("hub_logs").insert({
+        workspace_id: workspaceId,
+        action: "sync_promo",
+        entity: "product",
+        entity_id: product.sku,
+        direction: "hub_to_ml",
+        status: removeResult.removed ? "ok" : "error",
+        details: {
+          reason: "manual_remove",
+          ...(removeResult.error ? { error: removeResult.error } : {}),
+        },
+      });
+    }
+  }
+
   return NextResponse.json({
     updated: true,
     ml_synced: !!shouldPushStock,
     ml_price_synced: !!shouldPushPrice,
+    ml_promo_synced: promoSynced,
   });
 }

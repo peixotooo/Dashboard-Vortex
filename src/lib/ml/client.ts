@@ -139,6 +139,21 @@ class MLClient {
     return res.json();
   }
 
+  async del<T = unknown>(path: string, workspaceId: string): Promise<T> {
+    await this.throttle();
+    const token = await this.getToken(workspaceId);
+    const res = await fetch(`${ML_BASE}${path}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`ML ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    return text ? JSON.parse(text) : ({} as T);
+  }
+
   /**
    * Upload an image to ML by downloading from URL and re-uploading as multipart.
    * Returns the ML picture ID (e.g. "909874-MLB109544132577_032026").

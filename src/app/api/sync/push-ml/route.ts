@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
+import { applyPromoPrice } from "@/lib/ml/promo";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
@@ -135,51 +136,6 @@ async function fetchSizeGridMap(
   } catch {
     return {};
   }
-}
-
-/**
- * Apply promotional price via ML seller-promotions API (PRICE_DISCOUNT).
- * ML requires: publish item at full price first, then apply discount separately.
- * Includes delay + retry because ML needs time to index a freshly-published item.
- * Non-critical — failure is logged but doesn't block the publish.
- */
-async function applyPromoPrice(
-  mlItemId: string,
-  dealPrice: number,
-  workspaceId: string,
-  retries = 2
-): Promise<{ applied: boolean; error?: string }> {
-  // Wait 3s before first attempt — ML needs time to activate a new listing
-  await new Promise((r) => setTimeout(r, 3000));
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      // start_date = yesterday so ML activates immediately (status "started")
-      // Using today's date causes ML to set status "pending" instead
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const finish = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // max 14 days
-      await ml.post(
-        `/seller-promotions/items/${mlItemId}?app_version=v2`,
-        {
-          deal_price: dealPrice,
-          promotion_type: "PRICE_DISCOUNT",
-          start_date: yesterday.toISOString().split("T")[0] + "T00:00:00",
-          finish_date: finish.toISOString().split("T")[0] + "T23:59:59",
-        },
-        workspaceId
-      );
-      return { applied: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro promo";
-      if (attempt < retries) {
-        // Wait longer before retry (5s, 10s)
-        await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
-        continue;
-      }
-      return { applied: false, error: message };
-    }
-  }
-  return { applied: false, error: "Exhausted retries" };
 }
 
 // -------------------------------------------------------------------
@@ -448,7 +404,7 @@ export async function POST(req: NextRequest) {
       // Apply promotional price if set
       let promoResult: { applied: boolean; error?: string } | null = null;
       if (product.preco_promocional && product.preco_promocional > 0 && product.preco_promocional < (product.preco ?? 0)) {
-        promoResult = await applyPromoPrice(result.id, product.preco_promocional, workspaceId);
+        promoResult = await applyPromoPrice(result.id, product.preco_promocional, workspaceId, { delayMs: 3000 });
         if (promoResult && !promoResult.applied) {
           await supabase
             .from("hub_products")
@@ -569,7 +525,7 @@ export async function POST(req: NextRequest) {
           let childPromoResult: { applied: boolean; error?: string } | null = null;
           const promoPrice = child.preco_promocional ?? parent!.preco_promocional;
           if (promoPrice && promoPrice > 0 && promoPrice < (child.preco ?? parent!.preco ?? 0)) {
-            childPromoResult = await applyPromoPrice(result.id, promoPrice, workspaceId);
+            childPromoResult = await applyPromoPrice(result.id, promoPrice, workspaceId, { delayMs: 3000 });
           }
 
           await supabase
