@@ -63,31 +63,41 @@ export async function POST(req: NextRequest) {
     (o) => o.sync_status === "tracking_sent" && !o.nfe_xml_sent_at
   );
 
-  // 2. Fetch recent Eccosys orders and build lookup map
-  //    Eccosys returns oldest-first by default, so use date filter for recent ones
+  // 2. Fetch RECENT Eccosys orders via reverse pagination
+  //    Eccosys returns oldest-first and ignores $dataInicial, so we binary-search
+  //    for the total count then fetch from the end.
   const eccRefMap = new Map<string, EccosysPedido>();
+  let debugInfo: Record<string, unknown> = {};
 
   if (pendingOrders.length > 0) {
     try {
-      // Find the earliest order date from hub orders to use as start filter
-      const dates = pendingOrders
-        .map((o) => o.ml_date || o.created_at)
-        .filter(Boolean)
-        .map((d: string) => new Date(d));
-      const earliest = dates.length > 0
-        ? new Date(Math.min(...dates.map((d) => d.getTime())))
-        : new Date();
-      // Go back 30 days from earliest to be safe
-      earliest.setDate(earliest.getDate() - 30);
-      const dataInicial = earliest.toISOString().split("T")[0];
+      // Binary search for total order count (~15 requests at 1 req/s)
+      let lo = 0, hi = 200000;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const probe = await eccosys.get<EccosysPedido[]>(
+          "/pedidos",
+          workspaceId,
+          { $offset: String(mid), $count: "1" }
+        );
+        if (Array.isArray(probe) && probe.length > 0) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      const totalOrders = lo;
 
-      let offset = 0;
-      const maxPages = 20; // 2000 orders max
-      for (let page = 0; page < maxPages; page++) {
+      // Fetch last 3000 orders (most recent) by starting from near the end
+      const recentCount = 3000;
+      const startOffset = Math.max(0, totalOrders - recentCount);
+      const pageSize = 100;
+
+      for (let offset = startOffset; offset < totalOrders; offset += pageSize) {
         const batch = await eccosys.get<EccosysPedido[]>(
           "/pedidos",
           workspaceId,
-          { $offset: String(offset), $count: "100", $dataInicial: dataInicial }
+          { $offset: String(offset), $count: String(pageSize) }
         );
         if (!Array.isArray(batch) || batch.length === 0) break;
 
@@ -97,10 +107,10 @@ export async function POST(req: NextRequest) {
           if (ecc.numeroDaOrdemDeCompra) refs.push(ecc.numeroDaOrdemDeCompra);
           if (ecc.numeroPedido) refs.push(ecc.numeroPedido);
           if (ecc.pedidoOriginal) refs.push(ecc.pedidoOriginal);
-          // Also scan any field whose value looks like an ML order ID
+          // Scan any field whose value looks like an ML order ID (16+ digits)
           for (const [, val] of Object.entries(ecc)) {
             const s = String(val ?? "");
-            if (s.length >= 10 && /^\d+$/.test(s)) {
+            if (s.length >= 13 && /^\d+$/.test(s)) {
               refs.push(s);
             }
           }
@@ -108,10 +118,9 @@ export async function POST(req: NextRequest) {
             eccRefMap.set(ref, ecc);
           }
         }
-
-        if (batch.length < 100) break;
-        offset += 100;
       }
+
+      debugInfo = { totalOrders, startOffset, refsIndexed: eccRefMap.size };
     } catch (err) {
       return NextResponse.json(
         {
@@ -424,19 +433,25 @@ export async function POST(req: NextRequest) {
     ecc_orders_fetched: eccRefMap.size,
   };
 
-  // Debug: include sample Eccosys order + all refs in map
+  // Debug: include sample recent Eccosys order + refs
   const sampleEccKeys = Array.from(eccRefMap.keys()).slice(0, 30);
-  const sampleEccOrder = eccRefMap.size > 0
-    ? Object.fromEntries(
-        Object.entries(eccRefMap.values().next().value || {}).filter(
-          ([, v]) => v !== null && v !== undefined && v !== ""
-        )
-      )
+  const lastEccOrder = eccRefMap.size > 0
+    ? (() => {
+        let last: EccosysPedido | undefined;
+        for (const v of eccRefMap.values()) last = v;
+        return last
+          ? Object.fromEntries(
+              Object.entries(last).filter(
+                ([, v]) => v !== null && v !== undefined && v !== ""
+              )
+            )
+          : null;
+      })()
     : null;
 
   return NextResponse.json({
     summary,
     results,
-    _debug: { sampleEccKeys, sampleEccOrder },
+    _debug: { ...debugInfo, sampleEccKeys, lastEccOrder },
   });
 }
