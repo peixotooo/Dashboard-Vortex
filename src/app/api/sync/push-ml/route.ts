@@ -154,15 +154,17 @@ async function applyPromoPrice(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const now = new Date();
-      const finish = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // max 14 days
+      // start_date = yesterday so ML activates immediately (status "started")
+      // Using today's date causes ML to set status "pending" instead
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const finish = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // max 14 days
       await ml.post(
         `/seller-promotions/items/${mlItemId}?app_version=v2`,
         {
           deal_price: dealPrice,
           promotion_type: "PRICE_DISCOUNT",
-          start_date: now.toISOString().split(".")[0],
-          finish_date: finish.toISOString().split(".")[0],
+          start_date: yesterday.toISOString().split("T")[0] + "T00:00:00",
+          finish_date: finish.toISOString().split("T")[0] + "T23:59:59",
         },
         workspaceId
       );
