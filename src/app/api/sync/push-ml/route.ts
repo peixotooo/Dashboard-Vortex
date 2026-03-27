@@ -137,6 +137,36 @@ async function fetchSizeGridMap(
   }
 }
 
+/**
+ * Apply promotional price via ML seller-promotions API (PRICE_DISCOUNT).
+ * ML requires: publish item at full price first, then apply discount separately.
+ * Non-critical — failure is logged but doesn't block the publish.
+ */
+async function applyPromoPrice(
+  mlItemId: string,
+  dealPrice: number,
+  workspaceId: string
+): Promise<{ applied: boolean; error?: string }> {
+  try {
+    const now = new Date();
+    const finish = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // max 14 days
+    await ml.post(
+      `/seller-promotions/items/${mlItemId}?app_version=v2`,
+      {
+        deal_price: dealPrice,
+        promotion_type: "PRICE_DISCOUNT",
+        start_date: now.toISOString().split(".")[0],
+        finish_date: finish.toISOString().split(".")[0],
+      },
+      workspaceId
+    );
+    return { applied: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro promo";
+    return { applied: false, error: message };
+  }
+}
+
 // -------------------------------------------------------------------
 // Build UP-model payload for a single product (no variations, has family_name)
 // Each child in a variation group gets its own POST /items call
@@ -400,6 +430,12 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", product.id);
 
+      // Apply promotional price if set
+      let promoResult: { applied: boolean; error?: string } | null = null;
+      if (product.preco_promocional && product.preco_promocional > 0 && product.preco_promocional < (product.preco ?? 0)) {
+        promoResult = await applyPromoPrice(result.id, product.preco_promocional, workspaceId);
+      }
+
       await supabase.from("hub_logs").insert({
         workspace_id: workspaceId,
         action: "push_ml",
@@ -407,7 +443,7 @@ export async function POST(req: NextRequest) {
         entity_id: product.sku,
         direction: "hub_to_ml",
         status: "ok",
-        details: { ml_item_id: result.id, ml_permalink: result.permalink },
+        details: { ml_item_id: result.id, ml_permalink: result.permalink, promo: promoResult },
       });
 
       results.push({
@@ -506,6 +542,12 @@ export async function POST(req: NextRequest) {
             } else {
               throw firstErr;
             }
+          }
+
+          // Apply promotional price if set
+          const promoPrice = child.preco_promocional ?? parent!.preco_promocional;
+          if (promoPrice && promoPrice > 0 && promoPrice < (child.preco ?? parent!.preco ?? 0)) {
+            await applyPromoPrice(result.id, promoPrice, workspaceId);
           }
 
           await supabase
