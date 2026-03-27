@@ -101,6 +101,13 @@ export default function HubPedidosPage() {
 
   // Action states
   const [pushingIds, setPushingIds] = useState<Set<number>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{
+    linked: number;
+    not_found: number;
+    tracking_sent: number;
+    nfe_sent: number;
+  } | null>(null);
 
   const fetchOrders = useCallback(async () => {
     if (!workspace?.id) return;
@@ -154,6 +161,31 @@ export default function HubPedidosPage() {
     }
   }
 
+  async function handleBatchSync() {
+    if (!workspace?.id) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/sync/batch-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSyncResult(data.summary);
+        fetchOrders();
+      } else {
+        const data = await res.json();
+        alert(`Erro: ${data.error}`);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function handleReprocess(mlOrderId: number) {
     if (!workspace?.id) return;
     setPushingIds((prev) => new Set(prev).add(mlOrderId));
@@ -187,16 +219,72 @@ export default function HubPedidosPage() {
             {total} pedido(s) no hub
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={fetchOrders}
-          disabled={loading}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleBatchSync}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <ArrowDownToLine className="h-4 w-4 mr-2" />
+            )}
+            Sincronizar Pedidos
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchOrders}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
+
+      {/* Sync result banner */}
+      {syncResult && (
+        <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+          <CardContent className="p-3 flex items-center justify-between">
+            <div className="flex gap-4 text-sm">
+              {syncResult.linked > 0 && (
+                <span className="text-green-700 dark:text-green-300">
+                  {syncResult.linked} vinculado(s)
+                </span>
+              )}
+              {syncResult.tracking_sent > 0 && (
+                <span className="text-blue-700 dark:text-blue-300">
+                  {syncResult.tracking_sent} rastreio(s) enviado(s)
+                </span>
+              )}
+              {syncResult.nfe_sent > 0 && (
+                <span className="text-purple-700 dark:text-purple-300">
+                  {syncResult.nfe_sent} NF-e(s) enviada(s)
+                </span>
+              )}
+              {syncResult.not_found > 0 && (
+                <span className="text-yellow-700 dark:text-yellow-300">
+                  {syncResult.not_found} nao encontrado(s) no Eccosys
+                </span>
+              )}
+              {syncResult.linked === 0 && syncResult.tracking_sent === 0 && syncResult.nfe_sent === 0 && syncResult.not_found === 0 && (
+                <span className="text-muted-foreground">Nenhuma alteracao</span>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setSyncResult(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card>
