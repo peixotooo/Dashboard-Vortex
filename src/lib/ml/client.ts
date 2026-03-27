@@ -176,6 +176,38 @@ class MLClient {
   }
 
   /**
+   * Upload a file as multipart/form-data (e.g. NFe XML to /packs/{id}/fiscal_documents).
+   */
+  async postMultipart<T = unknown>(
+    path: string,
+    fileName: string,
+    fileContent: string | Buffer,
+    contentType: string,
+    workspaceId: string
+  ): Promise<T> {
+    await this.throttle();
+    const token = await this.getToken(workspaceId);
+    const formData = new FormData();
+    const data =
+      typeof fileContent === "string"
+        ? fileContent
+        : new Uint8Array(fileContent);
+    const blob = new Blob([data], { type: contentType });
+    formData.append("fiscal_document", blob, fileName);
+
+    const res = await fetch(`${ML_BASE}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`ML ${res.status}: ${text}`);
+    }
+    return res.json();
+  }
+
+  /**
    * Check if ML credentials exist for the workspace.
    */
   async isConnected(workspaceId: string): Promise<boolean> {

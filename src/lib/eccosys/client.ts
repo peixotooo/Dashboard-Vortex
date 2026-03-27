@@ -125,6 +125,31 @@ class EccosysClient {
   }
 
   /**
+   * GET returning raw text (for XML endpoints like /xml-nfes/).
+   */
+  async getText(
+    path: string,
+    _workspaceId?: string,
+    params?: Record<string, string>
+  ): Promise<string> {
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado. Defina ECCOSYS_API_TOKEN nas env vars da Vercel.");
+
+    await this.throttle();
+    const url = new URL(this.getBaseUrl(config) + path);
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    }
+
+    const res = await fetch(url.toString(), { headers: this.getHeaders(config) });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Eccosys ${res.status}: ${text}`);
+    }
+    return res.text();
+  }
+
+  /**
    * Auto-paginate through all results.
    * Eccosys uses $offset + $count for pagination.
    */

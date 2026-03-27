@@ -127,7 +127,8 @@ export type HubOrderSyncStatus =
   | "imported"
   | "error"
   | "ignored"
-  | "tracking_sent";
+  | "tracking_sent"
+  | "nfe_sent";
 
 export interface HubOrderItem {
   sku: string;
@@ -144,6 +145,7 @@ export interface HubOrder {
   // ML side
   ml_order_id: number;
   ml_shipment_id: number | null;
+  ml_pack_id: number | null;
   ml_status: string | null;
   ml_date: string | null;
   buyer_name: string | null;
@@ -160,7 +162,10 @@ export interface HubOrder {
   ecc_numero: string | null;
   ecc_situacao: number | null;
   ecc_nfe_numero: string | null;
+  ecc_nfe_chave: string | null;
+  ecc_data_faturamento: string | null;
   ecc_rastreio: string | null;
+  nfe_xml_sent_at: string | null;
 
   // Control
   sync_status: HubOrderSyncStatus;
@@ -177,6 +182,7 @@ export type HubLogAction =
   | "pull_order"
   | "push_order_eccosys"
   | "sync_nfe"
+  | "link_order"
   | "sync_stock"
   | "sync_price"
   | "republish_ml"

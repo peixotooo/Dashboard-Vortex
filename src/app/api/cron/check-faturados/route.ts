@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { ml } from "@/lib/ml/client";
+import { uploadNFeToML } from "@/lib/hub/nfe-upload";
+import type { HubOrder } from "@/types/hub";
 
 export const maxDuration = 120;
 
@@ -16,7 +18,7 @@ interface EccosysPedido {
 
 /**
  * GET — Cron: Check for faturados (shipped) orders in Eccosys,
- * update hub_orders, and auto-send tracking to ML if available.
+ * update hub_orders, auto-send tracking to ML, and upload NF-e XML.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
     checked: number;
     updated: number;
     tracking_sent: number;
+    nfe_sent: number;
     error?: string;
   }> = [];
 
@@ -48,25 +51,51 @@ export async function GET(request: NextRequest) {
 
   for (const conn of connections) {
     const wsId = conn.workspace_id;
-    const wsResult: { workspace_id: string; checked: number; updated: number; tracking_sent: number; error?: string } = { workspace_id: wsId, checked: 0, updated: 0, tracking_sent: 0 };
+    const wsResult: {
+      workspace_id: string;
+      checked: number;
+      updated: number;
+      tracking_sent: number;
+      nfe_sent: number;
+      error?: string;
+    } = {
+      workspace_id: wsId,
+      checked: 0,
+      updated: 0,
+      tracking_sent: 0,
+      nfe_sent: 0,
+    };
 
     try {
-      // Get hub_orders that are imported but not yet tracking_sent
-      const { data: hubOrders } = await supabase
+      // Phase 1: Check imported orders for faturamento + tracking
+      const { data: importedOrders } = await supabase
         .from("hub_orders")
         .select("*")
         .eq("workspace_id", wsId)
         .eq("sync_status", "imported")
         .not("ecc_pedido_id", "is", null);
 
-      if (!hubOrders || hubOrders.length === 0) {
+      // Phase 2: Find tracking_sent orders that still need NF-e upload
+      const { data: trackingSentOrders } = await supabase
+        .from("hub_orders")
+        .select("*")
+        .eq("workspace_id", wsId)
+        .eq("sync_status", "tracking_sent")
+        .not("ecc_pedido_id", "is", null)
+        .is("nfe_xml_sent_at", null);
+
+      const ordersToCheck = importedOrders || [];
+      const ordersNeedingNfe = trackingSentOrders || [];
+
+      if (ordersToCheck.length === 0 && ordersNeedingNfe.length === 0) {
         results.push(wsResult);
         continue;
       }
 
-      wsResult.checked = hubOrders.length;
+      wsResult.checked = ordersToCheck.length + ordersNeedingNfe.length;
 
-      for (const order of hubOrders) {
+      // --- Phase 1: Check Eccosys status + send tracking ---
+      for (const order of ordersToCheck) {
         try {
           // Fetch current status from Eccosys
           const eccPedido = await eccosys.get<EccosysPedido>(
@@ -138,8 +167,19 @@ export async function GET(request: NextRequest) {
                   ml_shipment_id: order.ml_shipment_id,
                   rastreio,
                   source: "cron",
+                  stage: "tracking",
                 },
               });
+
+              // After tracking sent, try NF-e upload immediately if NF available
+              if (eccPedido.nfeNumero) {
+                const updatedOrder: HubOrder = {
+                  ...order,
+                  ecc_nfe_numero: eccPedido.nfeNumero,
+                  sync_status: "tracking_sent",
+                };
+                await tryUploadNfe(updatedOrder, wsId, wsResult, supabase);
+              }
             } catch (trackErr) {
               const msg = trackErr instanceof Error ? trackErr.message : "Erro";
               await supabase.from("hub_logs").insert({
@@ -149,13 +189,42 @@ export async function GET(request: NextRequest) {
                 entity_id: String(order.ml_order_id),
                 direction: "hub_to_ml",
                 status: "error",
-                details: { error: msg, source: "cron" },
+                details: { error: msg, source: "cron", stage: "tracking" },
               });
             }
           }
         } catch {
           // Individual order fetch failure — continue
         }
+      }
+
+      // --- Phase 2: Upload NF-e for tracking_sent orders ---
+      for (const order of ordersNeedingNfe) {
+        if (!order.ecc_nfe_numero) {
+          // Try to fetch nfe_numero from Eccosys first
+          try {
+            const eccPedido = await eccosys.get<EccosysPedido>(
+              `/pedidos/${order.ecc_pedido_id}`,
+              wsId
+            );
+            if (eccPedido.nfeNumero) {
+              await supabase
+                .from("hub_orders")
+                .update({
+                  ecc_nfe_numero: eccPedido.nfeNumero,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", order.id);
+              order.ecc_nfe_numero = eccPedido.nfeNumero;
+            } else {
+              continue; // No NF yet
+            }
+          } catch {
+            continue;
+          }
+        }
+
+        await tryUploadNfe(order as HubOrder, wsId, wsResult, supabase);
       }
     } catch (err) {
       wsResult.error = err instanceof Error ? err.message : "Erro";
@@ -165,4 +234,59 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ results });
+}
+
+/** Try to upload NF-e XML, log result. Non-blocking on failure. */
+async function tryUploadNfe(
+  order: HubOrder,
+  wsId: string,
+  wsResult: { nfe_sent: number },
+  supabase: ReturnType<typeof createAdminClient>
+) {
+  try {
+    const result = await uploadNFeToML(order, wsId);
+
+    if (result.success) {
+      wsResult.nfe_sent++;
+      await supabase.from("hub_logs").insert({
+        workspace_id: wsId,
+        action: "sync_nfe",
+        entity: "order",
+        entity_id: String(order.ml_order_id),
+        direction: "hub_to_ml",
+        status: "ok",
+        details: {
+          nfe_chave: result.nfe_chave,
+          ml_pack_id: order.ml_pack_id,
+          source: "cron",
+          stage: "nfe_xml",
+        },
+      });
+    } else {
+      await supabase.from("hub_logs").insert({
+        workspace_id: wsId,
+        action: "sync_nfe",
+        entity: "order",
+        entity_id: String(order.ml_order_id),
+        direction: "hub_to_ml",
+        status: "error",
+        details: {
+          error: result.error,
+          source: "cron",
+          stage: "nfe_xml",
+        },
+      });
+    }
+  } catch (nfeErr) {
+    const msg = nfeErr instanceof Error ? nfeErr.message : "Erro";
+    await supabase.from("hub_logs").insert({
+      workspace_id: wsId,
+      action: "sync_nfe",
+      entity: "order",
+      entity_id: String(order.ml_order_id),
+      direction: "hub_to_ml",
+      status: "error",
+      details: { error: msg, source: "cron", stage: "nfe_xml" },
+    });
+  }
 }

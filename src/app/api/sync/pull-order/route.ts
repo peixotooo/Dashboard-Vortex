@@ -27,6 +27,7 @@ interface MLOrder {
     total_paid_amount: number;
     status: string;
   }>;
+  pack_id?: number;
   shipping: { id?: number };
   tags?: string[];
 }
@@ -139,6 +140,7 @@ export async function POST(req: NextRequest) {
       workspace_id: workspaceId,
       ml_order_id: order.id,
       ml_shipment_id: shipment?.id || null,
+      ml_pack_id: order.pack_id || null,
       ml_status: order.status,
       ml_date: order.date_created,
       buyer_name: buyerName,
