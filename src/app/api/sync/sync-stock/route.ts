@@ -4,7 +4,7 @@ import { eccosys } from "@/lib/eccosys/client";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /**
  * POST — Sync stock from Eccosys to ML for linked products.
