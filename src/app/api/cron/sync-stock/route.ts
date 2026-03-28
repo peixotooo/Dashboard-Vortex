@@ -67,7 +67,20 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      wsResult.total = products.length;
+      // Build set of parent SKUs that have children — skip parents in sync
+      // to avoid overwriting child stock (UP model: parent shares ml_item_id with one child)
+      const parentSkusWithChildren = new Set<string>();
+      for (const p of products as HubProduct[]) {
+        if (p.ecc_pai_sku) parentSkusWithChildren.add(p.ecc_pai_sku);
+      }
+
+      const syncableProducts = (products as HubProduct[]).filter((p) => {
+        // Skip parent rows that have children (children sync individually)
+        if (!p.ecc_pai_sku && parentSkusWithChildren.has(p.sku)) return false;
+        return true;
+      });
+
+      wsResult.total = syncableProducts.length;
 
       // Fetch ALL Eccosys stock in bulk to avoid per-SKU requests
       const eccStockMap = new Map<string, number>();
@@ -87,7 +100,7 @@ export async function GET(request: NextRequest) {
 
       const now = new Date().toISOString();
 
-      for (const row of products as HubProduct[]) {
+      for (const row of syncableProducts) {
         try {
           // --- Stock sync ---
           let newStock: number;

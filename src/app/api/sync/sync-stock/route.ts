@@ -39,6 +39,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ updated: 0, message: "Nenhum produto vinculado" });
   }
 
+  // Skip parent rows that have children (children sync individually)
+  const parentSkusWithChildren = new Set<string>();
+  for (const p of products as HubProduct[]) {
+    if (p.ecc_pai_sku) parentSkusWithChildren.add(p.ecc_pai_sku);
+  }
+  const syncableProducts = (products as HubProduct[]).filter((p) => {
+    if (!p.ecc_pai_sku && parentSkusWithChildren.has(p.sku)) return false;
+    return true;
+  });
+
   let updated = 0;
   let skipped = 0;
   const errors: Array<{ sku: string; error: string }> = [];
@@ -59,7 +69,7 @@ export async function POST(req: NextRequest) {
     // If bulk fetch fails, fall back to per-SKU below
   }
 
-  for (const row of products as HubProduct[]) {
+  for (const row of syncableProducts) {
     try {
       // Get current Eccosys stock (from bulk map or individual fallback)
       let newStock: number;
