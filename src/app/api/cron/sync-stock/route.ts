@@ -2,21 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { ml } from "@/lib/ml/client";
-import { applyPromoPrice } from "@/lib/ml/promo";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
 export const maxDuration = 300;
 
-interface EccosysProduto {
-  id: number;
-  codigo: string;
-  preco: number;
-  precoPromocional?: number | null;
-  [key: string]: unknown;
-}
-
 /**
- * GET — Cron: Sync stock + price from Eccosys to ML for all workspaces.
+ * GET — Cron: Sync stock from Eccosys to ML for all workspaces.
+ * Price is managed in Hub and pushed to ML from there — not synced from Eccosys.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -30,8 +22,6 @@ export async function GET(request: NextRequest) {
     workspace_id: string;
     total: number;
     stock_updated: number;
-    price_updated: number;
-    promo_updated: number;
     skipped: number;
     errors: number;
   }> = [];
@@ -51,8 +41,6 @@ export async function GET(request: NextRequest) {
       workspace_id: wsId,
       total: 0,
       stock_updated: 0,
-      price_updated: 0,
-      promo_updated: 0,
       skipped: 0,
       errors: 0,
     };
@@ -80,25 +68,6 @@ export async function GET(request: NextRequest) {
       }
 
       wsResult.total = products.length;
-
-      // Fetch ALL Eccosys products in bulk to build price map
-      const eccPriceMap = new Map<string, { preco: number; precoPromocional: number | null }>();
-      try {
-        const allEccProducts = await eccosys.listAll<EccosysProduto>(
-          "/produtos",
-          wsId,
-          undefined,
-          100
-        );
-        for (const ep of allEccProducts) {
-          eccPriceMap.set(ep.codigo, {
-            preco: ep.preco,
-            precoPromocional: ep.precoPromocional ?? null,
-          });
-        }
-      } catch {
-        // If bulk fetch fails, continue with stock-only sync
-      }
 
       // Fetch ALL Eccosys stock in bulk to avoid per-SKU requests
       const eccStockMap = new Map<string, number>();
@@ -153,67 +122,18 @@ export async function GET(request: NextRequest) {
             wsResult.stock_updated++;
           }
 
-          // --- Price sync (from Eccosys bulk map) ---
-          const eccPrice = eccPriceMap.get(row.sku);
-          let priceChanged = false;
-          let promoChanged = false;
-
-          if (eccPrice) {
-            const newPreco = eccPrice.preco;
-            const newPromo = eccPrice.precoPromocional;
-
-            // Regular price changed
-            if (newPreco && newPreco !== row.preco) {
-              if (row.ml_variation_id) {
-                await ml.put(
-                  `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
-                  { price: newPreco },
-                  wsId
-                );
-              } else {
-                await ml.put(
-                  `/items/${row.ml_item_id}`,
-                  { price: newPreco },
-                  wsId
-                );
-              }
-              priceChanged = true;
-              wsResult.price_updated++;
-            }
-
-            // Promotional price changed
-            const currentPromo = row.preco_promocional ?? null;
-            const effectivePreco = newPreco || row.preco || row.ml_preco || 0;
-
-            if (newPromo !== currentPromo) {
-              if (newPromo && newPromo > 0 && newPromo < effectivePreco && row.ml_item_id) {
-                await applyPromoPrice(row.ml_item_id, newPromo, wsId);
-                promoChanged = true;
-                wsResult.promo_updated++;
-              }
-            }
-          }
-
           // --- Update hub_products ---
-          if (stockChanged || priceChanged || promoChanged) {
-            const updates: Record<string, unknown> = {
-              last_ecc_sync: now,
-              last_ml_sync: now,
-              updated_at: now,
-            };
-            if (stockChanged) {
-              updates.estoque = newStock;
-              updates.ml_estoque = mlStock;
-            }
-            if (priceChanged && eccPrice) {
-              updates.preco = eccPrice.preco;
-              updates.ml_preco = eccPrice.preco;
-            }
-            if (promoChanged && eccPrice) {
-              updates.preco_promocional = eccPrice.precoPromocional;
-            }
-
-            await supabase.from("hub_products").update(updates).eq("id", row.id);
+          if (stockChanged) {
+            await supabase
+              .from("hub_products")
+              .update({
+                estoque: newStock,
+                ml_estoque: mlStock,
+                last_ecc_sync: now,
+                last_ml_sync: now,
+                updated_at: now,
+              })
+              .eq("id", row.id);
           } else {
             wsResult.skipped++;
           }
@@ -232,8 +152,6 @@ export async function GET(request: NextRequest) {
         details: {
           total: wsResult.total,
           stock_updated: wsResult.stock_updated,
-          price_updated: wsResult.price_updated,
-          promo_updated: wsResult.promo_updated,
           skipped: wsResult.skipped,
           errors: wsResult.errors,
           source: "cron",
