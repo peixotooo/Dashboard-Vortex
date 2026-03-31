@@ -122,21 +122,30 @@ class MLClient {
     body: unknown,
     workspaceId: string
   ): Promise<T> {
-    await this.throttle();
-    const token = await this.getToken(workspaceId);
-    const res = await fetch(`${ML_BASE}${path}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      await this.throttle();
+      const token = await this.getToken(workspaceId);
+      const res = await fetch(`${ML_BASE}${path}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return res.json();
       const text = await res.text().catch(() => "");
+      // Retry on 429 (rate limit) and 5xx (server error)
+      if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
+        const delay = Math.min(2000 * Math.pow(2, attempt), 10000);
+        console.warn(`[ml] PUT ${path} → ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
       throw new Error(`ML ${res.status}: ${text}`);
     }
-    return res.json();
+    throw new Error(`ML PUT ${path}: max retries exceeded`);
   }
 
   async del<T = unknown>(path: string, workspaceId: string): Promise<T> {

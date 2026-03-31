@@ -58,13 +58,15 @@ export async function GET(request: NextRequest) {
       }
 
       // Fetch products with both Eccosys and ML links (= "Vinculado")
+      // Exclude sob_demanda products (stock managed manually in Hub)
       const { data: products } = await supabase
         .from("hub_products")
         .select("*")
         .eq("workspace_id", wsId)
         .not("ecc_id", "is", null)
         .not("ml_item_id", "is", null)
-        .eq("sync_status", "synced");
+        .eq("sync_status", "synced")
+        .eq("sob_demanda", false);
 
       if (!products || products.length === 0) {
         results.push(wsResult);
@@ -101,8 +103,12 @@ export async function GET(request: NextRequest) {
           100
         );
         for (const es of allStocks) {
-          eccStockMap.set(es.codigo, es.estoqueDisponivel);
-          if (es.idProduto) eccIdStockMap.set(parseInt(es.idProduto), es.estoqueDisponivel);
+          const stock = typeof es.estoqueDisponivel === "number" && !isNaN(es.estoqueDisponivel) ? es.estoqueDisponivel : 0;
+          eccStockMap.set(es.codigo, stock);
+          if (es.idProduto) {
+            const pid = parseInt(es.idProduto);
+            if (!isNaN(pid)) eccIdStockMap.set(pid, stock);
+          }
         }
         wsResult.bulk_fetch = true;
         console.log(`[sync-stock] Bulk fetch OK: ${eccStockMap.size} SKUs para workspace ${wsId}`);
@@ -131,23 +137,30 @@ export async function GET(request: NextRequest) {
             );
             newStock = estoque.estoqueDisponivel;
           }
-          // ML requires available_quantity >= 1
+          // Validate stock value
+          if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
+
           const mlStock = Math.max(newStock, 1);
-          const stockChanged = mlStock !== row.ml_estoque;
+          const stockChanged = newStock !== row.estoque;
 
           if (stockChanged) {
-            if (row.ml_variation_id) {
+            // Update ML: pause listing when stock=0, reactivate when stock>0
+            if (newStock <= 0 && !row.ml_variation_id) {
+              await ml.put(
+                `/items/${row.ml_item_id}`,
+                { available_quantity: 0, status: "paused" },
+                wsId
+              );
+            } else if (row.ml_variation_id) {
               await ml.put(
                 `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
                 { available_quantity: mlStock },
                 wsId
               );
             } else {
-              await ml.put(
-                `/items/${row.ml_item_id}`,
-                { available_quantity: mlStock },
-                wsId
-              );
+              const payload: Record<string, unknown> = { available_quantity: mlStock };
+              if (row.ml_status === "paused") payload.status = "active";
+              await ml.put(`/items/${row.ml_item_id}`, payload, wsId);
             }
             wsResult.stock_updated++;
           }
@@ -158,7 +171,8 @@ export async function GET(request: NextRequest) {
               .from("hub_products")
               .update({
                 estoque: newStock,
-                ml_estoque: mlStock,
+                ml_estoque: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
+                ml_status: newStock <= 0 && !row.ml_variation_id ? "paused" : row.ml_status === "paused" && newStock > 0 ? "active" : row.ml_status,
                 last_ecc_sync: now,
                 last_ml_sync: now,
                 updated_at: now,
