@@ -2159,13 +2159,14 @@ interface ProductGroup {
 function groupProducts(products: HubProduct[]): ProductGroup[] {
   const childrenMap = new Map<string, HubProduct[]>();
 
-  // First pass: index all products by SKU and collect children
+  // First pass: index children by composite key (ecc_pai_sku + ml_item_id)
+  // This keeps multi-linked products (same Eccosys → multiple ML items) separated
   for (const p of products) {
     if (p.ecc_pai_sku) {
-      // It's a child — group under parent
-      const arr = childrenMap.get(p.ecc_pai_sku) || [];
+      const groupKey = p.ml_item_id ? `${p.ecc_pai_sku}::${p.ml_item_id}` : p.ecc_pai_sku;
+      const arr = childrenMap.get(groupKey) || [];
       arr.push(p);
-      childrenMap.set(p.ecc_pai_sku, arr);
+      childrenMap.set(groupKey, arr);
     }
   }
 
@@ -2182,7 +2183,9 @@ function groupProducts(products: HubProduct[]): ProductGroup[] {
     if (processed.has(p.sku)) continue;
     if (usedAsChild.has(p.sku)) continue; // will be rendered as child
 
-    const children = childrenMap.get(p.sku) || [];
+    // Find children using composite key matching this parent's SKU + ml_item_id
+    const groupKey = p.ml_item_id ? `${p.sku}::${p.ml_item_id}` : p.sku;
+    const children = childrenMap.get(groupKey) || [];
     groups.push({ parent: p, children });
     processed.add(p.sku);
     for (const c of children) processed.add(c.sku);
