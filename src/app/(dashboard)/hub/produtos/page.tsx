@@ -28,6 +28,7 @@ import {
   Send,
   DollarSign,
   AlertTriangle,
+  Link2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -82,7 +83,7 @@ function SyncBadge({ status, eccId, mlItemId }: { status: string; eccId?: number
     draft: { label: "Rascunho", variant: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", desc: "Produto importado, ainda nao publicado no ML" },
     ready: { label: "Pronto", variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", desc: "Dados completos, pronto para publicar" },
     synced: { label: "Sincronizado", variant: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300", desc: "Publicado e ativo no Mercado Livre" },
-    linked: { label: "Vinculado", variant: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300", desc: "Vinculado na cadeia completa: Eccosys \u2194 Hub \u2194 ML" },
+    linked: { label: "Vinculado", variant: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", desc: "Vinculado na cadeia completa: Eccosys \u2194 Hub \u2194 ML" },
     error: { label: "Erro", variant: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300", desc: "Falha na publicacao ou sincronizacao" },
   };
   const key = isLinked ? "linked" : status;
@@ -1507,6 +1508,298 @@ interface MLListItem {
   health: number | null;
 }
 
+// -------------------------------------------------------------------
+// Link Eccosys Modal — links ML products to Eccosys parent
+// -------------------------------------------------------------------
+
+interface LinkPreview {
+  ecc_parent: { id: number; sku: string; nome: string; estoque: number };
+  ecc_children: Array<{
+    id: number;
+    sku: string;
+    nome: string;
+    estoque: number;
+    atributos: Record<string, string>;
+  }>;
+  ml_parent: { id: string; sku: string; nome: string | null } | null;
+  ml_children: Array<{
+    id: string;
+    sku: string;
+    nome: string | null;
+    ml_variation_id: number;
+    atributos: Record<string, string>;
+  }>;
+  matches: Array<{
+    ml_id: string;
+    ml_sku: string;
+    ecc_id: number;
+    ecc_sku: string;
+    matched_by: string;
+  }>;
+  unmatched_ml: string[];
+  unmatched_ecc: string[];
+}
+
+function LinkEccosysModal({
+  open,
+  onClose,
+  workspaceId,
+  mlItemId,
+  productName,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workspaceId: string;
+  mlItemId: string;
+  productName: string;
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState<"search" | "preview" | "result">("search");
+  const [eccSku, setEccSku] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [preview, setPreview] = useState<LinkPreview | null>(null);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{ linked: number } | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setStep("search");
+      setEccSku("");
+      setPreview(null);
+      setError("");
+      setResult(null);
+    }
+  }, [open]);
+
+  async function handleSearch() {
+    if (!eccSku.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/hub/link-eccosys?ecc_parent_sku=${encodeURIComponent(eccSku.trim())}&ml_item_id=${encodeURIComponent(mlItemId)}`,
+        { headers: { "x-workspace-id": workspaceId } }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Erro ao buscar produto");
+        return;
+      }
+      setPreview(data);
+      setStep("preview");
+    } catch {
+      setError("Erro de conexao");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLink() {
+    if (!preview) return;
+    setLinking(true);
+    try {
+      const res = await fetch("/api/hub/link-eccosys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({
+          ml_item_id: mlItemId,
+          ecc_parent_sku: eccSku.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Erro ao vincular");
+        return;
+      }
+      setResult({ linked: data.linked });
+      setStep("result");
+      onDone();
+    } catch {
+      setError("Erro de conexao");
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Vincular ao Eccosys</DialogTitle>
+          <DialogDescription>
+            Vincule o anuncio &quot;{productName}&quot; ({mlItemId}) a um produto do Eccosys.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Step 1: Search */}
+        {step === "search" && (
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Codigo do produto pai no Eccosys"
+                value={eccSku}
+                onChange={(e) => setEccSku(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearch();
+                }}
+                disabled={loading}
+                autoFocus
+              />
+              <Button onClick={handleSearch} disabled={loading || !eccSku.trim()}>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Search className="h-4 w-4 mr-2" />
+                )}
+                Buscar
+              </Button>
+            </div>
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded">
+                {error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 2: Preview */}
+        {step === "preview" && preview && (
+          <div className="flex-1 overflow-auto space-y-4">
+            {/* Parent match */}
+            <div className="p-3 border rounded-lg bg-muted/30">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Produto pai Eccosys</p>
+              <p className="font-medium">{preview.ecc_parent.nome}</p>
+              <p className="text-xs text-muted-foreground font-mono">{preview.ecc_parent.sku}</p>
+            </div>
+
+            {/* Matches table */}
+            {preview.matches.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">
+                  Variacoes encontradas: {preview.matches.length}
+                </p>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left p-2 font-medium">ML (atual)</th>
+                        <th className="text-center p-2 font-medium w-8"></th>
+                        <th className="text-left p-2 font-medium">Eccosys</th>
+                        <th className="text-right p-2 font-medium">Estoque</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.matches.map((m) => {
+                        const eccChild = preview.ecc_children.find(
+                          (c) => c.sku === m.ecc_sku
+                        );
+                        const mlChild = preview.ml_children.find(
+                          (c) => c.id === m.ml_id
+                        );
+                        return (
+                          <tr key={m.ml_id} className="border-t">
+                            <td className="p-2">
+                              <span className="font-mono text-xs">{mlChild?.sku || m.ml_sku}</span>
+                            </td>
+                            <td className="p-2 text-center">
+                              <Check className="h-4 w-4 text-green-600 inline" />
+                            </td>
+                            <td className="p-2">
+                              <span className="font-mono text-xs">{m.ecc_sku}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                ({m.matched_by})
+                              </span>
+                            </td>
+                            <td className="p-2 text-right font-mono text-xs">
+                              {eccChild?.estoque ?? "-"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Simple product (no variations) */}
+            {preview.matches.length === 0 && preview.ml_children.length === 0 && preview.ecc_children.length === 0 && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm">
+                  Produto simples (sem variacoes). Sera vinculado diretamente.
+                </p>
+              </div>
+            )}
+
+            {/* Unmatched warnings */}
+            {preview.unmatched_ml.length > 0 && (
+              <div className="text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  {preview.unmatched_ml.length} variacao(oes) do ML sem correspondencia no Eccosys: {preview.unmatched_ml.join(", ")}
+                </span>
+              </div>
+            )}
+
+            {preview.unmatched_ecc.length > 0 && (
+              <div className="text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  {preview.unmatched_ecc.length} variacao(oes) do Eccosys sem correspondencia no ML: {preview.unmatched_ecc.join(", ")}
+                </span>
+              </div>
+            )}
+
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => { setStep("search"); setError(""); }}>
+                Voltar
+              </Button>
+              <Button
+                onClick={handleLink}
+                disabled={linking || (preview.matches.length === 0 && preview.ecc_children.length > 0)}
+              >
+                {linking ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-2" />
+                )}
+                Vincular
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Result */}
+        {step === "result" && result && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center">
+              <Check className="h-6 w-6 text-green-600" />
+            </div>
+            <div>
+              <p className="font-medium text-lg">{result.linked} produto(s) vinculado(s)</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                O estoque sera sincronizado automaticamente a cada hora.
+              </p>
+            </div>
+            <Button onClick={onClose}>Fechar</Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PullMLModal({
   open,
   onClose,
@@ -2207,6 +2500,7 @@ export default function HubProdutosPage() {
   const [showPullML, setShowPullML] = useState(false);
   const [showImportFamily, setShowImportFamily] = useState(false);
   const [showBulkPrice, setShowBulkPrice] = useState(false);
+  const [linkEccosysTarget, setLinkEccosysTarget] = useState<{ mlItemId: string; nome: string } | null>(null);
 
   // Open modal from URL param
   useEffect(() => {
@@ -2761,7 +3055,18 @@ export default function HubProdutosPage() {
                               )}
                             </td>
                             <td className="p-3 text-center">
-                              <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} />
+                              <div className="flex items-center justify-center gap-1">
+                                <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} />
+                                {p.source === "ml" && !p.ecc_id && p.ml_item_id && (
+                                  <button
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-300 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-600 dark:text-blue-400 dark:hover:bg-blue-950 transition-colors"
+                                    onClick={() => setLinkEccosysTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
+                                  >
+                                    <Link2 className="h-3 w-3" />
+                                    Vincular
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
 
@@ -2948,6 +3253,18 @@ export default function HubProdutosPage() {
             onDone={() => {
               fetchProducts();
             }}
+          />
+        )}
+
+        {/* Link Eccosys Modal */}
+        {workspace?.id && linkEccosysTarget && (
+          <LinkEccosysModal
+            open={!!linkEccosysTarget}
+            onClose={() => setLinkEccosysTarget(null)}
+            workspaceId={workspace.id}
+            mlItemId={linkEccosysTarget.mlItemId}
+            productName={linkEccosysTarget.nome}
+            onDone={fetchProducts}
           />
         )}
       </div>

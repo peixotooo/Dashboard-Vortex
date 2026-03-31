@@ -41,11 +41,15 @@ export async function POST(req: NextRequest) {
 
   // Skip parent rows that have children (children sync individually)
   const parentSkusWithChildren = new Set<string>();
+  const mlItemsWithVariations = new Set<string>();
   for (const p of products as HubProduct[]) {
     if (p.ecc_pai_sku) parentSkusWithChildren.add(p.ecc_pai_sku);
+    if (p.ml_variation_id && p.ml_item_id) mlItemsWithVariations.add(p.ml_item_id);
   }
   const syncableProducts = (products as HubProduct[]).filter((p) => {
     if (!p.ecc_pai_sku && parentSkusWithChildren.has(p.sku)) return false;
+    // Also skip ML parents whose children sync individually (when SKU != Eccosys SKU)
+    if (!p.ml_variation_id && p.ml_item_id && mlItemsWithVariations.has(p.ml_item_id)) return false;
     return true;
   });
 
@@ -54,7 +58,9 @@ export async function POST(req: NextRequest) {
   const errors: Array<{ sku: string; error: string }> = [];
 
   // Fetch ALL stocks in bulk to avoid per-SKU requests
+  let bulkFetch = false;
   const eccStockMap = new Map<string, number>();
+  const eccIdStockMap = new Map<number, number>(); // ecc_id → stock (for multi-linked products)
   try {
     const allStocks = await eccosys.listAll<EccosysEstoque>(
       "/estoques",
@@ -64,17 +70,25 @@ export async function POST(req: NextRequest) {
     );
     for (const es of allStocks) {
       eccStockMap.set(es.codigo, es.estoqueDisponivel);
+      if (es.idProduto) eccIdStockMap.set(parseInt(es.idProduto), es.estoqueDisponivel);
     }
-  } catch {
-    // If bulk fetch fails, fall back to per-SKU below
+    bulkFetch = true;
+    console.log(`[sync-stock] Bulk fetch OK: ${eccStockMap.size} SKUs`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erro desconhecido";
+    console.error(`[sync-stock] Bulk fetch FALHOU: ${msg} — usando fallback per-SKU`);
+    errors.push({ sku: "_bulk", error: `bulk_fetch_failed: ${msg}` });
   }
 
   for (const row of syncableProducts) {
     try {
-      // Get current Eccosys stock (from bulk map or individual fallback)
+      // Get current Eccosys stock (from bulk map, ecc_id map, or individual fallback)
       let newStock: number;
       if (eccStockMap.has(row.sku)) {
         newStock = eccStockMap.get(row.sku)!;
+      } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
+        // Fallback: lookup by ecc_id (for products linked to same Eccosys item with ML SKU)
+        newStock = eccIdStockMap.get(row.ecc_id)!;
       } else {
         const estoque = await eccosys.get<EccosysEstoque>(
           `/estoques/${encodeURIComponent(row.sku)}`,
@@ -133,12 +147,14 @@ export async function POST(req: NextRequest) {
     entity: "product",
     entity_id: null,
     direction: "eccosys_to_ml",
-    status: errors.length > 0 ? "error" : "ok",
+    status: errors.filter((e) => e.sku !== "_bulk").length > 0 ? "error" : "ok",
     details: {
-      total: products.length,
+      total: syncableProducts.length,
       updated,
       skipped,
+      bulk_fetch: bulkFetch,
       errors: errors.length,
+      error_details: errors.slice(0, 20),
     },
   });
 

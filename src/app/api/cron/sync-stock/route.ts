@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
     stock_updated: number;
     skipped: number;
     errors: number;
+    error_details?: string[];
+    bulk_fetch: boolean;
   }> = [];
 
   // Find workspaces with both Eccosys and ML connected
@@ -43,6 +45,8 @@ export async function GET(request: NextRequest) {
       stock_updated: 0,
       skipped: 0,
       errors: 0,
+      error_details: [] as string[],
+      bulk_fetch: false,
     };
 
     try {
@@ -70,13 +74,17 @@ export async function GET(request: NextRequest) {
       // Build set of parent SKUs that have children — skip parents in sync
       // to avoid overwriting child stock (UP model: parent shares ml_item_id with one child)
       const parentSkusWithChildren = new Set<string>();
+      const mlItemsWithVariations = new Set<string>();
       for (const p of products as HubProduct[]) {
         if (p.ecc_pai_sku) parentSkusWithChildren.add(p.ecc_pai_sku);
+        if (p.ml_variation_id && p.ml_item_id) mlItemsWithVariations.add(p.ml_item_id);
       }
 
       const syncableProducts = (products as HubProduct[]).filter((p) => {
         // Skip parent rows that have children (children sync individually)
         if (!p.ecc_pai_sku && parentSkusWithChildren.has(p.sku)) return false;
+        // Also skip ML parents whose children sync individually (when SKU != Eccosys SKU)
+        if (!p.ml_variation_id && p.ml_item_id && mlItemsWithVariations.has(p.ml_item_id)) return false;
         return true;
       });
 
@@ -84,6 +92,7 @@ export async function GET(request: NextRequest) {
 
       // Fetch ALL Eccosys stock in bulk to avoid per-SKU requests
       const eccStockMap = new Map<string, number>();
+      const eccIdStockMap = new Map<number, number>(); // ecc_id → stock (for multi-linked products)
       try {
         const allStocks = await eccosys.listAll<EccosysEstoque>(
           "/estoques",
@@ -93,9 +102,14 @@ export async function GET(request: NextRequest) {
         );
         for (const es of allStocks) {
           eccStockMap.set(es.codigo, es.estoqueDisponivel);
+          if (es.idProduto) eccIdStockMap.set(parseInt(es.idProduto), es.estoqueDisponivel);
         }
-      } catch {
-        // If bulk fetch fails, fall back to per-SKU below
+        wsResult.bulk_fetch = true;
+        console.log(`[sync-stock] Bulk fetch OK: ${eccStockMap.size} SKUs para workspace ${wsId}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Erro desconhecido";
+        console.error(`[sync-stock] Bulk fetch FALHOU para workspace ${wsId}: ${msg} — usando fallback per-SKU`);
+        wsResult.error_details.push(`bulk_fetch_failed: ${msg}`);
       }
 
       const now = new Date().toISOString();
@@ -106,6 +120,9 @@ export async function GET(request: NextRequest) {
           let newStock: number;
           if (eccStockMap.has(row.sku)) {
             newStock = eccStockMap.get(row.sku)!;
+          } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
+            // Fallback: lookup by ecc_id (for products linked to same Eccosys item with ML SKU)
+            newStock = eccIdStockMap.get(row.ecc_id)!;
           } else {
             // Fallback: individual request if bulk didn't include this SKU
             const estoque = await eccosys.get<EccosysEstoque>(
@@ -150,8 +167,11 @@ export async function GET(request: NextRequest) {
           } else {
             wsResult.skipped++;
           }
-        } catch {
+        } catch (err) {
           wsResult.errors++;
+          const msg = err instanceof Error ? err.message : "Erro desconhecido";
+          wsResult.error_details.push(`${row.sku}: ${msg}`);
+          console.error(`[sync-stock] Erro SKU ${row.sku}: ${msg}`);
         }
       }
 
@@ -167,11 +187,16 @@ export async function GET(request: NextRequest) {
           stock_updated: wsResult.stock_updated,
           skipped: wsResult.skipped,
           errors: wsResult.errors,
+          bulk_fetch: wsResult.bulk_fetch,
+          error_details: wsResult.error_details.slice(0, 20),
           source: "cron",
         },
       });
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      console.error(`[sync-stock] Erro fatal workspace ${wsId}: ${msg}`);
       wsResult.errors = -1;
+      wsResult.error_details.push(`fatal: ${msg}`);
     }
 
     results.push(wsResult);
