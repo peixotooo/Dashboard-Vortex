@@ -2157,41 +2157,61 @@ interface ProductGroup {
 }
 
 function groupProducts(products: HubProduct[]): ProductGroup[] {
-  const childrenMap = new Map<string, HubProduct[]>();
+  // Two grouping strategies:
+  // 1. ML products: group by ml_item_id (parent = no ml_variation_id, children = with ml_variation_id)
+  // 2. Eccosys products: group by ecc_pai_sku (children reference parent SKU)
+  // This naturally separates multi-linked products (same Eccosys → multiple ML items)
 
-  // First pass: index children by composite key (ecc_pai_sku + ml_item_id)
-  // This keeps multi-linked products (same Eccosys → multiple ML items) separated
-  for (const p of products) {
-    if (p.ecc_pai_sku) {
-      const groupKey = p.ml_item_id ? `${p.ecc_pai_sku}::${p.ml_item_id}` : p.ecc_pai_sku;
-      const arr = childrenMap.get(groupKey) || [];
-      arr.push(p);
-      childrenMap.set(groupKey, arr);
-    }
-  }
-
-  // Second pass: build groups
+  const mlGroups = new Map<string, { parent: HubProduct | null; children: HubProduct[] }>();
+  const eccChildrenMap = new Map<string, HubProduct[]>();
   const usedAsChild = new Set<string>();
-  for (const children of childrenMap.values()) {
-    for (const c of children) usedAsChild.add(c.sku);
+
+  // First pass: group ML products by ml_item_id
+  for (const p of products) {
+    if (p.ml_item_id && p.ml_variation_id) {
+      // ML child
+      const group = mlGroups.get(p.ml_item_id) || { parent: null, children: [] };
+      group.children.push(p);
+      mlGroups.set(p.ml_item_id, group);
+      usedAsChild.add(p.sku);
+    } else if (p.ml_item_id && !p.ml_variation_id) {
+      // ML parent
+      const group = mlGroups.get(p.ml_item_id) || { parent: null, children: [] };
+      group.parent = p;
+      mlGroups.set(p.ml_item_id, group);
+    } else if (p.ecc_pai_sku && !p.ml_item_id) {
+      // Pure Eccosys child
+      const arr = eccChildrenMap.get(p.ecc_pai_sku) || [];
+      arr.push(p);
+      eccChildrenMap.set(p.ecc_pai_sku, arr);
+      usedAsChild.add(p.sku);
+    }
   }
 
   const groups: ProductGroup[] = [];
   const processed = new Set<string>();
 
+  // Build ML groups
+  for (const [, group] of mlGroups) {
+    if (group.parent) {
+      groups.push({ parent: group.parent, children: group.children });
+      processed.add(group.parent.sku);
+      for (const c of group.children) processed.add(c.sku);
+    }
+  }
+
+  // Build Eccosys groups + ungrouped products
   for (const p of products) {
     if (processed.has(p.sku)) continue;
-    if (usedAsChild.has(p.sku)) continue; // will be rendered as child
+    if (usedAsChild.has(p.sku)) continue;
 
-    // Find children using composite key matching this parent's SKU + ml_item_id
-    const groupKey = p.ml_item_id ? `${p.sku}::${p.ml_item_id}` : p.sku;
-    const children = childrenMap.get(groupKey) || [];
+    const children = eccChildrenMap.get(p.sku) || [];
     groups.push({ parent: p, children });
     processed.add(p.sku);
     for (const c of children) processed.add(c.sku);
   }
 
-  // Orphans (children whose parent isn't in this page)
+  // Orphans
   for (const p of products) {
     if (!processed.has(p.sku)) {
       groups.push({ parent: p, children: [] });
