@@ -76,7 +76,7 @@ import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types
 // -------------------------------------------------------------------
 // Sync status badge
 // -------------------------------------------------------------------
-function SyncBadge({ status, eccId, mlItemId }: { status: string; eccId?: number | null; mlItemId?: string | null }) {
+function SyncBadge({ status, eccId, mlItemId, eccSku }: { status: string; eccId?: number | null; mlItemId?: string | null; eccSku?: string | null }) {
   // Full chain: Eccosys → Hub → ML
   const isLinked = status === "synced" && !!eccId && !!mlItemId;
   const map: Record<string, { label: string; variant: string; desc: string }> = {
@@ -88,12 +88,15 @@ function SyncBadge({ status, eccId, mlItemId }: { status: string; eccId?: number
   };
   const key = isLinked ? "linked" : status;
   const badge = map[key] || map.draft;
+  const tooltip = isLinked && eccSku
+    ? `${badge.desc}\nEccosys: ${eccSku}`
+    : badge.desc;
   return (
     <span className="inline-flex items-center gap-1 group relative">
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge.variant}`}>
         {badge.label}
       </span>
-      <span className="text-[10px] text-muted-foreground cursor-help" title={badge.desc}>?</span>
+      <span className="text-[10px] text-muted-foreground cursor-help" title={tooltip}>?</span>
     </span>
   );
 }
@@ -3055,18 +3058,41 @@ export default function HubProdutosPage() {
                               )}
                             </td>
                             <td className="p-3 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} />
-                                {p.source === "ml" && !p.ecc_id && p.ml_item_id && (
-                                  <button
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-300 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-600 dark:text-blue-400 dark:hover:bg-blue-950 transition-colors"
-                                    onClick={() => setLinkEccosysTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
-                                  >
-                                    <Link2 className="h-3 w-3" />
-                                    Vincular
-                                  </button>
-                                )}
-                              </div>
+                              {(() => {
+                                const isLinked = p.sync_status === "synced" && !!p.ecc_id && !!p.ml_item_id;
+                                const eccParentSku = p.ecc_id
+                                  ? p.sku.startsWith("ML-")
+                                    ? group.children.find((c) => c.ecc_pai_sku)?.ecc_pai_sku || null
+                                    : p.sku
+                                  : null;
+                                // Find the Eccosys product name from the hub products list
+                                const eccRef = eccParentSku
+                                  ? products.find((prod) => prod.sku === eccParentSku && prod.id !== p.id)
+                                  : null;
+                                const eccNome = eccRef?.nome || null;
+
+                                return (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div className="flex items-center gap-1">
+                                      <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} eccSku={eccParentSku} />
+                                      {p.source === "ml" && !p.ecc_id && p.ml_item_id && (
+                                        <button
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-300 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-600 dark:text-blue-400 dark:hover:bg-blue-950 transition-colors"
+                                          onClick={() => setLinkEccosysTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
+                                        >
+                                          <Link2 className="h-3 w-3" />
+                                          Vincular
+                                        </button>
+                                      )}
+                                    </div>
+                                    {isLinked && eccParentSku && (
+                                      <div className="text-[10px] text-muted-foreground leading-tight max-w-[180px] truncate" title={`${eccParentSku}${eccNome ? ` — ${eccNome}` : ""}`}>
+                                        Ecc: {eccParentSku}{eccNome ? ` — ${eccNome}` : ""}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                           </tr>
 
@@ -3154,7 +3180,7 @@ export default function HubProdutosPage() {
                                     )}
                                   </td>
                                   <td className="p-3 text-center">
-                                    <SyncBadge status={child.sync_status} eccId={child.ecc_id} mlItemId={child.ml_item_id} />
+                                    <SyncBadge status={child.sync_status} eccId={child.ecc_id} mlItemId={child.ml_item_id} eccSku={child.ecc_pai_sku || (child.ecc_id && !child.sku.startsWith("ML-") ? child.sku : null)} />
                                   </td>
                                 </tr>
                               );
