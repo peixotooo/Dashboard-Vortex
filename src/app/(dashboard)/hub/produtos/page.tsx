@@ -3065,11 +3065,11 @@ export default function HubProdutosPage() {
                                     ? group.children.find((c) => c.ecc_pai_sku)?.ecc_pai_sku || null
                                     : p.sku
                                   : null;
-                                // Find the Eccosys product name from the hub products list
+                                // Find the Eccosys product name: check other row with same SKU, or use own nome
                                 const eccRef = eccParentSku
                                   ? products.find((prod) => prod.sku === eccParentSku && prod.id !== p.id)
                                   : null;
-                                const eccNome = eccRef?.nome || null;
+                                const eccNome = eccRef?.nome || (eccParentSku ? p.nome : null);
 
                                 return (
                                   <div className="flex flex-col items-center gap-1">
@@ -3085,9 +3085,11 @@ export default function HubProdutosPage() {
                                         </button>
                                       )}
                                     </div>
-                                    {isLinked && eccParentSku && (
-                                      <div className="text-[10px] text-muted-foreground leading-tight max-w-[180px] truncate" title={`${eccParentSku}${eccNome ? ` — ${eccNome}` : ""}`}>
-                                        Ecc: {eccParentSku}{eccNome ? ` — ${eccNome}` : ""}
+                                    {isLinked && eccParentSku && eccNome && (
+                                      <div className="text-[10px] text-muted-foreground leading-tight max-w-[180px]">
+                                        <span className="font-medium">{eccParentSku}</span>
+                                        <br />
+                                        <span className="truncate block" title={eccNome}>{eccNome}</span>
                                       </div>
                                     )}
                                   </div>
