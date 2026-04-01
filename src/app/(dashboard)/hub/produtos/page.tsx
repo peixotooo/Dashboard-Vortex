@@ -3126,6 +3126,27 @@ export default function HubProdutosPage() {
                                         <span className="truncate block" title={eccNome}>{eccNome}</span>
                                       </div>
                                     )}
+                                    {isLinked && p.source === "ml" && p.ml_item_id && (
+                                      <button
+                                        className="text-[10px] text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:underline"
+                                        onClick={async () => {
+                                          if (!confirm(`Desvincular ${p.nome || p.sku} do Eccosys?`)) return;
+                                          try {
+                                            const res = await fetch("/api/hub/unlink-eccosys", {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
+                                              body: JSON.stringify({ ml_item_id: p.ml_item_id }),
+                                            });
+                                            if (!res.ok) throw new Error(await res.text());
+                                            fetchProducts();
+                                          } catch (err) {
+                                            alert("Erro ao desvincular: " + (err instanceof Error ? err.message : "Erro"));
+                                          }
+                                        }}
+                                      >
+                                        Desvincular
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })()}
