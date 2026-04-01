@@ -38,7 +38,8 @@ export async function GET(req: NextRequest) {
   } else if (tab === "ml") {
     query = query.eq("source", "ml").is("ecc_id", null);
   } else if (tab === "vinculados") {
-    query = query.eq("linked", true);
+    // Only fetch parent rows — children will be fetched in a second query
+    query = query.eq("linked", true).is("ml_variation_id", null).is("ecc_pai_sku", null);
   } else {
     // "all" tab — apply individual filters
     if (source) {
@@ -71,6 +72,50 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // For vinculados tab: fetch children for all parent rows on this page
+  let products = data || [];
+  if (tab === "vinculados" && products.length > 0) {
+    const parentMlIds = products
+      .map((p) => p.ml_item_id)
+      .filter((id): id is string => !!id);
+    const parentSkus = products.map((p) => p.sku);
+
+    if (parentMlIds.length > 0 || parentSkus.length > 0) {
+      // Fetch children by ml_item_id (ML variations) OR by ecc_pai_sku (Eccosys children)
+      const childQueries = [];
+      if (parentMlIds.length > 0) {
+        childQueries.push(
+          supabase
+            .from("hub_products")
+            .select("*")
+            .eq("workspace_id", workspaceId)
+            .in("ml_item_id", parentMlIds)
+            .not("ml_variation_id", "is", null)
+        );
+      }
+      if (parentSkus.length > 0) {
+        childQueries.push(
+          supabase
+            .from("hub_products")
+            .select("*")
+            .eq("workspace_id", workspaceId)
+            .in("ecc_pai_sku", parentSkus)
+            .is("ml_item_id", null)
+        );
+      }
+
+      const childResults = await Promise.all(childQueries);
+      for (const res of childResults) {
+        if (res.data) {
+          // Filter out duplicates (children already in products list)
+          const existingIds = new Set(products.map((p) => p.id));
+          const newChildren = res.data.filter((c) => !existingIds.has(c.id));
+          products = [...products, ...newChildren];
+        }
+      }
+    }
+  }
+
   // Tab counts (lightweight head-only queries)
   let tabCounts: Record<string, number> | undefined;
   if (wantCounts) {
@@ -89,7 +134,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    products: data || [],
+    products,
     total: count ?? 0,
     page,
     pageSize,
