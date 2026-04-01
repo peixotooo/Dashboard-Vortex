@@ -124,22 +124,25 @@ export default function GA4Page() {
         ? `start_date=${selectedDate}&end_date=${selectedDate}`
         : `date_preset=${datePreset}&include_comparison=true`;
 
+      const headers: Record<string, string> = {};
+      if (workspace?.id) headers["x-workspace-id"] = workspace.id;
+
       const fetches: Promise<Response>[] = [
-        fetch(`/api/ga4/insights?${insightsParams}`),
-        fetch(reportQuery("products", 20, selectedDate)),
-        fetch(reportQuery("regions", 20, selectedDate)),
-        fetch(reportQuery("hourly", 24, selectedDate)),
-        fetch(reportQuery("day_of_week", 7, selectedDate)),
-        fetch(reportQuery("traffic", 20, selectedDate)),
-        fetch(reportQuery("devices", 10, selectedDate)),
-        fetch(reportQuery("google_ads_campaigns", 20, selectedDate)),
+        fetch(`/api/ga4/insights?${insightsParams}`, { headers }),
+        fetch(reportQuery("products", 20, selectedDate), { headers }),
+        fetch(reportQuery("regions", 20, selectedDate), { headers }),
+        fetch(reportQuery("hourly", 24, selectedDate), { headers }),
+        fetch(reportQuery("day_of_week", 7, selectedDate), { headers }),
+        fetch(reportQuery("traffic", 20, selectedDate), { headers }),
+        fetch(reportQuery("devices", 10, selectedDate), { headers }),
+        fetch(reportQuery("google_ads_campaigns", 20, selectedDate), { headers }),
       ];
 
       // Fetch Meta hourly data if Meta is configured
       if (metaAccountIds.length > 0) {
         for (const id of metaAccountIds) {
           fetches.push(
-            fetch(`/api/insights?object_id=${id}&level=account&${dateParams}&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone&time_increment=all_days`)
+            fetch(`/api/insights?object_id=${id}&level=account&${dateParams}&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone&time_increment=all_days`, { headers })
           );
         }
       }
@@ -208,7 +211,7 @@ export default function GA4Page() {
     } finally {
       setLoading(false);
     }
-  }, [datePreset, selectedDate, accountId, accounts, reportQuery]);
+  }, [datePreset, selectedDate, accountId, accounts, reportQuery, workspace]);
 
   useEffect(() => {
     fetchData();
