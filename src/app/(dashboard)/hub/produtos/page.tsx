@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   Link2,
   History,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -3149,6 +3150,35 @@ export default function HubProdutosPage() {
                                             }}
                                           >
                                             Desvincular
+                                          </button>
+                                        )}
+                                        {isLinked && (
+                                          <button
+                                            className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+                                            onClick={async (e) => {
+                                              const btn = e.currentTarget;
+                                              const icon = btn.querySelector("svg");
+                                              if (icon) icon.classList.add("animate-spin");
+                                              btn.disabled = true;
+                                              try {
+                                                const res = await fetch("/api/sync/sync-stock-item", {
+                                                  method: "POST",
+                                                  headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
+                                                  body: JSON.stringify({ ml_item_id: p.ml_item_id }),
+                                                });
+                                                const data = await res.json();
+                                                if (!res.ok) throw new Error(data.error || "Erro");
+                                                fetchProducts();
+                                              } catch (err) {
+                                                alert("Erro: " + (err instanceof Error ? err.message : "Erro"));
+                                              } finally {
+                                                if (icon) icon.classList.remove("animate-spin");
+                                                btn.disabled = false;
+                                              }
+                                            }}
+                                          >
+                                            <RefreshCw className="h-2.5 w-2.5" />
+                                            Sync
                                           </button>
                                         )}
                                         <button
