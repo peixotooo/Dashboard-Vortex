@@ -2197,6 +2197,13 @@ function groupProducts(products: HubProduct[]): ProductGroup[] {
       groups.push({ parent: group.parent, children: group.children });
       processed.add(group.parent.sku);
       for (const c of group.children) processed.add(c.sku);
+    } else if (group.children.length > 0) {
+      // Orphan ML children (no parent row) — promote first child as group parent
+      group.children.sort((a, b) => a.sku.localeCompare(b.sku));
+      const [first, ...rest] = group.children;
+      groups.push({ parent: first, children: rest });
+      processed.add(first.sku);
+      for (const c of rest) processed.add(c.sku);
     }
   }
 
