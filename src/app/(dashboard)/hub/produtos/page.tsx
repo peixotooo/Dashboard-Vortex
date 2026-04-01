@@ -2527,6 +2527,7 @@ export default function HubProdutosPage() {
   const [showImportFamily, setShowImportFamily] = useState(false);
   const [showBulkPrice, setShowBulkPrice] = useState(false);
   const [linkEccosysTarget, setLinkEccosysTarget] = useState<{ mlItemId: string; nome: string } | null>(null);
+  const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
 
   // Open modal from URL param
   useEffect(() => {
@@ -2909,7 +2910,10 @@ export default function HubProdutosPage() {
                             </td>
                             <td className="p-3">
                               {p.fotos && p.fotos.length > 0 ? (
-                                <div className="relative w-10 h-10">
+                                <button
+                                  className="relative w-10 h-10 cursor-zoom-in"
+                                  onClick={() => setExpandedImage({ src: p.fotos![0], alt: p.nome || p.sku })}
+                                >
                                   <Image
                                     src={p.fotos[0]}
                                     alt={p.nome || p.sku}
@@ -2918,7 +2922,7 @@ export default function HubProdutosPage() {
                                     sizes="40px"
                                     unoptimized
                                   />
-                                </div>
+                                </button>
                               ) : (
                                 <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
                                   <ImageIcon className="h-4 w-4 text-muted-foreground" />
@@ -3317,6 +3321,25 @@ export default function HubProdutosPage() {
             productName={linkEccosysTarget.nome}
             onDone={fetchProducts}
           />
+        )}
+
+        {/* Image Expand Modal */}
+        {expandedImage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 cursor-zoom-out"
+            onClick={() => setExpandedImage(null)}
+          >
+            <div className="relative max-w-[90vw] max-h-[90vh]">
+              <Image
+                src={expandedImage.src}
+                alt={expandedImage.alt}
+                width={800}
+                height={800}
+                className="rounded-lg object-contain max-h-[90vh]"
+                unoptimized
+              />
+            </div>
+          </div>
         )}
       </div>
     </TooltipProvider>
