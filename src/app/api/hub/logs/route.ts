@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action") || "";
   const status = req.nextUrl.searchParams.get("status") || "";
   const entity = req.nextUrl.searchParams.get("entity") || "";
-  const limit = 100;
+  const entityId = req.nextUrl.searchParams.get("entity_id") || "";
+  const limit = parseInt(req.nextUrl.searchParams.get("limit") || "100", 10);
 
   const supabase = createAdminClient();
   let query = supabase
@@ -30,6 +31,9 @@ export async function GET(req: NextRequest) {
   }
   if (entity && entity !== "all") {
     query = query.eq("entity", entity);
+  }
+  if (entityId) {
+    query = query.eq("entity_id", entityId);
   }
 
   query = query

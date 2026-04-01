@@ -148,10 +148,43 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", row.id);
 
+      // Log per-product stock change
+      await supabase.from("hub_logs").insert({
+        workspace_id: workspaceId,
+        action: "sync_stock",
+        entity: "product",
+        entity_id: row.ml_item_id,
+        direction: "eccosys_to_ml",
+        status: "ok",
+        details: {
+          sku: row.sku,
+          ml_variation_id: row.ml_variation_id || null,
+          old_stock: row.estoque,
+          new_stock: newStock,
+          old_ml_stock: row.ml_estoque,
+          new_ml_stock: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
+          paused: newStock <= 0 && !row.ml_variation_id,
+          reactivated: row.ml_status === "paused" && newStock > 0,
+        },
+      });
+
       updated++;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
       errors.push({ sku: row.sku, error: message });
+
+      // Log per-product error
+      try {
+        await supabase.from("hub_logs").insert({
+          workspace_id: workspaceId,
+          action: "sync_stock",
+          entity: "product",
+          entity_id: row.ml_item_id,
+          direction: "eccosys_to_ml",
+          status: "error",
+          details: { sku: row.sku, error: message },
+        });
+      } catch { /* ignore log failure */ }
     }
   }
 

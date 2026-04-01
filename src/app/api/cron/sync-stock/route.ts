@@ -178,6 +178,27 @@ export async function GET(request: NextRequest) {
                 updated_at: now,
               })
               .eq("id", row.id);
+
+            // Log per-product stock change
+            await supabase.from("hub_logs").insert({
+              workspace_id: wsId,
+              action: "sync_stock",
+              entity: "product",
+              entity_id: row.ml_item_id,
+              direction: "eccosys_to_ml",
+              status: "ok",
+              details: {
+                sku: row.sku,
+                ml_variation_id: row.ml_variation_id || null,
+                old_stock: row.estoque,
+                new_stock: newStock,
+                old_ml_stock: row.ml_estoque,
+                new_ml_stock: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
+                paused: newStock <= 0 && !row.ml_variation_id,
+                reactivated: row.ml_status === "paused" && newStock > 0,
+                source: "cron",
+              },
+            });
           } else {
             wsResult.skipped++;
           }
@@ -186,6 +207,18 @@ export async function GET(request: NextRequest) {
           const msg = err instanceof Error ? err.message : "Erro desconhecido";
           wsResult.error_details.push(`${row.sku}: ${msg}`);
           console.error(`[sync-stock] Erro SKU ${row.sku}: ${msg}`);
+
+          try {
+            await supabase.from("hub_logs").insert({
+              workspace_id: wsId,
+              action: "sync_stock",
+              entity: "product",
+              entity_id: row.ml_item_id,
+              direction: "eccosys_to_ml",
+              status: "error",
+              details: { sku: row.sku, error: msg, source: "cron" },
+            });
+          } catch { /* ignore log failure */ }
         }
       }
 

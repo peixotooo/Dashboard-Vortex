@@ -29,6 +29,7 @@ import {
   DollarSign,
   AlertTriangle,
   Link2,
+  History,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2535,6 +2536,7 @@ export default function HubProdutosPage() {
   const [showBulkPrice, setShowBulkPrice] = useState(false);
   const [linkEccosysTarget, setLinkEccosysTarget] = useState<{ mlItemId: string; nome: string } | null>(null);
   const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
+  const [syncLogTarget, setSyncLogTarget] = useState<{ mlItemId: string; nome: string } | null>(null);
 
   // Open modal from URL param
   useEffect(() => {
@@ -3126,26 +3128,37 @@ export default function HubProdutosPage() {
                                         <span className="truncate block" title={eccNome}>{eccNome}</span>
                                       </div>
                                     )}
-                                    {isLinked && p.source === "ml" && p.ml_item_id && (
-                                      <button
-                                        className="text-[10px] text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:underline"
-                                        onClick={async () => {
-                                          if (!confirm(`Desvincular ${p.nome || p.sku} do Eccosys?`)) return;
-                                          try {
-                                            const res = await fetch("/api/hub/unlink-eccosys", {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
-                                              body: JSON.stringify({ ml_item_id: p.ml_item_id }),
-                                            });
-                                            if (!res.ok) throw new Error(await res.text());
-                                            fetchProducts();
-                                          } catch (err) {
-                                            alert("Erro ao desvincular: " + (err instanceof Error ? err.message : "Erro"));
-                                          }
-                                        }}
-                                      >
-                                        Desvincular
-                                      </button>
+                                    {p.ml_item_id && (
+                                      <div className="flex items-center gap-2">
+                                        {isLinked && p.source === "ml" && (
+                                          <button
+                                            className="text-[10px] text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:underline"
+                                            onClick={async () => {
+                                              if (!confirm(`Desvincular ${p.nome || p.sku} do Eccosys?`)) return;
+                                              try {
+                                                const res = await fetch("/api/hub/unlink-eccosys", {
+                                                  method: "POST",
+                                                  headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
+                                                  body: JSON.stringify({ ml_item_id: p.ml_item_id }),
+                                                });
+                                                if (!res.ok) throw new Error(await res.text());
+                                                fetchProducts();
+                                              } catch (err) {
+                                                alert("Erro ao desvincular: " + (err instanceof Error ? err.message : "Erro"));
+                                              }
+                                            }}
+                                          >
+                                            Desvincular
+                                          </button>
+                                        )}
+                                        <button
+                                          className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                                          onClick={() => setSyncLogTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
+                                        >
+                                          <History className="h-2.5 w-2.5" />
+                                          Log
+                                        </button>
+                                      </div>
                                     )}
                                   </div>
                                 );
@@ -3369,7 +3382,145 @@ export default function HubProdutosPage() {
             </div>
           </div>
         )}
+
+        {/* Sync Log Modal */}
+        {syncLogTarget && workspace?.id && (
+          <SyncLogModal
+            mlItemId={syncLogTarget.mlItemId}
+            productName={syncLogTarget.nome}
+            workspaceId={workspace.id}
+            onClose={() => setSyncLogTarget(null)}
+          />
+        )}
       </div>
     </TooltipProvider>
+  );
+}
+
+// -------------------------------------------------------------------
+// Sync Log Modal
+// -------------------------------------------------------------------
+
+interface SyncLogEntry {
+  id: string;
+  action: string;
+  status: string;
+  created_at: string;
+  details: Record<string, unknown>;
+}
+
+function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
+  mlItemId: string;
+  productName: string;
+  workspaceId: string;
+  onClose: () => void;
+}) {
+  const [logs, setLogs] = useState<SyncLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/hub/logs?entity_id=${mlItemId}&limit=50`,
+          { headers: { "x-workspace-id": workspaceId } }
+        );
+        const data = await res.json();
+        setLogs(data.logs || []);
+      } catch {
+        setLogs([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [mlItemId, workspaceId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-background rounded-lg shadow-xl border max-w-[600px] w-full max-h-[80vh] flex flex-col mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-sm">Log de Sincronizacao</h3>
+            <p className="text-xs text-muted-foreground truncate max-w-[400px]">{productName} ({mlItemId})</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Nenhum log encontrado para este produto.</p>
+          ) : (
+            <div className="space-y-2">
+              {logs.map((log) => {
+                const d = log.details || {};
+                const isStockSync = log.action === "sync_stock";
+                const isLink = log.action === "link_eccosys";
+                const isPull = log.action === "pull_ml";
+                const isError = log.status === "error";
+                const time = new Date(log.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+                return (
+                  <div key={log.id} className={`rounded-md border p-2.5 text-xs ${isError ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950" : "border-border"}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${isError ? "bg-red-500" : "bg-green-500"}`} />
+                        <span className="font-medium">
+                          {isStockSync ? "Sync Estoque" : isLink ? "Vinculacao" : isPull ? "Import ML" : log.action}
+                        </span>
+                        {d.source ? <span className="text-muted-foreground">({String(d.source)})</span> : null}
+                      </div>
+                      <span className="text-muted-foreground">{time}</span>
+                    </div>
+
+                    {isStockSync && !isError && (
+                      <div className="text-muted-foreground">
+                        {d.sku ? <span className="font-mono">{String(d.sku)}</span> : null}
+                        {" "}
+                        {d.old_stock !== undefined && (
+                          <>
+                            <span>{String(d.old_stock)}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-medium text-foreground">{String(d.new_stock)}</span>
+                          </>
+                        )}
+                        {d.paused ? <span className="ml-1.5 text-orange-600 font-medium">pausado</span> : null}
+                        {d.reactivated ? <span className="ml-1.5 text-green-600 font-medium">reativado</span> : null}
+                      </div>
+                    )}
+
+                    {isLink && (
+                      <div className="text-muted-foreground">
+                        {d.action === "unlink" ? (
+                          <span>Desvinculado ({String(d.rows_updated)} rows)</span>
+                        ) : (
+                          <>
+                            <span>Ecc: <span className="font-mono">{String(d.ecc_parent_sku)}</span></span>
+                            {d.children_matched !== undefined ? <span> — {String(d.children_matched)} var. matched</span> : null}
+                            {d.match_method ? <span className="text-muted-foreground"> ({String(d.match_method)})</span> : null}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {isError && d.error ? (
+                      <div className="text-red-600 dark:text-red-400">{String(d.error)}</div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
