@@ -31,6 +31,7 @@ import {
   Link2,
   History,
   RefreshCw,
+  MoreVertical,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -3102,64 +3104,45 @@ export default function HubProdutosPage() {
                                     ? group.children.find((c) => c.ecc_pai_sku)?.ecc_pai_sku || null
                                     : p.sku
                                   : null;
-                                // Find the Eccosys product name: check other row with same SKU, or use own nome
                                 const eccRef = eccParentSku
                                   ? products.find((prod) => prod.sku === eccParentSku && prod.id !== p.id)
                                   : null;
                                 const eccNome = eccRef?.nome || (eccParentSku ? p.nome : null);
 
                                 return (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <div className="flex items-center gap-1">
-                                      <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} eccSku={eccParentSku} />
-                                      {p.source === "ml" && !p.ecc_id && p.ml_item_id && (
-                                        <button
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-300 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-600 dark:text-blue-400 dark:hover:bg-blue-950 transition-colors"
-                                          onClick={() => setLinkEccosysTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
-                                        >
-                                          <Link2 className="h-3 w-3" />
-                                          Vincular
-                                        </button>
-                                      )}
-                                    </div>
-                                    {isLinked && eccParentSku && eccNome && (
-                                      <div className="text-[10px] text-muted-foreground leading-tight max-w-[180px]">
-                                        <span className="font-medium">{eccParentSku}</span>
-                                        <br />
-                                        <span className="truncate block" title={eccNome}>{eccNome}</span>
-                                      </div>
-                                    )}
+                                  <div className="flex items-center justify-center gap-1">
+                                    <SyncBadge status={p.sync_status} eccId={p.ecc_id} mlItemId={p.ml_item_id} eccSku={eccParentSku} />
+                                    {/* Actions dropdown */}
                                     {p.ml_item_id && (
-                                      <div className="flex items-center gap-2">
-                                        {isLinked && p.source === "ml" && (
-                                          <button
-                                            className="text-[10px] text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:underline"
-                                            onClick={async () => {
-                                              if (!confirm(`Desvincular ${p.nome || p.sku} do Eccosys?`)) return;
-                                              try {
-                                                const res = await fetch("/api/hub/unlink-eccosys", {
-                                                  method: "POST",
-                                                  headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
-                                                  body: JSON.stringify({ ml_item_id: p.ml_item_id }),
-                                                });
-                                                if (!res.ok) throw new Error(await res.text());
-                                                fetchProducts();
-                                              } catch (err) {
-                                                alert("Erro ao desvincular: " + (err instanceof Error ? err.message : "Erro"));
-                                              }
-                                            }}
-                                          >
-                                            Desvincular
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                                            <MoreVertical className="h-3.5 w-3.5" />
                                           </button>
-                                        )}
-                                        {isLinked && (
-                                          <button
-                                            className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
-                                            onClick={async (e) => {
-                                              const btn = e.currentTarget;
-                                              const icon = btn.querySelector("svg");
-                                              if (icon) icon.classList.add("animate-spin");
-                                              btn.disabled = true;
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-56">
+                                          {/* Eccosys info */}
+                                          {isLinked && eccParentSku && (
+                                            <>
+                                              <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                                <div className="font-medium text-foreground">Eccosys: {eccParentSku}</div>
+                                                {eccNome && <div className="truncate">{eccNome}</div>}
+                                              </div>
+                                              <DropdownMenuSeparator />
+                                            </>
+                                          )}
+
+                                          {/* Vincular */}
+                                          {p.source === "ml" && !p.ecc_id && (
+                                            <DropdownMenuItem onClick={() => setLinkEccosysTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}>
+                                              <Link2 className="h-3.5 w-3.5 mr-2" />
+                                              Vincular ao Eccosys
+                                            </DropdownMenuItem>
+                                          )}
+
+                                          {/* Force sync */}
+                                          {isLinked && (
+                                            <DropdownMenuItem onClick={async () => {
                                               try {
                                                 const res = await fetch("/api/sync/sync-stock-item", {
                                                   method: "POST",
@@ -3171,24 +3154,47 @@ export default function HubProdutosPage() {
                                                 fetchProducts();
                                               } catch (err) {
                                                 alert("Erro: " + (err instanceof Error ? err.message : "Erro"));
-                                              } finally {
-                                                if (icon) icon.classList.remove("animate-spin");
-                                                btn.disabled = false;
                                               }
-                                            }}
-                                          >
-                                            <RefreshCw className="h-2.5 w-2.5" />
-                                            Sync
-                                          </button>
-                                        )}
-                                        <button
-                                          className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
-                                          onClick={() => setSyncLogTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}
-                                        >
-                                          <History className="h-2.5 w-2.5" />
-                                          Log
-                                        </button>
-                                      </div>
+                                            }}>
+                                              <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                                              Forcar Sincronizacao
+                                            </DropdownMenuItem>
+                                          )}
+
+                                          {/* Log */}
+                                          <DropdownMenuItem onClick={() => setSyncLogTarget({ mlItemId: p.ml_item_id!, nome: p.nome || p.sku })}>
+                                            <History className="h-3.5 w-3.5 mr-2" />
+                                            Ver Historico
+                                          </DropdownMenuItem>
+
+                                          {/* Desvincular */}
+                                          {isLinked && p.source === "ml" && (
+                                            <>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem
+                                                className="text-red-600 focus:text-red-600 dark:text-red-400"
+                                                onClick={async () => {
+                                                  if (!confirm(`Desvincular ${p.nome || p.sku} do Eccosys?`)) return;
+                                                  try {
+                                                    const res = await fetch("/api/hub/unlink-eccosys", {
+                                                      method: "POST",
+                                                      headers: { "Content-Type": "application/json", "x-workspace-id": workspace!.id },
+                                                      body: JSON.stringify({ ml_item_id: p.ml_item_id }),
+                                                    });
+                                                    if (!res.ok) throw new Error(await res.text());
+                                                    fetchProducts();
+                                                  } catch (err) {
+                                                    alert("Erro ao desvincular: " + (err instanceof Error ? err.message : "Erro"));
+                                                  }
+                                                }}
+                                              >
+                                                <X className="h-3.5 w-3.5 mr-2" />
+                                                Desvincular Eccosys
+                                              </DropdownMenuItem>
+                                            </>
+                                          )}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     )}
                                   </div>
                                 );

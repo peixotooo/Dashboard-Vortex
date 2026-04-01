@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
       supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId),
       supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("source", "eccosys").is("ml_item_id", null),
       supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("source", "ml").is("ecc_id", null),
-      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("linked", true),
+      supabase.from("hub_products").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("linked", true).is("ml_variation_id", null).is("ecc_pai_sku", null),
     ]);
     tabCounts = {
       all: allRes.count ?? 0,
