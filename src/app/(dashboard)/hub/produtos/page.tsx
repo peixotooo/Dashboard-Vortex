@@ -3398,7 +3398,7 @@ export default function HubProdutosPage() {
 }
 
 // -------------------------------------------------------------------
-// Sync Log Modal
+// Sync Log Modal — detailed family view
 // -------------------------------------------------------------------
 
 interface SyncLogEntry {
@@ -3409,6 +3409,65 @@ interface SyncLogEntry {
   details: Record<string, unknown>;
 }
 
+interface FamilyRow {
+  sku: string;
+  nome: string | null;
+  estoque: number;
+  ml_estoque: number | null;
+  ml_variation_id: number | null;
+  ecc_id: number | null;
+  last_ecc_sync: string | null;
+  last_ml_sync: string | null;
+  linked: boolean;
+  ml_status: string | null;
+  atributos: Record<string, string>;
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}
+
+function varLabel(row: FamilyRow): string {
+  const attrs = row.atributos || {};
+  const size = attrs.size || attrs.Tamanho || "";
+  const color = attrs.color || attrs.Cor || "";
+  if (size && color) return `${size} / ${color}`;
+  if (size) return size;
+  if (color) return color;
+  // Fallback: extract from nome
+  if (row.nome) {
+    const match = row.nome.match(/—\s*(.+)$/);
+    if (match) return match[1].trim();
+  }
+  return row.sku.split("-").pop() || row.sku;
+}
+
+/** Group log entries that happened within 2 minutes into a single "sync run" */
+function groupLogsByRun(logs: SyncLogEntry[]): Array<{ time: string; action: string; source: string; entries: SyncLogEntry[] }> {
+  const groups: Array<{ time: string; action: string; source: string; entries: SyncLogEntry[] }> = [];
+
+  for (const log of logs) {
+    const t = new Date(log.created_at).getTime();
+    const last = groups[groups.length - 1];
+    const lastT = last ? new Date(last.time).getTime() : 0;
+
+    if (last && log.action === last.action && Math.abs(t - lastT) < 120_000) {
+      last.entries.push(log);
+    } else {
+      groups.push({
+        time: log.created_at,
+        action: log.action,
+        source: String((log.details as Record<string, unknown>)?.source || ""),
+        entries: [log],
+      });
+    }
+  }
+  return groups;
+}
+
 function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
   mlItemId: string;
   productName: string;
@@ -3416,108 +3475,191 @@ function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
   onClose: () => void;
 }) {
   const [logs, setLogs] = useState<SyncLogEntry[]>([]);
+  const [family, setFamily] = useState<FamilyRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(
-          `/api/hub/logs?entity_id=${mlItemId}&limit=50`,
-          { headers: { "x-workspace-id": workspaceId } }
-        );
-        const data = await res.json();
-        setLogs(data.logs || []);
+        const [logsRes, familyRes] = await Promise.all([
+          fetch(`/api/hub/logs?entity_id=${mlItemId}&limit=100`, { headers: { "x-workspace-id": workspaceId } }),
+          fetch(`/api/hub/products?search=${mlItemId}&page_size=50`, { headers: { "x-workspace-id": workspaceId } }),
+        ]);
+        const logsData = await logsRes.json();
+        const familyData = await familyRes.json();
+        setLogs(logsData.logs || []);
+        const prods = (familyData.products || familyData.data || familyData || []) as FamilyRow[];
+        setFamily(prods.filter((p: FamilyRow) => p.ml_variation_id).sort((a: FamilyRow, b: FamilyRow) => a.sku.localeCompare(b.sku)));
       } catch {
         setLogs([]);
+        setFamily([]);
       } finally {
         setLoading(false);
       }
     })();
   }, [mlItemId, workspaceId]);
 
+  const logGroups = groupLogsByRun(logs);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="bg-background rounded-lg shadow-xl border max-w-[600px] w-full max-h-[80vh] flex flex-col mx-4"
+        className="bg-background rounded-lg shadow-xl border max-w-[700px] w-full max-h-[85vh] flex flex-col mx-4"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-sm">Log de Sincronizacao</h3>
-            <p className="text-xs text-muted-foreground truncate max-w-[400px]">{productName} ({mlItemId})</p>
+            <p className="text-xs text-muted-foreground truncate max-w-[500px]">{productName} — {mlItemId}</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-4">
+        <div className="overflow-y-auto flex-1">
           {loading ? (
-            <div className="flex items-center justify-center py-8">
+            <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : logs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Nenhum log encontrado para este produto.</p>
           ) : (
-            <div className="space-y-2">
-              {logs.map((log) => {
-                const d = log.details || {};
-                const isStockSync = log.action === "sync_stock";
-                const isLink = log.action === "link_eccosys";
-                const isPull = log.action === "pull_ml";
-                const isError = log.status === "error";
-                const time = new Date(log.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+            <>
+              {/* Current state — family table */}
+              {family.length > 0 && (
+                <div className="p-4 border-b">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Estado Atual</h4>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground border-b">
+                        <th className="text-left py-1 pr-2">Variacao</th>
+                        <th className="text-left py-1 pr-2">SKU</th>
+                        <th className="text-right py-1 pr-2">Eccosys</th>
+                        <th className="text-right py-1 pr-2">ML</th>
+                        <th className="text-right py-1">Ultimo Sync</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {family.map((row) => (
+                        <tr key={row.sku} className="border-b border-dashed last:border-0">
+                          <td className="py-1.5 pr-2 font-medium">{varLabel(row)}</td>
+                          <td className="py-1.5 pr-2 font-mono text-muted-foreground">{row.sku}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.estoque}</td>
+                          <td className="py-1.5 pr-2 text-right">
+                            <span className={row.ml_estoque !== row.estoque ? "text-red-500 font-medium" : ""}>
+                              {row.ml_estoque ?? "—"}
+                            </span>
+                          </td>
+                          <td className="py-1.5 text-right text-muted-foreground">
+                            {row.last_ecc_sync ? formatTime(row.last_ecc_sync) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-                return (
-                  <div key={log.id} className={`rounded-md border p-2.5 text-xs ${isError ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950" : "border-border"}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${isError ? "bg-red-500" : "bg-green-500"}`} />
-                        <span className="font-medium">
-                          {isStockSync ? "Sync Estoque" : isLink ? "Vinculacao" : isPull ? "Import ML" : log.action}
-                        </span>
-                        {d.source ? <span className="text-muted-foreground">({String(d.source)})</span> : null}
-                      </div>
-                      <span className="text-muted-foreground">{time}</span>
-                    </div>
+              {/* Log history */}
+              <div className="p-4">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                  Historico ({logs.length} {logs.length === 1 ? "entrada" : "entradas"})
+                </h4>
 
-                    {isStockSync && !isError && (
-                      <div className="text-muted-foreground">
-                        {d.sku ? <span className="font-mono">{String(d.sku)}</span> : null}
-                        {" "}
-                        {d.old_stock !== undefined && (
-                          <>
-                            <span>{String(d.old_stock)}</span>
-                            <span className="mx-1">→</span>
-                            <span className="font-medium text-foreground">{String(d.new_stock)}</span>
-                          </>
-                        )}
-                        {d.paused ? <span className="ml-1.5 text-orange-600 font-medium">pausado</span> : null}
-                        {d.reactivated ? <span className="ml-1.5 text-green-600 font-medium">reativado</span> : null}
-                      </div>
-                    )}
+                {logGroups.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">
+                    Nenhum log encontrado. O historico sera populado conforme o sync rodar.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {logGroups.map((group, gi) => {
+                      const isStockSync = group.action === "sync_stock";
+                      const isLink = group.action === "link_eccosys";
+                      const hasError = group.entries.some((e) => e.status === "error");
+                      const actionLabel = isStockSync ? "Sync Estoque" : isLink ? "Vinculacao" : group.action === "pull_ml" ? "Import ML" : group.action;
 
-                    {isLink && (
-                      <div className="text-muted-foreground">
-                        {d.action === "unlink" ? (
-                          <span>Desvinculado ({String(d.rows_updated)} rows)</span>
-                        ) : (
-                          <>
-                            <span>Ecc: <span className="font-mono">{String(d.ecc_parent_sku)}</span></span>
-                            {d.children_matched !== undefined ? <span> — {String(d.children_matched)} var. matched</span> : null}
-                            {d.match_method ? <span className="text-muted-foreground"> ({String(d.match_method)})</span> : null}
-                          </>
-                        )}
-                      </div>
-                    )}
+                      return (
+                        <div key={gi} className={`rounded-md border text-xs ${hasError ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950" : "border-border"}`}>
+                          {/* Group header */}
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-dashed">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`inline-block w-2 h-2 rounded-full ${hasError ? "bg-red-500" : "bg-green-500"}`} />
+                              <span className="font-semibold">{actionLabel}</span>
+                              {group.source ? <span className="text-muted-foreground">({group.source})</span> : null}
+                              {isStockSync ? <span className="text-muted-foreground ml-1">— {group.entries.length} SKU{group.entries.length > 1 ? "s" : ""} alterado{group.entries.length > 1 ? "s" : ""}</span> : null}
+                            </div>
+                            <span className="text-muted-foreground">{formatTime(group.time)}</span>
+                          </div>
 
-                    {isError && d.error ? (
-                      <div className="text-red-600 dark:text-red-400">{String(d.error)}</div>
-                    ) : null}
+                          {/* Group entries */}
+                          <div className="px-3 py-1.5 space-y-0.5">
+                            {group.entries.map((log) => {
+                              const d = log.details || {};
+                              const isError = log.status === "error";
+
+                              if (isError && d.error) {
+                                return (
+                                  <div key={log.id} className="flex items-center gap-2 py-0.5 text-red-600 dark:text-red-400">
+                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                    <span className="font-mono">{String(d.sku || "")}</span>
+                                    <span>{String(d.error)}</span>
+                                  </div>
+                                );
+                              }
+
+                              if (isStockSync) {
+                                const oldS = d.old_stock !== undefined ? Number(d.old_stock) : null;
+                                const newS = d.new_stock !== undefined ? Number(d.new_stock) : null;
+                                const diff = oldS !== null && newS !== null ? newS - oldS : null;
+                                return (
+                                  <div key={log.id} className="flex items-center gap-2 py-0.5">
+                                    <span className="font-mono text-muted-foreground w-[140px] truncate flex-shrink-0">{String(d.sku || "")}</span>
+                                    <span className="text-muted-foreground">{String(oldS ?? "?")}</span>
+                                    <span className="text-muted-foreground">→</span>
+                                    <span className="font-semibold">{String(newS ?? "?")}</span>
+                                    {diff !== null && diff !== 0 ? (
+                                      <span className={`font-medium ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
+                                        ({diff > 0 ? "+" : ""}{diff})
+                                      </span>
+                                    ) : null}
+                                    {d.paused ? <span className="text-orange-600 font-medium">PAUSADO</span> : null}
+                                    {d.reactivated ? <span className="text-green-600 font-medium">REATIVADO</span> : null}
+                                  </div>
+                                );
+                              }
+
+                              if (isLink) {
+                                return (
+                                  <div key={log.id} className="py-0.5 text-muted-foreground">
+                                    {d.action === "unlink" ? (
+                                      <span>Desvinculado — {String(d.rows_updated)} rows removidas</span>
+                                    ) : (
+                                      <>
+                                        <span>Vinculado a Eccosys </span>
+                                        <span className="font-mono font-medium text-foreground">{String(d.ecc_parent_sku || "")}</span>
+                                        {d.children_matched !== undefined ? <span> — {String(d.children_matched)} variacoes matched</span> : null}
+                                        {d.match_method ? <span> (metodo: {String(d.match_method)})</span> : null}
+                                        {d.sku_kept ? <span className="text-orange-600"> [SKU ML mantido]</span> : null}
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div key={log.id} className="py-0.5 text-muted-foreground">
+                                  {log.action}: {log.status}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
