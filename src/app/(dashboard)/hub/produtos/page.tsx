@@ -3673,7 +3673,7 @@ function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
                                       <>
                                         <span>Vinculado a Eccosys </span>
                                         <span className="font-mono font-medium text-foreground">{String(d.ecc_parent_sku || "")}</span>
-                                        {d.children_matched !== undefined ? <span> — {String(d.children_matched)} variacoes matched</span> : null}
+                                        {d.children_matched !== undefined ? <span> — {Array.isArray(d.children_matched) ? d.children_matched.length : String(d.children_matched)} variacoes matched</span> : null}
                                         {d.match_method ? <span> (metodo: {String(d.match_method)})</span> : null}
                                         {d.sku_kept ? <span className="text-orange-600"> [SKU ML mantido]</span> : null}
                                       </>

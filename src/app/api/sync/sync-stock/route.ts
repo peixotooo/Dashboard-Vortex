@@ -107,9 +107,11 @@ export async function POST(req: NextRequest) {
       if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
 
       const mlStock = Math.max(newStock, 1);
+      const shouldPause = newStock <= 0 && !row.ml_variation_id;
+      const desiredMlStock = shouldPause ? 0 : mlStock;
+      const stockChanged = desiredMlStock !== row.ml_estoque || (shouldPause && row.ml_status !== "paused") || (newStock > 0 && row.ml_status === "paused");
 
-      // Compare with current stock — skip if nothing changed
-      if (newStock === row.estoque) {
+      if (!stockChanged) {
         skipped++;
         continue;
       }

@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: "No workspaces", results: [] });
   }
 
+  console.log(`[sync-stock-cron] Found ${connections.length} workspaces: ${connections.map((c) => c.workspace_id).join(", ")}`);
+
   for (const conn of connections) {
     const wsId = conn.workspace_id;
     const wsResult = {
@@ -52,6 +54,7 @@ export async function GET(request: NextRequest) {
     try {
       // Check if ML is connected for this workspace
       const mlConnected = await ml.isConnected(wsId);
+      console.log(`[sync-stock-cron] ws=${wsId} mlConnected=${mlConnected}`);
       if (!mlConnected) {
         results.push(wsResult);
         continue;
@@ -67,6 +70,8 @@ export async function GET(request: NextRequest) {
         .not("ml_item_id", "is", null)
         .eq("sync_status", "synced")
         .eq("sob_demanda", false);
+
+      console.log(`[sync-stock-cron] ws=${wsId} products=${products?.length ?? 0} syncable=${products?.length ?? 0}`);
 
       if (!products || products.length === 0) {
         results.push(wsResult);
@@ -91,6 +96,7 @@ export async function GET(request: NextRequest) {
       });
 
       wsResult.total = syncableProducts.length;
+      console.log(`[sync-stock-cron] ws=${wsId} syncable=${syncableProducts.length} (filtered from ${products!.length})`);
 
       // Fetch ALL Eccosys stock in bulk to avoid per-SKU requests
       const eccStockMap = new Map<string, number>();
@@ -141,7 +147,9 @@ export async function GET(request: NextRequest) {
           if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
 
           const mlStock = Math.max(newStock, 1);
-          const stockChanged = newStock !== row.estoque;
+          const shouldPause = newStock <= 0 && !row.ml_variation_id;
+          const desiredMlStock = shouldPause ? 0 : mlStock;
+          const stockChanged = desiredMlStock !== row.ml_estoque || (shouldPause && row.ml_status !== "paused") || (newStock > 0 && row.ml_status === "paused");
 
           if (stockChanged) {
             // Update ML: pause listing when stock=0, reactivate when stock>0
@@ -249,5 +257,6 @@ export async function GET(request: NextRequest) {
     results.push(wsResult);
   }
 
+  console.log(`[sync-stock-cron] Done: ${JSON.stringify(results.map((r) => ({ ws: r.workspace_id, total: r.total, updated: r.stock_updated, skipped: r.skipped, errors: r.errors, bulk: r.bulk_fetch })))}`);
   return NextResponse.json({ results });
 }
