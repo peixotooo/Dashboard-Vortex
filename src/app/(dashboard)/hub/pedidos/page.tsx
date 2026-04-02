@@ -679,22 +679,25 @@ function OrderDetail({ order }: { order: HubOrder }) {
     if (mlItemIds.length === 0) return;
     (async () => {
       try {
-        const res = await fetch(
-          `/api/hub/products?search=${mlItemIds[0]}&page_size=20`,
-          { headers: { "x-workspace-id": workspace.id } }
-        );
-        const data = await res.json();
-        const products = data.products || data.data || [];
         const map: Record<string, string> = {};
-        for (const p of products) {
-          if (p.fotos && p.fotos.length > 0 && p.ml_item_id) {
-            if (!map[p.ml_item_id]) map[p.ml_item_id] = p.fotos[0];
+        // Fetch each ML item's product to get the image
+        for (const mlId of mlItemIds) {
+          const res = await fetch(
+            `/api/hub/products?search=${mlId}&page_size=5`,
+            { headers: { "x-workspace-id": workspace.id } }
+          );
+          const data = await res.json();
+          const products = data.products || data.data || [];
+          for (const p of products) {
+            if (p.fotos && p.fotos.length > 0 && p.ml_item_id && !map[p.ml_item_id]) {
+              map[p.ml_item_id] = p.fotos[0];
+            }
           }
         }
         setImageMap(map);
       } catch { /* ignore */ }
     })();
-  }, [workspace?.id, items, order.ml_order_id]);
+  }, [workspace?.id, order.ml_order_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>

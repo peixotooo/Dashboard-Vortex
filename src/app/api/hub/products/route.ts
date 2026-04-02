@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (search) {
-    query = query.or(`sku.ilike.%${search}%,nome.ilike.%${search}%`);
+    query = query.or(`sku.ilike.%${search}%,nome.ilike.%${search}%,ml_item_id.ilike.%${search}%`);
   }
   if (syncStatus === "linked") {
     // Vinculado = synced + has both Eccosys and ML IDs
