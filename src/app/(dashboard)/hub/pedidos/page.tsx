@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -415,21 +416,36 @@ export default function HubPedidosPage() {
                         );
                       }
 
-                      // Pack group
+                      // Pack group — clicking row opens combined detail, chevron expands individual orders
+                      // Create a virtual "combined" order for the sheet
+                      const combinedOrder: HubOrder = {
+                        ...first,
+                        total: packTotal,
+                        items: packOrders.flatMap((o) => o.items || []),
+                      };
+
                       return (
                         <React.Fragment key={packKey}>
                           {/* Pack header row */}
                           <tr
                             className="border-t hover:bg-muted/30 cursor-pointer"
-                            onClick={() => setExpandedPacks((prev) => {
-                              const next = new Set(prev);
-                              next.has(packKey) ? next.delete(packKey) : next.add(packKey);
-                              return next;
-                            })}
+                            onClick={() => setSelectedOrder(combinedOrder)}
                           >
                             <td className="p-3">
                               <div className="flex items-center gap-1">
-                                {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                <button
+                                  className="p-0.5 hover:bg-muted rounded"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedPacks((prev) => {
+                                      const next = new Set(prev);
+                                      next.has(packKey) ? next.delete(packKey) : next.add(packKey);
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                </button>
                                 <div>
                                   <div className="font-mono text-xs font-medium">{packKey}</div>
                                   <div className="text-[10px] text-muted-foreground">{packOrders.length} pedidos</div>
@@ -588,9 +604,35 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild }: 
 // Order Detail Sheet Content
 // -------------------------------------------------------------------
 function OrderDetail({ order }: { order: HubOrder }) {
+  const { workspace } = useWorkspace();
   const addr = order.endereco as Record<string, unknown> | null;
   const payment = order.pagamento as Record<string, unknown> | null;
   const items = (order.items || []) as HubOrderItem[];
+
+  // Fetch product images from hub_products
+  const [imageMap, setImageMap] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!workspace?.id || items.length === 0) return;
+    const mlItemIds = [...new Set(items.map((i) => i.ml_item_id).filter(Boolean))];
+    if (mlItemIds.length === 0) return;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/hub/products?search=${mlItemIds[0]}&page_size=20`,
+          { headers: { "x-workspace-id": workspace.id } }
+        );
+        const data = await res.json();
+        const products = data.products || data.data || [];
+        const map: Record<string, string> = {};
+        for (const p of products) {
+          if (p.fotos && p.fotos.length > 0 && p.ml_item_id) {
+            if (!map[p.ml_item_id]) map[p.ml_item_id] = p.fotos[0];
+          }
+        }
+        setImageMap(map);
+      } catch { /* ignore */ }
+    })();
+  }, [workspace?.id, items, order.ml_order_id]);
 
   return (
     <>
@@ -625,15 +667,35 @@ function OrderDetail({ order }: { order: HubOrder }) {
           {items.length > 0 ? (
             <div className="space-y-2">
               {items.map((item, i) => (
-                <div key={i} className="rounded border p-2">
-                  <div className="font-medium text-xs">{item.nome}</div>
-                  <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                    <span className="font-mono">{item.sku}</span>
-                    <span>
-                      {item.qtd}x {Number(item.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </span>
+                <div key={i} className="rounded border p-2 flex gap-3">
+                  {/* Product image */}
+                  <div className="relative w-14 h-14 flex-shrink-0 rounded overflow-hidden bg-muted">
+                    {imageMap[item.ml_item_id] ? (
+                      <Image
+                        src={imageMap[item.ml_item_id]}
+                        alt={item.nome}
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                        unoptimized
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Package className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">{item.ml_item_id}</div>
+                  {/* Product info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-xs truncate">{item.nome}</div>
+                    <div className="flex justify-between mt-1 text-xs text-muted-foreground">
+                      <span className="font-mono">{item.sku}</span>
+                      <span className="font-medium text-foreground">
+                        {item.qtd}x {Number(item.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">{item.ml_item_id}</div>
+                  </div>
                 </div>
               ))}
             </div>
