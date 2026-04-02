@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -12,6 +12,14 @@ import {
   Check,
   AlertTriangle,
   RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  User,
+  MapPin,
+  CreditCard,
+  ShoppingCart,
+  Truck,
+  FileText,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,8 +32,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useWorkspace } from "@/lib/workspace-context";
-import type { HubOrder } from "@/types/hub";
+import type { HubOrder, HubOrderItem } from "@/types/hub";
 
 // -------------------------------------------------------------------
 // Order sync status badge
@@ -98,6 +112,10 @@ export default function HubPedidosPage() {
   // Filters
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState("");
+
+  // Detail sheet
+  const [selectedOrder, setSelectedOrder] = useState<HubOrder | null>(null);
+  const [expandedPacks, setExpandedPacks] = useState<Set<string>>(new Set());
 
   // Action states
   const [pushingIds, setPushingIds] = useState<Set<number>>(new Set());
@@ -367,144 +385,90 @@ export default function HubPedidosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((order) => (
-                    <tr key={order.id} className="border-t hover:bg-muted/30">
-                      <td className="p-3">
-                        <div className="font-mono text-xs font-medium">
-                          {order.ml_pack_id || order.ml_order_id}
-                        </div>
-                        {order.ml_pack_id && (
-                          <div className="font-mono text-[10px] text-muted-foreground mt-0.5">
-                            order {order.ml_order_id}
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 text-xs whitespace-nowrap">
-                        {order.ml_date
-                          ? new Date(order.ml_date).toLocaleDateString("pt-BR", {
-                              day: "2-digit",
-                              month: "2-digit",
-                              year: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "-"}
-                      </td>
-                      <td className="p-3 truncate max-w-[180px]">
-                        {order.buyer_name || "-"}
-                      </td>
-                      <td className="p-3 text-right whitespace-nowrap">
-                        {order.total != null
-                          ? Number(order.total).toLocaleString("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            })
-                          : "-"}
-                      </td>
-                      <td className="p-3 text-center">
-                        <MLStatusBadge status={order.ml_status} />
-                      </td>
-                      <td className="p-3 text-center">
-                        <OrderStatusBadge status={order.sync_status} />
-                      </td>
-                      <td className="p-3 text-center">
-                        {order.ecc_numero ? (
-                          <span className="text-xs font-mono">
-                            {order.ecc_numero}
-                          </span>
-                        ) : order.ecc_pedido_id ? (
-                          <span className="text-xs font-mono">
-                            #{order.ecc_pedido_id}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        {order.ecc_nfe_numero ? (
-                          <div>
-                            <span className="text-xs font-mono">
-                              {order.ecc_nfe_numero}
-                            </span>
-                            {order.nfe_xml_sent_at ? (
-                              <div className="text-[10px] text-green-600 mt-0.5">ML ok</div>
-                            ) : (
-                              <div className="text-[10px] text-muted-foreground mt-0.5">pendente</div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        {order.ecc_rastreio ? (
-                          <span className="text-xs font-mono">
-                            {order.ecc_rastreio}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {/* Push to Eccosys */}
-                          {order.sync_status === "pending" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title="Importar no Eccosys"
-                              disabled={pushingIds.has(order.ml_order_id)}
-                              onClick={() =>
-                                handlePushToEccosys(order.ml_order_id)
-                              }
-                            >
-                              {pushingIds.has(order.ml_order_id) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />
-                              )}
-                            </Button>
-                          )}
+                  {(() => {
+                    // Group orders by pack_id
+                    const groups = new Map<string, HubOrder[]>();
+                    for (const o of orders) {
+                      const key = o.ml_pack_id ? String(o.ml_pack_id) : String(o.ml_order_id);
+                      const arr = groups.get(key) || [];
+                      arr.push(o);
+                      groups.set(key, arr);
+                    }
 
-                          {/* Reprocess (re-pull from ML) */}
-                          {order.sync_status === "error" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title="Reprocessar"
-                              disabled={pushingIds.has(order.ml_order_id)}
-                              onClick={() =>
-                                handleReprocess(order.ml_order_id)
-                              }
-                            >
-                              {pushingIds.has(order.ml_order_id) ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <RefreshCw className="h-3.5 w-3.5 text-blue-500" />
-                              )}
-                            </Button>
-                          )}
+                    return [...groups.entries()].map(([packKey, packOrders]) => {
+                      const isPack = packOrders.length > 1;
+                      const first = packOrders[0];
+                      const isExpanded = expandedPacks.has(packKey);
+                      const packTotal = packOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
 
-                          {/* Error indicator */}
-                          {order.error_msg && (
-                            <span
-                              title={order.error_msg}
-                              className="cursor-help"
-                            >
-                              <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                            </span>
-                          )}
+                      // Single order (no pack) — render as before
+                      if (!isPack) {
+                        return (
+                          <OrderRow
+                            key={first.id}
+                            order={first}
+                            pushingIds={pushingIds}
+                            onPush={handlePushToEccosys}
+                            onReprocess={handleReprocess}
+                            onClick={() => setSelectedOrder(first)}
+                          />
+                        );
+                      }
 
-                          {/* Success indicator */}
-                          {order.sync_status === "imported" && (
-                            <Check className="h-3.5 w-3.5 text-green-500" />
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                      // Pack group
+                      return (
+                        <React.Fragment key={packKey}>
+                          {/* Pack header row */}
+                          <tr
+                            className="border-t hover:bg-muted/30 cursor-pointer"
+                            onClick={() => setExpandedPacks((prev) => {
+                              const next = new Set(prev);
+                              next.has(packKey) ? next.delete(packKey) : next.add(packKey);
+                              return next;
+                            })}
+                          >
+                            <td className="p-3">
+                              <div className="flex items-center gap-1">
+                                {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                <div>
+                                  <div className="font-mono text-xs font-medium">{packKey}</div>
+                                  <div className="text-[10px] text-muted-foreground">{packOrders.length} pedidos</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 text-xs whitespace-nowrap">
+                              {first.ml_date ? new Date(first.ml_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}
+                            </td>
+                            <td className="p-3 truncate max-w-[180px]">{first.buyer_name || "-"}</td>
+                            <td className="p-3 text-right whitespace-nowrap font-medium">
+                              {packTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </td>
+                            <td className="p-3 text-center"><MLStatusBadge status={first.ml_status} /></td>
+                            <td className="p-3 text-center"><OrderStatusBadge status={first.sync_status} /></td>
+                            <td className="p-3 text-center"><span className="text-xs text-muted-foreground">-</span></td>
+                            <td className="p-3 text-center"><span className="text-xs text-muted-foreground">-</span></td>
+                            <td className="p-3 text-center">
+                              {first.ecc_rastreio ? <span className="text-xs font-mono">{first.ecc_rastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
+                            </td>
+                            <td className="p-3 text-center" />
+                          </tr>
+
+                          {/* Pack children (expanded) */}
+                          {isExpanded && packOrders.map((order) => (
+                            <OrderRow
+                              key={order.id}
+                              order={order}
+                              pushingIds={pushingIds}
+                              onPush={handlePushToEccosys}
+                              onReprocess={handleReprocess}
+                              onClick={() => setSelectedOrder(order)}
+                              isChild
+                            />
+                          ))}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -538,6 +502,218 @@ export default function HubPedidosPage() {
           </div>
         </div>
       )}
+      {/* Order Detail Sheet */}
+      <Sheet open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
+        <SheetContent className="w-full sm:max-w-[500px] overflow-y-auto">
+          {selectedOrder && <OrderDetail order={selectedOrder} />}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------
+// Order Row (reusable for single orders and pack children)
+// -------------------------------------------------------------------
+function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild }: {
+  order: HubOrder;
+  pushingIds: Set<number>;
+  onPush: (id: number) => void;
+  onReprocess: (id: number) => void;
+  onClick: () => void;
+  isChild?: boolean;
+}) {
+  return (
+    <tr className={`border-t hover:bg-muted/30 cursor-pointer ${isChild ? "bg-muted/10" : ""}`} onClick={onClick}>
+      <td className="p-3">
+        <div className={`font-mono text-xs ${isChild ? "pl-5" : "font-medium"}`}>
+          {isChild ? (
+            <span className="text-muted-foreground">order {order.ml_order_id}</span>
+          ) : (
+            <>
+              {order.ml_pack_id || order.ml_order_id}
+              {order.ml_pack_id && (
+                <div className="text-[10px] text-muted-foreground mt-0.5">order {order.ml_order_id}</div>
+              )}
+            </>
+          )}
+        </div>
+      </td>
+      <td className="p-3 text-xs whitespace-nowrap">
+        {order.ml_date ? new Date(order.ml_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}
+      </td>
+      <td className="p-3 truncate max-w-[180px]">{order.buyer_name || "-"}</td>
+      <td className="p-3 text-right whitespace-nowrap">
+        {order.total != null ? Number(order.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "-"}
+      </td>
+      <td className="p-3 text-center"><MLStatusBadge status={order.ml_status} /></td>
+      <td className="p-3 text-center"><OrderStatusBadge status={order.sync_status} /></td>
+      <td className="p-3 text-center">
+        {order.ecc_numero ? <span className="text-xs font-mono">{order.ecc_numero}</span>
+          : order.ecc_pedido_id ? <span className="text-xs font-mono">#{order.ecc_pedido_id}</span>
+          : <span className="text-xs text-muted-foreground">-</span>}
+      </td>
+      <td className="p-3 text-center">
+        {order.ecc_nfe_numero ? (
+          <div>
+            <span className="text-xs font-mono">{order.ecc_nfe_numero}</span>
+            {order.nfe_xml_sent_at ? <div className="text-[10px] text-green-600 mt-0.5">ML ok</div> : <div className="text-[10px] text-muted-foreground mt-0.5">pendente</div>}
+          </div>
+        ) : <span className="text-xs text-muted-foreground">-</span>}
+      </td>
+      <td className="p-3 text-center">
+        {order.ecc_rastreio ? <span className="text-xs font-mono">{order.ecc_rastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
+      </td>
+      <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-center gap-1">
+          {order.sync_status === "pending" && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Importar no Eccosys" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onPush(order.ml_order_id)}>
+              {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />}
+            </Button>
+          )}
+          {order.sync_status === "error" && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Reprocessar" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onReprocess(order.ml_order_id)}>
+              {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 text-blue-500" />}
+            </Button>
+          )}
+          {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
+          {order.sync_status === "imported" && <Check className="h-3.5 w-3.5 text-green-500" />}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// -------------------------------------------------------------------
+// Order Detail Sheet Content
+// -------------------------------------------------------------------
+function OrderDetail({ order }: { order: HubOrder }) {
+  const addr = order.endereco as Record<string, unknown> | null;
+  const payment = order.pagamento as Record<string, unknown> | null;
+  const items = (order.items || []) as HubOrderItem[];
+
+  return (
+    <>
+      <SheetHeader className="pb-4">
+        <SheetTitle className="text-base">
+          Pedido {order.ml_pack_id || order.ml_order_id}
+        </SheetTitle>
+        <div className="flex items-center gap-2 mt-1">
+          <MLStatusBadge status={order.ml_status} />
+          <OrderStatusBadge status={order.sync_status} />
+        </div>
+      </SheetHeader>
+
+      <div className="space-y-5 text-sm">
+        {/* Order IDs */}
+        <Section icon={<Package className="h-4 w-4" />} title="Identificacao">
+          <InfoRow label="Order ID" value={String(order.ml_order_id)} mono />
+          {order.ml_pack_id && <InfoRow label="Pack ID" value={String(order.ml_pack_id)} mono />}
+          {order.ml_shipment_id && <InfoRow label="Shipment ID" value={String(order.ml_shipment_id)} mono />}
+          <InfoRow label="Data" value={order.ml_date ? new Date(order.ml_date).toLocaleString("pt-BR") : "-"} />
+        </Section>
+
+        {/* Buyer */}
+        <Section icon={<User className="h-4 w-4" />} title="Comprador">
+          <InfoRow label="Nome" value={order.buyer_name || "-"} />
+          <InfoRow label="Email" value={order.buyer_email || "-"} />
+          <InfoRow label="CPF/CNPJ" value={order.buyer_doc || "-"} mono />
+        </Section>
+
+        {/* Items */}
+        <Section icon={<ShoppingCart className="h-4 w-4" />} title={`Items (${items.length})`}>
+          {items.length > 0 ? (
+            <div className="space-y-2">
+              {items.map((item, i) => (
+                <div key={i} className="rounded border p-2">
+                  <div className="font-medium text-xs">{item.nome}</div>
+                  <div className="flex justify-between mt-1 text-xs text-muted-foreground">
+                    <span className="font-mono">{item.sku}</span>
+                    <span>
+                      {item.qtd}x {Number(item.preco).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">{item.ml_item_id}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sem items</p>
+          )}
+        </Section>
+
+        {/* Totals */}
+        <Section icon={<CreditCard className="h-4 w-4" />} title="Valores">
+          <InfoRow label="Total" value={order.total != null ? Number(order.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "-"} bold />
+          <InfoRow label="Frete" value={order.frete != null ? Number(order.frete).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "-"} />
+          {payment ? (
+            <>
+              {payment.payment_method_id ? <InfoRow label="Metodo" value={String(payment.payment_method_id)} /> : null}
+              {payment.status ? <InfoRow label="Status Pagamento" value={String(payment.status)} /> : null}
+              {payment.installments ? <InfoRow label="Parcelas" value={`${String(payment.installments)}x`} /> : null}
+            </>
+          ) : null}
+        </Section>
+
+        {/* Address */}
+        {addr && (
+          <Section icon={<MapPin className="h-4 w-4" />} title="Endereco">
+            {addr.street_name ? <InfoRow label="Rua" value={`${String(addr.street_name)}${addr.street_number ? `, ${String(addr.street_number)}` : ""}`} /> : null}
+            {addr.comment ? <InfoRow label="Complemento" value={String(addr.comment)} /> : null}
+            {addr.neighborhood ? <InfoRow label="Bairro" value={String(typeof addr.neighborhood === "object" ? (addr.neighborhood as Record<string, unknown>).name || "" : addr.neighborhood)} /> : null}
+            {addr.city ? <InfoRow label="Cidade" value={String(typeof addr.city === "object" ? (addr.city as Record<string, unknown>).name || "" : addr.city)} /> : null}
+            {addr.state ? <InfoRow label="Estado" value={String(typeof addr.state === "object" ? (addr.state as Record<string, unknown>).name || "" : addr.state)} /> : null}
+            {addr.zip_code ? <InfoRow label="CEP" value={String(addr.zip_code)} mono /> : null}
+          </Section>
+        )}
+
+        {/* Eccosys / NF-e / Tracking */}
+        <Section icon={<FileText className="h-4 w-4" />} title="Eccosys / NF-e / Rastreio">
+          <InfoRow label="Pedido Eccosys" value={order.ecc_numero || (order.ecc_pedido_id ? `#${order.ecc_pedido_id}` : "-")} mono />
+          <InfoRow label="Situacao" value={order.ecc_situacao != null ? String(order.ecc_situacao) : "-"} />
+          <InfoRow label="NF-e" value={order.ecc_nfe_numero || "-"} mono />
+          {order.ecc_nfe_chave && <InfoRow label="Chave NF-e" value={order.ecc_nfe_chave} mono />}
+          <InfoRow label="NF-e enviada ML" value={order.nfe_xml_sent_at ? new Date(order.nfe_xml_sent_at).toLocaleString("pt-BR") : "Nao"} />
+          <InfoRow label="Rastreio" value={order.ecc_rastreio || "-"} mono />
+        </Section>
+
+        {/* Shipping */}
+        <Section icon={<Truck className="h-4 w-4" />} title="Envio">
+          <InfoRow label="Faturamento" value={order.ecc_data_faturamento ? new Date(order.ecc_data_faturamento).toLocaleString("pt-BR") : "-"} />
+        </Section>
+
+        {/* Error */}
+        {order.error_msg && (
+          <div className="rounded border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3">
+            <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 text-xs font-medium mb-1">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Erro
+            </div>
+            <p className="text-xs text-red-600 dark:text-red-400">{order.error_msg}</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase mb-2">
+        {icon}
+        {title}
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono, bold }: { label: string; value: string; mono?: boolean; bold?: boolean }) {
+  return (
+    <div className="flex justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`${mono ? "font-mono" : ""} ${bold ? "font-semibold" : ""} text-right max-w-[280px] truncate`}>{value}</span>
     </div>
   );
 }
