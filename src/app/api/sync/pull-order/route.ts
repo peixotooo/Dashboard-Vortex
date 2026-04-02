@@ -94,27 +94,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fetch fiscal documents (NF-e) from ML if pack exists
+    // Fetch fiscal documents (NF-e) from ML
     let mlNfeNumero: string | null = null;
     let mlNfeChave: string | null = null;
     const packId = order.pack_id || order.id;
+
+    // Try ML fiscal documents endpoint
     try {
-      const fiscal = await ml.get<{
-        fiscal_documents?: Array<{
-          fiscal_document_number?: string;
-          access_key?: string;
-          type?: string;
-        }>;
-      }>(`/packs/${packId}/fiscal_documents`, workspaceId);
-      if (fiscal?.fiscal_documents?.length) {
-        const nfe = fiscal.fiscal_documents.find((d) => d.type === "NOTA_FISCAL" || d.fiscal_document_number);
+      const fiscal = await ml.get<Record<string, unknown>>(
+        `/packs/${packId}/fiscal_documents`,
+        workspaceId
+      );
+      const docs = (fiscal?.fiscal_documents || []) as Array<Record<string, unknown>>;
+      if (Array.isArray(docs) && docs.length > 0) {
+        const nfe = docs.find((d) => d.fiscal_document_number);
         if (nfe) {
-          mlNfeNumero = nfe.fiscal_document_number || null;
-          mlNfeChave = nfe.access_key || null;
+          mlNfeNumero = (nfe.fiscal_document_number as string) || null;
+          mlNfeChave = (nfe.access_key as string) || null;
         }
       }
     } catch {
-      // Fiscal documents not available yet — ignore
+      // NF-e not yet on ML — will come from Eccosys via check-faturados cron
     }
 
     // Resolve SKUs via hub_products
