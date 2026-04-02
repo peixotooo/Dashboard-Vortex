@@ -97,14 +97,25 @@ export async function pushOrderToEccosys(
     _Transportador: { nome: "Mercado Envios", formaFrete: 9 },
   };
 
-  const result = await eccosys.post<{
-    id?: number;
-    numero?: string;
-    [key: string]: unknown;
-  }>("/pedidos", payload, workspaceId);
+  const result = await eccosys.post<Record<string, unknown>>(
+    "/pedidos",
+    payload,
+    workspaceId
+  );
 
-  const eccPedidoId = result.id || null;
-  const eccNumero = result.numero || null;
+  // Eccosys returns: { success: [{ id: 123, codigo: "ML-..." }], error: [] }
+  let eccPedidoId: number | null = null;
+  let eccNumero: string | null = null;
+
+  if (result.success && Array.isArray(result.success) && result.success.length > 0) {
+    const first = result.success[0] as Record<string, unknown>;
+    eccPedidoId = (first.id as number) ?? null;
+    eccNumero = (first.codigo as string) ?? null;
+  } else {
+    // Fallback for other response formats
+    eccPedidoId = (result.id as number) ?? null;
+    eccNumero = (result.numero as string) ?? (result.codigo as string) ?? null;
+  }
 
   // Update hub_orders
   await supabase
