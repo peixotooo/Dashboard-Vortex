@@ -37,15 +37,27 @@ export async function pushOrderToEccosys(
     // Not critical
   }
 
-  // Resolve SKUs: make sure they exist in hub_products
+  // Resolve SKUs and ecc_ids from hub_products
   const skus = (order.items || []).map((i) => i.sku);
+  const mlItemIds = (order.items || []).map((i) => i.ml_item_id).filter(Boolean);
+
+  // Try to find products by SKU first, then by ml_item_id
   const { data: hubProducts } = await supabase
     .from("hub_products")
-    .select("sku")
+    .select("sku, ecc_id, ml_item_id, ml_variation_id")
     .eq("workspace_id", workspaceId)
-    .in("sku", skus);
+    .or(`sku.in.(${skus.map((s) => `"${s}"`).join(",")}),ml_item_id.in.(${mlItemIds.map((s) => `"${s}"`).join(",")})`)
+    .not("ecc_id", "is", null);
 
-  const knownSkus = new Set((hubProducts || []).map((p) => p.sku));
+  // Build lookup: sku → ecc_id, ml_item_id → sku (first parent match)
+  const skuToEccId = new Map<string, number>();
+  const mlToSku = new Map<string, string>();
+  for (const p of (hubProducts || []) as Array<{ sku: string; ecc_id: number | null; ml_item_id: string | null; ml_variation_id: number | null }>) {
+    if (p.ecc_id) skuToEccId.set(p.sku, p.ecc_id);
+    if (p.ml_item_id && !p.ml_variation_id && p.ecc_id) {
+      mlToSku.set(p.ml_item_id, p.sku);
+    }
+  }
 
   // Build Eccosys payload
   const orderDate = order.ml_date
@@ -79,12 +91,16 @@ export async function pushOrderToEccosys(
       tipo: buyerDoc.replace(/\D/g, "").length > 11 ? "J" : "F",
       identificadorIE: 9,
     },
-    _Itens: (order.items || []).map((item) => ({
-      codigo: knownSkus.has(item.sku) ? item.sku : item.sku,
-      descricao: item.nome,
-      quantidade: item.qtd,
-      valor: item.preco,
-    })),
+    _Itens: (order.items || []).map((item) => {
+      const eccId = skuToEccId.get(item.sku);
+      return {
+        codigo: item.sku,
+        descricao: item.nome,
+        quantidade: item.qtd,
+        valor: item.preco,
+        ...(eccId ? { idProduto: eccId } : {}),
+      };
+    }),
     _Parcelas: [
       {
         forma: paymentType ? PAYMENT_MAP[paymentType] || 99 : 99,
@@ -112,7 +128,6 @@ export async function pushOrderToEccosys(
     eccPedidoId = (first.id as number) ?? null;
     eccNumero = (first.codigo as string) ?? null;
   } else {
-    // Fallback for other response formats
     eccPedidoId = (result.id as number) ?? null;
     eccNumero = (result.numero as string) ?? (result.codigo as string) ?? null;
   }
