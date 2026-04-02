@@ -28,16 +28,23 @@ export async function GET(request: NextRequest) {
     bulk_fetch: boolean;
   }> = [];
 
-  // Find workspaces with both Eccosys and ML connected
-  const { data: connections } = await supabase
-    .from("eccosys_connections")
-    .select("workspace_id");
+  // Find workspaces that have linked products (both Eccosys and ML)
+  const { data: wsRows } = await supabase
+    .from("hub_products")
+    .select("workspace_id")
+    .eq("linked", true)
+    .not("ecc_id", "is", null)
+    .not("ml_item_id", "is", null);
 
-  if (!connections || connections.length === 0) {
-    return NextResponse.json({ message: "No workspaces", results: [] });
+  const workspaceIds = [...new Set((wsRows || []).map((r) => r.workspace_id))];
+
+  if (workspaceIds.length === 0) {
+    return NextResponse.json({ message: "No workspaces with linked products", results: [] });
   }
 
-  console.log(`[sync-stock-cron] Found ${connections.length} workspaces: ${connections.map((c) => c.workspace_id).join(", ")}`);
+  // Map to same format as before
+  const connections = workspaceIds.map((id) => ({ workspace_id: id }));
+  console.log(`[sync-stock-cron] Found ${connections.length} workspaces: ${workspaceIds.join(", ")}`);
 
   for (const conn of connections) {
     const wsId = conn.workspace_id;
