@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   }
 
   query = query
-    .order("created_at", { ascending: false })
+    .order("ml_date", { ascending: false, nullsFirst: false })
     .range(page * limit, (page + 1) * limit - 1);
 
   const { data, count, error } = await query;

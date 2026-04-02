@@ -153,6 +153,35 @@ export default function HubPedidosPage() {
     fetchOrders();
   }, [fetchOrders]);
 
+  async function handlePushPackToEccosys(packOrders: HubOrder[]) {
+    if (!workspace?.id) return;
+    const ids = packOrders.map((o) => o.ml_order_id);
+    for (const id of ids) setPushingIds((prev) => new Set(prev).add(id));
+    try {
+      for (const mlOrderId of ids) {
+        const res = await fetch("/api/sync/push-order-eccosys", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspace.id,
+          },
+          body: JSON.stringify({ ml_order_id: mlOrderId }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          alert(`Erro no pedido ${mlOrderId}: ${data.error}`);
+        }
+      }
+      fetchOrders();
+    } finally {
+      setPushingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+    }
+  }
+
   async function handlePushToEccosys(mlOrderId: number) {
     if (!workspace?.id) return;
     setPushingIds((prev) => new Set(prev).add(mlOrderId));
@@ -466,10 +495,37 @@ export default function HubPedidosPage() {
                             <td className="p-3 text-center">
                               {first.ecc_rastreio ? <span className="text-xs font-mono">{first.ecc_rastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
                             </td>
-                            <td className="p-3 text-center" />
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1">
+                                {packOrders.some((o) => o.sync_status === "pending") && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Importar pack no Eccosys"
+                                    disabled={packOrders.some((o) => pushingIds.has(o.ml_order_id))}
+                                    onClick={() => handlePushPackToEccosys(packOrders)}
+                                  >
+                                    {packOrders.some((o) => pushingIds.has(o.ml_order_id)) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />
+                                    )}
+                                  </Button>
+                                )}
+                                {packOrders.every((o) => o.sync_status === "imported") && (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                )}
+                                {packOrders.some((o) => o.error_msg) && (
+                                  <span title={packOrders.filter((o) => o.error_msg).map((o) => o.error_msg).join("\n")} className="cursor-help">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                           </tr>
 
-                          {/* Pack children (expanded) */}
+                          {/* Pack children (expanded) — no individual actions */}
                           {isExpanded && packOrders.map((order) => (
                             <OrderRow
                               key={order.id}
@@ -479,6 +535,7 @@ export default function HubPedidosPage() {
                               onReprocess={handleReprocess}
                               onClick={() => setSelectedOrder(order)}
                               isChild
+                              hideActions
                             />
                           ))}
                         </React.Fragment>
@@ -531,13 +588,14 @@ export default function HubPedidosPage() {
 // -------------------------------------------------------------------
 // Order Row (reusable for single orders and pack children)
 // -------------------------------------------------------------------
-function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild }: {
+function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild, hideActions }: {
   order: HubOrder;
   pushingIds: Set<number>;
   onPush: (id: number) => void;
   onReprocess: (id: number) => void;
   onClick: () => void;
   isChild?: boolean;
+  hideActions?: boolean;
 }) {
   return (
     <tr className={`border-t hover:bg-muted/30 cursor-pointer ${isChild ? "bg-muted/10" : ""}`} onClick={onClick}>
@@ -581,20 +639,24 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild }: 
         {order.ecc_rastreio ? <span className="text-xs font-mono">{order.ecc_rastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
       </td>
       <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-center gap-1">
-          {order.sync_status === "pending" && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" title="Importar no Eccosys" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onPush(order.ml_order_id)}>
-              {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />}
-            </Button>
-          )}
-          {order.sync_status === "error" && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" title="Reprocessar" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onReprocess(order.ml_order_id)}>
-              {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 text-blue-500" />}
-            </Button>
-          )}
-          {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
-          {order.sync_status === "imported" && <Check className="h-3.5 w-3.5 text-green-500" />}
-        </div>
+        {hideActions ? (
+          <span className="text-xs text-muted-foreground">-</span>
+        ) : (
+          <div className="flex items-center justify-center gap-1">
+            {order.sync_status === "pending" && (
+              <Button variant="ghost" size="icon" className="h-7 w-7" title="Importar no Eccosys" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onPush(order.ml_order_id)}>
+                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />}
+              </Button>
+            )}
+            {order.sync_status === "error" && (
+              <Button variant="ghost" size="icon" className="h-7 w-7" title="Reprocessar" disabled={pushingIds.has(order.ml_order_id)} onClick={() => onReprocess(order.ml_order_id)}>
+                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 text-blue-500" />}
+              </Button>
+            )}
+            {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
+            {order.sync_status === "imported" && <Check className="h-3.5 w-3.5 text-green-500" />}
+          </div>
+        )}
       </td>
     </tr>
   );
