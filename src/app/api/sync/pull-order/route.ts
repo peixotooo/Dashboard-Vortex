@@ -94,6 +94,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Fetch fiscal documents (NF-e) from ML if pack exists
+    let mlNfeNumero: string | null = null;
+    let mlNfeChave: string | null = null;
+    const packId = order.pack_id || order.id;
+    try {
+      const fiscal = await ml.get<{
+        fiscal_documents?: Array<{
+          fiscal_document_number?: string;
+          access_key?: string;
+          type?: string;
+        }>;
+      }>(`/packs/${packId}/fiscal_documents`, workspaceId);
+      if (fiscal?.fiscal_documents?.length) {
+        const nfe = fiscal.fiscal_documents.find((d) => d.type === "NOTA_FISCAL" || d.fiscal_document_number);
+        if (nfe) {
+          mlNfeNumero = nfe.fiscal_document_number || null;
+          mlNfeChave = nfe.access_key || null;
+        }
+      }
+    } catch {
+      // Fiscal documents not available yet — ignore
+    }
+
     // Resolve SKUs via hub_products
     const items: HubOrderItem[] = order.order_items.map((oi) => {
       const sku =
@@ -136,7 +159,7 @@ export async function POST(req: NextRequest) {
     const frete = shipment?.shipping_option?.cost || 0;
     const buyerName = `${order.buyer.first_name} ${order.buyer.last_name}`.trim();
 
-    const row = {
+    const row: Record<string, unknown> = {
       workspace_id: workspaceId,
       ml_order_id: order.id,
       ml_shipment_id: shipment?.id || null,
@@ -153,6 +176,10 @@ export async function POST(req: NextRequest) {
       sync_status: "pending" as const,
       updated_at: new Date().toISOString(),
     };
+
+    // Add NF-e from ML if available (don't overwrite existing Eccosys NF-e)
+    if (mlNfeNumero) row.ecc_nfe_numero = mlNfeNumero;
+    if (mlNfeChave) row.ecc_nfe_chave = mlNfeChave;
 
     // Check if this order already exists (to avoid double stock deduction)
     const { data: existingOrder } = await supabase

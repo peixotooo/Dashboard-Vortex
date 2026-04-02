@@ -37,17 +37,22 @@ export async function GET(request: NextRequest) {
     error?: string;
   }> = [];
 
-  // Find all workspaces with Eccosys connections
-  const { data: connections } = await supabase
-    .from("eccosys_connections")
-    .select("workspace_id");
+  // Find workspaces that have imported orders (need Eccosys check)
+  const { data: wsRows } = await supabase
+    .from("hub_orders")
+    .select("workspace_id")
+    .in("sync_status", ["imported", "tracking_sent"]);
 
-  if (!connections || connections.length === 0) {
+  const workspaceIds = [...new Set((wsRows || []).map((r) => r.workspace_id))];
+
+  if (workspaceIds.length === 0) {
     return NextResponse.json({
-      message: "Nenhum workspace com Eccosys configurado",
+      message: "Nenhum workspace com pedidos importados",
       results: [],
     });
   }
+
+  const connections = workspaceIds.map((id) => ({ workspace_id: id }));
 
   for (const conn of connections) {
     const wsId = conn.workspace_id;
