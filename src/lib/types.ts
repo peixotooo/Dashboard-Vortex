@@ -222,6 +222,7 @@ export interface AdAccount {
 export type DatePreset =
   | "today"
   | "yesterday"
+  | "last_3d"
   | "last_7d"
   | "last_14d"
   | "last_30d"

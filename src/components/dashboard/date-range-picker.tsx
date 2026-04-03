@@ -13,6 +13,7 @@ import type { DateRange } from "react-day-picker";
 const datePresets: { value: DatePreset; label: string }[] = [
   { value: "today", label: "Hoje" },
   { value: "yesterday", label: "Ontem" },
+  { value: "last_3d", label: "Últimos 3 dias" },
   { value: "last_7d", label: "Últimos 7 dias" },
   { value: "last_14d", label: "Últimos 14 dias" },
   { value: "last_30d", label: "Últimos 30 dias" },
@@ -115,7 +116,10 @@ export function DateRangePicker({
               onSelect={setPendingRange}
               numberOfMonths={2}
               disabled={{ after: new Date() }}
-              defaultMonth={pendingRange?.from || new Date()}
+              defaultMonth={
+                pendingRange?.from ||
+                new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
+              }
             />
             <div className="flex justify-end px-4 pb-3 pt-1 gap-2">
               <button

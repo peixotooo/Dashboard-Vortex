@@ -155,6 +155,7 @@ export default function CampaignsPage() {
   const { workspace } = useWorkspace();
   const { user } = useAuth();
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
+  const [customRange, setCustomRange] = useState<{ since: string; until: string } | undefined>();
   const [campaigns, setCampaigns] = useState<CampaignWithMetrics[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<{ total: number; loaded: number } | null>(null);
@@ -256,8 +257,11 @@ export default function CampaignsPage() {
     if (isMulti) {
       const promises = accountIds.map(async (id) => {
         try {
+          const dateParams = datePreset === "custom" && customRange
+            ? `date_preset=custom&since=${customRange.since}&until=${customRange.until}`
+            : `date_preset=${datePreset}`;
           const res = await fetch(
-            `/api/campaigns?account_id=${id}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+            `/api/campaigns?account_id=${id}&${dateParams}&statuses=ACTIVE,PAUSED`,
             { headers, signal: controller.signal }
           );
           const data = await res.json();
@@ -286,8 +290,11 @@ export default function CampaignsPage() {
       setInitialLoading(false);
     } else {
       try {
+        const dateParams = datePreset === "custom" && customRange
+          ? `date_preset=custom&since=${customRange.since}&until=${customRange.until}`
+          : `date_preset=${datePreset}`;
         const res = await fetch(
-          `/api/campaigns?account_id=${accountIds[0]}&date_preset=${datePreset}&statuses=ACTIVE,PAUSED`,
+          `/api/campaigns?account_id=${accountIds[0]}&${dateParams}&statuses=ACTIVE,PAUSED`,
           { headers, signal: controller.signal }
         );
         const data = await res.json();
@@ -298,7 +305,7 @@ export default function CampaignsPage() {
         setInitialLoading(false);
       }
     }
-  }, [accountId, accounts, datePreset, workspace?.id]);
+  }, [accountId, accounts, datePreset, customRange, workspace?.id]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -815,7 +822,7 @@ export default function CampaignsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <DateRangePicker value={datePreset} onChange={setDatePreset} />
+          <DateRangePicker value={datePreset} onChange={setDatePreset} customRange={customRange} onCustomRangeChange={setCustomRange} />
           <Button asChild>
             <Link href="/campaigns/new">
               <Plus className="h-4 w-4 mr-2" />

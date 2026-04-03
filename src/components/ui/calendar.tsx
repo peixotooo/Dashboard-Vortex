@@ -14,14 +14,14 @@ function Calendar({
       locale={ptBR}
       className={cn("p-3", className)}
       classNames={{
-        months: "flex flex-col sm:flex-row gap-2",
+        months: "flex flex-col sm:flex-row gap-4 relative",
         month: "flex flex-col gap-4",
-        month_caption: "flex justify-center pt-1 relative items-center text-sm font-medium",
-        nav: "flex items-center gap-1 absolute right-0",
+        month_caption: "flex justify-center pt-1 relative items-center text-sm font-medium h-7",
+        nav: "absolute top-0 inset-x-0 flex items-center justify-between z-10 px-1",
         button_previous:
-          "inline-flex items-center justify-center rounded-md text-sm font-medium h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute left-1",
+          "inline-flex items-center justify-center rounded-md text-sm font-medium h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100",
         button_next:
-          "inline-flex items-center justify-center rounded-md text-sm font-medium h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute right-1",
+          "inline-flex items-center justify-center rounded-md text-sm font-medium h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100",
         month_grid: "w-full border-collapse",
         weekdays: "flex",
         weekday:

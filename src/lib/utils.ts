@@ -60,6 +60,8 @@ export function datePresetToTimeRange(preset: DatePreset, customRange?: { since:
       return { since: fmt(today), until: fmt(today) };
     case "yesterday":
       return { since: fmt(sub(1)), until: fmt(sub(1)) };
+    case "last_3d":
+      return { since: fmt(sub(3)), until: fmt(today) };
     case "last_7d":
       return { since: fmt(sub(7)), until: fmt(today) };
     case "last_14d":
@@ -110,6 +112,9 @@ export function getPreviousPeriodDates(preset: DatePreset, customRange?: { since
     case "yesterday": {
       const d = subtractDays(today, 2);
       return { since: fmt(d), until: fmt(d) };
+    }
+    case "last_3d": {
+      return { since: fmt(subtractDays(today, 6)), until: fmt(subtractDays(today, 4)) };
     }
     case "last_7d": {
       return { since: fmt(subtractDays(today, 14)), until: fmt(subtractDays(today, 8)) };
