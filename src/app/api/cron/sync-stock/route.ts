@@ -153,27 +153,25 @@ export async function GET(request: NextRequest) {
           // Validate stock value
           if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
 
-          const mlStock = Math.max(newStock, 1);
+          // qty 0 for out-of-stock (both variations and standalone items)
+          const desiredMlStock = newStock <= 0 ? 0 : newStock;
           const shouldPause = newStock <= 0 && !row.ml_variation_id;
-          const desiredMlStock = shouldPause ? 0 : mlStock;
           const stockChanged = desiredMlStock !== row.ml_estoque || (shouldPause && row.ml_status !== "paused") || (newStock > 0 && row.ml_status === "paused");
 
           if (stockChanged) {
-            // Update ML: pause listing when stock=0, reactivate when stock>0
-            if (newStock <= 0 && !row.ml_variation_id) {
-              await ml.put(
-                `/items/${row.ml_item_id}`,
-                { available_quantity: 0, status: "paused" },
-                wsId
-              );
+            if (shouldPause) {
+              // Standalone item: pause the entire listing
+              await ml.put(`/items/${row.ml_item_id}`, { available_quantity: 0, status: "paused" }, wsId);
             } else if (row.ml_variation_id) {
+              // Variation: set qty to 0 (disables purchase) or actual stock
               await ml.put(
                 `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
-                { available_quantity: mlStock },
+                { available_quantity: desiredMlStock },
                 wsId
               );
             } else {
-              const payload: Record<string, unknown> = { available_quantity: mlStock };
+              // Standalone item with stock > 0: reactivate if paused
+              const payload: Record<string, unknown> = { available_quantity: desiredMlStock };
               if (row.ml_status === "paused") payload.status = "active";
               await ml.put(`/items/${row.ml_item_id}`, payload, wsId);
             }
@@ -186,8 +184,8 @@ export async function GET(request: NextRequest) {
               .from("hub_products")
               .update({
                 estoque: newStock,
-                ml_estoque: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
-                ml_status: newStock <= 0 && !row.ml_variation_id ? "paused" : row.ml_status === "paused" && newStock > 0 ? "active" : row.ml_status,
+                ml_estoque: desiredMlStock,
+                ml_status: shouldPause ? "paused" : row.ml_status === "paused" && newStock > 0 ? "active" : row.ml_status,
                 last_ecc_sync: now,
                 last_ml_sync: now,
                 updated_at: now,
@@ -208,8 +206,8 @@ export async function GET(request: NextRequest) {
                 old_stock: row.estoque,
                 new_stock: newStock,
                 old_ml_stock: row.ml_estoque,
-                new_ml_stock: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
-                paused: newStock <= 0 && !row.ml_variation_id,
+                new_ml_stock: desiredMlStock,
+                paused: shouldPause,
                 reactivated: row.ml_status === "paused" && newStock > 0,
                 source: "cron",
               },

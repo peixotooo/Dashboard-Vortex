@@ -106,9 +106,8 @@ export async function POST(req: NextRequest) {
       // Validate stock value
       if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
 
-      const mlStock = Math.max(newStock, 1);
+      const desiredMlStock = newStock <= 0 ? 0 : newStock;
       const shouldPause = newStock <= 0 && !row.ml_variation_id;
-      const desiredMlStock = shouldPause ? 0 : mlStock;
       const stockChanged = desiredMlStock !== row.ml_estoque || (shouldPause && row.ml_status !== "paused") || (newStock > 0 && row.ml_status === "paused");
 
       if (!stockChanged) {
@@ -116,22 +115,16 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Update ML: if stock <= 0 on a non-variation item, pause the listing
-      if (newStock <= 0 && !row.ml_variation_id) {
-        await ml.put(
-          `/items/${row.ml_item_id}`,
-          { available_quantity: 0, status: "paused" },
-          workspaceId
-        );
+      if (shouldPause) {
+        await ml.put(`/items/${row.ml_item_id}`, { available_quantity: 0, status: "paused" }, workspaceId);
       } else if (row.ml_variation_id) {
         await ml.put(
           `/items/${row.ml_item_id}/variations/${row.ml_variation_id}`,
-          { available_quantity: mlStock },
+          { available_quantity: desiredMlStock },
           workspaceId
         );
       } else {
-        // Re-activate if was paused and stock is now > 0
-        const payload: Record<string, unknown> = { available_quantity: mlStock };
+        const payload: Record<string, unknown> = { available_quantity: desiredMlStock };
         if (row.ml_status === "paused") payload.status = "active";
         await ml.put(`/items/${row.ml_item_id}`, payload, workspaceId);
       }
@@ -142,8 +135,8 @@ export async function POST(req: NextRequest) {
         .from("hub_products")
         .update({
           estoque: newStock,
-          ml_estoque: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
-          ml_status: newStock <= 0 && !row.ml_variation_id ? "paused" : row.ml_status === "paused" && newStock > 0 ? "active" : row.ml_status,
+          ml_estoque: desiredMlStock,
+          ml_status: shouldPause ? "paused" : row.ml_status === "paused" && newStock > 0 ? "active" : row.ml_status,
           last_ecc_sync: now,
           last_ml_sync: now,
           updated_at: now,
@@ -164,8 +157,8 @@ export async function POST(req: NextRequest) {
           old_stock: row.estoque,
           new_stock: newStock,
           old_ml_stock: row.ml_estoque,
-          new_ml_stock: newStock <= 0 && !row.ml_variation_id ? 0 : mlStock,
-          paused: newStock <= 0 && !row.ml_variation_id,
+          new_ml_stock: desiredMlStock,
+          paused: shouldPause,
           reactivated: row.ml_status === "paused" && newStock > 0,
         },
       });
