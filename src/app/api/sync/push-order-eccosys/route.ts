@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
 
   const order = orderData as HubOrder;
 
+  // Block cancelled orders
+  if (order.ml_status === "cancelled") {
+    return NextResponse.json(
+      { error: "Pedido cancelado/devolvido — nao pode ser importado" },
+      { status: 400 }
+    );
+  }
+
   // Check if already imported
   if (order.ecc_pedido_id) {
     return NextResponse.json(

@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
       items,
       endereco,
       pagamento,
-      sync_status: "pending" as const,
+      sync_status: order.status === "cancelled" ? "ignored" as const : "pending" as const,
       updated_at: new Date().toISOString(),
     };
 

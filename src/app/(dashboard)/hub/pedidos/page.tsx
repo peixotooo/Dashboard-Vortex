@@ -597,8 +597,9 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild, hi
   isChild?: boolean;
   hideActions?: boolean;
 }) {
+  const isCancelled = order.ml_status === "cancelled";
   return (
-    <tr className={`border-t hover:bg-muted/30 cursor-pointer ${isChild ? "bg-muted/10" : ""}`} onClick={onClick}>
+    <tr className={`border-t hover:bg-muted/30 cursor-pointer ${isChild ? "bg-muted/10" : ""} ${isCancelled ? "opacity-50 bg-red-50/30 dark:bg-red-950/10" : ""}`} onClick={onClick}>
       <td className="p-3">
         <div className={`font-mono text-xs ${isChild ? "pl-5" : "font-medium"}`}>
           {isChild ? (
