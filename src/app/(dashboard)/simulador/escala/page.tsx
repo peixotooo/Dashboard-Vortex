@@ -311,6 +311,16 @@ export default function EscalaPage() {
     const totalInvest = enriched.reduce((s, d) => s + d.totalSpend, 0);
     const totalEbitda = enriched.reduce((s, d) => s + d.ebitda, 0);
     const ebitdaPctGlobal = totalReceita > 0 ? totalEbitda / totalReceita : 0;
+
+    // Totals até ontem (exclui hoje para não derrubar métricas no início do dia)
+    const todayStr = `${String(now.getDate()).padStart(2, "0")}/${currentMonthStr}`;
+    const enrichedUntilYesterday = enriched.filter((d) => d.date !== todayStr);
+    const hasTodayRow = enriched.some((d) => d.date === todayStr);
+    const daysUntilYesterday = enrichedUntilYesterday.length;
+    const totalReceitaUntilYesterday = enrichedUntilYesterday.reduce((s, d) => s + d.revenue, 0);
+    const totalInvestUntilYesterday = enrichedUntilYesterday.reduce((s, d) => s + d.totalSpend, 0);
+    const totalEbitdaUntilYesterday = enrichedUntilYesterday.reduce((s, d) => s + d.ebitda, 0);
+    const ebitdaPctUntilYesterday = totalReceitaUntilYesterday > 0 ? totalEbitdaUntilYesterday / totalReceitaUntilYesterday : 0;
     const avgReceitaDia = daysWithData > 0 ? totalReceita / daysWithData : 0;
     const avgInvestDia = daysWithData > 0 ? totalInvest / daysWithData : 0;
     const diasRestantes = daysInMonth - daysWithData;
@@ -396,6 +406,12 @@ export default function EscalaPage() {
       totalInvest,
       totalEbitda,
       ebitdaPctGlobal,
+      hasTodayRow,
+      daysUntilYesterday,
+      totalReceitaUntilYesterday,
+      totalInvestUntilYesterday,
+      totalEbitdaUntilYesterday,
+      ebitdaPctUntilYesterday,
       avgReceitaDia,
       avgInvestDia,
       avgRoas,
@@ -1016,6 +1032,22 @@ export default function EscalaPage() {
                     <td className="px-3 py-2.5 text-right"><EbitdaTag value={d.ebitdaPct} /></td>
                   </tr>
                 ))}
+                {calc.hasTodayRow && calc.daysUntilYesterday > 0 && (
+                  <tr className="border-t-2 border-border bg-muted/[0.03]">
+                    <td className="px-3 py-3 text-right font-bold text-muted-foreground text-[10px] uppercase tracking-wide">Até ontem</td>
+                    <td className="px-3 py-3 text-right font-bold text-foreground">{formatCurrency(calc.totalReceitaUntilYesterday)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-warning">-{formatCurrency(calc.totalReceitaUntilYesterday * calc.custosSemAdsPct)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-destructive">-{formatCurrency(calc.totalInvestUntilYesterday)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-muted-foreground">-{formatCurrency(calc.custoFixoDiario * calc.daysUntilYesterday)}</td>
+                    <td className={`px-3 py-3 text-right font-extrabold ${calc.totalEbitdaUntilYesterday >= 0 ? "text-success" : "text-destructive"}`}>
+                      {formatCurrency(calc.totalEbitdaUntilYesterday)}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-bold ${calc.ebitdaPctUntilYesterday >= EBITDA_IDEAL ? "text-success" : calc.ebitdaPctUntilYesterday >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+                      {pct(calc.ebitdaPctUntilYesterday)}
+                    </td>
+                    <td className="px-3 py-3 text-right"><EbitdaTag value={calc.ebitdaPctUntilYesterday} /></td>
+                  </tr>
+                )}
                 <tr className="border-t-2 border-border">
                   <td className="px-3 py-3 text-right font-black text-foreground">TOTAL</td>
                   <td className="px-3 py-3 text-right font-extrabold text-foreground">{formatCurrency(calc.totalReceita)}</td>
