@@ -4,14 +4,21 @@ import { ml } from "@/lib/ml/client";
 import type { HubOrder } from "@/types/hub";
 
 interface EccosysNFe {
-  id: number;
-  numero: string;
-  chave_acesso: string | null;
-  serie: string;
-  tipo: string;
-  dataEmissao: string;
-  totalFaturado: number;
-  codigoRastreamento: string | null;
+  id?: number;
+  numero?: string | number;
+  chave_acesso?: string | null;
+  chaveAcesso?: string | null;
+  chaveDeAcesso?: string | null;
+  serie?: string | number;
+  tipo?: string;
+  dataEmissao?: string;
+  totalFaturado?: number;
+  codigoRastreamento?: string | null;
+  [key: string]: unknown;
+}
+
+function unwrap<T>(result: T | T[]): T {
+  return Array.isArray(result) ? result[0] : result;
 }
 
 interface NFeUploadResult {
@@ -64,14 +71,15 @@ export async function uploadNFeToML(
     }
   }
 
-  // 2. Fetch NF-e details from Eccosys
+  // 2. Fetch NF-e details from Eccosys (response can be array or object)
   let nfe: EccosysNFe;
   try {
-    nfe = await eccosys.get<EccosysNFe>(
+    const rawResult = await eccosys.get<EccosysNFe | EccosysNFe[]>(
       `/nfes/${order.ecc_nfe_numero}`,
       workspaceId,
       { $serie: "1", $tipoNota: "S", $idUnidadeNegocio: "0" }
     );
+    nfe = unwrap(rawResult);
   } catch (err) {
     return {
       success: false,
@@ -79,10 +87,20 @@ export async function uploadNFeToML(
     };
   }
 
-  if (!nfe.chave_acesso) {
+  // Try multiple possible field names for the access key
+  const chaveAcesso =
+    nfe.chave_acesso ||
+    nfe.chaveAcesso ||
+    nfe.chaveDeAcesso ||
+    (nfe.chaveNFe as string | undefined) ||
+    (nfe.chave as string | undefined) ||
+    null;
+
+  if (!chaveAcesso) {
+    const keys = nfe ? Object.keys(nfe).join(", ") : "(empty)";
     return {
       success: false,
-      error: `NF ${order.ecc_nfe_numero} sem chave de acesso (NF pode nao estar autorizada)`,
+      error: `NF ${order.ecc_nfe_numero} sem chave de acesso. Campos: ${keys}`,
     };
   }
 
@@ -105,19 +123,73 @@ export async function uploadNFeToML(
     return { success: false, error: "XML da NF-e vazio ou invalido" };
   }
 
-  // 4. Upload XML to ML pack
-  try {
-    await ml.postMultipart(
-      `/packs/${packId}/fiscal_documents`,
-      `nfe-${order.ecc_nfe_numero}.xml`,
-      xmlContent,
-      "application/xml",
-      workspaceId
-    );
-  } catch (err) {
+  // Eccosys returns JSON envelope: { "xmls": ["<?xml..."] }
+  const trimmed = xmlContent.trim();
+  let pureXml = xmlContent;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const xmlField =
+        (parsed?.xmls?.[0] as string) ||
+        (parsed?.xml as string) ||
+        (parsed?.xmlNFe as string) ||
+        (parsed?.[0]?.xml as string) ||
+        (parsed?.[0]?.xmlNFe as string);
+      if (xmlField && typeof xmlField === "string") {
+        pureXml = xmlField;
+      }
+    } catch {
+      // Not JSON, keep original
+    }
+  }
+
+  // Validate it looks like XML
+  if (!pureXml.trim().startsWith("<")) {
     return {
       success: false,
-      error: `Upload ML falhou: ${err instanceof Error ? err.message : "desconhecido"}`,
+      error: `XML da NF-e em formato invalido. Inicio: "${pureXml.slice(0, 100)}"`,
+    };
+  }
+
+  // 4. Upload XML to ML — try shipment endpoint first, fall back to pack
+  let uploadError: string | null = null;
+  let uploaded = false;
+
+  if (order.ml_shipment_id) {
+    try {
+      await ml.postMultipart(
+        `/shipments/${order.ml_shipment_id}/fiscal_documents`,
+        `nfe-${order.ecc_nfe_numero}.xml`,
+        pureXml,
+        "application/xml",
+        workspaceId
+      );
+      uploaded = true;
+    } catch (err) {
+      uploadError = `shipment: ${err instanceof Error ? err.message : "desconhecido"}`;
+    }
+  }
+
+  if (!uploaded) {
+    try {
+      await ml.postMultipart(
+        `/packs/${packId}/fiscal_documents`,
+        `nfe-${order.ecc_nfe_numero}.xml`,
+        pureXml,
+        "application/xml",
+        workspaceId
+      );
+      uploaded = true;
+    } catch (err) {
+      const packErr = `pack: ${err instanceof Error ? err.message : "desconhecido"}`;
+      uploadError = uploadError ? `${uploadError} | ${packErr}` : packErr;
+    }
+  }
+
+  if (!uploaded) {
+    return {
+      success: false,
+      error: `Upload ML falhou: ${uploadError}`,
     };
   }
 
@@ -125,7 +197,7 @@ export async function uploadNFeToML(
   await supabase
     .from("hub_orders")
     .update({
-      ecc_nfe_chave: nfe.chave_acesso,
+      ecc_nfe_chave: chaveAcesso,
       ecc_data_faturamento: nfe.dataEmissao || null,
       nfe_xml_sent_at: new Date().toISOString(),
       sync_status: "nfe_sent" as const,
@@ -134,5 +206,5 @@ export async function uploadNFeToML(
     })
     .eq("id", order.id);
 
-  return { success: true, nfe_chave: nfe.chave_acesso };
+  return { success: true, nfe_chave: chaveAcesso };
 }

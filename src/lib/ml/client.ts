@@ -212,9 +212,10 @@ class MLClient {
     await this.throttle();
     const token = await this.getToken(workspaceId);
     const formData = new FormData();
+    // Convert string to Uint8Array (UTF-8) to preserve XML encoding
     const data =
       typeof fileContent === "string"
-        ? fileContent
+        ? new TextEncoder().encode(fileContent)
         : new Uint8Array(fileContent);
     const blob = new Blob([data], { type: contentType });
     formData.append("fiscal_document", blob, fileName);

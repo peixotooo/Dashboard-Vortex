@@ -84,24 +84,39 @@ export async function POST(req: NextRequest) {
       // If hub doesn't have ecc_nfe_numero yet, try fetching from Eccosys
       if (!order.ecc_nfe_numero) {
         try {
-          const eccPedido = await eccosys.get<{ nfeNumero?: string; situacao?: number }>(
+          const result = await eccosys.get<Record<string, unknown> | Record<string, unknown>[]>(
             `/pedidos/${order.ecc_pedido_id}`,
             workspaceId
           );
-          if (eccPedido.nfeNumero) {
-            order.ecc_nfe_numero = eccPedido.nfeNumero;
+
+          // Eccosys may return an array or a single object — normalize
+          const eccPedido = (Array.isArray(result) ? result[0] : result) as Record<string, unknown>;
+
+          // Eccosys field is "numeroNotaFiscal"
+          const rawNfe = eccPedido?.numeroNotaFiscal;
+          const nfeNumero = rawNfe ? String(rawNfe) : null;
+
+          const situacao =
+            (eccPedido?.situacao as number) ??
+            (eccPedido?.idSituacao as number) ??
+            null;
+
+          if (nfeNumero) {
+            order.ecc_nfe_numero = nfeNumero;
             await supabase
               .from("hub_orders")
               .update({
-                ecc_nfe_numero: eccPedido.nfeNumero,
-                ecc_situacao: eccPedido.situacao ?? null,
+                ecc_nfe_numero: nfeNumero,
+                ecc_situacao: situacao,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", order.id);
           } else {
+            // Return the raw Eccosys keys to help debugging
+            const keys = eccPedido ? Object.keys(eccPedido).join(", ") : "(empty)";
             errors.push({
               ml_order_id: mlOrderId,
-              error: "Pedido ainda nao foi faturado no Eccosys (sem numero de NF)",
+              error: `NF nao encontrada no pedido Eccosys ${order.ecc_pedido_id}. Campos: ${keys}`,
             });
             continue;
           }

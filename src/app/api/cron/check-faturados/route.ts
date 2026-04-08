@@ -12,8 +12,14 @@ interface EccosysPedido {
   numero: string;
   numeroDaOrdemDeCompra?: string;
   situacao: number;
-  nfeNumero?: string;
+  numeroNotaFiscal?: string | number;
+  codigoRastreamento?: string;
   rastreamento?: string;
+}
+
+/** Normalize Eccosys API response (sometimes array, sometimes object) */
+function unwrap<T>(result: T | T[]): T {
+  return Array.isArray(result) ? result[0] : result;
 }
 
 /**
@@ -102,36 +108,38 @@ export async function GET(request: NextRequest) {
       // --- Phase 1: Check Eccosys status + send tracking ---
       for (const order of ordersToCheck) {
         try {
-          // Fetch current status from Eccosys
-          const eccPedido = await eccosys.get<EccosysPedido>(
+          // Fetch current status from Eccosys (response can be array or object)
+          const rawResult = await eccosys.get<EccosysPedido | EccosysPedido[]>(
             `/pedidos/${order.ecc_pedido_id}`,
             wsId
           );
+          const eccPedido = unwrap(rawResult);
+          const nfeNumero = eccPedido.numeroNotaFiscal ? String(eccPedido.numeroNotaFiscal) : null;
 
           const updates: Record<string, unknown> = {
             ecc_situacao: eccPedido.situacao,
             updated_at: new Date().toISOString(),
           };
 
-          if (eccPedido.nfeNumero) {
-            updates.ecc_nfe_numero = eccPedido.nfeNumero;
+          if (nfeNumero) {
+            updates.ecc_nfe_numero = nfeNumero;
           }
 
-          // Check for tracking info
-          let rastreio: string | null = null;
-          if (eccPedido.situacao === 1) {
+          // Check for tracking info — first try the field on the order itself
+          let rastreio: string | null = eccPedido.codigoRastreamento || null;
+          if (eccPedido.situacao === 1 && !rastreio) {
             try {
-              const tracking = await eccosys.get<{ rastreio?: string }>(
+              const tracking = await eccosys.get<{ rastreio?: string; codigoRastreamento?: string }>(
                 `/pedidos/${order.ecc_pedido_id}/rastreamento`,
                 wsId
               );
-              if (tracking?.rastreio) {
-                rastreio = tracking.rastreio;
-                updates.ecc_rastreio = rastreio;
-              }
+              rastreio = tracking?.codigoRastreamento || tracking?.rastreio || null;
             } catch {
               // Tracking endpoint may not exist
             }
+          }
+          if (rastreio) {
+            updates.ecc_rastreio = rastreio;
           }
 
           await supabase
@@ -177,10 +185,10 @@ export async function GET(request: NextRequest) {
               });
 
               // After tracking sent, try NF-e upload immediately if NF available
-              if (eccPedido.nfeNumero) {
+              if (nfeNumero) {
                 const updatedOrder: HubOrder = {
                   ...order,
-                  ecc_nfe_numero: eccPedido.nfeNumero,
+                  ecc_nfe_numero: nfeNumero,
                   sync_status: "tracking_sent",
                 };
                 await tryUploadNfe(updatedOrder, wsId, wsResult, supabase);
@@ -208,19 +216,21 @@ export async function GET(request: NextRequest) {
         if (!order.ecc_nfe_numero) {
           // Try to fetch nfe_numero from Eccosys first
           try {
-            const eccPedido = await eccosys.get<EccosysPedido>(
+            const rawResult = await eccosys.get<EccosysPedido | EccosysPedido[]>(
               `/pedidos/${order.ecc_pedido_id}`,
               wsId
             );
-            if (eccPedido.nfeNumero) {
+            const eccPedido = unwrap(rawResult);
+            const nfeNumero = eccPedido.numeroNotaFiscal ? String(eccPedido.numeroNotaFiscal) : null;
+            if (nfeNumero) {
               await supabase
                 .from("hub_orders")
                 .update({
-                  ecc_nfe_numero: eccPedido.nfeNumero,
+                  ecc_nfe_numero: nfeNumero,
                   updated_at: new Date().toISOString(),
                 })
                 .eq("id", order.id);
-              order.ecc_nfe_numero = eccPedido.nfeNumero;
+              order.ecc_nfe_numero = nfeNumero;
             } else {
               continue; // No NF yet
             }
