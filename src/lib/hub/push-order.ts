@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
-import type { HubOrder } from "@/types/hub";
+import type { HubOrder, HubOrderItem, EccosysProduto } from "@/types/hub";
 
 // ML payment type → Eccosys forma de pagamento
 const PAYMENT_MAP: Record<string, number> = {
@@ -37,26 +37,58 @@ export async function pushOrderToEccosys(
     // Not critical
   }
 
-  // Resolve SKUs and ecc_ids from hub_products
+  // Build SKU → ecc_id map from hub_products (fast cache)
   const skus = (order.items || []).map((i) => i.sku);
-  const mlItemIds = (order.items || []).map((i) => i.ml_item_id).filter(Boolean);
-
-  // Try to find products by SKU first, then by ml_item_id
-  const { data: hubProducts } = await supabase
-    .from("hub_products")
-    .select("sku, ecc_id, ml_item_id, ml_variation_id")
-    .eq("workspace_id", workspaceId)
-    .or(`sku.in.(${skus.map((s) => `"${s}"`).join(",")}),ml_item_id.in.(${mlItemIds.map((s) => `"${s}"`).join(",")})`)
-    .not("ecc_id", "is", null);
-
-  // Build lookup: sku → ecc_id, ml_item_id → sku (first parent match)
   const skuToEccId = new Map<string, number>();
-  const mlToSku = new Map<string, string>();
-  for (const p of (hubProducts || []) as Array<{ sku: string; ecc_id: number | null; ml_item_id: string | null; ml_variation_id: number | null }>) {
-    if (p.ecc_id) skuToEccId.set(p.sku, p.ecc_id);
-    if (p.ml_item_id && !p.ml_variation_id && p.ecc_id) {
-      mlToSku.set(p.ml_item_id, p.sku);
+  if (skus.length > 0) {
+    const { data: hubProducts } = await supabase
+      .from("hub_products")
+      .select("sku, ecc_id")
+      .eq("workspace_id", workspaceId)
+      .in("sku", skus)
+      .not("ecc_id", "is", null);
+
+    for (const p of (hubProducts || []) as Array<{ sku: string; ecc_id: number | null }>) {
+      if (p.ecc_id) skuToEccId.set(p.sku, p.ecc_id);
     }
+  }
+
+  // Resolve idProduto for each item: try cache first, then Eccosys API directly
+  async function resolveEccId(item: HubOrderItem): Promise<number | null> {
+    const cached = skuToEccId.get(item.sku);
+    if (cached) return cached;
+
+    // Fallback: query Eccosys directly by SKU
+    try {
+      const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+        `/produtos/${encodeURIComponent(item.sku)}`,
+        workspaceId
+      );
+      const prod = Array.isArray(result) ? result[0] : result;
+      if (prod?.id) {
+        console.log(`[push-order] Resolved ${item.sku} via Eccosys API: id=${prod.id}`);
+        return prod.id;
+      }
+    } catch {
+      // SKU not found in Eccosys
+    }
+    return null;
+  }
+
+  // Resolve all items in parallel and validate every one has idProduto
+  const resolvedItems = await Promise.all(
+    (order.items || []).map(async (item) => ({
+      item,
+      eccId: await resolveEccId(item),
+    }))
+  );
+
+  const missingItems = resolvedItems.filter((r) => !r.eccId);
+  if (missingItems.length > 0) {
+    const missingSkus = missingItems.map((m) => m.item.sku).join(", ");
+    throw new Error(
+      `Produtos nao encontrados no Eccosys: ${missingSkus}. Cadastre os produtos antes de importar o pedido.`
+    );
   }
 
   // Build Eccosys payload
@@ -91,16 +123,13 @@ export async function pushOrderToEccosys(
       tipo: buyerDoc.replace(/\D/g, "").length > 11 ? "J" : "F",
       identificadorIE: 9,
     },
-    _Itens: (order.items || []).map((item) => {
-      const eccId = skuToEccId.get(item.sku);
-      return {
-        codigo: item.sku,
-        descricao: item.nome,
-        quantidade: item.qtd,
-        valor: item.preco,
-        ...(eccId ? { idProduto: eccId } : {}),
-      };
-    }),
+    _Itens: resolvedItems.map(({ item, eccId }) => ({
+      codigo: item.sku,
+      descricao: item.nome,
+      quantidade: item.qtd,
+      valor: item.preco,
+      idProduto: eccId!, // guaranteed by validation above
+    })),
     _Parcelas: [
       {
         forma: paymentType ? PAYMENT_MAP[paymentType] || 99 : 99,
