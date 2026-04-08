@@ -47,26 +47,26 @@ export async function uploadNFeToML(
     return { success: false, error: "Sem ecc_nfe_numero" };
   }
 
-  // 1. Resolve pack_id
-  let packId = order.ml_pack_id;
-  if (!packId) {
+  // 1. Resolve ml_shipment_id (required for /shipments/{id}/invoice_data endpoint)
+  if (!order.ml_shipment_id) {
     try {
-      const mlOrder = await ml.get<{ pack_id?: number }>(
+      const mlOrder = await ml.get<{ shipping?: { id?: number } }>(
         `/orders/${order.ml_order_id}`,
         workspaceId
       );
-      packId = mlOrder.pack_id || null;
-      if (!packId) {
-        return { success: false, error: "Pedido ML sem pack_id" };
+      const shipmentId = mlOrder.shipping?.id || null;
+      if (!shipmentId) {
+        return { success: false, error: "Pedido ML sem shipment_id" };
       }
+      order.ml_shipment_id = shipmentId;
       await supabase
         .from("hub_orders")
-        .update({ ml_pack_id: packId })
+        .update({ ml_shipment_id: shipmentId })
         .eq("id", order.id);
     } catch (err) {
       return {
         success: false,
-        error: `Erro ao buscar pack_id: ${err instanceof Error ? err.message : "desconhecido"}`,
+        error: `Erro ao buscar shipment_id: ${err instanceof Error ? err.message : "desconhecido"}`,
       };
     }
   }
@@ -151,45 +151,25 @@ export async function uploadNFeToML(
     };
   }
 
-  // 4. Upload XML to ML — try shipment endpoint first, fall back to pack
-  let uploadError: string | null = null;
-  let uploaded = false;
-
-  if (order.ml_shipment_id) {
-    try {
-      await ml.postMultipart(
-        `/shipments/${order.ml_shipment_id}/fiscal_documents`,
-        `nfe-${order.ecc_nfe_numero}.xml`,
-        pureXml,
-        "application/xml",
-        workspaceId
-      );
-      uploaded = true;
-    } catch (err) {
-      uploadError = `shipment: ${err instanceof Error ? err.message : "desconhecido"}`;
-    }
-  }
-
-  if (!uploaded) {
-    try {
-      await ml.postMultipart(
-        `/packs/${packId}/fiscal_documents`,
-        `nfe-${order.ecc_nfe_numero}.xml`,
-        pureXml,
-        "application/xml",
-        workspaceId
-      );
-      uploaded = true;
-    } catch (err) {
-      const packErr = `pack: ${err instanceof Error ? err.message : "desconhecido"}`;
-      uploadError = uploadError ? `${uploadError} | ${packErr}` : packErr;
-    }
-  }
-
-  if (!uploaded) {
+  // 4. Upload XML to ML using /shipments/{id}/invoice_data endpoint (Brazil)
+  // Reference: https://developers.mercadolivre.com.br/pt_br/anexar-nota-fiscal
+  if (!order.ml_shipment_id) {
     return {
       success: false,
-      error: `Upload ML falhou: ${uploadError}`,
+      error: "Pedido sem ml_shipment_id — necessario para envio da NF",
+    };
+  }
+
+  try {
+    await ml.postXml(
+      `/shipments/${order.ml_shipment_id}/invoice_data/?siteId=MLB`,
+      pureXml,
+      workspaceId
+    );
+  } catch (err) {
+    return {
+      success: false,
+      error: `Upload ML falhou: ${err instanceof Error ? err.message : "desconhecido"}`,
     };
   }
 

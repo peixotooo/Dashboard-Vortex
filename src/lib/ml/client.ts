@@ -117,6 +117,37 @@ class MLClient {
     return res.json();
   }
 
+  /**
+   * POST raw XML body (for fiscal documents endpoint).
+   * Used for /shipments/{id}/invoice_data
+   */
+  async postXml<T = unknown>(
+    path: string,
+    xmlBody: string,
+    workspaceId: string
+  ): Promise<T> {
+    await this.throttle();
+    const token = await this.getToken(workspaceId);
+    const res = await fetch(`${ML_BASE}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/xml",
+      },
+      body: xmlBody,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`ML ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return text as T;
+    }
+  }
+
   async put<T = unknown>(
     path: string,
     body: unknown,
