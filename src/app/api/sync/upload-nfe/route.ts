@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { uploadNFeToML } from "@/lib/hub/nfe-upload";
+import { eccosys } from "@/lib/eccosys/client";
 import type { HubOrder } from "@/types/hub";
 
 export const maxDuration = 60;
@@ -80,9 +81,37 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      // If hub doesn't have ecc_nfe_numero yet, try fetching from Eccosys
       if (!order.ecc_nfe_numero) {
-        errors.push({ ml_order_id: mlOrderId, error: "Sem numero da NF no Eccosys" });
-        continue;
+        try {
+          const eccPedido = await eccosys.get<{ nfeNumero?: string; situacao?: number }>(
+            `/pedidos/${order.ecc_pedido_id}`,
+            workspaceId
+          );
+          if (eccPedido.nfeNumero) {
+            order.ecc_nfe_numero = eccPedido.nfeNumero;
+            await supabase
+              .from("hub_orders")
+              .update({
+                ecc_nfe_numero: eccPedido.nfeNumero,
+                ecc_situacao: eccPedido.situacao ?? null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", order.id);
+          } else {
+            errors.push({
+              ml_order_id: mlOrderId,
+              error: "Pedido ainda nao foi faturado no Eccosys (sem numero de NF)",
+            });
+            continue;
+          }
+        } catch (err) {
+          errors.push({
+            ml_order_id: mlOrderId,
+            error: `Erro ao buscar NF no Eccosys: ${err instanceof Error ? err.message : "desconhecido"}`,
+          });
+          continue;
+        }
       }
 
       const result = await uploadNFeToML(order, workspaceId);

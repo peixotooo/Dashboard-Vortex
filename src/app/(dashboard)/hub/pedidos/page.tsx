@@ -258,6 +258,37 @@ export default function HubPedidosPage() {
     }
   }
 
+  async function handleSendNfe(mlOrderId: number) {
+    if (!workspace?.id) return;
+    setPushingIds((prev) => new Set(prev).add(mlOrderId));
+    try {
+      const res = await fetch("/api/sync/upload-nfe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({ ml_order_ids: [mlOrderId] }),
+      });
+      const data = await res.json();
+      if (res.ok && data.sent > 0) {
+        fetchOrders();
+      } else if (data.errors && data.errors.length > 0) {
+        alert(`Erro: ${data.errors[0].error}`);
+      } else {
+        alert("Nenhuma NF foi enviada");
+      }
+    } catch (err) {
+      alert(`Erro: ${err instanceof Error ? err.message : "desconhecido"}`);
+    } finally {
+      setPushingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(mlOrderId);
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -440,6 +471,7 @@ export default function HubPedidosPage() {
                             pushingIds={pushingIds}
                             onPush={handlePushToEccosys}
                             onReprocess={handleReprocess}
+                            onSendNfe={handleSendNfe}
                             onClick={() => setSelectedOrder(first)}
                           />
                         );
@@ -510,6 +542,28 @@ export default function HubPedidosPage() {
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
                                       <ArrowUpFromLine className="h-3.5 w-3.5 text-orange-500" />
+                                    )}
+                                  </Button>
+                                )}
+                                {packOrders.some((o) => o.ecc_pedido_id && !o.nfe_xml_sent_at && o.ml_status !== "cancelled") && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Enviar NF do pack ao ML"
+                                    disabled={packOrders.some((o) => pushingIds.has(o.ml_order_id))}
+                                    onClick={async () => {
+                                      for (const o of packOrders) {
+                                        if (o.ecc_pedido_id && !o.nfe_xml_sent_at && o.ml_status !== "cancelled") {
+                                          await handleSendNfe(o.ml_order_id);
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    {packOrders.some((o) => pushingIds.has(o.ml_order_id)) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <FileText className="h-3.5 w-3.5 text-purple-500" />
                                     )}
                                   </Button>
                                 )}
@@ -588,11 +642,12 @@ export default function HubPedidosPage() {
 // -------------------------------------------------------------------
 // Order Row (reusable for single orders and pack children)
 // -------------------------------------------------------------------
-function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild, hideActions }: {
+function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onClick, isChild, hideActions }: {
   order: HubOrder;
   pushingIds: Set<number>;
   onPush: (id: number) => void;
   onReprocess: (id: number) => void;
+  onSendNfe?: (id: number) => void;
   onClick: () => void;
   isChild?: boolean;
   hideActions?: boolean;
@@ -654,8 +709,22 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onClick, isChild, hi
                 {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 text-blue-500" />}
               </Button>
             )}
+            {onSendNfe && order.ecc_pedido_id && !order.nfe_xml_sent_at && order.ml_status !== "cancelled" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Enviar NF ao ML"
+                disabled={pushingIds.has(order.ml_order_id)}
+                onClick={() => onSendNfe(order.ml_order_id)}
+              >
+                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-purple-500" />}
+              </Button>
+            )}
             {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
-            {order.sync_status === "imported" && <Check className="h-3.5 w-3.5 text-green-500" />}
+            {(order.sync_status === "imported" || order.sync_status === "tracking_sent" || order.sync_status === "nfe_sent") && (
+              <Check className="h-3.5 w-3.5 text-green-500" />
+            )}
           </div>
         )}
       </td>
