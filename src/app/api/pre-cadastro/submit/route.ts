@@ -94,20 +94,33 @@ export async function POST(req: NextRequest) {
 
       // Step 1: Create PARENT product in Eccosys (no EAN, no variation)
       const parentBody = mapItemToEccosys(item, chosenTemplate);
-      const created = await eccosys.post<{ id?: number; codigo?: string }>("/produtos", parentBody);
-      const parentEccId = created?.id;
+      const created = await eccosys.post<unknown>("/produtos", parentBody);
 
-      if (!parentEccId) {
-        throw new Error("Eccosys nao retornou o ID do produto pai");
+      // Eccosys may return: {id: 123}, {id: "123"}, "123", 123, or {id: "123", codigo: "..."}
+      let parentEccId: number | null = null;
+      let parentCodigo = "";
+
+      if (typeof created === "number") {
+        parentEccId = created;
+      } else if (typeof created === "string") {
+        parentEccId = parseInt(created, 10) || null;
+      } else if (created && typeof created === "object") {
+        const obj = created as Record<string, unknown>;
+        parentEccId = Number(obj.id) || null;
+        parentCodigo = String(obj.codigo || "");
       }
 
-      // Get the parent's auto-generated codigo (SKU)
-      let parentCodigo = created?.codigo || "";
+      console.log(`[pre-cadastro] POST /produtos response:`, JSON.stringify(created), `→ id=${parentEccId}`);
+
+      if (!parentEccId) {
+        throw new Error(`Eccosys nao retornou o ID do produto pai. Response: ${JSON.stringify(created)}`);
+      }
+
+      // Get the parent's auto-generated codigo (SKU) if not in the POST response
       if (!parentCodigo) {
-        // Fetch it back if not returned in POST response
         try {
-          const fetched = await eccosys.get<{ codigo?: string }>(`/produtos/${parentEccId}`);
-          parentCodigo = fetched?.codigo || String(parentEccId);
+          const fetched = await eccosys.get<Record<string, unknown>>(`/produtos/${parentEccId}`);
+          parentCodigo = String(fetched?.codigo || parentEccId);
         } catch {
           parentCodigo = String(parentEccId);
         }
@@ -146,7 +159,8 @@ export async function POST(req: NextRequest) {
             nome: `${item.nome || ""} - ${size}`,
           };
 
-          await eccosys.post("/produtos", childBody);
+          const childResult = await eccosys.post("/produtos", childBody);
+          console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
           childrenCreated++;
         } catch (childErr) {
           console.warn(`[pre-cadastro] Erro ao criar filho ${childCodigo} (${size}):`, childErr);
