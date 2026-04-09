@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
 import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
+import { generateEAN14, getNextSequential } from "@/lib/pre-cadastro/ean14";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 120;
@@ -72,6 +73,18 @@ export async function POST(req: NextRequest) {
   const categories = collection.categories_snapshot as CategoryNode[] | null;
   const contextDescription = collection.context_description as string | null;
 
+  // Fetch existing GTINs to determine next EAN-14 sequential number
+  const { data: existingGtins } = await supabase
+    .from("collection_items")
+    .select("gtin")
+    .eq("workspace_id", workspaceId)
+    .not("gtin", "is", null);
+
+  const existingEans = (existingGtins || [])
+    .map((r: { gtin: string | null }) => r.gtin)
+    .filter((g): g is string => !!g);
+  let nextSeq = getNextSequential(existingEans);
+
   const results: { id: string; status: string; error?: string }[] = [];
   let processed = 0;
   let errors = 0;
@@ -106,10 +119,14 @@ export async function POST(req: NextRequest) {
       // Resolve which template to use for fiscal/operational fields
       const chosenTemplate = resolveTemplate(result, templates);
 
+      // Generate EAN-14 for this item
+      const ean14 = generateEAN14(nextSeq++);
+
       // Build updates
       const updates: Record<string, unknown> = {
         nome: result.nome,
         codigo: result.codigo,
+        gtin: ean14,
         descricao_ecommerce: result.descricao_ecommerce,
         descricao_complementar: result.descricao_complementar || null,
         departamento_id: result.departamento?.id || null,

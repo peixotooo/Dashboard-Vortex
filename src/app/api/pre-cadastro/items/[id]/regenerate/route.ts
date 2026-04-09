@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
 import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
+import { generateEAN14, getNextSequential } from "@/lib/pre-cadastro/ean14";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 60;
@@ -62,10 +63,23 @@ export async function POST(
     // Resolve chosen template
     const chosenTemplate = resolveTemplate(result, templates);
 
+    // Keep existing GTIN or generate a new one
+    let gtin = item.gtin as string | null;
+    if (!gtin) {
+      const { data: existingGtins } = await supabase
+        .from("collection_items")
+        .select("gtin")
+        .eq("workspace_id", workspaceId)
+        .not("gtin", "is", null);
+      const eans = (existingGtins || []).map((r: { gtin: string | null }) => r.gtin).filter((g): g is string => !!g);
+      gtin = generateEAN14(getNextSequential(eans));
+    }
+
     // Update item with new AI results
     const updates: Record<string, unknown> = {
       nome: result.nome,
       codigo: result.codigo,
+      gtin,
       descricao_ecommerce: result.descricao_ecommerce,
       descricao_complementar: result.descricao_complementar || null,
       departamento_id: result.departamento?.id || null,
