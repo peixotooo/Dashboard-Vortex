@@ -176,6 +176,34 @@ class EccosysClient {
   }
 
   /**
+   * POST with text/plain body (for Eccosys image upload endpoint).
+   * POST /api/produtos/:id/imagens expects Content-Type: text/plain with URL or base64.
+   */
+  async postText(
+    path: string,
+    body: string,
+    _workspaceId?: string
+  ): Promise<unknown> {
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado. Defina ECCOSYS_API_TOKEN nas env vars da Vercel.");
+
+    await this.throttle();
+    const res = await fetch(this.getBaseUrl(config) + path, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        "Content-Type": "text/plain",
+      },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Eccosys ${res.status}: ${text}`);
+    }
+    return res.json().catch(() => ({}));
+  }
+
+  /**
    * Test connection with explicit credentials (for settings page).
    */
   async testConnection(apiToken: string, ambiente: string): Promise<boolean> {

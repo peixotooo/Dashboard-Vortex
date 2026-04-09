@@ -36,6 +36,7 @@ import {
   ShoppingCart,
   FileText,
   Tag,
+  ImagePlus,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -163,6 +164,7 @@ const navGroups: NavGroup[] = [
           { title: "Dashboard", href: "/hub", icon: LayoutDashboard },
           { title: "Produtos", href: "/hub/produtos", icon: Package },
           { title: "Pedidos", href: "/hub/pedidos", icon: ShoppingCart },
+          { title: "Pre-Cadastro", href: "/hub/pre-cadastro", icon: ImagePlus },
           { title: "Logs", href: "/hub/logs", icon: FileText },
         ],
       },
