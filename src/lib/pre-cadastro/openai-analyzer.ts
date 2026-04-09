@@ -76,33 +76,59 @@ ${categoryList}`);
 
   parts.push(`Retorne APENAS um JSON valido com esta estrutura exata:
 {
-  "nome": "nome comercial completo do produto",
-  "codigo": "codigo-do-produto-em-slug",
-  "descricao_ecommerce": "descricao detalhada para e-commerce, 2-3 paragrafos",
-  "descricao_complementar": "detalhes visuais: cor, material, acabamento, estilo",
+  "nome": "NOME DO PRODUTO EM MAIUSCULAS",
+  "codigo": "url-slug-do-produto",
+  "descricao_ecommerce": "Texto completo para e-commerce, 3-5 frases descritivas sobre o produto, material, design e uso",
+  "descricao_complementar": "Detalhes visuais concisos: tipo de peça, cor, estampa, acabamento",
+  "descricao_detalhada": "Texto longo e envolvente (4-6 frases) sobre o produto, focando na identidade da marca e experiência",
+  "keywords": "palavra-chave 1, palavra-chave 2, palavra-chave 3, pelo menos 5 keywords SEO",
+  "metatag_description": "Descricao SEO de 150-160 caracteres para metatag. Inclua nome do produto, marca e CTA.",
+  "titulo_pagina": "TITULO DA PAGINA PARA SEO",
+  "url_slug": "url-slug-do-produto",
+  "composicao": "100% Algodao",
   "departamento": { "id": "ID_DO_DEPARTAMENTO", "nome": "Nome do Departamento" },
   "categoria": { "id": "ID_DA_CATEGORIA", "nome": "Nome da Categoria" },
   "subcategoria": { "id": "ID_DA_SUBCATEGORIA", "nome": "Nome da Subcategoria" },
-  "atributos_detectados": { "cor": "azul", "material": "algodao" },
+  "atributos_detectados": { "cor": "preta", "material": "algodao", "estilo": "oversized" },
   "template_escolhido": 12345,
   "confidence": {
     "nome": 0.9,
     "descricao_ecommerce": 0.85,
     "categorization": 0.7,
-    "peso": 0.3,
-    "dimensoes": 0.2
+    "composicao": 0.6
   }
 }
 
+EXEMPLOS REAIS DE PRODUTOS JA CADASTRADOS (use como referencia de estilo e formato):
+
+Exemplo 1 - Camiseta:
+  nome: "CAMISETA OVERSIZED WINGS PRETA"
+  descricao_complementar: "Camiseta oversized preta com estampa frontal de cabeca de aguia americana"
+  keywords: "camiseta oversized preta aguia, camiseta bulking wings, camiseta army xiv eagle spirit"
+  metatag: "Camiseta Oversized Wings Preta da colecao ARMY XIV Bulking. Cabeca de aguia americana. Corte oversized. Compre agora."
+  composicao: "100% Algodao"
+  url: "camiseta-oversized-wings-preta"
+
+Exemplo 2 - Calca:
+  nome: "CALCA JOGGER FORGE PRETA"
+  descricao_complementar: "Calca jogger preta com estampa Bulking Army na coxa esquerda. Cos e punhos elasticos"
+  keywords: "calca jogger preta, calca treino masculina, calca bulking army, jogger musculacao"
+  composicao: "70,5% Algodao 22% Viscose 7,5% Elastano"
+
 REGRAS:
-- O nome deve incorporar informacoes do nome do arquivo e do contexto da colecao
-- O codigo deve ser um slug do nome (lowercase, hifens, sem acentos, max 30 chars)
-- A descricao deve ser atrativa para e-commerce, mencionando material, cor, estilo
-- Para departamento/categoria/subcategoria, use SOMENTE IDs da lista fornecida. Se nao encontrar match adequado, retorne null
-- Se nao houver subcategoria adequada, retorne subcategoria como null
+- nome: SEMPRE em MAIUSCULAS. Formato: "TIPO MODELO COR" (ex: "CAMISETA OVERSIZED PALE RIDER PRETA")
+- codigo e url_slug: slug lowercase com hifens, sem acentos (ex: "camiseta-oversized-pale-rider-preta")
+- titulo_pagina: igual ao nome (MAIUSCULAS)
+- descricao_complementar: 1-2 frases curtas com detalhes visuais (cor, estampa, corte)
+- descricao_ecommerce e descricao_detalhada: textos diferentes! ecommerce e mais conciso, detalhada e mais envolvente
+- keywords: minimo 5 termos SEO separados por virgula, incluir variações com marca e tipo de peça
+- metatag_description: 150-160 chars, terminar com "Compre agora."
+- composicao: inferir da foto (ex: algodao para camisetas, poliester para peças tecnicas)
+- GTIN/EAN: NAO gere. Deixe vazio
+- Para departamento/categoria/subcategoria, use SOMENTE IDs da lista fornecida. Se nao encontrar match, retorne null
 - template_escolhido: ID do template mais adequado da lista (se houver pool de templates)
-- Confidence: 0.0 a 1.0, indicando quao confiante voce esta em cada campo
-- atributos_detectados: liste cor, material, estilo, e qualquer outro atributo visivel na foto`);
+- Confidence: 0.0 a 1.0 por campo
+- atributos_detectados: cor, material, estilo, modelagem e outros atributos visiveis`);
 
   return parts.join("\n\n");
 }

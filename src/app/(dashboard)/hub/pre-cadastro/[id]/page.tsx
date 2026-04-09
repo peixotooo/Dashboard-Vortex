@@ -46,7 +46,14 @@ interface CollectionItem {
   codigo: string | null;
   descricao_ecommerce: string | null;
   descricao_complementar: string | null;
+  descricao_detalhada: string | null;
+  keywords: string | null;
+  metatag_description: string | null;
+  titulo_pagina: string | null;
+  url_slug: string | null;
+  composicao: string | null;
   preco: number | null;
+  preco_custo: number | null;
   peso: number | null;
   largura: number | null;
   altura: number | null;
@@ -507,13 +514,16 @@ function ProductCard({
               </p>
             )}
 
-            {/* Category */}
+            {/* Category + Composicao */}
             {item.categoria_nome && (
               <p className="text-xs">
                 {[item.departamento_nome, item.categoria_nome, item.subcategoria_nome]
                   .filter(Boolean)
                   .join(" > ")}
               </p>
+            )}
+            {item.composicao && (
+              <p className="text-xs text-muted-foreground">{item.composicao}</p>
             )}
 
             {/* Low confidence warning */}
@@ -586,12 +596,18 @@ function EditItemDialog({
     codigo: item.codigo || "",
     descricao_ecommerce: item.descricao_ecommerce || "",
     descricao_complementar: item.descricao_complementar || "",
+    descricao_detalhada: item.descricao_detalhada || "",
+    keywords: item.keywords || "",
+    metatag_description: item.metatag_description || "",
+    titulo_pagina: item.titulo_pagina || "",
+    url_slug: item.url_slug || "",
+    composicao: item.composicao || "",
     preco: item.preco != null ? String(item.preco) : "",
+    preco_custo: item.preco_custo != null ? String(item.preco_custo) : "",
     peso: item.peso != null ? String(item.peso) : "",
     largura: item.largura != null ? String(item.largura) : "",
     altura: item.altura != null ? String(item.altura) : "",
     comprimento: item.comprimento != null ? String(item.comprimento) : "",
-    gtin: item.gtin || "",
     ncm: item.ncm || "",
     departamento_id: item.departamento_id || "",
     categoria_id: item.categoria_id || "",
@@ -599,41 +615,44 @@ function EditItemDialog({
   });
 
   const confidence = item.ai_confidence || {};
-
-  function isLowConfidence(field: string) {
-    return (confidence[field] ?? 1) < 0.5;
-  }
-
   function fieldClass(field: string) {
-    return isLowConfidence(field) ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20" : "";
+    return (confidence[field] ?? 1) < 0.5 ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20" : "";
   }
 
-  // Find category names from IDs
   const selectedDept = categories?.find((d) => String(d.id) === form.departamento_id);
   const selectedCat = selectedDept?.categorias?.find((c) => String(c.id) === form.categoria_id);
 
   function handleSave() {
     const updates: Record<string, unknown> = {};
-    if (form.nome !== (item.nome || "")) updates.nome = form.nome;
-    if (form.codigo !== (item.codigo || "")) updates.codigo = form.codigo;
-    if (form.descricao_ecommerce !== (item.descricao_ecommerce || "")) updates.descricao_ecommerce = form.descricao_ecommerce;
-    if (form.descricao_complementar !== (item.descricao_complementar || "")) updates.descricao_complementar = form.descricao_complementar;
-    if (form.preco !== (item.preco != null ? String(item.preco) : "")) updates.preco = form.preco ? parseFloat(form.preco) : null;
-    if (form.peso !== (item.peso != null ? String(item.peso) : "")) updates.peso = form.peso ? parseFloat(form.peso) : null;
-    if (form.largura !== (item.largura != null ? String(item.largura) : "")) updates.largura = form.largura ? parseFloat(form.largura) : null;
-    if (form.altura !== (item.altura != null ? String(item.altura) : "")) updates.altura = form.altura ? parseFloat(form.altura) : null;
-    if (form.comprimento !== (item.comprimento != null ? String(item.comprimento) : "")) updates.comprimento = form.comprimento ? parseFloat(form.comprimento) : null;
-    if (form.gtin !== (item.gtin || "")) updates.gtin = form.gtin || null;
-    if (form.ncm !== (item.ncm || "")) updates.ncm = form.ncm || null;
-    if (form.departamento_id !== (item.departamento_id || "")) {
+    const str = (v: string | null) => v || "";
+    const num = (v: number | null) => v != null ? String(v) : "";
+
+    if (form.nome !== str(item.nome)) updates.nome = form.nome;
+    if (form.codigo !== str(item.codigo)) updates.codigo = form.codigo;
+    if (form.descricao_ecommerce !== str(item.descricao_ecommerce)) updates.descricao_ecommerce = form.descricao_ecommerce;
+    if (form.descricao_complementar !== str(item.descricao_complementar)) updates.descricao_complementar = form.descricao_complementar;
+    if (form.descricao_detalhada !== str(item.descricao_detalhada)) updates.descricao_detalhada = form.descricao_detalhada;
+    if (form.keywords !== str(item.keywords)) updates.keywords = form.keywords;
+    if (form.metatag_description !== str(item.metatag_description)) updates.metatag_description = form.metatag_description;
+    if (form.titulo_pagina !== str(item.titulo_pagina)) updates.titulo_pagina = form.titulo_pagina;
+    if (form.url_slug !== str(item.url_slug)) updates.url_slug = form.url_slug;
+    if (form.composicao !== str(item.composicao)) updates.composicao = form.composicao;
+    if (form.preco !== num(item.preco)) updates.preco = form.preco ? parseFloat(form.preco) : null;
+    if (form.preco_custo !== num(item.preco_custo)) updates.preco_custo = form.preco_custo ? parseFloat(form.preco_custo) : null;
+    if (form.peso !== num(item.peso)) updates.peso = form.peso ? parseFloat(form.peso) : null;
+    if (form.largura !== num(item.largura)) updates.largura = form.largura ? parseFloat(form.largura) : null;
+    if (form.altura !== num(item.altura)) updates.altura = form.altura ? parseFloat(form.altura) : null;
+    if (form.comprimento !== num(item.comprimento)) updates.comprimento = form.comprimento ? parseFloat(form.comprimento) : null;
+    if (form.ncm !== str(item.ncm)) updates.ncm = form.ncm || null;
+    if (form.departamento_id !== str(item.departamento_id)) {
       updates.departamento_id = form.departamento_id || null;
       updates.departamento_nome = selectedDept?.nome || null;
     }
-    if (form.categoria_id !== (item.categoria_id || "")) {
+    if (form.categoria_id !== str(item.categoria_id)) {
       updates.categoria_id = form.categoria_id || null;
       updates.categoria_nome = selectedCat?.nome || null;
     }
-    if (form.subcategoria_id !== (item.subcategoria_id || "")) {
+    if (form.subcategoria_id !== str(item.subcategoria_id)) {
       updates.subcategoria_id = form.subcategoria_id || null;
       const sub = selectedCat?.subcategorias?.find((s) => String(s.id) === form.subcategoria_id);
       updates.subcategoria_nome = sub?.nome || null;
@@ -644,106 +663,58 @@ function EditItemDialog({
 
   return (
     <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Produto</DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
-          {/* Left column: image */}
+          {/* Left: image */}
           <div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={item.image_public_url}
-              alt={item.nome || ""}
-              className="w-full rounded-lg object-cover aspect-square"
-            />
+            <img src={item.image_public_url} alt={item.nome || ""} className="w-full rounded-lg object-cover aspect-square" />
           </div>
 
-          {/* Right column: fields */}
+          {/* Right: core fields */}
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Nome</Label>
-              <Input
-                className={fieldClass("nome")}
-                value={form.nome}
-                onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-              />
+              <Input className={fieldClass("nome")} value={form.nome} onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} />
             </div>
             <div>
-              <Label className="text-xs">Codigo (SKU)</Label>
-              <Input
-                value={form.codigo}
-                onChange={(e) => setForm((f) => ({ ...f, codigo: e.target.value }))}
-              />
+              <Label className="text-xs">URL / Slug</Label>
+              <Input value={form.url_slug} onChange={(e) => setForm((f) => ({ ...f, url_slug: e.target.value }))} />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">Preco (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={form.preco}
-                  onChange={(e) => setForm((f) => ({ ...f, preco: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Peso (kg)</Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  className={fieldClass("peso")}
-                  value={form.peso}
-                  onChange={(e) => setForm((f) => ({ ...f, peso: e.target.value }))}
-                />
-              </div>
+            <div>
+              <Label className="text-xs">Composicao</Label>
+              <Input className={fieldClass("composicao")} value={form.composicao} onChange={(e) => setForm((f) => ({ ...f, composicao: e.target.value }))} />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <Label className="text-xs">Largura</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  className={fieldClass("dimensoes")}
-                  value={form.largura}
-                  onChange={(e) => setForm((f) => ({ ...f, largura: e.target.value }))}
-                />
+                <Label className="text-xs">Preco (R$)</Label>
+                <Input type="number" step="0.01" value={form.preco} onChange={(e) => setForm((f) => ({ ...f, preco: e.target.value }))} />
               </div>
               <div>
-                <Label className="text-xs">Altura</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  className={fieldClass("dimensoes")}
-                  value={form.altura}
-                  onChange={(e) => setForm((f) => ({ ...f, altura: e.target.value }))}
-                />
+                <Label className="text-xs">Custo (R$)</Label>
+                <Input type="number" step="0.01" value={form.preco_custo} onChange={(e) => setForm((f) => ({ ...f, preco_custo: e.target.value }))} />
               </div>
               <div>
-                <Label className="text-xs">Compr.</Label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  className={fieldClass("dimensoes")}
-                  value={form.comprimento}
-                  onChange={(e) => setForm((f) => ({ ...f, comprimento: e.target.value }))}
-                />
+                <Label className="text-xs">NCM</Label>
+                <Input value={form.ncm} onChange={(e) => setForm((f) => ({ ...f, ncm: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label className="text-xs">GTIN</Label>
-                <Input
-                  value={form.gtin}
-                  onChange={(e) => setForm((f) => ({ ...f, gtin: e.target.value }))}
-                />
+                <Label className="text-xs">Peso (kg)</Label>
+                <Input type="number" step="0.001" value={form.peso} onChange={(e) => setForm((f) => ({ ...f, peso: e.target.value }))} />
               </div>
               <div>
-                <Label className="text-xs">NCM</Label>
-                <Input
-                  value={form.ncm}
-                  onChange={(e) => setForm((f) => ({ ...f, ncm: e.target.value }))}
-                />
+                <Label className="text-xs">Dimensoes (CxLxA cm)</Label>
+                <div className="flex gap-1">
+                  <Input type="number" step="0.1" placeholder="C" value={form.comprimento} onChange={(e) => setForm((f) => ({ ...f, comprimento: e.target.value }))} />
+                  <Input type="number" step="0.1" placeholder="L" value={form.largura} onChange={(e) => setForm((f) => ({ ...f, largura: e.target.value }))} />
+                  <Input type="number" step="0.1" placeholder="A" value={form.altura} onChange={(e) => setForm((f) => ({ ...f, altura: e.target.value }))} />
+                </div>
               </div>
             </div>
           </div>
@@ -754,90 +725,63 @@ function EditItemDialog({
           <div className="grid grid-cols-3 gap-2 mt-4">
             <div>
               <Label className="text-xs">Departamento</Label>
-              <Select
-                value={form.departamento_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, departamento_id: v, categoria_id: "", subcategoria_id: "" }))}
-              >
-                <SelectTrigger className={fieldClass("categorization")}>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((d) => (
-                    <SelectItem key={String(d.id)} value={String(d.id)}>
-                      {d.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={form.departamento_id} onValueChange={(v) => setForm((f) => ({ ...f, departamento_id: v, categoria_id: "", subcategoria_id: "" }))}>
+                <SelectTrigger className={fieldClass("categorization")}><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{categories.map((d) => (<SelectItem key={String(d.id)} value={String(d.id)}>{d.nome}</SelectItem>))}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">Categoria</Label>
-              <Select
-                value={form.categoria_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, categoria_id: v, subcategoria_id: "" }))}
-                disabled={!selectedDept?.categorias}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectedDept?.categorias?.map((c) => (
-                    <SelectItem key={String(c.id)} value={String(c.id)}>
-                      {c.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={form.categoria_id} onValueChange={(v) => setForm((f) => ({ ...f, categoria_id: v, subcategoria_id: "" }))} disabled={!selectedDept?.categorias}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{selectedDept?.categorias?.map((c) => (<SelectItem key={String(c.id)} value={String(c.id)}>{c.nome}</SelectItem>))}</SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">Subcategoria</Label>
-              <Select
-                value={form.subcategoria_id}
-                onValueChange={(v) => setForm((f) => ({ ...f, subcategoria_id: v }))}
-                disabled={!selectedCat?.subcategorias}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectedCat?.subcategorias?.map((s) => (
-                    <SelectItem key={String(s.id)} value={String(s.id)}>
-                      {s.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={form.subcategoria_id} onValueChange={(v) => setForm((f) => ({ ...f, subcategoria_id: v }))} disabled={!selectedCat?.subcategorias}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>{selectedCat?.subcategorias?.map((s) => (<SelectItem key={String(s.id)} value={String(s.id)}>{s.nome}</SelectItem>))}</SelectContent>
               </Select>
             </div>
           </div>
         )}
 
-        {/* Description */}
-        <div className="mt-4">
-          <Label className="text-xs">Descricao E-commerce</Label>
-          <Textarea
-            className={fieldClass("descricao_ecommerce")}
-            rows={3}
-            value={form.descricao_ecommerce}
-            onChange={(e) => setForm((f) => ({ ...f, descricao_ecommerce: e.target.value }))}
-          />
+        {/* Descriptions */}
+        <div className="space-y-3 mt-4">
+          <div>
+            <Label className="text-xs">Descricao Complementar</Label>
+            <Textarea rows={2} value={form.descricao_complementar} onChange={(e) => setForm((f) => ({ ...f, descricao_complementar: e.target.value }))} />
+          </div>
+          <div>
+            <Label className="text-xs">Descricao E-commerce</Label>
+            <Textarea className={fieldClass("descricao_ecommerce")} rows={3} value={form.descricao_ecommerce} onChange={(e) => setForm((f) => ({ ...f, descricao_ecommerce: e.target.value }))} />
+          </div>
+          <div>
+            <Label className="text-xs">Descricao Detalhada</Label>
+            <Textarea rows={4} value={form.descricao_detalhada} onChange={(e) => setForm((f) => ({ ...f, descricao_detalhada: e.target.value }))} />
+          </div>
         </div>
-        <div>
-          <Label className="text-xs">Descricao Complementar</Label>
-          <Textarea
-            rows={2}
-            value={form.descricao_complementar}
-            onChange={(e) => setForm((f) => ({ ...f, descricao_complementar: e.target.value }))}
-          />
+
+        {/* SEO */}
+        <div className="space-y-3 mt-4">
+          <div>
+            <Label className="text-xs">Titulo da Pagina (SEO)</Label>
+            <Input value={form.titulo_pagina} onChange={(e) => setForm((f) => ({ ...f, titulo_pagina: e.target.value }))} />
+          </div>
+          <div>
+            <Label className="text-xs">Keywords (SEO)</Label>
+            <Textarea rows={2} value={form.keywords} onChange={(e) => setForm((f) => ({ ...f, keywords: e.target.value }))} />
+          </div>
+          <div>
+            <Label className="text-xs">Metatag Description (SEO)</Label>
+            <Textarea rows={2} value={form.metatag_description} onChange={(e) => setForm((f) => ({ ...f, metatag_description: e.target.value }))} />
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSave}>
-            <Check className="mr-2 h-4 w-4" />
-            Salvar
-          </Button>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSave}><Check className="mr-2 h-4 w-4" />Salvar</Button>
         </div>
       </DialogContent>
     </Dialog>

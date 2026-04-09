@@ -1,6 +1,7 @@
 /**
  * Maps collection item data to Eccosys API product body.
  * Merges template defaults + AI-generated fields + user edits.
+ * Field names match the Eccosys CSV export format.
  */
 
 import type { CollectionItem, TemplateData } from "./types";
@@ -11,6 +12,7 @@ interface EccosysProductBody {
   unidade: string;
   cf: string;
   preco: string;
+  precoCusto: string;
   origem: string;
   situacao: string;
   tipo: string;
@@ -23,7 +25,6 @@ interface EccosysProductBody {
   pesoBruto: string;
   idFornecedor: string;
   tipoProducao: string;
-  precoCusto: string;
   gtin: string;
   gtinEmbalagem: string;
   descricaoComplementar: string;
@@ -34,33 +35,46 @@ interface EccosysProductBody {
   largura: string;
   altura: string;
   comprimento: string;
+  // SEO & e-commerce fields
+  tituloPagina: string;
+  keywords: string;
+  metatagDescription: string;
+  url: string;
+  // Additional fields from CSV
+  situacaoVenda: string;
+  situacaoCompra: string;
+  classeEnquadIpi: string;
+  tempoProducao: string;
 }
+
+// Fixed values from real CSV data
+const FABRICANTE = "BULKING INDUSTRIA E COMERCIO DE ROUPAS LTDA.";
 
 export function mapItemToEccosys(
   item: CollectionItem,
   template: TemplateData | null
 ): EccosysProductBody {
-  const peso = String(item.peso || template?.peso || "0.00");
+  const peso = String(item.peso || template?.peso || "0.220");
 
   return {
     nome: item.nome || "",
     codigo: item.codigo || "",
-    unidade: item.unidade || template?.unidade || "un",
+    unidade: item.unidade || template?.unidade || "Un",
     cf: item.ncm || template?.cf || "",
     preco: String(item.preco || "0.00"),
+    precoCusto: String(item.preco_custo || "0.00"),
     origem: item.origem || template?.origem || "0",
-    situacao: template?.situacao || "A",
-    tipo: template?.tipo || "P",
+    situacao: "A",
+    tipo: "P",
     tipoFrete: "0",
-    calcAutomEstoque: template?.calcAutomEstoque || "S",
-    estoqueMinimo: template?.estoqueMinimo || "0.00",
-    estoqueMaximo: template?.estoqueMaximo || "0.00",
+    calcAutomEstoque: "N",
+    estoqueMinimo: "10.00",
+    estoqueMaximo: "0.00",
     peso,
     pesoLiq: peso,
     pesoBruto: peso,
     idFornecedor: item.id_fornecedor || template?.idFornecedor || "0",
-    tipoProducao: template?.tipoProducao || "T",
-    precoCusto: "0.00",
+    tipoProducao: "T",
     gtin: item.gtin || "",
     gtinEmbalagem: "",
     descricaoComplementar: item.descricao_complementar || "",
@@ -68,9 +82,19 @@ export function mapItemToEccosys(
     opcEcommerce: "S",
     opcOpcional: "N",
     idProdutoPai: "0",
-    largura: String(item.largura || template?.largura || "0.00"),
-    altura: String(item.altura || template?.altura || "0.00"),
-    comprimento: String(item.comprimento || template?.comprimento || "0.00"),
+    largura: String(item.largura || template?.largura || "25.00"),
+    altura: String(item.altura || template?.altura || "3.00"),
+    comprimento: String(item.comprimento || template?.comprimento || "30.00"),
+    // SEO fields
+    tituloPagina: item.titulo_pagina || item.nome || "",
+    keywords: item.keywords || "",
+    metatagDescription: item.metatag_description || "",
+    url: item.url_slug || item.codigo || "",
+    // Fixed fields from CSV patterns
+    situacaoVenda: "Ativo",
+    situacaoCompra: "Ativo",
+    classeEnquadIpi: "999",
+    tempoProducao: "30",
   };
 }
 

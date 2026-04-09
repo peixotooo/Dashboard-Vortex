@@ -81,6 +81,14 @@ export interface CollectionItem {
   unidade: string | null;
   origem: string | null;
   id_fornecedor: string | null;
+  keywords: string | null;
+  metatag_description: string | null;
+  titulo_pagina: string | null;
+  url_slug: string | null;
+  composicao: string | null;
+  preco_custo: number | null;
+  fabricante: string | null;
+  descricao_detalhada: string | null;
   departamento_id: string | null;
   categoria_id: string | null;
   subcategoria_id: string | null;
@@ -104,12 +112,18 @@ export interface AIAnalysisResult {
   codigo: string;
   descricao_ecommerce: string;
   descricao_complementar: string;
+  descricao_detalhada: string;
+  keywords: string;
+  metatag_description: string;
+  titulo_pagina: string;
+  url_slug: string;
+  composicao: string;
   departamento: { id: string; nome: string } | null;
   categoria: { id: string; nome: string } | null;
   subcategoria: { id: string; nome: string } | null;
   atributos_detectados: Record<string, string>;
   confidence: Record<string, number>;
-  template_escolhido?: number; // ID do template Eccosys escolhido pela IA
+  template_escolhido?: number;
 }
 
 export interface CollectionWithCounts extends ProductCollection {

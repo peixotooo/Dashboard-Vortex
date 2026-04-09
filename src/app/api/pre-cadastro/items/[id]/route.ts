@@ -30,8 +30,11 @@ export async function PATCH(
   // Track which fields were manually edited
   const editableFields = [
     "nome", "codigo", "descricao_ecommerce", "descricao_complementar",
-    "preco", "peso", "largura", "altura", "comprimento", "gtin",
+    "descricao_detalhada", "preco", "preco_custo", "peso",
+    "largura", "altura", "comprimento", "gtin",
     "ncm", "unidade", "origem", "id_fornecedor",
+    "keywords", "metatag_description", "titulo_pagina", "url_slug",
+    "composicao", "fabricante",
     "departamento_id", "categoria_id", "subcategoria_id",
     "departamento_nome", "categoria_nome", "subcategoria_nome",
   ];
