@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,13 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
 
-interface TemplateProduct {
-  id: number;
-  nome: string;
-  codigo: string;
-  cf: string;
-}
-
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,28 +24,8 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
   const { workspace } = useWorkspace();
   const [name, setName] = useState("");
   const [contextDescription, setContextDescription] = useState("");
-  const [templateSearch, setTemplateSearch] = useState("");
-  const [templateResults, setTemplateResults] = useState<TemplateProduct[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateProduct | null>(null);
-  const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  async function searchTemplates() {
-    if (!workspace?.id || !templateSearch.trim()) return;
-    setSearching(true);
-    try {
-      const res = await fetch(
-        `/api/pre-cadastro/template-products?search=${encodeURIComponent(templateSearch)}`,
-        { headers: { "x-workspace-id": workspace.id } }
-      );
-      if (res.ok) {
-        setTemplateResults(await res.json());
-      }
-    } finally {
-      setSearching(false);
-    }
-  }
 
   async function handleSubmit() {
     if (!workspace?.id || !name.trim()) return;
@@ -68,7 +41,6 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
         body: JSON.stringify({
           name: name.trim(),
           context_description: contextDescription.trim() || null,
-          template_ecc_id: selectedTemplate?.id || null,
         }),
       });
 
@@ -81,9 +53,6 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
       // Reset and close
       setName("");
       setContextDescription("");
-      setSelectedTemplate(null);
-      setTemplateSearch("");
-      setTemplateResults([]);
       onOpenChange(false);
       onCreated();
     } finally {
@@ -123,59 +92,10 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
             </p>
           </div>
 
-          <div>
-            <Label>Produto Template (opcional)</Label>
-            <p className="text-xs text-muted-foreground mb-2">
-              Herda NCM, fornecedor, unidade e outros campos fiscais
-            </p>
-
-            {selectedTemplate ? (
-              <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30">
-                <div>
-                  <p className="text-sm font-medium">{selectedTemplate.nome}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedTemplate.codigo} | NCM: {selectedTemplate.cf || "N/A"}
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedTemplate(null)}>
-                  Remover
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Buscar por nome ou codigo..."
-                    value={templateSearch}
-                    onChange={(e) => setTemplateSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && searchTemplates()}
-                  />
-                  <Button variant="outline" size="icon" onClick={searchTemplates} disabled={searching}>
-                    {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                  </Button>
-                </div>
-
-                {templateResults.length > 0 && (
-                  <div className="border rounded-md max-h-40 overflow-y-auto">
-                    {templateResults.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-b-0"
-                        onClick={() => {
-                          setSelectedTemplate(p);
-                          setTemplateResults([]);
-                        }}
-                      >
-                        <span className="font-medium">{p.nome}</span>
-                        <span className="text-muted-foreground ml-2">({p.codigo})</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <p className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3">
+            Os campos fiscais (NCM, fornecedor, unidade) serao herdados automaticamente
+            de produtos existentes no Eccosys com base na categoria detectada pela IA.
+          </p>
 
           {error && (
             <p className="text-sm text-red-600">{error}</p>

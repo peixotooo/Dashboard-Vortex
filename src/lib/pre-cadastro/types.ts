@@ -11,7 +11,7 @@ export interface ProductCollection {
   name: string;
   context_description: string | null;
   template_ecc_id: number | null;
-  template_data: TemplateData | null;
+  template_data: TemplateData | TemplateData[] | null;
   categories_snapshot: CategoryNode[] | null;
   status: CollectionStatus;
   total_items: number;
@@ -41,6 +41,9 @@ export interface TemplateData {
   calcAutomEstoque: string;
   estoqueMinimo: string;
   estoqueMaximo: string;
+  // Category info for AI matching
+  categoria: string;
+  departamento: string;
 }
 
 export interface CategoryNode {
@@ -106,6 +109,7 @@ export interface AIAnalysisResult {
   subcategoria: { id: string; nome: string } | null;
   atributos_detectados: Record<string, string>;
   confidence: Record<string, number>;
+  template_escolhido?: number; // ID do template Eccosys escolhido pela IA
 }
 
 export interface CollectionWithCounts extends ProductCollection {

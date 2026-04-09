@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
-import { analyzeProductImage } from "@/lib/pre-cadastro/openai-analyzer";
+import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 60;
+
+/** Normalize template_data to always be an array */
+function getTemplatePool(raw: unknown): TemplateData[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as TemplateData[];
+  return [raw as TemplateData];
+}
 
 export async function POST(
   req: NextRequest,
@@ -31,6 +38,7 @@ export async function POST(
   }
 
   const collection = (item as Record<string, unknown>).product_collections as Record<string, unknown>;
+  const templates = getTemplatePool(collection.template_data);
 
   try {
     // Download image from B2
@@ -47,9 +55,12 @@ export async function POST(
       mimeType,
       item.original_filename,
       collection.context_description as string | null,
-      collection.template_data as TemplateData | null,
+      templates,
       collection.categories_snapshot as CategoryNode[] | null
     );
+
+    // Resolve chosen template
+    const chosenTemplate = resolveTemplate(result, templates);
 
     // Update item with new AI results
     const updates: Record<string, unknown> = {
@@ -73,13 +84,16 @@ export async function POST(
       updated_at: new Date().toISOString(),
     };
 
-    // Apply template defaults
-    const template = collection.template_data as TemplateData | null;
-    if (template) {
-      updates.ncm = template.cf || null;
-      updates.unidade = template.unidade || "un";
-      updates.origem = template.origem || "0";
-      updates.id_fornecedor = template.idFornecedor || null;
+    // Apply chosen template defaults
+    if (chosenTemplate) {
+      updates.ncm = chosenTemplate.cf || null;
+      updates.unidade = chosenTemplate.unidade || "un";
+      updates.origem = chosenTemplate.origem || "0";
+      updates.id_fornecedor = chosenTemplate.idFornecedor || null;
+      updates.peso = chosenTemplate.peso ? parseFloat(chosenTemplate.peso) : null;
+      updates.largura = chosenTemplate.largura ? parseFloat(chosenTemplate.largura) : null;
+      updates.altura = chosenTemplate.altura ? parseFloat(chosenTemplate.altura) : null;
+      updates.comprimento = chosenTemplate.comprimento ? parseFloat(chosenTemplate.comprimento) : null;
     }
 
     const { data: updated, error } = await supabase

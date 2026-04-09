@@ -51,6 +51,37 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(collections);
 }
 
+/**
+ * Converts a raw Eccosys product to a TemplateData snapshot.
+ */
+function productToTemplate(p: Record<string, unknown>, deptName: string, catName: string): TemplateData {
+  return {
+    id: Number(p.id),
+    nome: String(p.nome || ""),
+    codigo: String(p.codigo || ""),
+    cf: String(p.cf || ""),
+    unidade: String(p.unidade || "un"),
+    origem: String(p.origem || "0"),
+    peso: String(p.peso || "0.00"),
+    pesoLiq: String(p.pesoLiq || "0.00"),
+    pesoBruto: String(p.pesoBruto || "0.00"),
+    largura: String(p.largura || "0.00"),
+    altura: String(p.altura || "0.00"),
+    comprimento: String(p.comprimento || "0.00"),
+    idFornecedor: String(p.idFornecedor || "0"),
+    tipoProducao: String(p.tipoProducao || "T"),
+    tipo: String(p.tipo || "P"),
+    situacao: String(p.situacao || "A"),
+    calcAutomEstoque: String(p.calcAutomEstoque || "S"),
+    estoqueMinimo: String(p.estoqueMinimo || "0.00"),
+    estoqueMaximo: String(p.estoqueMaximo || "0.00"),
+    departamento: deptName,
+    categoria: catName,
+  };
+}
+
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
   if (!workspaceId) {
@@ -58,54 +89,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, context_description, template_ecc_id } = body as {
+  const { name, context_description } = body as {
     name?: string;
     context_description?: string;
-    template_ecc_id?: number;
   };
 
   if (!name || !name.trim()) {
     return NextResponse.json({ error: "Nome da colecao e obrigatorio" }, { status: 400 });
   }
 
-  // Fetch template product from Eccosys if provided
-  let templateData: TemplateData | null = null;
-  if (template_ecc_id) {
-    try {
-      const product = await eccosys.get<Record<string, unknown>>(`/produtos/${template_ecc_id}`);
-      if (product) {
-        templateData = {
-          id: Number(product.id),
-          nome: String(product.nome || ""),
-          codigo: String(product.codigo || ""),
-          cf: String(product.cf || ""),
-          unidade: String(product.unidade || "un"),
-          origem: String(product.origem || "0"),
-          peso: String(product.peso || "0.00"),
-          pesoLiq: String(product.pesoLiq || "0.00"),
-          pesoBruto: String(product.pesoBruto || "0.00"),
-          largura: String(product.largura || "0.00"),
-          altura: String(product.altura || "0.00"),
-          comprimento: String(product.comprimento || "0.00"),
-          idFornecedor: String(product.idFornecedor || "0"),
-          tipoProducao: String(product.tipoProducao || "T"),
-          tipo: String(product.tipo || "P"),
-          situacao: String(product.situacao || "A"),
-          calcAutomEstoque: String(product.calcAutomEstoque || "S"),
-          estoqueMinimo: String(product.estoqueMinimo || "0.00"),
-          estoqueMaximo: String(product.estoqueMaximo || "0.00"),
-        };
-      }
-    } catch (err) {
-      console.error("[pre-cadastro] Erro ao buscar template:", err);
-      return NextResponse.json(
-        { error: `Erro ao buscar produto template: ${err instanceof Error ? err.message : "unknown"}` },
-        { status: 400 }
-      );
-    }
-  }
-
-  // Fetch categories from Eccosys
+  // 1. Fetch categories from Eccosys
   let categoriesSnapshot: CategoryNode[] | null = null;
   try {
     const depts = await eccosys.listAll<CategoryNode>("/departamentos");
@@ -116,6 +109,51 @@ export async function POST(req: NextRequest) {
     console.warn("[pre-cadastro] Erro ao buscar categorias:", err);
   }
 
+  // 2. Build category ID → name lookup from the tree
+  const catIdToNames = new Map<string, { dept: string; cat: string }>();
+  if (categoriesSnapshot) {
+    for (const dept of categoriesSnapshot) {
+      if (dept.categorias) {
+        for (const cat of dept.categorias) {
+          catIdToNames.set(String(cat.id), { dept: String(dept.nome), cat: String(cat.nome) });
+        }
+      }
+    }
+  }
+
+  // 3. Auto-fetch template pool: get products from different categories
+  let templatePool: TemplateData[] = [];
+  try {
+    // Fetch parent products (idProdutoPai = 0 means parent/standalone)
+    const products = await eccosys.listAll<Record<string, unknown>>(
+      "/produtos",
+      undefined,
+      { $situacao: "A" },
+      100
+    );
+
+    // Group by category, pick one per category (prefer products with NCM filled)
+    const byCat = new Map<string, Record<string, unknown>>();
+    for (const p of products) {
+      const catId = String(p.idCatProd || p.idSubCatProd || "0");
+      if (catId === "0") continue;
+      // Prefer products with NCM (cf) filled
+      const existing = byCat.get(catId);
+      if (!existing || (!existing.cf && p.cf)) {
+        byCat.set(catId, p);
+      }
+    }
+
+    for (const [catId, product] of byCat) {
+      const names = catIdToNames.get(catId) || { dept: "", cat: "" };
+      templatePool.push(productToTemplate(product, names.dept, names.cat));
+    }
+
+    console.log(`[pre-cadastro] Auto-fetched ${templatePool.length} templates from ${products.length} products`);
+  } catch (err) {
+    console.warn("[pre-cadastro] Erro ao montar pool de templates:", err);
+  }
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("product_collections")
@@ -123,8 +161,8 @@ export async function POST(req: NextRequest) {
       workspace_id: workspaceId,
       name: name.trim(),
       context_description: context_description || null,
-      template_ecc_id: template_ecc_id || null,
-      template_data: templateData,
+      template_ecc_id: null,
+      template_data: templatePool.length > 0 ? templatePool : null,
       categories_snapshot: categoriesSnapshot,
       status: "draft",
     })

@@ -3,6 +3,8 @@
  *
  * Uses OpenRouter (OpenAI-compatible) to analyze product images
  * and generate structured product data for Eccosys registration.
+ * Supports a pool of templates from different categories —
+ * the AI picks the most appropriate one per product.
  */
 
 import OpenAI from "openai";
@@ -29,7 +31,7 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
 function buildSystemPrompt(
   contextDescription: string | null,
-  template: TemplateData | null,
+  templates: TemplateData[],
   categories: CategoryNode[] | null
 ): string {
   const parts: string[] = [
@@ -42,20 +44,31 @@ Analise a foto do produto e preencha os campos abaixo em formato JSON.`,
 ${contextDescription}`);
   }
 
-  if (template) {
-    parts.push(`PRODUTO TEMPLATE (use estes valores como base para campos que nao podem ser inferidos da imagem):
-- NCM: ${template.cf || "N/A"}
-- Unidade: ${template.unidade || "un"}
-- Origem: ${template.origem || "0"}
-- Peso medio: ${template.peso || "N/A"}
-- Fornecedor ID: ${template.idFornecedor || "N/A"}
-- Largura: ${template.largura || "N/A"} cm
-- Altura: ${template.altura || "N/A"} cm
-- Comprimento: ${template.comprimento || "N/A"} cm`);
+  // Template pool — AI must pick the best match
+  if (templates.length === 1) {
+    const t = templates[0];
+    parts.push(`PRODUTO TEMPLATE (use estes valores como base para campos fiscais e operacionais):
+- Template ID: ${t.id}
+- Categoria: ${t.departamento} > ${t.categoria}
+- NCM: ${t.cf || "N/A"}
+- Unidade: ${t.unidade || "un"}
+- Origem: ${t.origem || "0"}
+- Peso medio: ${t.peso || "N/A"} kg
+- Fornecedor ID: ${t.idFornecedor || "N/A"}
+- Dimensoes: ${t.largura}x${t.altura}x${t.comprimento} cm`);
+  } else if (templates.length > 1) {
+    const templateLines = templates.map((t, i) =>
+      `  ${i + 1}. ID=${t.id} | ${t.departamento} > ${t.categoria} | NCM=${t.cf || "N/A"} | Unidade=${t.unidade} | Origem=${t.origem} | Peso=${t.peso}kg | Fornecedor=${t.idFornecedor} | ${t.largura}x${t.altura}x${t.comprimento}cm`
+    ).join("\n");
+
+    parts.push(`POOL DE TEMPLATES (escolha o mais adequado para este produto baseado na categoria):
+Cada template representa um tipo de produto diferente no ERP. Escolha o que mais se aproxima do produto na foto.
+${templateLines}
+
+IMPORTANTE: Retorne o campo "template_escolhido" com o ID do template escolhido.`);
   }
 
   if (categories && categories.length > 0) {
-    // Flatten categories for the prompt (limit to avoid token overflow)
     const categoryList = flattenCategories(categories);
     parts.push(`CATEGORIAS DISPONIVEIS NO ERP (escolha a mais adequada):
 ${categoryList}`);
@@ -71,6 +84,7 @@ ${categoryList}`);
   "categoria": { "id": "ID_DA_CATEGORIA", "nome": "Nome da Categoria" },
   "subcategoria": { "id": "ID_DA_SUBCATEGORIA", "nome": "Nome da Subcategoria" },
   "atributos_detectados": { "cor": "azul", "material": "algodao" },
+  "template_escolhido": 12345,
   "confidence": {
     "nome": 0.9,
     "descricao_ecommerce": 0.85,
@@ -86,6 +100,7 @@ REGRAS:
 - A descricao deve ser atrativa para e-commerce, mencionando material, cor, estilo
 - Para departamento/categoria/subcategoria, use SOMENTE IDs da lista fornecida. Se nao encontrar match adequado, retorne null
 - Se nao houver subcategoria adequada, retorne subcategoria como null
+- template_escolhido: ID do template mais adequado da lista (se houver pool de templates)
 - Confidence: 0.0 a 1.0, indicando quao confiante voce esta em cada campo
 - atributos_detectados: liste cor, material, estilo, e qualquer outro atributo visivel na foto`);
 
@@ -115,17 +130,44 @@ function flattenCategories(categories: CategoryNode[]): string {
   return text;
 }
 
+/**
+ * Given the AI result and the template pool, returns the chosen template.
+ */
+export function resolveTemplate(
+  result: AIAnalysisResult,
+  templates: TemplateData[]
+): TemplateData | null {
+  if (templates.length === 0) return null;
+  if (templates.length === 1) return templates[0];
+
+  // If AI chose a template, find it
+  if (result.template_escolhido) {
+    const match = templates.find((t) => t.id === result.template_escolhido);
+    if (match) return match;
+  }
+
+  // Fallback: match by category name
+  if (result.categoria?.nome) {
+    const catName = result.categoria.nome.toLowerCase();
+    const match = templates.find((t) => t.categoria.toLowerCase() === catName);
+    if (match) return match;
+  }
+
+  // Last resort: first template
+  return templates[0];
+}
+
 export async function analyzeProductImage(
   imageBase64: string,
   mimeType: string,
   filename: string,
   contextDescription: string | null,
-  template: TemplateData | null,
+  templates: TemplateData[],
   categories: CategoryNode[] | null,
   model?: string
 ): Promise<AIAnalysisResult> {
   const client = getClient();
-  const systemPrompt = buildSystemPrompt(contextDescription, template, categories);
+  const systemPrompt = buildSystemPrompt(contextDescription, templates, categories);
 
   const response = await client.chat.completions.create({
     model: model || DEFAULT_MODEL,

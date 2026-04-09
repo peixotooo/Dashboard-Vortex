@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
-import { analyzeProductImage } from "@/lib/pre-cadastro/openai-analyzer";
+import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 120;
+
+/** Normalize template_data to always be an array */
+function getTemplatePool(raw: unknown): TemplateData[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as TemplateData[];
+  return [raw as TemplateData];
+}
 
 export async function POST(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -61,7 +68,7 @@ export async function POST(req: NextRequest) {
     .update({ status: "processing", updated_at: new Date().toISOString() })
     .eq("id", collection_id);
 
-  const template = collection.template_data as TemplateData | null;
+  const templates = getTemplatePool(collection.template_data);
   const categories = collection.categories_snapshot as CategoryNode[] | null;
   const contextDescription = collection.context_description as string | null;
 
@@ -86,15 +93,18 @@ export async function POST(req: NextRequest) {
       const mimeMap: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
       const mimeType = mimeMap[ext] || "image/jpeg";
 
-      // Analyze with AI
+      // Analyze with AI (passes full template pool)
       const result = await analyzeProductImage(
         base64,
         mimeType,
         item.original_filename,
         contextDescription,
-        template,
+        templates,
         categories
       );
+
+      // Resolve which template to use for fiscal/operational fields
+      const chosenTemplate = resolveTemplate(result, templates);
 
       // Build updates
       const updates: Record<string, unknown> = {
@@ -117,12 +127,16 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       };
 
-      // Apply template defaults
-      if (template) {
-        updates.ncm = template.cf || null;
-        updates.unidade = template.unidade || "un";
-        updates.origem = template.origem || "0";
-        updates.id_fornecedor = template.idFornecedor || null;
+      // Apply chosen template defaults for fiscal/operational fields
+      if (chosenTemplate) {
+        updates.ncm = chosenTemplate.cf || null;
+        updates.unidade = chosenTemplate.unidade || "un";
+        updates.origem = chosenTemplate.origem || "0";
+        updates.id_fornecedor = chosenTemplate.idFornecedor || null;
+        updates.peso = chosenTemplate.peso ? parseFloat(chosenTemplate.peso) : null;
+        updates.largura = chosenTemplate.largura ? parseFloat(chosenTemplate.largura) : null;
+        updates.altura = chosenTemplate.altura ? parseFloat(chosenTemplate.altura) : null;
+        updates.comprimento = chosenTemplate.comprimento ? parseFloat(chosenTemplate.comprimento) : null;
       }
 
       await supabase.from("collection_items").update(updates).eq("id", item.id);
@@ -159,7 +173,7 @@ export async function POST(req: NextRequest) {
     entity_id: collection_id,
     direction: "internal",
     status: errors > 0 ? "partial" : "ok",
-    details: { processed, errors, total: items.length },
+    details: { processed, errors, total: items.length, templates_count: templates.length },
   });
 
   return NextResponse.json({ processed, errors, total: items.length, results });
