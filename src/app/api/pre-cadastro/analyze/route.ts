@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       // Build updates
       const updates: Record<string, unknown> = {
         nome: result.nome,
-        codigo: result.codigo,
+        codigo: result.url_slug || null,
         descricao_ecommerce: result.descricao_ecommerce,
         descricao_complementar: result.descricao_complementar || null,
         descricao_detalhada: result.descricao_detalhada || null,

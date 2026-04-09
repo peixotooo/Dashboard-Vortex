@@ -109,7 +109,6 @@ export interface CollectionItem {
 
 export interface AIAnalysisResult {
   nome: string;
-  codigo: string;
   descricao_ecommerce: string;
   descricao_complementar: string;
   descricao_detalhada: string;

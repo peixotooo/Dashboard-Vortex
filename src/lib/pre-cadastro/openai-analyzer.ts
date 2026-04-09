@@ -77,7 +77,6 @@ ${categoryList}`);
   parts.push(`Retorne APENAS um JSON valido com esta estrutura exata:
 {
   "nome": "NOME DO PRODUTO EM MAIUSCULAS",
-  "codigo": "url-slug-do-produto",
   "descricao_ecommerce": "Texto completo para e-commerce, 3-5 frases descritivas sobre o produto, material, design e uso",
   "descricao_complementar": "Detalhes visuais concisos: tipo de peça, cor, estampa, acabamento",
   "descricao_detalhada": "Texto longo e envolvente (4-6 frases) sobre o produto, focando na identidade da marca e experiência",
@@ -117,7 +116,8 @@ Exemplo 2 - Calca:
 
 REGRAS:
 - nome: SEMPRE em MAIUSCULAS. Formato: "TIPO MODELO COR" (ex: "CAMISETA OVERSIZED PALE RIDER PRETA")
-- codigo e url_slug: slug lowercase com hifens, sem acentos (ex: "camiseta-oversized-pale-rider-preta")
+- url_slug: slug lowercase com hifens, sem acentos (ex: "camiseta-oversized-pale-rider-preta")
+- SKU (codigo): NAO gere. O ERP atribui automaticamente
 - titulo_pagina: igual ao nome (MAIUSCULAS)
 - descricao_complementar: 1-2 frases curtas com detalhes visuais (cor, estampa, corte)
 - descricao_ecommerce e descricao_detalhada: textos diferentes! ecommerce e mais conciso, detalhada e mais envolvente
@@ -227,8 +227,8 @@ export async function analyzeProductImage(
   const parsed = JSON.parse(content) as AIAnalysisResult;
 
   // Validate required fields
-  if (!parsed.nome || !parsed.codigo) {
-    throw new Error("Resposta da IA sem campos obrigatorios (nome, codigo)");
+  if (!parsed.nome) {
+    throw new Error("Resposta da IA sem campo obrigatorio (nome)");
   }
 
   return parsed;

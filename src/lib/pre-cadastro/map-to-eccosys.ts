@@ -58,7 +58,7 @@ export function mapItemToEccosys(
 
   return {
     nome: item.nome || "",
-    codigo: item.codigo || "",
+    codigo: "",  // Eccosys auto-generates the SKU
     unidade: item.unidade || template?.unidade || "Un",
     cf: item.ncm || template?.cf || "",
     preco: String(item.preco || "0.00"),
