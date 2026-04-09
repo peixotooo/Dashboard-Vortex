@@ -133,17 +133,16 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       };
 
-      // Apply chosen template defaults for fiscal/operational fields
-      if (chosenTemplate) {
-        updates.ncm = chosenTemplate.cf || null;
-        updates.unidade = chosenTemplate.unidade || "un";
-        updates.origem = chosenTemplate.origem || "0";
-        updates.id_fornecedor = chosenTemplate.idFornecedor || null;
-        updates.peso = chosenTemplate.peso ? parseFloat(chosenTemplate.peso) : null;
-        updates.largura = chosenTemplate.largura ? parseFloat(chosenTemplate.largura) : null;
-        updates.altura = chosenTemplate.altura ? parseFloat(chosenTemplate.altura) : null;
-        updates.comprimento = chosenTemplate.comprimento ? parseFloat(chosenTemplate.comprimento) : null;
-      }
+      // Apply template or defaults for fiscal/operational fields
+      updates.ncm = chosenTemplate?.cf || "6105.20.00";
+      updates.unidade = chosenTemplate?.unidade || "Un";
+      updates.origem = chosenTemplate?.origem || "0";
+      updates.id_fornecedor = chosenTemplate?.idFornecedor || "0";
+      updates.peso = chosenTemplate?.peso ? parseFloat(chosenTemplate.peso) : 0.220;
+      updates.largura = chosenTemplate?.largura ? parseFloat(chosenTemplate.largura) : 25;
+      updates.altura = chosenTemplate?.altura ? parseFloat(chosenTemplate.altura) : 3;
+      updates.comprimento = chosenTemplate?.comprimento ? parseFloat(chosenTemplate.comprimento) : 30;
+      updates.fabricante = "BULKING INDUSTRIA E COMERCIO DE ROUPAS LTDA.";
 
       await supabase.from("collection_items").update(updates).eq("id", item.id);
 
