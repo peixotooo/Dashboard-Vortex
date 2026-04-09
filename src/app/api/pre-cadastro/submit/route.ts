@@ -69,6 +69,34 @@ export async function POST(req: NextRequest) {
   const templates = getTemplatePool(collection.template_data);
   const grade: string[] = (collection.grade as string[]) || DEFAULT_GRADE;
 
+  // Fetch last SKU from Eccosys to generate the next sequential codigo
+  let lastSku = 0;
+  try {
+    const existing = await eccosys.get<{ codigo?: string }[]>(
+      "/produtos",
+      undefined,
+      { $offset: "0", $count: "1", $situacao: "A" }
+    );
+    if (existing && existing.length > 0) {
+      const num = parseInt(String(existing[0].codigo), 10);
+      if (num > lastSku) lastSku = num;
+    }
+  } catch (err) {
+    console.warn("[pre-cadastro] Erro ao buscar ultimo SKU:", err);
+  }
+  // Also check any SKUs already submitted in this workspace
+  const { data: submittedItems } = await supabase
+    .from("collection_items")
+    .select("codigo")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "submitted")
+    .not("codigo", "is", null);
+  for (const row of submittedItems || []) {
+    const num = parseInt(String((row as { codigo: string }).codigo), 10);
+    if (num > lastSku) lastSku = num;
+  }
+  let nextSku = lastSku + 1;
+
   // Get existing EANs to calculate next sequential
   const { data: existingGtins } = await supabase
     .from("collection_items")
@@ -93,12 +121,13 @@ export async function POST(req: NextRequest) {
       );
 
       // Step 1: Create PARENT product in Eccosys (no EAN, no variation)
+      const parentCodigo = String(nextSku++);
       const parentBody = mapItemToEccosys(item, chosenTemplate);
+      parentBody.codigo = parentCodigo;
       const created = await eccosys.post<unknown>("/produtos", parentBody);
 
-      // Eccosys may return: {id: 123}, {id: "123"}, "123", 123, or {id: "123", codigo: "..."}
+      // Parse Eccosys response — format: {result:{success:[{id:"123"}]}, error:[]}
       let parentEccId: number | null = null;
-      let parentCodigo = "";
 
       if (typeof created === "number") {
         parentEccId = created;
@@ -106,24 +135,27 @@ export async function POST(req: NextRequest) {
         parentEccId = parseInt(created, 10) || null;
       } else if (created && typeof created === "object") {
         const obj = created as Record<string, unknown>;
-        parentEccId = Number(obj.id) || null;
-        parentCodigo = String(obj.codigo || "");
+        // Direct id
+        if (obj.id) {
+          parentEccId = Number(obj.id) || null;
+        }
+        // Eccosys batch format: {result: {success: [{id: "123"}]}, error: [...]}
+        const result = obj.result as Record<string, unknown> | undefined;
+        if (result?.success && Array.isArray(result.success) && result.success.length > 0) {
+          parentEccId = Number((result.success[0] as Record<string, unknown>).id) || null;
+        }
+        // Check for errors
+        const errs = obj.error as unknown[] | undefined;
+        if (errs && Array.isArray(errs) && errs.length > 0 && !parentEccId) {
+          const errMsg = (errs[0] as Record<string, unknown>).erro || "Erro desconhecido";
+          throw new Error(`Eccosys rejeitou o produto: ${errMsg}`);
+        }
       }
 
-      console.log(`[pre-cadastro] POST /produtos response:`, JSON.stringify(created), `→ id=${parentEccId}`);
+      console.log(`[pre-cadastro] POST /produtos response:`, JSON.stringify(created), `→ id=${parentEccId}, codigo=${parentCodigo}`);
 
       if (!parentEccId) {
         throw new Error(`Eccosys nao retornou o ID do produto pai. Response: ${JSON.stringify(created)}`);
-      }
-
-      // Get the parent's auto-generated codigo (SKU) if not in the POST response
-      if (!parentCodigo) {
-        try {
-          const fetched = await eccosys.get<Record<string, unknown>>(`/produtos/${parentEccId}`);
-          parentCodigo = String(fetched?.codigo || parentEccId);
-        } catch {
-          parentCodigo = String(parentEccId);
-        }
       }
 
       // Step 2: Upload image to parent
