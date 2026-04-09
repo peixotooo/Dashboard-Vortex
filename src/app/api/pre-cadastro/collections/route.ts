@@ -121,23 +121,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 3. Auto-fetch template pool: get products from different categories
+  // 3. Auto-fetch template pool: 1 product per category (only parent products)
   let templatePool: TemplateData[] = [];
   try {
-    // Fetch parent products (idProdutoPai = 0 means parent/standalone)
-    const products = await eccosys.listAll<Record<string, unknown>>(
-      "/produtos",
+    // Fetch only parent products — much smaller set than all products
+    const parents = await eccosys.get<Record<string, unknown>[]>(
+      "/produtos/produtosPai",
       undefined,
-      { $situacao: "A" },
-      100
+      { $offset: "0", $count: "100", $situacao: "A" }
     );
 
     // Group by category, pick one per category (prefer products with NCM filled)
     const byCat = new Map<string, Record<string, unknown>>();
-    for (const p of products) {
+    for (const p of parents || []) {
       const catId = String(p.idCatProd || p.idSubCatProd || "0");
       if (catId === "0") continue;
-      // Prefer products with NCM (cf) filled
       const existing = byCat.get(catId);
       if (!existing || (!existing.cf && p.cf)) {
         byCat.set(catId, p);
@@ -149,7 +147,7 @@ export async function POST(req: NextRequest) {
       templatePool.push(productToTemplate(product, names.dept, names.cat));
     }
 
-    console.log(`[pre-cadastro] Auto-fetched ${templatePool.length} templates from ${products.length} products`);
+    console.log(`[pre-cadastro] ${templatePool.length} templates from ${(parents || []).length} parent products`);
   } catch (err) {
     console.warn("[pre-cadastro] Erro ao montar pool de templates:", err);
   }
