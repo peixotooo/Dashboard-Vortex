@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { mapItemToEccosys, buildCategorizationBody } from "@/lib/pre-cadastro/map-to-eccosys";
+import { resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
+import { generateEAN14, getNextSequential } from "@/lib/pre-cadastro/ean14";
 import type { CollectionItem, TemplateData } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 300;
+
+const DEFAULT_GRADE = ["P", "M", "G", "GG", "XGG"];
+
+/** Normalize template_data to always be an array */
+function getTemplatePool(raw: unknown): TemplateData[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as TemplateData[];
+  return [raw as TemplateData];
+}
 
 export async function POST(req: NextRequest) {
   const workspaceId = req.headers.get("x-workspace-id");
@@ -24,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient();
 
-  // Fetch collection for template data
+  // Fetch collection
   const { data: collection } = await supabase
     .from("product_collections")
     .select("*")
@@ -55,38 +66,90 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Nenhum item pronto para envio" }, { status: 400 });
   }
 
-  const template = collection.template_data as TemplateData | null;
-  const results: { id: string; status: string; ecc_product_id?: number; error?: string }[] = [];
+  const templates = getTemplatePool(collection.template_data);
+  const grade: string[] = (collection.grade as string[]) || DEFAULT_GRADE;
+
+  // Get existing EANs to calculate next sequential
+  const { data: existingGtins } = await supabase
+    .from("collection_items")
+    .select("gtin")
+    .eq("workspace_id", workspaceId)
+    .not("gtin", "is", null);
+  const existingEans = (existingGtins || [])
+    .map((r: { gtin: string | null }) => r.gtin)
+    .filter((g): g is string => !!g);
+  let nextEanSeq = getNextSequential(existingEans);
+
+  const results: { id: string; status: string; ecc_product_id?: number; children?: number; error?: string }[] = [];
   let submitted = 0;
   let errors = 0;
 
   for (const item of items as CollectionItem[]) {
     try {
-      // Step 1: Create product in Eccosys
-      const productBody = mapItemToEccosys(item, template);
-      const created = await eccosys.post<{ id?: number }>("/produtos", productBody);
-      const eccProductId = created?.id;
+      // Resolve template for this item
+      const chosenTemplate = resolveTemplate(
+        { nome: item.nome || "", departamento: null, categoria: item.categoria_id ? { id: item.categoria_id, nome: item.categoria_nome || "" } : null, subcategoria: null, descricao_ecommerce: "", descricao_complementar: "", descricao_detalhada: "", keywords: "", metatag_description: "", titulo_pagina: "", url_slug: "", composicao: "", atributos_detectados: {}, confidence: {} },
+        templates
+      );
 
-      if (!eccProductId) {
-        throw new Error("Eccosys nao retornou o ID do produto criado");
+      // Step 1: Create PARENT product in Eccosys (no EAN, no variation)
+      const parentBody = mapItemToEccosys(item, chosenTemplate);
+      const created = await eccosys.post<{ id?: number; codigo?: string }>("/produtos", parentBody);
+      const parentEccId = created?.id;
+
+      if (!parentEccId) {
+        throw new Error("Eccosys nao retornou o ID do produto pai");
       }
 
-      // Step 2: Upload image
+      // Get the parent's auto-generated codigo (SKU)
+      let parentCodigo = created?.codigo || "";
+      if (!parentCodigo) {
+        // Fetch it back if not returned in POST response
+        try {
+          const fetched = await eccosys.get<{ codigo?: string }>(`/produtos/${parentEccId}`);
+          parentCodigo = fetched?.codigo || String(parentEccId);
+        } catch {
+          parentCodigo = String(parentEccId);
+        }
+      }
+
+      // Step 2: Upload image to parent
       try {
-        await eccosys.postText(`/produtos/${eccProductId}/imagens`, item.image_public_url);
+        await eccosys.postText(`/produtos/${parentEccId}/imagens`, item.image_public_url);
       } catch (imgErr) {
-        console.warn(`[pre-cadastro] Erro ao enviar imagem para produto ${eccProductId}:`, imgErr);
-        // Continue — product was created, image can be re-uploaded
+        console.warn(`[pre-cadastro] Erro ao enviar imagem para produto pai ${parentEccId}:`, imgErr);
       }
 
-      // Step 3: Set categorization
+      // Step 3: Set categorization on parent
       const categorizationBody = buildCategorizationBody(item);
       if (categorizationBody) {
         try {
-          await eccosys.post(`/produtos/${eccProductId}/categorizacao`, categorizationBody);
+          await eccosys.post(`/produtos/${parentEccId}/categorizacao`, categorizationBody);
         } catch (catErr) {
-          console.warn(`[pre-cadastro] Erro ao categorizar produto ${eccProductId}:`, catErr);
-          // Continue — product was created, categorization can be retried
+          console.warn(`[pre-cadastro] Erro ao categorizar produto pai ${parentEccId}:`, catErr);
+        }
+      }
+
+      // Step 4: Create CHILDREN (size variations) with EAN-14
+      let childrenCreated = 0;
+      for (let i = 0; i < grade.length; i++) {
+        const size = grade[i];
+        const childCodigo = `${parentCodigo}-${i + 1}`;
+        const ean = generateEAN14(nextEanSeq++);
+
+        try {
+          const childBody = {
+            ...parentBody,
+            codigo: childCodigo,
+            gtin: ean,
+            idProdutoPai: String(parentEccId),
+            nome: `${item.nome || ""} - ${size}`,
+          };
+
+          await eccosys.post("/produtos", childBody);
+          childrenCreated++;
+        } catch (childErr) {
+          console.warn(`[pre-cadastro] Erro ao criar filho ${childCodigo} (${size}):`, childErr);
         }
       }
 
@@ -95,14 +158,16 @@ export async function POST(req: NextRequest) {
         .from("collection_items")
         .update({
           status: "submitted",
-          ecc_product_id: eccProductId,
+          ecc_product_id: parentEccId,
+          codigo: parentCodigo,
+          gtin: null, // parent has no EAN
           error_msg: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", item.id);
 
       submitted++;
-      results.push({ id: item.id, status: "submitted", ecc_product_id: eccProductId });
+      results.push({ id: item.id, status: "submitted", ecc_product_id: parentEccId, children: childrenCreated });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Erro desconhecido";
       errors++;
@@ -140,7 +205,7 @@ export async function POST(req: NextRequest) {
     entity_id: collection_id,
     direction: "hub_to_eccosys",
     status: errors > 0 ? "partial" : "ok",
-    details: { submitted, errors, total: items.length },
+    details: { submitted, errors, total: items.length, grade },
   });
 
   return NextResponse.json({ submitted, errors, total: items.length, results });

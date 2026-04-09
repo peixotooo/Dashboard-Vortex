@@ -9,3 +9,6 @@ ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS composicao VARCHAR(300);
 ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS preco_custo DECIMAL(10,2);
 ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS fabricante VARCHAR(300);
 ALTER TABLE collection_items ADD COLUMN IF NOT EXISTS descricao_detalhada TEXT;
+
+-- Grade de tamanhos para variações
+ALTER TABLE product_collections ADD COLUMN IF NOT EXISTS grade JSONB DEFAULT '["P","M","G","GG","XGG"]';

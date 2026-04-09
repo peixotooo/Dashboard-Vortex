@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
       template_ecc_id: null,
       template_data: templatePool.length > 0 ? templatePool : null,
       categories_snapshot: categoriesSnapshot,
+      grade: ["P", "M", "G", "GG", "XGG"],
       status: "draft",
     })
     .select()

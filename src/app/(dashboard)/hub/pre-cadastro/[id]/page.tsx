@@ -82,6 +82,7 @@ interface Collection {
   submitted_items: number;
   template_data: unknown;
   categories_snapshot: CategoryNode[] | null;
+  grade: string[];
 }
 
 interface CategoryNode {
@@ -298,8 +299,9 @@ export default function CollectionDetailPage() {
             <p className="text-sm text-muted-foreground">{collection.context_description}</p>
           )}
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <span>{items.length} produtos</span>
+          <span className="text-xs">Grade: {collection.grade?.join(", ") || "P, M, G, GG, XGG"}</span>
           {submittedCount > 0 && (
             <Badge variant="default">{submittedCount} enviados</Badge>
           )}

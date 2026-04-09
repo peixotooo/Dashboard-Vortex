@@ -13,6 +13,7 @@ export interface ProductCollection {
   template_ecc_id: number | null;
   template_data: TemplateData | TemplateData[] | null;
   categories_snapshot: CategoryNode[] | null;
+  grade: string[];
   status: CollectionStatus;
   total_items: number;
   submitted_items: number;

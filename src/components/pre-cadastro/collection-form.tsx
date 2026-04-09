@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { useWorkspace } from "@/lib/workspace-context";
+
+const DEFAULT_GRADE = ["P", "M", "G", "GG", "XGG"];
 
 interface Props {
   open: boolean;
@@ -24,8 +27,22 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
   const { workspace } = useWorkspace();
   const [name, setName] = useState("");
   const [contextDescription, setContextDescription] = useState("");
+  const [grade, setGrade] = useState<string[]>(DEFAULT_GRADE);
+  const [newSize, setNewSize] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  function addSize() {
+    const size = newSize.trim().toUpperCase();
+    if (size && !grade.includes(size)) {
+      setGrade([...grade, size]);
+      setNewSize("");
+    }
+  }
+
+  function removeSize(size: string) {
+    setGrade(grade.filter((s) => s !== size));
+  }
 
   async function handleSubmit() {
     if (!workspace?.id || !name.trim()) return;
@@ -50,9 +67,9 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
         return;
       }
 
-      // Reset and close
       setName("");
       setContextDescription("");
+      setGrade(DEFAULT_GRADE);
       onOpenChange(false);
       onCreated();
     } finally {
@@ -92,20 +109,51 @@ export function CollectionFormDialog({ open, onOpenChange, onCreated }: Props) {
             </p>
           </div>
 
+          <div>
+            <Label>Grade de Tamanhos</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Cada produto criara variacoes (SKUs filhos) com estes tamanhos
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {grade.map((size) => (
+                <Badge key={size} variant="secondary" className="gap-1 pr-1">
+                  {size}
+                  <button
+                    type="button"
+                    onClick={() => removeSize(size)}
+                    className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Adicionar tamanho..."
+                value={newSize}
+                onChange={(e) => setNewSize(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addSize())}
+                className="flex-1"
+              />
+              <Button variant="outline" size="sm" onClick={addSize} disabled={!newSize.trim()}>
+                Adicionar
+              </Button>
+            </div>
+          </div>
+
           <p className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3">
-            Os campos fiscais (NCM, fornecedor, unidade) serao herdados automaticamente
-            de produtos existentes no Eccosys com base na categoria detectada pela IA.
+            Campos fiscais (NCM, fornecedor, unidade) herdados automaticamente de produtos existentes no Eccosys.
+            EAN-14 gerado automaticamente para cada SKU filho.
           </p>
 
-          {error && (
-            <p className="text-sm text-red-600">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSubmit} disabled={saving || !name.trim()}>
+            <Button onClick={handleSubmit} disabled={saving || !name.trim() || grade.length === 0}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Criar Colecao
             </Button>
