@@ -69,18 +69,22 @@ export async function POST(req: NextRequest) {
   const templates = getTemplatePool(collection.template_data);
   const grade: string[] = (collection.grade as string[]) || DEFAULT_GRADE;
 
-  // Fetch last SKU from Eccosys to generate the next sequential codigo
+  // Fetch recent products from Eccosys to find the highest numeric SKU
   let lastSku = 0;
   try {
+    // Get a batch of recent products to find the max codigo
     const existing = await eccosys.get<{ codigo?: string }[]>(
       "/produtos",
       undefined,
-      { $offset: "0", $count: "1", $situacao: "A" }
+      { $offset: "0", $count: "50", $situacao: "A" }
     );
-    if (existing && existing.length > 0) {
-      const num = parseInt(String(existing[0].codigo), 10);
-      if (num > lastSku) lastSku = num;
+    for (const p of existing || []) {
+      // SKU may have format "349873991" or "349873991-1" (child)
+      const base = String(p.codigo || "").split("-")[0];
+      const num = parseInt(base, 10);
+      if (!isNaN(num) && num > lastSku) lastSku = num;
     }
+    console.log(`[pre-cadastro] Last SKU from Eccosys: ${lastSku} (from ${(existing || []).length} products)`);
   } catch (err) {
     console.warn("[pre-cadastro] Erro ao buscar ultimo SKU:", err);
   }
@@ -92,10 +96,12 @@ export async function POST(req: NextRequest) {
     .eq("status", "submitted")
     .not("codigo", "is", null);
   for (const row of submittedItems || []) {
-    const num = parseInt(String((row as { codigo: string }).codigo), 10);
-    if (num > lastSku) lastSku = num;
+    const base = String((row as { codigo: string }).codigo).split("-")[0];
+    const num = parseInt(base, 10);
+    if (!isNaN(num) && num > lastSku) lastSku = num;
   }
   let nextSku = lastSku + 1;
+  console.log(`[pre-cadastro] Next SKU will be: ${nextSku}`);
 
   // Get existing EANs to calculate next sequential
   const { data: existingGtins } = await supabase
@@ -124,9 +130,11 @@ export async function POST(req: NextRequest) {
       const parentCodigo = String(nextSku++);
       const parentBody = mapItemToEccosys(item, chosenTemplate);
       parentBody.codigo = parentCodigo;
+      console.log(`[pre-cadastro] Sending to Eccosys:`, JSON.stringify({ codigo: parentBody.codigo, nome: parentBody.nome, cf: parentBody.cf, preco: parentBody.preco }));
       const created = await eccosys.post<unknown>("/produtos", parentBody);
 
-      // Parse Eccosys response — format: {result:{success:[{id:"123"}]}, error:[]}
+      // Parse Eccosys response
+      // Format: {"result":{"success":[{"id":"123"}],"error":[{"id":"","erro":"msg"}]}}
       let parentEccId: number | null = null;
 
       if (typeof created === "number") {
@@ -135,20 +143,29 @@ export async function POST(req: NextRequest) {
         parentEccId = parseInt(created, 10) || null;
       } else if (created && typeof created === "object") {
         const obj = created as Record<string, unknown>;
-        // Direct id
+        // Direct id field
         if (obj.id) {
           parentEccId = Number(obj.id) || null;
         }
-        // Eccosys batch format: {result: {success: [{id: "123"}]}, error: [...]}
+        // Eccosys batch format: {result: {success: [{id}], error: [{erro}]}}
         const result = obj.result as Record<string, unknown> | undefined;
-        if (result?.success && Array.isArray(result.success) && result.success.length > 0) {
-          parentEccId = Number((result.success[0] as Record<string, unknown>).id) || null;
+        if (result) {
+          const success = result.success as unknown[] | undefined;
+          if (success && Array.isArray(success) && success.length > 0) {
+            parentEccId = Number((success[0] as Record<string, unknown>).id) || null;
+          }
+          // Errors inside result.error
+          const errs = result.error as unknown[] | undefined;
+          if (errs && Array.isArray(errs) && errs.length > 0 && !parentEccId) {
+            const errMsg = (errs[0] as Record<string, unknown>).erro || "Erro desconhecido";
+            throw new Error(`Eccosys: ${errMsg}`);
+          }
         }
-        // Check for errors
-        const errs = obj.error as unknown[] | undefined;
-        if (errs && Array.isArray(errs) && errs.length > 0 && !parentEccId) {
-          const errMsg = (errs[0] as Record<string, unknown>).erro || "Erro desconhecido";
-          throw new Error(`Eccosys rejeitou o produto: ${errMsg}`);
+        // Also check top-level error array
+        const topErrs = obj.error as unknown[] | undefined;
+        if (topErrs && Array.isArray(topErrs) && topErrs.length > 0 && !parentEccId) {
+          const errMsg = (topErrs[0] as Record<string, unknown>).erro || "Erro desconhecido";
+          throw new Error(`Eccosys: ${errMsg}`);
         }
       }
 
