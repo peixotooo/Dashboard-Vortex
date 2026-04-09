@@ -62,10 +62,17 @@ export async function POST(
     // Resolve chosen template
     const chosenTemplate = resolveTemplate(result, templates);
 
-    // Update item with new AI results
+    // Derive name from filename as the source of truth
+    const filenameBase = item.original_filename
+      .replace(/\.[^.]+$/, "")
+      .replace(/[-_]/g, " ")
+      .toUpperCase()
+      .trim();
+
+    // Update item with new AI results — filename-derived name takes priority
     const updates: Record<string, unknown> = {
-      nome: result.nome,
-      codigo: result.url_slug || null,
+      nome: filenameBase || result.nome,
+      codigo: result.url_slug || item.original_filename.replace(/\.[^.]+$/, "").toLowerCase(),
       descricao_ecommerce: result.descricao_ecommerce,
       descricao_complementar: result.descricao_complementar || null,
       descricao_detalhada: result.descricao_detalhada || null,

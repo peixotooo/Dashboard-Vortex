@@ -106,10 +106,17 @@ export async function POST(req: NextRequest) {
       // Resolve which template to use for fiscal/operational fields
       const chosenTemplate = resolveTemplate(result, templates);
 
-      // Build updates
+      // Derive name from filename as the source of truth
+      const filenameBase = item.original_filename
+        .replace(/\.[^.]+$/, "")        // remove extension
+        .replace(/[-_]/g, " ")          // hifens/underscores → spaces
+        .toUpperCase()
+        .trim();
+
+      // Build updates — filename-derived name takes priority
       const updates: Record<string, unknown> = {
-        nome: result.nome,
-        codigo: result.url_slug || null,
+        nome: filenameBase || result.nome,
+        codigo: result.url_slug || item.original_filename.replace(/\.[^.]+$/, "").toLowerCase(),
         descricao_ecommerce: result.descricao_ecommerce,
         descricao_complementar: result.descricao_complementar || null,
         descricao_detalhada: result.descricao_detalhada || null,

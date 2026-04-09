@@ -36,7 +36,13 @@ function buildSystemPrompt(
 ): string {
   const parts: string[] = [
     `Voce e um assistente especializado em cadastro de produtos para e-commerce brasileiro.
-Analise a foto do produto e preencha os campos abaixo em formato JSON.`,
+Analise a foto do produto e preencha os campos abaixo em formato JSON.
+
+REGRA CRITICA: O NOME DO PRODUTO vem do NOME DO ARQUIVO enviado pelo usuario.
+Voce DEVE usar o nome do arquivo como base para o campo "nome".
+Apenas formate para MAIUSCULAS e limpe a extensao (.jpg, .png, etc).
+Exemplo: arquivo "camiseta-oversized-pale-rider-preta.jpg" → nome "CAMISETA OVERSIZED PALE RIDER PRETA"
+NAO invente um nome diferente. O nome do arquivo E o nome do produto.`,
   ];
 
   if (contextDescription) {
@@ -115,7 +121,7 @@ Exemplo 2 - Calca:
   composicao: "70,5% Algodao 22% Viscose 7,5% Elastano"
 
 REGRAS:
-- nome: SEMPRE em MAIUSCULAS. Formato: "TIPO MODELO COR" (ex: "CAMISETA OVERSIZED PALE RIDER PRETA")
+- nome: OBRIGATORIO usar o nome do arquivo como base. Converter hifens para espacos, remover extensao, MAIUSCULAS. NAO invente outro nome
 - url_slug: slug lowercase com hifens, sem acentos (ex: "camiseta-oversized-pale-rider-preta")
 - SKU (codigo): NAO gere. O ERP atribui automaticamente
 - titulo_pagina: igual ao nome (MAIUSCULAS)
