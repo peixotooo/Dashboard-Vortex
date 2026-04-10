@@ -73,11 +73,13 @@ export async function POST(req: NextRequest) {
   let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
   console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
 
-  // Fetch all Eccosys attributes that contain "tamanho" in the name
-  // These will be set on each child product with the size value (P/M/G/etc)
+  // Fetch Eccosys attributes that contain "tamanho" in the name
+  // Single request with large count to avoid pagination rate limits
   let sizeAttrIds: { id: string; descricao: string }[] = [];
   try {
-    const allAttrs = await eccosys.listAll<{ id: string; descricao: string; tipo?: string }>("/atributos");
+    const allAttrs = await eccosys.get<{ id: string; descricao: string }[]>(
+      "/atributos", undefined, { $offset: "0", $count: "500" }
+    );
     sizeAttrIds = (allAttrs || []).filter(
       (a) => a.descricao && a.descricao.toLowerCase().includes("tamanho")
     );
