@@ -69,39 +69,10 @@ export async function POST(req: NextRequest) {
   const templates = getTemplatePool(collection.template_data);
   const grade: string[] = (collection.grade as string[]) || DEFAULT_GRADE;
 
-  // Fetch recent products from Eccosys to find the highest numeric SKU
-  let lastSku = 0;
-  try {
-    // Get a batch of recent products to find the max codigo
-    const existing = await eccosys.get<{ codigo?: string }[]>(
-      "/produtos",
-      undefined,
-      { $offset: "0", $count: "50", $situacao: "A" }
-    );
-    for (const p of existing || []) {
-      // SKU may have format "349873991" or "349873991-1" (child)
-      const base = String(p.codigo || "").split("-")[0];
-      const num = parseInt(base, 10);
-      if (!isNaN(num) && num > lastSku) lastSku = num;
-    }
-    console.log(`[pre-cadastro] Last SKU from Eccosys: ${lastSku} (from ${(existing || []).length} products)`);
-  } catch (err) {
-    console.warn("[pre-cadastro] Erro ao buscar ultimo SKU:", err);
-  }
-  // Also check any SKUs already submitted in this workspace
-  const { data: submittedItems } = await supabase
-    .from("collection_items")
-    .select("codigo")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "submitted")
-    .not("codigo", "is", null);
-  for (const row of submittedItems || []) {
-    const base = String((row as { codigo: string }).codigo).split("-")[0];
-    const num = parseInt(base, 10);
-    if (!isNaN(num) && num > lastSku) lastSku = num;
-  }
-  let nextSku = lastSku + 1;
-  console.log(`[pre-cadastro] Next SKU will be: ${nextSku}`);
+  // Generate unique SKU using timestamp to avoid collisions
+  // Format: last 9 digits of epoch milliseconds (ensures uniqueness and sequential ordering)
+  let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
+  console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
 
   // Get existing EANs to calculate next sequential
   const { data: existingGtins } = await supabase
