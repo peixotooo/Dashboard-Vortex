@@ -41,3 +41,4 @@ next-env.d.ts
 # meta-mcp build artifacts
 meta-mcp/node_modules
 meta-mcp/dist
+.env.cron
