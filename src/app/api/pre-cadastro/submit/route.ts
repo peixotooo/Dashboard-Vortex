@@ -204,8 +204,9 @@ export async function POST(req: NextRequest) {
             ...parentBody,
             codigo: childCodigo,
             gtin: ean,
-            idProdutoPai: String(parentEccId),
-            nome: `${item.nome || ""} - ${size}`,
+            idProdutoPai: parentEccId,
+            codigoPai: parentCodigo,
+            nome: `${item.nome || ""} ${size}`,
           };
 
           const childResult = await eccosys.post("/produtos", childBody);
