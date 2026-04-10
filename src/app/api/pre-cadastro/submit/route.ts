@@ -70,9 +70,21 @@ export async function POST(req: NextRequest) {
   const grade: string[] = (collection.grade as string[]) || DEFAULT_GRADE;
 
   // Generate unique SKU using timestamp to avoid collisions
-  // Format: last 9 digits of epoch milliseconds (ensures uniqueness and sequential ordering)
   let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
   console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
+
+  // Fetch all Eccosys attributes that contain "tamanho" in the name
+  // These will be set on each child product with the size value (P/M/G/etc)
+  let sizeAttrIds: { id: string; descricao: string }[] = [];
+  try {
+    const allAttrs = await eccosys.listAll<{ id: string; descricao: string; tipo?: string }>("/atributos");
+    sizeAttrIds = (allAttrs || []).filter(
+      (a) => a.descricao && a.descricao.toLowerCase().includes("tamanho")
+    );
+    console.log(`[pre-cadastro] Found ${sizeAttrIds.length} size attributes: ${sizeAttrIds.map(a => a.descricao).join(", ")}`);
+  } catch (err) {
+    console.warn("[pre-cadastro] Erro ao buscar atributos de tamanho:", err);
+  }
 
   // Get existing EANs to calculate next sequential
   const { data: existingGtins } = await supabase
@@ -182,8 +194,34 @@ export async function POST(req: NextRequest) {
             nome: `${item.nome || ""} ${size}`,
           };
 
-          const childResult = await eccosys.post("/produtos", childBody);
+          const childResult = await eccosys.post<unknown>("/produtos", childBody);
           console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
+
+          // Extract child Eccosys ID to set size attributes
+          let childEccId: number | null = null;
+          if (childResult && typeof childResult === "object") {
+            const obj = childResult as Record<string, unknown>;
+            if (obj.id) childEccId = Number(obj.id) || null;
+            const result = obj.result as Record<string, unknown> | undefined;
+            if (result?.success && Array.isArray(result.success) && result.success.length > 0) {
+              childEccId = Number((result.success[0] as Record<string, unknown>).id) || null;
+            }
+          }
+
+          // Set size attributes on the child (Tamanho Camiseta, Tamanho, Tamanho Any, etc.)
+          if (childEccId && sizeAttrIds.length > 0) {
+            const attrBody = sizeAttrIds.map((attr) => ({
+              idAtributo: attr.id,
+              valor: size,
+            }));
+            try {
+              await eccosys.post(`/produtos/${childEccId}/atributos`, attrBody);
+              console.log(`[pre-cadastro] Set ${attrBody.length} size attrs on child ${childEccId} = ${size}`);
+            } catch (attrErr) {
+              console.warn(`[pre-cadastro] Erro ao setar atributos de tamanho no filho ${childEccId}:`, attrErr);
+            }
+          }
+
           childrenCreated++;
         } catch (childErr) {
           console.warn(`[pre-cadastro] Erro ao criar filho ${childCodigo} (${size}):`, childErr);

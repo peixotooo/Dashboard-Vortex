@@ -24,11 +24,13 @@ interface EccosysProductBody {
   pesoLiq: string;
   pesoBruto: string;
   idFornecedor: string;
+  codigoNoFabricante: string;
   tipoProducao: string;
   gtin: string;
   gtinEmbalagem: string;
   descricaoComplementar: string;
   descricaoEcommerce: string;
+  descricaoDetalhada: string;
   opcEcommerce: string;
   opcOpcional: string;
   idProdutoPai: string;
@@ -45,6 +47,8 @@ interface EccosysProductBody {
   situacaoCompra: string;
   classeEnquadIpi: string;
   tempoProducao: string;
+  tipoVariacao: string;
+  [key: string]: string | number; // Allow dynamic fields (idProdutoMaster, codigoPai, etc.)
 }
 
 // Fixed values from real CSV data
@@ -74,11 +78,13 @@ export function mapItemToEccosys(
     pesoLiq: peso,
     pesoBruto: peso,
     idFornecedor: item.id_fornecedor || template?.idFornecedor || "0",
+    codigoNoFabricante: "0",
     tipoProducao: "T",
     gtin: item.gtin || "",
     gtinEmbalagem: "",
     descricaoComplementar: item.descricao_complementar || "",
     descricaoEcommerce: item.descricao_ecommerce || "",
+    descricaoDetalhada: item.descricao_detalhada || item.descricao_ecommerce || "",
     opcEcommerce: "S",
     opcOpcional: "N",
     idProdutoPai: "0",
@@ -95,6 +101,7 @@ export function mapItemToEccosys(
     situacaoCompra: "Ativo",
     classeEnquadIpi: "999",
     tempoProducao: "30",
+    tipoVariacao: "Tamanho Tray",
   };
 }
 
