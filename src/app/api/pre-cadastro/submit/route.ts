@@ -204,8 +204,10 @@ export async function POST(req: NextRequest) {
             ...parentBody,
             codigo: childCodigo,
             gtin: ean,
-            idProdutoPai: parentEccId,
+            gtinEmbalagem: ean,
+            idProdutoPai: String(parentEccId),
             codigoPai: parentCodigo,
+            idProdutoMaster: String(parentEccId),
             nome: `${item.nome || ""} ${size}`,
           };
 
