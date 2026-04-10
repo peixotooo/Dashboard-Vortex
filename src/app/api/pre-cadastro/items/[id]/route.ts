@@ -49,12 +49,20 @@ export async function PATCH(
     }
   }
 
+  // Allow status override (for retry flow)
+  if (body.status && ["ready", "edited", "pending"].includes(body.status)) {
+    updates.status = body.status;
+    updates.error_msg = null;
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Nenhum campo para atualizar" }, { status: 400 });
   }
 
+  if (!updates.status) {
+    updates.status = "edited";
+  }
   updates.user_edits = userEdits;
-  updates.status = "edited";
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase

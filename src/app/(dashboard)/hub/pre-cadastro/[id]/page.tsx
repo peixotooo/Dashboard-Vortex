@@ -255,6 +255,26 @@ export default function CollectionDetailPage() {
     fetchData();
   }
 
+  // ----- Retry Submit -----
+  async function handleRetrySubmit(itemId: string) {
+    if (!workspace?.id || !collection) return;
+    // Reset to ready, then submit just this item
+    await fetch(`/api/pre-cadastro/items/${itemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...headers() },
+      body: JSON.stringify({ status: "ready" }),
+    });
+    setSubmitting(true);
+    setSubmitDialogOpen(true);
+    const res = await fetch("/api/pre-cadastro/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers() },
+      body: JSON.stringify({ collection_id: collection.id, item_ids: [itemId] }),
+    });
+    setSubmitting(false);
+    fetchData();
+  }
+
   // ----- Save Item Edit -----
   async function handleSaveEdit(itemId: string, updates: Record<string, unknown>) {
     if (!workspace?.id) return;
@@ -410,6 +430,7 @@ export default function CollectionDetailPage() {
             onDelete={() => handleDeleteItem(item.id)}
             onRegenerate={() => handleRegenerate(item.id)}
             onEdit={() => setEditingItem(item)}
+            onRetry={() => handleRetrySubmit(item.id)}
           />
         ))}
       </div>
@@ -459,12 +480,14 @@ function ProductCard({
   onDelete,
   onRegenerate,
   onEdit,
+  onRetry,
 }: {
   item: CollectionItem;
   categories: CategoryNode[] | null;
   onDelete: () => void;
   onRegenerate: () => void;
   onEdit: () => void;
+  onRetry: () => void;
 }) {
   const confidence = item.ai_confidence || {};
   const lowConfidenceFields = Object.entries(confidence)
@@ -562,6 +585,12 @@ function ProductCard({
             {item.nome && (
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>
                 Editar
+              </Button>
+            )}
+            {item.status === "error" && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onRetry}>
+                <Send className="h-3 w-3 mr-1" />
+                Reenviar
               </Button>
             )}
             {(item.status === "ready" || item.status === "edited" || item.status === "error") && (
