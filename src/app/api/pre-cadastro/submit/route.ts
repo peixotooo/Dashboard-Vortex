@@ -73,15 +73,25 @@ export async function POST(req: NextRequest) {
   let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
   console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
 
-  // Size attribute "Tamanho" (id 1707971035) with option IDs for each size
-  const SIZE_ATTR_ID = "1707971035";
-  const SIZE_OPTION_IDS: Record<string, string> = {
-    "P": "1707971037",
-    "M": "1707971040",
-    "G": "1707971056",
-    "GG": "1707971072",
-    "XGG": "1707971084",
-  };
+  // All size attributes with their option IDs per size
+  const SIZE_ATTRS: { attrId: number; options: Record<string, string> }[] = [
+    { // Tamanho
+      attrId: 1707971035,
+      options: { P: "1707971037", M: "1707971040", G: "1707971056", GG: "1707971072", XGG: "1707971084" },
+    },
+    { // Tamanho Camiseta
+      attrId: 1294111292,
+      options: { P: "1294111296", M: "1294111299", G: "1294111304", GG: "1294111308", XGG: "1294111312" },
+    },
+    { // Tamanho Any
+      attrId: 1731184002,
+      options: { P: "1731184035", M: "1731184032", G: "1731184029", GG: "1731184026", XGG: "1731184014" },
+    },
+    { // Tamanho Tray
+      attrId: 1294111700,
+      options: { P: "1294111701", M: "1294111702", G: "1294111703", GG: "1294111704" },
+    },
+  ];
 
   const results: { id: string; status: string; ecc_product_id?: number; children?: number; error?: string }[] = [];
   let submitted = 0;
@@ -207,18 +217,22 @@ export async function POST(req: NextRequest) {
           const childResult = await eccosys.post<unknown>("/produtos", childBody);
           console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
 
-          // Step 4b: Set size attribute via separate endpoint
+          // Step 4b: Set ALL size attributes via separate endpoint
           // POST /api/produtos/{codigo}/atributos?substituirTodosAtributos=N
-          // valor = option ID, not text (e.g. "1707971037" for "P")
-          const optionId = SIZE_OPTION_IDS[size] || size;
-          try {
-            await eccosys.post(
-              `/produtos/${childCodigo}/atributos?substituirTodosAtributos=N`,
-              [{ id: Number(SIZE_ATTR_ID), valor: optionId }]
-            );
-            console.log(`[pre-cadastro] Attr Tamanho=${size} (option ${optionId}) set on ${childCodigo}`);
-          } catch (attrErr) {
-            console.warn(`[pre-cadastro] Erro attr on ${childCodigo}:`, attrErr);
+          const attrPayload = SIZE_ATTRS
+            .filter((a) => a.options[size])
+            .map((a) => ({ id: a.attrId, valor: a.options[size] }));
+
+          if (attrPayload.length > 0) {
+            try {
+              await eccosys.post(
+                `/produtos/${childCodigo}/atributos?substituirTodosAtributos=N`,
+                attrPayload
+              );
+              console.log(`[pre-cadastro] ${attrPayload.length} attrs set on ${childCodigo} = ${size}`);
+            } catch (attrErr) {
+              console.warn(`[pre-cadastro] Erro attrs on ${childCodigo}:`, attrErr);
+            }
           }
 
           childrenCreated++;
