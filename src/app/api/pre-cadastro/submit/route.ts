@@ -196,34 +196,12 @@ export async function POST(req: NextRequest) {
             codigoPai: parentCodigo,
             idProdutoMaster: String(parentEccId),
             nome: `${item.nome || ""} ${size}`,
+            // Include size attribute directly in POST body
+            _Atributos: [{ id: SIZE_ATTR_ID, valor: size }],
           };
 
           const childResult = await eccosys.post<unknown>("/produtos", childBody);
           console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
-
-          // Extract child Eccosys ID to set size attributes
-          let childEccId: number | null = null;
-          if (childResult && typeof childResult === "object") {
-            const obj = childResult as Record<string, unknown>;
-            if (obj.id) childEccId = Number(obj.id) || null;
-            const result = obj.result as Record<string, unknown> | undefined;
-            if (result?.success && Array.isArray(result.success) && result.success.length > 0) {
-              childEccId = Number((result.success[0] as Record<string, unknown>).id) || null;
-            }
-          }
-
-          // Set Tamanho attribute on child via PUT /api/produtos with _Atributos
-          if (childEccId) {
-            try {
-              await eccosys.put("/produtos", {
-                id: String(childEccId),
-                _Atributos: [{ id: SIZE_ATTR_ID, valor: size }],
-              });
-              console.log(`[pre-cadastro] Tamanho=${size} set on ${childCodigo}`);
-            } catch (attrErr) {
-              console.warn(`[pre-cadastro] Erro attr Tamanho on ${childCodigo}:`, attrErr);
-            }
-          }
 
           childrenCreated++;
         } catch (childErr) {

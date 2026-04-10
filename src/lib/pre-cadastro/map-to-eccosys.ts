@@ -80,7 +80,7 @@ export function mapItemToEccosys(
     tipoProducao: "T",
     gtin: item.gtin || "",
     gtinEmbalagem: "",
-    descricaoComplementar: item.descricao_complementar || "",
+    descricaoComplementar: item.descricao_detalhada || item.descricao_complementar || "",
     descricaoEcommerce: item.descricao_ecommerce || "",
     opcEcommerce: "S",
     opcOpcional: "N",
