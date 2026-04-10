@@ -255,10 +255,10 @@ export default function CollectionDetailPage() {
     fetchData();
   }
 
-  // ----- Retry Submit -----
-  async function handleRetrySubmit(itemId: string) {
+  // ----- Submit Individual Item -----
+  async function handleSubmitItem(itemId: string) {
     if (!workspace?.id || !collection) return;
-    // Reset to ready, then submit just this item
+    // Reset to ready first (handles both error and re-submit cases)
     await fetch(`/api/pre-cadastro/items/${itemId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...headers() },
@@ -266,7 +266,7 @@ export default function CollectionDetailPage() {
     });
     setSubmitting(true);
     setSubmitDialogOpen(true);
-    const res = await fetch("/api/pre-cadastro/submit", {
+    await fetch("/api/pre-cadastro/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers() },
       body: JSON.stringify({ collection_id: collection.id, item_ids: [itemId] }),
@@ -430,7 +430,7 @@ export default function CollectionDetailPage() {
             onDelete={() => handleDeleteItem(item.id)}
             onRegenerate={() => handleRegenerate(item.id)}
             onEdit={() => setEditingItem(item)}
-            onRetry={() => handleRetrySubmit(item.id)}
+            onSubmit={() => handleSubmitItem(item.id)}
           />
         ))}
       </div>
@@ -480,14 +480,14 @@ function ProductCard({
   onDelete,
   onRegenerate,
   onEdit,
-  onRetry,
+  onSubmit,
 }: {
   item: CollectionItem;
   categories: CategoryNode[] | null;
   onDelete: () => void;
   onRegenerate: () => void;
   onEdit: () => void;
-  onRetry: () => void;
+  onSubmit: () => void;
 }) {
   const confidence = item.ai_confidence || {};
   const lowConfidenceFields = Object.entries(confidence)
@@ -580,30 +580,30 @@ function ProductCard({
         )}
 
         {/* Actions */}
-        {item.status !== "submitted" && (
-          <div className="flex items-center gap-1 pt-1">
-            {item.nome && (
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>
-                Editar
-              </Button>
-            )}
-            {item.status === "error" && (
-              <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onRetry}>
-                <Send className="h-3 w-3 mr-1" />
-                Reenviar
-              </Button>
-            )}
-            {(item.status === "ready" || item.status === "edited" || item.status === "error") && (
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}>
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Regenerar
-              </Button>
-            )}
+        <div className="flex items-center gap-1 pt-1">
+          {item.nome && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>
+              Editar
+            </Button>
+          )}
+          {item.nome && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}>
+              <Send className="h-3 w-3 mr-1" />
+              {item.status === "submitted" || item.status === "error" ? "Reenviar" : "Enviar"}
+            </Button>
+          )}
+          {(item.status === "ready" || item.status === "edited" || item.status === "error") && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Regenerar
+            </Button>
+          )}
+          {item.status !== "submitted" && (
             <Button variant="ghost" size="sm" className="h-7 text-xs text-red-600 ml-auto" onClick={onDelete}>
               <Trash2 className="h-3 w-3" />
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </CardContent>
     </Card>
   );
