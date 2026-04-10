@@ -115,7 +115,19 @@ export async function POST(req: NextRequest) {
       const parentCodigo = String(nextSku++);
       const parentBody = mapItemToEccosys(item, chosenTemplate);
       parentBody.codigo = parentCodigo;
-      console.log(`[pre-cadastro] Sending to Eccosys:`, JSON.stringify({ codigo: parentBody.codigo, nome: parentBody.nome, cf: parentBody.cf, preco: parentBody.preco }));
+
+      // Set categorization directly in the product body
+      if (item.departamento_id) {
+        parentBody.idTagDepartamentoArvore = item.departamento_id;
+      }
+      if (item.categoria_id) {
+        parentBody.idTagCategoriaArvore = item.categoria_id;
+      }
+      if (item.subcategoria_id) {
+        parentBody.idTagSubcategoriaArvore = item.subcategoria_id;
+      }
+
+      console.log(`[pre-cadastro] POST /produtos:`, JSON.stringify({ codigo: parentBody.codigo, nome: parentBody.nome, idTagDepartamentoArvore: parentBody.idTagDepartamentoArvore, idTagCategoriaArvore: parentBody.idTagCategoriaArvore }));
       const created = await eccosys.post<unknown>("/produtos", parentBody);
 
       // Parse Eccosys response
@@ -167,15 +179,25 @@ export async function POST(req: NextRequest) {
         console.warn(`[pre-cadastro] Erro ao enviar imagem para produto pai ${parentEccId}:`, imgErr);
       }
 
-      // Step 3: Set categorization on parent
-      const categorizationBody = buildCategorizationBody(item);
-      console.log(`[pre-cadastro] Categorization: dept=${item.departamento_id} cat=${item.categoria_id} sub=${item.subcategoria_id} body=${JSON.stringify(categorizationBody)}`);
-      if (categorizationBody) {
+      // Step 3: Update product with categorization via PUT (more reliable than POST categorizacao)
+      if (item.departamento_id || item.categoria_id) {
         try {
-          await eccosys.post(`/produtos/${parentEccId}/categorizacao`, categorizationBody);
-          console.log(`[pre-cadastro] Categorization set on ${parentEccId}`);
+          await eccosys.put("/produtos", {
+            id: String(parentEccId),
+            idTagDepartamentoArvore: item.departamento_id || "0",
+            idTagCategoriaArvore: item.categoria_id || "0",
+            idTagSubcategoriaArvore: item.subcategoria_id || "0",
+          });
+          console.log(`[pre-cadastro] Category set via PUT on ${parentEccId}: dept=${item.departamento_id} cat=${item.categoria_id}`);
         } catch (catErr) {
-          console.warn(`[pre-cadastro] Erro ao categorizar produto pai ${parentEccId}:`, catErr);
+          console.warn(`[pre-cadastro] Erro ao categorizar via PUT ${parentEccId}:`, catErr);
+          // Fallback: try POST categorizacao
+          const categorizationBody = buildCategorizationBody(item);
+          if (categorizationBody) {
+            try {
+              await eccosys.post(`/produtos/${parentEccId}/categorizacao`, categorizationBody);
+            } catch { /* skip */ }
+          }
         }
       }
 
@@ -212,24 +234,30 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Set size attributes on child (Tamanho Camiseta, Tamanho, Tamanho Any)
-          if (childEccId && sizeAttrIds.length > 0) {
-            const attrPayload = sizeAttrIds.map((attr) => ({
-              idAtributo: String(attr.id),
-              valor: size,
-            }));
-            try {
-              const attrRes = await eccosys.post(`/produtos/${childEccId}/atributos`, attrPayload);
-              console.log(`[pre-cadastro] Attrs on ${childEccId}=${size}: ${JSON.stringify(attrRes)}`);
-            } catch (attrErr) {
-              console.warn(`[pre-cadastro] Erro attrs ${childEccId} (batch), tentando individual:`, attrErr);
-              // Fallback: try one by one
-              for (const attr of KNOWN_SIZE_ATTRS) {
+          // Set size attributes on child via POST /api/produtos/:id/atributos
+          if (childEccId) {
+            for (const attr of KNOWN_SIZE_ATTRS) {
+              try {
+                const attrRes = await eccosys.post(`/produtos/${childEccId}/atributos`, {
+                  descricao: attr.descricao,
+                  valor: size,
+                });
+                console.log(`[pre-cadastro] Attr ${attr.descricao}=${size} on ${childEccId}: ${JSON.stringify(attrRes)}`);
+              } catch (e1) {
+                // Try with idAtributo format
                 try {
-                  await eccosys.post(`/produtos/${childEccId}/atributos`, { idAtributo: attr.id, valor: size });
-                } catch { /* skip */ }
+                  await eccosys.post(`/produtos/${childEccId}/atributos`, [{ idAtributo: attr.id, valor: size }]);
+                } catch (e2) {
+                  // Try PUT format
+                  try {
+                    await eccosys.put(`/produtos/${childEccId}/atributos`, [{ id: attr.id, valor: size }]);
+                  } catch {
+                    console.warn(`[pre-cadastro] All attr formats failed for ${attr.descricao} on ${childEccId}`);
+                  }
+                }
               }
             }
+            console.log(`[pre-cadastro] Size attrs attempted on ${childEccId} = ${size}`);
           }
 
           childrenCreated++;
