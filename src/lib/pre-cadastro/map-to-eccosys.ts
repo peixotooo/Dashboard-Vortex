@@ -98,6 +98,7 @@ export function mapItemToEccosys(
     situacaoCompra: "A",
     ipiCodigoEnquadramento: "999",
     tempoProducao: "30",
+    idTagMarcaArvore: "177370898",
   };
 }
 
