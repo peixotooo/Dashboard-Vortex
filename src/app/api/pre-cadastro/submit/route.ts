@@ -105,8 +105,13 @@ export async function POST(req: NextRequest) {
         templates
       );
 
-      // Build product body
+      // Build product body with category as department tag
       const parentBody = mapItemToEccosys(item, chosenTemplate);
+      // Eccosys departments are flat (Camiseta, Bermuda, etc.)
+      // Set the department tag directly in the product body
+      if (item.departamento_id) {
+        parentBody.idTagDepartamentoArvore = item.departamento_id;
+      }
 
       let parentEccId: number | null = item.ecc_product_id || null;
       let parentCodigo = item.codigo || "";
@@ -159,25 +164,7 @@ export async function POST(req: NextRequest) {
         console.warn(`[pre-cadastro] Erro ao enviar imagem para produto pai ${parentEccId}:`, imgErr);
       }
 
-      // Step 3: Set categorization via POST /produtos/{codigo}/categorizacao
-      if (item.departamento_id) {
-        const catBody: Record<string, unknown> = {
-          id: Number(item.departamento_id),
-        };
-        if (item.categoria_id) {
-          const cat: Record<string, unknown> = { id: Number(item.categoria_id) };
-          if (item.subcategoria_id) {
-            cat.subcategorias = [{ id: Number(item.subcategoria_id) }];
-          }
-          catBody.categorias = [cat];
-        }
-        try {
-          const catRes = await eccosys.post(`/produtos/${parentCodigo}/categorizacao`, [catBody]);
-          console.log(`[pre-cadastro] Category set on ${parentCodigo}: ${JSON.stringify(catRes)}`);
-        } catch (catErr) {
-          console.warn(`[pre-cadastro] Erro categorizacao ${parentCodigo}:`, catErr);
-        }
-      }
+      // Step 3: Category is set via idTagDepartamentoArvore in POST/PUT body above
 
       // Step 4: Create or update CHILDREN (size variations)
       let childrenCreated = 0;
