@@ -75,7 +75,7 @@ export function mapItemToEccosys(
     peso,
     pesoLiq: peso,
     pesoBruto: peso,
-    idFornecedor: item.id_fornecedor || template?.idFornecedor || "0",
+    idFornecedor: item.id_fornecedor || template?.idFornecedor || "481065928",
     codigoNoFabricante: "0",
     tipoProducao: "T",
     gtin: item.gtin || "",
