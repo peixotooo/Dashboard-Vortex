@@ -30,24 +30,22 @@ interface EccosysProductBody {
   gtinEmbalagem: string;
   descricaoComplementar: string;
   descricaoEcommerce: string;
-  descricaoDetalhada: string;
   opcEcommerce: string;
   opcOpcional: string;
   idProdutoPai: string;
   largura: string;
   altura: string;
   comprimento: string;
-  // SEO & e-commerce fields
+  // SEO & e-commerce fields (exact API field names from Eccosys GET)
   tituloPagina: string;
-  keywords: string;
+  keyword: string;
   metatagDescription: string;
-  url: string;
-  // Additional fields from CSV
+  urlEcommerce: string;
+  // Additional fields
   situacaoVenda: string;
   situacaoCompra: string;
-  classeEnquadIpi: string;
+  ipiCodigoEnquadramento: string;
   tempoProducao: string;
-  tipoVariacao: string;
   [key: string]: string | number; // Allow dynamic fields (idProdutoMaster, codigoPai, etc.)
 }
 
@@ -84,24 +82,22 @@ export function mapItemToEccosys(
     gtinEmbalagem: "",
     descricaoComplementar: item.descricao_complementar || "",
     descricaoEcommerce: item.descricao_ecommerce || "",
-    descricaoDetalhada: item.descricao_detalhada || item.descricao_ecommerce || "",
     opcEcommerce: "S",
     opcOpcional: "N",
     idProdutoPai: "0",
     largura: String(item.largura || template?.largura || "25.00"),
     altura: String(item.altura || template?.altura || "3.00"),
     comprimento: String(item.comprimento || template?.comprimento || "30.00"),
-    // SEO fields
+    // SEO fields (exact API field names)
     tituloPagina: item.titulo_pagina || item.nome || "",
-    keywords: item.keywords || "",
+    keyword: item.keywords || "",
     metatagDescription: item.metatag_description || "",
-    url: item.url_slug || item.codigo || "",
-    // Fixed fields from CSV patterns
-    situacaoVenda: "Ativo",
-    situacaoCompra: "Ativo",
-    classeEnquadIpi: "999",
+    urlEcommerce: item.url_slug || item.codigo || "",
+    // Fixed fields
+    situacaoVenda: "A",
+    situacaoCompra: "A",
+    ipiCodigoEnquadramento: "999",
     tempoProducao: "30",
-    tipoVariacao: "Tamanho Tray",
   };
 }
 
