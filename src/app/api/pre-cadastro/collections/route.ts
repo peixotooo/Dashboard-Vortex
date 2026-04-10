@@ -98,13 +98,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Nome da colecao e obrigatorio" }, { status: 400 });
   }
 
-  // 1. Fetch categories from Eccosys
+  // 1. Fetch departments from Eccosys
+  // GET /departamentos returns {departamentos: [...]} not a plain array
   let categoriesSnapshot: CategoryNode[] | null = null;
   try {
-    const depts = await eccosys.listAll<CategoryNode>("/departamentos");
-    if (depts && depts.length > 0) {
+    const response = await eccosys.get<unknown>("/departamentos");
+    let depts: CategoryNode[] = [];
+    if (Array.isArray(response)) {
+      depts = response;
+    } else if (response && typeof response === "object" && "departamentos" in (response as Record<string, unknown>)) {
+      depts = (response as { departamentos: CategoryNode[] }).departamentos;
+    }
+    if (depts.length > 0) {
       categoriesSnapshot = depts;
     }
+    console.log(`[pre-cadastro] Fetched ${depts.length} departments from Eccosys`);
   } catch (err) {
     console.warn("[pre-cadastro] Erro ao buscar categorias:", err);
   }

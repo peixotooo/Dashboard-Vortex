@@ -108,10 +108,12 @@ export async function POST(req: NextRequest) {
       // Build product body with category as department tag
       const parentBody = mapItemToEccosys(item, chosenTemplate);
       // Eccosys departments are flat (Camiseta, Bermuda, etc.)
-      // Set the department tag directly in the product body
-      if (item.departamento_id) {
-        parentBody.idTagDepartamentoArvore = item.departamento_id;
+      // Only use departamento_id if it's a real Eccosys ID (6+ digits), not a generic AI ID like "1"
+      const deptId = item.departamento_id || "";
+      if (deptId.length >= 6) {
+        parentBody.idTagDepartamentoArvore = deptId;
       }
+      console.log(`[pre-cadastro] dept=${deptId} (${deptId.length >= 6 ? "valid" : "skipped"})`);
 
       let parentEccId: number | null = item.ecc_product_id || null;
       let parentCodigo = item.codigo || "";
