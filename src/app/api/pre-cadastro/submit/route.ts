@@ -73,19 +73,30 @@ export async function POST(req: NextRequest) {
   let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
   console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
 
-  // Fetch Eccosys attributes that contain "tamanho" in the name
-  // Single request with large count to avoid pagination rate limits
-  let sizeAttrIds: { id: string; descricao: string }[] = [];
+  // Size attribute IDs — extracted from Gladiator product (known good data)
+  // These are the 3 key size attributes that must be filled on each child
+  const KNOWN_SIZE_ATTRS = [
+    { id: "1294111292", descricao: "Tamanho Camiseta" },
+    { id: "1707971035", descricao: "Tamanho" },
+    { id: "1731184002", descricao: "Tamanho Any" },
+  ];
+
+  // Also try to fetch additional size attributes dynamically
+  let sizeAttrIds = [...KNOWN_SIZE_ATTRS];
   try {
     const allAttrs = await eccosys.get<{ id: string; descricao: string }[]>(
       "/atributos", undefined, { $offset: "0", $count: "500" }
     );
-    sizeAttrIds = (allAttrs || []).filter(
-      (a) => a.descricao && a.descricao.toLowerCase().includes("tamanho")
+    const knownIds = new Set(KNOWN_SIZE_ATTRS.map((a) => a.id));
+    const extra = (allAttrs || []).filter(
+      (a) => a.descricao && a.descricao.toLowerCase().includes("tamanho") && !knownIds.has(a.id)
     );
-    console.log(`[pre-cadastro] Found ${sizeAttrIds.length} size attributes: ${sizeAttrIds.map(a => a.descricao).join(", ")}`);
+    if (extra.length > 0) {
+      sizeAttrIds = [...sizeAttrIds, ...extra];
+    }
+    console.log(`[pre-cadastro] ${sizeAttrIds.length} size attributes (${KNOWN_SIZE_ATTRS.length} known + ${extra.length} extra)`);
   } catch (err) {
-    console.warn("[pre-cadastro] Erro ao buscar atributos de tamanho:", err);
+    console.warn("[pre-cadastro] Using known size attrs only:", err);
   }
 
   const results: { id: string; status: string; ecc_product_id?: number; children?: number; error?: string }[] = [];
@@ -201,17 +212,23 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Set size attributes on the child (Tamanho Camiseta, Tamanho, Tamanho Any, etc.)
+          // Set size attributes on child (Tamanho Camiseta, Tamanho, Tamanho Any)
           if (childEccId && sizeAttrIds.length > 0) {
-            const attrBody = sizeAttrIds.map((attr) => ({
-              idAtributo: attr.id,
+            const attrPayload = sizeAttrIds.map((attr) => ({
+              idAtributo: String(attr.id),
               valor: size,
             }));
             try {
-              await eccosys.post(`/produtos/${childEccId}/atributos`, attrBody);
-              console.log(`[pre-cadastro] Set ${attrBody.length} size attrs on child ${childEccId} = ${size}`);
+              const attrRes = await eccosys.post(`/produtos/${childEccId}/atributos`, attrPayload);
+              console.log(`[pre-cadastro] Attrs on ${childEccId}=${size}: ${JSON.stringify(attrRes)}`);
             } catch (attrErr) {
-              console.warn(`[pre-cadastro] Erro ao setar atributos de tamanho no filho ${childEccId}:`, attrErr);
+              console.warn(`[pre-cadastro] Erro attrs ${childEccId} (batch), tentando individual:`, attrErr);
+              // Fallback: try one by one
+              for (const attr of KNOWN_SIZE_ATTRS) {
+                try {
+                  await eccosys.post(`/produtos/${childEccId}/atributos`, { idAtributo: attr.id, valor: size });
+                } catch { /* skip */ }
+              }
             }
           }
 
