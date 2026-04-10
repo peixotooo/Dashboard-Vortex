@@ -127,7 +127,12 @@ class EccosysClient {
       const text = await res.text().catch(() => "");
       throw new Error(`Eccosys ${res.status}: ${text}`);
     }
-    return res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return text as unknown as T;
+    }
   }
 
   /**

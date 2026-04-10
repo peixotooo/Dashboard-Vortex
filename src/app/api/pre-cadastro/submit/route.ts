@@ -105,65 +105,54 @@ export async function POST(req: NextRequest) {
         templates
       );
 
-      // Step 1: Create PARENT product in Eccosys (no EAN, no variation)
-      const parentCodigo = String(nextSku++);
+      // Build product body
       const parentBody = mapItemToEccosys(item, chosenTemplate);
-      parentBody.codigo = parentCodigo;
+      if (item.departamento_id) parentBody.idTagDepartamentoArvore = item.departamento_id;
+      if (item.categoria_id) parentBody.idTagCategoriaArvore = item.categoria_id;
+      if (item.subcategoria_id) parentBody.idTagSubcategoriaArvore = item.subcategoria_id;
 
-      // Set categorization directly in the product body
-      if (item.departamento_id) {
-        parentBody.idTagDepartamentoArvore = item.departamento_id;
-      }
-      if (item.categoria_id) {
-        parentBody.idTagCategoriaArvore = item.categoria_id;
-      }
-      if (item.subcategoria_id) {
-        parentBody.idTagSubcategoriaArvore = item.subcategoria_id;
-      }
+      let parentEccId: number | null = item.ecc_product_id || null;
+      let parentCodigo = item.codigo || "";
+      const isUpdate = !!parentEccId;
 
-      console.log(`[pre-cadastro] POST /produtos:`, JSON.stringify({ codigo: parentBody.codigo, nome: parentBody.nome, idTagDepartamentoArvore: parentBody.idTagDepartamentoArvore, idTagCategoriaArvore: parentBody.idTagCategoriaArvore }));
-      const created = await eccosys.post<unknown>("/produtos", parentBody);
+      if (isUpdate) {
+        // UPDATE existing product via PUT
+        parentBody.id = String(parentEccId);
+        parentBody.codigo = parentCodigo;
+        const updated = await eccosys.put<unknown>("/produtos", parentBody);
+        console.log(`[pre-cadastro] PUT /produtos ${parentCodigo}:`, JSON.stringify(updated));
+      } else {
+        // CREATE new product via POST
+        parentCodigo = String(nextSku++);
+        parentBody.codigo = parentCodigo;
+        console.log(`[pre-cadastro] POST /produtos ${parentCodigo}`);
+        const created = await eccosys.post<unknown>("/produtos", parentBody);
 
-      // Parse Eccosys response
-      // Format: {"result":{"success":[{"id":"123"}],"error":[{"id":"","erro":"msg"}]}}
-      let parentEccId: number | null = null;
-
-      if (typeof created === "number") {
-        parentEccId = created;
-      } else if (typeof created === "string") {
-        parentEccId = parseInt(created, 10) || null;
-      } else if (created && typeof created === "object") {
-        const obj = created as Record<string, unknown>;
-        // Direct id field
-        if (obj.id) {
-          parentEccId = Number(obj.id) || null;
-        }
-        // Eccosys batch format: {result: {success: [{id}], error: [{erro}]}}
-        const result = obj.result as Record<string, unknown> | undefined;
-        if (result) {
-          const success = result.success as unknown[] | undefined;
-          if (success && Array.isArray(success) && success.length > 0) {
-            parentEccId = Number((success[0] as Record<string, unknown>).id) || null;
-          }
-          // Errors inside result.error
-          const errs = result.error as unknown[] | undefined;
-          if (errs && Array.isArray(errs) && errs.length > 0 && !parentEccId) {
-            const errMsg = (errs[0] as Record<string, unknown>).erro || "Erro desconhecido";
-            throw new Error(`Eccosys: ${errMsg}`);
+        // Parse response to get the new ID
+        if (typeof created === "number") {
+          parentEccId = created;
+        } else if (typeof created === "string") {
+          parentEccId = parseInt(created, 10) || null;
+        } else if (created && typeof created === "object") {
+          const obj = created as Record<string, unknown>;
+          if (obj.id) parentEccId = Number(obj.id) || null;
+          const result = obj.result as Record<string, unknown> | undefined;
+          if (result) {
+            const success = result.success as unknown[] | undefined;
+            if (success && Array.isArray(success) && success.length > 0) {
+              parentEccId = Number((success[0] as Record<string, unknown>).id) || null;
+            }
+            const errs = result.error as unknown[] | undefined;
+            if (errs && Array.isArray(errs) && errs.length > 0 && !parentEccId) {
+              throw new Error(`Eccosys: ${(errs[0] as Record<string, unknown>).erro || "Erro"}`);
+            }
           }
         }
-        // Also check top-level error array
-        const topErrs = obj.error as unknown[] | undefined;
-        if (topErrs && Array.isArray(topErrs) && topErrs.length > 0 && !parentEccId) {
-          const errMsg = (topErrs[0] as Record<string, unknown>).erro || "Erro desconhecido";
-          throw new Error(`Eccosys: ${errMsg}`);
-        }
+        console.log(`[pre-cadastro] Created ${parentCodigo} → id=${parentEccId}`);
       }
-
-      console.log(`[pre-cadastro] POST /produtos response:`, JSON.stringify(created), `→ id=${parentEccId}, codigo=${parentCodigo}`);
 
       if (!parentEccId) {
-        throw new Error(`Eccosys nao retornou o ID do produto pai. Response: ${JSON.stringify(created)}`);
+        throw new Error("Eccosys nao retornou o ID do produto pai");
       }
 
       // Step 2: Upload image to parent
@@ -195,27 +184,31 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Step 4: Create CHILDREN (size variations) with EAN-14
+      // Step 4: Create or update CHILDREN (size variations)
       let childrenCreated = 0;
-      for (let i = 0; i < grade.length; i++) {
-        const size = grade[i];
-        const childCodigo = `${parentCodigo}-${i + 1}`;
-        const ean = generateEAN14();
+      if (!isUpdate) {
+        // Only create children for NEW products
+        for (let i = 0; i < grade.length; i++) {
+          const size = grade[i];
+          const childCodigo = `${parentCodigo}-${i + 1}`;
+          const ean = generateEAN14();
 
-        try {
-          const childBody = {
-            ...parentBody,
-            codigo: childCodigo,
-            gtin: ean,
-            gtinEmbalagem: ean,
-            idProdutoPai: String(parentEccId),
-            codigoPai: parentCodigo,
-            idProdutoMaster: String(parentEccId),
-            nome: `${item.nome || ""} ${size}`,
-          };
+          try {
+            const childBody = {
+              ...parentBody,
+              codigo: childCodigo,
+              gtin: ean,
+              gtinEmbalagem: ean,
+              idProdutoPai: String(parentEccId),
+              codigoPai: parentCodigo,
+              idProdutoMaster: String(parentEccId),
+              nome: `${item.nome || ""} ${size}`,
+            };
+            // Remove parent-only fields from child
+            delete (childBody as Record<string, unknown>).id;
 
-          const childResult = await eccosys.post<unknown>("/produtos", childBody);
-          console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
+            const childResult = await eccosys.post<unknown>("/produtos", childBody);
+            console.log(`[pre-cadastro] Child ${childCodigo} (${size}) created:`, JSON.stringify(childResult));
 
           // Step 4b: Set ALL size attributes via separate endpoint
           // POST /api/produtos/{codigo}/atributos?substituirTodosAtributos=N
@@ -239,6 +232,9 @@ export async function POST(req: NextRequest) {
         } catch (childErr) {
           console.warn(`[pre-cadastro] Erro ao criar filho ${childCodigo} (${size}):`, childErr);
         }
+        }
+      } else {
+        console.log(`[pre-cadastro] Skipping children creation (update mode for ${parentCodigo})`);
       }
 
       // Update item as submitted
