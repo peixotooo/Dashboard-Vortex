@@ -73,31 +73,9 @@ export async function POST(req: NextRequest) {
   let nextSku = Math.floor(Date.now() / 1000) % 1000000000;
   console.log(`[pre-cadastro] Base SKU (timestamp): ${nextSku}`);
 
-  // Size attribute IDs — extracted from Gladiator product (known good data)
-  // These are the 3 key size attributes that must be filled on each child
-  const KNOWN_SIZE_ATTRS = [
-    { id: "1294111292", descricao: "Tamanho Camiseta" },
-    { id: "1707971035", descricao: "Tamanho" },
-    { id: "1731184002", descricao: "Tamanho Any" },
-  ];
-
-  // Also try to fetch additional size attributes dynamically
-  let sizeAttrIds = [...KNOWN_SIZE_ATTRS];
-  try {
-    const allAttrs = await eccosys.get<{ id: string; descricao: string }[]>(
-      "/atributos", undefined, { $offset: "0", $count: "500" }
-    );
-    const knownIds = new Set(KNOWN_SIZE_ATTRS.map((a) => a.id));
-    const extra = (allAttrs || []).filter(
-      (a) => a.descricao && a.descricao.toLowerCase().includes("tamanho") && !knownIds.has(a.id)
-    );
-    if (extra.length > 0) {
-      sizeAttrIds = [...sizeAttrIds, ...extra];
-    }
-    console.log(`[pre-cadastro] ${sizeAttrIds.length} size attributes (${KNOWN_SIZE_ATTRS.length} known + ${extra.length} extra)`);
-  } catch (err) {
-    console.warn("[pre-cadastro] Using known size attrs only:", err);
-  }
+  // Size attribute: "Tamanho" (id 1707971035) — the only global attr that works via PUT
+  // Other attrs like "Tamanho Camiseta" and "Tamanho Any" have instance-specific IDs
+  const SIZE_ATTR_ID = "1707971035";
 
   const results: { id: string; status: string; ecc_product_id?: number; children?: number; error?: string }[] = [];
   let submitted = 0;
@@ -234,30 +212,17 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Set size attributes on child via POST /api/produtos/:id/atributos
+          // Set Tamanho attribute on child via PUT /api/produtos with _Atributos
           if (childEccId) {
-            for (const attr of KNOWN_SIZE_ATTRS) {
-              try {
-                const attrRes = await eccosys.post(`/produtos/${childEccId}/atributos`, {
-                  descricao: attr.descricao,
-                  valor: size,
-                });
-                console.log(`[pre-cadastro] Attr ${attr.descricao}=${size} on ${childEccId}: ${JSON.stringify(attrRes)}`);
-              } catch (e1) {
-                // Try with idAtributo format
-                try {
-                  await eccosys.post(`/produtos/${childEccId}/atributos`, [{ idAtributo: attr.id, valor: size }]);
-                } catch (e2) {
-                  // Try PUT format
-                  try {
-                    await eccosys.put(`/produtos/${childEccId}/atributos`, [{ id: attr.id, valor: size }]);
-                  } catch {
-                    console.warn(`[pre-cadastro] All attr formats failed for ${attr.descricao} on ${childEccId}`);
-                  }
-                }
-              }
+            try {
+              await eccosys.put("/produtos", {
+                id: String(childEccId),
+                _Atributos: [{ id: SIZE_ATTR_ID, valor: size }],
+              });
+              console.log(`[pre-cadastro] Tamanho=${size} set on ${childCodigo}`);
+            } catch (attrErr) {
+              console.warn(`[pre-cadastro] Erro attr Tamanho on ${childCodigo}:`, attrErr);
             }
-            console.log(`[pre-cadastro] Size attrs attempted on ${childEccId} = ${size}`);
           }
 
           childrenCreated++;
