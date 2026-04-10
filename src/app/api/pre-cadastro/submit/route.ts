@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { mapItemToEccosys, buildCategorizationBody } from "@/lib/pre-cadastro/map-to-eccosys";
 import { resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
-import { generateEAN14, getNextSequential } from "@/lib/pre-cadastro/ean14";
+import { generateEAN14 } from "@/lib/pre-cadastro/ean14";
 import type { CollectionItem, TemplateData } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 300;
@@ -88,17 +88,6 @@ export async function POST(req: NextRequest) {
     console.warn("[pre-cadastro] Erro ao buscar atributos de tamanho:", err);
   }
 
-  // Get existing EANs to calculate next sequential
-  const { data: existingGtins } = await supabase
-    .from("collection_items")
-    .select("gtin")
-    .eq("workspace_id", workspaceId)
-    .not("gtin", "is", null);
-  const existingEans = (existingGtins || [])
-    .map((r: { gtin: string | null }) => r.gtin)
-    .filter((g): g is string => !!g);
-  let nextEanSeq = getNextSequential(existingEans);
-
   const results: { id: string; status: string; ecc_product_id?: number; children?: number; error?: string }[] = [];
   let submitted = 0;
   let errors = 0;
@@ -169,9 +158,11 @@ export async function POST(req: NextRequest) {
 
       // Step 3: Set categorization on parent
       const categorizationBody = buildCategorizationBody(item);
+      console.log(`[pre-cadastro] Categorization: dept=${item.departamento_id} cat=${item.categoria_id} sub=${item.subcategoria_id} body=${JSON.stringify(categorizationBody)}`);
       if (categorizationBody) {
         try {
           await eccosys.post(`/produtos/${parentEccId}/categorizacao`, categorizationBody);
+          console.log(`[pre-cadastro] Categorization set on ${parentEccId}`);
         } catch (catErr) {
           console.warn(`[pre-cadastro] Erro ao categorizar produto pai ${parentEccId}:`, catErr);
         }
@@ -182,7 +173,7 @@ export async function POST(req: NextRequest) {
       for (let i = 0; i < grade.length; i++) {
         const size = grade[i];
         const childCodigo = `${parentCodigo}-${i + 1}`;
-        const ean = generateEAN14(nextEanSeq++);
+        const ean = generateEAN14();
 
         try {
           const childBody = {
