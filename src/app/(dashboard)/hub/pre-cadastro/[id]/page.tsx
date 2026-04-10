@@ -575,8 +575,8 @@ function ProductCard({
         )}
 
         {/* Submitted info */}
-        {item.ecc_product_id && (
-          <p className="text-xs text-green-600">Eccosys ID: {item.ecc_product_id}</p>
+        {item.codigo && item.status === "submitted" && (
+          <p className="text-xs text-green-600">Eccosys: {item.codigo}</p>
         )}
 
         {/* Actions */}

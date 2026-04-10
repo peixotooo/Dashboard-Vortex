@@ -107,9 +107,6 @@ export async function POST(req: NextRequest) {
 
       // Build product body
       const parentBody = mapItemToEccosys(item, chosenTemplate);
-      if (item.departamento_id) parentBody.idTagDepartamentoArvore = item.departamento_id;
-      if (item.categoria_id) parentBody.idTagCategoriaArvore = item.categoria_id;
-      if (item.subcategoria_id) parentBody.idTagSubcategoriaArvore = item.subcategoria_id;
 
       let parentEccId: number | null = item.ecc_product_id || null;
       let parentCodigo = item.codigo || "";
@@ -162,25 +159,23 @@ export async function POST(req: NextRequest) {
         console.warn(`[pre-cadastro] Erro ao enviar imagem para produto pai ${parentEccId}:`, imgErr);
       }
 
-      // Step 3: Update product with categorization via PUT (more reliable than POST categorizacao)
-      if (item.departamento_id || item.categoria_id) {
-        try {
-          await eccosys.put("/produtos", {
-            id: String(parentEccId),
-            idTagDepartamentoArvore: item.departamento_id || "0",
-            idTagCategoriaArvore: item.categoria_id || "0",
-            idTagSubcategoriaArvore: item.subcategoria_id || "0",
-          });
-          console.log(`[pre-cadastro] Category set via PUT on ${parentEccId}: dept=${item.departamento_id} cat=${item.categoria_id}`);
-        } catch (catErr) {
-          console.warn(`[pre-cadastro] Erro ao categorizar via PUT ${parentEccId}:`, catErr);
-          // Fallback: try POST categorizacao
-          const categorizationBody = buildCategorizationBody(item);
-          if (categorizationBody) {
-            try {
-              await eccosys.post(`/produtos/${parentEccId}/categorizacao`, categorizationBody);
-            } catch { /* skip */ }
+      // Step 3: Set categorization via POST /produtos/{codigo}/categorizacao
+      if (item.departamento_id) {
+        const catBody: Record<string, unknown> = {
+          id: Number(item.departamento_id),
+        };
+        if (item.categoria_id) {
+          const cat: Record<string, unknown> = { id: Number(item.categoria_id) };
+          if (item.subcategoria_id) {
+            cat.subcategorias = [{ id: Number(item.subcategoria_id) }];
           }
+          catBody.categorias = [cat];
+        }
+        try {
+          const catRes = await eccosys.post(`/produtos/${parentCodigo}/categorizacao`, [catBody]);
+          console.log(`[pre-cadastro] Category set on ${parentCodigo}: ${JSON.stringify(catRes)}`);
+        } catch (catErr) {
+          console.warn(`[pre-cadastro] Erro categorizacao ${parentCodigo}:`, catErr);
         }
       }
 
