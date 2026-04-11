@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
+import { eccosys } from "@/lib/eccosys/client";
 import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
@@ -50,13 +51,37 @@ export async function POST(
     const mimeMap: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
     const mimeType = mimeMap[ext] || "image/jpeg";
 
+    // Ensure categories are available — fetch from Eccosys if snapshot is empty
+    let categories = collection.categories_snapshot as CategoryNode[] | null;
+    if (!categories || (Array.isArray(categories) && categories.length === 0)) {
+      try {
+        const response = await eccosys.get<unknown>("/departamentos");
+        let depts: CategoryNode[] = [];
+        if (Array.isArray(response)) {
+          depts = response;
+        } else if (response && typeof response === "object" && "departamentos" in (response as Record<string, unknown>)) {
+          depts = (response as { departamentos: CategoryNode[] }).departamentos;
+        }
+        if (depts.length > 0) {
+          categories = depts;
+          await supabase
+            .from("product_collections")
+            .update({ categories_snapshot: depts })
+            .eq("id", collection.id);
+          console.log(`[regenerate] Updated snapshot with ${depts.length} depts`);
+        }
+      } catch (err) {
+        console.warn("[regenerate] Failed to fetch departments:", err);
+      }
+    }
+
     const result = await analyzeProductImage(
       base64,
       mimeType,
       item.original_filename,
       collection.context_description as string | null,
       templates,
-      collection.categories_snapshot as CategoryNode[] | null
+      categories
     );
 
     // Resolve chosen template
