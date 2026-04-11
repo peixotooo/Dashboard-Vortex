@@ -235,7 +235,39 @@ export async function POST(req: NextRequest) {
         }
         }
       } else {
-        console.log(`[pre-cadastro] Skipping children creation (update mode for ${parentCodigo})`);
+        // UPDATE existing children
+        for (let i = 0; i < grade.length; i++) {
+          const size = grade[i];
+          const childCodigo = `${parentCodigo}-${i + 1}`;
+          try {
+            // Fetch child Eccosys ID by codigo
+            const childProduct = await eccosys.get<Record<string, unknown>>(`/produtos/${childCodigo}`);
+            const childData = Array.isArray(childProduct) ? childProduct[0] : childProduct;
+            const childEccId = childData?.id;
+            if (!childEccId) continue;
+
+            // Update child with same fields as parent
+            await eccosys.put("/produtos", {
+              id: String(childEccId),
+              nome: `${item.nome || ""} ${size}`,
+              descricaoComplementar: parentBody.descricaoComplementar,
+              descricaoEcommerce: parentBody.descricaoEcommerce,
+              keyword: parentBody.keyword,
+              metatagDescription: parentBody.metatagDescription,
+              urlEcommerce: parentBody.urlEcommerce,
+              tituloPagina: `${item.nome || ""} ${size}`,
+              idFornecedor: parentBody.idFornecedor,
+              idTagDepartamentoArvore: parentBody.idTagDepartamentoArvore || undefined,
+              idTagMarcaArvore: parentBody.idTagMarcaArvore,
+              cf: parentBody.cf,
+              preco: parentBody.preco,
+              precoCusto: parentBody.precoCusto,
+            });
+            console.log(`[pre-cadastro] Updated child ${childCodigo}`);
+          } catch (childErr) {
+            console.warn(`[pre-cadastro] Erro updating child ${childCodigo}:`, childErr);
+          }
+        }
       }
 
       // Update item as submitted
