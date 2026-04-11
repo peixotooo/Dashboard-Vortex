@@ -235,8 +235,10 @@ export default function CollectionDetailPage() {
       headers: headers(),
     });
     const data = await res.json();
-    if (res.ok) {
-      alert(`Imagem enviada para ${data.codigo}`);
+    if (res.ok && data.uploaded > 0) {
+      alert(`${data.uploaded} imagem(ns) enviada(s) para ${data.codigo}`);
+    } else if (res.ok && data.uploaded === 0) {
+      alert(`Nenhuma imagem enviada. ${data.errors ? data.errors.join(", ") : ""}`);
     } else {
       alert(`Erro: ${data.error}`);
     }

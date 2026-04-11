@@ -35,26 +35,32 @@ export async function POST(
     return NextResponse.json({ error: "Produto sem imagem" }, { status: 400 });
   }
 
-  try {
-    // Delete existing images first to avoid duplicates
-    try {
-      await eccosys.delete(`/produtos/imagens/excluir?idProduto=${item.ecc_product_id}`);
-    } catch {
-      // Ignore if no images to delete
-    }
+  console.log(`[upload-image] ${item.codigo}: ${imageUrls.length} images to upload`);
 
-    // Upload all images
+  try {
+    // Upload all images (Eccosys appends, so delete first if re-uploading)
     let uploaded = 0;
+    const errors: string[] = [];
+
     for (const url of imageUrls) {
       try {
         await eccosys.postImage(item.ecc_product_id, url);
         uploaded++;
+        console.log(`[upload-image] ${item.codigo}: uploaded ${uploaded}/${imageUrls.length}`);
       } catch (err) {
-        console.warn(`[pre-cadastro] Erro imagem ${item.codigo}:`, err);
+        const msg = err instanceof Error ? err.message : "unknown";
+        errors.push(msg);
+        console.warn(`[upload-image] ${item.codigo}: error on image ${uploaded + 1}:`, msg);
       }
     }
 
-    return NextResponse.json({ ok: true, codigo: item.codigo, uploaded });
+    return NextResponse.json({
+      ok: uploaded > 0,
+      codigo: item.codigo,
+      uploaded,
+      total: imageUrls.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erro ao enviar imagem" },
