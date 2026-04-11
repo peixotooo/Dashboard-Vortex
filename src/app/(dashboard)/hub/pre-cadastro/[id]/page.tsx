@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -68,6 +68,7 @@ interface CollectionItem {
   categoria_nome: string | null;
   subcategoria_id: string | null;
   subcategoria_nome: string | null;
+  images: { storage_key: string; public_url: string; is_primary: boolean }[] | null;
   ai_confidence: Record<string, number> | null;
   status: string;
   ecc_product_id: number | null;
@@ -569,6 +570,40 @@ function EditItemDialog({
   onClose: () => void;
   onSave: (updates: Record<string, unknown>) => void;
 }) {
+  const { workspace } = useWorkspace();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [itemImages, setItemImages] = useState<{ storage_key: string; public_url: string; is_primary: boolean }[]>(
+    item.images && item.images.length > 0
+      ? item.images
+      : item.image_public_url ? [{ storage_key: item.image_public_url, public_url: item.image_public_url, is_primary: true }] : []
+  );
+  const [uploadingImg, setUploadingImg] = useState(false);
+
+  async function handleAddImages(files: FileList | null) {
+    if (!files || !workspace?.id) return;
+    setUploadingImg(true);
+    for (const file of Array.from(files)) {
+      try {
+        const urlRes = await fetch("/api/media/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        });
+        if (!urlRes.ok) continue;
+        const { signedUrl, key, publicUrl } = await urlRes.json();
+        await fetch(signedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+        setItemImages((prev) => [...prev, { storage_key: key, public_url: publicUrl, is_primary: false }]);
+      } catch (err) {
+        console.error("Erro upload:", err);
+      }
+    }
+    setUploadingImg(false);
+  }
+
+  function removeImg(index: number) {
+    setItemImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
   const [form, setForm] = useState({
     nome: item.nome || "",
     codigo: item.codigo || "",
@@ -636,6 +671,16 @@ function EditItemDialog({
       updates.subcategoria_nome = sub?.nome || null;
     }
 
+    // Always save images if they changed
+    const origImages = item.images || [];
+    if (JSON.stringify(itemImages) !== JSON.stringify(origImages)) {
+      updates.images = itemImages;
+      if (itemImages.length > 0) {
+        updates.image_public_url = itemImages[0].public_url;
+        updates.image_storage_key = itemImages[0].storage_key;
+      }
+    }
+
     onSave(Object.keys(updates).length > 0 ? updates : { nome: form.nome });
   }
 
@@ -647,10 +692,35 @@ function EditItemDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
-          {/* Left: image */}
-          <div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={item.image_public_url} alt={item.nome || ""} className="w-full rounded-lg object-cover aspect-square" />
+          {/* Left: images grid */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-1.5">
+              {itemImages.map((img, i) => (
+                <div key={i} className="relative aspect-square rounded-md overflow-hidden border bg-muted group">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={img.public_url} alt="" className="w-full h-full object-cover" />
+                  {i === 0 && (
+                    <span className="absolute top-0.5 left-0.5 bg-primary text-primary-foreground text-[9px] px-1 py-0.5 rounded">Principal</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeImg(i)}
+                    className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="aspect-square rounded-md border-2 border-dashed flex flex-col items-center justify-center gap-1 hover:border-primary/50 transition-colors"
+              >
+                {uploadingImg ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4 text-muted-foreground" />}
+                <span className="text-[9px] text-muted-foreground">Adicionar</span>
+              </button>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(e) => handleAddImages(e.target.files)} />
           </div>
 
           {/* Right: core fields */}

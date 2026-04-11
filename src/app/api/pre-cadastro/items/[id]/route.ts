@@ -37,6 +37,7 @@ export async function PATCH(
     "composicao", "fabricante",
     "departamento_id", "categoria_id", "subcategoria_id",
     "departamento_nome", "categoria_nome", "subcategoria_nome",
+    "images", "image_public_url", "image_storage_key",
   ];
 
   const updates: Record<string, unknown> = {};
