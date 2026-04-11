@@ -574,10 +574,10 @@ function ProductCard({
               Imagem
             </Button>
           )}
-          {(item.status === "ready" || item.status === "edited") && (
+          {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && (
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}>
               <RefreshCw className="h-3 w-3 mr-1" />
-              Regenerar
+              Re-analisar
             </Button>
           )}
           {item.status !== "submitted" && (
