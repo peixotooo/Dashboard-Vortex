@@ -99,6 +99,11 @@ export async function POST(req: NextRequest) {
 
   for (const item of items as CollectionItem[]) {
     try {
+      // Validate required fields
+      if (!item.preco || item.preco <= 0) {
+        throw new Error("Preco de venda e obrigatorio. Preencha antes de enviar.");
+      }
+
       // Resolve template for this item
       const chosenTemplate = resolveTemplate(
         { nome: item.nome || "", departamento: null, categoria: item.categoria_id ? { id: item.categoria_id, nome: item.categoria_nome || "" } : null, subcategoria: null, descricao_ecommerce: "", descricao_complementar: "", descricao_detalhada: "", keywords: "", metatag_description: "", titulo_pagina: "", url_slug: "", composicao: "", atributos_detectados: {}, confidence: {} },

@@ -106,6 +106,16 @@ export async function POST(req: NextRequest) {
       // Resolve which template to use for fiscal/operational fields
       const chosenTemplate = resolveTemplate(result, templates);
 
+      // Default cost by detected category (from Q1 CMV data)
+      const CUSTO_POR_CATEGORIA: Record<string, number> = {
+        "camiseta": 25.76, "regata": 24.12, "calca": 24.66, "calça": 24.66,
+        "bermuda": 30.32, "meia": 24.00, "cueca": 24.00, "short": 26.71,
+        "shorts": 26.71, "bone": 27.26, "boné": 27.26, "top": 23.85,
+        "macaquinho": 24.00, "t-shirt": 43.00, "tshirt": 43.00,
+        "blusao": 62.12, "blusão": 62.12, "cropped": 22.00,
+        "jogger": 24.66, "agasalho": 62.12, "blusa": 62.12,
+      };
+
       // Derive name from filename as the source of truth
       const filenameBase = item.original_filename
         .replace(/\.[^.]+$/, "")        // remove extension
@@ -139,6 +149,20 @@ export async function POST(req: NextRequest) {
         error_msg: null,
         updated_at: new Date().toISOString(),
       };
+
+      // Determine cost from category or product name
+      const deptNome = (result.departamento?.nome || "").toLowerCase();
+      const prodNome = (filenameBase || "").toLowerCase();
+      let precoCusto: number | null = null;
+      for (const [cat, custo] of Object.entries(CUSTO_POR_CATEGORIA)) {
+        if (deptNome.includes(cat) || prodNome.includes(cat)) {
+          precoCusto = custo;
+          break;
+        }
+      }
+      if (precoCusto) {
+        updates.preco_custo = precoCusto;
+      }
 
       // Apply template or defaults for fiscal/operational fields
       updates.ncm = chosenTemplate?.cf || "6105.20.00";

@@ -533,6 +533,11 @@ function ProductCard({
           <p className="text-xs text-red-600 line-clamp-2">{item.error_msg}</p>
         )}
 
+        {/* Missing price warning */}
+        {item.nome && !item.preco && item.status !== "pending" && (
+          <p className="text-xs text-amber-600">Preco de venda obrigatorio</p>
+        )}
+
         {/* Submitted info */}
         {item.codigo && item.status === "submitted" && (
           <p className="text-xs text-green-600">Eccosys: {item.codigo}</p>
