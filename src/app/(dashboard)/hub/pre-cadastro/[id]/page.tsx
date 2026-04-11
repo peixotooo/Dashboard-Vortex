@@ -134,7 +134,19 @@ export default function CollectionDetailPage() {
     fetchData();
   }, [fetchData]);
 
-  // ----- Analyze -----
+  // ----- Analyze Individual -----
+  async function handleAnalyzeItem(itemId: string) {
+    if (!workspace?.id) return;
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, status: "processing" } : i)));
+    await fetch("/api/pre-cadastro/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers() },
+      body: JSON.stringify({ collection_id: collectionId, item_ids: [itemId] }),
+    });
+    fetchData();
+  }
+
+  // ----- Analyze All -----
   async function handleAnalyze() {
     if (!workspace?.id) return;
     setAnalyzing(true);
@@ -369,6 +381,7 @@ export default function CollectionDetailPage() {
             item={item}
             categories={collection.categories_snapshot}
             onDelete={() => handleDeleteItem(item.id)}
+            onAnalyze={() => handleAnalyzeItem(item.id)}
             onRegenerate={() => handleRegenerate(item.id)}
             onEdit={() => setEditingItem(item)}
             onSubmit={() => handleSubmitItem(item.id)}
@@ -420,6 +433,7 @@ function ProductCard({
   item,
   categories,
   onDelete,
+  onAnalyze,
   onRegenerate,
   onEdit,
   onSubmit,
@@ -428,6 +442,7 @@ function ProductCard({
   item: CollectionItem;
   categories: CategoryNode[] | null;
   onDelete: () => void;
+  onAnalyze: () => void;
   onRegenerate: () => void;
   onEdit: () => void;
   onSubmit: () => void;
@@ -524,7 +539,13 @@ function ProductCard({
         )}
 
         {/* Actions */}
-        <div className="flex items-center gap-1 pt-1">
+        <div className="flex flex-wrap items-center gap-1 pt-1">
+          {(item.status === "pending" || item.status === "error") && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onAnalyze}>
+              <Sparkles className="h-3 w-3 mr-1" />
+              Analisar
+            </Button>
+          )}
           {item.nome && (
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>
               Editar
@@ -548,7 +569,7 @@ function ProductCard({
               Imagem
             </Button>
           )}
-          {(item.status === "ready" || item.status === "edited" || item.status === "error") && (
+          {(item.status === "ready" || item.status === "edited") && (
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}>
               <RefreshCw className="h-3 w-3 mr-1" />
               Regenerar
