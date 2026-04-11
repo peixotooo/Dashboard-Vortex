@@ -14,9 +14,12 @@ import {
   AlertTriangle,
   ImagePlus,
   X,
+  CheckSquare,
+  Square,
+  DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -95,7 +98,6 @@ interface CategoryNode {
 
 export default function CollectionDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const { workspace } = useWorkspace();
   const collectionId = params.id as string;
 
@@ -105,12 +107,12 @@ export default function CollectionDetailPage() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [analyzeProgress, setAnalyzeProgress] = useState(0);
-  const [submitProgress, setSubmitProgress] = useState(0);
   const [editingItem, setEditingItem] = useState<CollectionItem | null>(null);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkPrice, setBulkPrice] = useState("");
 
-  const headers = useCallback(
+  const hdrs = useCallback(
     () => ({ "x-workspace-id": workspace?.id || "" }),
     [workspace?.id]
   );
@@ -120,266 +122,273 @@ export default function CollectionDetailPage() {
     setLoading(true);
     try {
       const [colRes, itemsRes] = await Promise.all([
-        fetch(`/api/pre-cadastro/collections/${collectionId}`, { headers: headers() }),
-        fetch(`/api/pre-cadastro/collections/${collectionId}/items`, { headers: headers() }),
+        fetch(`/api/pre-cadastro/collections/${collectionId}`, { headers: hdrs() }),
+        fetch(`/api/pre-cadastro/collections/${collectionId}/items`, { headers: hdrs() }),
       ]);
       if (colRes.ok) setCollection(await colRes.json());
       if (itemsRes.ok) setItems(await itemsRes.json());
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, collectionId, headers]);
+  }, [workspace?.id, collectionId, hdrs]);
 
-  useEffect(() => {
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ----- Selection -----
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function selectAll() {
+    if (selected.size === items.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(items.map((i) => i.id)));
+    }
+  }
+  const selectedItems = items.filter((i) => selected.has(i.id));
+  const allSelected = items.length > 0 && selected.size === items.length;
+
+  // ----- Bulk Actions -----
+  async function handleBulkAnalyze() {
+    if (!workspace?.id || selectedItems.length === 0) return;
+    const ids = selectedItems.filter((i) => i.status === "pending" || i.status === "error").map((i) => i.id);
+    if (ids.length === 0) return;
+    setAnalyzing(true);
+    await fetch("/api/pre-cadastro/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...hdrs() },
+      body: JSON.stringify({ collection_id: collectionId, item_ids: ids }),
+    });
+    setAnalyzing(false);
     fetchData();
-  }, [fetchData]);
+  }
 
-  // ----- Analyze Individual -----
+  async function handleBulkSubmit() {
+    if (!workspace?.id || !collection || selectedItems.length === 0) return;
+    const ids = selectedItems.filter((i) => i.status === "ready" || i.status === "edited").map((i) => i.id);
+    if (ids.length === 0) return;
+    setSubmitting(true);
+    setSubmitDialogOpen(true);
+    await fetch("/api/pre-cadastro/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...hdrs() },
+      body: JSON.stringify({ collection_id: collection.id, item_ids: ids }),
+    });
+    setSubmitting(false);
+    setSelected(new Set());
+    fetchData();
+  }
+
+  async function handleBulkPrice() {
+    const price = parseFloat(bulkPrice);
+    if (!price || !workspace?.id || selectedItems.length === 0) return;
+    for (const item of selectedItems) {
+      await fetch(`/api/pre-cadastro/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...hdrs() },
+        body: JSON.stringify({ preco: price }),
+      });
+    }
+    setBulkPrice("");
+    setSelected(new Set());
+    fetchData();
+  }
+
+  async function handleBulkDelete() {
+    if (!workspace?.id || selectedItems.length === 0) return;
+    if (!confirm(`Excluir ${selectedItems.length} produto(s)?`)) return;
+    for (const item of selectedItems) {
+      await fetch(`/api/pre-cadastro/items/${item.id}`, {
+        method: "DELETE",
+        headers: hdrs(),
+      });
+    }
+    setSelected(new Set());
+    fetchData();
+  }
+
+  // ----- Individual Actions -----
   async function handleAnalyzeItem(itemId: string) {
     if (!workspace?.id) return;
     setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, status: "processing" } : i)));
     await fetch("/api/pre-cadastro/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers() },
+      headers: { "Content-Type": "application/json", ...hdrs() },
       body: JSON.stringify({ collection_id: collectionId, item_ids: [itemId] }),
     });
     fetchData();
   }
 
-  // ----- Analyze All -----
-  async function handleAnalyze() {
-    if (!workspace?.id) return;
-    setAnalyzing(true);
-    setAnalyzeProgress(0);
-
-    const pendingItems = items.filter((i) => i.status === "pending" || i.status === "error");
-    const total = pendingItems.length;
-
-    const res = await fetch("/api/pre-cadastro/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers() },
-      body: JSON.stringify({ collection_id: collectionId }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      setAnalyzeProgress(100);
-      setTimeout(() => {
-        setAnalyzing(false);
-        fetchData();
-      }, 500);
-    } else {
-      setAnalyzing(false);
-      fetchData();
-    }
-  }
-
-  // ----- Submit -----
-  async function handleSubmit() {
-    if (!workspace?.id) return;
-    setSubmitting(true);
-    setSubmitProgress(0);
-    setSubmitDialogOpen(true);
-
-    const res = await fetch("/api/pre-cadastro/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers() },
-      body: JSON.stringify({ collection_id: collectionId }),
-    });
-
-    if (res.ok) {
-      setSubmitProgress(100);
-    }
-    setSubmitting(false);
-    fetchData();
-  }
-
-  // ----- Delete Item -----
-  async function handleDeleteItem(itemId: string) {
-    if (!workspace?.id) return;
-    await fetch(`/api/pre-cadastro/items/${itemId}`, {
-      method: "DELETE",
-      headers: headers(),
-    });
-    fetchData();
-  }
-
-  // ----- Regenerate Item -----
   async function handleRegenerate(itemId: string) {
     if (!workspace?.id) return;
-    const item = items.find((i) => i.id === itemId);
-    if (item) {
-      setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, status: "processing" } : i)));
-    }
-
+    setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, status: "processing" } : i)));
     await fetch(`/api/pre-cadastro/items/${itemId}/regenerate`, {
       method: "POST",
-      headers: headers(),
+      headers: hdrs(),
     });
     fetchData();
   }
 
-  // ----- Submit Individual Item -----
   async function handleSubmitItem(itemId: string) {
     if (!workspace?.id || !collection) return;
-    // Reset to ready first (handles both error and re-submit cases)
     await fetch(`/api/pre-cadastro/items/${itemId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", ...headers() },
+      headers: { "Content-Type": "application/json", ...hdrs() },
       body: JSON.stringify({ status: "ready" }),
     });
     setSubmitting(true);
     setSubmitDialogOpen(true);
     await fetch("/api/pre-cadastro/submit", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers() },
+      headers: { "Content-Type": "application/json", ...hdrs() },
       body: JSON.stringify({ collection_id: collection.id, item_ids: [itemId] }),
     });
     setSubmitting(false);
     fetchData();
   }
 
-  // ----- Upload Image -----
   async function handleUploadImage(itemId: string) {
     if (!workspace?.id) return;
     const res = await fetch(`/api/pre-cadastro/items/${itemId}/upload-image`, {
       method: "POST",
-      headers: headers(),
+      headers: hdrs(),
     });
     const data = await res.json();
     if (res.ok && data.uploaded > 0) {
       alert(`${data.uploaded} imagem(ns) enviada(s) para ${data.codigo}`);
-    } else if (res.ok && data.uploaded === 0) {
-      alert(`Nenhuma imagem enviada. ${data.errors ? data.errors.join(", ") : ""}`);
     } else {
-      alert(`Erro: ${data.error}`);
+      alert(`Erro: ${data.error || "Nenhuma imagem enviada"}`);
     }
   }
 
-  // ----- Save Item Edit -----
+  async function handleDeleteItem(itemId: string) {
+    if (!workspace?.id) return;
+    await fetch(`/api/pre-cadastro/items/${itemId}`, { method: "DELETE", headers: hdrs() });
+    fetchData();
+  }
+
   async function handleSaveEdit(itemId: string, updates: Record<string, unknown>) {
     if (!workspace?.id) return;
     await fetch(`/api/pre-cadastro/items/${itemId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", ...headers() },
+      headers: { "Content-Type": "application/json", ...hdrs() },
       body: JSON.stringify(updates),
     });
     setEditingItem(null);
     fetchData();
   }
 
-  // ----- Render -----
+  // ----- Counts -----
   const pendingCount = items.filter((i) => i.status === "pending" || i.status === "error").length;
   const readyCount = items.filter((i) => i.status === "ready" || i.status === "edited").length;
   const submittedCount = items.filter((i) => i.status === "submitted").length;
+  const selectedPending = selectedItems.filter((i) => i.status === "pending" || i.status === "error").length;
+  const selectedReady = selectedItems.filter((i) => i.status === "ready" || i.status === "edited").length;
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
-
   if (!collection) {
     return <p className="text-muted-foreground">Colecao nao encontrada</p>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link href="/hub/pre-cadastro">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+          <Link href="/hub/pre-cadastro"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{collection.name}</h1>
           {collection.context_description && (
-            <p className="text-sm text-muted-foreground">{collection.context_description}</p>
+            <p className="text-sm text-muted-foreground line-clamp-1">{collection.context_description}</p>
           )}
         </div>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{items.length} produtos</span>
-          <span className="text-xs">Grade: {collection.grade?.join(", ") || "P, M, G, GG, XGG"}</span>
-          {submittedCount > 0 && (
-            <Badge variant="default">{submittedCount} enviados</Badge>
-          )}
-        </div>
+        <Button onClick={() => setShowAddProduct(true)}>
+          <ImagePlus className="mr-2 h-4 w-4" />
+          Cadastrar Produto
+        </Button>
       </div>
 
-      {/* Add Product Button */}
-      <Button onClick={() => setShowAddProduct(true)} variant="outline" className="w-full py-6 border-dashed border-2">
-        <ImagePlus className="mr-2 h-5 w-5" />
-        Cadastrar Produto
-      </Button>
+      <AddProductModal open={showAddProduct} onOpenChange={setShowAddProduct} collectionId={collectionId} onCreated={fetchData} />
 
-      <AddProductModal
-        open={showAddProduct}
-        onOpenChange={setShowAddProduct}
-        collectionId={collectionId}
-        onCreated={fetchData}
-      />
+      {/* Stats Bar */}
+      {items.length > 0 && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{items.length} produtos</span>
+          {pendingCount > 0 && <Badge variant="secondary">{pendingCount} pendentes</Badge>}
+          {readyCount > 0 && <Badge variant="outline" className="border-green-500 text-green-600">{readyCount} prontos</Badge>}
+          {submittedCount > 0 && <Badge variant="default">{submittedCount} enviados</Badge>}
+          <span className="text-xs">Grade: {collection.grade?.join(", ") || "P, M, G, GG, XGG"}</span>
+        </div>
+      )}
 
-      {/* Bulk Actions */}
+      {/* Selection Toolbar */}
       {items.length > 0 && (
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4 text-sm">
-                {pendingCount > 0 && <span className="text-muted-foreground">{pendingCount} pendentes</span>}
-                {readyCount > 0 && <span className="text-green-600">{readyCount} prontos</span>}
-              </div>
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              {/* Select all */}
+              <button type="button" onClick={selectAll} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                {allSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                {allSelected ? "Desmarcar" : "Selecionar tudo"}
+              </button>
 
-              {/* Bulk price */}
-              <div className="flex items-center gap-2">
-                <Label className="text-xs whitespace-nowrap">Preco (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="Ex: 169"
-                  className="w-24 h-8 text-sm"
-                  id="bulk-price"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={async () => {
-                    const input = document.getElementById("bulk-price") as HTMLInputElement;
-                    const price = parseFloat(input?.value || "0");
-                    if (!price || !workspace?.id) return;
-                    for (const item of items) {
-                      if (item.status === "submitted") continue;
-                      await fetch(`/api/pre-cadastro/items/${item.id}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json", ...headers() },
-                        body: JSON.stringify({ preco: price }),
-                      });
-                    }
-                    fetchData();
-                  }}
-                >
-                  Aplicar em todos
-                </Button>
-              </div>
+              {selected.size > 0 && (
+                <>
+                  <span className="text-xs font-medium">{selected.size} selecionado(s)</span>
+                  <div className="h-4 w-px bg-border" />
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-2">
-                {pendingCount > 0 && (
-                  <Button onClick={handleAnalyze} disabled={analyzing} size="sm">
-                    {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                    {analyzing ? "Analisando..." : `Analisar (${pendingCount})`}
+                  {/* Bulk Price */}
+                  <div className="flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Preco"
+                      value={bulkPrice}
+                      onChange={(e) => setBulkPrice(e.target.value)}
+                      className="w-20 h-7 text-xs"
+                    />
+                    <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={handleBulkPrice} disabled={!bulkPrice}>
+                      Aplicar
+                    </Button>
+                  </div>
+
+                  <div className="h-4 w-px bg-border" />
+
+                  {/* Bulk Analyze */}
+                  {selectedPending > 0 && (
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleBulkAnalyze} disabled={analyzing}>
+                      {analyzing ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Sparkles className="mr-1 h-3 w-3" />}
+                      Analisar ({selectedPending})
+                    </Button>
+                  )}
+
+                  {/* Bulk Submit */}
+                  {selectedReady > 0 && (
+                    <Button size="sm" className="h-7 text-xs" onClick={handleBulkSubmit} disabled={submitting}>
+                      {submitting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                      Enviar ({selectedReady})
+                    </Button>
+                  )}
+
+                  {/* Bulk Delete */}
+                  <Button variant="ghost" size="sm" className="h-7 text-xs text-red-600 ml-auto" onClick={handleBulkDelete}>
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Excluir
                   </Button>
-                )}
-                {readyCount > 0 && (
-                  <Button variant="default" onClick={handleSubmit} disabled={submitting} size="sm">
-                    {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                    {submitting ? "Enviando..." : `Enviar (${readyCount})`}
-                  </Button>
-                )}
-              </div>
+                </>
+              )}
+
+              {selected.size === 0 && (
+                <span className="text-xs text-muted-foreground">Selecione produtos para acoes em massa</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -393,9 +402,23 @@ export default function CollectionDetailPage() {
               <Sparkles className="h-4 w-4 text-primary animate-pulse" />
               <div className="flex-1">
                 <p className="text-sm font-medium">Analisando imagens com IA...</p>
-                <Progress value={analyzeProgress} className="h-1.5 mt-1" />
+                <Progress value={50} className="h-1.5 mt-1" />
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty state */}
+      {items.length === 0 && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
+            <ImagePlus className="h-12 w-12 text-muted-foreground" />
+            <p className="text-muted-foreground">Nenhum produto cadastrado</p>
+            <Button onClick={() => setShowAddProduct(true)} variant="outline">
+              <ImagePlus className="mr-2 h-4 w-4" />
+              Cadastrar Produto
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -406,7 +429,8 @@ export default function CollectionDetailPage() {
           <ProductCard
             key={item.id}
             item={item}
-            categories={collection.categories_snapshot}
+            isSelected={selected.has(item.id)}
+            onToggleSelect={() => toggleSelect(item.id)}
             onDelete={() => handleDeleteItem(item.id)}
             onAnalyze={() => handleAnalyzeItem(item.id)}
             onRegenerate={() => handleRegenerate(item.id)}
@@ -430,15 +454,12 @@ export default function CollectionDetailPage() {
       {/* Submit Progress Dialog */}
       <Dialog open={submitDialogOpen} onOpenChange={setSubmitDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Enviando para Eccosys</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Enviando para Eccosys</DialogTitle></DialogHeader>
           <div className="space-y-4">
             {submitting ? (
               <div className="flex flex-col items-center gap-3 py-4">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <p className="text-sm text-muted-foreground">Criando produtos no Eccosys...</p>
-                <Progress value={submitProgress} className="h-2" />
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3 py-4">
@@ -454,11 +475,12 @@ export default function CollectionDetailPage() {
   );
 }
 
-// ----- Product Card Component -----
+// ----- Product Card -----
 
 function ProductCard({
   item,
-  categories,
+  isSelected,
+  onToggleSelect,
   onDelete,
   onAnalyze,
   onRegenerate,
@@ -467,7 +489,8 @@ function ProductCard({
   onUploadImage,
 }: {
   item: CollectionItem;
-  categories: CategoryNode[] | null;
+  isSelected: boolean;
+  onToggleSelect: () => void;
   onDelete: () => void;
   onAnalyze: () => void;
   onRegenerate: () => void;
@@ -488,24 +511,30 @@ function ProductCard({
     submitted: { color: "text-primary", label: "Enviado" },
     error: { color: "text-red-600", label: "Erro" },
   };
-
   const status = statusConfig[item.status] || statusConfig.pending;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className={`overflow-hidden transition-all ${isSelected ? "ring-2 ring-primary" : ""}`}>
       {/* Image */}
       <div className="aspect-square bg-muted relative">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={item.image_public_url}
-          alt={item.nome || item.original_filename}
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute top-2 right-2 flex gap-1">
-          <Badge variant={item.status === "error" ? "destructive" : "secondary"} className="text-xs">
+        <img src={item.image_public_url} alt={item.nome || item.original_filename} className="w-full h-full object-cover" />
+
+        {/* Select checkbox */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+          className="absolute top-2 left-2 bg-white/80 dark:bg-black/60 rounded p-0.5"
+        >
+          {isSelected ? <CheckSquare className="h-5 w-5 text-primary" /> : <Square className="h-5 w-5 text-muted-foreground" />}
+        </button>
+
+        <div className="absolute top-2 right-2">
+          <Badge variant={item.status === "error" ? "destructive" : item.status === "submitted" ? "default" : "secondary"} className="text-xs">
             {status.label}
           </Badge>
         </div>
+
         {item.status === "processing" && (
           <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin" />
@@ -520,12 +549,9 @@ function ProductCard({
             <p className="text-xs text-muted-foreground">{item.codigo}</p>
 
             {item.descricao_ecommerce && (
-              <p className="text-xs text-muted-foreground line-clamp-2">
-                {item.descricao_ecommerce}
-              </p>
+              <p className="text-xs text-muted-foreground line-clamp-2">{item.descricao_ecommerce}</p>
             )}
 
-            {/* Category + Composicao */}
             {item.departamento_nome && (
               <p className="text-xs">{item.departamento_nome}</p>
             )}
@@ -533,7 +559,6 @@ function ProductCard({
               <p className="text-xs text-muted-foreground">{item.composicao}</p>
             )}
 
-            {/* Low confidence warning */}
             {lowConfidenceFields.length > 0 && (
               <div className="flex items-center gap-1 text-amber-600">
                 <AlertTriangle className="h-3 w-3" />
@@ -541,7 +566,6 @@ function ProductCard({
               </div>
             )}
 
-            {/* Price / Weight */}
             <div className="flex gap-3 text-xs text-muted-foreground">
               {item.preco && <span>R$ {Number(item.preco).toFixed(2)}</span>}
               {item.peso && <span>{item.peso}kg</span>}
@@ -551,23 +575,18 @@ function ProductCard({
           <p className="text-sm text-muted-foreground">{item.original_filename}</p>
         )}
 
-        {/* Error message */}
-        {item.error_msg && (
-          <p className="text-xs text-red-600 line-clamp-2">{item.error_msg}</p>
-        )}
+        {item.error_msg && <p className="text-xs text-red-600 line-clamp-2">{item.error_msg}</p>}
 
-        {/* Missing price warning */}
         {item.nome && !item.preco && item.status !== "pending" && (
           <p className="text-xs text-amber-600">Preco de venda obrigatorio</p>
         )}
 
-        {/* Submitted info */}
         {item.codigo && item.status === "submitted" && (
           <p className="text-xs text-green-600">Eccosys: {item.codigo}</p>
         )}
 
         {/* Actions */}
-        <div className="flex flex-wrap items-center gap-1 pt-1">
+        <div className="flex flex-wrap items-center gap-1 pt-1 border-t">
           {(item.status === "pending" || item.status === "error") && (
             <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onAnalyze}>
               <Sparkles className="h-3 w-3 mr-1" />
@@ -680,8 +699,6 @@ function EditItemDialog({
     comprimento: item.comprimento != null ? String(item.comprimento) : "",
     ncm: item.ncm || "",
     departamento_id: item.departamento_id || "",
-    categoria_id: item.categoria_id || "",
-    subcategoria_id: item.subcategoria_id || "",
   });
 
   const confidence = item.ai_confidence || {};
@@ -689,16 +706,12 @@ function EditItemDialog({
     return (confidence[field] ?? 1) < 0.5 ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20" : "";
   }
 
-  const selectedDept = categories?.find((d) => String(d.id) === form.departamento_id);
-  const selectedCat = selectedDept?.categorias?.find((c) => String(c.id) === form.categoria_id);
-
   function handleSave() {
     const updates: Record<string, unknown> = {};
     const str = (v: string | null) => v || "";
     const num = (v: number | null) => v != null ? String(v) : "";
 
     if (form.nome !== str(item.nome)) updates.nome = form.nome;
-    if (form.codigo !== str(item.codigo)) updates.codigo = form.codigo;
     if (form.descricao_ecommerce !== str(item.descricao_ecommerce)) updates.descricao_ecommerce = form.descricao_ecommerce;
     if (form.descricao_complementar !== str(item.descricao_complementar)) updates.descricao_complementar = form.descricao_complementar;
     if (form.descricao_detalhada !== str(item.descricao_detalhada)) updates.descricao_detalhada = form.descricao_detalhada;
@@ -716,19 +729,11 @@ function EditItemDialog({
     if (form.ncm !== str(item.ncm)) updates.ncm = form.ncm || null;
     if (form.departamento_id !== str(item.departamento_id)) {
       updates.departamento_id = form.departamento_id || null;
-      updates.departamento_nome = selectedDept?.nome || null;
-    }
-    if (form.categoria_id !== str(item.categoria_id)) {
-      updates.categoria_id = form.categoria_id || null;
-      updates.categoria_nome = selectedCat?.nome || null;
-    }
-    if (form.subcategoria_id !== str(item.subcategoria_id)) {
-      updates.subcategoria_id = form.subcategoria_id || null;
-      const sub = selectedCat?.subcategorias?.find((s) => String(s.id) === form.subcategoria_id);
-      updates.subcategoria_nome = sub?.nome || null;
+      const dept = categories?.find((d) => String(d.id) === form.departamento_id);
+      updates.departamento_nome = dept?.nome || null;
     }
 
-    // Always save images if they changed
+    // Save images if changed
     const origImages = item.images || [];
     if (JSON.stringify(itemImages) !== JSON.stringify(origImages)) {
       updates.images = itemImages;
@@ -744,9 +749,7 @@ function EditItemDialog({
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar Produto</DialogTitle>
-        </DialogHeader>
+        <DialogHeader><DialogTitle>Editar Produto</DialogTitle></DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
           {/* Left: images grid */}
@@ -756,23 +759,13 @@ function EditItemDialog({
                 <div key={i} className="relative aspect-square rounded-md overflow-hidden border bg-muted group">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={img.public_url} alt="" className="w-full h-full object-cover" />
-                  {i === 0 && (
-                    <span className="absolute top-0.5 left-0.5 bg-primary text-primary-foreground text-[9px] px-1 py-0.5 rounded">Principal</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removeImg(i)}
-                    className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
+                  {i === 0 && <span className="absolute top-0.5 left-0.5 bg-primary text-primary-foreground text-[9px] px-1 py-0.5 rounded">Principal</span>}
+                  <button type="button" onClick={() => removeImg(i)} className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
               ))}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="aspect-square rounded-md border-2 border-dashed flex flex-col items-center justify-center gap-1 hover:border-primary/50 transition-colors"
-              >
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="aspect-square rounded-md border-2 border-dashed flex flex-col items-center justify-center gap-1 hover:border-primary/50 transition-colors">
                 {uploadingImg ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4 text-muted-foreground" />}
                 <span className="text-[9px] text-muted-foreground">Adicionar</span>
               </button>
@@ -792,7 +785,7 @@ function EditItemDialog({
             </div>
             <div>
               <Label className="text-xs">Composicao</Label>
-              <Input className={fieldClass("composicao")} value={form.composicao} onChange={(e) => setForm((f) => ({ ...f, composicao: e.target.value }))} />
+              <Input value={form.composicao} onChange={(e) => setForm((f) => ({ ...f, composicao: e.target.value }))} />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
@@ -825,12 +818,12 @@ function EditItemDialog({
           </div>
         </div>
 
-        {/* Category select */}
+        {/* Category */}
         {categories && categories.length > 0 && (
           <div className="mt-4">
             <Label className="text-xs">Categoria</Label>
             <Select value={form.departamento_id} onValueChange={(v) => setForm((f) => ({ ...f, departamento_id: v }))}>
-              <SelectTrigger className={fieldClass("categorization")}><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
               <SelectContent>{categories.map((d) => (<SelectItem key={String(d.id)} value={String(d.id)}>{d.nome}</SelectItem>))}</SelectContent>
             </Select>
           </div>
@@ -844,7 +837,7 @@ function EditItemDialog({
           </div>
           <div>
             <Label className="text-xs">Descricao E-commerce</Label>
-            <Textarea className={fieldClass("descricao_ecommerce")} rows={3} value={form.descricao_ecommerce} onChange={(e) => setForm((f) => ({ ...f, descricao_ecommerce: e.target.value }))} />
+            <Textarea rows={3} value={form.descricao_ecommerce} onChange={(e) => setForm((f) => ({ ...f, descricao_ecommerce: e.target.value }))} />
           </div>
           <div>
             <Label className="text-xs">Descricao Detalhada</Label>
