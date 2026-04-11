@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { downloadFile } from "@/lib/b2-storage";
+import { eccosys } from "@/lib/eccosys/client";
 import { analyzeProductImage, resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
 import type { TemplateData, CategoryNode } from "@/lib/pre-cadastro/types";
 
@@ -69,8 +70,32 @@ export async function POST(req: NextRequest) {
     .eq("id", collection_id);
 
   const templates = getTemplatePool(collection.template_data);
-  const categories = collection.categories_snapshot as CategoryNode[] | null;
+  let categories = collection.categories_snapshot as CategoryNode[] | null;
   const contextDescription = collection.context_description as string | null;
+
+  // If categories are missing, fetch from Eccosys and update the collection
+  if (!categories || categories.length === 0) {
+    try {
+      const response = await eccosys.get<unknown>("/departamentos");
+      let depts: CategoryNode[] = [];
+      if (Array.isArray(response)) {
+        depts = response;
+      } else if (response && typeof response === "object" && "departamentos" in (response as Record<string, unknown>)) {
+        depts = (response as { departamentos: CategoryNode[] }).departamentos;
+      }
+      if (depts.length > 0) {
+        categories = depts;
+        // Save to collection so future analyses don't need to re-fetch
+        await supabase
+          .from("product_collections")
+          .update({ categories_snapshot: depts })
+          .eq("id", collection_id);
+        console.log(`[pre-cadastro] Fetched ${depts.length} depts and updated collection snapshot`);
+      }
+    } catch (err) {
+      console.warn("[pre-cadastro] Failed to fetch departments:", err);
+    }
+  }
 
   const results: { id: string; status: string; error?: string }[] = [];
   let processed = 0;

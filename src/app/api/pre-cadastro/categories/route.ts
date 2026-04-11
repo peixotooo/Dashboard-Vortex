@@ -8,7 +8,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const departments = await eccosys.listAll("/departamentos");
+    const response = await eccosys.get<unknown>("/departamentos");
+    let departments: unknown[] = [];
+    if (Array.isArray(response)) {
+      departments = response;
+    } else if (response && typeof response === "object" && "departamentos" in (response as Record<string, unknown>)) {
+      departments = (response as { departamentos: unknown[] }).departamentos;
+    }
     return NextResponse.json(departments);
   } catch (err) {
     return NextResponse.json(
