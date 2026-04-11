@@ -526,12 +526,8 @@ function ProductCard({
             )}
 
             {/* Category + Composicao */}
-            {item.categoria_nome && (
-              <p className="text-xs">
-                {[item.departamento_nome, item.categoria_nome, item.subcategoria_nome]
-                  .filter(Boolean)
-                  .join(" > ")}
-              </p>
+            {item.departamento_nome && (
+              <p className="text-xs">{item.departamento_nome}</p>
             )}
             {item.composicao && (
               <p className="text-xs text-muted-foreground">{item.composicao}</p>
@@ -829,30 +825,14 @@ function EditItemDialog({
           </div>
         </div>
 
-        {/* Category selects */}
+        {/* Category select */}
         {categories && categories.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            <div>
-              <Label className="text-xs">Departamento</Label>
-              <Select value={form.departamento_id} onValueChange={(v) => setForm((f) => ({ ...f, departamento_id: v, categoria_id: "", subcategoria_id: "" }))}>
-                <SelectTrigger className={fieldClass("categorization")}><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{categories.map((d) => (<SelectItem key={String(d.id)} value={String(d.id)}>{d.nome}</SelectItem>))}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Categoria</Label>
-              <Select value={form.categoria_id} onValueChange={(v) => setForm((f) => ({ ...f, categoria_id: v, subcategoria_id: "" }))} disabled={!selectedDept?.categorias}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{selectedDept?.categorias?.map((c) => (<SelectItem key={String(c.id)} value={String(c.id)}>{c.nome}</SelectItem>))}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Subcategoria</Label>
-              <Select value={form.subcategoria_id} onValueChange={(v) => setForm((f) => ({ ...f, subcategoria_id: v }))} disabled={!selectedCat?.subcategorias}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{selectedCat?.subcategorias?.map((s) => (<SelectItem key={String(s.id)} value={String(s.id)}>{s.nome}</SelectItem>))}</SelectContent>
-              </Select>
-            </div>
+          <div className="mt-4">
+            <Label className="text-xs">Categoria</Label>
+            <Select value={form.departamento_id} onValueChange={(v) => setForm((f) => ({ ...f, departamento_id: v }))}>
+              <SelectTrigger className={fieldClass("categorization")}><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+              <SelectContent>{categories.map((d) => (<SelectItem key={String(d.id)} value={String(d.id)}>{d.nome}</SelectItem>))}</SelectContent>
+            </Select>
           </div>
         )}
 
