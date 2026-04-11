@@ -275,6 +275,21 @@ export default function CollectionDetailPage() {
     fetchData();
   }
 
+  // ----- Upload Image -----
+  async function handleUploadImage(itemId: string) {
+    if (!workspace?.id) return;
+    const res = await fetch(`/api/pre-cadastro/items/${itemId}/upload-image`, {
+      method: "POST",
+      headers: headers(),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`Imagem enviada para ${data.codigo}`);
+    } else {
+      alert(`Erro: ${data.error}`);
+    }
+  }
+
   // ----- Save Item Edit -----
   async function handleSaveEdit(itemId: string, updates: Record<string, unknown>) {
     if (!workspace?.id) return;
@@ -431,6 +446,7 @@ export default function CollectionDetailPage() {
             onRegenerate={() => handleRegenerate(item.id)}
             onEdit={() => setEditingItem(item)}
             onSubmit={() => handleSubmitItem(item.id)}
+            onUploadImage={() => handleUploadImage(item.id)}
           />
         ))}
       </div>
@@ -481,6 +497,7 @@ function ProductCard({
   onRegenerate,
   onEdit,
   onSubmit,
+  onUploadImage,
 }: {
   item: CollectionItem;
   categories: CategoryNode[] | null;
@@ -488,6 +505,7 @@ function ProductCard({
   onRegenerate: () => void;
   onEdit: () => void;
   onSubmit: () => void;
+  onUploadImage: () => void;
 }) {
   const confidence = item.ai_confidence || {};
   const lowConfidenceFields = Object.entries(confidence)
@@ -590,6 +608,12 @@ function ProductCard({
             <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}>
               <Send className="h-3 w-3 mr-1" />
               {item.status === "submitted" || item.status === "error" ? "Reenviar" : "Enviar"}
+            </Button>
+          )}
+          {item.status === "submitted" && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onUploadImage}>
+              <Upload className="h-3 w-3 mr-1" />
+              Imagem
             </Button>
           )}
           {(item.status === "ready" || item.status === "edited" || item.status === "error") && (
