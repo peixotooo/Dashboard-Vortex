@@ -38,7 +38,14 @@ export async function POST(
   console.log(`[upload-image] ${item.codigo}: ${imageUrls.length} images to upload`);
 
   try {
-    // Upload all images (Eccosys appends, so delete first if re-uploading)
+    // Delete ALL existing images first to avoid duplicates
+    try {
+      await eccosys.delete(`/produtos/${item.ecc_product_id}/imagens`);
+      console.log(`[upload-image] ${item.codigo}: existing images deleted`);
+    } catch (delErr) {
+      console.warn(`[upload-image] ${item.codigo}: delete images failed (may not have any):`, delErr);
+    }
+
     let uploaded = 0;
     const errors: string[] = [];
 

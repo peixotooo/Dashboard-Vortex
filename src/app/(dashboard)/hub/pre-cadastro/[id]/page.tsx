@@ -530,10 +530,16 @@ function ProductCard({
               Editar
             </Button>
           )}
-          {item.nome && (
+          {(item.status === "ready" || item.status === "edited") && (
             <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}>
               <Send className="h-3 w-3 mr-1" />
-              {item.status === "submitted" || item.status === "error" ? "Reenviar" : "Enviar"}
+              Enviar
+            </Button>
+          )}
+          {(item.status === "submitted" || item.status === "error") && item.nome && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}>
+              <Send className="h-3 w-3 mr-1" />
+              Reenviar
             </Button>
           )}
           {item.status === "submitted" && (
