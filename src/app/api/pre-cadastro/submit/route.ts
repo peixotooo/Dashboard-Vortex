@@ -159,11 +159,14 @@ export async function POST(req: NextRequest) {
         throw new Error("Eccosys nao retornou o ID do produto pai");
       }
 
-      // Step 2: Upload image to parent
-      try {
-        await eccosys.postText(`/produtos/${parentEccId}/imagens`, item.image_public_url);
-      } catch (imgErr) {
-        console.warn(`[pre-cadastro] Erro ao enviar imagem para produto pai ${parentEccId}:`, imgErr);
+      // Step 2: Upload image binary to parent
+      if (!isUpdate) {
+        try {
+          await eccosys.postImage(parentEccId, item.image_public_url);
+          console.log(`[pre-cadastro] Image uploaded to ${parentCodigo}`);
+        } catch (imgErr) {
+          console.warn(`[pre-cadastro] Erro imagem ${parentCodigo}:`, imgErr);
+        }
       }
 
       // Step 3: Category is set via idTagDepartamentoArvore in POST/PUT body above

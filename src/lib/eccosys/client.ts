@@ -187,8 +187,7 @@ class EccosysClient {
   }
 
   /**
-   * POST with text/plain body (for Eccosys image upload endpoint).
-   * POST /api/produtos/:id/imagens expects Content-Type: text/plain with URL or base64.
+   * POST with text/plain body.
    */
   async postText(
     path: string,
@@ -210,6 +209,39 @@ class EccosysClient {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`Eccosys ${res.status}: ${text}`);
+    }
+    return res.json().catch(() => ({}));
+  }
+
+  /**
+   * Upload binary image to Eccosys.
+   * Downloads image from URL, then POST binary to /api/produtos/:id/imagens.
+   */
+  async postImage(
+    productId: string | number,
+    imageUrl: string
+  ): Promise<unknown> {
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado.");
+
+    // Download image
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) throw new Error(`Falha ao baixar imagem: ${imgRes.status}`);
+    const imgBuffer = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+
+    await this.throttle();
+    const res = await fetch(this.getBaseUrl(config) + `/produtos/${productId}/imagens`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        "Content-Type": contentType,
+      },
+      body: imgBuffer,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Eccosys imagem ${res.status}: ${text}`);
     }
     return res.json().catch(() => ({}));
   }
