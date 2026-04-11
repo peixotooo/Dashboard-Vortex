@@ -247,6 +247,25 @@ class EccosysClient {
   }
 
   /**
+   * DELETE request.
+   */
+  async delete(path: string): Promise<unknown> {
+    const config = this.getConfig();
+    if (!config) throw new Error("Eccosys nao configurado.");
+    await this.throttle();
+    const res = await fetch(this.getBaseUrl(config) + path, {
+      method: "DELETE",
+      headers: this.getHeaders(config),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Eccosys ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
+  /**
    * Test connection with explicit credentials (for settings page).
    */
   async testConnection(apiToken: string, ambiente: string): Promise<boolean> {

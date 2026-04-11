@@ -30,6 +30,13 @@ export async function POST(
   }
 
   try {
+    // Delete existing images first to avoid duplicates
+    try {
+      await eccosys.delete(`/produtos/imagens/excluir?idProduto=${item.ecc_product_id}`);
+    } catch {
+      // Ignore if no images to delete
+    }
+
     await eccosys.postImage(item.ecc_product_id, item.image_public_url);
     return NextResponse.json({ ok: true, codigo: item.codigo });
   } catch (err) {
