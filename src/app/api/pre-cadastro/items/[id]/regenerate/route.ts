@@ -69,10 +69,13 @@ export async function POST(
       .toUpperCase()
       .trim();
 
+    // Preserve existing SKU if product was already submitted to Eccosys
+    const existingCodigo = item.ecc_product_id ? item.codigo : null;
+
     // Update item with new AI results — filename-derived name takes priority
     const updates: Record<string, unknown> = {
       nome: filenameBase || result.nome,
-      codigo: result.url_slug || item.original_filename.replace(/\.[^.]+$/, "").toLowerCase(),
+      codigo: existingCodigo || result.url_slug || item.original_filename.replace(/\.[^.]+$/, "").toLowerCase(),
       descricao_ecommerce: result.descricao_ecommerce,
       descricao_complementar: result.descricao_complementar || null,
       descricao_detalhada: result.descricao_detalhada || null,
