@@ -322,40 +322,67 @@ export default function CollectionDetailPage() {
         onCreated={fetchData}
       />
 
-      {/* Action Bar */}
+      {/* Bulk Actions */}
       {items.length > 0 && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm">
-            {pendingCount > 0 && (
-              <span className="text-muted-foreground">{pendingCount} pendentes</span>
-            )}
-            {readyCount > 0 && (
-              <span className="text-green-600">{readyCount} prontos</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {pendingCount > 0 && (
-              <Button onClick={handleAnalyze} disabled={analyzing}>
-                {analyzing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-sm">
+                {pendingCount > 0 && <span className="text-muted-foreground">{pendingCount} pendentes</span>}
+                {readyCount > 0 && <span className="text-green-600">{readyCount} prontos</span>}
+              </div>
+
+              {/* Bulk price */}
+              <div className="flex items-center gap-2">
+                <Label className="text-xs whitespace-nowrap">Preco (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Ex: 169"
+                  className="w-24 h-8 text-sm"
+                  id="bulk-price"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={async () => {
+                    const input = document.getElementById("bulk-price") as HTMLInputElement;
+                    const price = parseFloat(input?.value || "0");
+                    if (!price || !workspace?.id) return;
+                    for (const item of items) {
+                      if (item.status === "submitted") continue;
+                      await fetch(`/api/pre-cadastro/items/${item.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", ...headers() },
+                        body: JSON.stringify({ preco: price }),
+                      });
+                    }
+                    fetchData();
+                  }}
+                >
+                  Aplicar em todos
+                </Button>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-2">
+                {pendingCount > 0 && (
+                  <Button onClick={handleAnalyze} disabled={analyzing} size="sm">
+                    {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                    {analyzing ? "Analisando..." : `Analisar (${pendingCount})`}
+                  </Button>
                 )}
-                {analyzing ? "Analisando..." : `Analisar com IA (${pendingCount})`}
-              </Button>
-            )}
-            {readyCount > 0 && (
-              <Button variant="default" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="mr-2 h-4 w-4" />
+                {readyCount > 0 && (
+                  <Button variant="default" onClick={handleSubmit} disabled={submitting} size="sm">
+                    {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    {submitting ? "Enviando..." : `Enviar (${readyCount})`}
+                  </Button>
                 )}
-                {submitting ? "Enviando..." : `Enviar para Eccosys (${readyCount})`}
-              </Button>
-            )}
-          </div>
-        </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Analyze Progress */}

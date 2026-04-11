@@ -83,11 +83,11 @@ ${categoryList}`);
   parts.push(`Retorne APENAS um JSON valido com esta estrutura exata:
 {
   "nome": "NOME DO PRODUTO EM MAIUSCULAS",
-  "descricao_ecommerce": "Texto completo para e-commerce, 3-5 frases descritivas sobre o produto, material, design e uso",
-  "descricao_complementar": "Detalhes visuais concisos: tipo de peça, cor, estampa, acabamento",
-  "descricao_detalhada": "Texto longo e envolvente (4-6 frases) sobre o produto, focando na identidade da marca e experiência",
-  "keywords": "palavra-chave 1, palavra-chave 2, palavra-chave 3, pelo menos 5 keywords SEO",
-  "metatag_description": "Descricao SEO de 150-160 caracteres para metatag. Inclua nome do produto, marca e CTA.",
+  "descricao_ecommerce": "Texto de venda focado no ESTILO, ESTAMPA e IDENTIDADE da peca. Sem especificacoes tecnicas.",
+  "descricao_complementar": "Detalhes visuais: estampa, tema, estilo, cores predominantes",
+  "descricao_detalhada": "Texto longo e envolvente (4-6 frases) sobre o design, a estampa, o conceito da peca e a identidade da marca",
+  "keywords": "palavra-chave 1, palavra-chave 2, pelo menos 5 keywords SEO",
+  "metatag_description": "Descricao SEO de 150-160 chars focada no estilo e estampa. Terminar com Compre agora.",
   "titulo_pagina": "TITULO DA PAGINA PARA SEO",
   "url_slug": "url-slug-do-produto",
   "composicao": "100% Algodao",
@@ -125,8 +125,9 @@ REGRAS:
 - url_slug: slug lowercase com hifens, sem acentos (ex: "camiseta-oversized-pale-rider-preta")
 - SKU (codigo): NAO gere. O ERP atribui automaticamente
 - titulo_pagina: igual ao nome (MAIUSCULAS)
-- descricao_complementar: 1-2 frases curtas com detalhes visuais (cor, estampa, corte)
-- descricao_ecommerce e descricao_detalhada: textos diferentes! ecommerce e mais conciso, detalhada e mais envolvente
+- descricao_complementar: 1-2 frases sobre a estampa, tema visual e estilo. NAO mencione composicao, material ou especificacoes tecnicas
+- descricao_ecommerce e descricao_detalhada: textos diferentes! Foque no ESTILO, ESTAMPA, CONCEITO da peca e IDENTIDADE da marca. NAO mencione composicao (100% algodao), material, peso, dimensoes ou qualquer especificacao tecnica. Essas informacoes vao em campos separados
+- metatag_description: foque no nome do produto, estilo e marca. NAO mencione material/composicao
 - keywords: minimo 5 termos SEO separados por virgula, incluir variações com marca e tipo de peça
 - metatag_description: 150-160 chars, terminar com "Compre agora."
 - composicao: inferir da foto (ex: algodao para camisetas, poliester para peças tecnicas)
