@@ -131,14 +131,29 @@ export async function POST(req: NextRequest) {
       // Resolve which template to use for fiscal/operational fields
       const chosenTemplate = resolveTemplate(result, templates);
 
-      // Default cost by detected category (from Q1 CMV data)
-      const CUSTO_POR_CATEGORIA: Record<string, number> = {
-        "camiseta": 25.76, "regata": 24.12, "calca": 24.66, "calça": 24.66,
-        "bermuda": 30.32, "meia": 24.00, "cueca": 24.00, "short": 26.71,
-        "shorts": 26.71, "bone": 27.26, "boné": 27.26, "top": 23.85,
-        "macaquinho": 24.00, "t-shirt": 43.00, "tshirt": 43.00,
-        "blusao": 62.12, "blusão": 62.12, "cropped": 22.00,
-        "jogger": 24.66, "agasalho": 62.12, "blusa": 62.12,
+      // Default cost and composition by category
+      const CATEGORIA_DEFAULTS: Record<string, { custo: number; composicao: string }> = {
+        "camiseta": { custo: 25.76, composicao: "96% Algodão 4% Elastano" },
+        "regata": { custo: 24.12, composicao: "96% Algodão 4% Elastano" },
+        "calca": { custo: 24.66, composicao: "70,5% Algodão 22% Viscose 7,5% Elastano" },
+        "calça": { custo: 24.66, composicao: "70,5% Algodão 22% Viscose 7,5% Elastano" },
+        "jogger": { custo: 24.66, composicao: "70,5% Algodão 22% Viscose 7,5% Elastano" },
+        "bermuda": { custo: 30.32, composicao: "66% Algodão 34% Poliéster" },
+        "short": { custo: 26.71, composicao: "66% Algodão 34% Poliéster" },
+        "shorts": { custo: 26.71, composicao: "66% Algodão 34% Poliéster" },
+        "meia": { custo: 24.00, composicao: "80% Algodão 15% Poliamida 5% Elastano" },
+        "cueca": { custo: 24.00, composicao: "95% Algodão 5% Elastano" },
+        "bone": { custo: 27.26, composicao: "100% Algodão" },
+        "boné": { custo: 27.26, composicao: "100% Algodão" },
+        "top": { custo: 23.85, composicao: "96% Algodão 4% Elastano" },
+        "macaquinho": { custo: 24.00, composicao: "96% Algodão 4% Elastano" },
+        "t-shirt": { custo: 43.00, composicao: "96% Algodão 4% Elastano" },
+        "tshirt": { custo: 43.00, composicao: "96% Algodão 4% Elastano" },
+        "blusao": { custo: 62.12, composicao: "80% Algodão 20% Poliéster" },
+        "blusão": { custo: 62.12, composicao: "80% Algodão 20% Poliéster" },
+        "agasalho": { custo: 62.12, composicao: "80% Algodão 20% Poliéster" },
+        "blusa": { custo: 62.12, composicao: "80% Algodão 20% Poliéster" },
+        "cropped": { custo: 22.00, composicao: "96% Algodão 4% Elastano" },
       };
 
       // Derive name from filename as the source of truth
@@ -175,18 +190,15 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       };
 
-      // Determine cost from category or product name
+      // Determine cost and composition from category or product name
       const deptNome = (result.departamento?.nome || "").toLowerCase();
       const prodNome = (filenameBase || "").toLowerCase();
-      let precoCusto: number | null = null;
-      for (const [cat, custo] of Object.entries(CUSTO_POR_CATEGORIA)) {
+      for (const [cat, defaults] of Object.entries(CATEGORIA_DEFAULTS)) {
         if (deptNome.includes(cat) || prodNome.includes(cat)) {
-          precoCusto = custo;
+          updates.preco_custo = defaults.custo;
+          updates.composicao = defaults.composicao;
           break;
         }
-      }
-      if (precoCusto) {
-        updates.preco_custo = precoCusto;
       }
 
       // Apply template or defaults for fiscal/operational fields
