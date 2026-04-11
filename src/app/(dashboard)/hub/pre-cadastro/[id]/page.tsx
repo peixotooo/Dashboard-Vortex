@@ -250,13 +250,13 @@ export default function CollectionDetailPage() {
               {pendingCount > 0 && (
                 <Button variant="outline" size="sm" onClick={handleBulkAnalyze} disabled={analyzing}>
                   {analyzing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-2 h-3.5 w-3.5" />}
-                  Analisar todos ({pendingCount})
+                  Analisar pendentes ({pendingCount})
                 </Button>
               )}
               {readyCount > 0 && (
                 <Button size="sm" onClick={handleBulkSubmit} disabled={submitting}>
                   {submitting ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-2 h-3.5 w-3.5" />}
-                  Enviar todos ({readyCount})
+                  Enviar prontos ({readyCount})
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={() => setBulkMode("price")}>
@@ -399,26 +399,28 @@ function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze,
         {item.error_msg && <p className="text-[10px] text-red-600 line-clamp-1">{item.error_msg}</p>}
         {item.codigo && item.status === "submitted" && <p className="text-[10px] text-green-600">Eccosys: {item.codigo}</p>}
 
-        {/* Clean action row */}
-        <div className="flex items-center gap-0.5 pt-1.5 border-t">
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t">
           {(item.status === "pending" || item.status === "error") && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onAnalyze} title="Analisar com IA"><Sparkles className="h-3.5 w-3.5 text-primary" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onAnalyze}><Sparkles className="h-3 w-3 mr-1" />Analisar</Button>
           )}
-          {item.nome && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} title="Editar"><span className="text-xs">Editar</span></Button>}
+          {item.nome && (
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>Editar</Button>
+          )}
           {(item.status === "ready" || item.status === "edited") && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onSubmit} title="Enviar para Eccosys"><Send className="h-3.5 w-3.5 text-primary" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Enviar</Button>
           )}
           {(item.status === "submitted" || item.status === "error") && item.nome && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onSubmit} title="Reenviar"><Send className="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Reenviar</Button>
           )}
           {item.status === "submitted" && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onUploadImage} title="Enviar imagens"><Upload className="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onUploadImage}><Upload className="h-3 w-3 mr-1" />Imagem</Button>
           )}
           {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRegenerate} title="Re-analisar com IA"><RefreshCw className="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>
           )}
           {item.status !== "submitted" && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={onDelete} title="Excluir"><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500 ml-auto" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
           )}
         </div>
       </CardContent>
@@ -459,13 +461,13 @@ function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, 
 
       {/* Actions */}
       <div className="flex items-center gap-0.5 flex-shrink-0">
-        {(item.status === "pending" || item.status === "error") && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onAnalyze} title="Analisar"><Sparkles className="h-3.5 w-3.5 text-primary" /></Button>}
-        {item.nome && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} title="Editar"><span className="text-[10px]">Editar</span></Button>}
-        {(item.status === "ready" || item.status === "edited") && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onSubmit} title="Enviar"><Send className="h-3.5 w-3.5 text-primary" /></Button>}
-        {(item.status === "submitted" || item.status === "error") && item.nome && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onSubmit} title="Reenviar"><Send className="h-3.5 w-3.5" /></Button>}
-        {item.status === "submitted" && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onUploadImage} title="Imagens"><Upload className="h-3.5 w-3.5" /></Button>}
-        {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRegenerate} title="Re-analisar"><RefreshCw className="h-3.5 w-3.5" /></Button>}
-        {item.status !== "submitted" && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onDelete} title="Excluir"><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>}
+        {(item.status === "pending" || item.status === "error") && <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onAnalyze}><Sparkles className="h-3 w-3 mr-1" />Analisar</Button>}
+        {item.nome && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>Editar</Button>}
+        {(item.status === "ready" || item.status === "edited") && <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Enviar</Button>}
+        {(item.status === "submitted" || item.status === "error") && item.nome && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Reenviar</Button>}
+        {item.status === "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onUploadImage}><Upload className="h-3 w-3 mr-1" />Imagem</Button>}
+        {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>}
+        {item.status !== "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>}
       </div>
     </div>
   );
