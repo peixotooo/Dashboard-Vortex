@@ -165,12 +165,16 @@ export async function POST(req: NextRequest) {
       }
 
       // Step 2: Upload all images to parent
-      if (!isUpdate) {
-        const allImages = (item.images as { public_url: string }[] | null) || [];
-        const imageUrls = allImages.length > 0
-          ? allImages.map((img) => img.public_url)
-          : item.image_public_url ? [item.image_public_url] : [];
+      const allImages = (item.images as { public_url: string }[] | null) || [];
+      const imageUrls = allImages.length > 0
+        ? allImages.map((img) => img.public_url)
+        : item.image_public_url ? [item.image_public_url] : [];
 
+      if (imageUrls.length > 0) {
+        // Delete existing images on re-submit to avoid duplicates
+        if (isUpdate) {
+          try { await eccosys.delete(`/produtos/${parentEccId}/imagens`); } catch { /* ok */ }
+        }
         for (const imgUrl of imageUrls) {
           try {
             await eccosys.postImage(parentEccId, imgUrl);
@@ -178,9 +182,7 @@ export async function POST(req: NextRequest) {
             console.warn(`[pre-cadastro] Erro imagem ${parentCodigo}:`, imgErr);
           }
         }
-        if (imageUrls.length > 0) {
-          console.log(`[pre-cadastro] ${imageUrls.length} images uploaded to ${parentCodigo}`);
-        }
+        console.log(`[pre-cadastro] ${imageUrls.length} images uploaded to ${parentCodigo}`);
       }
 
       // Step 3: Category is set via idTagDepartamentoArvore in POST/PUT body above

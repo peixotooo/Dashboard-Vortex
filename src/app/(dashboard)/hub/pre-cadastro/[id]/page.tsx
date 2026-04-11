@@ -178,12 +178,6 @@ export default function CollectionDetailPage() {
     });
     setSubmitting(false); fetchData();
   }
-  async function handleUploadImage(id: string) {
-    if (!workspace?.id) return;
-    const res = await fetch(`/api/pre-cadastro/items/${id}/upload-image`, { method: "POST", headers: hdrs() });
-    const data = await res.json();
-    alert(res.ok && data.uploaded > 0 ? `${data.uploaded} imagem(ns) enviada(s) para ${data.codigo}` : `Erro: ${data.error || "Nenhuma imagem"}`);
-  }
   async function handleDeleteItem(id: string) {
     if (!workspace?.id) return;
     await fetch(`/api/pre-cadastro/items/${id}`, { method: "DELETE", headers: hdrs() }); fetchData();
@@ -315,8 +309,7 @@ export default function CollectionDetailPage() {
             <GridCard key={item.id} item={item} showCheckbox={!!bulkMode} isSelected={selected.has(item.id)}
               onToggle={() => toggleSelect(item.id)} onEdit={() => setEditingItem(item)}
               onAnalyze={() => handleAnalyzeItem(item.id)} onRegenerate={() => handleRegenerate(item.id)}
-              onSubmit={() => handleSubmitItem(item.id)} onUploadImage={() => handleUploadImage(item.id)}
-              onDelete={() => handleDeleteItem(item.id)} />
+              onSubmit={() => handleSubmitItem(item.id)}              onDelete={() => handleDeleteItem(item.id)} />
           ))}
         </div>
       )}
@@ -328,8 +321,7 @@ export default function CollectionDetailPage() {
             <ListRow key={item.id} item={item} showCheckbox={!!bulkMode} isSelected={selected.has(item.id)}
               onToggle={() => toggleSelect(item.id)} onEdit={() => setEditingItem(item)}
               onAnalyze={() => handleAnalyzeItem(item.id)} onRegenerate={() => handleRegenerate(item.id)}
-              onSubmit={() => handleSubmitItem(item.id)} onUploadImage={() => handleUploadImage(item.id)}
-              onDelete={() => handleDeleteItem(item.id)} />
+              onSubmit={() => handleSubmitItem(item.id)}              onDelete={() => handleDeleteItem(item.id)} />
           ))}
         </div>
       )}
@@ -357,7 +349,7 @@ export default function CollectionDetailPage() {
 interface CardProps {
   item: CollectionItem; showCheckbox: boolean; isSelected: boolean;
   onToggle: () => void; onEdit: () => void; onAnalyze: () => void;
-  onRegenerate: () => void; onSubmit: () => void; onUploadImage: () => void; onDelete: () => void;
+  onRegenerate: () => void; onSubmit: () => void; onDelete: () => void;
 }
 
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -369,7 +361,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   error: { label: "Erro", variant: "destructive" },
 };
 
-function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, onRegenerate, onSubmit, onUploadImage, onDelete }: CardProps) {
+function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, onRegenerate, onSubmit, onDelete }: CardProps) {
   const badge = STATUS_BADGE[item.status] || STATUS_BADGE.pending;
 
   return (
@@ -413,9 +405,6 @@ function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze,
           {(item.status === "submitted" || item.status === "error") && item.nome && (
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Reenviar</Button>
           )}
-          {item.status === "submitted" && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onUploadImage}><Upload className="h-3 w-3 mr-1" />Imagem</Button>
-          )}
           {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && (
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>
           )}
@@ -430,7 +419,7 @@ function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze,
 
 // ========== List Row ==========
 
-function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, onRegenerate, onSubmit, onUploadImage, onDelete }: CardProps) {
+function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, onRegenerate, onSubmit, onDelete }: CardProps) {
   const badge = STATUS_BADGE[item.status] || STATUS_BADGE.pending;
 
   return (
@@ -465,7 +454,6 @@ function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, 
         {item.nome && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onEdit}>Editar</Button>}
         {(item.status === "ready" || item.status === "edited") && <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Enviar</Button>}
         {(item.status === "submitted" || item.status === "error") && item.nome && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Reenviar</Button>}
-        {item.status === "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onUploadImage}><Upload className="h-3 w-3 mr-1" />Imagem</Button>}
         {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>}
         {item.status !== "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>}
       </div>
