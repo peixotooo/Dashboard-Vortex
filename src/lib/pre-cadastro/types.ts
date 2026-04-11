@@ -68,6 +68,7 @@ export interface CollectionItem {
   original_filename: string;
   image_storage_key: string;
   image_public_url: string;
+  images: { storage_key: string; public_url: string; is_primary: boolean }[];
   nome: string | null;
   codigo: string | null;
   descricao_ecommerce: string | null;

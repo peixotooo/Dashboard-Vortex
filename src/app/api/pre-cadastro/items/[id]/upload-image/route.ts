@@ -16,7 +16,7 @@ export async function POST(
 
   const { data: item } = await supabase
     .from("collection_items")
-    .select("ecc_product_id, image_public_url, codigo")
+    .select("ecc_product_id, image_public_url, images, codigo")
     .eq("id", id)
     .eq("workspace_id", workspaceId)
     .single();
@@ -25,7 +25,13 @@ export async function POST(
     return NextResponse.json({ error: "Produto nao encontrado ou nao enviado ao Eccosys" }, { status: 404 });
   }
 
-  if (!item.image_public_url) {
+  // Collect all image URLs
+  const allImages = (item.images as { public_url: string }[] | null) || [];
+  const imageUrls = allImages.length > 0
+    ? allImages.map((img) => img.public_url)
+    : item.image_public_url ? [item.image_public_url] : [];
+
+  if (imageUrls.length === 0) {
     return NextResponse.json({ error: "Produto sem imagem" }, { status: 400 });
   }
 
@@ -37,8 +43,18 @@ export async function POST(
       // Ignore if no images to delete
     }
 
-    await eccosys.postImage(item.ecc_product_id, item.image_public_url);
-    return NextResponse.json({ ok: true, codigo: item.codigo });
+    // Upload all images
+    let uploaded = 0;
+    for (const url of imageUrls) {
+      try {
+        await eccosys.postImage(item.ecc_product_id, url);
+        uploaded++;
+      } catch (err) {
+        console.warn(`[pre-cadastro] Erro imagem ${item.codigo}:`, err);
+      }
+    }
+
+    return NextResponse.json({ ok: true, codigo: item.codigo, uploaded });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Erro ao enviar imagem" },

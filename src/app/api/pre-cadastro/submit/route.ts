@@ -159,13 +159,22 @@ export async function POST(req: NextRequest) {
         throw new Error("Eccosys nao retornou o ID do produto pai");
       }
 
-      // Step 2: Upload image binary to parent
+      // Step 2: Upload all images to parent
       if (!isUpdate) {
-        try {
-          await eccosys.postImage(parentEccId, item.image_public_url);
-          console.log(`[pre-cadastro] Image uploaded to ${parentCodigo}`);
-        } catch (imgErr) {
-          console.warn(`[pre-cadastro] Erro imagem ${parentCodigo}:`, imgErr);
+        const allImages = (item.images as { public_url: string }[] | null) || [];
+        const imageUrls = allImages.length > 0
+          ? allImages.map((img) => img.public_url)
+          : item.image_public_url ? [item.image_public_url] : [];
+
+        for (const imgUrl of imageUrls) {
+          try {
+            await eccosys.postImage(parentEccId, imgUrl);
+          } catch (imgErr) {
+            console.warn(`[pre-cadastro] Erro imagem ${parentCodigo}:`, imgErr);
+          }
+        }
+        if (imageUrls.length > 0) {
+          console.log(`[pre-cadastro] ${imageUrls.length} images uploaded to ${parentCodigo}`);
         }
       }
 

@@ -38,13 +38,14 @@ export async function POST(
 
   const { id: collectionId } = await params;
   const body = await req.json();
-  const { items } = body as {
-    items: { filename: string; storage_key: string; public_url: string }[];
+  // Support two formats:
+  // 1. Single product with multiple images: {product_name, images: [{storage_key, public_url}]}
+  // 2. Legacy: multiple items: {items: [{filename, storage_key, public_url}]}
+  const { items, product_name, images } = body as {
+    items?: { filename: string; storage_key: string; public_url: string }[];
+    product_name?: string;
+    images?: { storage_key: string; public_url: string }[];
   };
-
-  if (!items || items.length === 0) {
-    return NextResponse.json({ error: "Nenhum item enviado" }, { status: 400 });
-  }
 
   const supabase = createAdminClient();
 
@@ -60,15 +61,40 @@ export async function POST(
     return NextResponse.json({ error: "Colecao nao encontrada" }, { status: 404 });
   }
 
-  // Insert items
-  const rows = items.map((item) => ({
-    collection_id: collectionId,
-    workspace_id: workspaceId,
-    original_filename: item.filename,
-    image_storage_key: item.storage_key,
-    image_public_url: item.public_url,
-    status: "pending",
-  }));
+  let rows: Record<string, unknown>[];
+
+  if (product_name && images && images.length > 0) {
+    // New format: single product with multiple images
+    const primary = images[0];
+    const allImages = images.map((img, i) => ({
+      storage_key: img.storage_key,
+      public_url: img.public_url,
+      is_primary: i === 0,
+    }));
+
+    rows = [{
+      collection_id: collectionId,
+      workspace_id: workspaceId,
+      original_filename: product_name,
+      image_storage_key: primary.storage_key,
+      image_public_url: primary.public_url,
+      images: allImages,
+      status: "pending",
+    }];
+  } else if (items && items.length > 0) {
+    // Legacy format: one item per image
+    rows = items.map((item) => ({
+      collection_id: collectionId,
+      workspace_id: workspaceId,
+      original_filename: item.filename,
+      image_storage_key: item.storage_key,
+      image_public_url: item.public_url,
+      images: [{ storage_key: item.storage_key, public_url: item.public_url, is_primary: true }],
+      status: "pending",
+    }));
+  } else {
+    return NextResponse.json({ error: "Nenhum item enviado" }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from("collection_items")

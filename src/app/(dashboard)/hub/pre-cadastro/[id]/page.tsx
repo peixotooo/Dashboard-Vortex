@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { useWorkspace } from "@/lib/workspace-context";
 import Link from "next/link";
+import { AddProductModal } from "@/components/pre-cadastro/add-product-modal";
 
 interface CollectionItem {
   id: string;
@@ -100,14 +101,13 @@ export default function CollectionDetailPage() {
   const [collection, setCollection] = useState<Collection | null>(null);
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [submitProgress, setSubmitProgress] = useState(0);
   const [editingItem, setEditingItem] = useState<CollectionItem | null>(null);
   const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const headers = useCallback(
     () => ({ "x-workspace-id": workspace?.id || "" }),
@@ -132,55 +132,6 @@ export default function CollectionDetailPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  // ----- Upload -----
-  async function handleFileUpload(files: FileList | null) {
-    if (!files || files.length === 0 || !workspace?.id) return;
-    setUploading(true);
-
-    const uploadedItems: { filename: string; storage_key: string; public_url: string }[] = [];
-
-    for (const file of Array.from(files)) {
-      try {
-        // Get presigned URL
-        const urlRes = await fetch("/api/media/upload-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
-        });
-        if (!urlRes.ok) continue;
-        const { signedUrl, key, publicUrl } = await urlRes.json();
-
-        // Upload to B2
-        await fetch(signedUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-
-        uploadedItems.push({
-          filename: file.name,
-          storage_key: key,
-          public_url: publicUrl,
-        });
-      } catch (err) {
-        console.error(`Erro ao fazer upload de ${file.name}:`, err);
-      }
-    }
-
-    // Register items in the collection
-    if (uploadedItems.length > 0) {
-      await fetch(`/api/pre-cadastro/collections/${collectionId}/items`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...headers() },
-        body: JSON.stringify({ items: uploadedItems }),
-      });
-      await fetchData();
-    }
-
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
 
   // ----- Analyze -----
   async function handleAnalyze() {
@@ -343,46 +294,18 @@ export default function CollectionDetailPage() {
         </div>
       </div>
 
-      {/* Upload Zone */}
-      <Card>
-        <CardContent className="p-6">
-          <div
-            className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleFileUpload(e.dataTransfer.files);
-            }}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => handleFileUpload(e.target.files)}
-            />
-            {uploading ? (
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Fazendo upload...</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <ImagePlus className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  Arraste fotos aqui ou clique para selecionar
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  O nome do arquivo sera usado como referencia para o nome do produto
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Add Product Button */}
+      <Button onClick={() => setShowAddProduct(true)} variant="outline" className="w-full py-6 border-dashed border-2">
+        <ImagePlus className="mr-2 h-5 w-5" />
+        Cadastrar Produto
+      </Button>
+
+      <AddProductModal
+        open={showAddProduct}
+        onOpenChange={setShowAddProduct}
+        collectionId={collectionId}
+        onCreated={fetchData}
+      />
 
       {/* Action Bar */}
       {items.length > 0 && (
