@@ -44,13 +44,14 @@ export function AddProductModal({ open, onOpenChange, collectionId, onCreated }:
       uploaded: false,
     }));
 
-    // If no name yet, derive from first file
-    if (!productName && newImages.length > 0) {
+    // Always suggest name from first image (user can edit)
+    if (images.length === 0 && newImages.length > 0) {
       const name = newImages[0].file.name
-        .replace(/\.[^.]+$/, "")
-        .replace(/[-_]/g, " ")
+        .replace(/\.[^.]+$/, "")         // remove extension
+        .replace(/[-_]/g, " ")           // hyphens/underscores → spaces
+        .replace(/\s*\d+$/, "")          // remove trailing number (e.g. "pale-rider-1" → "PALE RIDER")
+        .replace(/\s+/g, " ")            // collapse spaces
         .toUpperCase()
-        .replace(/\s*\d+$/, "") // remove trailing number (e.g. "pale-rider-1" → "PALE RIDER")
         .trim();
       setProductName(name);
     }
