@@ -26,10 +26,16 @@ const SRC_TOKEN = fs
   .join("=")
   .trim();
 
-// Destination
+// Destination (App 1682230706522517)
 const DST_ACCOUNT = "act_1232344655348024";
-const DST_TOKEN =
-  "EAAX5ZBtuxSZAUBQ5zDo4c3hN2c5DxEDeUcYIfTBSqwHCKLrWE6PRyUk8tO9t3jxBQYy7S17HO822nsi29ROxtib9ipj7dZAmp6UboiavoyTa1OynsO96ZAVe1LwY4iROTF04n8uSBt4kX0urrDfvSOU994hR8MssbpGUVZBGDGXzPwUvNgRnaX1pj9itF0oZCntLoN2IMZCvS5Q";
+const DST_TOKEN = fs
+  .readFileSync(path.resolve(__dirname, "../.env.local"), "utf8")
+  .split("\n")
+  .find((l) => l.startsWith("META_DST_ACCESS_TOKEN="))!
+  .split("=")
+  .slice(1)
+  .join("=")
+  .trim();
 
 // Pixel mapping
 const DST_PIXEL = "1369443261478323";
@@ -203,14 +209,15 @@ async function cloneCampaign(
 ): Promise<{ ads_created: number; ads_failed: number }> {
   console.log(`\n--- Campaign: ${src.name}`);
 
-  if (existingNames.has(src.name)) {
+  const cloneName = `[CLONE] ${src.name}`;
+  if (existingNames.has(cloneName)) {
     console.log(`  SKIP: already exists in destination`);
     return { ads_created: 0, ads_failed: 0 };
   }
 
   // 1. Create campaign
   const campaignParams: Record<string, unknown> = {
-    name: src.name,
+    name: `[CLONE] ${src.name}`,
     objective: src.objective,
     status: "PAUSED",
     special_ad_categories: src.special_ad_categories || [],
@@ -374,7 +381,7 @@ async function main() {
 
   for (const campaign of campaigns) {
     try {
-      if (existingNames.has(campaign.name)) {
+      if (existingNames.has(`[CLONE] ${campaign.name}`)) {
         campaignsSkipped++;
         continue;
       }

@@ -130,11 +130,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/${API_VERSION}/${PIXEL_ID}/events?access_token=${ACCESS_TOKEN}`,
+      `https://graph.facebook.com/${API_VERSION}/${PIXEL_ID}/events`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: [eventPayload] }),
+        body: JSON.stringify({
+          data: [eventPayload],
+          access_token: ACCESS_TOKEN,
+        }),
       }
     );
 
