@@ -1271,6 +1271,7 @@
     if (!API_BASE || !VTX_PIXEL_ID) return;
 
     var payload = {
+      key: API_KEY,
       event_type: eventType,
       event_id: "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
       url: window.location.href,

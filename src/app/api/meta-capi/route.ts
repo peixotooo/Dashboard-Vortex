@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
+import { validateApiKey } from "@/lib/shelves/api-key";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -27,6 +28,7 @@ const EVENT_MAP: Record<string, string> = {
 };
 
 interface CAPIEvent {
+  key: string;
   event_type: string;
   event_id?: string;
   url?: string;
@@ -59,6 +61,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid JSON" },
       { status: 400, headers: CORS_HEADERS }
+    );
+  }
+
+  // Validate API key (same keys used by shelves/track)
+  const auth = await validateApiKey(body.key);
+  if (!auth) {
+    return NextResponse.json(
+      { error: "Invalid API key" },
+      { status: 401, headers: CORS_HEADERS }
     );
   }
 
