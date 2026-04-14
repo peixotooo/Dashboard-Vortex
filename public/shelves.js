@@ -1177,58 +1177,25 @@
   }
 
   // =====================================================================
-  // META PIXEL + CAPI MODULE - Dual pixel warming for BK COM account
+  // META CAPI MODULE - Server-side event forwarding for BK COM pixel
   //
-  // Deduplication strategy:
-  //   1. Each event gets a unique event_id generated ONCE on the client
-  //   2. The SAME event_id is sent to both fbq (browser pixel) and CAPI (server)
-  //   3. Meta deduplicates by event_name + event_id within 48h
-  //   4. trackSingle ensures only OUR pixel fires — never touches the
-  //      001BK pixel that VNDA already manages natively
+  // Strategy: CAPI-only (no browser pixel injection).
+  //   - VNDA's native pixel + CAPI for 001BK stays 100% untouched
+  //   - We NEVER call fbq("init") — avoids polluting VNDA's fbq instance
+  //     which would cause their track() calls to fire on both pixels
+  //   - All BK COM events go server-side via /api/meta-capi
+  //   - _fbp and _fbc cookies (set by VNDA's pixel) are forwarded to CAPI
+  //     for user matching — these are global, not pixel-specific
+  //   - Meta attributes conversions based on ad click → _fbc match
   // =====================================================================
 
-  var VTX_PIXEL_ID = window._vtxPixelId || "";
+  var VTX_CAPI_ENABLED = !!(window._vtxPixelId || window._vtxCapiEnabled);
 
-  function genEventId() {
-    return "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
-  }
-
-  // Fire BOTH pixel (browser) + CAPI (server) with the same event_id
-  function fireMetaEvent(eventName, capiEventType, params, capiExtra) {
-    var eid = genEventId();
-
-    // 1. Browser pixel — trackSingle scopes to our pixel only
-    window.fbq("trackSingle", VTX_PIXEL_ID, eventName, params, { eventID: eid });
-
-    // 2. Server CAPI — same event_id for deduplication
-    sendCAPI(capiEventType, eid, capiExtra || {});
-  }
-
-  function initMetaPixel() {
-    if (!VTX_PIXEL_ID) return;
-
-    // Load Facebook Pixel SDK (if not already loaded by the 001BK pixel)
-    if (!window.fbq) {
-      var n = window.fbq = function () {
-        n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
-      };
-      if (!window._fbq) window._fbq = n;
-      n.push = n;
-      n.loaded = true;
-      n.version = "2.0";
-      n.queue = [];
-      var s = document.createElement("script");
-      s.async = true;
-      s.src = "https://connect.facebook.net/en_US/fbevents.js";
-      var first = document.getElementsByTagName("script")[0];
-      first.parentNode.insertBefore(s, first);
-    }
-
-    // Init our pixel
-    window.fbq("init", VTX_PIXEL_ID);
+  function initCAPI() {
+    if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
 
     // --- PageView ---
-    fireMetaEvent("PageView", "pageview", {}, {});
+    sendCAPI("pageview", {});
 
     // --- ViewContent on product pages ---
     var pageType = detectPageType();
@@ -1241,57 +1208,52 @@
       var priceStr = "";
       var priceMeta = document.querySelector('meta[property="product:price:amount"]');
       if (priceMeta) priceStr = priceMeta.getAttribute("content") || "";
-      var price = parseFloat(priceStr) || 0;
 
-      var vcParams = {
+      sendCAPI("view_content", {
         content_ids: productId ? [productId] : [],
         content_name: productName,
         content_type: "product",
-        value: price,
-        currency: "BRL",
-      };
-
-      fireMetaEvent("ViewContent", "view_content", vcParams, {
-        content_ids: vcParams.content_ids,
-        content_name: productName,
-        content_type: "product",
-        value: price,
+        value: parseFloat(priceStr) || 0,
       });
     }
 
     // --- AddToCart ---
     window.addEventListener("vnda:cart-drawer-added-item", function () {
-      fireMetaEvent("AddToCart", "add_to_cart", { currency: "BRL" }, {});
+      sendCAPI("add_to_cart", {});
     });
+
+    // --- InitiateCheckout ---
+    if (window.location.pathname.indexOf("/checkout") !== -1 &&
+        window.location.pathname.indexOf("/confirmation") === -1) {
+      sendCAPI("initiate_checkout", {});
+    }
 
     // --- Purchase (confirmation page) ---
     if (window.location.pathname.indexOf("/checkout/confirmation") !== -1 ||
         window.location.pathname.indexOf("/pedido/") !== -1) {
       getCartTotal(function (total) {
         if (total > 0) {
-          fireMetaEvent("Purchase", "purchase",
-            { value: total, currency: "BRL" },
-            { value: total }
-          );
+          sendCAPI("purchase", { value: total });
         }
       });
     }
 
-    console.log("[VtxPixel] Initialized pixel", VTX_PIXEL_ID, "(dedup enabled)");
+    console.log("[VtxCAPI] Initialized server-side events for BK COM pixel");
   }
 
-  function sendCAPI(eventType, eventId, data) {
-    if (!API_BASE || !VTX_PIXEL_ID) return;
+  function sendCAPI(eventType, data) {
+    if (!API_BASE) return;
 
     var payload = {
       key: API_KEY,
       event_type: eventType,
-      event_id: eventId,
+      event_id: "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10),
       url: window.location.href,
       referrer: document.referrer || "",
       user_agent: navigator.userAgent,
       fbc: getCookie("_fbc") || "",
       fbp: getCookie("_fbp") || "",
+      external_id: consumerId || "",
       content_ids: data.content_ids || [],
       content_name: data.content_name || "",
       content_type: data.content_type || "product",
@@ -1321,12 +1283,12 @@
       init();
       initGiftBar();
       initPromoTags();
-      initMetaPixel();
+      initCAPI();
     });
   } else {
     init();
     initGiftBar();
     initPromoTags();
-    initMetaPixel();
+    initCAPI();
   }
 })();

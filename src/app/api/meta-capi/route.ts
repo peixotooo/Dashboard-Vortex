@@ -37,6 +37,7 @@ interface CAPIEvent {
   ip?: string;
   fbc?: string;
   fbp?: string;
+  external_id?: string;
   email?: string;
   phone?: string;
   content_ids?: string[];
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
   // Facebook click ID and browser ID (from cookies passed by client)
   if (body.fbc) userData.fbc = body.fbc;
   if (body.fbp) userData.fbp = body.fbp;
+
+  // External ID (hashed) - links browser sessions across events
+  if (body.external_id) userData.external_id = hashSHA256(body.external_id);
 
   // PII - hash before sending
   if (body.email) userData.em = hashSHA256(body.email);
