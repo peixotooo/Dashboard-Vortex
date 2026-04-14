@@ -1176,16 +1176,143 @@
       });
   }
 
+  // =====================================================================
+  // META PIXEL + CAPI MODULE - Dual pixel warming for BK COM account
+  // =====================================================================
+
+  var VTX_PIXEL_ID = window._vtxPixelId || "";
+
+  function initMetaPixel() {
+    if (!VTX_PIXEL_ID) return;
+
+    // Load Facebook Pixel SDK (if not already loaded by another pixel)
+    if (!window.fbq) {
+      var n = window.fbq = function () {
+        n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+      };
+      if (!window._fbq) window._fbq = n;
+      n.push = n;
+      n.loaded = true;
+      n.version = "2.0";
+      n.queue = [];
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://connect.facebook.net/en_US/fbevents.js";
+      var first = document.getElementsByTagName("script")[0];
+      first.parentNode.insertBefore(s, first);
+    }
+
+    // Init our pixel (trackSingle ensures only THIS pixel fires, not others)
+    window.fbq("init", VTX_PIXEL_ID);
+    window.fbq("trackSingle", VTX_PIXEL_ID, "PageView");
+
+    // Send CAPI PageView
+    sendCAPI("pageview", {});
+
+    // ViewContent on product pages
+    var pageType = detectPageType();
+    if (pageType === "product") {
+      var productId = extractProductId();
+      var productName = "";
+      var ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) productName = ogTitle.getAttribute("content") || "";
+
+      var priceStr = "";
+      var priceMeta = document.querySelector('meta[property="product:price:amount"]');
+      if (priceMeta) priceStr = priceMeta.getAttribute("content") || "";
+
+      window.fbq("trackSingle", VTX_PIXEL_ID, "ViewContent", {
+        content_ids: productId ? [productId] : [],
+        content_name: productName,
+        content_type: "product",
+        value: parseFloat(priceStr) || 0,
+        currency: "BRL",
+      });
+
+      sendCAPI("view_content", {
+        content_ids: productId ? [productId] : [],
+        content_name: productName,
+        content_type: "product",
+        value: parseFloat(priceStr) || 0,
+      });
+    }
+
+    // Listen for AddToCart events
+    var ATC_EVENTS = [
+      "vnda:cart-drawer-added-item",
+    ];
+    ATC_EVENTS.forEach(function (evt) {
+      window.addEventListener(evt, function () {
+        window.fbq("trackSingle", VTX_PIXEL_ID, "AddToCart", {
+          currency: "BRL",
+        });
+        sendCAPI("add_to_cart", {});
+      });
+    });
+
+    // Listen for VNDA checkout / purchase
+    if (window.location.pathname.indexOf("/checkout/confirmation") !== -1 ||
+        window.location.pathname.indexOf("/pedido/") !== -1) {
+      getCartTotal(function (total) {
+        if (total > 0) {
+          window.fbq("trackSingle", VTX_PIXEL_ID, "Purchase", {
+            value: total,
+            currency: "BRL",
+          });
+          sendCAPI("purchase", { value: total });
+        }
+      });
+    }
+
+    console.log("[VtxPixel] Initialized pixel", VTX_PIXEL_ID);
+  }
+
+  function sendCAPI(eventType, data) {
+    if (!API_BASE || !VTX_PIXEL_ID) return;
+
+    var payload = {
+      event_type: eventType,
+      event_id: "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      url: window.location.href,
+      referrer: document.referrer || "",
+      user_agent: navigator.userAgent,
+      fbc: getCookie("_fbc") || "",
+      fbp: getCookie("_fbp") || "",
+      content_ids: data.content_ids || [],
+      content_name: data.content_name || "",
+      content_type: data.content_type || "product",
+      value: data.value || 0,
+      currency: "BRL",
+    };
+
+    var body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(
+        API_BASE + "/api/meta-capi",
+        new Blob([body], { type: "application/json" })
+      );
+    } else {
+      fetch(API_BASE + "/api/meta-capi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+        keepalive: true,
+      }).catch(function () {});
+    }
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
       init();
       initGiftBar();
       initPromoTags();
+      initMetaPixel();
     });
   } else {
     init();
     initGiftBar();
     initPromoTags();
+    initMetaPixel();
   }
 })();
