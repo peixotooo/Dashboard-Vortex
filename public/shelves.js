@@ -1178,14 +1178,36 @@
 
   // =====================================================================
   // META PIXEL + CAPI MODULE - Dual pixel warming for BK COM account
+  //
+  // Deduplication strategy:
+  //   1. Each event gets a unique event_id generated ONCE on the client
+  //   2. The SAME event_id is sent to both fbq (browser pixel) and CAPI (server)
+  //   3. Meta deduplicates by event_name + event_id within 48h
+  //   4. trackSingle ensures only OUR pixel fires — never touches the
+  //      001BK pixel that VNDA already manages natively
   // =====================================================================
 
   var VTX_PIXEL_ID = window._vtxPixelId || "";
 
+  function genEventId() {
+    return "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
+  }
+
+  // Fire BOTH pixel (browser) + CAPI (server) with the same event_id
+  function fireMetaEvent(eventName, capiEventType, params, capiExtra) {
+    var eid = genEventId();
+
+    // 1. Browser pixel — trackSingle scopes to our pixel only
+    window.fbq("trackSingle", VTX_PIXEL_ID, eventName, params, { eventID: eid });
+
+    // 2. Server CAPI — same event_id for deduplication
+    sendCAPI(capiEventType, eid, capiExtra || {});
+  }
+
   function initMetaPixel() {
     if (!VTX_PIXEL_ID) return;
 
-    // Load Facebook Pixel SDK (if not already loaded by another pixel)
+    // Load Facebook Pixel SDK (if not already loaded by the 001BK pixel)
     if (!window.fbq) {
       var n = window.fbq = function () {
         n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
@@ -1202,14 +1224,13 @@
       first.parentNode.insertBefore(s, first);
     }
 
-    // Init our pixel (trackSingle ensures only THIS pixel fires, not others)
+    // Init our pixel
     window.fbq("init", VTX_PIXEL_ID);
-    window.fbq("trackSingle", VTX_PIXEL_ID, "PageView");
 
-    // Send CAPI PageView
-    sendCAPI("pageview", {});
+    // --- PageView ---
+    fireMetaEvent("PageView", "pageview", {}, {});
 
-    // ViewContent on product pages
+    // --- ViewContent on product pages ---
     var pageType = detectPageType();
     if (pageType === "product") {
       var productId = extractProductId();
@@ -1220,60 +1241,52 @@
       var priceStr = "";
       var priceMeta = document.querySelector('meta[property="product:price:amount"]');
       if (priceMeta) priceStr = priceMeta.getAttribute("content") || "";
+      var price = parseFloat(priceStr) || 0;
 
-      window.fbq("trackSingle", VTX_PIXEL_ID, "ViewContent", {
+      var vcParams = {
         content_ids: productId ? [productId] : [],
         content_name: productName,
         content_type: "product",
-        value: parseFloat(priceStr) || 0,
+        value: price,
         currency: "BRL",
-      });
+      };
 
-      sendCAPI("view_content", {
-        content_ids: productId ? [productId] : [],
+      fireMetaEvent("ViewContent", "view_content", vcParams, {
+        content_ids: vcParams.content_ids,
         content_name: productName,
         content_type: "product",
-        value: parseFloat(priceStr) || 0,
+        value: price,
       });
     }
 
-    // Listen for AddToCart events
-    var ATC_EVENTS = [
-      "vnda:cart-drawer-added-item",
-    ];
-    ATC_EVENTS.forEach(function (evt) {
-      window.addEventListener(evt, function () {
-        window.fbq("trackSingle", VTX_PIXEL_ID, "AddToCart", {
-          currency: "BRL",
-        });
-        sendCAPI("add_to_cart", {});
-      });
+    // --- AddToCart ---
+    window.addEventListener("vnda:cart-drawer-added-item", function () {
+      fireMetaEvent("AddToCart", "add_to_cart", { currency: "BRL" }, {});
     });
 
-    // Listen for VNDA checkout / purchase
+    // --- Purchase (confirmation page) ---
     if (window.location.pathname.indexOf("/checkout/confirmation") !== -1 ||
         window.location.pathname.indexOf("/pedido/") !== -1) {
       getCartTotal(function (total) {
         if (total > 0) {
-          window.fbq("trackSingle", VTX_PIXEL_ID, "Purchase", {
-            value: total,
-            currency: "BRL",
-          });
-          sendCAPI("purchase", { value: total });
+          fireMetaEvent("Purchase", "purchase",
+            { value: total, currency: "BRL" },
+            { value: total }
+          );
         }
       });
     }
 
-    console.log("[VtxPixel] Initialized pixel", VTX_PIXEL_ID);
+    console.log("[VtxPixel] Initialized pixel", VTX_PIXEL_ID, "(dedup enabled)");
   }
 
-  function sendCAPI(eventType, data) {
+  function sendCAPI(eventType, eventId, data) {
     if (!API_BASE || !VTX_PIXEL_ID) return;
 
     var payload = {
       key: API_KEY,
       event_type: eventType,
-      event_id: "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      event_id: eventId,
       url: window.location.href,
       referrer: document.referrer || "",
       user_agent: navigator.userAgent,
