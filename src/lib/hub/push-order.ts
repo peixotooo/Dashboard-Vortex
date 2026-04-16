@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { ml } from "@/lib/ml/client";
 import type { HubOrder, HubOrderItem, EccosysProduto } from "@/types/hub";
 
 // ML payment type → Eccosys forma de pagamento
@@ -12,28 +13,42 @@ const PAYMENT_MAP: Record<string, number> = {
   digital_wallet: 17, // PIX
 };
 
-// Cache Mercado Envios transportadora ID (per workspace) to avoid repeated lookups
-const mercadoEnviosCache = new Map<string, number | null>();
+// Cache Mercado Envios transportadora info (per workspace)
+interface MercadoEnviosInfo {
+  idTransportador: number;
+  idVinculoTransportadora: number;
+  codigo: string;
+}
+const mercadoEnviosCache = new Map<string, MercadoEnviosInfo | null>();
 
-async function getMercadoEnviosId(workspaceId: string): Promise<number | null> {
+async function getMercadoEnviosInfo(workspaceId: string): Promise<MercadoEnviosInfo | null> {
   if (mercadoEnviosCache.has(workspaceId)) {
     return mercadoEnviosCache.get(workspaceId)!;
   }
   try {
-    const transportadoras = await eccosys.get<Array<{ id: number; nome: string }>>(
-      "/transportadoras",
-      workspaceId
-    );
-    if (Array.isArray(transportadoras)) {
-      const me = transportadoras.find((t) =>
-        /mercado\s*envios|mercado\s*livre/i.test(t.nome || "")
-      );
-      const id = me?.id || null;
-      mercadoEnviosCache.set(workspaceId, id);
-      return id;
+    const result = await eccosys.get<unknown>("/transportadoras", workspaceId);
+    const list = Array.isArray(result) ? result : [];
+    const me = list.find((t: unknown) => {
+      const obj = t as Record<string, unknown>;
+      const nome = String(obj.nome || obj.razaoSocial || obj.fantasia || "");
+      return /mercado\s*envios|mercado\s*livre/i.test(nome);
+    });
+    if (me) {
+      const obj = me as Record<string, unknown>;
+      const formas = (obj._FormasDeEnvio as Array<Record<string, unknown>>) || [];
+      // Pick first active forma de envio (or just the first if none active)
+      const formaAtiva = formas.find((f) => f.ativa === "S") || formas[0];
+      const info: MercadoEnviosInfo = {
+        idTransportador: Number(obj.id),
+        idVinculoTransportadora: formaAtiva ? Number(formaAtiva.id) : 0,
+        codigo: String(obj.codigo || ""),
+      };
+      console.log(`[push-order] Mercado Envios: ${JSON.stringify(info)}`);
+      mercadoEnviosCache.set(workspaceId, info);
+      return info;
     }
-  } catch {
-    // Endpoint may differ
+  } catch (err) {
+    console.log(`[push-order] transportadoras lookup failed:`, err instanceof Error ? err.message : String(err));
   }
   mercadoEnviosCache.set(workspaceId, null);
   return null;
@@ -47,7 +62,7 @@ async function getMercadoEnviosId(workspaceId: string): Promise<number | null> {
 export async function pushOrderToEccosys(
   order: HubOrder,
   workspaceId: string
-): Promise<{ ecc_pedido_id: number | null; ecc_numero: string | null }> {
+): Promise<{ ecc_pedido_id: number | null; ecc_numero: string | null; mercado_envios?: MercadoEnviosInfo | null }> {
   const supabase = createAdminClient();
 
   // Get ML sales channel id from Eccosys
@@ -64,8 +79,8 @@ export async function pushOrderToEccosys(
     // Not critical
   }
 
-  // Get Mercado Envios transportadora ID from Eccosys
-  const mercadoEnviosId = await getMercadoEnviosId(workspaceId);
+  // Get Mercado Envios transportadora info from Eccosys
+  const meInfo = await getMercadoEnviosInfo(workspaceId);
 
   // Build SKU → ecc_id map from hub_products (fast cache)
   const skus = (order.items || []).map((i) => i.sku);
@@ -134,7 +149,30 @@ export async function pushOrderToEccosys(
     | undefined;
 
   const endereco = (order.endereco || {}) as Record<string, unknown>;
-  const buyerDoc = (order.buyer_doc || "").replace(/\D/g, "");
+  let buyerDoc = (order.buyer_doc || "").replace(/\D/g, "");
+
+  // If buyer_doc is missing (old order imported before billing_info fix),
+  // fetch it now from ML and persist to hub_orders
+  if (!buyerDoc) {
+    try {
+      const billing = await ml.get<{
+        billing_info?: { doc_number?: string };
+        doc_number?: string;
+      }>(`/orders/${order.ml_order_id}/billing_info`, workspaceId);
+      const fetched = (billing.billing_info?.doc_number || billing.doc_number || "").replace(/\D/g, "");
+      if (fetched) {
+        buyerDoc = fetched;
+        await supabase
+          .from("hub_orders")
+          .update({ buyer_doc: fetched, updated_at: new Date().toISOString() })
+          .eq("id", order.id);
+        console.log(`[push-order] Fetched buyer_doc from ML for order ${order.ml_order_id}: ${fetched}`);
+      }
+    } catch (err) {
+      console.log(`[push-order] billing_info fallback failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const isCnpj = buyerDoc.length === 14;
 
   // Build address object for both _Contato and _EnderecoDeEntrega
@@ -186,8 +224,16 @@ export async function pushOrderToEccosys(
       },
     ],
     _EnderecoDeEntrega: enderecoBase,
+    formaFrete: 9,
+    ...(meInfo
+      ? {
+          idTransportador: meInfo.idTransportador,
+          idVinculoTransportadora: meInfo.idVinculoTransportadora,
+          codigoTransportador: meInfo.codigo,
+        }
+      : {}),
     _Transportador: {
-      ...(mercadoEnviosId ? { id: mercadoEnviosId } : {}),
+      ...(meInfo ? { id: meInfo.idTransportador } : {}),
       nome: "Mercado Envios",
       formaFrete: 9,
     },
@@ -240,5 +286,5 @@ export async function pushOrderToEccosys(
     },
   });
 
-  return { ecc_pedido_id: eccPedidoId, ecc_numero: eccNumero };
+  return { ecc_pedido_id: eccPedidoId, ecc_numero: eccNumero, mercado_envios: meInfo };
 }
