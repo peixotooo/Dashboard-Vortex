@@ -12,6 +12,33 @@ const PAYMENT_MAP: Record<string, number> = {
   digital_wallet: 17, // PIX
 };
 
+// Cache Mercado Envios transportadora ID (per workspace) to avoid repeated lookups
+const mercadoEnviosCache = new Map<string, number | null>();
+
+async function getMercadoEnviosId(workspaceId: string): Promise<number | null> {
+  if (mercadoEnviosCache.has(workspaceId)) {
+    return mercadoEnviosCache.get(workspaceId)!;
+  }
+  try {
+    const transportadoras = await eccosys.get<Array<{ id: number; nome: string }>>(
+      "/transportadoras",
+      workspaceId
+    );
+    if (Array.isArray(transportadoras)) {
+      const me = transportadoras.find((t) =>
+        /mercado\s*envios|mercado\s*livre/i.test(t.nome || "")
+      );
+      const id = me?.id || null;
+      mercadoEnviosCache.set(workspaceId, id);
+      return id;
+    }
+  } catch {
+    // Endpoint may differ
+  }
+  mercadoEnviosCache.set(workspaceId, null);
+  return null;
+}
+
 /**
  * Push a hub order to Eccosys.
  * Returns the Eccosys pedido ID and numero on success.
@@ -36,6 +63,9 @@ export async function pushOrderToEccosys(
   } catch {
     // Not critical
   }
+
+  // Get Mercado Envios transportadora ID from Eccosys
+  const mercadoEnviosId = await getMercadoEnviosId(workspaceId);
 
   // Build SKU → ecc_id map from hub_products (fast cache)
   const skus = (order.items || []).map((i) => i.sku);
@@ -103,8 +133,22 @@ export async function pushOrderToEccosys(
     | string
     | undefined;
 
-  const endereco = order.endereco as Record<string, string> | null;
-  const buyerDoc = order.buyer_doc || "";
+  const endereco = (order.endereco || {}) as Record<string, unknown>;
+  const buyerDoc = (order.buyer_doc || "").replace(/\D/g, "");
+  const isCnpj = buyerDoc.length === 14;
+
+  // Build address object for both _Contato and _EnderecoDeEntrega
+  const enderecoBase = {
+    endereco: (endereco.endereco as string) || "",
+    numero: (endereco.numero as string) || "S/N",
+    complemento: (endereco.complemento as string) || "",
+    bairro: (endereco.bairro as string) || "",
+    cep: ((endereco.cep as string) || "").replace(/\D/g, ""),
+    cidade: (endereco.cidade as string) || "",
+    uf: (endereco.uf as string) || "",
+    estado: (endereco.estado as string) || "",
+    pais: (endereco.pais as string) || "Brasil",
+  };
 
   const payload = {
     data: orderDate,
@@ -119,9 +163,12 @@ export async function pushOrderToEccosys(
     _Contato: {
       nome: order.buyer_name || "Comprador ML",
       cnpj: buyerDoc,
-      ...(endereco || {}),
-      tipo: buyerDoc.replace(/\D/g, "").length > 11 ? "J" : "F",
+      tipo: isCnpj ? "J" : "F",
+      // identificadorIE: 9 = nao contribuinte (default for CPF and CNPJ sem IE)
       identificadorIE: 9,
+      email: order.buyer_email || "",
+      telefone: ((endereco.telefone as string) || "").replace(/\D/g, ""),
+      ...enderecoBase,
     },
     _Itens: resolvedItems.map(({ item, eccId }) => ({
       codigo: item.sku,
@@ -138,8 +185,12 @@ export async function pushOrderToEccosys(
         obs: `Mercado Pago - ${paymentType || "desconhecido"}`,
       },
     ],
-    _EnderecoDeEntrega: endereco || {},
-    _Transportador: { nome: "Mercado Envios", formaFrete: 9 },
+    _EnderecoDeEntrega: enderecoBase,
+    _Transportador: {
+      ...(mercadoEnviosId ? { id: mercadoEnviosId } : {}),
+      nome: "Mercado Envios",
+      formaFrete: 9,
+    },
   };
 
   const result = await eccosys.post<Record<string, unknown>>(

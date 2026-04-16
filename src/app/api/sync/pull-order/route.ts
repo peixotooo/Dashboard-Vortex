@@ -37,13 +37,27 @@ interface MLShipment {
   shipping_option?: { cost: number };
   receiver_address?: {
     address_line: string;
+    street_name?: string;
+    street_number?: string;
     zip_code: string;
-    city: { name: string };
+    city: { id?: string; name: string };
     state: { name: string; id: string };
     country: { name: string };
     neighborhood?: { name: string };
     comment?: string;
+    receiver_phone?: string;
+    receiver_name?: string;
   };
+}
+
+interface MLBillingInfo {
+  billing_info?: {
+    doc_type?: string;
+    doc_number?: string;
+    additional_info?: Array<{ type: string; value: string }>;
+  };
+  doc_type?: string;
+  doc_number?: string;
 }
 
 /**
@@ -94,6 +108,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Fetch billing info (CPF/CNPJ)
+    let buyerDoc: string | null = null;
+    try {
+      const billing = await ml.get<MLBillingInfo>(
+        `/orders/${orderId}/billing_info`,
+        workspaceId
+      );
+      buyerDoc =
+        billing.billing_info?.doc_number ||
+        billing.doc_number ||
+        null;
+    } catch {
+      // billing_info may not be available
+    }
+    // Fallback: try receiver_phone or look in additional_info
+    if (!buyerDoc && shipment?.receiver_address?.comment) {
+      const docMatch = shipment.receiver_address.comment.match(/\b(\d{11}|\d{14})\b/);
+      if (docMatch) buyerDoc = docMatch[1];
+    }
+
     // Fetch fiscal documents (NF-e) from ML
     let mlNfeNumero: string | null = null;
     let mlNfeChave: string | null = null;
@@ -132,17 +166,35 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Build address from shipment
+    // Build address from shipment — extract street + number
+    let ruaName = shipment?.receiver_address?.street_name || "";
+    let numero = shipment?.receiver_address?.street_number || "";
+    if (!ruaName && shipment?.receiver_address?.address_line) {
+      // Parse "Rua X, 123" or "Rua X 123" formats
+      const line = shipment.receiver_address.address_line.trim();
+      const match = line.match(/^(.+?)[,\s]+(\d+\w*)$/);
+      if (match) {
+        ruaName = match[1].trim();
+        numero = match[2].trim();
+      } else {
+        ruaName = line;
+      }
+    }
+    if (!numero) numero = "S/N";
+
     const endereco = shipment?.receiver_address
       ? {
-          endereco: shipment.receiver_address.address_line,
+          endereco: ruaName,
+          numero,
           cep: shipment.receiver_address.zip_code,
           cidade: shipment.receiver_address.city?.name,
+          idCidadeMl: shipment.receiver_address.city?.id || null,
           uf: shipment.receiver_address.state?.id,
           estado: shipment.receiver_address.state?.name,
           pais: shipment.receiver_address.country?.name || "Brasil",
           bairro: shipment.receiver_address.neighborhood?.name || "",
           complemento: shipment.receiver_address.comment || "",
+          telefone: shipment.receiver_address.receiver_phone || "",
         }
       : null;
 
@@ -168,6 +220,7 @@ export async function POST(req: NextRequest) {
       ml_date: order.date_created,
       buyer_name: buyerName,
       buyer_email: order.buyer.email || null,
+      buyer_doc: buyerDoc,
       total: order.total_amount,
       frete,
       items,
@@ -283,7 +336,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ ok: true, ml_order_id: orderId, stock_deducted: stockDeducted });
+    return NextResponse.json({
+      ok: true,
+      ml_order_id: orderId,
+      stock_deducted: stockDeducted,
+      buyer_doc: buyerDoc,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
 
