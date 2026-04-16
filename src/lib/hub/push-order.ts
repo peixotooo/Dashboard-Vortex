@@ -230,11 +230,12 @@ export async function pushOrderToEccosys(
           idTransportador: meInfo.idTransportador,
           idVinculoTransportadora: meInfo.idVinculoTransportadora,
           codigoTransportador: meInfo.codigo,
+          transportador: "MERCADO ENVIOS",
         }
-      : {}),
+      : { transportador: "Mercado Envios" }),
     _Transportador: {
       ...(meInfo ? { id: meInfo.idTransportador } : {}),
-      nome: "Mercado Envios",
+      nome: "MERCADO ENVIOS",
       formaFrete: 9,
     },
   };
