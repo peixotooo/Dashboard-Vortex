@@ -292,3 +292,224 @@ export async function pushOrderToEccosys(
 
   return { ecc_pedido_id: eccPedidoId, ecc_numero: eccNumero, mercado_envios: meInfo };
 }
+
+/**
+ * Push a PACK of ML orders as a SINGLE consolidated Eccosys order.
+ * All orders in the pack share buyer + address + shipment. Their items
+ * are concatenated and totals summed. Every hub_orders row in the pack
+ * gets updated with the same ecc_pedido_id / ecc_numero.
+ */
+export async function pushPackToEccosys(
+  orders: HubOrder[],
+  workspaceId: string
+): Promise<{ ecc_pedido_id: number | null; ecc_numero: string | null; orders_linked: number }> {
+  if (orders.length === 0) {
+    throw new Error("No orders in pack");
+  }
+
+  const supabase = createAdminClient();
+  const first = orders[0];
+
+  // Get canal ML + Mercado Envios info
+  let canalMlId: number | null = null;
+  try {
+    const canais = await eccosys.get<
+      Array<{ id: number; idMarketplace: number }>
+    >("/canaisDeVenda", workspaceId);
+    if (Array.isArray(canais)) {
+      const mlCanal = canais.find((c) => c.idMarketplace === 3);
+      if (mlCanal) canalMlId = mlCanal.id;
+    }
+  } catch { /* not critical */ }
+  const meInfo = await getMercadoEnviosInfo(workspaceId);
+
+  // Concatenate all items from all orders in the pack
+  const allItems: HubOrderItem[] = orders.flatMap((o) => o.items || []);
+
+  // Build SKU → ecc_id map from hub_products
+  const skus = [...new Set(allItems.map((i) => i.sku))];
+  const skuToEccId = new Map<string, number>();
+  if (skus.length > 0) {
+    const { data: hubProducts } = await supabase
+      .from("hub_products")
+      .select("sku, ecc_id")
+      .eq("workspace_id", workspaceId)
+      .in("sku", skus)
+      .not("ecc_id", "is", null);
+    for (const p of (hubProducts || []) as Array<{ sku: string; ecc_id: number | null }>) {
+      if (p.ecc_id) skuToEccId.set(p.sku, p.ecc_id);
+    }
+  }
+
+  async function resolveEccId(item: HubOrderItem): Promise<number | null> {
+    const cached = skuToEccId.get(item.sku);
+    if (cached) return cached;
+    try {
+      const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+        `/produtos/${encodeURIComponent(item.sku)}`,
+        workspaceId
+      );
+      const prod = Array.isArray(result) ? result[0] : result;
+      if (prod?.id) return prod.id;
+    } catch { /* not found */ }
+    return null;
+  }
+
+  const resolvedItems = await Promise.all(
+    allItems.map(async (item) => ({ item, eccId: await resolveEccId(item) }))
+  );
+
+  const missingItems = resolvedItems.filter((r) => !r.eccId);
+  if (missingItems.length > 0) {
+    const missingSkus = missingItems.map((m) => m.item.sku).join(", ");
+    throw new Error(
+      `Produtos nao encontrados no Eccosys: ${missingSkus}. Cadastre os produtos antes de importar o pedido.`
+    );
+  }
+
+  // Resolve buyer_doc from any order (prefer populated), fall back to ML billing_info
+  let buyerDoc = "";
+  for (const o of orders) {
+    const d = (o.buyer_doc || "").replace(/\D/g, "");
+    if (d) { buyerDoc = d; break; }
+  }
+  if (!buyerDoc) {
+    try {
+      const billing = await ml.get<{
+        billing_info?: { doc_number?: string };
+        doc_number?: string;
+      }>(`/orders/${first.ml_order_id}/billing_info`, workspaceId);
+      const fetched = (billing.billing_info?.doc_number || billing.doc_number || "").replace(/\D/g, "");
+      if (fetched) {
+        buyerDoc = fetched;
+        // Persist on all orders in the pack
+        await supabase
+          .from("hub_orders")
+          .update({ buyer_doc: fetched, updated_at: new Date().toISOString() })
+          .in("id", orders.map((o) => o.id));
+      }
+    } catch { /* ignore */ }
+  }
+
+  const isCnpj = buyerDoc.length === 14;
+  const endereco = (first.endereco || {}) as Record<string, unknown>;
+  const enderecoBase = {
+    endereco: (endereco.endereco as string) || "",
+    numero: (endereco.numero as string) || "S/N",
+    complemento: (endereco.complemento as string) || "",
+    bairro: (endereco.bairro as string) || "",
+    cep: ((endereco.cep as string) || "").replace(/\D/g, ""),
+    cidade: (endereco.cidade as string) || "",
+    uf: (endereco.uf as string) || "",
+    estado: (endereco.estado as string) || "",
+    pais: (endereco.pais as string) || "Brasil",
+  };
+
+  const orderDate = first.ml_date
+    ? first.ml_date.split("T")[0]
+    : new Date().toISOString().split("T")[0];
+  const totalProdutos = orders.reduce((s, o) => s + Number(o.total || 0), 0);
+  const frete = orders.reduce((s, o) => s + Number(o.frete || 0), 0);
+  const totalVenda = totalProdutos + frete;
+
+  const paymentType = (first.pagamento as Record<string, unknown>)?.tipo as string | undefined;
+  const packId = first.ml_pack_id || first.ml_order_id;
+  const orderIdsStr = orders.map((o) => o.ml_order_id).join(",");
+
+  const payload = {
+    data: orderDate,
+    situacao: 0,
+    totalProdutos,
+    totalVenda,
+    frete,
+    numeroDaOrdemDeCompra: String(packId),
+    ...(canalMlId ? { idCanalVenda: canalMlId } : {}),
+    observacaoInterna: `Importado do ML - Pack ${packId} (${orders.length} pedidos: ${orderIdsStr})`,
+    _Contato: {
+      nome: first.buyer_name || "Comprador ML",
+      cnpj: buyerDoc,
+      tipo: isCnpj ? "J" : "F",
+      identificadorIE: 9,
+      email: first.buyer_email || "",
+      telefone: ((endereco.telefone as string) || "").replace(/\D/g, ""),
+      ...enderecoBase,
+    },
+    _Itens: resolvedItems.map(({ item, eccId }) => ({
+      codigo: item.sku,
+      descricao: item.nome,
+      quantidade: item.qtd,
+      valor: item.preco,
+      idProduto: eccId!,
+    })),
+    _Parcelas: [
+      {
+        forma: paymentType ? PAYMENT_MAP[paymentType] || 99 : 99,
+        valor: totalVenda,
+        vencimento: orderDate,
+        obs: `Mercado Pago - ${paymentType || "desconhecido"}`,
+      },
+    ],
+    _EnderecoDeEntrega: enderecoBase,
+    formaFrete: 9,
+    ...(meInfo
+      ? {
+          idTransportador: meInfo.idTransportador,
+          idVinculoTransportadora: meInfo.idVinculoTransportadora,
+          codigoTransportador: meInfo.codigo,
+          transportador: "MERCADO ENVIOS",
+        }
+      : { transportador: "Mercado Envios" }),
+    _Transportador: {
+      ...(meInfo ? { id: meInfo.idTransportador } : {}),
+      nome: "MERCADO ENVIOS",
+      formaFrete: 9,
+    },
+  };
+
+  const result = await eccosys.post<Record<string, unknown>>("/pedidos", payload, workspaceId);
+
+  let eccPedidoId: number | null = null;
+  let eccNumero: string | null = null;
+  if (result.success && Array.isArray(result.success) && result.success.length > 0) {
+    const firstResult = result.success[0] as Record<string, unknown>;
+    eccPedidoId = (firstResult.id as number) ?? null;
+    eccNumero = (firstResult.codigo as string) ?? null;
+  }
+
+  if (!eccPedidoId) {
+    throw new Error(`Eccosys nao retornou id do pedido: ${JSON.stringify(result).slice(0, 400)}`);
+  }
+
+  // Link every order in the pack to the same Eccosys order
+  const now = new Date().toISOString();
+  await supabase
+    .from("hub_orders")
+    .update({
+      ecc_pedido_id: eccPedidoId,
+      ecc_numero: eccNumero,
+      ecc_situacao: 0,
+      sync_status: "imported",
+      error_msg: null,
+      updated_at: now,
+    })
+    .in("id", orders.map((o) => o.id));
+
+  await supabase.from("hub_logs").insert({
+    workspace_id: workspaceId,
+    action: "push_order_eccosys",
+    entity: "order",
+    entity_id: String(packId),
+    direction: "hub_to_eccosys",
+    status: "ok",
+    details: {
+      pack: true,
+      ml_pack_id: packId,
+      orders_linked: orders.length,
+      items: resolvedItems.length,
+      ecc_pedido_id: eccPedidoId,
+      ecc_numero: eccNumero,
+    },
+  });
+
+  return { ecc_pedido_id: eccPedidoId, ecc_numero: eccNumero, orders_linked: orders.length };
+}

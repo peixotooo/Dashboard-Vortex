@@ -153,24 +153,29 @@ export default function HubPedidosPage() {
     fetchOrders();
   }, [fetchOrders]);
 
-  async function handlePushPackToEccosys(packOrders: HubOrder[]) {
+  async function handlePushPackToEccosys(packOrders: HubOrder[], reimport = false) {
     if (!workspace?.id) return;
     const ids = packOrders.map((o) => o.ml_order_id);
+    const packId = packOrders[0]?.ml_pack_id;
     for (const id of ids) setPushingIds((prev) => new Set(prev).add(id));
     try {
-      for (const mlOrderId of ids) {
-        const res = await fetch("/api/sync/push-order-eccosys", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-workspace-id": workspace.id,
-          },
-          body: JSON.stringify({ ml_order_id: mlOrderId }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          alert(`Erro no pedido ${mlOrderId}: ${data.error}`);
-        }
+      const body: Record<string, unknown> = packId
+        ? { ml_pack_id: packId }
+        : { ml_order_ids: ids };
+      if (reimport) body.reimport = true;
+
+      const res = await fetch("/api/sync/push-pack-eccosys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`Erro: ${data.error || "desconhecido"}`);
+        return;
       }
       fetchOrders();
     } finally {
@@ -616,9 +621,15 @@ export default function HubPedidosPage() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-7 w-7"
-                                    title="Reimportar pack no Eccosys (cancele o antigo manualmente)"
+                                    title="Reimportar pack como UM pedido no Eccosys (cancele o antigo manualmente)"
                                     disabled={packOrders.some((o) => pushingIds.has(o.ml_order_id))}
-                                    onClick={() => handleReimport(packOrders.filter((o) => o.ecc_pedido_id).map((o) => o.ml_order_id))}
+                                    onClick={() => {
+                                      if (!confirm(
+                                        `Reimportar pack como UM pedido consolidado no Eccosys?\n\n` +
+                                        `ATENCAO: cancele manualmente os pedidos antigos no Eccosys para evitar duplicidade.`
+                                      )) return;
+                                      handlePushPackToEccosys(packOrders, true);
+                                    }}
                                   >
                                     {packOrders.some((o) => pushingIds.has(o.ml_order_id)) ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
