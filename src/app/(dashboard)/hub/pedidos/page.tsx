@@ -258,6 +258,49 @@ export default function HubPedidosPage() {
     }
   }
 
+  async function handleReimport(mlOrderIds: number[]) {
+    if (!workspace?.id || mlOrderIds.length === 0) return;
+    const label = mlOrderIds.length === 1
+      ? `o pedido ${mlOrderIds[0]}`
+      : `${mlOrderIds.length} pedidos do pack`;
+    const confirmed = confirm(
+      `Reimportar ${label} no Eccosys?\n\n` +
+      `ATENCAO: o pedido antigo no Eccosys NAO sera cancelado automaticamente.\n` +
+      `Cancele manualmente no Eccosys antes para evitar duplicidade.`
+    );
+    if (!confirmed) return;
+
+    for (const id of mlOrderIds) setPushingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch("/api/sync/reimport-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
+        body: JSON.stringify({ ml_order_ids: mlOrderIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(`Erro: ${data.error || "desconhecido"}`);
+        return;
+      }
+      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok);
+      if (failed.length > 0) {
+        const msg = failed
+          .map((r: { ml_order_id: number; error?: string }) => `${r.ml_order_id}: ${r.error}`)
+          .join("\n");
+        alert(`${data.ok}/${data.total} reimportados.\n\nFalhas:\n${msg}`);
+      }
+      fetchOrders();
+    } catch (err) {
+      alert(`Erro: ${err instanceof Error ? err.message : "desconhecido"}`);
+    } finally {
+      setPushingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of mlOrderIds) next.delete(id);
+        return next;
+      });
+    }
+  }
+
   async function handleSendNfe(mlOrderId: number) {
     if (!workspace?.id) return;
     setPushingIds((prev) => new Set(prev).add(mlOrderId));
@@ -472,6 +515,7 @@ export default function HubPedidosPage() {
                             onPush={handlePushToEccosys}
                             onReprocess={handleReprocess}
                             onSendNfe={handleSendNfe}
+                            onReimport={handleReimport}
                             onClick={() => setSelectedOrder(first)}
                           />
                         );
@@ -567,6 +611,22 @@ export default function HubPedidosPage() {
                                     )}
                                   </Button>
                                 )}
+                                {packOrders.some((o) => o.ecc_pedido_id) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Reimportar pack no Eccosys (cancele o antigo manualmente)"
+                                    disabled={packOrders.some((o) => pushingIds.has(o.ml_order_id))}
+                                    onClick={() => handleReimport(packOrders.filter((o) => o.ecc_pedido_id).map((o) => o.ml_order_id))}
+                                  >
+                                    {packOrders.some((o) => pushingIds.has(o.ml_order_id)) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="h-3.5 w-3.5 text-amber-600" />
+                                    )}
+                                  </Button>
+                                )}
                                 {packOrders.every((o) => o.sync_status === "imported") && (
                                   <Check className="h-3.5 w-3.5 text-green-500" />
                                 )}
@@ -642,12 +702,13 @@ export default function HubPedidosPage() {
 // -------------------------------------------------------------------
 // Order Row (reusable for single orders and pack children)
 // -------------------------------------------------------------------
-function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onClick, isChild, hideActions }: {
+function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onReimport, onClick, isChild, hideActions }: {
   order: HubOrder;
   pushingIds: Set<number>;
   onPush: (id: number) => void;
   onReprocess: (id: number) => void;
   onSendNfe?: (id: number) => void;
+  onReimport?: (ids: number[]) => void;
   onClick: () => void;
   isChild?: boolean;
   hideActions?: boolean;
@@ -719,6 +780,18 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onClick, 
                 onClick={() => onSendNfe(order.ml_order_id)}
               >
                 {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-purple-500" />}
+              </Button>
+            )}
+            {onReimport && order.ecc_pedido_id && order.ml_status !== "cancelled" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Reimportar pedido no Eccosys (cancele o antigo manualmente)"
+                disabled={pushingIds.has(order.ml_order_id)}
+                onClick={() => onReimport([order.ml_order_id])}
+              >
+                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 text-amber-600" />}
               </Button>
             )}
             {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
