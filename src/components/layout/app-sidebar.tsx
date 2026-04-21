@@ -37,6 +37,11 @@ import {
   FileText,
   Tag,
   ImagePlus,
+  Rocket,
+  FlaskConical,
+  Inbox,
+  AlertTriangle,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -96,6 +101,23 @@ const navGroups: NavGroup[] = [
     label: "Principal",
     items: [
       { title: "Overview", href: "/", icon: LayoutDashboard },
+      {
+        title: "Mission Control",
+        href: "/mission-control",
+        icon: Rocket,
+        items: [
+          { title: "Inbox", href: "/mission-control", icon: Inbox },
+          {
+            title: "Aguardando Pricila",
+            href: "/mission-control?view=waiting_pricila",
+            icon: AlertTriangle,
+          },
+          { title: "Bloqueados", href: "/mission-control?view=blocked", icon: ShieldAlert },
+          { title: "Growth Board", href: "/mission-control/growth", icon: FlaskConical },
+          { title: "Reports", href: "/mission-control/reports", icon: TrendingUp },
+          { title: "Learnings", href: "/mission-control/learnings", icon: BookOpen },
+        ],
+      },
       {
         title: "Time",
         href: "/team",
