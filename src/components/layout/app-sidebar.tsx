@@ -108,8 +108,8 @@ const navGroups: NavGroup[] = [
         items: [
           { title: "Inbox", href: "/mission-control", icon: Inbox },
           {
-            title: "Aguardando Pricila",
-            href: "/mission-control?view=waiting_pricila",
+            title: "Aguardando Pessoa",
+            href: "/mission-control?view=waiting_person",
             icon: AlertTriangle,
           },
           { title: "Bloqueados", href: "/mission-control?view=blocked", icon: ShieldAlert },

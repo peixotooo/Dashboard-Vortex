@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.mc_demands (
 
   -- state
   status text NOT NULL DEFAULT 'new' CHECK (status IN (
-    'new','triaged','assigned','waiting_pricila','in_progress','waiting_external','blocked','ready_for_review','done','canceled'
+    'new','triaged','assigned','waiting_person','in_progress','waiting_external','blocked','ready_for_review','done','canceled'
   )),
   priority text NOT NULL DEFAULT 'medium' CHECK (priority IN ('critical','high','medium','low')),
   health text NOT NULL DEFAULT 'on_track' CHECK (health IN ('on_track','attention','delayed','blocked','at_risk')),
@@ -67,9 +67,10 @@ CREATE TABLE IF NOT EXISTS public.mc_demands (
   follow_up_rule text,
   escalation_rule text,
 
-  -- Pricila-specific state
-  is_waiting_on_pricila boolean DEFAULT false,
-  pricila_last_reply_at_utc timestamptz,
+  -- Waiting-for-person state (generic — any person on the team)
+  waiting_for_person text,
+  waiting_since_at_utc timestamptz,
+  waiting_last_reply_at_utc timestamptz,
   no_reply_since_hours numeric,
 
   -- impact signals
@@ -95,7 +96,7 @@ CREATE TABLE IF NOT EXISTS public.mc_demands (
 
 CREATE INDEX IF NOT EXISTS idx_mc_demands_workspace ON public.mc_demands(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_mc_demands_owner ON public.mc_demands(workspace_id, owner);
-CREATE INDEX IF NOT EXISTS idx_mc_demands_pricila ON public.mc_demands(workspace_id, is_waiting_on_pricila) WHERE is_waiting_on_pricila = true;
+CREATE INDEX IF NOT EXISTS idx_mc_demands_waiting_person ON public.mc_demands(workspace_id, waiting_for_person) WHERE waiting_for_person IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_mc_demands_next_follow_up ON public.mc_demands(workspace_id, next_follow_up_at_utc) WHERE next_follow_up_at_utc IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_mc_demands_due ON public.mc_demands(workspace_id, due_at_utc) WHERE due_at_utc IS NOT NULL;
 

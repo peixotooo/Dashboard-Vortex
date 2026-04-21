@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
       area: url.searchParams.get("area") || undefined,
       owner: url.searchParams.get("owner") || undefined,
       priority: url.searchParams.get("priority") || undefined,
-      waitingPricila: url.searchParams.get("waiting_pricila") === "1",
+      waitingForPerson: url.searchParams.get("waiting_for") || undefined,
+      waitingForAny: url.searchParams.get("waiting") === "1",
       blocked: url.searchParams.get("blocked") === "1",
       search: url.searchParams.get("q") || undefined,
     });

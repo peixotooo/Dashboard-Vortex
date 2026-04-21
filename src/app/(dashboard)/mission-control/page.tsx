@@ -32,17 +32,19 @@ type Summary = {
   counts: {
     total: number;
     open: number;
-    waiting_pricila: number;
+    waiting_person: number;
     blocked: number;
     ready_for_review: number;
     done_today: number;
     follow_ups_pending: number;
     follow_ups_no_reply: number;
   };
-  overdueWaitingPricila: Array<{
+  waitingByPerson: Array<{ person: string; count: number }>;
+  overdueWaiting: Array<{
     id: string;
     title: string;
     owner: string | null;
+    waiting_for: string;
     overdue_hours: number;
   }>;
   todays: string[];
@@ -51,7 +53,7 @@ type Summary = {
 
 const TAB_META = [
   { key: "inbox", label: "Inbox", icon: Inbox },
-  { key: "waiting_pricila", label: "Aguardando Pricila", icon: AlertTriangle },
+  { key: "waiting_person", label: "Aguardando Pessoa", icon: AlertTriangle },
   { key: "blocked", label: "Bloqueados", icon: ShieldAlert },
   { key: "today", label: "Hoje", icon: Calendar },
   { key: "week", label: "Semana", icon: Calendar },
@@ -69,6 +71,7 @@ export default function MissionControlPage() {
   const [search, setSearch] = useState("");
   const [areaFilter, setAreaFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
+  const [personFilter, setPersonFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
 
   const load = useCallback(async () => {
@@ -100,11 +103,15 @@ export default function MissionControlPage() {
     load();
   }, [load]);
 
-  const chargePricila = async (id: string) => {
+  const chargeDemand = async (id: string) => {
     if (!workspace?.id) return;
-    await fetch(`/api/mission-control/demands/${id}/charge-pricila`, {
+    await fetch(`/api/mission-control/demands/${id}/charge`, {
       method: "POST",
-      headers: { "x-workspace-id": workspace.id },
+      headers: {
+        "Content-Type": "application/json",
+        "x-workspace-id": workspace.id,
+      },
+      body: JSON.stringify({}),
     });
     load();
   };
@@ -127,7 +134,7 @@ export default function MissionControlPage() {
       "new",
       "triaged",
       "assigned",
-      "waiting_pricila",
+      "waiting_person",
       "in_progress",
       "waiting_external",
       "blocked",
@@ -141,12 +148,16 @@ export default function MissionControlPage() {
       );
     if (areaFilter) list = list.filter((d) => d.area === areaFilter);
     if (priorityFilter) list = list.filter((d) => d.priority === priorityFilter);
+    if (personFilter)
+      list = list.filter(
+        (d) => (d.waiting_for_person ?? "").toLowerCase() === personFilter.toLowerCase()
+      );
 
     switch (tab) {
       case "inbox":
         return list.filter((d) => openStatuses.includes(d.status));
-      case "waiting_pricila":
-        return list.filter((d) => d.is_waiting_on_pricila);
+      case "waiting_person":
+        return list.filter((d) => d.waiting_for_person);
       case "blocked":
         return list.filter((d) => d.status === "blocked");
       case "today":
@@ -156,7 +167,7 @@ export default function MissionControlPage() {
       default:
         return list;
     }
-  }, [demands, tab, search, areaFilter, priorityFilter, summary]);
+  }, [demands, tab, search, areaFilter, priorityFilter, personFilter, summary]);
 
   if (loading && !summary) {
     return (
@@ -188,10 +199,10 @@ export default function MissionControlPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
           <KpiCard label="Abertas" value={summary.counts.open} icon={Inbox} />
           <KpiCard
-            label="Aguardando Pricila"
-            value={summary.counts.waiting_pricila}
+            label="Aguardando Pessoa"
+            value={summary.counts.waiting_person}
             icon={AlertTriangle}
-            accent={summary.counts.waiting_pricila > 0 ? "amber" : undefined}
+            accent={summary.counts.waiting_person > 0 ? "amber" : undefined}
           />
           <KpiCard
             label="Bloqueadas"
@@ -225,20 +236,24 @@ export default function MissionControlPage() {
         </div>
       )}
 
-      {summary && summary.overdueWaitingPricila.length > 0 && (
+      {summary && summary.overdueWaiting.length > 0 && (
         <Card className="border-amber-400/50">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
               <AlertTriangle className="h-4 w-4" />
               <h3 className="font-semibold text-sm">
-                Aguardando Pricila há mais de SLA ({summary.overdueWaitingPricila.length})
+                Aguardando resposta — SLA estourado ({summary.overdueWaiting.length})
               </h3>
             </div>
             <ul className="space-y-1 text-sm">
-              {summary.overdueWaitingPricila.slice(0, 5).map((d) => (
+              {summary.overdueWaiting.slice(0, 5).map((d) => (
                 <li key={d.id} className="flex items-center justify-between">
-                  <Link href={`/mission-control/${d.id}`} className="hover:underline flex-1 truncate">
-                    {d.title}
+                  <Link
+                    href={`/mission-control/${d.id}`}
+                    className="hover:underline flex-1 truncate"
+                  >
+                    <span className="font-medium">{d.waiting_for}</span>
+                    <span className="text-muted-foreground"> · {d.title}</span>
                   </Link>
                   <span className="text-amber-600 dark:text-amber-400 font-mono text-xs ml-3 shrink-0">
                     {d.overdue_hours}h atrasado
@@ -246,6 +261,38 @@ export default function MissionControlPage() {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {summary && summary.waitingByPerson.length > 0 && (
+        <Card>
+          <CardContent className="p-3 flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted-foreground mr-1">Aguardando:</span>
+            {summary.waitingByPerson.map((w) => (
+              <button
+                key={w.person}
+                onClick={() =>
+                  setPersonFilter(personFilter === w.person ? "" : w.person)
+                }
+                className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+                  personFilter === w.person
+                    ? "bg-amber-100 border-amber-400 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+                    : "hover:bg-muted"
+                }`}
+              >
+                {w.person}{" "}
+                <span className="text-muted-foreground">· {w.count}</span>
+              </button>
+            ))}
+            {personFilter && (
+              <button
+                onClick={() => setPersonFilter("")}
+                className="text-xs text-muted-foreground underline ml-1"
+              >
+                limpar
+              </button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -328,11 +375,7 @@ export default function MissionControlPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {filtered.map((d) => (
-                  <DemandCard
-                    key={d.id}
-                    demand={d}
-                    chargePricila={chargePricila}
-                  />
+                  <DemandCard key={d.id} demand={d} onCharge={chargeDemand} />
                 ))}
               </div>
             )}

@@ -27,15 +27,15 @@ import {
 interface Props {
   demand: Demand;
   onClick?: () => void;
-  chargePricila?: (id: string) => void;
+  onCharge?: (id: string) => void;
 }
 
 // One card = everything Atlas needs to triage a demand at a glance:
 // title, owner, status, health, last update, next follow-up, overdue hours,
 // next action, expected impact.
-export function DemandCard({ demand, onClick, chargePricila }: Props) {
+export function DemandCard({ demand, onClick, onCharge }: Props) {
   const overdue =
-    demand.is_waiting_on_pricila && demand.next_follow_up_at_utc
+    demand.waiting_for_person && demand.next_follow_up_at_utc
       ? hoursOverdue(demand.next_follow_up_at_utc)
       : 0;
 
@@ -132,16 +132,16 @@ export function DemandCard({ demand, onClick, chargePricila }: Props) {
           )}
         </div>
 
-        {demand.is_waiting_on_pricila && chargePricila && (
+        {demand.waiting_for_person && onCharge && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              chargePricila(demand.id);
+              onCharge(demand.id);
             }}
             className="w-full text-[11px] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 font-medium"
           >
-            Cobrar Pricila agora
+            Cobrar {demand.waiting_for_person}
           </button>
         )}
       </CardContent>

@@ -66,9 +66,9 @@ export default function DemandDetailPage() {
     message_type: string;
     message_text: string;
   }>({
-    target_person: "Pricila",
+    target_person: "",
     message_type: "charge",
-    message_text: "Pricila, você conseguiu verificar ou ficou alguma dúvida?",
+    message_text: "",
   });
 
   const load = useCallback(async () => {
@@ -87,6 +87,17 @@ export default function DemandDetailPage() {
       setFollowUps(data.followUps);
       setActivity(data.activity);
       setDraft({});
+      // Pre-fill follow-up composer with whoever we're waiting on (falls back to owner)
+      const defaultTarget: string =
+        data.demand?.waiting_for_person ?? data.demand?.owner ?? "";
+      const firstName = (defaultTarget.split(/\s+/)[0] || "").trim();
+      setNewFollowUp((prev) => ({
+        target_person: defaultTarget,
+        message_type: prev.message_type,
+        message_text: firstName
+          ? `${firstName}, você conseguiu verificar ou ficou alguma dúvida?`
+          : "",
+      }));
     } finally {
       setLoading(false);
     }
@@ -158,11 +169,15 @@ export default function DemandDetailPage() {
     load();
   };
 
-  const chargePricila = async () => {
+  const chargeWaiting = async () => {
     if (!workspace?.id || !demand) return;
-    await fetch(`/api/mission-control/demands/${demand.id}/charge-pricila`, {
+    await fetch(`/api/mission-control/demands/${demand.id}/charge`, {
       method: "POST",
-      headers: { "x-workspace-id": workspace.id },
+      headers: {
+        "Content-Type": "application/json",
+        "x-workspace-id": workspace.id,
+      },
+      body: JSON.stringify({}),
     });
     load();
   };
@@ -198,7 +213,7 @@ export default function DemandDetailPage() {
 
   const merged: Demand = { ...demand, ...draft } as Demand;
   const overdue =
-    merged.is_waiting_on_pricila && merged.next_follow_up_at_utc
+    merged.waiting_for_person && merged.next_follow_up_at_utc
       ? hoursOverdue(merged.next_follow_up_at_utc)
       : 0;
   const dirty = Object.keys(draft).length > 0;
@@ -247,10 +262,10 @@ export default function DemandDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {merged.is_waiting_on_pricila && (
-            <Button variant="outline" size="sm" onClick={chargePricila}>
+          {merged.waiting_for_person && (
+            <Button variant="outline" size="sm" onClick={chargeWaiting}>
               <Bell className="h-4 w-4 mr-1" />
-              Cobrar Pricila
+              Cobrar {merged.waiting_for_person}
             </Button>
           )}
           <Button onClick={commitDraft} disabled={!dirty || saving}>
@@ -649,6 +664,18 @@ export default function DemandDetailPage() {
                   ))}
                 </select>
               </Field>
+              <Field label="Aguardando resposta de">
+                <Input
+                  value={(merged.waiting_for_person as string) ?? ""}
+                  onChange={(e) =>
+                    setField(
+                      "waiting_for_person",
+                      e.target.value || null
+                    )
+                  }
+                  placeholder="Nome da pessoa"
+                />
+              </Field>
             </CardContent>
           </Card>
 
@@ -786,8 +813,12 @@ export default function DemandDetailPage() {
                 value={formatDateTime(merged.closed_at_utc)}
               />
               <Stat
-                label="Ultima resposta Pricila"
-                value={formatDateTime(merged.pricila_last_reply_at_utc)}
+                label="Aguardando desde"
+                value={formatDateTime(merged.waiting_since_at_utc)}
+              />
+              <Stat
+                label="Ultima resposta"
+                value={formatDateTime(merged.waiting_last_reply_at_utc)}
               />
             </CardContent>
           </Card>

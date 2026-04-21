@@ -4,7 +4,7 @@ export type DemandStatus =
   | "new"
   | "triaged"
   | "assigned"
-  | "waiting_pricila"
+  | "waiting_person"
   | "in_progress"
   | "waiting_external"
   | "blocked"
@@ -115,8 +115,9 @@ export interface Demand {
   reply_sla_hours: number;
   follow_up_rule: string | null;
   escalation_rule: string | null;
-  is_waiting_on_pricila: boolean;
-  pricila_last_reply_at_utc: string | null;
+  waiting_for_person: string | null;
+  waiting_since_at_utc: string | null;
+  waiting_last_reply_at_utc: string | null;
   no_reply_since_hours: number | null;
   acquisition_impact: string | null;
   conversion_impact: string | null;
@@ -261,7 +262,7 @@ export const DEMAND_STATUSES: DemandStatus[] = [
   "new",
   "triaged",
   "assigned",
-  "waiting_pricila",
+  "waiting_person",
   "in_progress",
   "waiting_external",
   "blocked",

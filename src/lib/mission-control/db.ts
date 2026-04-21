@@ -82,14 +82,17 @@ function applyDerivedFields(
   const status = (next.status ?? existing?.status) as DemandStatus | undefined;
   const sla = next.reply_sla_hours ?? existing?.reply_sla_hours ?? 3;
 
-  // waiting_pricila => schedule follow-up at sent + SLA, mark waiting flag
-  if (status === "waiting_pricila") {
-    next.is_waiting_on_pricila = true;
+  // waiting_person => schedule follow-up at sent + SLA, stamp waiting_since
+  if (status === "waiting_person") {
+    if (!next.waiting_since_at_utc && !existing?.waiting_since_at_utc) {
+      next.waiting_since_at_utc = new Date().toISOString();
+    }
     if (!next.next_follow_up_at_utc && !existing?.next_follow_up_at_utc) {
       next.next_follow_up_at_utc = hoursFromNow(sla);
     }
   } else if (status) {
-    next.is_waiting_on_pricila = false;
+    // left the waiting state — clear the target so badges/filters reset
+    if (!("waiting_for_person" in next)) next.waiting_for_person = null;
   }
 
   if (status === "blocked" && !next.blocked_at_utc && !existing?.blocked_at_utc) {
@@ -120,7 +123,8 @@ export async function listDemands(
     status?: string;
     area?: string;
     owner?: string;
-    waitingPricila?: boolean;
+    waitingForPerson?: string;
+    waitingForAny?: boolean;
     blocked?: boolean;
     priority?: string;
     search?: string;
@@ -136,7 +140,9 @@ export async function listDemands(
   if (filters.area) query = query.eq("area", filters.area);
   if (filters.owner) query = query.eq("owner", filters.owner);
   if (filters.priority) query = query.eq("priority", filters.priority);
-  if (filters.waitingPricila) query = query.eq("is_waiting_on_pricila", true);
+  if (filters.waitingForPerson)
+    query = query.eq("waiting_for_person", filters.waitingForPerson);
+  if (filters.waitingForAny) query = query.not("waiting_for_person", "is", null);
   if (filters.blocked) query = query.eq("status", "blocked");
   if (filters.search) query = query.ilike("title", `%${filters.search}%`);
 
@@ -297,7 +303,7 @@ export async function sweepOverdueFollowUps(
   return (data ?? []).length;
 }
 
-// Derived helper — hours overdue for a demand waiting on Pricila
+// Derived helper — hours overdue for a demand waiting on a person
 export function overdueHours(iso: string | null): number {
   if (!iso) return 0;
   const diff = Date.now() - new Date(iso).getTime();
@@ -366,16 +372,32 @@ export async function createFollowUp(
   if (error) throw new Error(error.message);
   const fu = data as FollowUp;
 
+  // If this follow-up is targeted at a person and the demand isn't already
+  // waiting, flip it into waiting_person and stamp the target.
   if (fu.demand_id) {
     const demand = await getDemand(supabase, fu.demand_id);
-    if (demand && demand.status !== "waiting_pricila" && /pricila/i.test(fu.target_person)) {
+    if (demand && demand.status !== "waiting_person") {
       await updateDemand(
         supabase,
         workspaceId,
         fu.demand_id,
-        { status: "waiting_pricila", next_follow_up_at_utc: fu.due_reply_at_utc },
+        {
+          status: "waiting_person",
+          waiting_for_person: fu.target_person,
+          next_follow_up_at_utc: fu.due_reply_at_utc,
+        },
         actor ?? "system"
       );
+    } else if (demand && demand.waiting_for_person !== fu.target_person) {
+      await supabase
+        .from("mc_demands")
+        .update({
+          waiting_for_person: fu.target_person,
+          next_follow_up_at_utc: fu.due_reply_at_utc,
+          last_updated_at_utc: new Date().toISOString(),
+        })
+        .eq("id", fu.demand_id)
+        .eq("workspace_id", workspaceId);
     }
   }
 
@@ -420,49 +442,66 @@ export async function updateFollowUp(
       afterValue: { reply_status: fu.reply_status, quality: fu.reply_quality },
     });
 
-    // if replied with content, clear waiting-on-pricila flag
+    // If the target person replied, clear the waiting state on the demand.
     if (
       fu.demand_id &&
-      /pricila/i.test(fu.target_person) &&
       (fu.reply_status === "replied" || fu.reply_status === "clarified")
     ) {
-      await supabase
-        .from("mc_demands")
-        .update({
-          pricila_last_reply_at_utc: fu.replied_at_utc ?? new Date().toISOString(),
-          is_waiting_on_pricila: false,
-          last_updated_at_utc: new Date().toISOString(),
-        })
-        .eq("id", fu.demand_id)
-        .eq("workspace_id", workspaceId);
+      const demand = await getDemand(supabase, fu.demand_id);
+      if (demand && demand.waiting_for_person === fu.target_person) {
+        await supabase
+          .from("mc_demands")
+          .update({
+            waiting_last_reply_at_utc:
+              fu.replied_at_utc ?? new Date().toISOString(),
+            waiting_for_person: null,
+            last_updated_at_utc: new Date().toISOString(),
+          })
+          .eq("id", fu.demand_id)
+          .eq("workspace_id", workspaceId);
+      }
     }
   }
   return fu;
 }
 
-// Quick charge-Pricila — one-line shortcut used by the UI
-export const DEFAULT_PRICILA_CHARGE_TEXT =
-  "Pricila, você conseguiu verificar ou ficou alguma dúvida?";
+// Quick charge helper — one follow-up to whoever the demand is waiting on.
+export function defaultChargeText(person: string): string {
+  const first = person.split(/\s+/)[0] || person;
+  return `${first}, você conseguiu verificar ou ficou alguma dúvida?`;
+}
 
-export async function chargePricila(
+export async function chargePerson(
   supabase: SupabaseClient,
   workspaceId: string,
   demandId: string,
+  options: { targetPerson?: string; messageText?: string } = {},
   actor?: string
 ): Promise<FollowUp> {
+  const demand = await getDemand(supabase, demandId);
+  if (!demand) throw new Error("Demand not found");
+
+  const target =
+    options.targetPerson ??
+    demand.waiting_for_person ??
+    demand.owner ??
+    "Responsavel";
+
   const prior = await listFollowUps(supabase, workspaceId, { demandId });
-  const pricilaPrior = prior.filter((f) => /pricila/i.test(f.target_person));
+  const targetPrior = prior.filter(
+    (f) => f.target_person.toLowerCase() === target.toLowerCase()
+  );
+
   return createFollowUp(
     supabase,
     workspaceId,
     {
       demand_id: demandId,
-      target_person: "Pricila",
-      target_role: "ops",
+      target_person: target,
       message_type: "charge",
-      message_text: DEFAULT_PRICILA_CHARGE_TEXT,
-      follow_up_number: pricilaPrior.length + 1,
-      escalate_if_no_reply: pricilaPrior.length >= 2,
+      message_text: options.messageText ?? defaultChargeText(target),
+      follow_up_number: targetPrior.length + 1,
+      escalate_if_no_reply: targetPrior.length >= 2,
     },
     actor
   );
@@ -708,7 +747,7 @@ export async function dashboardSummary(
     "new",
     "triaged",
     "assigned",
-    "waiting_pricila",
+    "waiting_person",
     "in_progress",
     "waiting_external",
     "blocked",
@@ -717,11 +756,20 @@ export async function dashboardSummary(
 
   const open = demands.filter((d) => openStatuses.includes(d.status));
 
+  // tally who owes a reply — one row per person being waited on
+  const waitingByPerson = new Map<string, number>();
+  demands
+    .filter((d) => d.waiting_for_person)
+    .forEach((d) => {
+      const key = d.waiting_for_person as string;
+      waitingByPerson.set(key, (waitingByPerson.get(key) ?? 0) + 1);
+    });
+
   return {
     counts: {
       total: demands.length,
       open: open.length,
-      waiting_pricila: demands.filter((d) => d.is_waiting_on_pricila).length,
+      waiting_person: demands.filter((d) => d.waiting_for_person).length,
       blocked: demands.filter((d) => d.status === "blocked").length,
       ready_for_review: demands.filter((d) => d.status === "ready_for_review").length,
       done_today: demands.filter(
@@ -730,12 +778,16 @@ export async function dashboardSummary(
       follow_ups_pending: follows.filter((f) => f.reply_status === "pending").length,
       follow_ups_no_reply: follows.filter((f) => f.reply_status === "no_reply").length,
     },
-    overdueWaitingPricila: demands
-      .filter((d) => d.is_waiting_on_pricila && d.next_follow_up_at_utc)
+    waitingByPerson: Array.from(waitingByPerson.entries())
+      .map(([person, count]) => ({ person, count }))
+      .sort((a, b) => b.count - a.count),
+    overdueWaiting: demands
+      .filter((d) => d.waiting_for_person && d.next_follow_up_at_utc)
       .map((d) => ({
         id: d.id,
         title: d.title,
         owner: d.owner,
+        waiting_for: d.waiting_for_person as string,
         overdue_hours: Math.max(
           0,
           Math.round((now - new Date(d.next_follow_up_at_utc!).getTime()) / 36e5)
