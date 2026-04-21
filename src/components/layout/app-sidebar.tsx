@@ -103,19 +103,19 @@ const navGroups: NavGroup[] = [
       { title: "Overview", href: "/", icon: LayoutDashboard },
       {
         title: "Mission Control",
-        href: "/mission-control",
+        href: "/team/mission-control",
         icon: Rocket,
         items: [
-          { title: "Inbox", href: "/mission-control", icon: Inbox },
+          { title: "Inbox", href: "/team/mission-control", icon: Inbox },
           {
             title: "Aguardando Pessoa",
-            href: "/mission-control?view=waiting_person",
+            href: "/team/mission-control?view=waiting_person",
             icon: AlertTriangle,
           },
-          { title: "Bloqueados", href: "/mission-control?view=blocked", icon: ShieldAlert },
-          { title: "Growth Board", href: "/mission-control/growth", icon: FlaskConical },
-          { title: "Reports", href: "/mission-control/reports", icon: TrendingUp },
-          { title: "Learnings", href: "/mission-control/learnings", icon: BookOpen },
+          { title: "Bloqueados", href: "/team/mission-control?view=blocked", icon: ShieldAlert },
+          { title: "Growth Board", href: "/team/mission-control/growth", icon: FlaskConical },
+          { title: "Reports", href: "/team/mission-control/reports", icon: TrendingUp },
+          { title: "Learnings", href: "/team/mission-control/learnings", icon: BookOpen },
         ],
       },
       {

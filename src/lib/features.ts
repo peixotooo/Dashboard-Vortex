@@ -10,7 +10,7 @@ export const FEATURES: Feature[] = [
     id: "mission_control",
     label: "Mission Control",
     description: "Cerebro operacional do Atlas — demandas, cobrancas, bloqueios, decisoes e aprendizados",
-    routes: ["/mission-control"],
+    routes: ["/team/mission-control"],
   },
   {
     id: "team",
