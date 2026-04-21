@@ -102,27 +102,14 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Overview", href: "/", icon: LayoutDashboard },
       {
-        title: "Mission Control",
-        href: "/team/mission-control",
-        icon: Rocket,
-        items: [
-          { title: "Inbox", href: "/team/mission-control", icon: Inbox },
-          {
-            title: "Aguardando Pessoa",
-            href: "/team/mission-control?view=waiting_person",
-            icon: AlertTriangle,
-          },
-          { title: "Bloqueados", href: "/team/mission-control?view=blocked", icon: ShieldAlert },
-          { title: "Growth Board", href: "/team/mission-control/growth", icon: FlaskConical },
-          { title: "Reports", href: "/team/mission-control/reports", icon: TrendingUp },
-          { title: "Learnings", href: "/team/mission-control/learnings", icon: BookOpen },
-        ],
-      },
-      {
         title: "Time",
         href: "/team",
         icon: Users,
         items: [
+          { title: "Mission Control", href: "/team/mission-control", icon: Rocket },
+          { title: "Growth Board", href: "/team/mission-control/growth", icon: FlaskConical },
+          { title: "Reports", href: "/team/mission-control/reports", icon: TrendingUp },
+          { title: "Learnings", href: "/team/mission-control/learnings", icon: BookOpen },
           { title: "Chat", href: "/team/chat", icon: MessageSquare },
           { title: "Kanban", href: "/team/kanban", icon: KanbanSquare },
           { title: "Entregas", href: "/team/deliverables", icon: FileOutput },

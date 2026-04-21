@@ -7,15 +7,9 @@ export interface Feature {
 
 export const FEATURES: Feature[] = [
   {
-    id: "mission_control",
-    label: "Mission Control",
-    description: "Cerebro operacional do Atlas — demandas, cobrancas, bloqueios, decisoes e aprendizados",
-    routes: ["/team/mission-control"],
-  },
-  {
     id: "team",
     label: "Time",
-    description: "Chat, Kanban, Entregas e Planejamento",
+    description: "Mission Control, Chat, Kanban, Entregas e Planejamento",
     routes: ["/team"],
   },
   {
