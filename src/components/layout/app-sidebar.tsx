@@ -107,6 +107,7 @@ const navGroups: NavGroup[] = [
         icon: Users,
         items: [
           { title: "Mission Control", href: "/team/mission-control", icon: Rocket },
+          { title: "Needs COO Review", href: "/team/mission-control/coo-review", icon: AlertTriangle },
           { title: "Growth Board", href: "/team/mission-control/growth", icon: FlaskConical },
           { title: "Reports", href: "/team/mission-control/reports", icon: TrendingUp },
           { title: "Learnings", href: "/team/mission-control/learnings", icon: BookOpen },

@@ -5,7 +5,7 @@ import {
 } from "@/lib/team/mission-control/route-helpers";
 import { chargePerson } from "@/lib/team/mission-control/db";
 
-// POST /api/team/team/mission-control/demands/[id]/charge
+// POST /api/team/mission-control/demands/[id]/charge
 // Body: { target_person?: string, message_text?: string }
 // Defaults target to the demand's waiting_for_person (falls back to owner).
 export async function POST(

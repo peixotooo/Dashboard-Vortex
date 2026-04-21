@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { CompletionRequiredError } from "./db";
 
 // Shared helpers used by every Mission Control API route.
 // Keeps auth + workspace scoping uniform so no route accidentally leaks data.
@@ -52,6 +53,12 @@ export async function requireWorkspace(
 }
 
 export function errorResponse(err: unknown): NextResponse {
+  if (err instanceof CompletionRequiredError) {
+    return NextResponse.json(
+      { error: err.message, missing: err.missing, code: "completion_required" },
+      { status: 422 }
+    );
+  }
   const message = err instanceof Error ? err.message : "Internal server error";
   return NextResponse.json({ error: message }, { status: 500 });
 }

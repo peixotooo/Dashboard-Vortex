@@ -8,6 +8,15 @@ import type {
   ExecutiveReport,
   ActivityLogEntry,
   DemandStatus,
+  Person,
+  NotificationQueueEntry,
+  CommChannel,
+  Priority,
+} from "./types";
+import {
+  DEFAULT_SLA_BY_PRIORITY,
+  WAITING_STATUSES,
+  validateCompletion,
 } from "./types";
 
 // Mission Control DB helpers. Every write goes through here so the activity
@@ -74,16 +83,27 @@ function hoursFromNow(hours: number): string {
   return new Date(Date.now() + hours * 3600 * 1000).toISOString();
 }
 
+// Resolve the effective SLA in hours for a demand. Explicit override on the
+// demand wins; otherwise fall back to the per-priority default.
+export function effectiveSlaHours(d: Partial<Demand>): number {
+  if (typeof d.reply_sla_hours === "number" && d.reply_sla_hours > 0) {
+    return d.reply_sla_hours;
+  }
+  const p = (d.priority as Priority) ?? "medium";
+  return DEFAULT_SLA_BY_PRIORITY[p] ?? 6;
+}
+
 function applyDerivedFields(
   input: Partial<Demand>,
   existing?: Partial<Demand>
 ): Partial<Demand> {
   const next: Partial<Demand> = { ...input };
   const status = (next.status ?? existing?.status) as DemandStatus | undefined;
-  const sla = next.reply_sla_hours ?? existing?.reply_sla_hours ?? 3;
+  const merged: Partial<Demand> = { ...existing, ...next };
+  const sla = effectiveSlaHours(merged);
 
-  // waiting_person => schedule follow-up at sent + SLA, stamp waiting_since
-  if (status === "waiting_person") {
+  // any waiting_* status => schedule follow-up at now + SLA, stamp waiting_since
+  if (status && (WAITING_STATUSES as DemandStatus[]).includes(status)) {
     if (!next.waiting_since_at_utc && !existing?.waiting_since_at_utc) {
       next.waiting_since_at_utc = new Date().toISOString();
     }
@@ -91,8 +111,9 @@ function applyDerivedFields(
       next.next_follow_up_at_utc = hoursFromNow(sla);
     }
   } else if (status) {
-    // left the waiting state — clear the target so badges/filters reset
+    // left every waiting state — clear the target so badges/filters reset
     if (!("waiting_for_person" in next)) next.waiting_for_person = null;
+    if (!("waiting_for_person_id" in next)) next.waiting_for_person_id = null;
   }
 
   if (status === "blocked" && !next.blocked_at_utc && !existing?.blocked_at_utc) {
@@ -197,15 +218,37 @@ export async function createDemand(
   return created;
 }
 
+export class CompletionRequiredError extends Error {
+  missing: string[];
+  constructor(missing: string[]) {
+    super(`Demanda nao pode ser fechada sem: ${missing.join(", ")}`);
+    this.missing = missing;
+    this.name = "CompletionRequiredError";
+  }
+}
+
 export async function updateDemand(
   supabase: SupabaseClient,
   workspaceId: string,
   id: string,
   input: Partial<Demand>,
-  actor?: string
+  actor?: string,
+  options: { force?: boolean } = {}
 ): Promise<Demand> {
   const before = await getDemand(supabase, id);
   if (!before) throw new Error("Demand not found");
+
+  // Hard guard — demand done requires completion_notes + outcome + impact +
+  // next_step + evidence/metric. Use options.force=true to bypass (archive).
+  const mergedForCheck: Partial<Demand> = { ...before, ...input };
+  if (
+    !options.force &&
+    mergedForCheck.status === "done" &&
+    before.status !== "done"
+  ) {
+    const missing = validateCompletion(mergedForCheck);
+    if (missing.length > 0) throw new CompletionRequiredError(missing);
+  }
 
   const payload = applyDerivedFields(input, before);
   const { data, error } = await supabase
@@ -237,29 +280,27 @@ export async function updateDemand(
     });
   }
 
-  // concluded demands must ship outcome + impact + learning — flag in log if missing
-  if (after.status === "done") {
-    const missing: string[] = [];
-    if (!after.expected_outcome && !after.current_situation) missing.push("outcome");
-    if (
-      !after.acquisition_impact &&
-      !after.conversion_impact &&
-      !after.retention_impact &&
-      !after.revenue_impact
-    )
-      missing.push("impacto");
-    if (!after.related_learning_ids || after.related_learning_ids.length === 0)
-      missing.push("aprendizado");
-    if (missing.length > 0) {
-      await logActivity(supabase, workspaceId, {
-        demandId: id,
-        actor: "system",
-        actorType: "system",
-        eventType: "demand.done_incomplete",
-        summary: `Demanda concluida sem: ${missing.join(", ")}`,
-        afterValue: { missing },
-      });
-    }
+  // Concluded demands were guarded above, but we still log the summary for auditability.
+  if (after.status === "done" && before.status !== "done") {
+    await logActivity(supabase, workspaceId, {
+      demandId: id,
+      actor: actor ?? "system",
+      actorType: "human",
+      eventType: "demand.completed",
+      summary: after.completion_notes
+        ? after.completion_notes.slice(0, 200)
+        : "Demanda concluida",
+      afterValue: {
+        outcome: after.expected_outcome,
+        impact:
+          after.revenue_impact ||
+          after.acquisition_impact ||
+          after.conversion_impact ||
+          after.retention_impact,
+        success_metric: after.success_metric,
+        evidence: after.evidence_links,
+      },
+    });
   }
 
   return after;
@@ -285,7 +326,8 @@ export async function deleteDemand(
   if (error) throw new Error(error.message);
 }
 
-// Mark expired follow-ups as no_reply. Intended to be safe to run on each list.
+// Mark expired follow-ups as no_reply + persist is_sla_breached + breach_hours.
+// Safe to run on every list call.
 export async function sweepOverdueFollowUps(
   supabase: SupabaseClient,
   workspaceId: string
@@ -293,14 +335,47 @@ export async function sweepOverdueFollowUps(
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from("mc_follow_ups")
-    .update({ reply_status: "no_reply", updated_at: nowIso })
+    .select("id, due_reply_at_utc")
     .eq("workspace_id", workspaceId)
     .eq("reply_status", "pending")
     .lt("due_reply_at_utc", nowIso)
-    .is("replied_at_utc", null)
-    .select("id");
-  if (error) return 0;
-  return (data ?? []).length;
+    .is("replied_at_utc", null);
+  if (error || !data?.length) return 0;
+
+  await Promise.all(
+    data.map((row) => {
+      const breach =
+        row.due_reply_at_utc
+          ? Math.max(
+              0,
+              (Date.now() - new Date(row.due_reply_at_utc).getTime()) / 36e5
+            )
+          : 0;
+      return supabase
+        .from("mc_follow_ups")
+        .update({
+          reply_status: "no_reply",
+          is_sla_breached: true,
+          breach_hours: Math.round(breach * 10) / 10,
+          updated_at: nowIso,
+        })
+        .eq("id", row.id);
+    })
+  );
+
+  // enqueue SLA-breach notifications (best-effort — ignore failures)
+  await Promise.all(
+    data.map((row) =>
+      enqueueNotification(supabase, workspaceId, {
+        entity_type: "follow_up",
+        entity_id: row.id,
+        event: "sla_breach",
+        payload: { due_reply_at_utc: row.due_reply_at_utc },
+      }).catch(() => null)
+    )
+  );
+
+  return data.length;
 }
 
 // Derived helper — hours overdue for a demand waiting on a person
@@ -339,18 +414,36 @@ export async function createFollowUp(
   const sentAt = input.sent_at_utc ?? new Date().toISOString();
   let dueReply = input.due_reply_at_utc;
 
-  // if pointing at a demand and no explicit due, default to sent + sla
+  // if pointing at a demand and no explicit due, default to sent + effective SLA
+  let channelFromDemand: CommChannel | null = null;
   if (!dueReply && input.demand_id) {
     const demand = await getDemand(supabase, input.demand_id);
-    const sla = demand?.reply_sla_hours ?? 3;
-    dueReply = new Date(new Date(sentAt).getTime() + sla * 3600 * 1000).toISOString();
+    if (demand) {
+      const sla = effectiveSlaHours(demand);
+      dueReply = new Date(
+        new Date(sentAt).getTime() + sla * 3600 * 1000
+      ).toISOString();
+    }
+  }
+
+  // If caller didn't specify a channel but the target is a known person, use theirs
+  if (!input.channel && input.target_person_id) {
+    const { data: person } = await supabase
+      .from("mc_people")
+      .select("channel")
+      .eq("id", input.target_person_id)
+      .maybeSingle();
+    if (person?.channel) channelFromDemand = person.channel as CommChannel;
   }
 
   const payload = {
     workspace_id: workspaceId,
     demand_id: input.demand_id ?? null,
     target_person: input.target_person,
+    target_person_id: input.target_person_id ?? null,
     target_role: input.target_role ?? null,
+    channel: input.channel ?? channelFromDemand ?? null,
+    sent_by: input.sent_by ?? actor ?? null,
     message_type: input.message_type ?? "ask",
     message_text: input.message_text ?? "",
     sent_at_utc: sentAt,
@@ -358,6 +451,8 @@ export async function createFollowUp(
     replied_at_utc: input.replied_at_utc ?? null,
     reply_status: input.reply_status ?? "pending",
     reply_quality: input.reply_quality ?? null,
+    response_text: input.response_text ?? null,
+    response_summary: input.response_summary ?? null,
     follow_up_number: input.follow_up_number ?? 1,
     escalate_if_no_reply: input.escalate_if_no_reply ?? false,
     escalation_target: input.escalation_target ?? null,
@@ -372,11 +467,13 @@ export async function createFollowUp(
   if (error) throw new Error(error.message);
   const fu = data as FollowUp;
 
-  // If this follow-up is targeted at a person and the demand isn't already
-  // waiting, flip it into waiting_person and stamp the target.
+  // If this follow-up is targeted at a person and the demand is not yet in any
+  // waiting_* status, flip to waiting_person and stamp the target (id + name).
   if (fu.demand_id) {
     const demand = await getDemand(supabase, fu.demand_id);
-    if (demand && demand.status !== "waiting_person") {
+    const isWaiting =
+      demand && (WAITING_STATUSES as DemandStatus[]).includes(demand.status);
+    if (demand && !isWaiting) {
       await updateDemand(
         supabase,
         workspaceId,
@@ -384,15 +481,21 @@ export async function createFollowUp(
         {
           status: "waiting_person",
           waiting_for_person: fu.target_person,
+          waiting_for_person_id: fu.target_person_id,
           next_follow_up_at_utc: fu.due_reply_at_utc,
         },
         actor ?? "system"
       );
-    } else if (demand && demand.waiting_for_person !== fu.target_person) {
+    } else if (
+      demand &&
+      (demand.waiting_for_person !== fu.target_person ||
+        demand.waiting_for_person_id !== fu.target_person_id)
+    ) {
       await supabase
         .from("mc_demands")
         .update({
           waiting_for_person: fu.target_person,
+          waiting_for_person_id: fu.target_person_id,
           next_follow_up_at_utc: fu.due_reply_at_utc,
           last_updated_at_utc: new Date().toISOString(),
         })
@@ -408,8 +511,19 @@ export async function createFollowUp(
     actor,
     eventType: "follow_up.sent",
     summary: `Follow-up ${fu.message_type} → ${fu.target_person}`,
-    afterValue: { message_type: fu.message_type },
+    afterValue: { message_type: fu.message_type, channel: fu.channel },
   });
+
+  // Enqueue the outbound notification — the actual sender is a separate worker.
+  await enqueueNotification(supabase, workspaceId, {
+    entity_type: "follow_up",
+    entity_id: fu.id,
+    event: fu.message_type,
+    target_person_id: fu.target_person_id,
+    target_person_name: fu.target_person,
+    channel: fu.channel,
+    payload: { message_text: fu.message_text, demand_id: fu.demand_id },
+  }).catch(() => null);
 
   return fu;
 }
@@ -475,7 +589,12 @@ export async function chargePerson(
   supabase: SupabaseClient,
   workspaceId: string,
   demandId: string,
-  options: { targetPerson?: string; messageText?: string } = {},
+  options: {
+    targetPerson?: string;
+    targetPersonId?: string | null;
+    channel?: CommChannel | null;
+    messageText?: string;
+  } = {},
   actor?: string
 ): Promise<FollowUp> {
   const demand = await getDemand(supabase, demandId);
@@ -486,6 +605,8 @@ export async function chargePerson(
     demand.waiting_for_person ??
     demand.owner ??
     "Responsavel";
+  const targetId =
+    options.targetPersonId ?? demand.waiting_for_person_id ?? null;
 
   const prior = await listFollowUps(supabase, workspaceId, { demandId });
   const targetPrior = prior.filter(
@@ -498,6 +619,8 @@ export async function chargePerson(
     {
       demand_id: demandId,
       target_person: target,
+      target_person_id: targetId,
+      channel: options.channel ?? null,
       message_type: "charge",
       message_text: options.messageText ?? defaultChargeText(target),
       follow_up_number: targetPrior.length + 1,
@@ -719,6 +842,135 @@ export async function deleteReport(
 }
 
 // ---------------------------------------------------------------------------
+// PEOPLE
+// ---------------------------------------------------------------------------
+export async function listPeople(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters: { activeOnly?: boolean } = {}
+): Promise<Person[]> {
+  let query = supabase
+    .from("mc_people")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("name", { ascending: true });
+  if (filters.activeOnly) query = query.eq("is_active", true);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Person[];
+}
+
+export async function savePerson(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: Partial<Person> & { id?: string; name: string }
+): Promise<Person> {
+  if (input.id) {
+    const { data, error } = await supabase
+      .from("mc_people")
+      .update({ ...input, updated_at: new Date().toISOString() })
+      .eq("id", input.id)
+      .eq("workspace_id", workspaceId)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    return data as Person;
+  }
+  const { data, error } = await supabase
+    .from("mc_people")
+    .insert({ ...input, workspace_id: workspaceId })
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Person;
+}
+
+export async function deletePerson(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("mc_people")
+    .delete()
+    .eq("id", id)
+    .eq("workspace_id", workspaceId);
+  if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS QUEUE (delivery is a separate worker — this only enqueues)
+// ---------------------------------------------------------------------------
+export async function enqueueNotification(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entry: {
+    entity_type: string;
+    entity_id?: string | null;
+    event: string;
+    target_person_id?: string | null;
+    target_person_name?: string | null;
+    channel?: CommChannel | null;
+    payload?: Record<string, unknown>;
+    scheduled_at_utc?: string;
+  }
+): Promise<NotificationQueueEntry> {
+  const { data, error } = await supabase
+    .from("mc_notifications_queue")
+    .insert({
+      workspace_id: workspaceId,
+      entity_type: entry.entity_type,
+      entity_id: entry.entity_id ?? null,
+      event: entry.event,
+      target_person_id: entry.target_person_id ?? null,
+      target_person_name: entry.target_person_name ?? null,
+      channel: entry.channel ?? null,
+      payload: entry.payload ?? {},
+      scheduled_at_utc: entry.scheduled_at_utc ?? new Date().toISOString(),
+      status: "pending",
+      attempts: 0,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  return data as NotificationQueueEntry;
+}
+
+export async function listNotifications(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  filters: { status?: string; limit?: number } = {}
+): Promise<NotificationQueueEntry[]> {
+  let query = supabase
+    .from("mc_notifications_queue")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("scheduled_at_utc", { ascending: false })
+    .limit(filters.limit ?? 200);
+  if (filters.status) query = query.eq("status", filters.status);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as NotificationQueueEntry[];
+}
+
+export async function markNotification(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+  patch: Partial<NotificationQueueEntry>
+): Promise<NotificationQueueEntry> {
+  const { data, error } = await supabase
+    .from("mc_notifications_queue")
+    .update(patch)
+    .eq("id", id)
+    .eq("workspace_id", workspaceId)
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  return data as NotificationQueueEntry;
+}
+
+// ---------------------------------------------------------------------------
 // DASHBOARD AGGREGATES
 // ---------------------------------------------------------------------------
 export async function dashboardSummary(
@@ -726,17 +978,30 @@ export async function dashboardSummary(
   workspaceId: string
 ) {
   await sweepOverdueFollowUps(supabase, workspaceId);
-  const [demandsRes, followsRes] = await Promise.all([
+  const [demandsRes, followsRes, experimentsRes] = await Promise.all([
     supabase.from("mc_demands").select("*").eq("workspace_id", workspaceId),
     supabase
       .from("mc_follow_ups")
       .select("*")
       .eq("workspace_id", workspaceId)
       .in("reply_status", ["pending", "no_reply", "late_reply"]),
+    supabase
+      .from("mc_experiments")
+      .select("id, title, status, priority, updated_at, decision")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "analyzing"),
   ]);
 
   const demands = (demandsRes.data ?? []) as Demand[];
   const follows = (followsRes.data ?? []) as FollowUp[];
+  const experimentsAnalyzing = (experimentsRes.data ?? []) as Array<{
+    id: string;
+    title: string;
+    status: string;
+    priority: Priority;
+    updated_at: string;
+    decision: string | null;
+  }>;
   const now = Date.now();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -748,8 +1013,11 @@ export async function dashboardSummary(
     "triaged",
     "assigned",
     "waiting_person",
-    "in_progress",
+    "waiting_founder",
+    "waiting_data",
+    "waiting_content",
     "waiting_external",
+    "in_progress",
     "blocked",
     "ready_for_review",
   ];
@@ -808,5 +1076,103 @@ export async function dashboardSummary(
           (d.next_follow_up_at_utc && new Date(d.next_follow_up_at_utc) >= startOfWeek)
       )
       .map((d) => d.id),
+    needsCooReview: buildCooReviewBuckets({
+      demands,
+      follows,
+      experimentsAnalyzing,
+      now,
+    }),
+  };
+}
+
+// "Needs COO Review" — 5 buckets the COO scans first thing in the morning.
+// Kept as a pure function so it can be reused by a dedicated view.
+export function buildCooReviewBuckets(input: {
+  demands: Demand[];
+  follows: FollowUp[];
+  experimentsAnalyzing: Array<{
+    id: string;
+    title: string;
+    priority: Priority;
+    updated_at: string;
+    decision: string | null;
+  }>;
+  now: number;
+}) {
+  const { demands, follows, experimentsAnalyzing, now } = input;
+
+  const readyForReview = demands
+    .filter((d) => d.status === "ready_for_review")
+    .map((d) => ({
+      id: d.id,
+      title: d.title,
+      owner: d.owner,
+      priority: d.priority,
+      updated_at: d.last_updated_at_utc,
+    }));
+
+  const doneIncomplete = demands
+    .filter((d) => d.status === "done")
+    .map((d) => ({ demand: d, missing: validateCompletion(d) }))
+    .filter(({ missing }) => missing.length > 0)
+    .map(({ demand: d, missing }) => ({
+      id: d.id,
+      title: d.title,
+      priority: d.priority,
+      missing,
+    }));
+
+  const blockedHigh = demands
+    .filter(
+      (d) =>
+        d.status === "blocked" &&
+        (d.priority === "critical" || d.priority === "high")
+    )
+    .map((d) => ({
+      id: d.id,
+      title: d.title,
+      priority: d.priority,
+      blocker: d.blocker,
+      blocked_since: d.blocked_at_utc,
+    }));
+
+  const noReplyFollowUps = follows
+    .filter(
+      (f) =>
+        f.reply_status === "no_reply" ||
+        (f.is_sla_breached && f.reply_status === "pending")
+    )
+    .map((f) => ({
+      id: f.id,
+      demand_id: f.demand_id,
+      target_person: f.target_person,
+      breach_hours: f.breach_hours,
+      follow_up_number: f.follow_up_number,
+      due_reply_at_utc: f.due_reply_at_utc,
+    }))
+    .sort((a, b) => (b.breach_hours ?? 0) - (a.breach_hours ?? 0));
+
+  const experimentsPendingDecision = experimentsAnalyzing
+    .filter((e) => !e.decision)
+    .map((e) => ({
+      id: e.id,
+      title: e.title,
+      priority: e.priority,
+      updated_at: e.updated_at,
+    }));
+
+  return {
+    total:
+      readyForReview.length +
+      doneIncomplete.length +
+      blockedHigh.length +
+      noReplyFollowUps.length +
+      experimentsPendingDecision.length,
+    readyForReview,
+    doneIncomplete,
+    blockedHigh,
+    noReplyFollowUps,
+    experimentsPendingDecision,
+    generated_at: new Date(now).toISOString(),
   };
 }

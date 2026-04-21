@@ -43,7 +43,16 @@ export async function PUT(
     const ctx = await requireWorkspace(request);
     if (ctx instanceof NextResponse) return ctx;
     const body = await request.json();
-    const demand = await updateDemand(ctx.supabase, ctx.workspaceId, id, body, ctx.actor);
+    const url = new URL(request.url);
+    const force = url.searchParams.get("force") === "1";
+    const demand = await updateDemand(
+      ctx.supabase,
+      ctx.workspaceId,
+      id,
+      body,
+      ctx.actor,
+      { force }
+    );
     return NextResponse.json({ demand });
   } catch (err) {
     return errorResponse(err);

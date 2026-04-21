@@ -75,7 +75,7 @@ export default function DemandDetailPage() {
     if (!workspace?.id || !params?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/team/team/mission-control/demands/${params.id}`, {
+      const res = await fetch(`/api/team/mission-control/demands/${params.id}`, {
         headers: { "x-workspace-id": workspace.id },
       });
       if (!res.ok) {
@@ -107,18 +107,30 @@ export default function DemandDetailPage() {
     load();
   }, [load]);
 
-  const saveField = async (patch: Partial<Demand>) => {
+  const saveField = async (patch: Partial<Demand>, force = false) => {
     if (!workspace?.id || !demand) return;
     setSaving(true);
     try {
-      await fetch(`/api/team/team/mission-control/demands/${demand.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "x-workspace-id": workspace.id,
-        },
-        body: JSON.stringify(patch),
-      });
+      const res = await fetch(
+        `/api/team/mission-control/demands/${demand.id}${force ? "?force=1" : ""}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspace.id,
+          },
+          body: JSON.stringify(patch),
+        }
+      );
+      if (res.status === 422) {
+        const body = await res.json();
+        const missing: string[] = body.missing ?? [];
+        alert(
+          `Nao posso fechar essa demanda. Faltando: ${missing.join(", ")}\n\n` +
+            "Preencha completion_notes, next_action, impacto e pelo menos 1 evidencia (link ou success_metric)."
+        );
+        return;
+      }
       await load();
     } finally {
       setSaving(false);
@@ -136,7 +148,7 @@ export default function DemandDetailPage() {
       ...newFollowUp,
       demand_id: demand.id,
     };
-    await fetch("/api/team/team/mission-control/follow-ups", {
+    await fetch("/api/team/mission-control/follow-ups", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -152,7 +164,7 @@ export default function DemandDetailPage() {
     status: "replied" | "clarified" | "no_reply" | "late_reply"
   ) => {
     if (!workspace?.id) return;
-    await fetch(`/api/team/team/mission-control/follow-ups/${id}`, {
+    await fetch(`/api/team/mission-control/follow-ups/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -171,7 +183,7 @@ export default function DemandDetailPage() {
 
   const chargeWaiting = async () => {
     if (!workspace?.id || !demand) return;
-    await fetch(`/api/team/team/mission-control/demands/${demand.id}/charge`, {
+    await fetch(`/api/team/mission-control/demands/${demand.id}/charge`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -185,7 +197,7 @@ export default function DemandDetailPage() {
   const deleteDemand = async () => {
     if (!workspace?.id || !demand) return;
     if (!confirm("Excluir esta demanda? Esta acao nao pode ser desfeita.")) return;
-    await fetch(`/api/team/team/mission-control/demands/${demand.id}`, {
+    await fetch(`/api/team/mission-control/demands/${demand.id}`, {
       method: "DELETE",
       headers: { "x-workspace-id": workspace.id },
     });

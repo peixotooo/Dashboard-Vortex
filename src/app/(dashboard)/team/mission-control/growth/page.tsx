@@ -43,7 +43,7 @@ export default function GrowthBoardPage() {
     if (!workspace?.id) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/team/team/mission-control/experiments", {
+      const res = await fetch("/api/team/mission-control/experiments", {
         headers: { "x-workspace-id": workspace.id },
       });
       if (res.ok) {
@@ -63,8 +63,8 @@ export default function GrowthBoardPage() {
     if (!workspace?.id || !editing) return;
     const method = editing.id ? "PUT" : "POST";
     const path = editing.id
-      ? `/api/team/team/mission-control/experiments/${editing.id}`
-      : "/api/team/team/mission-control/experiments";
+      ? `/api/team/mission-control/experiments/${editing.id}`
+      : "/api/team/mission-control/experiments";
     await fetch(path, {
       method,
       headers: {
@@ -80,7 +80,7 @@ export default function GrowthBoardPage() {
   const remove = async (id: string) => {
     if (!workspace?.id) return;
     if (!confirm("Excluir experimento?")) return;
-    await fetch(`/api/team/team/mission-control/experiments/${id}`, {
+    await fetch(`/api/team/mission-control/experiments/${id}`, {
       method: "DELETE",
       headers: { "x-workspace-id": workspace.id },
     });

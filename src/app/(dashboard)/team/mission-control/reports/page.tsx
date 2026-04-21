@@ -30,7 +30,7 @@ export default function ReportsPage() {
     if (!workspace?.id) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/team/team/mission-control/reports", {
+      const res = await fetch("/api/team/mission-control/reports", {
         headers: { "x-workspace-id": workspace.id },
       });
       if (res.ok) {
@@ -50,8 +50,8 @@ export default function ReportsPage() {
     if (!workspace?.id || !editing) return;
     const method = editing.id ? "PUT" : "POST";
     const path = editing.id
-      ? `/api/team/team/mission-control/reports/${editing.id}`
-      : "/api/team/team/mission-control/reports";
+      ? `/api/team/mission-control/reports/${editing.id}`
+      : "/api/team/mission-control/reports";
     await fetch(path, {
       method,
       headers: {
@@ -66,7 +66,7 @@ export default function ReportsPage() {
 
   const markSent = async (r: ExecutiveReport) => {
     if (!workspace?.id) return;
-    await fetch(`/api/team/team/mission-control/reports/${r.id}`, {
+    await fetch(`/api/team/mission-control/reports/${r.id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

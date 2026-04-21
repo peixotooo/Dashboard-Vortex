@@ -57,12 +57,16 @@ export const STATUS_LABEL: Record<string, string> = {
   triaged: "Triado",
   assigned: "Atribuido",
   waiting_person: "Aguardando Pessoa",
-  in_progress: "Em Progresso",
+  waiting_founder: "Aguardando Founder",
+  waiting_data: "Aguardando Data",
+  waiting_content: "Aguardando Content",
   waiting_external: "Aguardando Externo",
+  in_progress: "Em Progresso",
   blocked: "Bloqueado",
   ready_for_review: "Em Revisao",
   done: "Concluido",
   canceled: "Cancelado",
+  archived: "Arquivado",
 };
 
 export const STATUS_COLOR: Record<string, string> = {
@@ -70,12 +74,16 @@ export const STATUS_COLOR: Record<string, string> = {
   triaged: "bg-slate-400",
   assigned: "bg-blue-500",
   waiting_person: "bg-amber-500",
-  in_progress: "bg-indigo-500",
+  waiting_founder: "bg-amber-600",
+  waiting_data: "bg-amber-400",
+  waiting_content: "bg-amber-300",
   waiting_external: "bg-purple-500",
+  in_progress: "bg-indigo-500",
   blocked: "bg-red-500",
   ready_for_review: "bg-violet-500",
   done: "bg-emerald-500",
   canceled: "bg-gray-400",
+  archived: "bg-gray-300",
 };
 
 export const PRIORITY_COLOR: Record<string, string> = {

@@ -38,10 +38,10 @@ export default function LearningsDecisionsPage() {
     setLoading(true);
     try {
       const [lRes, dRes] = await Promise.all([
-        fetch("/api/team/team/mission-control/learnings", {
+        fetch("/api/team/mission-control/learnings", {
           headers: { "x-workspace-id": workspace.id },
         }),
-        fetch("/api/team/team/mission-control/decisions", {
+        fetch("/api/team/mission-control/decisions", {
           headers: { "x-workspace-id": workspace.id },
         }),
       ]);
@@ -66,8 +66,8 @@ export default function LearningsDecisionsPage() {
     if (!workspace?.id || !editingLearning) return;
     const method = editingLearning.id ? "PUT" : "POST";
     const path = editingLearning.id
-      ? `/api/team/team/mission-control/learnings/${editingLearning.id}`
-      : "/api/team/team/mission-control/learnings";
+      ? `/api/team/mission-control/learnings/${editingLearning.id}`
+      : "/api/team/mission-control/learnings";
     await fetch(path, {
       method,
       headers: {
@@ -84,8 +84,8 @@ export default function LearningsDecisionsPage() {
     if (!workspace?.id || !editingDecision) return;
     const method = editingDecision.id ? "PUT" : "POST";
     const path = editingDecision.id
-      ? `/api/team/team/mission-control/decisions/${editingDecision.id}`
-      : "/api/team/team/mission-control/decisions";
+      ? `/api/team/mission-control/decisions/${editingDecision.id}`
+      : "/api/team/mission-control/decisions";
     await fetch(path, {
       method,
       headers: {

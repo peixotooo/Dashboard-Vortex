@@ -49,6 +49,7 @@ type Summary = {
   }>;
   todays: string[];
   weekly: string[];
+  needsCooReview?: { total: number };
 };
 
 const TAB_META = [
@@ -79,10 +80,10 @@ export default function MissionControlPage() {
     setLoading(true);
     try {
       const [dRes, sRes] = await Promise.all([
-        fetch("/api/team/team/mission-control/demands", {
+        fetch("/api/team/mission-control/demands", {
           headers: { "x-workspace-id": workspace.id },
         }),
-        fetch("/api/team/team/mission-control/summary", {
+        fetch("/api/team/mission-control/summary", {
           headers: { "x-workspace-id": workspace.id },
         }),
       ]);
@@ -105,7 +106,7 @@ export default function MissionControlPage() {
 
   const chargeDemand = async (id: string) => {
     if (!workspace?.id) return;
-    await fetch(`/api/team/team/mission-control/demands/${id}/charge`, {
+    await fetch(`/api/team/mission-control/demands/${id}/charge`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -118,7 +119,7 @@ export default function MissionControlPage() {
 
   const createDemand = async (input: Record<string, unknown>) => {
     if (!workspace?.id) return;
-    await fetch("/api/team/team/mission-control/demands", {
+    await fetch("/api/team/mission-control/demands", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -330,6 +331,18 @@ export default function MissionControlPage() {
         </select>
 
         <div className="ml-auto flex items-center gap-2">
+          <Link
+            href="/team/mission-control/coo-review"
+            className="inline-flex items-center gap-1 text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300"
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Needs COO Review
+            {summary?.needsCooReview && summary.needsCooReview.total > 0 && (
+              <span className="ml-1 rounded-full bg-amber-500/90 text-white text-[10px] px-1.5">
+                {summary.needsCooReview.total}
+              </span>
+            )}
+          </Link>
           <Link
             href="/team/mission-control/growth"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
