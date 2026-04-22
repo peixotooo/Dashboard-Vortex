@@ -19,6 +19,67 @@ import {
   validateCompletion,
 } from "./types";
 
+// Whitelist of writable columns per table. Keeps stray UI fields (like `id` from
+// a detail page, or transient client-only flags) from reaching PostgREST and
+// triggering "column not found in schema cache" on every insert/update.
+const DEMAND_WRITABLE = new Set<string>([
+  "workspace_id", "title", "description", "area", "channel", "company",
+  "source", "requester", "requested_by_role", "owner", "owner_person_id",
+  "secondary_owner", "assigned_by", "response_required_from",
+  "team", "deliverable_type", "parent_demand_id", "depends_on_ids",
+  "status", "priority", "health", "urgency",
+  "created_at_utc", "created_at_local", "first_seen_at_utc", "assigned_at_utc",
+  "started_at_utc", "last_updated_at_utc", "next_follow_up_at_utc", "due_at_utc",
+  "blocked_at_utc", "resolved_at_utc", "closed_at_utc",
+  "objective", "expected_outcome", "current_situation", "success_metric",
+  "next_action", "next_action_owner", "next_action_due_at_utc",
+  "blocker", "blocker_owner", "unblock_action",
+  "requires_reply", "reply_sla_hours", "follow_up_rule", "escalation_rule",
+  "waiting_for_person", "waiting_for_person_id", "waiting_since_at_utc",
+  "waiting_last_reply_at_utc", "no_reply_since_hours",
+  "acquisition_impact", "conversion_impact", "retention_impact",
+  "revenue_impact", "risk_level",
+  "completion_notes", "failure_reason",
+  "metric_snapshot_json", "metric_snapshot_captured_at_utc",
+  "related_campaigns", "related_channels", "related_tasks",
+  "related_decision_ids", "related_learning_ids", "related_report_ids",
+  "evidence_links",
+  "created_by", "updated_at",
+]);
+
+const FOLLOW_UP_WRITABLE = new Set<string>([
+  "workspace_id", "demand_id", "target_person", "target_person_id", "target_role",
+  "channel", "sent_by", "message_type", "message_text",
+  "sent_at_utc", "due_reply_at_utc", "replied_at_utc",
+  "reply_status", "reply_quality", "response_text", "response_summary",
+  "is_sla_breached", "breach_hours",
+  "follow_up_number", "escalate_if_no_reply", "escalation_target", "outcome",
+  "updated_at",
+]);
+
+const EXPERIMENT_WRITABLE = new Set<string>([
+  "workspace_id", "title", "hypothesis", "area", "channel", "owner",
+  "status", "priority", "start_date_utc", "end_date_utc",
+  "baseline_metric", "target_metric", "current_metric",
+  "expected_impact", "actual_impact", "confidence",
+  "test_type", "sample_size", "stop_rule", "win_rule", "loss_rule",
+  "final_decision_reason", "decision", "next_step",
+  "linked_demand_ids", "linked_campaigns", "learning_summary",
+  "metric_snapshot_json", "metric_snapshot_captured_at_utc",
+  "updated_at",
+]);
+
+function pick<T extends Record<string, unknown>>(
+  obj: T,
+  allowed: Set<string>
+): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) {
+    if (allowed.has(k)) out[k] = obj[k];
+  }
+  return out as Partial<T>;
+}
+
 // Mission Control DB helpers. Every write goes through here so the activity
 // log stays in lockstep with state changes and SLA fields stay consistent.
 
@@ -191,7 +252,7 @@ export async function createDemand(
   input: Partial<Demand>,
   actor?: string
 ): Promise<Demand> {
-  const payload = applyDerivedFields({
+  const rawPayload = applyDerivedFields({
     ...input,
     workspace_id: workspaceId,
     first_seen_at_utc: input.first_seen_at_utc ?? new Date().toISOString(),
@@ -199,6 +260,7 @@ export async function createDemand(
       input.created_at_local ??
       new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
   });
+  const payload = pick(rawPayload as Record<string, unknown>, DEMAND_WRITABLE);
 
   const { data, error } = await supabase
     .from("mc_demands")
@@ -250,7 +312,8 @@ export async function updateDemand(
     if (missing.length > 0) throw new CompletionRequiredError(missing);
   }
 
-  const payload = applyDerivedFields(input, before);
+  const rawPayload = applyDerivedFields(input, before);
+  const payload = pick(rawPayload as Record<string, unknown>, DEMAND_WRITABLE);
   const { data, error } = await supabase
     .from("mc_demands")
     .update(payload)
@@ -459,9 +522,10 @@ export async function createFollowUp(
     outcome: input.outcome ?? null,
   };
 
+  const safePayload = pick(payload as Record<string, unknown>, FOLLOW_UP_WRITABLE);
   const { data, error } = await supabase
     .from("mc_follow_ups")
-    .insert(payload)
+    .insert(safePayload)
     .select("*")
     .single();
   if (error) throw new Error(error.message);
@@ -535,9 +599,13 @@ export async function updateFollowUp(
   input: Partial<FollowUp>,
   actor?: string
 ): Promise<FollowUp> {
+  const patch = pick(
+    { ...input, updated_at: new Date().toISOString() } as Record<string, unknown>,
+    FOLLOW_UP_WRITABLE
+  );
   const { data, error } = await supabase
     .from("mc_follow_ups")
-    .update({ ...input, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq("id", id)
     .eq("workspace_id", workspaceId)
     .select("*")
@@ -656,9 +724,13 @@ export async function saveExperiment(
   input: Partial<Experiment> & { id?: string }
 ): Promise<Experiment> {
   if (input.id) {
+    const patch = pick(
+      { ...input, updated_at: new Date().toISOString() } as Record<string, unknown>,
+      EXPERIMENT_WRITABLE
+    );
     const { data, error } = await supabase
       .from("mc_experiments")
-      .update({ ...input, updated_at: new Date().toISOString() })
+      .update(patch)
       .eq("id", input.id)
       .eq("workspace_id", workspaceId)
       .select("*")
@@ -666,9 +738,13 @@ export async function saveExperiment(
     if (error) throw new Error(error.message);
     return data as Experiment;
   }
+  const payload = pick(
+    { ...input, workspace_id: workspaceId } as Record<string, unknown>,
+    EXPERIMENT_WRITABLE
+  );
   const { data, error } = await supabase
     .from("mc_experiments")
-    .insert({ ...input, workspace_id: workspaceId })
+    .insert(payload)
     .select("*")
     .single();
   if (error) throw new Error(error.message);
