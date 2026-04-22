@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { mapItemToEccosys, buildCategorizationBody } from "@/lib/pre-cadastro/map-to-eccosys";
 import { resolveTemplate } from "@/lib/pre-cadastro/openai-analyzer";
-import { generateEAN14 } from "@/lib/pre-cadastro/ean14";
+import { generateEAN13, isValidEAN13 } from "@/lib/pre-cadastro/ean13";
 import type { CollectionItem, TemplateData } from "@/lib/pre-cadastro/types";
 
 export const maxDuration = 300;
@@ -194,7 +194,9 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < grade.length; i++) {
           const size = grade[i];
           const childCodigo = `${parentCodigo}-${i + 1}`;
-          const ean = generateEAN14();
+          let ean = generateEAN13();
+          // Defensive: regenerate on the off-chance of a malformed code
+          while (!isValidEAN13(ean)) ean = generateEAN13();
 
           try {
             const childBody = {
