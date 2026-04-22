@@ -51,23 +51,26 @@ async function pickWorkspace(): Promise<string> {
   return data[0].id;
 }
 
+// PostgREST doesn't expose information_schema. We probe the columns by asking
+// PostgREST for `select=<col1>,<col2>,...&limit=0` on the target table.
+// If a column doesn't exist the whole call 400s with the column name in the
+// error — which tells us exactly what's missing.
 async function expectColumns(table: string, required: string[]) {
-  const { data, error } = await supabase
-    .from("information_schema.columns" as never)
-    .select("column_name")
-    .eq("table_schema", "public")
-    .eq("table_name", table);
-  if (error) {
-    record(`columns ${table}`, false, error.message);
+  const { error } = await supabase
+    .from(table)
+    .select(required.join(","))
+    .limit(0);
+  if (!error) {
+    record(`columns ${table}`, true, `${required.length} OK`);
     return;
   }
-  const present = new Set((data ?? []).map((r: { column_name: string }) => r.column_name));
-  const missing = required.filter((c) => !present.has(c));
-  record(
-    `columns ${table}`,
-    missing.length === 0,
-    missing.length ? `missing: ${missing.join(", ")}` : `${required.length} OK`
-  );
+  // Parse "column X does not exist" or PostgREST's "Could not find the 'X' column"
+  const msg = error.message;
+  const m =
+    msg.match(/column ([\w.]+) does not exist/i) ||
+    msg.match(/Could not find the '([^']+)' column/i);
+  const hint = m ? `missing: ${m[1]}` : msg;
+  record(`columns ${table}`, false, hint);
 }
 
 async function main() {
