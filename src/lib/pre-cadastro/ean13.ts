@@ -6,9 +6,17 @@
  *   sum = sum(d[i] * (i % 2 === 0 ? 1 : 3)) for i in 0..11
  *   check = (10 - sum % 10) % 10
  *
- * Equivalent to the validation used by ronanguilloux/IsoCodes (Gtin/Ean13),
- * which checks that the full 13-digit sum is divisible by 10.
+ * Prefix policy: GS1 reserves the range 20–29 ("restricted distribution,
+ * MO-defined") for internal / in-store company use that does not require
+ * a licensed GS1 Company Prefix. We use "2" as the first digit so every
+ * generated code sits inside that range — a valid GS1 prefix without
+ * colliding with any real manufacturer's assigned range (e.g. 789/790 Brazil).
+ *
+ * Validation is equivalent to ronanguilloux/IsoCodes (Gtin/Ean13):
+ * the full 13-digit sum (weights 1,3,1,3,...) is divisible by 10.
  */
+
+export const EAN13_PREFIX = "2"; // GS1 restricted-distribution range (20–29)
 
 function calculateCheckDigit(digits12: string): number {
   let sum = 0;
@@ -20,14 +28,11 @@ function calculateCheckDigit(digits12: string): number {
 }
 
 /**
- * Generates a valid EAN-13 code with random data digits.
- * The first digit is forced to be non-zero so the code is always 13 chars
- * when serialized as a number-like string.
+ * Generates a valid EAN-13 code in the GS1 restricted-distribution range (2xx).
+ * Layout: "2" + 11 random digits + GS1 mod-10 check digit.
  */
 export function generateEAN13(): string {
-  let body = "";
-  // First digit: 1-9 (avoid leading zero)
-  body += String(Math.floor(Math.random() * 9) + 1);
+  let body = EAN13_PREFIX;
   for (let i = 1; i < 12; i++) {
     body += Math.floor(Math.random() * 10).toString();
   }
