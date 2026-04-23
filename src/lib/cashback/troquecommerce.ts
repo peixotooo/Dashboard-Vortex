@@ -99,17 +99,28 @@ export async function getExchangesForOrder(
 }
 
 // --- Webhook payload (incoming from Troquecommerce) ---
+//
+// Fields we rely on: id, ecommerce_number, status, price (optionally
+// exchange_value + refund_value as fallback). Other fields documented for
+// reference — Troquecommerce adds new ones over time (e.g.
+// replaced_order_ecommerce_number, coupon_used_on_order, items[].seller).
 
 export interface TroqueWebhookPayload {
   id: string;
   ecommerce_number: string;
+  replaced_order_ecommerce_number?: string;
   status: string;
   reverse_type: string;
   client: { email?: string; name?: string };
   price: number;
   exchange_value: number;
   refund_value: number;
+  discount?: number;
+  order_shipping_cost?: number;
+  retained_value?: number | null;
+  coupon_used_on_order?: string | null;
   items?: unknown[];
+  sellers?: string[] | null;
 }
 
 export function isTroqueWebhookPayload(body: unknown): body is TroqueWebhookPayload {
@@ -125,22 +136,24 @@ export function isTroqueWebhookPayload(body: unknown): body is TroqueWebhookPayl
 /**
  * Status values that should trigger cashback deduction. "Recusada"/"Cancelada"
  * are ignored — those mean the exchange was rejected and cashback stays whole.
+ *
+ * Uses string prefixes/substrings to tolerate gender variations
+ * (e.g. "Finalizado" masc vs "Finalizada" fem), accent differences
+ * ("Em Trânsito" vs "Em Transito"), and minor punctuation.
  */
-const ACTIVE_STATUSES = [
-  "aprovada",
-  "reversa aprovada",
-  "em trânsito",
-  "em transito",
-  "coletado",
-  "recebida",
-  "entregue",
-  "finalizada",
+const ACTIVE_STATUS_MATCHERS: Array<(s: string) => boolean> = [
+  (s) => s.includes("aprovad"),          // Reversa Aprovada
+  (s) => s.includes("em trânsito") || s.includes("em transito"),
+  (s) => s.includes("coletad"),          // Coletado
+  (s) => s.includes("recebid"),          // Produtos recebidos / Itens recebidos
+  (s) => s.includes("entreg"),           // Entregue / Entrega Realizada
+  (s) => s.includes("finaliz"),          // Finalizado / Finalizada / Reversa finalizada
 ];
 
 export function isActiveExchangeStatus(status: string): boolean {
   const s = status.toLowerCase().trim();
   if (s.includes("recus") || s.includes("cancel")) return false;
-  return ACTIVE_STATUSES.some((a) => s.includes(a));
+  return ACTIVE_STATUS_MATCHERS.some((fn) => fn(s));
 }
 
 export interface DeductionResult {
