@@ -590,6 +590,8 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
   const [smtpToken, setSmtpToken] = useState("");
   const [smtpForm, setSmtpForm] = useState({ from_email: "", from_name: "", reply_to: "" });
   const [troqueToken, setTroqueToken] = useState("");
+  const [troqueWebhookUrl, setTroqueWebhookUrl] = useState<string | null>(null);
+  const [troqueActivity, setTroqueActivity] = useState<{ total: number; processed: number; no_cashback: number; duplicate: number; error: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -607,6 +609,8 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
       from_name: i.smtp?.from_name || "",
       reply_to: i.smtp?.reply_to || "",
     });
+    setTroqueWebhookUrl(i.troque?.webhook_url || null);
+    setTroqueActivity(i.troque_webhook_activity_7d || null);
   }, [workspaceId]);
 
   useEffect(() => { load(); }, [load]);
@@ -940,13 +944,40 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
 
         <Card>
           <CardHeader><CardTitle>Troquecommerce</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <div className="grid gap-1 md:max-w-sm">
-              <Label>Token da API</Label>
+              <Label>Token da API (polling fallback — opcional)</Label>
               <Input type="password" value={troqueToken} onChange={(e) => setTroqueToken(e.target.value)} placeholder="Bearer token" />
             </div>
             <div className="flex justify-end"><Button onClick={saveTroque} disabled={saving}>Salvar token</Button></div>
-            <p className="text-xs text-muted-foreground">Quando habilitado nas regras, o job D+15 abate automaticamente 10% do valor de trocas do cashback do pedido.</p>
+
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+              <Label className="text-sm font-semibold text-amber-400">URL do webhook (cole no painel do Troquecommerce)</Label>
+              {troqueWebhookUrl ? (
+                <div className="flex gap-2">
+                  <Input readOnly value={troqueWebhookUrl} className="font-mono text-xs" />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(troqueWebhookUrl);
+                    }}
+                  >
+                    Copiar
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Salve o token acima primeiro — a URL é gerada junto.</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Troquecommerce envia o webhook sempre que uma troca/devolução muda de status. Quando a status indica troca ativa (aprovada, em trânsito, entregue, finalizada), o sistema abate <strong>{cfg.percentage}%</strong> do valor do item do cashback correspondente. Idempotente por `external_id` — reenvios não duplicam.
+              </p>
+              {troqueActivity && (
+                <p className="text-xs text-muted-foreground">
+                  Últimos 7 dias: <strong>{troqueActivity.total}</strong> webhooks · {troqueActivity.processed} processados · {troqueActivity.no_cashback} sem cashback · {troqueActivity.duplicate} duplicados · {troqueActivity.error} erros
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       </TabsContent>

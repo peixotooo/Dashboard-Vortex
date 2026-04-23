@@ -20,15 +20,38 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
     auth!.admin
       .from("troquecommerce_config")
-      .select("base_url, updated_at")
+      .select("base_url, webhook_token, updated_at")
       .eq("workspace_id", auth!.workspaceId)
       .maybeSingle(),
   ]);
 
+  const origin = request.nextUrl.origin;
+  const troqueWebhookUrl = troque?.webhook_token
+    ? `${origin}/api/webhooks/troquecommerce?token=${troque.webhook_token}`
+    : null;
+
+  // Recent webhook activity (last 7 days)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+  const { data: recentWebhooks } = await auth!.admin
+    .from("troquecommerce_webhook_logs")
+    .select("status, created_at")
+    .eq("workspace_id", auth!.workspaceId)
+    .gte("created_at", sevenDaysAgo.toISOString());
+
   return NextResponse.json({
     vnda: vnda ?? [],
     smtp: smtp ?? null,
-    troque: troque ?? null,
+    troque: troque
+      ? { base_url: troque.base_url, updated_at: troque.updated_at, webhook_url: troqueWebhookUrl }
+      : null,
+    troque_webhook_activity_7d: {
+      total: recentWebhooks?.length ?? 0,
+      processed: (recentWebhooks ?? []).filter((r) => r.status === "processed").length,
+      no_cashback: (recentWebhooks ?? []).filter((r) => r.status === "no_cashback").length,
+      duplicate: (recentWebhooks ?? []).filter((r) => r.status === "duplicate").length,
+      error: (recentWebhooks ?? []).filter((r) => r.status === "error").length,
+    },
   });
 }
 

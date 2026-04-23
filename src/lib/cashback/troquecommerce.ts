@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logEvent, type CashbackConfigRow, type CashbackTransactionRow } from "./api";
+import { withdrawalVndaCredit, getVndaCreditsConfigFromDb } from "./vnda-credits";
 
 export interface TroqueConfig {
   apiToken: string;
@@ -94,4 +96,144 @@ export async function getExchangesForOrder(
   } catch {
     return { totalValue: 0, count: 0, raw: null };
   }
+}
+
+// --- Webhook payload (incoming from Troquecommerce) ---
+
+export interface TroqueWebhookPayload {
+  id: string;
+  ecommerce_number: string;
+  status: string;
+  reverse_type: string;
+  client: { email?: string; name?: string };
+  price: number;
+  exchange_value: number;
+  refund_value: number;
+  items?: unknown[];
+}
+
+export function isTroqueWebhookPayload(body: unknown): body is TroqueWebhookPayload {
+  if (!body || typeof body !== "object") return false;
+  const o = body as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.ecommerce_number === "string" &&
+    typeof o.status === "string"
+  );
+}
+
+/**
+ * Status values that should trigger cashback deduction. "Recusada"/"Cancelada"
+ * are ignored — those mean the exchange was rejected and cashback stays whole.
+ */
+const ACTIVE_STATUSES = [
+  "aprovada",
+  "reversa aprovada",
+  "em trânsito",
+  "em transito",
+  "coletado",
+  "recebida",
+  "entregue",
+  "finalizada",
+];
+
+export function isActiveExchangeStatus(status: string): boolean {
+  const s = status.toLowerCase().trim();
+  if (s.includes("recus") || s.includes("cancel")) return false;
+  return ACTIVE_STATUSES.some((a) => s.includes(a));
+}
+
+export interface DeductionResult {
+  applied: boolean;
+  skipped?: string;
+  amountDeducted?: number;
+  previousCashback?: number;
+  newCashback?: number;
+  vndaWithdrawalOk?: boolean;
+  vndaWithdrawalError?: string;
+}
+
+/**
+ * Applies an exchange deduction to a cashback row. Idempotency: the webhook
+ * handler must check troquecommerce_webhook_logs for the external id BEFORE
+ * calling this; this function itself only guards via `troca_abatida=true`.
+ *
+ * Rule: cut = percentage × exchangeValue. Cap at current cashback amount.
+ *
+ * If cashback is still AGUARDANDO_DEPOSITO: reduces valor_cashback directly
+ * (the cron later deposits the reduced amount).
+ * If already ATIVO/REATIVADO: reduces valor_cashback AND issues a withdrawal
+ * in VNDA so the wallet matches.
+ * If USADO/EXPIRADO/CANCELADO: logs only, no action.
+ */
+export async function applyExchangeDeduction(
+  cashback: CashbackTransactionRow,
+  cfg: CashbackConfigRow,
+  exchangeValue: number,
+  admin: SupabaseClient
+): Promise<DeductionResult> {
+  if (cashback.troca_abatida) {
+    return { applied: false, skipped: "already_deducted" };
+  }
+  if (cashback.status === "USADO" || cashback.status === "CANCELADO") {
+    return { applied: false, skipped: `cashback_${cashback.status.toLowerCase()}` };
+  }
+
+  const rawCut = exchangeValue * (Number(cfg.percentage) / 100);
+  const cut = Math.min(Number(cashback.valor_cashback), Number(rawCut.toFixed(2)));
+  if (cut <= 0) {
+    return { applied: false, skipped: "zero_cut" };
+  }
+
+  const newAmount = Math.max(0, Number((Number(cashback.valor_cashback) - cut).toFixed(2)));
+  const result: DeductionResult = {
+    applied: true,
+    amountDeducted: cut,
+    previousCashback: Number(cashback.valor_cashback),
+    newCashback: newAmount,
+  };
+
+  if (cashback.status === "ATIVO" || cashback.status === "REATIVADO") {
+    if (cfg.enable_deposit) {
+      const vnda = await getVndaCreditsConfigFromDb(cashback.workspace_id, admin);
+      if (vnda) {
+        const w = await withdrawalVndaCredit(vnda, {
+          email: cashback.email,
+          amount: cut,
+          description: `Abate cashback — troca pedido #${cashback.numero_pedido || cashback.source_order_id}`,
+        });
+        result.vndaWithdrawalOk = w.ok;
+        if (!w.ok) result.vndaWithdrawalError = w.error;
+      } else {
+        result.vndaWithdrawalOk = false;
+        result.vndaWithdrawalError = "no_vnda_config";
+      }
+    } else {
+      result.vndaWithdrawalOk = true;
+      result.vndaWithdrawalError = "deposit_flag_off_skipped_withdrawal";
+    }
+  }
+
+  await admin
+    .from("cashback_transactions")
+    .update({
+      valor_cashback: newAmount,
+      troca_abatida: true,
+      valor_troca_abatida: cut,
+      // If reducing to zero for a not-yet-deposited cashback, cancel it
+      status: newAmount <= 0 && cashback.status === "AGUARDANDO_DEPOSITO" ? "CANCELADO" : cashback.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", cashback.id);
+
+  await logEvent(admin, cashback.workspace_id, cashback.id, "TROCA_ABATIDA", {
+    exchange_value: exchangeValue,
+    cut,
+    previous: cashback.valor_cashback,
+    new: newAmount,
+    vnda_withdrawal_ok: result.vndaWithdrawalOk,
+    vnda_withdrawal_error: result.vndaWithdrawalError,
+  });
+
+  return result;
 }
