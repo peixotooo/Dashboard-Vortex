@@ -104,6 +104,28 @@ interface VndaConnection {
   enable_cashback: boolean;
 }
 
+interface TroqueLog {
+  id: string;
+  external_id: string | null;
+  ecommerce_number: string | null;
+  reverse_type: string | null;
+  status: string;
+  cashback_id: string | null;
+  amount_deducted: number | null;
+  payload: unknown;
+  error_message: string | null;
+  created_at: string;
+}
+
+const TROQUE_STATUS_COLORS: Record<string, string> = {
+  processed: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  no_cashback: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  duplicate: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+  ignored_status: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+  skipped: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
+  error: "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
 // --- Helpers ---
 
 const BRL = (v: number) =>
@@ -581,6 +603,125 @@ function BatchReactivateDialog({
 
 // --- Config Tab ---
 
+function TroqueLogsCard({ workspaceId }: { workspaceId: string }) {
+  const [logs, setLogs] = useState<TroqueLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [auto, setAuto] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!workspaceId) return;
+    const res = await fetch(`/api/cashback/troque-logs?limit=50`, {
+      headers: { "x-workspace-id": workspaceId },
+    });
+    if (res.ok) {
+      const j = await res.json();
+      setLogs(j.logs);
+    }
+    setLoading(false);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!auto) return;
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, [auto, load]);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="flex items-center gap-2">
+          Logs do webhook Troquecommerce
+          {auto && <span className="ml-2 h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" title="polling a cada 15s" />}
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <Switch checked={auto} onCheckedChange={setAuto} />
+            <Label className="text-xs text-muted-foreground">Auto-refresh (15s)</Label>
+          </div>
+          <Button variant="outline" size="sm" onClick={load}>
+            <RefreshCcw className="mr-2 h-3 w-3" /> Atualizar
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando…
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            Nenhum webhook recebido ainda. Cole a URL acima no painel do Troquecommerce e aguarde a primeira troca/devolução.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="px-3 py-2 text-left font-medium">Quando</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">Pedido VNDA</th>
+                  <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                  <th className="px-3 py-2 text-right font-medium">Abate</th>
+                  <th className="px-3 py-2 text-right font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <React.Fragment key={l.id}>
+                    <tr className="border-b hover:bg-muted/30">
+                      <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(l.created_at).toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline" className={TROQUE_STATUS_COLORS[l.status] || ""}>
+                          {l.status}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">{l.ecommerce_number || "—"}</td>
+                      <td className="px-3 py-2 text-xs">{l.reverse_type || "—"}</td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        {l.amount_deducted ? BRL(Number(l.amount_deducted)) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => setExpanded(expanded === l.id ? null : l.id)}>
+                          {expanded === l.id ? "ocultar" : "ver payload"}
+                        </Button>
+                      </td>
+                    </tr>
+                    {expanded === l.id && (
+                      <tr className="border-b bg-muted/20">
+                        <td colSpan={6} className="px-3 py-3">
+                          {l.error_message && (
+                            <div className="mb-2 rounded-md border border-red-500/30 bg-red-500/5 p-2 text-xs text-red-400">
+                              <strong>Erro:</strong> {l.error_message}
+                            </div>
+                          )}
+                          <div className="text-xs text-muted-foreground mb-1">
+                            external_id: <span className="font-mono">{l.external_id || "—"}</span>
+                            {l.cashback_id && <> · cashback_id: <span className="font-mono">{l.cashback_id.slice(0, 8)}…</span></>}
+                          </div>
+                          <pre className="max-h-64 overflow-auto rounded-md bg-black/30 p-3 text-xs font-mono">
+                            {JSON.stringify(l.payload, null, 2)}
+                          </pre>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ConfigTab({ workspaceId }: { workspaceId: string }) {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -980,6 +1121,8 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
             </div>
           </CardContent>
         </Card>
+
+        <TroqueLogsCard workspaceId={workspaceId} />
       </TabsContent>
     </Tabs>
   );

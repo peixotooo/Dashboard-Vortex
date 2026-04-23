@@ -5,6 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface VndaCreditsConfig {
   apiToken: string;
   baseUrl: string;
+  /** Required by VNDA to route to the correct shop (e.g. "www.bulking.com.br"). */
+  shopHost: string;
+  /** Issuer label that shows up on the VNDA credits ledger entry. */
+  issuer: string;
 }
 
 export interface VndaCreditOperationResult {
@@ -17,17 +21,23 @@ export interface VndaCreditOperationResult {
 export interface VndaDepositInput {
   email: string;
   amount: number;
-  description: string;
-  expiresAt: Date;
+  /** Unique idempotent identifier (goes in the `reference` field). */
+  reference: string;
+  validFrom?: Date;
+  validUntil: Date;
+  /** Event type — defaults to "cashback". */
+  event?: string;
 }
 
 export interface VndaWithdrawalInput {
   email: string;
   amount: number;
-  description: string;
+  reference: string;
+  event?: string;
 }
 
 const DEFAULT_BASE_URL = "https://api.vnda.com.br";
+const DEFAULT_ISSUER = "BulkingClub";
 
 export async function getVndaCreditsConfigFromDb(
   workspaceId: string,
@@ -36,16 +46,18 @@ export async function getVndaCreditsConfigFromDb(
   const client = admin ?? createAdminClient();
   const { data } = await client
     .from("vnda_connections")
-    .select("api_token")
+    .select("api_token, store_host")
     .eq("workspace_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
-  if (!data?.api_token) return null;
+  if (!data?.api_token || !data?.store_host) return null;
   return {
     apiToken: decrypt(data.api_token),
     baseUrl: DEFAULT_BASE_URL,
+    shopHost: data.store_host,
+    issuer: DEFAULT_ISSUER,
   };
 }
 
@@ -58,7 +70,8 @@ async function vndaFetch(
     const res = await fetch(`${cfg.baseUrl}${path}`, {
       ...init,
       headers: {
-        Authorization: `Token ${cfg.apiToken}`,
+        Authorization: `Bearer ${cfg.apiToken}`,
+        "X-Shop-Host": cfg.shopHost,
         "Content-Type": "application/json",
         Accept: "application/json",
         ...(init.headers || {}),
@@ -97,11 +110,14 @@ export function depositVndaCredit(
   return vndaFetch(cfg, "/credits/deposit", {
     method: "POST",
     body: JSON.stringify({
-      email: input.email,
       client_identifier: "email",
+      event: input.event || "cashback",
+      email: input.email,
+      reference: input.reference,
+      issuer: cfg.issuer,
       amount: Number(input.amount.toFixed(2)),
-      description: input.description,
-      expires_at: input.expiresAt.toISOString(),
+      valid_from: (input.validFrom ?? new Date()).toISOString(),
+      valid_until: input.validUntil.toISOString(),
     }),
   });
 }
@@ -113,10 +129,12 @@ export function withdrawalVndaCredit(
   return vndaFetch(cfg, "/credits/withdrawal", {
     method: "POST",
     body: JSON.stringify({
-      email: input.email,
       client_identifier: "email",
+      event: input.event || "cashback",
+      email: input.email,
+      reference: input.reference,
+      issuer: cfg.issuer,
       amount: Number(input.amount.toFixed(2)),
-      description: input.description,
     }),
   });
 }
@@ -128,10 +146,12 @@ export function refundVndaCredit(
   return vndaFetch(cfg, "/credits/refund", {
     method: "POST",
     body: JSON.stringify({
-      email: input.email,
       client_identifier: "email",
+      event: input.event || "cashback",
+      email: input.email,
+      reference: input.reference,
+      issuer: cfg.issuer,
       amount: Number(input.amount.toFixed(2)),
-      description: input.description,
     }),
   });
 }

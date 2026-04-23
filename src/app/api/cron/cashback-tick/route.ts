@@ -146,8 +146,9 @@ async function runDepositAndFirstReminder(
       const res = await depositVndaCredit(vnda, {
         email: c.email,
         amount,
-        description: `Cashback pedido #${c.numero_pedido || c.source_order_id}`,
-        expiresAt: expira,
+        reference: `BULKING-CASHBACK-${c.id}`,
+        validFrom: now,
+        validUntil: expira,
       });
       depositOk = res.ok;
       if (!res.ok) {
@@ -262,7 +263,7 @@ async function runRefundExpired(
       const res = await refundVndaCredit(vnda, {
         email: c.email,
         amount: Number(c.valor_cashback),
-        description: `Estorno cashback expirado pedido #${c.numero_pedido || c.source_order_id}`,
+        reference: `BULKING-REFUND-${c.id}`,
       });
       if (!res.ok) {
         summary.refund.failed++;

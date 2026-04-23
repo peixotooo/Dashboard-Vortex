@@ -213,7 +213,7 @@ export async function applyExchangeDeduction(
         const w = await withdrawalVndaCredit(vnda, {
           email: cashback.email,
           amount: cut,
-          description: `Abate cashback — troca pedido #${cashback.numero_pedido || cashback.source_order_id}`,
+          reference: `BULKING-TROCA-WITHDRAWAL-${cashback.id}-${Date.now()}`,
         });
         result.vndaWithdrawalOk = w.ok;
         if (!w.ok) result.vndaWithdrawalError = w.error;

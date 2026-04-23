@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
         const dep = await depositVndaCredit(vnda, {
           email: c.email,
           amount: Number(c.valor_cashback),
-          description: `Reativação cashback pedido #${c.numero_pedido || c.source_order_id}`,
-          expiresAt: newExpires,
+          reference: `BULKING-REACTIVATION-${c.id}-${Date.now()}`,
+          validUntil: newExpires,
         });
         if (!dep.ok) {
           failures.push({ id: c.id, error: `vnda:${dep.error}` });
