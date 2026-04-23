@@ -4,6 +4,12 @@ import {
   mapVndaPayloadToCrmRow,
   validateWebhookPayload,
 } from "@/lib/vnda-webhook";
+import {
+  createCashbackFromOrder,
+  markAsUsedFromOrder,
+  cancelCashback,
+  extractCreditUsed,
+} from "@/lib/cashback/api";
 
 export const maxDuration = 30;
 
@@ -27,7 +33,7 @@ export async function POST(request: NextRequest) {
     Promise.resolve(
       admin
         .from("vnda_connections")
-        .select("workspace_id")
+        .select("workspace_id, enable_cashback")
         .eq("webhook_token", token)
         .limit(1)
         .single()
@@ -47,6 +53,9 @@ export async function POST(request: NextRequest) {
   }
 
   const workspaceId = connection.workspace_id as string;
+  const enableCashback = Boolean(
+    (connection as { enable_cashback?: boolean }).enable_cashback
+  );
 
   let payload: unknown;
   try {
@@ -106,6 +115,27 @@ export async function POST(request: NextRequest) {
       .from("crm_rfm_snapshots")
       .delete()
       .eq("workspace_id", workspaceId);
+
+    // Cashback dispatch — isolated so any failure never breaks the webhook.
+    if (enableCashback) {
+      try {
+        const status = (payload.status || "").toLowerCase();
+        const creditUsed = extractCreditUsed(payload);
+
+        if (status === "cancelled" || status === "canceled") {
+          await cancelCashback(workspaceId, orderId, admin);
+        } else if (creditUsed > 0) {
+          await markAsUsedFromOrder(workspaceId, payload, { admin });
+        } else {
+          await createCashbackFromOrder(workspaceId, payload, { admin });
+        }
+      } catch (cashbackErr) {
+        console.error(
+          `[VNDA Webhook] Cashback dispatch failed for order ${orderId}:`,
+          cashbackErr instanceof Error ? cashbackErr.message : cashbackErr
+        );
+      }
+    }
 
     return NextResponse.json({ ok: true, status: "created" });
   } catch (err) {

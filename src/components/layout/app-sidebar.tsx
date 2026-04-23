@@ -42,6 +42,7 @@ import {
   Inbox,
   AlertTriangle,
   ShieldAlert,
+  Coins,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -157,6 +158,7 @@ const navGroups: NavGroup[] = [
         icon: Contact,
         items: [
           { title: "CRM", href: "/crm", icon: Contact },
+          { title: "Cashback", href: "/crm/cashback", icon: Coins },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
           { title: "WhatsApp Grupos", href: "/whatsapp-groups", icon: Users },
         ],
