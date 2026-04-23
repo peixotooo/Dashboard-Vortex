@@ -260,10 +260,16 @@ async function runRefundExpired(
     summary.refund.processed++;
 
     if (cfg.enable_refund && vnda) {
+      // VNDA refund requires the SAME reference as the original deposit
+      // (discovered during E2E — refund with a different reference was
+      // accepted with HTTP 201 but did not debit the wallet).
+      const originalRef = c.reativado
+        ? `BULKING-REACTIVATION-${c.id}`
+        : `BULKING-CASHBACK-${c.id}`;
       const res = await refundVndaCredit(vnda, {
         email: c.email,
         amount: Number(c.valor_cashback),
-        reference: `BULKING-REFUND-${c.id}`,
+        reference: originalRef,
       });
       if (!res.ok) {
         summary.refund.failed++;

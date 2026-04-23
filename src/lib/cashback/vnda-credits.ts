@@ -163,9 +163,29 @@ export async function getVndaBalance(
   const params = new URLSearchParams({ email, client_identifier: "email" });
   const result = await vndaFetch(cfg, `/credits/balance?${params}`, { method: "GET" });
   if (!result.ok) return { balance: null, raw: result.data ?? null };
-  const balance =
-    (result.data as { balance?: number; amount?: number } | null)?.balance ??
-    (result.data as { amount?: number } | null)?.amount ??
-    null;
-  return { balance: typeof balance === "number" ? balance : null, raw: result.data };
+
+  const d = result.data as
+    | {
+        balance?: number;
+        amount?: number;
+        total?: number;
+        available?: number;
+        credits?: Array<{ amount?: number }>;
+        data?: { balance?: number; total?: number };
+      }
+    | null;
+
+  // VNDA's /credits/balance shape varies by account; try all known keys.
+  let balance: number | null = null;
+  if (typeof d?.balance === "number") balance = d.balance;
+  else if (typeof d?.total === "number") balance = d.total;
+  else if (typeof d?.available === "number") balance = d.available;
+  else if (typeof d?.amount === "number") balance = d.amount;
+  else if (typeof d?.data?.balance === "number") balance = d.data.balance;
+  else if (typeof d?.data?.total === "number") balance = d.data.total;
+  else if (Array.isArray(d?.credits)) {
+    balance = d.credits.reduce((sum, c) => sum + (typeof c.amount === "number" ? c.amount : 0), 0);
+  }
+
+  return { balance, raw: result.data };
 }

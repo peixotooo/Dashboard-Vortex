@@ -74,6 +74,7 @@ async function main() {
 
   const before = await balance(token, shopHost);
   console.log(`1. Balance BEFORE → HTTP ${before.http} · balance=${before.balance}`);
+  console.log(`   RAW: ${JSON.stringify(before.raw).slice(0, 500)}`);
 
   const now = new Date();
   const validUntil = new Date();
@@ -102,16 +103,17 @@ async function main() {
   const after = await balance(token, shopHost);
   console.log(`3. Balance AFTER deposit → HTTP ${after.http} · balance=${after.balance}`);
 
+  // Refund MUST use the exact same reference as the deposit to debit the wallet
   const refundBody = {
     client_identifier: "email",
     event: "cashback",
     email: TARGET_EMAIL,
-    reference: `BULKING-E2E-REFUND-${Date.now()}`,
+    reference,                      // ← matching reference of deposit
     issuer: "BulkingClub",
     amount: AMOUNT,
   };
   const ref = await call("/credits/refund", token, shopHost, "POST", refundBody);
-  console.log(`4. /credits/refund → HTTP ${ref.status} ·`, JSON.stringify(ref.body)?.slice(0, 300));
+  console.log(`4. /credits/refund (matching reference) → HTTP ${ref.status} ·`, JSON.stringify(ref.body)?.slice(0, 300));
 
   await new Promise((r) => setTimeout(r, 1500));
   const final = await balance(token, shopHost);

@@ -40,10 +40,13 @@ export async function POST(
     if (!vnda) return NextResponse.json({ error: "no_vnda_config" }, { status: 400 });
     const newExpires = new Date();
     newExpires.setUTCDate(newExpires.getUTCDate() + cfg.reactivation_days);
+    // Stable reference so a future refund (D+30) can match it exactly.
+    // Reactivation is guarded by reativado=true in the FSM so the reference
+    // can't be reused for a second reactivation.
     const dep = await depositVndaCredit(vnda, {
       email: current.email,
       amount: Number(current.valor_cashback),
-      reference: `BULKING-REACTIVATION-${current.id}-${Date.now()}`,
+      reference: `BULKING-REACTIVATION-${current.id}`,
       validUntil: newExpires,
     });
     if (!dep.ok) {

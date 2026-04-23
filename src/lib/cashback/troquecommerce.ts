@@ -210,10 +210,12 @@ export async function applyExchangeDeduction(
     if (cfg.enable_deposit) {
       const vnda = await getVndaCreditsConfigFromDb(cashback.workspace_id, admin);
       if (vnda) {
+        // Stable reference — our own troca_abatida=true flag guards against
+        // double-processing the same exchange.
         const w = await withdrawalVndaCredit(vnda, {
           email: cashback.email,
           amount: cut,
-          reference: `BULKING-TROCA-WITHDRAWAL-${cashback.id}-${Date.now()}`,
+          reference: `BULKING-TROCA-${cashback.id}`,
         });
         result.vndaWithdrawalOk = w.ok;
         if (!w.ok) result.vndaWithdrawalError = w.error;
