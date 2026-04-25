@@ -41,6 +41,14 @@ interface GiftBarStep {
   modal_body?: string;
 }
 
+interface ProductBenefit {
+  icon: string;
+  title: string;
+  link_label?: string;
+  modal_title?: string;
+  modal_body?: string;
+}
+
 interface GiftBarConfig {
   id?: string;
   workspace_id?: string;
@@ -65,6 +73,10 @@ interface GiftBarConfig {
   position: string;
   show_on_pages: string[];
   steps: GiftBarStep[];
+  show_product_benefits: boolean;
+  product_benefits: ProductBenefit[];
+  product_benefits_title: string;
+  product_benefits_anchor: string;
 }
 
 const ICON_OPTIONS = [
@@ -76,6 +88,9 @@ const ICON_OPTIONS = [
   { value: "sparkles", label: "Sparkles" },
   { value: "bag", label: "Sacola" },
   { value: "crown", label: "Coroa" },
+  { value: "medal", label: "Medalha" },
+  { value: "shirt", label: "Camiseta" },
+  { value: "info", label: "Informação" },
 ];
 
 function StepIcon({ name }: { name: string }) {
@@ -150,6 +165,29 @@ function StepIcon({ name }: { name: string }) {
           <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
         </svg>
       );
+    case "medal":
+      return (
+        <svg {...common}>
+          <path d="M7.21 15 2.66 7.14a2 2 0 0 1 .13-2.2L4.4 2.8A2 2 0 0 1 6 2h12a2 2 0 0 1 1.6.8l1.6 2.14a2 2 0 0 1 .14 2.2L16.79 15" />
+          <path d="M11 12 5.12 2.2" />
+          <path d="M13 12l5.88-9.8" />
+          <circle cx="12" cy="17" r="5" />
+        </svg>
+      );
+    case "shirt":
+      return (
+        <svg {...common}>
+          <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />
+        </svg>
+      );
+    case "info":
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      );
     default:
       return <span style={{ fontSize: 16 }}>🎁</span>;
   }
@@ -177,6 +215,10 @@ const DEFAULT_CONFIG: GiftBarConfig = {
   position: "top",
   show_on_pages: ["all"],
   steps: [],
+  show_product_benefits: false,
+  product_benefits: [],
+  product_benefits_title: "Nossos benefícios",
+  product_benefits_anchor: "",
 };
 
 const FREE_SHIPPING_TABLE_TEMPLATE = `<p>Frete gr&aacute;tis acima do valor m&iacute;nimo para cada regi&atilde;o:</p>
@@ -349,6 +391,90 @@ export default function GiftBarPage() {
         { label: "Brinde", icon: "gift", threshold: 399 },
         { label: "Brinde", icon: "gift", threshold: 499 },
         { label: "Look", icon: "star", threshold: 599 },
+      ],
+    }));
+  }
+
+  function updateBenefit(index: number, partial: Partial<ProductBenefit>) {
+    setConfig((prev) => {
+      const next = prev.product_benefits.slice();
+      next[index] = { ...next[index], ...partial };
+      return { ...prev, product_benefits: next };
+    });
+  }
+
+  function addBenefit() {
+    setConfig((prev) => ({
+      ...prev,
+      product_benefits: [
+        ...prev.product_benefits,
+        { icon: "info", title: "Novo benefício" },
+      ],
+    }));
+  }
+
+  function removeBenefit(index: number) {
+    setConfig((prev) => ({
+      ...prev,
+      product_benefits: prev.product_benefits.filter((_, i) => i !== index),
+    }));
+  }
+
+  function moveBenefit(index: number, dir: -1 | 1) {
+    setConfig((prev) => {
+      const next = prev.product_benefits.slice();
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...prev, product_benefits: next };
+    });
+  }
+
+  function applyBulkingBenefitsPreset() {
+    setConfig((prev) => ({
+      ...prev,
+      show_product_benefits: true,
+      product_benefits_title: "Nossos benefícios",
+      product_benefits: [
+        {
+          icon: "truck",
+          title: "Frete grátis a partir de R$ 299*",
+          link_label: "Confira por região.",
+          modal_title: "Frete grátis por região",
+          modal_body: FREE_SHIPPING_TABLE_TEMPLATE,
+        },
+        {
+          icon: "percent",
+          title: "10% de Cashback na próxima compra.",
+          link_label: "Saiba mais sobre o cashback.",
+          modal_title: "Cashback Bulking",
+          modal_body:
+            "<p>A cada compra você recebe <strong>10% de cashback</strong> que vira crédito para usar na próxima.</p><p>O crédito é liberado após o prazo de troca e não acumula com outros descontos.</p>",
+        },
+        {
+          icon: "medal",
+          title: "Melhor custo benefício do Brasil.",
+          link_label: "Entenda o motivo.",
+          modal_title: "Por que somos o melhor custo benefício",
+          modal_body:
+            "<p>Tecidos premium, modelagem testada em performance e produção própria — o que garante qualidade superior por um preço menor que o mercado.</p>",
+        },
+        {
+          icon: "shirt",
+          title: "Mais cuidado, mais durabilidade.",
+          link_label: "Veja como conservar seu produto.",
+          modal_title: "Como conservar seu produto",
+          modal_body:
+            "<p>Lave do avesso, em água fria, com sabão neutro.</p><p>Não use alvejante, não passe ferro nas estampas e seque à sombra.</p>",
+        },
+        {
+          icon: "bag",
+          title: "A primeira troca é fácil e gratuita.",
+          link_label: "Confira as opções de troca aqui.",
+          modal_title: "Política de trocas",
+          modal_body:
+            "<p>Você tem até 30 dias após o recebimento para solicitar a troca pelo site.</p><p>A primeira troca é por nossa conta. Trocas seguintes do mesmo pedido têm o frete pago pelo cliente.</p>",
+        },
       ],
     }));
   }
@@ -1014,6 +1140,204 @@ export default function GiftBarPage() {
                   </Select>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Product page benefits */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-base">
+                  Benefícios na página de produto
+                </CardTitle>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={config.show_product_benefits}
+                    onCheckedChange={(v) =>
+                      updateConfig({ show_product_benefits: v })
+                    }
+                  />
+                  <Badge
+                    variant={
+                      config.show_product_benefits ? "default" : "secondary"
+                    }
+                  >
+                    {config.show_product_benefits ? "Ativo" : "Inativo"}
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Lista de benefícios renderizada abaixo do botão Comprar nas
+                páginas de produto. Cada benefício pode ter um link &quot;saiba
+                mais&quot; que abre um modal.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Título do bloco</Label>
+                  <Input
+                    value={config.product_benefits_title}
+                    onChange={(e) =>
+                      updateConfig({ product_benefits_title: e.target.value })
+                    }
+                    placeholder="Nossos benefícios"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    Seletor CSS de ancoragem{" "}
+                    <span className="text-xs text-muted-foreground font-normal">
+                      (opcional)
+                    </span>
+                  </Label>
+                  <Input
+                    value={config.product_benefits_anchor}
+                    onChange={(e) =>
+                      updateConfig({
+                        product_benefits_anchor: e.target.value,
+                      })
+                    }
+                    placeholder=".product-buy"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={applyBulkingBenefitsPreset}
+                >
+                  Preset Bulking
+                </Button>
+                <Button variant="outline" size="sm" onClick={addBenefit}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Novo benefício
+                </Button>
+              </div>
+
+              {config.product_benefits.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Nenhum benefício configurado. Use o preset Bulking ou
+                  adicione um novo.
+                </p>
+              ) : (
+                config.product_benefits.map((benefit, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border p-4 space-y-3 bg-muted/30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="font-mono">
+                        Benefício #{idx + 1}
+                      </Badge>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveBenefit(idx, -1)}
+                          disabled={idx === 0}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveBenefit(idx, 1)}
+                          disabled={
+                            idx === config.product_benefits.length - 1
+                          }
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeBenefit(idx)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="space-y-2">
+                        <Label>Ícone</Label>
+                        <Select
+                          value={benefit.icon}
+                          onValueChange={(v) =>
+                            updateBenefit(idx, { icon: v })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ICON_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>Título</Label>
+                        <Input
+                          value={benefit.title}
+                          onChange={(e) =>
+                            updateBenefit(idx, { title: e.target.value })
+                          }
+                          placeholder="ex: 10% de Cashback na próxima compra."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>
+                        Texto do link &quot;saiba mais&quot;{" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (opcional)
+                        </span>
+                      </Label>
+                      <Input
+                        value={benefit.link_label || ""}
+                        onChange={(e) =>
+                          updateBenefit(idx, { link_label: e.target.value })
+                        }
+                        placeholder="ex: Saiba mais sobre o cashback."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>
+                        Modal{" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (preencha para tornar o link clicável)
+                        </span>
+                      </Label>
+                      <Input
+                        value={benefit.modal_title || ""}
+                        onChange={(e) =>
+                          updateBenefit(idx, { modal_title: e.target.value })
+                        }
+                        placeholder="Título do modal"
+                      />
+                      <Textarea
+                        value={benefit.modal_body || ""}
+                        onChange={(e) =>
+                          updateBenefit(idx, { modal_body: e.target.value })
+                        }
+                        placeholder="Conteúdo HTML"
+                        rows={5}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </TabsContent>
