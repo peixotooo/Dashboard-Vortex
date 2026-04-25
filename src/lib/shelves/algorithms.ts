@@ -18,6 +18,8 @@ export interface RecommendationParams {
   productId?: string;
   limit: number;
   tags?: string[];
+  priceMin?: number;
+  priceMax?: number;
 }
 
 export interface ShelfProduct {
@@ -133,6 +135,8 @@ export async function getRecommendations(
       return getCustomTags(params);
     case "related_products":
       return getRelatedProducts(params);
+    case "price_range":
+      return getPriceRange(params);
     default:
       throw new Error(`Unknown algorithm: ${params.algorithm}`);
   }
@@ -325,6 +329,33 @@ async function getCustomTags(
   });
 
   return fallback
+    .slice(0, params.limit)
+    .map((p) => mapVndaToShelf(p, config.storeHost));
+}
+
+/** PriceRange: Products within a price band (uses sale_price when present, else price) */
+async function getPriceRange(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const min = Number.isFinite(params.priceMin) ? (params.priceMin as number) : 0;
+  const max = Number.isFinite(params.priceMax) ? (params.priceMax as number) : Infinity;
+  if (max <= 0 || max < min) return [];
+
+  const config = await getCachedConfig(params.workspaceId);
+  const catalog = await getCachedCatalog(config, { per_page: "100" });
+
+  const effectivePrice = (p: VndaSearchProduct) =>
+    typeof p.sale_price === "number" && p.sale_price > 0 ? p.sale_price : p.price;
+
+  const matched = catalog
+    .filter((p) => p.available !== false)
+    .filter((p) => {
+      const price = effectivePrice(p);
+      return typeof price === "number" && price >= min && price <= max;
+    })
+    .sort((a, b) => effectivePrice(a) - effectivePrice(b));
+
+  return matched
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
 }
