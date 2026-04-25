@@ -865,6 +865,63 @@
   }
 
 
+  // Inline SVGs for step icons (24x24, currentColor)
+  var GB_ICONS = {
+    truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>',
+    gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></svg>',
+    percent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>',
+    sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.7L19.6 10.6 13.9 12.5 12 18.2l-1.9-5.7L4.4 10.6 10.1 8.7z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>',
+    bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
+    crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+  };
+
+  function renderIcon(icon) {
+    if (!icon) return GB_ICONS.gift;
+    if (typeof icon !== "string") return GB_ICONS.gift;
+    if (icon.indexOf("http") === 0) {
+      return '<img src="' + escapeHtml(icon) + '" alt="" style="width:60%;height:60%;object-fit:contain">';
+    }
+    if (GB_ICONS[icon]) return GB_ICONS[icon];
+    return '<span style="font-size:18px">' + escapeHtml(icon) + '</span>';
+  }
+
+  function injectGiftBarModalOnce() {
+    if (document.getElementById("vtx-gb-modal")) return;
+    var modal = document.createElement("div");
+    modal.id = "vtx-gb-modal";
+    modal.setAttribute("aria-hidden", "true");
+    modal.innerHTML =
+      '<div class="vtx-gb-modal-backdrop"></div>' +
+      '<div class="vtx-gb-modal-card" role="dialog" aria-modal="true">' +
+        '<button type="button" class="vtx-gb-modal-close" aria-label="Fechar">×</button>' +
+        '<h3 class="vtx-gb-modal-title"></h3>' +
+        '<div class="vtx-gb-modal-body"></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    function closeModal() {
+      modal.classList.remove("vtx-gb-modal-open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+    modal.querySelector(".vtx-gb-modal-backdrop").addEventListener("click", closeModal);
+    modal.querySelector(".vtx-gb-modal-close").addEventListener("click", closeModal);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeModal();
+    });
+  }
+
+  function openGiftBarModal(title, bodyHtml) {
+    injectGiftBarModalOnce();
+    var modal = document.getElementById("vtx-gb-modal");
+    modal.querySelector(".vtx-gb-modal-title").textContent = title || "";
+    modal.querySelector(".vtx-gb-modal-body").innerHTML = bodyHtml || "";
+    modal.classList.add("vtx-gb-modal-open");
+    modal.setAttribute("aria-hidden", "false");
+  }
+
   function initGiftBar() {
     fetchJSON(API_BASE + "/api/gift-bar/public-config?key=" + API_KEY)
       .then(function (data) {
@@ -873,10 +930,17 @@
 
         var pageType = detectPageType();
 
-        // Check if bar should show on this page
         if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
 
-        // Inject styles
+        var hasSteps = Array.isArray(cfg.steps) && cfg.steps.length > 0;
+        var steps = hasSteps
+          ? cfg.steps.slice().sort(function (a, b) { return Number(a.threshold) - Number(b.threshold); })
+          : [];
+        var maxThreshold = hasSteps
+          ? Number(steps[steps.length - 1].threshold) || cfg.threshold
+          : Number(cfg.threshold);
+
+        // Inject styles (track + steps + modal)
         var css =
           "#vtx-gift-bar{position:sticky;z-index:90;" +
             "background:" + escapeHtml(cfg.bg_color) + ";" +
@@ -894,16 +958,41 @@
           ".vtx-gb-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}" +
           ".vtx-gb-img{width:32px;height:32px;object-fit:contain;border-radius:4px}" +
           ".vtx-gb-content{flex:1}" +
-          ".vtx-gb-text{margin:0 0 6px;font-weight:600;text-align:center}" +
-          ".vtx-gb-track{width:100%;height:" + escapeHtml(cfg.bar_height) + ";" +
+          ".vtx-gb-text{margin:0 0 8px;font-weight:600;text-align:center}" +
+          ".vtx-gb-track{position:relative;width:100%;height:" + escapeHtml(cfg.bar_height) + ";" +
             "background:" + escapeHtml(cfg.bar_bg_color) + ";" +
             "border-radius:999px;overflow:hidden}" +
           ".vtx-gb-fill{height:100%;" +
             "background:" + escapeHtml(cfg.bar_color) + ";" +
             "border-radius:999px;transition:width .5s ease;width:0}" +
+          // Multi-step
+          ".vtx-gb-steps{position:relative;width:100%;margin-top:14px;display:flex;justify-content:space-between;padding:0 4px}" +
+          ".vtx-gb-step{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 auto;text-align:center;font-size:11px;line-height:1.2}" +
+          ".vtx-gb-step-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;transition:all .25s ease}" +
+          ".vtx-gb-step-icon svg{width:60%;height:60%}" +
+          ".vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff;border-color:" + escapeHtml(cfg.bar_color) + "}" +
+          ".vtx-gb-step-label{font-weight:500;max-width:80px}" +
+          ".vtx-gb-step-modal{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}" +
+          // Modal
+          "#vtx-gb-modal{position:fixed;inset:0;z-index:99999;display:none}" +
+          "#vtx-gb-modal.vtx-gb-modal-open{display:block}" +
+          ".vtx-gb-modal-backdrop{position:absolute;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px)}" +
+          ".vtx-gb-modal-card{position:relative;max-width:520px;width:calc(100% - 32px);margin:60px auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px 24px 22px;box-shadow:0 20px 50px -10px rgba(17,24,39,.25);font-family:'Inter',system-ui,sans-serif;color:#111827}" +
+          ".vtx-gb-modal-close{position:absolute;top:10px;right:14px;background:none;border:none;font-size:26px;line-height:1;color:#9ca3af;cursor:pointer;padding:4px 8px;border-radius:6px}" +
+          ".vtx-gb-modal-close:hover{color:#374151;background:#f3f4f6}" +
+          ".vtx-gb-modal-title{margin:0 0 12px;font-size:17px;font-weight:600;color:#111827}" +
+          ".vtx-gb-modal-body{font-size:14px;line-height:1.55;color:#374151}" +
+          ".vtx-gb-modal-body table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}" +
+          ".vtx-gb-modal-body th,.vtx-gb-modal-body td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left}" +
+          ".vtx-gb-modal-body th{background:#f9fafb;font-weight:600;color:#4b5563;font-size:12px;text-transform:uppercase;letter-spacing:.04em}" +
+          ".vtx-gb-modal-body tr:last-child td{border-bottom:none}" +
+          ".vtx-gb-modal-body p{margin:0 0 8px}" +
           "@media(max-width:768px){" +
             "#vtx-gift-bar{position:relative;padding:8px 12px;font-size:12px}" +
             ".vtx-gb-img{width:24px;height:24px}" +
+            ".vtx-gb-step-icon{width:28px;height:28px}" +
+            ".vtx-gb-step-label{max-width:64px;font-size:10px}" +
+            ".vtx-gb-modal-card{margin:32px auto}" +
           "}";
 
         var style = document.createElement("style");
@@ -911,18 +1000,38 @@
         style.textContent = css;
         document.head.appendChild(style);
 
-        // Create bar element
+        // Build steps HTML
+        var stepsHtml = "";
+        if (hasSteps) {
+          stepsHtml = '<div class="vtx-gb-steps">';
+          for (var i = 0; i < steps.length; i++) {
+            var s = steps[i];
+            var hasModal = s.modal_body && String(s.modal_body).trim().length > 0;
+            var labelHtml = escapeHtml(s.label || "");
+            if (hasModal) {
+              labelHtml = '<span class="vtx-gb-step-modal" data-step-idx="' + i + '">' +
+                escapeHtml(s.label || "") + '*</span>';
+            }
+            stepsHtml +=
+              '<div class="vtx-gb-step" data-threshold="' + Number(s.threshold) + '">' +
+                '<div class="vtx-gb-step-icon">' + renderIcon(s.icon) + '</div>' +
+                '<div class="vtx-gb-step-label">' + labelHtml + '</div>' +
+              '</div>';
+          }
+          stepsHtml += '</div>';
+        }
+
+        // Create bar
         var bar = document.createElement("div");
         bar.id = "vtx-gift-bar";
         bar.innerHTML =
           '<div class="vtx-gb-inner">' +
-            (cfg.gift_image_url ?
+            (!hasSteps && cfg.gift_image_url ?
               '<img class="vtx-gb-img" src="' + escapeHtml(cfg.gift_image_url) + '" alt="' + escapeHtml(cfg.gift_name) + '" onerror="this.style.display=\'none\'">' : "") +
             '<div class="vtx-gb-content">' +
               '<p class="vtx-gb-text"></p>' +
-              '<div class="vtx-gb-track">' +
-                '<div class="vtx-gb-fill"></div>' +
-              '</div>' +
+              '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
+              stepsHtml +
             '</div>' +
           '</div>';
 
@@ -931,8 +1040,6 @@
         if (cfg.position === "bottom") {
           document.body.appendChild(bar);
         } else if (isMobile) {
-          // On mobile, insert after the header/nav to avoid interfering
-          // with VNDA's fixed buy button and sticky header layout
           var header = document.querySelector("header, .header, nav.main-nav, .top-bar, #header");
           if (header) {
             header.parentNode.insertBefore(bar, header.nextSibling);
@@ -943,71 +1050,129 @@
           document.body.insertBefore(bar, document.body.firstChild);
         }
 
+        // Wire up modal triggers
+        if (hasSteps) {
+          var triggers = bar.querySelectorAll(".vtx-gb-step-modal");
+          for (var t = 0; t < triggers.length; t++) {
+            (function (trigger) {
+              trigger.addEventListener("click", function (e) {
+                e.preventDefault();
+                var idx = Number(trigger.getAttribute("data-step-idx"));
+                var step = steps[idx];
+                if (!step) return;
+                openGiftBarModal(step.modal_title || step.label || "", step.modal_body || "");
+              });
+            })(triggers[t]);
+          }
+        }
+
         var giftAchieved = false;
+        var stepFiredFlags = {};
 
         function updateBar(cartTotal) {
           var textEl = bar.querySelector(".vtx-gb-text");
           var fillEl = bar.querySelector(".vtx-gb-fill");
           if (!textEl || !fillEl) return;
 
-          var pct = Math.min((cartTotal / cfg.threshold) * 100, 100);
-          var remaining = Math.max(cfg.threshold - cartTotal, 0);
+          if (hasSteps) {
+            var pct = Math.min((cartTotal / maxThreshold) * 100, 100);
+            fillEl.style.width = pct + "%";
 
-          var message;
-          if (cartTotal <= 0) {
-            message = cfg.message_empty;
-            bar.classList.remove("vtx-gb-achieved");
-          } else if (cartTotal >= cfg.threshold) {
-            message = cfg.message_achieved;
-            bar.classList.add("vtx-gb-achieved");
+            var nextStep = null;
+            for (var i = 0; i < steps.length; i++) {
+              if (cartTotal < Number(steps[i].threshold)) {
+                nextStep = steps[i];
+                break;
+              }
+            }
+
+            // Update step active states
+            var stepEls = bar.querySelectorAll(".vtx-gb-step");
+            for (var k = 0; k < stepEls.length; k++) {
+              var thr = Number(stepEls[k].getAttribute("data-threshold"));
+              if (cartTotal >= thr) {
+                stepEls[k].classList.add("vtx-gb-step-active");
+                if (!stepFiredFlags[thr] && window.dataLayer) {
+                  stepFiredFlags[thr] = true;
+                  window.dataLayer.push({
+                    event: "vtx_gift_bar_step_reached",
+                    step_label: steps[k].label,
+                    step_threshold: thr,
+                    cart_total: cartTotal
+                  });
+                }
+              } else {
+                stepEls[k].classList.remove("vtx-gb-step-active");
+              }
+            }
+
+            var message;
+            if (cartTotal <= 0) {
+              message = (cfg.message_empty || "")
+                .replace(/\{threshold\}/g, formatBRL(steps[0] ? Number(steps[0].threshold) : maxThreshold))
+                .replace(/\{gift\}/g, steps[0] ? steps[0].label : (cfg.gift_name || ""));
+              bar.classList.remove("vtx-gb-achieved");
+            } else if (!nextStep) {
+              message = cfg.message_all_achieved || "Voce desbloqueou todos os mimos!";
+              bar.classList.add("vtx-gb-achieved");
+            } else {
+              var gap = Math.max(Number(nextStep.threshold) - cartTotal, 0);
+              message = (cfg.message_next_step || "Faltam R$ {gap} para o proximo {next_label}!")
+                .replace(/\{gap\}/g, formatBRL(gap))
+                .replace(/\{next_label\}/g, nextStep.label || "")
+                .replace(/\{next_threshold\}/g, formatBRL(Number(nextStep.threshold)))
+                .replace(/\{total\}/g, formatBRL(cartTotal));
+              bar.classList.remove("vtx-gb-achieved");
+            }
+            textEl.textContent = message;
           } else {
-            message = cfg.message_progress;
-            bar.classList.remove("vtx-gb-achieved");
-          }
+            // Legacy single-threshold path
+            var pctL = Math.min((cartTotal / cfg.threshold) * 100, 100);
+            var remaining = Math.max(cfg.threshold - cartTotal, 0);
 
-          // Interpolate placeholders
-          message = message
-            .replace(/\{remaining\}/g, formatBRL(remaining))
-            .replace(/\{threshold\}/g, formatBRL(cfg.threshold))
-            .replace(/\{gift\}/g, cfg.gift_name)
-            .replace(/\{total\}/g, formatBRL(cartTotal));
+            var msg;
+            if (cartTotal <= 0) {
+              msg = cfg.message_empty;
+              bar.classList.remove("vtx-gb-achieved");
+            } else if (cartTotal >= cfg.threshold) {
+              msg = cfg.message_achieved;
+              bar.classList.add("vtx-gb-achieved");
+            } else {
+              msg = cfg.message_progress;
+              bar.classList.remove("vtx-gb-achieved");
+            }
+            msg = msg
+              .replace(/\{remaining\}/g, formatBRL(remaining))
+              .replace(/\{threshold\}/g, formatBRL(cfg.threshold))
+              .replace(/\{gift\}/g, cfg.gift_name)
+              .replace(/\{total\}/g, formatBRL(cartTotal));
 
-          textEl.textContent = message;
-          fillEl.style.width = pct + "%";
+            textEl.textContent = msg;
+            fillEl.style.width = pctL + "%";
 
-          // Fire GA4 event once when threshold reached
-          if (cartTotal >= cfg.threshold && !giftAchieved) {
-            giftAchieved = true;
-            if (window.dataLayer) {
-              window.dataLayer.push({
-                event: "vtx_gift_bar_achieved",
-                gift_name: cfg.gift_name,
-                cart_total: cartTotal,
-                threshold: cfg.threshold,
-              });
+            if (cartTotal >= cfg.threshold && !giftAchieved) {
+              giftAchieved = true;
+              if (window.dataLayer) {
+                window.dataLayer.push({
+                  event: "vtx_gift_bar_achieved",
+                  gift_name: cfg.gift_name,
+                  cart_total: cartTotal,
+                  threshold: cfg.threshold
+                });
+              }
             }
           }
         }
 
-        // Initial cart read
         getCartTotal(function (total) {
           updateBar(total);
-          // If total is 0, retry once after 2 seconds (some themes load cart async)
-          if (total === 0) {
-            setTimeout(function () {
-              getCartTotal(updateBar);
-            }, 2000);
-          }
+          if (total === 0) setTimeout(function () { getCartTotal(updateBar); }, 2000);
         });
-
-        // Listen for cart changes
         setupCartListeners(updateBar);
 
-        console.log("[GiftBar] Initialized, position:", cfg.position, "threshold:", cfg.threshold);
+        console.log("[GiftBar] Initialized, position:", cfg.position, "steps:", hasSteps ? steps.length : "(legacy)");
       })
-
       .catch(function (err) {
-        // Gift bar is optional - never break the page
         console.warn("[GiftBar] Init error:", err);
       });
   }

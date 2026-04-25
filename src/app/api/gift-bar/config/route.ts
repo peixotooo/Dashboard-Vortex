@@ -101,6 +101,12 @@ export async function PUT(request: NextRequest) {
           bar_height: body.bar_height || "8px",
           position: body.position || "top",
           show_on_pages: body.show_on_pages || ["all"],
+          steps: Array.isArray(body.steps) ? body.steps : [],
+          message_next_step:
+            body.message_next_step ||
+            "Faltam R$ {gap} para o proximo {next_label}!",
+          message_all_achieved:
+            body.message_all_achieved || "Voce desbloqueou todos os mimos!",
         },
         { onConflict: "workspace_id" }
       )
