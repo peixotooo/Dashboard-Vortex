@@ -52,6 +52,7 @@ const ALGORITHMS = [
   { value: "last_viewed", label: "Vistos Recentemente" },
   { value: "related_products", label: "Produtos Relacionados" },
   { value: "custom_tags", label: "Tags Personalizadas" },
+  { value: "price_range", label: "Faixa de Preco" },
 ] as const;
 
 const PAGE_TYPES = [
@@ -82,6 +83,8 @@ interface ShelfConfig {
   max_products: number;
   enabled: boolean;
   tags: string[];
+  price_min: number | null;
+  price_max: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -178,6 +181,8 @@ export default function ShelvesPage() {
     max_products: number;
     anchor_selector: string;
     tags: string[];
+    price_min: number | null;
+    price_max: number | null;
   }) {
     if (editingConfig) {
       await fetch(`/api/shelves/configs/${editingConfig.id}`, {
@@ -214,10 +219,18 @@ export default function ShelvesPage() {
     await loadConfigs();
   }
 
-  async function handleApplyPreset(preset: "home" | "product" | "category" | "cart") {
+  async function handleApplyPreset(preset: "home" | "product" | "category" | "cart" | "home_price") {
     const presets: Record<
       string,
-      Array<{ page_type: string; position: number; algorithm: string; title: string; max_products: number }>
+      Array<{
+        page_type: string;
+        position: number;
+        algorithm: string;
+        title: string;
+        max_products: number;
+        price_min?: number | null;
+        price_max?: number | null;
+      }>
     > = {
       home: [
         { page_type: "home", position: 1, algorithm: "news", title: "Lancamentos", max_products: 12 },
@@ -240,6 +253,11 @@ export default function ShelvesPage() {
       cart: [
         { page_type: "cart", position: 1, algorithm: "bestsellers", title: "Voce tambem vai gostar", max_products: 8 },
         { page_type: "cart", position: 2, algorithm: "last_viewed", title: "Vistos recentemente", max_products: 8 },
+      ],
+      home_price: [
+        { page_type: "home", position: 6, algorithm: "price_range", title: "Ate R$ 100", max_products: 12, price_min: 0, price_max: 100 },
+        { page_type: "home", position: 7, algorithm: "price_range", title: "De R$ 100 a R$ 200", max_products: 12, price_min: 100, price_max: 200 },
+        { page_type: "home", position: 8, algorithm: "price_range", title: "Acima de R$ 200", max_products: 12, price_min: 200, price_max: 99999 },
       ],
     };
 
@@ -454,6 +472,13 @@ export default function ShelvesPage() {
                       <Plus className="mr-2 h-4 w-4" />
                       Preset Carrinho (2 prateleiras)
                     </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleApplyPreset("home_price")}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Preset Faixa de Preco Home (3 prateleiras)
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -470,20 +495,32 @@ export default function ShelvesPage() {
                       {group.configs.length !== 1 ? "s" : ""}
                     </Badge>
                   </CardTitle>
-                  {group.configs.length === 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        handleApplyPreset(
-                          group.value as "home" | "product" | "category" | "cart"
-                        )
-                      }
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Aplicar preset
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {group.value === "home" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleApplyPreset("home_price")}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Adicionar faixas de preco
+                      </Button>
+                    )}
+                    {group.configs.length === 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          handleApplyPreset(
+                            group.value as "home" | "product" | "category" | "cart"
+                          )
+                        }
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Aplicar preset
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -512,6 +549,8 @@ export default function ShelvesPage() {
                                 ` · ${config.anchor_selector}`}
                               {config.tags && config.tags.length > 0 &&
                                 ` · Tags: ${config.tags.join(", ")}`}
+                              {config.algorithm === "price_range" &&
+                                ` · R$ ${config.price_min ?? 0} - R$ ${config.price_max ?? "∞"}`}
                             </p>
                           </div>
                         </div>
@@ -829,6 +868,8 @@ function ShelfConfigForm({
     max_products: number;
     anchor_selector: string;
     tags: string[];
+    price_min: number | null;
+    price_max: number | null;
   }) => void;
   onCancel: () => void;
 }) {
@@ -847,6 +888,12 @@ function ShelfConfigForm({
   const [tagsInput, setTagsInput] = useState(
     initial?.tags?.join(", ") || ""
   );
+  const [priceMin, setPriceMin] = useState(
+    initial?.price_min != null ? String(initial.price_min) : ""
+  );
+  const [priceMax, setPriceMax] = useState(
+    initial?.price_max != null ? String(initial.price_max) : ""
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -854,6 +901,8 @@ function ShelfConfigForm({
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
+    const parsedMin = priceMin !== "" ? Number(priceMin) : null;
+    const parsedMax = priceMax !== "" ? Number(priceMax) : null;
     onSubmit({
       page_type: pageType,
       position: parseInt(position, 10),
@@ -862,6 +911,8 @@ function ShelfConfigForm({
       max_products: parseInt(maxProducts, 10) || 12,
       anchor_selector: anchorSelector || "",
       tags,
+      price_min: algorithm === "price_range" ? parsedMin : null,
+      price_max: algorithm === "price_range" ? parsedMax : null,
     });
   }
 
@@ -923,6 +974,36 @@ function ShelfConfigForm({
           <p className="text-xs text-muted-foreground">
             Produtos que possuem TODAS essas tags serao exibidos.
             Use os mesmos nomes das tags cadastradas na VNDA.
+          </p>
+        </div>
+      )}
+
+      {algorithm === "price_range" && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Preco minimo (R$)</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0"
+              value={priceMin}
+              onChange={(e) => setPriceMin(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Preco maximo (R$)</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="100"
+              value={priceMax}
+              onChange={(e) => setPriceMax(e.target.value)}
+            />
+          </div>
+          <p className="col-span-2 text-xs text-muted-foreground">
+            Considera o preco promocional quando disponivel. Para faixas &quot;acima de X&quot; use um maximo alto (ex: 99999).
           </p>
         </div>
       )}

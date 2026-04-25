@@ -17,6 +17,7 @@ const CACHE_TTL: Record<string, number> = {
   last_viewed: 0,
   custom_tags: 600,
   related_products: 300,
+  price_range: 600,
 };
 
 const VALID_ALGORITHMS = new Set(Object.keys(CACHE_TTL));
@@ -34,6 +35,10 @@ export async function GET(request: NextRequest) {
   const tags = tagsParam
     ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean).slice(0, MAX_TAGS).map((t) => t.slice(0, MAX_TAG_LENGTH))
     : undefined;
+  const priceMinRaw = searchParams.get("price_min");
+  const priceMaxRaw = searchParams.get("price_max");
+  const priceMin = priceMinRaw != null && priceMinRaw !== "" ? Number(priceMinRaw) : undefined;
+  const priceMax = priceMaxRaw != null && priceMaxRaw !== "" ? Number(priceMaxRaw) : undefined;
 
   if (!algorithm) {
     return NextResponse.json(
@@ -62,6 +67,8 @@ export async function GET(request: NextRequest) {
       productId,
       limit,
       tags,
+      priceMin: Number.isFinite(priceMin) ? priceMin : undefined,
+      priceMax: Number.isFinite(priceMax) ? priceMax : undefined,
     });
 
     const ttl = CACHE_TTL[algorithm] ?? 300;

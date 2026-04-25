@@ -277,6 +277,13 @@
       url += "&tags=" + encodeURIComponent(shelf.tags.join(","));
     }
 
+    if (shelf.price_min !== undefined && shelf.price_min !== null) {
+      url += "&price_min=" + encodeURIComponent(shelf.price_min);
+    }
+    if (shelf.price_max !== undefined && shelf.price_max !== null) {
+      url += "&price_max=" + encodeURIComponent(shelf.price_max);
+    }
+
     if (extraParams) {
       Object.keys(extraParams).forEach(function (k) {
         if (extraParams[k]) url += "&" + k + "=" + encodeURIComponent(extraParams[k]);
@@ -326,6 +333,8 @@
       most_popular: "most-popular",
       last_viewed: "last-viewed",
       related_products: "related-products",
+      custom_tags: "custom-tags",
+      price_range: "price-range",
     };
 
     var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);
@@ -358,6 +367,8 @@
       most_popular: "most-popular",
       last_viewed: "last-viewed",
       related_products: "related-products",
+      custom_tags: "custom-tags",
+      price_range: "price-range",
     };
 
     var listId = "vortex-" + (algorithmMap[shelf.algorithm] || shelf.algorithm);

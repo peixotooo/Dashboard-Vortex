@@ -48,11 +48,17 @@ export async function PATCH(
       "max_products",
       "enabled",
       "tags",
+      "price_min",
+      "price_max",
     ];
     const updates: Record<string, unknown> = {};
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
-        updates[field] = body[field];
+        if (field === "price_min" || field === "price_max") {
+          updates[field] = body[field] === null || body[field] === "" ? null : Number(body[field]);
+        } else {
+          updates[field] = body[field];
+        }
       }
     }
 
