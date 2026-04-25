@@ -27,9 +27,10 @@ export async function GET(request: NextRequest) {
     .select(
       "enabled, threshold, gift_name, gift_description, gift_image_url, " +
         "message_progress, message_achieved, message_empty, " +
+        "message_next_step, message_all_achieved, " +
         "bar_color, bar_bg_color, text_color, bg_color, " +
         "achieved_bg_color, achieved_text_color, font_size, bar_height, " +
-        "position, show_on_pages"
+        "position, show_on_pages, steps"
     )
     .eq("workspace_id", auth.workspaceId)
     .eq("enabled", true)

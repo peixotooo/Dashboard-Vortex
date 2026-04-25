@@ -8,6 +8,10 @@ import {
   Check,
   Key,
   ExternalLink,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,6 +33,14 @@ import Link from "next/link";
 
 // --- Types ---
 
+interface GiftBarStep {
+  label: string;
+  icon: string;
+  threshold: number;
+  modal_title?: string;
+  modal_body?: string;
+}
+
 interface GiftBarConfig {
   id?: string;
   workspace_id?: string;
@@ -40,6 +52,8 @@ interface GiftBarConfig {
   message_progress: string;
   message_achieved: string;
   message_empty: string;
+  message_next_step: string;
+  message_all_achieved: string;
   bar_color: string;
   bar_bg_color: string;
   text_color: string;
@@ -50,7 +64,19 @@ interface GiftBarConfig {
   bar_height: string;
   position: string;
   show_on_pages: string[];
+  steps: GiftBarStep[];
 }
+
+const ICON_OPTIONS = [
+  { value: "truck", label: "Caminhao (Frete)" },
+  { value: "gift", label: "Brinde" },
+  { value: "star", label: "Estrela" },
+  { value: "heart", label: "Coracao" },
+  { value: "percent", label: "Desconto" },
+  { value: "sparkles", label: "Sparkles" },
+  { value: "bag", label: "Sacola" },
+  { value: "crown", label: "Coroa" },
+];
 
 const DEFAULT_CONFIG: GiftBarConfig = {
   enabled: false,
@@ -61,6 +87,8 @@ const DEFAULT_CONFIG: GiftBarConfig = {
   message_progress: "Faltam R$ {remaining} para ganhar {gift}!",
   message_achieved: "Parabéns! Você ganhou {gift}!",
   message_empty: "Adicione R$ {threshold} em produtos e ganhe {gift}!",
+  message_next_step: "Faltam R$ {gap} para o próximo {next_label}!",
+  message_all_achieved: "Você desbloqueou todos os mimos!",
   bar_color: "#10b981",
   bar_bg_color: "#e5e7eb",
   text_color: "#1f2937",
@@ -71,7 +99,22 @@ const DEFAULT_CONFIG: GiftBarConfig = {
   bar_height: "8px",
   position: "top",
   show_on_pages: ["all"],
+  steps: [],
 };
+
+const FREE_SHIPPING_TABLE_TEMPLATE = `<p>Frete gr&aacute;tis acima do valor m&iacute;nimo para cada regi&atilde;o:</p>
+<table>
+  <thead>
+    <tr><th>Regi&atilde;o</th><th>Valor m&iacute;nimo</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Sudeste</td><td>R$ 299</td></tr>
+    <tr><td>Sul</td><td>R$ 349</td></tr>
+    <tr><td>Centro-Oeste</td><td>R$ 399</td></tr>
+    <tr><td>Nordeste</td><td>R$ 449</td></tr>
+    <tr><td>Norte</td><td>R$ 499</td></tr>
+  </tbody>
+</table>`;
 
 const PAGE_OPTIONS = [
   { value: "all", label: "Todas as páginas" },
@@ -157,6 +200,61 @@ export default function GiftBarPage() {
 
   function updateConfig(partial: Partial<GiftBarConfig>) {
     setConfig((prev) => ({ ...prev, ...partial }));
+  }
+
+  function updateStep(index: number, partial: Partial<GiftBarStep>) {
+    setConfig((prev) => {
+      const next = prev.steps.slice();
+      next[index] = { ...next[index], ...partial };
+      return { ...prev, steps: next };
+    });
+  }
+
+  function addStep() {
+    setConfig((prev) => ({
+      ...prev,
+      steps: [
+        ...prev.steps,
+        { label: "Novo passo", icon: "gift", threshold: 0 },
+      ],
+    }));
+  }
+
+  function removeStep(index: number) {
+    setConfig((prev) => ({
+      ...prev,
+      steps: prev.steps.filter((_, i) => i !== index),
+    }));
+  }
+
+  function moveStep(index: number, dir: -1 | 1) {
+    setConfig((prev) => {
+      const next = prev.steps.slice();
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...prev, steps: next };
+    });
+  }
+
+  function applyBulkingPreset() {
+    setConfig((prev) => ({
+      ...prev,
+      message_next_step: "Faltam R$ {gap} para o próximo {next_label}!",
+      message_all_achieved: "Você desbloqueou todos os mimos!",
+      steps: [
+        {
+          label: "Frete Grátis",
+          icon: "truck",
+          threshold: 299,
+          modal_title: "Frete grátis por região",
+          modal_body: FREE_SHIPPING_TABLE_TEMPLATE,
+        },
+        { label: "Brinde", icon: "gift", threshold: 399 },
+        { label: "Brinde", icon: "gift", threshold: 499 },
+        { label: "Look", icon: "star", threshold: 599 },
+      ],
+    }));
   }
 
   function togglePage(page: string) {
@@ -396,6 +494,169 @@ export default function GiftBarPage() {
                   }
                 />
               </div>
+
+              <div className="border-t pt-4 mt-4 space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Mensagens usadas no modo <strong>multi-etapas</strong> (quando há etapas configuradas abaixo).
+                  Placeholders extras: <code className="bg-muted px-1 rounded">{"{gap}"}</code>{" "}
+                  <code className="bg-muted px-1 rounded">{"{next_label}"}</code>{" "}
+                  <code className="bg-muted px-1 rounded">{"{next_threshold}"}</code>
+                </p>
+                <div className="space-y-2">
+                  <Label>Próximo passo</Label>
+                  <Input
+                    value={config.message_next_step}
+                    onChange={(e) =>
+                      updateConfig({ message_next_step: e.target.value })
+                    }
+                    placeholder="Faltam R$ {gap} para o próximo {next_label}!"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Todos os passos atingidos</Label>
+                  <Input
+                    value={config.message_all_achieved}
+                    onChange={(e) =>
+                      updateConfig({ message_all_achieved: e.target.value })
+                    }
+                    placeholder="Você desbloqueou todos os mimos!"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Steps */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Etapas (multi-step)</CardTitle>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={applyBulkingPreset}>
+                    Preset Bulking
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={addStep}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Nova etapa
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config.steps.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Nenhuma etapa configurada — usando modo simples (um único brinde).
+                  Adicione etapas para ter múltiplos marcos com ícones, como Frete Grátis → Brinde → Brinde → Look.
+                </p>
+              ) : (
+                config.steps.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border p-4 space-y-3 bg-muted/30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="font-mono">
+                        Etapa #{idx + 1}
+                      </Badge>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveStep(idx, -1)}
+                          disabled={idx === 0}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveStep(idx, 1)}
+                          disabled={idx === config.steps.length - 1}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeStep(idx)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="space-y-2">
+                        <Label>Rótulo</Label>
+                        <Input
+                          value={step.label}
+                          onChange={(e) =>
+                            updateStep(idx, { label: e.target.value })
+                          }
+                          placeholder="ex: Frete Grátis"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Ícone</Label>
+                        <Select
+                          value={step.icon}
+                          onValueChange={(v) => updateStep(idx, { icon: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ICON_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Valor mínimo (R$)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={step.threshold}
+                          onChange={(e) =>
+                            updateStep(idx, {
+                              threshold: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>
+                        Modal (opcional){" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          — quando preenchido, adiciona asterisco clicável após o rótulo
+                        </span>
+                      </Label>
+                      <Input
+                        value={step.modal_title || ""}
+                        onChange={(e) =>
+                          updateStep(idx, { modal_title: e.target.value })
+                        }
+                        placeholder="Título do modal (ex: Frete grátis por região)"
+                      />
+                      <Textarea
+                        value={step.modal_body || ""}
+                        onChange={(e) =>
+                          updateStep(idx, { modal_body: e.target.value })
+                        }
+                        placeholder="Conteúdo HTML — pode incluir <table>, <p>, <strong>, etc."
+                        rows={6}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
