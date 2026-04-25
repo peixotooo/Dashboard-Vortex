@@ -68,15 +68,92 @@ interface GiftBarConfig {
 }
 
 const ICON_OPTIONS = [
-  { value: "truck", label: "Caminhao (Frete)" },
+  { value: "truck", label: "Caminhão (Frete)" },
   { value: "gift", label: "Brinde" },
   { value: "star", label: "Estrela" },
-  { value: "heart", label: "Coracao" },
+  { value: "heart", label: "Coração" },
   { value: "percent", label: "Desconto" },
   { value: "sparkles", label: "Sparkles" },
   { value: "bag", label: "Sacola" },
   { value: "crown", label: "Coroa" },
 ];
+
+function StepIcon({ name }: { name: string }) {
+  const common = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    style: { width: "60%", height: "60%" },
+  };
+  switch (name) {
+    case "truck":
+      return (
+        <svg {...common}>
+          <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
+          <path d="M15 18H9" />
+          <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
+          <circle cx="17" cy="18" r="2" />
+          <circle cx="7" cy="18" r="2" />
+        </svg>
+      );
+    case "gift":
+      return (
+        <svg {...common}>
+          <rect x="3" y="8" width="18" height="4" rx="1" />
+          <path d="M12 8v13" />
+          <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" />
+          <path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" />
+        </svg>
+      );
+    case "star":
+      return (
+        <svg {...common}>
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      );
+    case "heart":
+      return (
+        <svg {...common}>
+          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z" />
+        </svg>
+      );
+    case "percent":
+      return (
+        <svg {...common}>
+          <line x1="19" y1="5" x2="5" y2="19" />
+          <circle cx="6.5" cy="6.5" r="2.5" />
+          <circle cx="17.5" cy="17.5" r="2.5" />
+        </svg>
+      );
+    case "sparkles":
+      return (
+        <svg {...common}>
+          <path d="M12 3l1.9 5.7L19.6 10.6 13.9 12.5 12 18.2l-1.9-5.7L4.4 10.6 10.1 8.7z" />
+          <path d="M19 3v4" />
+          <path d="M21 5h-4" />
+        </svg>
+      );
+    case "bag":
+      return (
+        <svg {...common}>
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <path d="M16 10a4 4 0 0 1-8 0" />
+        </svg>
+      );
+    case "crown":
+      return (
+        <svg {...common}>
+          <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+        </svg>
+      );
+    default:
+      return <span style={{ fontSize: 16 }}>🎁</span>;
+  }
+}
 
 const DEFAULT_CONFIG: GiftBarConfig = {
   enabled: false,
@@ -237,6 +314,25 @@ export default function GiftBarPage() {
     });
   }
 
+  function switchToSingle() {
+    if (config.steps.length === 0) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Trocar para Brinde único vai remover as etapas configuradas. Continuar?"
+      )
+    ) {
+      return;
+    }
+    setConfig((prev) => ({ ...prev, steps: [] }));
+  }
+
+  function switchToMultistep() {
+    if (config.steps.length === 0) {
+      addStep();
+    }
+  }
+
   function applyBulkingPreset() {
     setConfig((prev) => ({
       ...prev,
@@ -307,8 +403,42 @@ export default function GiftBarPage() {
     );
   }
 
-  const pct = Math.min((previewCart / config.threshold) * 100, 100);
+  const isMultistep = config.steps.length > 0;
+  const sortedSteps = [...config.steps].sort(
+    (a, b) => Number(a.threshold) - Number(b.threshold)
+  );
+  const maxStepThreshold =
+    sortedSteps.length > 0
+      ? Number(sortedSteps[sortedSteps.length - 1].threshold) || 1
+      : 1;
+  const pct = isMultistep
+    ? Math.min((previewCart / maxStepThreshold) * 100, 100)
+    : Math.min((previewCart / config.threshold) * 100, 100);
   const achieved = previewCart >= config.threshold;
+  const nextStep = sortedSteps.find(
+    (s) => previewCart < Number(s.threshold)
+  );
+
+  function getMultistepMessage(cartTotal: number): string {
+    if (cartTotal <= 0) {
+      return (config.message_empty || "")
+        .replace(
+          /\{threshold\}/g,
+          formatBRL(Number(sortedSteps[0]?.threshold) || 0)
+        )
+        .replace(/\{gift\}/g, sortedSteps[0]?.label || "");
+    }
+    if (!nextStep) return config.message_all_achieved || "";
+    const gap = Math.max(Number(nextStep.threshold) - cartTotal, 0);
+    return (config.message_next_step || "")
+      .replace(/\{gap\}/g, formatBRL(gap))
+      .replace(/\{next_label\}/g, nextStep.label || "")
+      .replace(
+        /\{next_threshold\}/g,
+        formatBRL(Number(nextStep.threshold))
+      )
+      .replace(/\{total\}/g, formatBRL(cartTotal));
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -355,64 +485,48 @@ export default function GiftBarPage() {
 
         {/* ======================== TAB: CONFIG ======================== */}
         <TabsContent value="config" className="space-y-6">
-          {/* Gift settings */}
+          {/* Mode + Display */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Configuração do Brinde</CardTitle>
+              <CardTitle className="text-base">Modo da Régua</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Valor mínimo (R$)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={config.threshold}
-                    onChange={(e) =>
-                      updateConfig({ threshold: parseFloat(e.target.value) || 0 })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Valor do carrinho para ganhar o brinde
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={switchToSingle}
+                  className={`rounded-lg border-2 p-4 text-left transition ${
+                    !isMultistep
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div className="font-medium text-sm">Brinde único</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Um único marco. Ex: &quot;Faltam R$ 50 para ganhar
+                    necessaire&quot;.
                   </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Nome do brinde</Label>
-                  <Input
-                    value={config.gift_name}
-                    onChange={(e) =>
-                      updateConfig({ gift_name: e.target.value })
-                    }
-                    placeholder="Ex: necessaire premium"
-                  />
-                </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={switchToMultistep}
+                  className={`rounded-lg border-2 p-4 text-left transition ${
+                    isMultistep
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <div className="font-medium text-sm">
+                    Multi-etapas (timeline)
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Vários marcos com ícones (Frete Grátis → Brinde → Brinde →
+                    Look).
+                  </p>
+                </button>
               </div>
 
-              <div className="space-y-2">
-                <Label>Descrição (opcional)</Label>
-                <Textarea
-                  value={config.gift_description}
-                  onChange={(e) =>
-                    updateConfig({ gift_description: e.target.value })
-                  }
-                  placeholder="Descrição curta do brinde"
-                  rows={2}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>URL da imagem (opcional)</Label>
-                <Input
-                  value={config.gift_image_url}
-                  onChange={(e) =>
-                    updateConfig({ gift_image_url: e.target.value })
-                  }
-                  placeholder="https://cdn.vnda.com.br/..."
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                 <div className="space-y-2">
                   <Label>Posição</Label>
                   <Select
@@ -451,105 +565,129 @@ export default function GiftBarPage() {
             </CardContent>
           </Card>
 
-          {/* Messages */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Mensagens</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-xs text-muted-foreground">
-                Placeholders disponíveis:{" "}
-                <code className="bg-muted px-1 rounded">{"{gift}"}</code>{" "}
-                <code className="bg-muted px-1 rounded">{"{remaining}"}</code>{" "}
-                <code className="bg-muted px-1 rounded">{"{threshold}"}</code>{" "}
-                <code className="bg-muted px-1 rounded">{"{total}"}</code>
-              </p>
-
-              <div className="space-y-2">
-                <Label>Carrinho vazio</Label>
-                <Input
-                  value={config.message_empty}
-                  onChange={(e) =>
-                    updateConfig({ message_empty: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Em progresso</Label>
-                <Input
-                  value={config.message_progress}
-                  onChange={(e) =>
-                    updateConfig({ message_progress: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Brinde conquistado</Label>
-                <Input
-                  value={config.message_achieved}
-                  onChange={(e) =>
-                    updateConfig({ message_achieved: e.target.value })
-                  }
-                />
-              </div>
-
-              <div className="border-t pt-4 mt-4 space-y-4">
-                <p className="text-xs text-muted-foreground">
-                  Mensagens usadas no modo <strong>multi-etapas</strong> (quando há etapas configuradas abaixo).
-                  Placeholders extras: <code className="bg-muted px-1 rounded">{"{gap}"}</code>{" "}
-                  <code className="bg-muted px-1 rounded">{"{next_label}"}</code>{" "}
-                  <code className="bg-muted px-1 rounded">{"{next_threshold}"}</code>
-                </p>
+          {/* SINGLE MODE: Brinde + messages */}
+          {!isMultistep && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Brinde único</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Valor mínimo (R$)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={config.threshold}
+                      onChange={(e) =>
+                        updateConfig({
+                          threshold: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Nome do brinde</Label>
+                    <Input
+                      value={config.gift_name}
+                      onChange={(e) =>
+                        updateConfig({ gift_name: e.target.value })
+                      }
+                      placeholder="Ex: necessaire premium"
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
-                  <Label>Próximo passo</Label>
-                  <Input
-                    value={config.message_next_step}
+                  <Label>Descrição (opcional)</Label>
+                  <Textarea
+                    value={config.gift_description}
                     onChange={(e) =>
-                      updateConfig({ message_next_step: e.target.value })
+                      updateConfig({ gift_description: e.target.value })
                     }
-                    placeholder="Faltam R$ {gap} para o próximo {next_label}!"
+                    placeholder="Descrição curta do brinde"
+                    rows={2}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Todos os passos atingidos</Label>
+                  <Label>URL da imagem (opcional)</Label>
                   <Input
-                    value={config.message_all_achieved}
+                    value={config.gift_image_url}
                     onChange={(e) =>
-                      updateConfig({ message_all_achieved: e.target.value })
+                      updateConfig({ gift_image_url: e.target.value })
                     }
-                    placeholder="Você desbloqueou todos os mimos!"
+                    placeholder="https://cdn.vnda.com.br/..."
                   />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Steps */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Etapas (multi-step)</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={applyBulkingPreset}>
-                    Preset Bulking
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={addStep}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Nova etapa
-                  </Button>
+                <div className="border-t pt-4 mt-2 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Mensagens — placeholders:{" "}
+                    <code className="bg-muted px-1 rounded">{"{gift}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">
+                      {"{remaining}"}
+                    </code>{" "}
+                    <code className="bg-muted px-1 rounded">
+                      {"{threshold}"}
+                    </code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{total}"}</code>
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Carrinho vazio</Label>
+                    <Input
+                      value={config.message_empty}
+                      onChange={(e) =>
+                        updateConfig({ message_empty: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Em progresso</Label>
+                    <Input
+                      value={config.message_progress}
+                      onChange={(e) =>
+                        updateConfig({ message_progress: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Brinde conquistado</Label>
+                    <Input
+                      value={config.message_achieved}
+                      onChange={(e) =>
+                        updateConfig({ message_achieved: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {config.steps.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Nenhuma etapa configurada — usando modo simples (um único brinde).
-                  Adicione etapas para ter múltiplos marcos com ícones, como Frete Grátis → Brinde → Brinde → Look.
-                </p>
-              ) : (
-                config.steps.map((step, idx) => (
+              </CardContent>
+            </Card>
+          )}
+
+          {/* MULTISTEP MODE: Steps editor + messages */}
+          {isMultistep && (
+            <>
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <CardTitle className="text-base">Etapas</CardTitle>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={applyBulkingPreset}
+                      >
+                        Preset Bulking
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={addStep}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Nova etapa
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {config.steps.map((step, idx) => (
                   <div
                     key={idx}
                     className="rounded-lg border p-4 space-y-3 bg-muted/30"
@@ -655,10 +793,62 @@ export default function GiftBarPage() {
                       />
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Mensagens (multi-etapas)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Placeholders:{" "}
+                    <code className="bg-muted px-1 rounded">{"{gap}"}</code>{" "}
+                    <code className="bg-muted px-1 rounded">
+                      {"{next_label}"}
+                    </code>{" "}
+                    <code className="bg-muted px-1 rounded">
+                      {"{next_threshold}"}
+                    </code>{" "}
+                    <code className="bg-muted px-1 rounded">{"{total}"}</code>
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Carrinho vazio</Label>
+                    <Input
+                      value={config.message_empty}
+                      onChange={(e) =>
+                        updateConfig({ message_empty: e.target.value })
+                      }
+                      placeholder="Adicione produtos para começar a desbloquear mimos"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Próximo passo</Label>
+                    <Input
+                      value={config.message_next_step}
+                      onChange={(e) =>
+                        updateConfig({ message_next_step: e.target.value })
+                      }
+                      placeholder="Faltam R$ {gap} para o próximo {next_label}!"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Todos os passos atingidos</Label>
+                    <Input
+                      value={config.message_all_achieved}
+                      onChange={(e) =>
+                        updateConfig({ message_all_achieved: e.target.value })
+                      }
+                      placeholder="Você desbloqueou todos os mimos!"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
 
           {/* Appearance */}
           <Card>
@@ -832,18 +1022,24 @@ export default function GiftBarPage() {
         <TabsContent value="preview" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Preview Interativo</CardTitle>
+              <CardTitle className="text-base">
+                Preview Interativo —{" "}
+                {isMultistep ? "Multi-etapas" : "Brinde único"}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>
-                  Valor simulado do carrinho: R${" "}
-                  {formatBRL(previewCart)}
+                  Valor simulado do carrinho: R$ {formatBRL(previewCart)}
                 </Label>
                 <input
                   type="range"
                   min={0}
-                  max={config.threshold * 1.5 || 500}
+                  max={
+                    isMultistep
+                      ? maxStepThreshold * 1.2
+                      : config.threshold * 1.5 || 500
+                  }
                   step={1}
                   value={previewCart}
                   onChange={(e) => setPreviewCart(Number(e.target.value))}
@@ -851,9 +1047,20 @@ export default function GiftBarPage() {
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>R$ 0,00</span>
-                  <span>R$ {formatBRL(config.threshold)} (meta)</span>
+                  {isMultistep ? (
+                    <span>
+                      R$ {formatBRL(maxStepThreshold)} (último marco)
+                    </span>
+                  ) : (
+                    <span>R$ {formatBRL(config.threshold)} (meta)</span>
+                  )}
                   <span>
-                    R$ {formatBRL(config.threshold * 1.5)}
+                    R${" "}
+                    {formatBRL(
+                      isMultistep
+                        ? maxStepThreshold * 1.2
+                        : config.threshold * 1.5
+                    )}
                   </span>
                 </div>
               </div>
@@ -862,12 +1069,18 @@ export default function GiftBarPage() {
               <div className="rounded-lg border overflow-hidden">
                 <div
                   style={{
-                    background: achieved
-                      ? config.achieved_bg_color
-                      : config.bg_color,
-                    color: achieved
-                      ? config.achieved_text_color
-                      : config.text_color,
+                    background:
+                      isMultistep && !nextStep && previewCart > 0
+                        ? config.achieved_bg_color
+                        : !isMultistep && achieved
+                          ? config.achieved_bg_color
+                          : config.bg_color,
+                    color:
+                      isMultistep && !nextStep && previewCart > 0
+                        ? config.achieved_text_color
+                        : !isMultistep && achieved
+                          ? config.achieved_text_color
+                          : config.text_color,
                     padding: "10px 16px",
                     fontFamily: "'Inter', sans-serif",
                     fontSize: config.font_size,
@@ -882,7 +1095,7 @@ export default function GiftBarPage() {
                       gap: 12,
                     }}
                   >
-                    {config.gift_image_url && (
+                    {!isMultistep && config.gift_image_url && (
                       <img
                         src={config.gift_image_url}
                         alt={config.gift_name}
@@ -900,12 +1113,14 @@ export default function GiftBarPage() {
                     <div style={{ flex: 1 }}>
                       <p
                         style={{
-                          margin: "0 0 6px",
+                          margin: "0 0 8px",
                           fontWeight: 600,
                           textAlign: "center",
                         }}
                       >
-                        {getPreviewMessage(previewCart)}
+                        {isMultistep
+                          ? getMultistepMessage(previewCart)
+                          : getPreviewMessage(previewCart)}
                       </p>
                       <div
                         style={{
@@ -926,52 +1141,128 @@ export default function GiftBarPage() {
                           }}
                         />
                       </div>
+
+                      {isMultistep && (
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            marginTop: 14,
+                            padding: "0 4px",
+                          }}
+                        >
+                          {sortedSteps.map((step, idx) => {
+                            const active =
+                              previewCart >= Number(step.threshold);
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  lineHeight: 1.2,
+                                  textAlign: "center",
+                                  flex: "0 0 auto",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: "50%",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    background: active
+                                      ? config.bar_color
+                                      : "#f3f4f6",
+                                    color: active ? "#fff" : "#9ca3af",
+                                    border: `2px solid ${
+                                      active ? config.bar_color : "#e5e7eb"
+                                    }`,
+                                    transition: "all .25s ease",
+                                  }}
+                                >
+                                  <StepIcon name={step.icon} />
+                                </div>
+                                <div
+                                  style={{
+                                    fontWeight: 500,
+                                    maxWidth: 80,
+                                  }}
+                                >
+                                  {step.label}
+                                  {step.modal_body ? "*" : ""}
+                                </div>
+                                <div
+                                  style={{
+                                    color: "#9ca3af",
+                                    fontSize: 10,
+                                  }}
+                                >
+                                  R$ {formatBRL(Number(step.threshold))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* State indicators */}
-              <div className="grid grid-cols-3 gap-4 text-center text-sm">
-                <div
-                  className={`rounded-lg border p-3 ${
-                    previewCart <= 0 ? "ring-2 ring-primary" : ""
-                  }`}
-                >
-                  <p className="font-medium">Carrinho vazio</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {interpolateMessage(config.message_empty, 0)}
-                  </p>
+              {/* Per-mode helper text */}
+              {isMultistep ? (
+                <p className="text-xs text-muted-foreground text-center">
+                  Mova o slider para ver os marcos sendo desbloqueados. Etapas
+                  com modal aparecem com asterisco no rótulo.
+                </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-4 text-center text-sm">
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      previewCart <= 0 ? "ring-2 ring-primary" : ""
+                    }`}
+                  >
+                    <p className="font-medium">Carrinho vazio</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {interpolateMessage(config.message_empty, 0)}
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      previewCart > 0 && previewCart < config.threshold
+                        ? "ring-2 ring-primary"
+                        : ""
+                    }`}
+                  >
+                    <p className="font-medium">Em progresso</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {interpolateMessage(
+                        config.message_progress,
+                        config.threshold / 2
+                      )}
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      achieved ? "ring-2 ring-primary" : ""
+                    }`}
+                  >
+                    <p className="font-medium">Conquistado</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {interpolateMessage(
+                        config.message_achieved,
+                        config.threshold
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div
-                  className={`rounded-lg border p-3 ${
-                    previewCart > 0 && previewCart < config.threshold
-                      ? "ring-2 ring-primary"
-                      : ""
-                  }`}
-                >
-                  <p className="font-medium">Em progresso</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {interpolateMessage(
-                      config.message_progress,
-                      config.threshold / 2
-                    )}
-                  </p>
-                </div>
-                <div
-                  className={`rounded-lg border p-3 ${
-                    achieved ? "ring-2 ring-primary" : ""
-                  }`}
-                >
-                  <p className="font-medium">Conquistado</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {interpolateMessage(
-                      config.message_achieved,
-                      config.threshold
-                    )}
-                  </p>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
