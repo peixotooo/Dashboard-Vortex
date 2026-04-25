@@ -875,7 +875,10 @@
     sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.7L19.6 10.6 13.9 12.5 12 18.2l-1.9-5.7L4.4 10.6 10.1 8.7z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>',
     bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>',
-    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    medal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.21 15 2.66 7.14a2 2 0 0 1 .13-2.2L4.4 2.8A2 2 0 0 1 6 2h12a2 2 0 0 1 1.6.8l1.6 2.14a2 2 0 0 1 .14 2.2L16.79 15"/><path d="M11 12 5.12 2.2"/><path d="M13 12l5.88-9.8"/><circle cx="12" cy="17" r="5"/><path d="M12 18v-2h-.5"/></svg>',
+    shirt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
   };
 
   function renderIcon(icon) {
@@ -922,14 +925,114 @@
     modal.setAttribute("aria-hidden", "false");
   }
 
+  // Product Benefits: vertical list rendered below the buy button on PDP
+  function renderProductBenefits(cfg) {
+    var benefits = Array.isArray(cfg.product_benefits) ? cfg.product_benefits : [];
+    if (benefits.length === 0) return;
+    if (document.getElementById("vtx-product-benefits")) return;
+
+    // Inject styles once
+    if (!document.getElementById("vtx-product-benefits-styles")) {
+      var pbCss =
+        "#vtx-product-benefits{margin:24px 0;padding:20px 0;border-top:1px solid #e5e7eb;font-family:'Inter',system-ui,sans-serif;color:#1f2937}" +
+        ".vtx-pb-title{margin:0 0 16px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280}" +
+        ".vtx-pb-list{display:flex;flex-direction:column;gap:18px}" +
+        ".vtx-pb-item{display:flex;align-items:flex-start;gap:14px}" +
+        ".vtx-pb-icon{flex:0 0 auto;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#111827}" +
+        ".vtx-pb-icon svg{width:100%;height:100%}" +
+        ".vtx-pb-text{flex:1;min-width:0}" +
+        ".vtx-pb-title-line{margin:0;font-size:15px;font-weight:500;color:#111827;line-height:1.35}" +
+        ".vtx-pb-link{display:inline-block;margin-top:2px;font-size:14px;color:#6b7280;text-decoration:underline;text-underline-offset:2px;cursor:pointer;background:none;border:none;padding:0;font-family:inherit}" +
+        ".vtx-pb-link:hover{color:#111827}" +
+        "@media(max-width:768px){#vtx-product-benefits{margin:16px 0;padding:16px 0}.vtx-pb-title-line{font-size:14px}.vtx-pb-link{font-size:13px}}";
+      var pbStyle = document.createElement("style");
+      pbStyle.id = "vtx-product-benefits-styles";
+      pbStyle.textContent = pbCss;
+      document.head.appendChild(pbStyle);
+    }
+
+    // Build block
+    var block = document.createElement("div");
+    block.id = "vtx-product-benefits";
+    var html =
+      '<p class="vtx-pb-title">' + escapeHtml(cfg.product_benefits_title || "Nossos benefícios") + "</p>" +
+      '<div class="vtx-pb-list">';
+    for (var i = 0; i < benefits.length; i++) {
+      var b = benefits[i];
+      var hasModal = b.modal_body && String(b.modal_body).trim().length > 0;
+      html +=
+        '<div class="vtx-pb-item">' +
+          '<div class="vtx-pb-icon">' + renderIcon(b.icon) + '</div>' +
+          '<div class="vtx-pb-text">' +
+            '<p class="vtx-pb-title-line">' + escapeHtml(b.title || "") + '</p>' +
+            (b.link_label
+              ? (hasModal
+                  ? '<button type="button" class="vtx-pb-link" data-pb-idx="' + i + '">' + escapeHtml(b.link_label) + '</button>'
+                  : '<span class="vtx-pb-link" style="cursor:default">' + escapeHtml(b.link_label) + '</span>')
+              : "") +
+          '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+    block.innerHTML = html;
+
+    // Find anchor: admin override → fallback selectors
+    var anchor = null;
+    if (cfg.product_benefits_anchor) {
+      anchor = document.querySelector(cfg.product_benefits_anchor);
+    }
+    if (!anchor) {
+      var fallbacks = [
+        ".product-buy",
+        ".product-form",
+        "[data-product-buy]",
+        "form[data-product-form]",
+        ".product__buy",
+        ".product-info",
+        ".product__details",
+        ".product-purchase"
+      ];
+      for (var s = 0; s < fallbacks.length; s++) {
+        anchor = document.querySelector(fallbacks[s]);
+        if (anchor) break;
+      }
+    }
+    if (!anchor) {
+      console.warn("[ProductBenefits] No anchor found — set product_benefits_anchor in admin");
+      return;
+    }
+    anchor.parentNode.insertBefore(block, anchor.nextSibling);
+
+    // Wire up modals
+    var btns = block.querySelectorAll(".vtx-pb-link[data-pb-idx]");
+    for (var j = 0; j < btns.length; j++) {
+      (function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault();
+          var idx = Number(btn.getAttribute("data-pb-idx"));
+          var benefit = benefits[idx];
+          if (!benefit) return;
+          openGiftBarModal(benefit.modal_title || benefit.title || "", benefit.modal_body || "");
+        });
+      })(btns[j]);
+    }
+
+    console.log("[ProductBenefits] Rendered", benefits.length, "benefits");
+  }
+
   function initGiftBar() {
     fetchJSON(API_BASE + "/api/gift-bar/public-config?key=" + API_KEY)
       .then(function (data) {
         if (!data.gift_bar) return;
         var cfg = data.gift_bar;
-
         var pageType = detectPageType();
 
+        // Product Benefits block (independent of gift bar enabled flag)
+        if (cfg.show_product_benefits && pageType === "product") {
+          renderProductBenefits(cfg);
+        }
+
+        if (!cfg.enabled) return;
         if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
 
         var hasSteps = Array.isArray(cfg.steps) && cfg.steps.length > 0;

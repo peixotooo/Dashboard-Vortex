@@ -30,10 +30,10 @@ export async function GET(request: NextRequest) {
         "message_next_step, message_all_achieved, " +
         "bar_color, bar_bg_color, text_color, bg_color, " +
         "achieved_bg_color, achieved_text_color, font_size, bar_height, " +
-        "position, show_on_pages, steps"
+        "position, show_on_pages, steps, " +
+        "show_product_benefits, product_benefits, product_benefits_title, product_benefits_anchor"
     )
     .eq("workspace_id", auth.workspaceId)
-    .eq("enabled", true)
     .maybeSingle();
 
   if (error) {

@@ -107,6 +107,13 @@ export async function PUT(request: NextRequest) {
             "Faltam R$ {gap} para o proximo {next_label}!",
           message_all_achieved:
             body.message_all_achieved || "Voce desbloqueou todos os mimos!",
+          show_product_benefits: body.show_product_benefits === true,
+          product_benefits: Array.isArray(body.product_benefits)
+            ? body.product_benefits
+            : [],
+          product_benefits_title:
+            body.product_benefits_title || "Nossos benefícios",
+          product_benefits_anchor: body.product_benefits_anchor || null,
         },
         { onConflict: "workspace_id" }
       )
