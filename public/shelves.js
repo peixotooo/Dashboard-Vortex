@@ -1033,7 +1033,13 @@
         }
 
         if (!cfg.enabled) return;
-        if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
+
+        // Inline PDP mode: render inside the product page only, below the buy button
+        var inlineMode = !!cfg.pdp_inline;
+        if (inlineMode && pageType !== "product") return;
+        if (!inlineMode) {
+          if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
+        }
 
         var hasSteps = Array.isArray(cfg.steps) && cfg.steps.length > 0;
         var steps = hasSteps
@@ -1045,14 +1051,16 @@
 
         // Inject styles (track + steps + modal)
         var css =
-          "#vtx-gift-bar{position:sticky;z-index:90;" +
+          "#vtx-gift-bar{" +
+            (inlineMode
+              ? "position:relative;margin:18px 0;border:1px solid #e5e7eb;border-radius:10px;"
+              : "position:sticky;z-index:90;" + (cfg.position === "bottom" ? "bottom:0;" : "top:0;") + "box-shadow:0 1px 3px rgba(0,0,0,.1);"
+            ) +
             "background:" + escapeHtml(cfg.bg_color) + ";" +
             "color:" + escapeHtml(cfg.text_color) + ";" +
-            "padding:10px 16px;" +
+            "padding:" + (inlineMode ? "16px 18px" : "10px 16px") + ";" +
             "font-family:'Inter',system-ui,sans-serif;" +
             "font-size:" + escapeHtml(cfg.font_size) + ";" +
-            "box-shadow:0 1px 3px rgba(0,0,0,.1);" +
-            (cfg.position === "bottom" ? "bottom:0;" : "top:0;") +
           "}" +
           "#vtx-gift-bar.vtx-gb-achieved{" +
             "background:" + escapeHtml(cfg.achieved_bg_color) + "!important;" +
@@ -1140,7 +1148,33 @@
 
         // Insert in page
         var isMobile = window.innerWidth <= 768;
-        if (cfg.position === "bottom") {
+        if (inlineMode) {
+          var pdpAnchor = null;
+          if (cfg.product_benefits_anchor) {
+            pdpAnchor = document.querySelector(cfg.product_benefits_anchor);
+          }
+          if (!pdpAnchor) {
+            var pdpFallbacks = [
+              ".product-buy",
+              ".product-form",
+              "[data-product-buy]",
+              "form[data-product-form]",
+              ".product__buy",
+              ".product-info",
+              ".product__details",
+              ".product-purchase"
+            ];
+            for (var pa = 0; pa < pdpFallbacks.length; pa++) {
+              pdpAnchor = document.querySelector(pdpFallbacks[pa]);
+              if (pdpAnchor) break;
+            }
+          }
+          if (!pdpAnchor) {
+            console.warn("[GiftBar] inline-PDP: no anchor found — set product_benefits_anchor in admin");
+            return;
+          }
+          pdpAnchor.parentNode.insertBefore(bar, pdpAnchor.nextSibling);
+        } else if (cfg.position === "bottom") {
           document.body.appendChild(bar);
         } else if (isMobile) {
           var header = document.querySelector("header, .header, nav.main-nav, .top-bar, #header");

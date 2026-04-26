@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
         "bar_color, bar_bg_color, text_color, bg_color, " +
         "achieved_bg_color, achieved_text_color, font_size, bar_height, " +
         "position, show_on_pages, steps, " +
-        "show_product_benefits, product_benefits, product_benefits_title, product_benefits_anchor"
+        "show_product_benefits, product_benefits, product_benefits_title, product_benefits_anchor, pdp_inline"
     )
     .eq("workspace_id", auth.workspaceId)
     .maybeSingle();

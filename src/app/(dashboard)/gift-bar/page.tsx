@@ -77,6 +77,7 @@ interface GiftBarConfig {
   product_benefits: ProductBenefit[];
   product_benefits_title: string;
   product_benefits_anchor: string;
+  pdp_inline: boolean;
 }
 
 const ICON_OPTIONS = [
@@ -219,6 +220,7 @@ const DEFAULT_CONFIG: GiftBarConfig = {
   product_benefits: [],
   product_benefits_title: "Nossos benefícios",
   product_benefits_anchor: "",
+  pdp_inline: false,
 };
 
 function mergeWithDefaults(raw: Partial<GiftBarConfig>): GiftBarConfig {
@@ -236,6 +238,7 @@ function mergeWithDefaults(raw: Partial<GiftBarConfig>): GiftBarConfig {
       raw.product_benefits_title || DEFAULT_CONFIG.product_benefits_title,
     product_benefits_anchor: raw.product_benefits_anchor ?? "",
     show_product_benefits: raw.show_product_benefits === true,
+    pdp_inline: raw.pdp_inline === true,
     message_next_step:
       raw.message_next_step || DEFAULT_CONFIG.message_next_step,
     message_all_achieved:
@@ -674,12 +677,42 @@ export default function GiftBarPage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div className="rounded-lg border p-4 space-y-3 bg-muted/30">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">
+                      Renderizar inline na página de produto
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Quando ativo, a régua aparece <strong>abaixo do botão Comprar</strong>{" "}
+                      apenas em PDPs (não no topo). Útil pra evitar duplicação com a
+                      topbar da loja.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.pdp_inline}
+                    onCheckedChange={(v) => updateConfig({ pdp_inline: v })}
+                  />
+                </div>
+                {config.pdp_inline && (
+                  <p className="text-xs text-muted-foreground">
+                    Usa o mesmo seletor CSS dos benefícios. Se não casar, defina em
+                    &quot;Seletor CSS de ancoragem&quot; (card de Benefícios).
+                  </p>
+                )}
+              </div>
+
+              <div
+                className={`grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 ${
+                  config.pdp_inline ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
                 <div className="space-y-2">
-                  <Label>Posição</Label>
+                  <Label>Posição (modo topo/rodapé)</Label>
                   <Select
                     value={config.position}
                     onValueChange={(v) => updateConfig({ position: v })}
+                    disabled={config.pdp_inline}
                   >
                     <SelectTrigger>
                       <SelectValue />
