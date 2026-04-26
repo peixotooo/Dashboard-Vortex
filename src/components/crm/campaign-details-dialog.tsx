@@ -139,6 +139,8 @@ export function CampaignDetailsDialog({
   const [showReschedule, setShowReschedule] = useState(false);
   const [rescheduleAt, setRescheduleAt] = useState("");
   const [rescheduling, setRescheduling] = useState(false);
+  const [cloneScope, setCloneScope] = useState<"undelivered" | "all">("undelivered");
+  const [cloneCounts, setCloneCounts] = useState<{ all: number; undelivered: number; counts?: Record<string, number> } | null>(null);
 
   const open = !!campaignId;
 
@@ -221,6 +223,8 @@ export function CampaignDetailsDialog({
       setError(null);
       setShowReschedule(false);
       setRescheduleAt("");
+      setCloneCounts(null);
+      setCloneScope("undelivered");
     }
   }, [open, load]);
 
@@ -259,8 +263,13 @@ export function CampaignDetailsDialog({
     setCancelling(false);
   }
 
+  // "Edit in place" — only valid for campaigns that haven't dispatched
+  const editableStatuses = ["scheduled", "queued", "draft", "cancelled"];
+  // "Clone & reschedule" — for campaigns that already ran (or partially ran)
+  const cloneableStatuses = ["completed", "failed", "sending"];
+
   async function handleReschedule() {
-    if (!campaignId || !rescheduleAt) return;
+    if (!campaignId || !rescheduleAt || !campaign) return;
     const when = new Date(rescheduleAt);
     if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
       setError("Escolha uma data e hora futuras.");
@@ -269,21 +278,38 @@ export function CampaignDetailsDialog({
     setRescheduling(true);
     setError(null);
     try {
-      const res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}`, {
-        method: "PATCH",
-        headers: headers(),
-        body: JSON.stringify({
-          action: "reschedule",
-          scheduled_at: when.toISOString(),
-        }),
-      });
+      let res: Response;
+      if (editableStatuses.includes(campaign.status)) {
+        res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}`, {
+          method: "PATCH",
+          headers: headers(),
+          body: JSON.stringify({
+            action: "reschedule",
+            scheduled_at: when.toISOString(),
+          }),
+        });
+      } else {
+        res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}/clone`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            scheduled_at: when.toISOString(),
+            scope: cloneScope,
+          }),
+        });
+      }
       const data = await res.json();
       if (data.error) setError(data.error);
       else {
         setShowReschedule(false);
         setRescheduleAt("");
+        setCloneCounts(null);
         await load();
         onChanged?.();
+        if (data.cloned_count) {
+          // Cloned: close so the user sees the new scheduled campaign in the list
+          onClose();
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao reagendar");
@@ -291,20 +317,34 @@ export function CampaignDetailsDialog({
     setRescheduling(false);
   }
 
-  function openReschedule() {
-    // Pre-fill with existing scheduled_at (or now + 1h) in datetime-local format
-    const base = campaign?.scheduled_at
+  async function openReschedule() {
+    if (!campaign) return;
+    const base = campaign.scheduled_at
       ? new Date(campaign.scheduled_at)
       : new Date(Date.now() + 60 * 60 * 1000);
-    // Convert to local "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
     const tz = base.getTimezoneOffset() * 60000;
     const localIso = new Date(base.getTime() - tz).toISOString().slice(0, 16);
     setRescheduleAt(localIso);
     setShowReschedule(true);
+
+    // For clone path, fetch the per-status breakdown so user sees how many will be re-sent
+    if (cloneableStatuses.includes(campaign.status) && campaignId) {
+      try {
+        const res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}/clone`, {
+          headers: headers(),
+        });
+        const data = await res.json();
+        if (!data.error) setCloneCounts({ all: data.all, undelivered: data.undelivered, counts: data.counts });
+      } catch {
+        /* silent */
+      }
+    }
   }
 
   const cancellable = campaign && ["scheduled", "queued", "draft"].includes(campaign.status);
-  const reschedulable = campaign && ["scheduled", "queued", "draft", "cancelled"].includes(campaign.status);
+  const reschedulable =
+    campaign && (editableStatuses.includes(campaign.status) || cloneableStatuses.includes(campaign.status));
+  const isClone = campaign && cloneableStatuses.includes(campaign.status);
   // Min datetime-local string (now)
   const nowLocal = (() => {
     const d = new Date(Date.now() + 60_000);
@@ -616,11 +656,55 @@ export function CampaignDetailsDialog({
 
             {/* Reschedule inline form */}
             {showReschedule && reschedulable && (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-3">
                 <Label className="flex items-center gap-1.5 text-xs">
                   <CalendarPlus className="h-3.5 w-3.5" />
-                  Nova data e hora de envio
+                  {isClone ? "Reagendar reenvio" : "Nova data e hora de envio"}
                 </Label>
+
+                {isClone && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs text-muted-foreground">Quem reenviar:</div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant={cloneScope === "undelivered" ? "default" : "outline"}
+                        onClick={() => setCloneScope("undelivered")}
+                        className="flex-1"
+                      >
+                        Apenas nao entregues
+                        {cloneCounts && (
+                          <Badge variant="secondary" className="ml-1.5 text-[10px]">
+                            {cloneCounts.undelivered}
+                          </Badge>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={cloneScope === "all" ? "default" : "outline"}
+                        onClick={() => setCloneScope("all")}
+                        className="flex-1"
+                      >
+                        Todos os contatos
+                        {cloneCounts && (
+                          <Badge variant="secondary" className="ml-1.5 text-[10px]">
+                            {cloneCounts.all}
+                          </Badge>
+                        )}
+                      </Button>
+                    </div>
+                    {cloneCounts?.counts && (
+                      <div className="text-[10px] text-muted-foreground">
+                        Detalhamento: entregues {cloneCounts.counts.delivered || 0} ·
+                        lidas {cloneCounts.counts.read || 0} ·
+                        enviadas (sem callback) {cloneCounts.counts.sent || 0} ·
+                        falhas {cloneCounts.counts.failed || 0} ·
+                        na fila {cloneCounts.counts.queued || 0}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <Input
                     type="datetime-local"
@@ -645,6 +729,7 @@ export function CampaignDetailsDialog({
                     onClick={() => {
                       setShowReschedule(false);
                       setRescheduleAt("");
+                      setCloneCounts(null);
                     }}
                     disabled={rescheduling}
                   >
@@ -652,7 +737,9 @@ export function CampaignDetailsDialog({
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  A campanha sera enviada automaticamente neste horario (fuso local).
+                  {isClone
+                    ? "Vai criar uma nova campanha agendada com os mesmos contatos selecionados."
+                    : "A campanha sera enviada automaticamente neste horario (fuso local)."}
                 </p>
               </div>
             )}
@@ -660,9 +747,15 @@ export function CampaignDetailsDialog({
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t">
               {reschedulable && !showReschedule && (
-                <Button variant="outline" size="sm" onClick={openReschedule}>
+                <Button
+                  variant={isClone ? "default" : "outline"}
+                  size="sm"
+                  onClick={openReschedule}
+                >
                   <CalendarPlus className="h-3.5 w-3.5 mr-1.5" />
-                  {campaign.scheduled_at || campaign.status === "cancelled"
+                  {isClone
+                    ? "Reagendar reenvio"
+                    : campaign.scheduled_at || campaign.status === "cancelled"
                     ? "Reagendar"
                     : "Agendar"}
                 </Button>
