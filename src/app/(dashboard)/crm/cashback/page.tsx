@@ -86,6 +86,7 @@ interface Config {
   enable_deposit: boolean;
   enable_refund: boolean;
   enable_troquecommerce: boolean;
+  excluded_client_tags: string[];
 }
 
 interface Template {
@@ -918,6 +919,31 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
               <Label>Valor mínimo para e-mail (R$)</Label>
               <Input type="number" step="0.01" value={cfg.email_min_value} onChange={(e) => setCfg({ ...cfg, email_min_value: Number(e.target.value) })} />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Elegibilidade do cliente</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Label>Tags VNDA que NÃO recebem cashback (separadas por vírgula)</Label>
+            <Input
+              value={(cfg.excluded_client_tags || []).join(", ")}
+              onChange={(e) =>
+                setCfg({
+                  ...cfg,
+                  excluded_client_tags: e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="bulking-club"
+            />
+            <p className="text-xs text-muted-foreground">
+              Clientes com qualquer dessas tags na VNDA são <strong>excluídos</strong> da régua de cashback (já recebem outros benefícios). Padrão: <code>bulking-club</code>.
+            </p>
           </CardContent>
         </Card>
 

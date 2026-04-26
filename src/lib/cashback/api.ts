@@ -44,6 +44,8 @@ export interface CashbackConfigRow {
   enable_deposit: boolean;
   enable_refund: boolean;
   enable_troquecommerce: boolean;
+  /** Clients carrying ANY of these VNDA tags are NOT eligible for cashback. */
+  excluded_client_tags: string[];
 }
 
 export interface CashbackTransactionRow {
@@ -93,6 +95,7 @@ const DEFAULTS: Omit<CashbackConfigRow, "workspace_id"> = {
   enable_deposit: true,
   enable_refund: true,
   enable_troquecommerce: true,
+  excluded_client_tags: ["bulking-club"],
 };
 
 // --- Config helpers ---
@@ -234,6 +237,41 @@ export function isEligibleOrderStatus(status: string | undefined | null): boolea
   return s === "confirmed" || s === "paid" || s === "approved";
 }
 
+/**
+ * Parses a VNDA `client_tags` field (comma-separated string) into a normalized
+ * lower-case array. Returns empty list when input is null/empty/non-string.
+ */
+export function parseClientTags(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((t) => (typeof t === "string" ? t.trim().toLowerCase() : ""))
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Returns the matching exclusion tag if the client has ANY excluded tag,
+ * or null when the client is eligible for cashback.
+ */
+export function findExcludingTag(
+  clientTags: string[],
+  excludedTags: string[]
+): string | null {
+  const normalizedExcluded = excludedTags.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  for (const ct of clientTags) {
+    if (normalizedExcluded.includes(ct)) return ct;
+  }
+  return null;
+}
+
 export interface CreateCashbackResult {
   created: boolean;
   cashbackId?: string;
@@ -257,6 +295,14 @@ export async function createCashbackFromOrder(
   }
 
   const cfg = await getOrCreateConfig(workspaceId, admin);
+
+  // Membership exclusion (e.g. Bulking Club members already have other benefits)
+  const clientTags = parseClientTags(payload.client_tags);
+  const excludingTag = findExcludingTag(clientTags, cfg.excluded_client_tags || []);
+  if (excludingTag) {
+    return { created: false, reason: `excluded_member:${excludingTag}` };
+  }
+
   const valorCashback = calculateCashbackAmount(cfg, {
     total: payload.total,
     subtotal: payload.subtotal,

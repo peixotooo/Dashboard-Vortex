@@ -22,6 +22,7 @@ const EDITABLE_FIELDS = [
   "enable_deposit",
   "enable_refund",
   "enable_troquecommerce",
+  "excluded_client_tags",
 ] as const;
 
 export async function GET(request: NextRequest) {
