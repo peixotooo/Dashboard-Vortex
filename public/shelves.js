@@ -904,7 +904,31 @@
     return '<span style="font-size:18px">' + escapeHtml(icon) + '</span>';
   }
 
+  function injectGiftBarModalCSSOnce() {
+    if (document.getElementById("vtx-gb-modal-styles")) return;
+    var css =
+      "#vtx-gb-modal{position:fixed;inset:0;z-index:99999;display:none}" +
+      "#vtx-gb-modal.vtx-gb-modal-open{display:block}" +
+      ".vtx-gb-modal-backdrop{position:absolute;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px)}" +
+      ".vtx-gb-modal-card{position:relative;max-width:520px;width:calc(100% - 32px);margin:60px auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px 24px 22px;box-shadow:0 20px 50px -10px rgba(17,24,39,.25);font-family:'Inter',system-ui,sans-serif;color:#111827}" +
+      ".vtx-gb-modal-close{position:absolute;top:10px;right:14px;background:none;border:none;font-size:26px;line-height:1;color:#9ca3af;cursor:pointer;padding:4px 8px;border-radius:6px}" +
+      ".vtx-gb-modal-close:hover{color:#374151;background:#f3f4f6}" +
+      ".vtx-gb-modal-title{margin:0 0 12px;font-size:17px;font-weight:600;color:#111827}" +
+      ".vtx-gb-modal-body{font-size:14px;line-height:1.55;color:#374151}" +
+      ".vtx-gb-modal-body table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}" +
+      ".vtx-gb-modal-body th,.vtx-gb-modal-body td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left}" +
+      ".vtx-gb-modal-body th{background:#f9fafb;font-weight:600;color:#4b5563;font-size:12px;text-transform:uppercase;letter-spacing:.04em}" +
+      ".vtx-gb-modal-body tr:last-child td{border-bottom:none}" +
+      ".vtx-gb-modal-body p{margin:0 0 8px}" +
+      "@media(max-width:768px){.vtx-gb-modal-card{margin:32px auto}}";
+    var style = document.createElement("style");
+    style.id = "vtx-gb-modal-styles";
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
   function injectGiftBarModalOnce() {
+    injectGiftBarModalCSSOnce();
     if (document.getElementById("vtx-gb-modal")) return;
     var modal = document.createElement("div");
     modal.id = "vtx-gb-modal";
@@ -1051,14 +1075,11 @@
         if (!cfg.enabled) return;
 
         // User requested to completely remove the gift bar from the PDP
+        // (but keep it on cart/checkout). Force sticky mode for non-PDP
+        // pages so the bar still renders even if pdp_inline was on.
         if (pageType === "product") return;
-
-        // Inline PDP mode: render inside the product page only, below the buy button
-        var inlineMode = !!cfg.pdp_inline;
-        if (inlineMode && pageType !== "product") return;
-        if (!inlineMode) {
-          if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
-        }
+        var inlineMode = false;
+        if (cfg.show_on_pages.indexOf("all") === -1 && cfg.show_on_pages.indexOf(pageType) === -1) return;
 
         var hasSteps = Array.isArray(cfg.steps) && cfg.steps.length > 0;
         var steps = hasSteps
@@ -1103,26 +1124,11 @@
           ".vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff;border-color:" + escapeHtml(cfg.bar_color) + "}" +
           ".vtx-gb-step-label{font-weight:500;max-width:80px}" +
           ".vtx-gb-step-modal{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}" +
-          // Modal
-          "#vtx-gb-modal{position:fixed;inset:0;z-index:99999;display:none}" +
-          "#vtx-gb-modal.vtx-gb-modal-open{display:block}" +
-          ".vtx-gb-modal-backdrop{position:absolute;inset:0;background:rgba(17,24,39,.55);backdrop-filter:blur(2px)}" +
-          ".vtx-gb-modal-card{position:relative;max-width:520px;width:calc(100% - 32px);margin:60px auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px 24px 22px;box-shadow:0 20px 50px -10px rgba(17,24,39,.25);font-family:'Inter',system-ui,sans-serif;color:#111827}" +
-          ".vtx-gb-modal-close{position:absolute;top:10px;right:14px;background:none;border:none;font-size:26px;line-height:1;color:#9ca3af;cursor:pointer;padding:4px 8px;border-radius:6px}" +
-          ".vtx-gb-modal-close:hover{color:#374151;background:#f3f4f6}" +
-          ".vtx-gb-modal-title{margin:0 0 12px;font-size:17px;font-weight:600;color:#111827}" +
-          ".vtx-gb-modal-body{font-size:14px;line-height:1.55;color:#374151}" +
-          ".vtx-gb-modal-body table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}" +
-          ".vtx-gb-modal-body th,.vtx-gb-modal-body td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left}" +
-          ".vtx-gb-modal-body th{background:#f9fafb;font-weight:600;color:#4b5563;font-size:12px;text-transform:uppercase;letter-spacing:.04em}" +
-          ".vtx-gb-modal-body tr:last-child td{border-bottom:none}" +
-          ".vtx-gb-modal-body p{margin:0 0 8px}" +
           "@media(max-width:768px){" +
             "#vtx-gift-bar{position:relative;padding:8px 12px;font-size:12px}" +
             ".vtx-gb-img{width:24px;height:24px}" +
             ".vtx-gb-step-icon{width:28px;height:28px}" +
             ".vtx-gb-step-label{max-width:64px;font-size:10px}" +
-            ".vtx-gb-modal-card{margin:32px auto}" +
           "}";
 
         var style = document.createElement("style");
