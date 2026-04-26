@@ -114,6 +114,7 @@ export async function PUT(request: NextRequest) {
           product_benefits_title:
             body.product_benefits_title || "Nossos benefícios",
           product_benefits_anchor: body.product_benefits_anchor || null,
+          pdp_inline: body.pdp_inline === true,
         },
         { onConflict: "workspace_id" }
       )
