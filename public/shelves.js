@@ -1098,7 +1098,7 @@
             ) +
             "background:" + escapeHtml(cfg.bg_color) + ";" +
             "color:" + escapeHtml(cfg.text_color) + ";" +
-            "padding:" + (inlineMode ? "12px 16px" : "6px 14px") + ";" +
+            "padding:" + (inlineMode ? "15px 16px" : "9px 14px") + ";" +
             "font-family:'Inter',system-ui,sans-serif;" +
             "font-size:" + escapeHtml(cfg.font_size) + ";" +
           "}" +
@@ -1130,10 +1130,9 @@
           ".vtx-gb-step-label{position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;font-weight:500;letter-spacing:.01em;opacity:.8;line-height:1.1}" +
           ".vtx-gb-step-modal{cursor:pointer;border-bottom:1px dotted currentColor;padding-bottom:1px}" +
           "@media(max-width:768px){" +
-            "#vtx-gift-bar{position:relative;padding:5px 10px;font-size:11px}" +
+            "#vtx-gift-bar{position:relative;padding:8px 10px;font-size:11px}" +
             ".vtx-gb-img{width:20px;height:20px}" +
             ".vtx-gb-text{font-size:11.5px}" +
-            ".vtx-gb-text .vtx-gb-cashback-inline{display:none!important}" +
             ".vtx-gb-track-wrap{padding:6px 10px 18px}" +
             ".vtx-gb-steps{top:6px;left:10px;right:10px}" +
             ".vtx-gb-step-icon{width:16px;height:16px}" +
