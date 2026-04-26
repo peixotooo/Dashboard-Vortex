@@ -1050,6 +1050,9 @@
 
         if (!cfg.enabled) return;
 
+        // User requested to completely remove the gift bar from the PDP
+        if (pageType === "product") return;
+
         // Inline PDP mode: render inside the product page only, below the buy button
         var inlineMode = !!cfg.pdp_inline;
         if (inlineMode && pageType !== "product") return;
