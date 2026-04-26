@@ -64,16 +64,12 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
 
-    if (body.action !== "cancel") {
-      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-    }
-
     const admin = createAdminClient();
 
     // Verify campaign exists and belongs to workspace
     const { data: campaign } = await admin
       .from("wa_campaigns")
-      .select("id, status")
+      .select("id, status, started_at")
       .eq("id", id)
       .eq("workspace_id", workspaceId)
       .single();
@@ -82,24 +78,74 @@ export async function PATCH(
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
 
-    const cancellableStatuses = ["scheduled", "queued", "draft"];
-    if (!cancellableStatuses.includes(campaign.status)) {
-      return NextResponse.json(
-        { error: `Campanha com status "${campaign.status}" nao pode ser cancelada` },
-        { status: 400 }
-      );
+    if (body.action === "cancel") {
+      const cancellableStatuses = ["scheduled", "queued", "draft"];
+      if (!cancellableStatuses.includes(campaign.status)) {
+        return NextResponse.json(
+          { error: `Campanha com status "${campaign.status}" nao pode ser cancelada` },
+          { status: 400 }
+        );
+      }
+
+      const { data: updated, error: updateErr } = await admin
+        .from("wa_campaigns")
+        .update({ status: "cancelled" })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateErr) throw new Error(updateErr.message);
+      return NextResponse.json({ campaign: updated });
     }
 
-    const { data: updated, error: updateErr } = await admin
-      .from("wa_campaigns")
-      .update({ status: "cancelled" })
-      .eq("id", id)
-      .select()
-      .single();
+    if (body.action === "reschedule") {
+      const reschedulableStatuses = ["scheduled", "queued", "draft", "cancelled"];
+      if (!reschedulableStatuses.includes(campaign.status)) {
+        return NextResponse.json(
+          { error: `Campanha com status "${campaign.status}" nao pode ser reagendada` },
+          { status: 400 }
+        );
+      }
 
-    if (updateErr) throw new Error(updateErr.message);
+      const raw = body.scheduled_at;
+      if (!raw || typeof raw !== "string") {
+        return NextResponse.json(
+          { error: "scheduled_at e obrigatorio (ISO timestamp)" },
+          { status: 400 }
+        );
+      }
+      const when = new Date(raw);
+      if (Number.isNaN(when.getTime())) {
+        return NextResponse.json({ error: "scheduled_at invalido" }, { status: 400 });
+      }
+      if (when.getTime() <= Date.now()) {
+        return NextResponse.json(
+          { error: "scheduled_at deve ser no futuro" },
+          { status: 400 }
+        );
+      }
 
-    return NextResponse.json({ campaign: updated });
+      const updates: Record<string, unknown> = {
+        status: "scheduled",
+        scheduled_at: when.toISOString(),
+      };
+      // Reset started_at if it was set on cancelled/queued — campaign hasn't dispatched
+      if (!campaign.started_at || campaign.status !== "sending") {
+        updates.started_at = null;
+      }
+
+      const { data: updated, error: updateErr } = await admin
+        .from("wa_campaigns")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateErr) throw new Error(updateErr.message);
+      return NextResponse.json({ campaign: updated });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

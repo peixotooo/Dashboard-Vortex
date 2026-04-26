@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertTriangle,
   CalendarClock,
@@ -17,6 +19,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  CalendarPlus,
 } from "lucide-react";
 
 interface TemplateComponent {
@@ -133,6 +136,9 @@ export function CampaignDetailsDialog({
   const [rechecking, setRechecking] = useState(false);
   const [recheckResult, setRecheckResult] = useState<RecheckResult | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [rescheduleAt, setRescheduleAt] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
 
   const open = !!campaignId;
 
@@ -213,6 +219,8 @@ export function CampaignDetailsDialog({
       setCampaign(null);
       setRecheckResult(null);
       setError(null);
+      setShowReschedule(false);
+      setRescheduleAt("");
     }
   }, [open, load]);
 
@@ -251,7 +259,58 @@ export function CampaignDetailsDialog({
     setCancelling(false);
   }
 
+  async function handleReschedule() {
+    if (!campaignId || !rescheduleAt) return;
+    const when = new Date(rescheduleAt);
+    if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+      setError("Escolha uma data e hora futuras.");
+      return;
+    }
+    setRescheduling(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({
+          action: "reschedule",
+          scheduled_at: when.toISOString(),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        setShowReschedule(false);
+        setRescheduleAt("");
+        await load();
+        onChanged?.();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao reagendar");
+    }
+    setRescheduling(false);
+  }
+
+  function openReschedule() {
+    // Pre-fill with existing scheduled_at (or now + 1h) in datetime-local format
+    const base = campaign?.scheduled_at
+      ? new Date(campaign.scheduled_at)
+      : new Date(Date.now() + 60 * 60 * 1000);
+    // Convert to local "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
+    const tz = base.getTimezoneOffset() * 60000;
+    const localIso = new Date(base.getTime() - tz).toISOString().slice(0, 16);
+    setRescheduleAt(localIso);
+    setShowReschedule(true);
+  }
+
   const cancellable = campaign && ["scheduled", "queued", "draft"].includes(campaign.status);
+  const reschedulable = campaign && ["scheduled", "queued", "draft", "cancelled"].includes(campaign.status);
+  // Min datetime-local string (now)
+  const nowLocal = (() => {
+    const d = new Date(Date.now() + 60_000);
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+  })();
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -555,8 +614,59 @@ export function CampaignDetailsDialog({
               </div>
             )}
 
+            {/* Reschedule inline form */}
+            {showReschedule && reschedulable && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                <Label className="flex items-center gap-1.5 text-xs">
+                  <CalendarPlus className="h-3.5 w-3.5" />
+                  Nova data e hora de envio
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="datetime-local"
+                    value={rescheduleAt}
+                    min={nowLocal}
+                    onChange={(e) => setRescheduleAt(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleReschedule}
+                    disabled={rescheduling || !rescheduleAt}
+                  >
+                    {rescheduling ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    ) : null}
+                    Confirmar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setShowReschedule(false);
+                      setRescheduleAt("");
+                    }}
+                    disabled={rescheduling}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  A campanha sera enviada automaticamente neste horario (fuso local).
+                </p>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t">
+              {reschedulable && !showReschedule && (
+                <Button variant="outline" size="sm" onClick={openReschedule}>
+                  <CalendarPlus className="h-3.5 w-3.5 mr-1.5" />
+                  {campaign.scheduled_at || campaign.status === "cancelled"
+                    ? "Reagendar"
+                    : "Agendar"}
+                </Button>
+              )}
               {cancellable && (
                 <Button
                   variant="destructive"
