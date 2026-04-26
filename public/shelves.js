@@ -1107,28 +1107,33 @@
             "color:" + escapeHtml(cfg.achieved_text_color) + "!important;" +
           "}" +
           ".vtx-gb-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}" +
-          ".vtx-gb-img{width:32px;height:32px;object-fit:contain;border-radius:4px}" +
-          ".vtx-gb-content{flex:1}" +
-          ".vtx-gb-text{margin:0 0 8px;font-weight:600;text-align:center}" +
-          ".vtx-gb-track{position:relative;width:100%;height:" + escapeHtml(cfg.bar_height) + ";" +
+          ".vtx-gb-img{width:28px;height:28px;object-fit:contain;border-radius:4px}" +
+          ".vtx-gb-content{flex:1;min-width:0}" +
+          ".vtx-gb-text{margin:0 0 6px;font-weight:600;text-align:center;font-size:13px;letter-spacing:.01em}" +
+          // Track + fill (slimmer, modern)
+          ".vtx-gb-track-wrap{position:relative;padding:9px 14px 26px}" +
+          ".vtx-gb-track{position:relative;width:100%;height:5px;" +
             "background:" + escapeHtml(cfg.bar_bg_color) + ";" +
-            "border-radius:999px;overflow:hidden}" +
+            "border-radius:999px;overflow:visible}" +
           ".vtx-gb-fill{height:100%;" +
             "background:" + escapeHtml(cfg.bar_color) + ";" +
             "border-radius:999px;transition:width .5s ease;width:0}" +
-          // Multi-step
-          ".vtx-gb-steps{position:relative;width:100%;margin-top:14px;display:flex;justify-content:space-between;padding:0 4px}" +
-          ".vtx-gb-step{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 auto;text-align:center;font-size:11px;line-height:1.2}" +
-          ".vtx-gb-step-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#9ca3af;border:2px solid #e5e7eb;transition:all .25s ease}" +
+          // Multi-step (steps positioned by threshold % along the track)
+          ".vtx-gb-steps{position:absolute;top:9px;left:14px;right:14px;height:5px;pointer-events:none}" +
+          ".vtx-gb-step{position:absolute;top:50%;transform:translate(-50%, -50%);display:flex;flex-direction:column;align-items:center;pointer-events:auto}" +
+          ".vtx-gb-step-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:" + escapeHtml(cfg.bar_bg_color) + ";color:" + escapeHtml(cfg.text_color) + ";box-shadow:0 0 0 2px " + escapeHtml(cfg.bg_color) + ";transition:all .25s ease}" +
           ".vtx-gb-step-icon svg{width:60%;height:60%}" +
-          ".vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff;border-color:" + escapeHtml(cfg.bar_color) + "}" +
-          ".vtx-gb-step-label{font-weight:500;max-width:80px}" +
-          ".vtx-gb-step-modal{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}" +
+          ".vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff}" +
+          ".vtx-gb-step-label{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10.5px;font-weight:500;letter-spacing:.01em;opacity:.85;line-height:1.2}" +
+          ".vtx-gb-step-modal{cursor:pointer;border-bottom:1px dotted currentColor;padding-bottom:1px}" +
           "@media(max-width:768px){" +
             "#vtx-gift-bar{position:relative;padding:8px 12px;font-size:12px}" +
-            ".vtx-gb-img{width:24px;height:24px}" +
-            ".vtx-gb-step-icon{width:28px;height:28px}" +
-            ".vtx-gb-step-label{max-width:64px;font-size:10px}" +
+            ".vtx-gb-img{width:22px;height:22px}" +
+            ".vtx-gb-text{font-size:12px;margin-bottom:4px}" +
+            ".vtx-gb-track-wrap{padding:7px 10px 22px}" +
+            ".vtx-gb-steps{top:7px;left:10px;right:10px}" +
+            ".vtx-gb-step-icon{width:20px;height:20px}" +
+            ".vtx-gb-step-label{font-size:9.5px}" +
           "}";
 
         var style = document.createElement("style");
@@ -1136,9 +1141,9 @@
         style.textContent = css;
         document.head.appendChild(style);
 
-        // Build steps HTML
+        // Build steps HTML — each step positioned absolutely by threshold ratio
         var stepsHtml = "";
-        if (hasSteps) {
+        if (hasSteps && maxThreshold > 0) {
           stepsHtml = '<div class="vtx-gb-steps">';
           for (var i = 0; i < steps.length; i++) {
             var s = steps[i];
@@ -1146,10 +1151,11 @@
             var labelHtml = escapeHtml(s.label || "");
             if (hasModal) {
               labelHtml = '<span class="vtx-gb-step-modal" data-step-idx="' + i + '">' +
-                escapeHtml(s.label || "") + '*</span>';
+                escapeHtml(s.label || "") + '</span>';
             }
+            var pct = Math.max(0, Math.min(100, (Number(s.threshold) / maxThreshold) * 100));
             stepsHtml +=
-              '<div class="vtx-gb-step" data-threshold="' + Number(s.threshold) + '">' +
+              '<div class="vtx-gb-step" data-threshold="' + Number(s.threshold) + '" style="left:' + pct.toFixed(2) + '%">' +
                 '<div class="vtx-gb-step-icon">' + renderIcon(s.icon) + '</div>' +
                 '<div class="vtx-gb-step-label">' + labelHtml + '</div>' +
               '</div>';
@@ -1166,8 +1172,10 @@
               '<img class="vtx-gb-img" src="' + escapeHtml(cfg.gift_image_url) + '" alt="' + escapeHtml(cfg.gift_name) + '" onerror="this.style.display=\'none\'">' : "") +
             '<div class="vtx-gb-content">' +
               '<p class="vtx-gb-text"></p>' +
-              '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
-              stepsHtml +
+              '<div class="vtx-gb-track-wrap">' +
+                '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
+                stepsHtml +
+              '</div>' +
             '</div>' +
           '</div>';
 
