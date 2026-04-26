@@ -1098,7 +1098,7 @@
             ) +
             "background:" + escapeHtml(cfg.bg_color) + ";" +
             "color:" + escapeHtml(cfg.text_color) + ";" +
-            "padding:" + (inlineMode ? "16px 18px" : "10px 16px") + ";" +
+            "padding:" + (inlineMode ? "12px 16px" : "6px 14px") + ";" +
             "font-family:'Inter',system-ui,sans-serif;" +
             "font-size:" + escapeHtml(cfg.font_size) + ";" +
           "}" +
@@ -1109,12 +1109,12 @@
           ".vtx-gb-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}" +
           ".vtx-gb-img{width:28px;height:28px;object-fit:contain;border-radius:4px}" +
           ".vtx-gb-content{flex:1;min-width:0}" +
-          ".vtx-gb-text{margin:0 0 6px;font-weight:600;text-align:center;font-size:13px;letter-spacing:.01em}" +
-          ".vtx-gb-cashback{display:none;margin:0 0 8px;text-align:center;font-size:11.5px;font-weight:500;letter-spacing:.01em;opacity:.85}" +
-          ".vtx-gb-cashback.vtx-gb-cashback-show{display:block}" +
-          ".vtx-gb-cashback strong{font-weight:700}" +
+          ".vtx-gb-text{margin:0;font-weight:600;text-align:center;font-size:12.5px;letter-spacing:.01em;line-height:1.3}" +
+          ".vtx-gb-text .vtx-gb-cashback-inline{display:none;font-weight:500;opacity:.78;font-size:11px;margin-left:8px;padding-left:8px;border-left:1px solid currentColor}" +
+          ".vtx-gb-text .vtx-gb-cashback-inline.vtx-gb-cashback-show{display:inline}" +
+          ".vtx-gb-text .vtx-gb-cashback-inline strong{font-weight:700;opacity:1}" +
           // Track + fill (slimmer, modern)
-          ".vtx-gb-track-wrap{position:relative;padding:9px 14px 26px}" +
+          ".vtx-gb-track-wrap{position:relative;padding:7px 14px 22px}" +
           ".vtx-gb-track{position:relative;width:100%;height:5px;" +
             "background:" + escapeHtml(cfg.bar_bg_color) + ";" +
             "border-radius:999px;overflow:visible}" +
@@ -1122,21 +1122,22 @@
             "background:" + escapeHtml(cfg.bar_color) + ";" +
             "border-radius:999px;transition:width .5s ease;width:0}" +
           // Multi-step (steps positioned by threshold % along the track)
-          ".vtx-gb-steps{position:absolute;top:9px;left:14px;right:14px;height:5px;pointer-events:none}" +
+          ".vtx-gb-steps{position:absolute;top:7px;left:14px;right:14px;height:5px;pointer-events:none}" +
           ".vtx-gb-step{position:absolute;top:50%;transform:translate(-50%, -50%);display:flex;flex-direction:column;align-items:center;pointer-events:auto}" +
-          ".vtx-gb-step-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:" + escapeHtml(cfg.bar_bg_color) + ";color:" + escapeHtml(cfg.text_color) + ";box-shadow:0 0 0 2px " + escapeHtml(cfg.bg_color) + ";transition:all .25s ease}" +
-          ".vtx-gb-step-icon svg{width:60%;height:60%}" +
+          ".vtx-gb-step-icon{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:" + escapeHtml(cfg.bar_bg_color) + ";color:" + escapeHtml(cfg.text_color) + ";box-shadow:0 0 0 2px " + escapeHtml(cfg.bg_color) + ";transition:all .25s ease}" +
+          ".vtx-gb-step-icon svg{width:55%;height:55%}" +
           ".vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff}" +
-          ".vtx-gb-step-label{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10.5px;font-weight:500;letter-spacing:.01em;opacity:.85;line-height:1.2}" +
+          ".vtx-gb-step-label{position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;font-weight:500;letter-spacing:.01em;opacity:.8;line-height:1.1}" +
           ".vtx-gb-step-modal{cursor:pointer;border-bottom:1px dotted currentColor;padding-bottom:1px}" +
           "@media(max-width:768px){" +
-            "#vtx-gift-bar{position:relative;padding:8px 12px;font-size:12px}" +
-            ".vtx-gb-img{width:22px;height:22px}" +
-            ".vtx-gb-text{font-size:12px;margin-bottom:4px}" +
-            ".vtx-gb-track-wrap{padding:7px 10px 22px}" +
-            ".vtx-gb-steps{top:7px;left:10px;right:10px}" +
-            ".vtx-gb-step-icon{width:20px;height:20px}" +
-            ".vtx-gb-step-label{font-size:9.5px}" +
+            "#vtx-gift-bar{position:relative;padding:5px 10px;font-size:11px}" +
+            ".vtx-gb-img{width:20px;height:20px}" +
+            ".vtx-gb-text{font-size:11.5px}" +
+            ".vtx-gb-text .vtx-gb-cashback-inline{display:none!important}" +
+            ".vtx-gb-track-wrap{padding:6px 10px 18px}" +
+            ".vtx-gb-steps{top:6px;left:10px;right:10px}" +
+            ".vtx-gb-step-icon{width:16px;height:16px}" +
+            ".vtx-gb-step-label{font-size:9px}" +
           "}";
 
         var style = document.createElement("style");
@@ -1174,8 +1175,7 @@
             (!hasSteps && cfg.gift_image_url ?
               '<img class="vtx-gb-img" src="' + escapeHtml(cfg.gift_image_url) + '" alt="' + escapeHtml(cfg.gift_name) + '" onerror="this.style.display=\'none\'">' : "") +
             '<div class="vtx-gb-content">' +
-              '<p class="vtx-gb-text"></p>' +
-              '<p class="vtx-gb-cashback"></p>' +
+              '<p class="vtx-gb-text"><span class="vtx-gb-text-main"></span><span class="vtx-gb-cashback-inline"></span></p>' +
               '<div class="vtx-gb-track-wrap">' +
                 '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
                 stepsHtml +
@@ -1247,19 +1247,19 @@
         var stepFiredFlags = {};
 
         function updateBar(cartTotal) {
-          var textEl = bar.querySelector(".vtx-gb-text");
+          var textEl = bar.querySelector(".vtx-gb-text-main") || bar.querySelector(".vtx-gb-text");
           var fillEl = bar.querySelector(".vtx-gb-fill");
-          var cashbackEl = bar.querySelector(".vtx-gb-cashback");
+          var cashbackEl = bar.querySelector(".vtx-gb-cashback-inline");
           if (!textEl || !fillEl) return;
 
-          // Cashback line: "Voce ganhara R$ X,XX em cashback nesta compra"
+          // Inline cashback: "+ R$ X,XX cashback (10%)"
           var cashbackPct = Number(cfg.cashback_percent) || 0;
           if (cashbackEl) {
             if (cashbackPct > 0 && cartTotal > 0) {
               var cashbackValue = (cartTotal * cashbackPct) / 100;
               cashbackEl.innerHTML =
-                'Voce ganhara <strong>' + formatBRL(cashbackValue) +
-                '</strong> em cashback nesta compra (' + cashbackPct + '%)';
+                '+ <strong>' + formatBRL(cashbackValue) +
+                '</strong> cashback (' + cashbackPct + '%)';
               cashbackEl.classList.add("vtx-gb-cashback-show");
             } else {
               cashbackEl.classList.remove("vtx-gb-cashback-show");
