@@ -221,7 +221,29 @@ const DEFAULT_CONFIG: GiftBarConfig = {
   product_benefits_anchor: "",
 };
 
-const FREE_SHIPPING_TABLE_TEMPLATE = `<p>Frete gr&aacute;tis acima do valor m&iacute;nimo para cada regi&atilde;o:</p>
+function mergeWithDefaults(raw: Partial<GiftBarConfig>): GiftBarConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...raw,
+    steps: Array.isArray(raw.steps) ? raw.steps : [],
+    show_on_pages: Array.isArray(raw.show_on_pages)
+      ? raw.show_on_pages
+      : ["all"],
+    product_benefits: Array.isArray(raw.product_benefits)
+      ? raw.product_benefits
+      : [],
+    product_benefits_title:
+      raw.product_benefits_title || DEFAULT_CONFIG.product_benefits_title,
+    product_benefits_anchor: raw.product_benefits_anchor ?? "",
+    show_product_benefits: raw.show_product_benefits === true,
+    message_next_step:
+      raw.message_next_step || DEFAULT_CONFIG.message_next_step,
+    message_all_achieved:
+      raw.message_all_achieved || DEFAULT_CONFIG.message_all_achieved,
+  };
+}
+
+const FREE_SHIPPING_TABLE_TEMPLATE =`<p>Frete gr&aacute;tis acima do valor m&iacute;nimo para cada regi&atilde;o:</p>
 <table>
   <thead>
     <tr><th>Regi&atilde;o</th><th>Valor m&iacute;nimo</th></tr>
@@ -268,7 +290,7 @@ export default function GiftBarPage() {
       const res = await fetch("/api/gift-bar/config", { headers: headers() });
       const data = await res.json();
       if (data.config) {
-        setConfig(data.config);
+        setConfig(mergeWithDefaults(data.config));
       }
     } catch (err) {
       console.error("Failed to load gift bar config:", err);
@@ -306,7 +328,7 @@ export default function GiftBarPage() {
       });
       const data = await res.json();
       if (data.config) {
-        setConfig(data.config);
+        setConfig(mergeWithDefaults(data.config));
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       }
