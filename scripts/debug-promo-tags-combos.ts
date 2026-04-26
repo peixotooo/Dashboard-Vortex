@@ -90,11 +90,12 @@ async function main() {
   // 6. Re-roda o matcher e mede quantos product_ids saem
   console.log("\nRodando computePromoTagMatches() (com cap PostgREST de 1000)...");
   const { computePromoTagMatches } = await import("../src/lib/promo-tags/matcher");
-  const matches = await computePromoTagMatches(ws.id);
-  console.log(`computePromoTagMatches devolveu matches para ${Object.keys(matches).length} produtos`);
+  const payload = await computePromoTagMatches(ws.id);
+  const matches = payload.matches;
+  console.log(`computePromoTagMatches devolveu matches para ${Object.keys(matches).length} produtos (cashback=${payload.cashback_percent}%)`);
   for (const t of target || []) {
     const m = matches[t.product_id];
-    console.log(`  ${t.product_id} (${t.name?.slice(0, 40)}): ${m ? `${m.length} regra(s) — ${m.map(x => x.badge_text).join(",")}` : "SEM MATCH"}`);
+    console.log(`  ${t.product_id} (${t.name?.slice(0, 40)}): ${m ? `${m.length} regra(s) — ${m.map((x: { badge_text: string }) => x.badge_text).join(",")}` : "SEM MATCH"}`);
   }
 }
 

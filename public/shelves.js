@@ -1396,12 +1396,87 @@
         "line-height: 1.2; white-space: nowrap;" +
         "box-sizing: border-box;" +
         "margin: 8px 0;" +
+      "}" +
+      // Cashback badge near price (subtle, not uppercase)
+      ".vtx-promo-tag--cashback {" +
+        "display: inline-flex; align-items: center; gap: 6px;" +
+        "margin: 6px 0; padding: 4px 10px;" +
+        "font-weight: 600; text-transform: none; font-size: 12px;" +
+        "border-radius: 6px;" +
+        "background: rgba(34,197,94,.12); color: #15803d;" +
+        "font-family: inherit; line-height: 1.3;" +
+      "}" +
+      ".vtx-promo-tag--cashback::before { content: '•'; opacity: .55 }" +
+      ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
+      // Live viewers badge — small pulsing red dot
+      ".vtx-promo-tag--viewers {" +
+        "display: inline-flex; align-items: center; gap: 6px;" +
+        "margin: 6px 0; padding: 4px 10px;" +
+        "font-weight: 500; text-transform: none; font-size: 11.5px;" +
+        "border-radius: 6px;" +
+        "background: rgba(244,63,94,.08); color: #be123c;" +
+        "font-family: inherit; line-height: 1.3;" +
+      "}" +
+      ".vtx-promo-tag--viewers strong { font-weight: 700 }" +
+      ".vtx-promo-tag--viewers::before {" +
+        "content: ''; width: 7px; height: 7px; border-radius: 50%;" +
+        "background: #ef4444; box-shadow: 0 0 0 0 rgba(239,68,68,.7);" +
+        "animation: vtx-pulse 1.6s infinite;" +
+      "}" +
+      "@keyframes vtx-pulse {" +
+        "0% { box-shadow: 0 0 0 0 rgba(239,68,68,.6) }" +
+        "70% { box-shadow: 0 0 0 6px rgba(239,68,68,0) }" +
+        "100% { box-shadow: 0 0 0 0 rgba(239,68,68,0) }" +
       "}";
 
     var style = document.createElement("style");
     style.id = "vtx-promo-tag-styles";
     style.textContent = css;
     document.head.appendChild(style);
+  }
+
+  function formatBRLShort(v) {
+    return "R$ " + v.toFixed(2).replace(".", ",");
+  }
+
+  // Try to read product price from the PDP DOM (multiple themes)
+  function readPDPPrice() {
+    var selectors = [
+      ".product-price .price-sale",
+      ".product__price-sale",
+      ".price-sale",
+      ".sale-price",
+      ".product-price strong",
+      ".product__price",
+      ".product-price",
+      "[data-product-price]",
+      ".price",
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (!el) continue;
+      var raw = (el.textContent || "").replace(/[^\d,\.]/g, "");
+      // BR format: "1.234,56" → 1234.56
+      raw = raw.replace(/\./g, "").replace(",", ".");
+      var n = parseFloat(raw);
+      if (!isNaN(n) && n > 0) return n;
+    }
+    return 0;
+  }
+
+  function findPriceAnchor() {
+    var selectors = [
+      ".product-price",
+      ".product__price",
+      ".prices",
+      "[data-product-price]",
+      ".price",
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+    return null;
   }
 
   function createBadgeElement(rule, isPdp) {
@@ -1418,39 +1493,119 @@
     return badge;
   }
 
-  function applyPromoTagsPDP(matches) {
-    // Product detail page: inject a single badge above the buy button
-    if (document.querySelector(".vtx-promo-tag--pdp")) return;
+  function createCashbackBadge(rule, fallbackPercent) {
+    var badge = document.createElement("div");
+    badge.className = "vtx-promo-tag vtx-promo-tag--cashback";
+    var pct = Number(rule.cashback_percent || fallbackPercent || 0);
+    var amount = Number(rule.cashback_value || 0);
+    if (!amount) {
+      var price = readPDPPrice();
+      if (price > 0 && pct > 0) amount = (price * pct) / 100;
+    }
+    if (!amount) return null;
+    var template = rule.badge_text || "Ganhe {cashback} em cashback ({percent}%)";
+    badge.innerHTML = template
+      .replace(/\{cashback\}/g, "<strong>" + formatBRLShort(amount) + "</strong>")
+      .replace(/\{percent\}/g, String(pct));
+    return badge;
+  }
 
-    // Get product ID from meta/hidden input (single product on page)
+  function createViewersBadge(rule) {
+    var badge = document.createElement("div");
+    badge.className = "vtx-promo-tag vtx-promo-tag--viewers";
+    var min = Number(rule.viewers_min) || 6;
+    var max = Number(rule.viewers_max) || 42;
+    var baseline = Number(rule.viewers_baseline) || Math.round((min + max) / 2);
+
+    function pickValue() {
+      // Small jitter ± up to 12% of baseline (min 1, max 3)
+      var spread = Math.max(1, Math.min(3, Math.round(baseline * 0.12)));
+      var delta = Math.round((Math.random() - 0.5) * 2 * spread);
+      return Math.max(min, Math.min(max, baseline + delta));
+    }
+
+    function render(value) {
+      var template = rule.badge_text || "{viewers} pessoas vendo este produto";
+      badge.innerHTML = template.replace(/\{viewers\}/g, "<strong>" + value + "</strong>");
+    }
+
+    render(pickValue());
+    // Refresh every 18-32s with a soft change so it feels live
+    setInterval(function () {
+      render(pickValue());
+    }, 18000 + Math.floor(Math.random() * 14000));
+
+    return badge;
+  }
+
+  function insertNearPrice(badge, fallbackInsert) {
+    var anchor = findPriceAnchor();
+    if (anchor) {
+      anchor.parentNode.insertBefore(badge, anchor.nextSibling);
+      return true;
+    }
+    return fallbackInsert ? fallbackInsert(badge) : false;
+  }
+
+  function applyPromoTagsPDP(matches, payload) {
+    if (!matches) return;
     var productId = extractProductId();
     if (!productId || !matches[productId]) return;
 
-    var rule = matches[productId][0];
-    var badge = createBadgeElement(rule, true);
+    var rules = matches[productId];
+    var fallbackCashbackPct = payload && payload.cashback_percent ? payload.cashback_percent : 0;
 
-    // Try to insert before the buy/add-to-cart button
-    var buyBtn = document.querySelector(
-      ".buy-button-container, .product-buy, #buy-button, " +
-      "[data-cart-add], .add-to-cart, form.product-form .submit, " +
-      "button.buy-btn, .product-actions, .product-buy-area"
-    );
-    if (buyBtn) {
-      buyBtn.parentNode.insertBefore(badge, buyBtn);
-      return;
-    }
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      var badgeType = rule.badge_type || "static";
+      var placement = rule.badge_placement || "auto";
+      var marker = "vtx-promo-tag-rendered-" + badgeType + "-" + i;
+      if (document.querySelector("[data-vtx-mark='" + marker + "']")) continue;
 
-    // Fallback: insert before the product form submit or quantity selector
-    var form = document.querySelector("#product-form, .product-form, form[action*='carrinho']");
-    if (form) {
-      form.parentNode.insertBefore(badge, form);
-      return;
-    }
+      var badge = null;
+      if (badgeType === "cashback") {
+        badge = createCashbackBadge(rule, fallbackCashbackPct);
+      } else if (badgeType === "viewers") {
+        badge = createViewersBadge(rule);
+      } else {
+        // Static — only render once on PDP
+        if (document.querySelector(".vtx-promo-tag--pdp")) continue;
+        badge = createBadgeElement(rule, true);
+      }
+      if (!badge) continue;
+      badge.setAttribute("data-vtx-mark", marker);
 
-    // Last fallback: insert after price area
-    var price = document.querySelector(".product-price, .prices, .price");
-    if (price) {
-      price.parentNode.insertBefore(badge, price.nextSibling);
+      var inserted = false;
+      if (
+        placement === "pdp_price" ||
+        placement === "auto" && (badgeType === "cashback" || badgeType === "viewers")
+      ) {
+        inserted = insertNearPrice(badge, function (b) {
+          var btn = document.querySelector(
+            ".buy-button-container, .product-buy, #buy-button, [data-cart-add], .add-to-cart"
+          );
+          if (btn) { btn.parentNode.insertBefore(b, btn); return true; }
+          return false;
+        });
+      } else {
+        // Default static placement (above buy button)
+        var buyBtn = document.querySelector(
+          ".buy-button-container, .product-buy, #buy-button, " +
+          "[data-cart-add], .add-to-cart, form.product-form .submit, " +
+          "button.buy-btn, .product-actions, .product-buy-area"
+        );
+        if (buyBtn) {
+          buyBtn.parentNode.insertBefore(badge, buyBtn);
+          inserted = true;
+        } else {
+          inserted = insertNearPrice(badge);
+        }
+      }
+
+      if (!inserted) {
+        var form = document.querySelector("#product-form, .product-form, form[action*='carrinho']");
+        if (form) form.parentNode.insertBefore(badge, form);
+      }
     }
   }
 
@@ -1464,7 +1619,15 @@
       if (!productId || !matches[productId]) return;
       if (card.querySelector(".vtx-promo-tag")) return;
 
-      var rule = matches[productId][0];
+      // Use the first STATIC rule for listing — cashback/viewers are PDP-only
+      var rule = null;
+      for (var r = 0; r < matches[productId].length; r++) {
+        if ((matches[productId][r].badge_type || "static") === "static") {
+          rule = matches[productId][r];
+          break;
+        }
+      }
+      if (!rule) return;
       // Use inline badge (like PDP) to avoid overlapping size selectors
       var badge = createBadgeElement(rule, true);
 
@@ -1499,23 +1662,23 @@
     }
   }
 
-  function applyPromoTags(matches) {
+  function applyPromoTags(matches, payload) {
     var pageType = detectPageType();
     if (pageType === "product") {
-      applyPromoTagsPDP(matches);
+      applyPromoTagsPDP(matches, payload);
     } else {
       applyPromoTagsListing(matches);
     }
   }
 
-  function observeNewProducts(matches) {
+  function observeNewProducts(matches, payload) {
     if (!window.MutationObserver) return;
 
     var debounceTimer = null;
     var observer = new MutationObserver(function () {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(function () {
-        applyPromoTags(matches);
+        applyPromoTags(matches, payload);
       }, 200);
     });
 
@@ -1534,8 +1697,8 @@
         console.log("[PromoTags] Loaded", Object.keys(matches).length, "product matches");
 
         injectPromoTagStyles();
-        applyPromoTags(matches);
-        observeNewProducts(matches);
+        applyPromoTags(matches, data);
+        observeNewProducts(matches, data);
       })
       .catch(function (err) {
         // Promo tags are optional - never break the page

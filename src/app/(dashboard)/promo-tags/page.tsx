@@ -52,6 +52,10 @@ interface PromoTagRule {
   badge_position: string;
   badge_padding: string;
   show_on_pages: string[];
+  badge_type?: "static" | "cashback" | "viewers";
+  badge_placement?: "auto" | "pdp_price" | "pdp_above_buy" | "card_overlay";
+  viewers_min?: number;
+  viewers_max?: number;
 }
 
 const EMPTY_RULE: PromoTagRule = {
@@ -68,6 +72,24 @@ const EMPTY_RULE: PromoTagRule = {
   badge_position: "top-left",
   badge_padding: "4px 8px",
   show_on_pages: ["all"],
+  badge_type: "static",
+  badge_placement: "auto",
+  viewers_min: 6,
+  viewers_max: 42,
+};
+
+const BADGE_TYPE_LABELS: Record<string, string> = {
+  static: "Estática (texto fixo)",
+  cashback: "Cashback (calculado por preço)",
+  viewers: "Visualizações ao vivo",
+};
+
+const BADGE_TYPE_HELP: Record<string, string> = {
+  static: "Texto fixo, igual o que a regra padrão sempre fez.",
+  cashback:
+    "Aparece somente na página do produto, próximo ao preço. Use {cashback} no texto pra ser substituído pelo valor (ex: Ganhe {cashback} em cashback).",
+  viewers:
+    "Aparece somente na PDP. Use {viewers} no texto pra ser substituído pelo número (ex: {viewers} pessoas vendo este produto). O valor varia por horário/popularidade do produto.",
 };
 
 const MATCH_TYPE_LABELS: Record<string, string> = {
@@ -609,6 +631,31 @@ export default function PromoTagsPage() {
               </div>
             </div>
 
+            {/* Badge type */}
+            <div className="space-y-2">
+              <Label>Tipo de badge</Label>
+              <Select
+                value={editingRule.badge_type || "static"}
+                onValueChange={(v) =>
+                  updateEditing({ badge_type: v as PromoTagRule["badge_type"] })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BADGE_TYPE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {BADGE_TYPE_HELP[editingRule.badge_type || "static"]}
+              </p>
+            </div>
+
             {/* Badge text */}
             <div className="space-y-2">
               <Label>Texto do badge</Label>
@@ -617,9 +664,61 @@ export default function PromoTagsPage() {
                 onChange={(e) =>
                   updateEditing({ badge_text: e.target.value })
                 }
-                placeholder="Ex: LEVE 5 POR 349"
+                placeholder={
+                  editingRule.badge_type === "cashback"
+                    ? "Ganhe {cashback} em cashback ({percent}%)"
+                    : editingRule.badge_type === "viewers"
+                    ? "{viewers} pessoas vendo este produto"
+                    : "Ex: LEVE 5 POR 349"
+                }
               />
+              {editingRule.badge_type === "cashback" && (
+                <p className="text-xs text-muted-foreground">
+                  Use <code className="bg-muted px-1 rounded">{"{cashback}"}</code> e
+                  <code className="bg-muted px-1 rounded ml-1">{"{percent}"}</code> como placeholders.
+                </p>
+              )}
+              {editingRule.badge_type === "viewers" && (
+                <p className="text-xs text-muted-foreground">
+                  Use <code className="bg-muted px-1 rounded">{"{viewers}"}</code> como placeholder do número.
+                </p>
+              )}
             </div>
+
+            {/* Viewers range — only when type=viewers */}
+            {editingRule.badge_type === "viewers" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Mínimo de viewers</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editingRule.viewers_min ?? 6}
+                    onChange={(e) =>
+                      updateEditing({
+                        viewers_min: Math.max(1, parseInt(e.target.value) || 1),
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Máximo de viewers</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editingRule.viewers_max ?? 42}
+                    onChange={(e) =>
+                      updateEditing({
+                        viewers_max: Math.max(1, parseInt(e.target.value) || 1),
+                      })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sugestão: 6–42 evita parecer fake; o servidor calibra pelo horário e popularidade do produto.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Priority */}
             <div className="space-y-2">

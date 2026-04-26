@@ -60,6 +60,10 @@ export async function PATCH(
         ...(body.badge_position && { badge_position: body.badge_position }),
         ...(body.badge_padding && { badge_padding: body.badge_padding }),
         ...(body.show_on_pages && { show_on_pages: body.show_on_pages }),
+        ...(body.badge_type && { badge_type: body.badge_type }),
+        ...(body.badge_placement && { badge_placement: body.badge_placement }),
+        ...(body.viewers_min !== undefined && { viewers_min: body.viewers_min }),
+        ...(body.viewers_max !== undefined && { viewers_max: body.viewers_max }),
       })
       .eq("id", id)
       .eq("workspace_id", workspaceId)

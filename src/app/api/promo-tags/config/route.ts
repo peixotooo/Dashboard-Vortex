@@ -97,6 +97,10 @@ export async function POST(request: NextRequest) {
         badge_position: body.badge_position || "top-left",
         badge_padding: body.badge_padding || "4px 8px",
         show_on_pages: body.show_on_pages || ["all"],
+        badge_type: body.badge_type || "static",
+        badge_placement: body.badge_placement || "auto",
+        viewers_min: body.viewers_min ?? 6,
+        viewers_max: body.viewers_max ?? 42,
       })
       .select()
       .single();

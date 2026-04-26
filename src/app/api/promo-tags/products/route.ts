@@ -21,17 +21,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const matches = await computePromoTagMatches(auth.workspaceId);
+    const payload = await computePromoTagMatches(auth.workspaceId);
 
-    return NextResponse.json(
-      { matches },
-      {
-        headers: {
-          ...CORS_HEADERS,
-          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-        },
-      }
-    );
+    return NextResponse.json(payload, {
+      headers: {
+        ...CORS_HEADERS,
+        // Shorter cache so viewers feel "live" (server recomputes baseline by hour)
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      },
+    });
   } catch (error) {
     console.error("[PromoTags Products]", error);
     return NextResponse.json(
