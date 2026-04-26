@@ -1411,7 +1411,6 @@
         "border-radius: 6px;" +
         "font-family: inherit; line-height: 1.3;" +
       "}" +
-      ".vtx-promo-tag--cashback::before { content: '•'; opacity: .55 }" +
       ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
       // Live viewers pill — pulsing dot inherits color from text
       ".vtx-promo-tag--viewers {" +
@@ -1427,10 +1426,11 @@
         "background: currentColor; opacity: .85;" +
         "animation: vtx-pulse 1.6s infinite;" +
       "}" +
+      // Pulse uses currentColor so the ring matches the badge text color
       "@keyframes vtx-pulse {" +
-        "0% { box-shadow: 0 0 0 0 rgba(239,68,68,.5) }" +
-        "70% { box-shadow: 0 0 0 6px rgba(239,68,68,0) }" +
-        "100% { box-shadow: 0 0 0 0 rgba(239,68,68,0) }" +
+        "0% { box-shadow: 0 0 0 0 currentColor; opacity: .85 }" +
+        "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
+        "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
       "}";
 
     var style = document.createElement("style");
