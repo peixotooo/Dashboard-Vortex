@@ -1397,36 +1397,38 @@
         "box-sizing: border-box;" +
         "margin: 8px 0;" +
       "}" +
-      // Cashback badge near price (block-level so it never overlaps flex price markup)
+      // Wrapper that holds cashback + viewers side-by-side below the price
+      ".vtx-promo-tag-row {" +
+        "display: flex; flex-wrap: wrap; gap: 8px;" +
+        "width: 100%; flex-basis: 100%;" +
+        "margin: 12px 0; clear: both;" +
+      "}" +
+      // Cashback pill — colors come from rule.badge_bg_color/text_color via inline style
       ".vtx-promo-tag--cashback {" +
-        "display: flex; align-items: center; gap: 6px;" +
-        "width: fit-content; max-width: 100%; flex-basis: 100%;" +
-        "margin: 10px 0; padding: 5px 12px;" +
+        "display: inline-flex; align-items: center; gap: 6px;" +
+        "padding: 5px 12px;" +
         "font-weight: 600; text-transform: none; font-size: 12px;" +
         "border-radius: 6px;" +
-        "background: rgba(34,197,94,.12); color: #15803d;" +
-        "font-family: inherit; line-height: 1.3; clear: both;" +
+        "font-family: inherit; line-height: 1.3;" +
       "}" +
       ".vtx-promo-tag--cashback::before { content: '•'; opacity: .55 }" +
       ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
-      // Live viewers badge — small pulsing red dot
+      // Live viewers pill — pulsing dot inherits color from text
       ".vtx-promo-tag--viewers {" +
-        "display: flex; align-items: center; gap: 6px;" +
-        "width: fit-content; max-width: 100%; flex-basis: 100%;" +
-        "margin: 10px 0; padding: 5px 12px;" +
+        "display: inline-flex; align-items: center; gap: 6px;" +
+        "padding: 5px 12px;" +
         "font-weight: 500; text-transform: none; font-size: 11.5px;" +
         "border-radius: 6px;" +
-        "background: rgba(244,63,94,.08); color: #be123c;" +
-        "font-family: inherit; line-height: 1.3; clear: both;" +
+        "font-family: inherit; line-height: 1.3;" +
       "}" +
       ".vtx-promo-tag--viewers strong { font-weight: 700 }" +
-      ".vtx-promo-tag--viewers::before {" +
-        "content: ''; width: 7px; height: 7px; border-radius: 50%;" +
-        "background: #ef4444; box-shadow: 0 0 0 0 rgba(239,68,68,.7);" +
+      ".vtx-promo-tag--viewers .vtx-pulse-dot {" +
+        "width: 7px; height: 7px; border-radius: 50%;" +
+        "background: currentColor; opacity: .85;" +
         "animation: vtx-pulse 1.6s infinite;" +
       "}" +
       "@keyframes vtx-pulse {" +
-        "0% { box-shadow: 0 0 0 0 rgba(239,68,68,.6) }" +
+        "0% { box-shadow: 0 0 0 0 rgba(239,68,68,.5) }" +
         "70% { box-shadow: 0 0 0 6px rgba(239,68,68,0) }" +
         "100% { box-shadow: 0 0 0 0 rgba(239,68,68,0) }" +
       "}";
@@ -1495,6 +1497,14 @@
     return badge;
   }
 
+  function applyRuleColors(badge, rule, defaultBg, defaultText) {
+    badge.style.backgroundColor = rule.badge_bg_color || defaultBg;
+    badge.style.color = rule.badge_text_color || defaultText;
+    if (rule.badge_font_size) badge.style.fontSize = rule.badge_font_size;
+    if (rule.badge_border_radius) badge.style.borderRadius = rule.badge_border_radius;
+    if (rule.badge_padding) badge.style.padding = rule.badge_padding;
+  }
+
   function createCashbackBadge(rule, fallbackPercent) {
     var badge = document.createElement("div");
     badge.className = "vtx-promo-tag vtx-promo-tag--cashback";
@@ -1509,6 +1519,7 @@
     badge.innerHTML = template
       .replace(/\{cashback\}/g, "<strong>" + formatBRLShort(amount) + "</strong>")
       .replace(/\{percent\}/g, String(pct));
+    applyRuleColors(badge, rule, "rgba(34,197,94,.12)", "#15803d");
     return badge;
   }
 
@@ -1528,24 +1539,51 @@
 
     function render(value) {
       var template = rule.badge_text || "{viewers} pessoas vendo este produto";
-      badge.innerHTML = template.replace(/\{viewers\}/g, "<strong>" + value + "</strong>");
+      var html = '<span class="vtx-pulse-dot"></span>' +
+        template.replace(/\{viewers\}/g, "<strong>" + value + "</strong>");
+      badge.innerHTML = html;
     }
 
     render(pickValue());
-    // Refresh every 18-32s with a soft change so it feels live
     setInterval(function () {
       render(pickValue());
     }, 18000 + Math.floor(Math.random() * 14000));
 
+    applyRuleColors(badge, rule, "rgba(244,63,94,.08)", "#be123c");
     return badge;
+  }
+
+  // Returns (or creates+inserts) a single row container that holds the
+  // cashback + viewers pills side-by-side below the price block.
+  function getOrCreatePromoTagRow() {
+    var existing = document.getElementById("vtx-promo-tag-row");
+    if (existing) return existing;
+    var row = document.createElement("div");
+    row.id = "vtx-promo-tag-row";
+    row.className = "vtx-promo-tag-row";
+
+    var price = findPriceAnchor();
+    if (!price) return null;
+    // Walk up while parent is flex/grid so the row isn't absorbed inline
+    var anchor = price;
+    for (var i = 0; i < 6; i++) {
+      var parent = anchor.parentNode;
+      if (!parent || parent === document.body) break;
+      var s = window.getComputedStyle ? window.getComputedStyle(parent) : null;
+      var d = s ? s.display : "";
+      if (d !== "flex" && d !== "inline-flex" && d !== "grid" && d !== "inline-grid") {
+        parent.insertBefore(row, anchor.nextSibling);
+        return row;
+      }
+      anchor = parent;
+    }
+    price.parentNode.insertBefore(row, price.nextSibling);
+    return row;
   }
 
   function insertNearPrice(badge, fallbackInsert) {
     var price = findPriceAnchor();
     if (price) {
-      // Walk up while the parent is a flex/grid container — prevents the badge
-      // from being absorbed into the price's inline layout (which causes the
-      // badge to visually overlap the price).
       var anchor = price;
       for (var i = 0; i < 6; i++) {
         var parent = anchor.parentNode;
@@ -1558,7 +1596,6 @@
         }
         anchor = parent;
       }
-      // Fallback: insert right after the price anyway
       price.parentNode.insertBefore(badge, price.nextSibling);
       return true;
     }
@@ -1594,17 +1631,19 @@
       badge.setAttribute("data-vtx-mark", marker);
 
       var inserted = false;
-      if (
+      var goesNearPrice =
         placement === "pdp_price" ||
-        placement === "auto" && (badgeType === "cashback" || badgeType === "viewers")
-      ) {
-        inserted = insertNearPrice(badge, function (b) {
-          var btn = document.querySelector(
-            ".buy-button-container, .product-buy, #buy-button, [data-cart-add], .add-to-cart"
-          );
-          if (btn) { btn.parentNode.insertBefore(b, btn); return true; }
-          return false;
-        });
+        (placement === "auto" && (badgeType === "cashback" || badgeType === "viewers"));
+
+      if (goesNearPrice) {
+        // Group cashback + viewers in a single side-by-side row below the price
+        var row = getOrCreatePromoTagRow();
+        if (row) {
+          row.appendChild(badge);
+          inserted = true;
+        } else {
+          inserted = insertNearPrice(badge);
+        }
       } else {
         // Default static placement (above buy button)
         var buyBtn = document.querySelector(
