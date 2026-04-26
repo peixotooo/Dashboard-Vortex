@@ -24,6 +24,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
+import { CampaignDetailsDialog } from "@/components/crm/campaign-details-dialog";
 import {
   MessageCircle,
   RefreshCw,
@@ -77,6 +78,7 @@ interface WaCampaign {
   read_count: number;
   failed_count: number;
   created_at: string;
+  scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   wa_templates: { name: string; language: string } | null;
@@ -205,6 +207,7 @@ export default function WhatsAppPage() {
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateFilter, setTemplateFilter] = useState<"all" | "APPROVED" | "PENDING" | "REJECTED">("all");
   const [previewTemplate, setPreviewTemplate] = useState<WaTemplate | null>(null);
+  const [detailsCampaignId, setDetailsCampaignId] = useState<string | null>(null);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -554,9 +557,11 @@ export default function WhatsAppPage() {
     const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
       draft: { variant: "outline", label: "Rascunho" },
       queued: { variant: "secondary", label: "Na fila" },
+      scheduled: { variant: "secondary", label: "Agendada" },
       sending: { variant: "default", label: "Enviando" },
       completed: { variant: "default", label: "Concluida" },
       failed: { variant: "destructive", label: "Falhou" },
+      cancelled: { variant: "destructive", label: "Cancelada" },
     };
     const s = map[status] || { variant: "outline" as const, label: status };
     return <Badge variant={s.variant}>{s.label}</Badge>;
@@ -974,10 +979,27 @@ export default function WhatsAppPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{c.name}</span>
                             {statusBadge(c.status)}
+                            {c.scheduled_at && c.status === "scheduled" && (
+                              <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-400">
+                                <Clock className="h-3 w-3" />
+                                {new Date(c.scheduled_at).toLocaleString("pt-BR", {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
                             Template: {c.wa_templates?.name || "—"} | Criada em{" "}
-                            {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                            {new Date(c.created_at).toLocaleString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </p>
                         </div>
                         <div className="flex items-center gap-4 text-sm">
@@ -1003,6 +1025,14 @@ export default function WhatsAppPage() {
                               <div className="text-xs text-muted-foreground">Falhas</div>
                             </div>
                           )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="ml-2 gap-1.5"
+                            onClick={() => setDetailsCampaignId(c.id)}
+                          >
+                            <Eye className="h-3.5 w-3.5" /> Detalhes
+                          </Button>
                         </div>
                       </div>
 
@@ -1709,6 +1739,13 @@ export default function WhatsAppPage() {
         open={showTemplateCreate}
         onOpenChange={setShowTemplateCreate}
         onCreated={() => handleSyncTemplates()}
+      />
+
+      <CampaignDetailsDialog
+        campaignId={detailsCampaignId}
+        workspaceId={workspace?.id || ""}
+        onClose={() => setDetailsCampaignId(null)}
+        onChanged={() => fetchCampaigns()}
       />
     </div>
   );

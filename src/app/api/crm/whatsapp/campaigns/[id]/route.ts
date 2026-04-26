@@ -32,7 +32,7 @@ export async function GET(
 
     const { data: campaign } = await admin
       .from("wa_campaigns")
-      .select("*, wa_templates(name, language, components)")
+      .select("*, wa_templates(id, meta_id, name, language, category, status, components, synced_at)")
       .eq("id", id)
       .eq("workspace_id", workspaceId)
       .single();

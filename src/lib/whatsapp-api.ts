@@ -115,6 +115,126 @@ export async function syncTemplatesFromMeta(config: WaConfig): Promise<WaTemplat
   return templates;
 }
 
+// --- Single-template fetch (for category re-verification) ---
+//
+// Meta periodically reclassifies templates (UTILITY/AUTHENTICATION → MARKETING),
+// which changes the per-message price. Call this before dispatch to detect drift.
+export async function fetchTemplateFromMeta(
+  config: WaConfig,
+  metaTemplateId: string
+): Promise<{ id: string; name: string; language: string; category: string; status: string; components: WaTemplateComponent[] } | null> {
+  const url = `https://graph.facebook.com/v21.0/${metaTemplateId}?fields=id,name,language,category,status,components`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(`[WA Recheck] Meta error ${res.status}: ${text.slice(0, 200)}`);
+    return null;
+  }
+
+  const t = await res.json();
+  return {
+    id: t.id as string,
+    name: t.name as string,
+    language: t.language as string,
+    category: t.category as string,
+    status: t.status as string,
+    components: (t.components || []) as WaTemplateComponent[],
+  };
+}
+
+export interface TemplateRecheckResult {
+  ok: boolean;
+  changed: boolean;
+  previousCategory: string | null;
+  currentCategory: string | null;
+  previousStatus: string | null;
+  currentStatus: string | null;
+  reason?: string;
+}
+
+// Re-fetch a template from Meta and persist any category/status change to wa_templates.
+// Returns whether the category drifted — callers can decide to pause/warn on MARKETING reclass.
+export async function recheckTemplateOnMeta(
+  workspaceId: string,
+  templateRowId: string
+): Promise<TemplateRecheckResult> {
+  const admin = createAdminClient();
+  const { data: row } = await admin
+    .from("wa_templates")
+    .select("meta_id, category, status")
+    .eq("id", templateRowId)
+    .eq("workspace_id", workspaceId)
+    .single();
+
+  if (!row?.meta_id) {
+    return {
+      ok: false,
+      changed: false,
+      previousCategory: row?.category ?? null,
+      currentCategory: null,
+      previousStatus: row?.status ?? null,
+      currentStatus: null,
+      reason: "missing_meta_id",
+    };
+  }
+
+  const config = await getWaConfig(workspaceId);
+  if (!config) {
+    return {
+      ok: false,
+      changed: false,
+      previousCategory: row.category,
+      currentCategory: null,
+      previousStatus: row.status,
+      currentStatus: null,
+      reason: "no_wa_config",
+    };
+  }
+
+  const live = await fetchTemplateFromMeta(config, row.meta_id);
+  if (!live) {
+    return {
+      ok: false,
+      changed: false,
+      previousCategory: row.category,
+      currentCategory: null,
+      previousStatus: row.status,
+      currentStatus: null,
+      reason: "meta_fetch_failed",
+    };
+  }
+
+  const changed = live.category !== row.category || live.status !== row.status;
+  if (changed) {
+    await admin
+      .from("wa_templates")
+      .update({
+        category: live.category,
+        status: live.status,
+        components: live.components,
+        synced_at: new Date().toISOString(),
+      })
+      .eq("id", templateRowId);
+  } else {
+    await admin
+      .from("wa_templates")
+      .update({ synced_at: new Date().toISOString() })
+      .eq("id", templateRowId);
+  }
+
+  return {
+    ok: true,
+    changed,
+    previousCategory: row.category,
+    currentCategory: live.category,
+    previousStatus: row.status,
+    currentStatus: live.status,
+  };
+}
+
 // --- Send message ---
 
 export async function sendTemplateMessage(

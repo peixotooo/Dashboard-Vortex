@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
+import { getWaConfig, sendTemplateMessage, recheckTemplateOnMeta } from "@/lib/whatsapp-api";
 import { getExcludedPhones } from "@/lib/wa-compliance";
 
 export const maxDuration = 300;
@@ -66,6 +66,40 @@ export async function GET(request: NextRequest) {
 
       if (!template) {
         console.error(`[WA Sender] Template not found: ${campaign.template_id}`);
+        await admin
+          .from("wa_campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id);
+        continue;
+      }
+
+      // Re-verify template category against Meta — Meta can reclassify
+      // UTILITY/AUTHENTICATION templates as MARKETING (much higher per-msg cost).
+      // We do this once per campaign per cron run to avoid hammering the API.
+      const recheck = await recheckTemplateOnMeta(campaign.workspace_id, campaign.template_id);
+      if (recheck.changed) {
+        console.warn(
+          `[WA Sender] Template category drift on "${template.name}": ${recheck.previousCategory} → ${recheck.currentCategory} (status: ${recheck.previousStatus} → ${recheck.currentStatus})`
+        );
+        if (
+          recheck.previousCategory &&
+          recheck.previousCategory !== "MARKETING" &&
+          recheck.currentCategory === "MARKETING"
+        ) {
+          console.error(
+            `[WA Sender] BLOCKED campaign ${campaign.id}: template "${template.name}" was reclassified to MARKETING by Meta. Failing send to avoid unexpected cost.`
+          );
+          await admin
+            .from("wa_campaigns")
+            .update({ status: "failed" })
+            .eq("id", campaign.id);
+          continue;
+        }
+      }
+      if (recheck.ok && recheck.currentStatus && recheck.currentStatus !== "APPROVED") {
+        console.error(
+          `[WA Sender] Template "${template.name}" no longer APPROVED on Meta (status=${recheck.currentStatus}). Failing campaign ${campaign.id}.`
+        );
         await admin
           .from("wa_campaigns")
           .update({ status: "failed" })
