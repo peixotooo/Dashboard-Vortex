@@ -264,27 +264,29 @@ export default function OverviewPage() {
           : `date_preset=${datePreset}`;
 
         // Fetch Meta (per-account) + GA4 + VNDA in parallel
-        const vndaHeaders: Record<string, string> = {};
-        if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
+        const wsHeaders: Record<string, string> = {};
+        if (workspace?.id) wsHeaders["x-workspace-id"] = workspace.id;
 
         const [insightsResults, ga4Res, vndaRes, finRes] = await Promise.all([
           // Fetch insights for each account in parallel
           Promise.all(
             accountIds.map((id) =>
               fetch(
-                `/api/insights?object_id=${id}&level=account&${dateParams}&include_comparison=true`
+                `/api/insights?object_id=${id}&level=account&${dateParams}&include_comparison=true`,
+                { headers: wsHeaders }
               ).then((r) => r.json())
             )
           ),
           fetch(
-            `/api/ga4/insights?${dateParams}&include_comparison=true`
+            `/api/ga4/insights?${dateParams}&include_comparison=true`,
+            { headers: wsHeaders }
           ),
           fetch(
             `/api/vnda/insights?${dateParams}&include_comparison=true`,
-            { headers: vndaHeaders }
+            { headers: wsHeaders }
           ),
           workspace?.id
-            ? fetch("/api/financial-settings", { headers: vndaHeaders })
+            ? fetch("/api/financial-settings", { headers: wsHeaders })
             : Promise.resolve(null),
         ]);
 
