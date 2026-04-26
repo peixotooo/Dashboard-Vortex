@@ -3,6 +3,7 @@ export interface TemplateVars {
   valor: number;
   expiraEm: Date;
   pedido: string;
+  email: string;
 }
 
 export function formatBRL(value: number): string {
@@ -20,12 +21,21 @@ export function formatDateShort(d: Date): string {
   return `${dd}/${mm}`;
 }
 
+export function formatDateLong(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(d.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 export function buildVarMap(vars: TemplateVars): Record<string, string> {
   return {
     nome: vars.nome,
     valor: formatBRL(vars.valor),
     expira_em: formatDateShort(vars.expiraEm),
+    expira_em_long: formatDateLong(vars.expiraEm),
     pedido: vars.pedido,
+    email: vars.email,
   };
 }
 

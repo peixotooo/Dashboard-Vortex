@@ -5,7 +5,7 @@ import { getSmtpConfig, sendEmail } from "./locaweb-smtp";
 import {
   buildVarMap,
   formatBRL,
-  formatDateShort,
+  formatDateLong,
   renderTemplate,
   type TemplateVars,
 } from "./templating";
@@ -49,6 +49,7 @@ function buildVars(cashback: CashbackTransactionRow): TemplateVars {
     valor: Number(cashback.valor_cashback),
     expiraEm: new Date(cashback.expira_em),
     pedido: cashback.numero_pedido || cashback.source_order_id,
+    email: cashback.email,
   };
 }
 
@@ -80,6 +81,8 @@ async function sendWhatsApp(
   const wa = await getWaConfig(workspaceId);
   if (!wa) return { channel: "whatsapp", sent: false, error: "no_wa_config" };
 
+  // Bulking-approved cashback templates (cashback_01/02/03) all share the
+  // same body variable order: {{1}} nome, {{2}} valor, {{3}} email, {{4}} expira_em (dd/MM/yyyy)
   const result = await sendTemplateMessage(
     wa,
     phone,
@@ -88,7 +91,8 @@ async function sendWhatsApp(
     {
       "1": vars.nome,
       "2": formatBRL(vars.valor),
-      "3": formatDateShort(vars.expiraEm),
+      "3": vars.email,
+      "4": formatDateLong(vars.expiraEm),
     }
   );
 
