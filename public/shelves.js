@@ -773,15 +773,7 @@
 
   function getCartTotal(callback) {
     try {
-      // 1. Try global cart objects (VNDA themes)
-      if (window.cart && typeof window.cart.total === "number") {
-        return callback(window.cart.total);
-      }
-      if (window.vnda && window.vnda.cart && typeof window.vnda.cart.total === "number") {
-        return callback(window.vnda.cart.total);
-      }
-
-      // 2. Try DOM: cart total elements
+      // 1. Try DOM: cart total elements first (most reliable for AJAX updates)
       var selectors = [
         "[data-cart-total]",
         ".cart-total",
@@ -807,6 +799,14 @@
           var val = parseBRL(el.textContent || el.getAttribute("data-cart-total") || el.getAttribute("data-total-price"));
           if (val > 0) return callback(val);
         }
+      }
+
+      // 2. Try global cart objects (VNDA themes fallback)
+      if (window.cart && typeof window.cart.total === "number" && window.cart.total > 0) {
+        return callback(window.cart.total);
+      }
+      if (window.vnda && window.vnda.cart && typeof window.vnda.cart.total === "number" && window.vnda.cart.total > 0) {
+        return callback(window.vnda.cart.total);
       }
 
       // 3. Fetch /carrinho and parse (last resort)
