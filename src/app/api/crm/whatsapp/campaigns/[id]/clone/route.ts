@@ -39,21 +39,36 @@ export async function GET(
       .single();
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
-    const { data: msgs } = await admin
-      .from("wa_messages")
-      .select("status")
-      .eq("campaign_id", id);
-
-    const counts = { total: 0, delivered: 0, read: 0, sent: 0, failed: 0, queued: 0, other: 0 };
-    for (const m of msgs || []) {
-      counts.total++;
-      if (m.status === "delivered") counts.delivered++;
-      else if (m.status === "read") counts.read++;
-      else if (m.status === "sent") counts.sent++;
-      else if (m.status === "failed") counts.failed++;
-      else if (m.status === "queued") counts.queued++;
-      else counts.other++;
+    // PostgREST caps SELECT at 1000 rows — use HEAD count queries per status
+    // to avoid truncation on large campaigns.
+    async function statusCount(status: string | null): Promise<number> {
+      let q = admin
+        .from("wa_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", id);
+      if (status !== null) q = q.eq("status", status);
+      const { count } = await q;
+      return count ?? 0;
     }
+
+    const [total, delivered, read, sent, failed, queued] = await Promise.all([
+      statusCount(null),
+      statusCount("delivered"),
+      statusCount("read"),
+      statusCount("sent"),
+      statusCount("failed"),
+      statusCount("queued"),
+    ]);
+    const known = delivered + read + sent + failed + queued;
+    const counts = {
+      total,
+      delivered,
+      read,
+      sent,
+      failed,
+      queued,
+      other: Math.max(0, total - known),
+    };
 
     return NextResponse.json({
       counts,
@@ -107,17 +122,29 @@ export async function POST(
       .single();
     if (!src) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
-    // Pull source messages — only those NOT already delivered/read when scope=undelivered
-    let msgQuery = admin
-      .from("wa_messages")
-      .select("phone, contact_name, variable_values")
-      .eq("campaign_id", id);
-    if (scope === "undelivered") {
-      msgQuery = msgQuery.not("status", "in", "(delivered,read)");
+    // Pull source messages in pages of 1000 (PostgREST default cap)
+    type SrcMsg = { phone: string; contact_name: string | null; variable_values: Record<string, string> | null };
+    const PAGE = 1000;
+    const srcMsgs: SrcMsg[] = [];
+    let from = 0;
+    while (true) {
+      let q = admin
+        .from("wa_messages")
+        .select("phone, contact_name, variable_values")
+        .eq("campaign_id", id)
+        .range(from, from + PAGE - 1);
+      if (scope === "undelivered") {
+        q = q.not("status", "in", "(delivered,read)");
+      }
+      const { data: page, error: pageErr } = await q;
+      if (pageErr) throw new Error(pageErr.message);
+      if (!page || page.length === 0) break;
+      srcMsgs.push(...(page as SrcMsg[]));
+      if (page.length < PAGE) break;
+      from += PAGE;
     }
-    const { data: srcMsgs } = await msgQuery;
 
-    if (!srcMsgs || srcMsgs.length === 0) {
+    if (srcMsgs.length === 0) {
       return NextResponse.json(
         { error: "Nao ha contatos para reenviar" },
         { status: 400 }
