@@ -1110,6 +1110,9 @@
           ".vtx-gb-img{width:28px;height:28px;object-fit:contain;border-radius:4px}" +
           ".vtx-gb-content{flex:1;min-width:0}" +
           ".vtx-gb-text{margin:0 0 6px;font-weight:600;text-align:center;font-size:13px;letter-spacing:.01em}" +
+          ".vtx-gb-cashback{display:none;margin:0 0 8px;text-align:center;font-size:11.5px;font-weight:500;letter-spacing:.01em;opacity:.85}" +
+          ".vtx-gb-cashback.vtx-gb-cashback-show{display:block}" +
+          ".vtx-gb-cashback strong{font-weight:700}" +
           // Track + fill (slimmer, modern)
           ".vtx-gb-track-wrap{position:relative;padding:9px 14px 26px}" +
           ".vtx-gb-track{position:relative;width:100%;height:5px;" +
@@ -1172,6 +1175,7 @@
               '<img class="vtx-gb-img" src="' + escapeHtml(cfg.gift_image_url) + '" alt="' + escapeHtml(cfg.gift_name) + '" onerror="this.style.display=\'none\'">' : "") +
             '<div class="vtx-gb-content">' +
               '<p class="vtx-gb-text"></p>' +
+              '<p class="vtx-gb-cashback"></p>' +
               '<div class="vtx-gb-track-wrap">' +
                 '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
                 stepsHtml +
@@ -1245,7 +1249,22 @@
         function updateBar(cartTotal) {
           var textEl = bar.querySelector(".vtx-gb-text");
           var fillEl = bar.querySelector(".vtx-gb-fill");
+          var cashbackEl = bar.querySelector(".vtx-gb-cashback");
           if (!textEl || !fillEl) return;
+
+          // Cashback line: "Voce ganhara R$ X,XX em cashback nesta compra"
+          var cashbackPct = Number(cfg.cashback_percent) || 0;
+          if (cashbackEl) {
+            if (cashbackPct > 0 && cartTotal > 0) {
+              var cashbackValue = (cartTotal * cashbackPct) / 100;
+              cashbackEl.innerHTML =
+                'Voce ganhara <strong>' + formatBRL(cashbackValue) +
+                '</strong> em cashback nesta compra (' + cashbackPct + '%)';
+              cashbackEl.classList.add("vtx-gb-cashback-show");
+            } else {
+              cashbackEl.classList.remove("vtx-gb-cashback-show");
+            }
+          }
 
           if (hasSteps) {
             var pct = Math.min((cartTotal / maxThreshold) * 100, 100);
