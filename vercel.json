@@ -38,7 +38,7 @@
     },
     {
       "path": "/api/cron/shelf-catalog-sync",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 6,18 * * *"
     }
   ]
 }

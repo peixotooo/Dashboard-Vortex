@@ -10,6 +10,7 @@ import {
   Check,
   Key,
   ExternalLink,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -109,6 +110,8 @@ export default function PromoTagsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<PromoTagRule>(EMPTY_RULE);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   const headers = useCallback(
     () => ({
@@ -158,6 +161,30 @@ export default function PromoTagsPage() {
     setEditingRule({ ...rule });
     setEditingId(rule.id || null);
     setDialogOpen(true);
+  }
+
+  async function handleSyncCatalog() {
+    if (!workspace?.id || syncing) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/shelves/catalog/sync", {
+        method: "POST",
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSyncMsg(`Erro: ${data.error}`);
+      } else {
+        setSyncMsg(
+          `Sincronizado ${data.synced}/${data.total} produtos${data.errors ? ` (${data.errors} erros)` : ""}. As tags atualizadas aparecem na loja em ate 5 minutos.`
+        );
+      }
+    } catch (err) {
+      setSyncMsg(`Erro de rede: ${err instanceof Error ? err.message : "desconhecido"}`);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function handleSave() {
@@ -257,11 +284,45 @@ export default function PromoTagsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nova Regra
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleSyncCatalog}
+            disabled={syncing}
+            title="Reimporta tags e produtos da VNDA — use quando criar uma tag nova e ela ainda nao aparecer aqui"
+          >
+            {syncing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Sincronizar catalogo
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Regra
+          </Button>
+        </div>
       </div>
+
+      {syncMsg && (
+        <div
+          className={`text-sm rounded-md border p-3 flex items-start gap-2 ${
+            syncMsg.startsWith("Erro")
+              ? "border-red-500/30 bg-red-500/10 text-red-400"
+              : "border-green-500/30 bg-green-500/10 text-green-500"
+          }`}
+        >
+          <div className="flex-1">{syncMsg}</div>
+          <button
+            onClick={() => setSyncMsg(null)}
+            className="opacity-60 hover:opacity-100"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <Tabs defaultValue="rules">
         <TabsList>
