@@ -144,11 +144,11 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const STAGE_LABEL: Record<string, string> = {
-  LEMBRETE_1: "Lembrete 1 (depósito)",
-  LEMBRETE_2: "Lembrete 2 (meio)",
-  LEMBRETE_3: "Lembrete 3 (véspera)",
-  REATIVACAO: "Reativação",
-  REATIVACAO_LEMBRETE: "Lembrete pós-reativação",
+  LEMBRETE_1: "Lembrete 1 (depósito · automático)",
+  LEMBRETE_2: "Lembrete 2 (meio · automático)",
+  LEMBRETE_3: "Lembrete 3 (véspera · automático)",
+  REATIVACAO: "Reativação (manual)",
+  REATIVACAO_LEMBRETE: "Lembrete de reativação (campanha esporádica)",
 };
 
 function formatDate(s: string | null | undefined): string {
@@ -276,6 +276,7 @@ function ClientesTab({ workspaceId }: { workspaceId: string }) {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Transaction | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [reactReminderOpen, setReactReminderOpen] = useState(false);
 
   const pageSize = 25;
 
@@ -368,7 +369,10 @@ function ClientesTab({ workspaceId }: { workspaceId: string }) {
         <Button variant="outline" size="sm" onClick={load}>
           <RefreshCcw className="mr-2 h-3.5 w-3.5" /> Atualizar
         </Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setReactReminderOpen(true)}>
+            <Send className="mr-2 h-3.5 w-3.5" /> Lembrete de reativação
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setBatchOpen(true)}>
             <Repeat className="mr-2 h-3.5 w-3.5" /> Reativar em massa
           </Button>
@@ -515,7 +519,115 @@ function ClientesTab({ workspaceId }: { workspaceId: string }) {
         workspaceId={workspaceId}
         onDone={load}
       />
+      <ReactivationReminderDialog
+        open={reactReminderOpen}
+        onClose={() => setReactReminderOpen(false)}
+        workspaceId={workspaceId}
+        onDone={load}
+      />
     </div>
+  );
+}
+
+function ReactivationReminderDialog({
+  open,
+  onClose,
+  workspaceId,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workspaceId: string;
+  onDone: () => void;
+}) {
+  const [daysSince, setDaysSince] = useState(7);
+  const [daysUntilExpiration, setDaysUntilExpiration] = useState(7);
+  const [minValue, setMinValue] = useState(20);
+  const [limit, setLimit] = useState(100);
+  const [reset, setReset] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ count?: number; sent?: number; skipped?: number; total_candidates?: number } | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setResult(null);
+    const res = await fetch("/api/cashback/reactivation-reminder-batch", {
+      method: "POST",
+      headers: { "x-workspace-id": workspaceId, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filter: {
+          daysSinceReactivation: daysSince,
+          daysUntilExpiration,
+          minValue,
+        },
+        limit,
+        reset,
+        dryRun,
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setResult(j);
+    setBusy(false);
+    if (!dryRun && res.ok) onDone();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Disparar lembrete de reativação</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Ação <strong>esporádica</strong> — envia o template <code>reativacao_cashback_jan_25</code> via WhatsApp + e-mail
+            pra clientes com cashback REATIVADO no filtro abaixo.
+          </p>
+          <div className="grid gap-2">
+            <Label>Dias desde a reativação ≥</Label>
+            <Input type="number" value={daysSince} onChange={(e) => setDaysSince(Number(e.target.value))} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Faltam até expirar ≤ (dias)</Label>
+            <Input type="number" value={daysUntilExpiration} onChange={(e) => setDaysUntilExpiration(Number(e.target.value))} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Valor mínimo do cashback (R$)</Label>
+            <Input type="number" value={minValue} onChange={(e) => setMinValue(Number(e.target.value))} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Limite por execução</Label>
+            <Input type="number" value={limit} onChange={(e) => setLimit(Number(e.target.value))} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={reset} onCheckedChange={setReset} />
+            <Label>Reenviar mesmo pra quem já recebeu</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={dryRun} onCheckedChange={setDryRun} />
+            <Label>Dry-run (só conta)</Label>
+          </div>
+
+          {result && (
+            <div className="rounded-md border border-muted bg-muted/30 p-3 text-sm">
+              {dryRun ? (
+                <>Encontrados <strong>{result.count ?? 0}</strong> candidatos.</>
+              ) : (
+                <>Enviados: <strong>{result.sent ?? 0}</strong> · Skipped: <strong>{result.skipped ?? 0}</strong> · Total na fila: <strong>{result.total_candidates ?? 0}</strong></>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Fechar</Button>
+            <Button onClick={run} disabled={busy}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {dryRun ? "Contar elegíveis" : "Disparar agora"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1002,7 +1114,6 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
             <div className="grid gap-1"><Label>Lembrete 1 (dia)</Label><Input type="number" value={cfg.reminder_1_day} onChange={(e) => setCfg({ ...cfg, reminder_1_day: Number(e.target.value) })} /></div>
             <div className="grid gap-1"><Label>Lembrete 2 (dia)</Label><Input type="number" value={cfg.reminder_2_day} onChange={(e) => setCfg({ ...cfg, reminder_2_day: Number(e.target.value) })} /></div>
             <div className="grid gap-1"><Label>Lembrete 3 (dia)</Label><Input type="number" value={cfg.reminder_3_day} onChange={(e) => setCfg({ ...cfg, reminder_3_day: Number(e.target.value) })} /></div>
-            <div className="grid gap-1"><Label>Pós-reativação (dia)</Label><Input type="number" value={cfg.reactivation_reminder_day} onChange={(e) => setCfg({ ...cfg, reactivation_reminder_day: Number(e.target.value) })} /></div>
           </CardContent>
         </Card>
 

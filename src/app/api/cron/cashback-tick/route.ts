@@ -29,7 +29,6 @@ interface TickSummary {
   reminder2: { processed: number };
   reminder3: { processed: number };
   refund: { processed: number; succeeded: number; failed: number };
-  reactivationReminder: { processed: number };
 }
 
 function newTickSummary(workspaceId: string): TickSummary {
@@ -40,7 +39,6 @@ function newTickSummary(workspaceId: string): TickSummary {
     reminder2: { processed: 0 },
     reminder3: { processed: 0 },
     refund: { processed: 0, succeeded: 0, failed: 0 },
-    reactivationReminder: { processed: 0 },
   };
 }
 
@@ -295,28 +293,8 @@ async function runRefundExpired(
   void hoursAgo;
 }
 
-// --- Job 5: reactivation secondary reminder ---
-async function runReactivationReminder(
-  admin: ReturnType<typeof createAdminClient>,
-  workspaceId: string,
-  cfg: CashbackConfigRow,
-  summary: TickSummary
-) {
-  const threshold = daysAgo(cfg.reactivation_reminder_day);
-  const { data: rows } = await admin
-    .from("cashback_transactions")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "REATIVADO")
-    .is("reativacao_lembrete2", null)
-    .lte("depositado_em", threshold)
-    .limit(BATCH);
-
-  for (const c of (rows || []) as CashbackTransactionRow[]) {
-    summary.reactivationReminder.processed++;
-    await sendReminderForStage(c, "REATIVACAO_LEMBRETE", cfg, admin);
-  }
-}
+// REATIVACAO_LEMBRETE is a manual campaign trigger, not a recurring rule.
+// See /api/cashback/reactivation-reminder-batch for the on-demand path.
 
 // --- Route handler ---
 export async function GET(request: NextRequest) {
@@ -345,7 +323,6 @@ export async function GET(request: NextRequest) {
       await runSecondReminder(admin, workspaceId, cfg, summary);
       await runThirdReminder(admin, workspaceId, cfg, summary);
       await runRefundExpired(admin, workspaceId, cfg, vnda, summary);
-      await runReactivationReminder(admin, workspaceId, cfg, summary);
     } catch (e) {
       console.error(`[cashback tick] workspace ${workspaceId} failed:`, e);
     }
