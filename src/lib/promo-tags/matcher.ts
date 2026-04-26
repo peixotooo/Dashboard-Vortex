@@ -1,4 +1,87 @@
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getGA4Report } from "@/lib/ga4-api";
+
+// --- Popularity cache: GA4 itemsViewed last 30d, normalized 0-1 (per workspace) ---
+
+interface PopularityCacheEntry {
+  scores: Map<string, number>; // product_id → 0..1 (log-scaled)
+  scoresByName: Map<string, number>; // normalized name → 0..1 (fallback when itemId is missing)
+  expiresAt: number;
+}
+const POPULARITY_CACHE = new Map<string, PopularityCacheEntry>();
+const POPULARITY_TTL_MS = 60 * 60 * 1000; // 1h
+
+function normalizeName(s: string): string {
+  return (s || "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+async function getPopularityScores(workspaceId: string): Promise<PopularityCacheEntry> {
+  const cached = POPULARITY_CACHE.get(workspaceId);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+
+  const empty: PopularityCacheEntry = {
+    scores: new Map(),
+    scoresByName: new Map(),
+    expiresAt: Date.now() + POPULARITY_TTL_MS,
+  };
+
+  if (!process.env.GA4_PROPERTY_ID) {
+    POPULARITY_CACHE.set(workspaceId, empty);
+    return empty;
+  }
+
+  try {
+    // Pull both itemId and itemName so we can fall back when one is missing
+    const [byId, byName] = await Promise.all([
+      getGA4Report({
+        dimensions: ["itemId"],
+        metrics: ["itemsViewed"],
+        datePreset: "last_30d",
+        limit: 2000,
+      }).catch(() => ({ rows: [] })),
+      getGA4Report({
+        dimensions: ["itemName"],
+        metrics: ["itemsViewed"],
+        datePreset: "last_30d",
+        limit: 2000,
+      }).catch(() => ({ rows: [] })),
+    ]);
+
+    function buildMap(rows: Array<{ dimensions: Record<string, string>; metrics: Record<string, number> }>, dimKey: string, normalize?: (s: string) => string) {
+      const raw: Array<{ key: string; views: number }> = [];
+      for (const r of rows) {
+        const k = r.dimensions[dimKey];
+        const v = Number(r.metrics.itemsViewed) || 0;
+        if (k && v > 0) raw.push({ key: normalize ? normalize(k) : k, views: v });
+      }
+      if (raw.length === 0) return new Map<string, number>();
+      // Logarithmic scaling so top product doesn't dominate
+      const maxLog = Math.log(Math.max(...raw.map((r) => r.views)) + 1);
+      const map = new Map<string, number>();
+      for (const r of raw) map.set(r.key, Math.log(r.views + 1) / maxLog);
+      return map;
+    }
+
+    empty.scores = buildMap(byId.rows || [], "itemId");
+    empty.scoresByName = buildMap(byName.rows || [], "itemName", normalizeName);
+  } catch (e) {
+    console.error("[PromoTags] GA4 popularity fetch failed:", e);
+  }
+
+  POPULARITY_CACHE.set(workspaceId, empty);
+  return empty;
+}
+
+function lookupPopularity(
+  product: ShelfProductRow,
+  pop: PopularityCacheEntry
+): number {
+  const byId = pop.scores.get(product.product_id);
+  if (typeof byId === "number") return byId;
+  const byName = pop.scoresByName.get(normalizeName(product.name || ""));
+  if (typeof byName === "number") return byName;
+  return -1; // unknown — caller falls back to tag heuristic
+}
 
 export type BadgeType = "static" | "cashback" | "viewers";
 export type BadgePlacement = "auto" | "pdp_price" | "pdp_above_buy" | "card_overlay";
@@ -71,32 +154,41 @@ function computeViewersBaseline(
   product: ShelfProductRow,
   min: number,
   max: number,
-  hourMult: number
+  hourMult: number,
+  popularityScore: number // -1 if unknown, else 0..1 from GA4 itemsViewed
 ): number {
-  // Sales-rank weight: products with "mais-vendidos" / "top" tags get higher base
-  const tagsArr =
-    (product.tags as { vnda_tags?: Array<{ name?: string } | string> })?.vnda_tags ||
-    (Array.isArray(product.tags) ? product.tags : []);
-  let rankWeight = 0.35; // default
-  if (Array.isArray(tagsArr)) {
-    const names = tagsArr.map((t) =>
-      typeof t === "string" ? t.toLowerCase() : (t as { name?: string })?.name?.toLowerCase() || ""
-    );
-    if (names.includes("mais-vendidos") || names.includes("top-vendas") || names.includes("bestseller")) {
-      rankWeight = 1.0;
-    } else if (names.includes("lancamentos") || names.includes("destaque")) {
-      rankWeight = 0.7;
+  let rankWeight: number;
+  if (popularityScore >= 0) {
+    // GA4 score is log-normalized so top product is around 0.95-1.0; we
+    // use it directly because the compression below already prevents max-out.
+    rankWeight = popularityScore;
+  } else {
+    // Fallback: tag-based heuristic when product isn't in GA4 (yet)
+    const tagsArr =
+      (product.tags as { vnda_tags?: Array<{ name?: string } | string> })?.vnda_tags ||
+      (Array.isArray(product.tags) ? product.tags : []);
+    rankWeight = 0.30;
+    if (Array.isArray(tagsArr)) {
+      const names = tagsArr.map((t) =>
+        typeof t === "string" ? t.toLowerCase() : (t as { name?: string })?.name?.toLowerCase() || ""
+      );
+      if (names.includes("mais-vendidos") || names.includes("top-vendas") || names.includes("bestseller")) {
+        rankWeight = 0.85;
+      } else if (names.includes("lancamentos") || names.includes("destaque")) {
+        rankWeight = 0.55;
+      }
     }
   }
 
-  // Mix: 60% popularity, 40% time-of-day
-  const factor = rankWeight * 0.6 + hourMult * 0.4;
-  // Spread across the configured range
-  const range = Math.max(0, max - min);
-  // Add per-product seed offset so two products with the same factor differ slightly
   const seed = productSeed(product.product_id);
-  const seedOffset = (seed - 0.5) * 0.15; // ±7.5% jitter
-  const ratio = Math.max(0, Math.min(1, factor + seedOffset));
+  // Mix: 55% popularity (real GA4), 30% hour, 15% per-product seed
+  // Larger seed weight = top sellers don't all converge to the same number
+  const factor = rankWeight * 0.55 + hourMult * 0.30 + (seed - 0.5) * 0.30;
+  // Compress to [0.10, 0.85] so even top products rarely hit the configured max
+  // and bottom products don't sit at the floor — wider visible spread
+  const compressed = Math.max(0, Math.min(1, factor));
+  const ratio = 0.10 + compressed * 0.75;
+  const range = Math.max(0, max - min);
   return Math.max(min, Math.min(max, Math.round(min + range * ratio)));
 }
 
@@ -179,6 +271,8 @@ export async function computePromoTagMatches(
 
   const matches: Record<string, PromoTagRule[]> = {};
   const hourMult = hourMultiplier(currentHourBRT());
+  // Fetch GA4-derived popularity once per request (cached 1h in-memory)
+  const popularity = await getPopularityScores(workspaceId);
 
   for (const rule of rules) {
     let productIds: string[] = [];
@@ -253,7 +347,8 @@ export async function computePromoTagMatches(
       } else if (badgeType === "viewers") {
         const p = productById.get(pid);
         if (p) {
-          baseRule.viewers_baseline = computeViewersBaseline(p, viewersMin, viewersMax, hourMult);
+          const score = lookupPopularity(p, popularity);
+          baseRule.viewers_baseline = computeViewersBaseline(p, viewersMin, viewersMax, hourMult, score);
           baseRule.viewers_min = viewersMin;
           baseRule.viewers_max = viewersMax;
         }

@@ -1405,7 +1405,7 @@
       "}" +
       // Cashback pill — colors come from rule.badge_bg_color/text_color via inline style
       ".vtx-promo-tag--cashback {" +
-        "display: inline-flex; align-items: center; gap: 6px;" +
+        "position: relative; display: inline-flex; align-items: center; gap: 6px;" +
         "padding: 5px 12px;" +
         "font-weight: 600; text-transform: none; font-size: 12px;" +
         "border-radius: 6px;" +
@@ -1415,7 +1415,7 @@
       ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
       // Live viewers pill — pulsing dot inherits color from text
       ".vtx-promo-tag--viewers {" +
-        "display: inline-flex; align-items: center; gap: 6px;" +
+        "position: relative; display: inline-flex; align-items: center; gap: 6px;" +
         "padding: 5px 12px;" +
         "font-weight: 500; text-transform: none; font-size: 11.5px;" +
         "border-radius: 6px;" +
@@ -1529,12 +1529,29 @@
     var min = Number(rule.viewers_min) || 6;
     var max = Number(rule.viewers_max) || 42;
     var baseline = Number(rule.viewers_baseline) || Math.round((min + max) / 2);
+    // Drift state: starts near baseline and walks step-by-step
+    var current = baseline;
 
     function pickValue() {
-      // Small jitter ± up to 12% of baseline (min 1, max 3)
-      var spread = Math.max(1, Math.min(3, Math.round(baseline * 0.12)));
-      var delta = Math.round((Math.random() - 0.5) * 2 * spread);
-      return Math.max(min, Math.min(max, baseline + delta));
+      // Spread ±20% of baseline (min 1, max 4)
+      var spread = Math.max(1, Math.min(4, Math.round(baseline * 0.20)));
+      var delta;
+      if (Math.random() < 0.7) {
+        // Random walk
+        delta = Math.round((Math.random() - 0.5) * 2 * spread);
+      } else {
+        // Pull back toward baseline so it doesn't drift forever
+        delta = Math.sign(baseline - current) * Math.min(2, Math.abs(baseline - current));
+      }
+      current = current + delta;
+      // Clamp drift to ±1.5×spread of baseline so it never feels far off
+      var maxDrift = Math.round(spread * 1.5);
+      if (current > baseline + maxDrift) current = baseline + maxDrift;
+      if (current < baseline - maxDrift) current = baseline - maxDrift;
+      // Final clamp to absolute min/max
+      if (current < min) current = min;
+      if (current > max) current = max;
+      return current;
     }
 
     function render(value) {
@@ -1545,9 +1562,10 @@
     }
 
     render(pickValue());
+    // Update every 8-16s so visitors actually see the count moving
     setInterval(function () {
       render(pickValue());
-    }, 18000 + Math.floor(Math.random() * 14000));
+    }, 8000 + Math.floor(Math.random() * 8000));
 
     applyRuleColors(badge, rule, "rgba(244,63,94,.08)", "#be123c");
     return badge;
