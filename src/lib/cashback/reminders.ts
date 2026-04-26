@@ -149,6 +149,16 @@ export async function sendReminderForStage(
     return [{ channel: "whatsapp", sent: false, skipped: "already_sent" }];
   }
 
+  // Hard stop: cashback already used, expired, or cancelled — no more comms.
+  // The cron jobs filter by status upstream, this is a defensive guard for
+  // the manual force-reminder route and any future caller.
+  if (cashback.status === "USADO" || cashback.status === "EXPIRADO" || cashback.status === "CANCELADO") {
+    return [
+      { channel: "whatsapp", sent: false, skipped: `cashback_${cashback.status.toLowerCase()}` },
+      { channel: "email", sent: false, skipped: `cashback_${cashback.status.toLowerCase()}` },
+    ];
+  }
+
   const vars = buildVars(cashback);
 
   // WhatsApp
