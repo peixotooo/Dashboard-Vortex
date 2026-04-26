@@ -759,6 +759,18 @@
     return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + parts[1];
   }
 
+  function querySelectorAllDeep(selector, root) {
+    root = root || document;
+    var elements = Array.prototype.slice.call(root.querySelectorAll(selector));
+    var allNodes = root.querySelectorAll('*');
+    for (var i = 0; i < allNodes.length; i++) {
+      if (allNodes[i].shadowRoot) {
+        elements = elements.concat(querySelectorAllDeep(selector, allNodes[i].shadowRoot));
+      }
+    }
+    return elements;
+  }
+
   function getCartTotal(callback) {
     try {
       // 1. Try global cart objects (VNDA themes)
@@ -781,6 +793,7 @@
         "[data-total-price]",
         ".cart-drawer-subtotal-value",
         ".cart-drawer-total-value",
+        ".card-drawer-cta",
         "tr.total .value",
         ".summary-total",
         ".c-summary__total-value",
@@ -788,7 +801,7 @@
         "[data-checkout-total]"
       ];
       for (var i = 0; i < selectors.length; i++) {
-        var els = document.querySelectorAll(selectors[i]);
+        var els = querySelectorAllDeep(selectors[i]);
         for (var j = 0; j < els.length; j++) {
           var el = els[j];
           var val = parseBRL(el.textContent || el.getAttribute("data-cart-total") || el.getAttribute("data-total-price"));
