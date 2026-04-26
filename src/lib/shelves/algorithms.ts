@@ -338,26 +338,73 @@ async function getPriceRange(
   params: RecommendationParams
 ): Promise<ShelfProduct[]> {
   const min = Number.isFinite(params.priceMin) ? (params.priceMin as number) : 0;
-  const max = Number.isFinite(params.priceMax) ? (params.priceMax as number) : Infinity;
-  if (max <= 0 || max < min) return [];
+  const max = Number.isFinite(params.priceMax) ? (params.priceMax as number) : null;
+  if (max !== null && (max <= 0 || max < min)) return [];
 
-  const config = await getCachedConfig(params.workspaceId);
-  const catalog = await getCachedCatalog(config, { per_page: "100" });
+  // Query the synced shelf_products table directly so we cover the entire
+  // catalog (the VNDA listing endpoint only returns a single page; with 1300+
+  // SKUs the price filter would silently miss most matches).
+  const admin = createAdminClient();
 
-  const effectivePrice = (p: VndaSearchProduct) =>
-    typeof p.sale_price === "number" && p.sale_price > 0 ? p.sale_price : p.price;
+  // Pull active+in_stock products and filter by effective price (sale_price ?? price)
+  // in JS — Postgres COALESCE works too but doing it client-side keeps the
+  // query simple and consistent with the rest of the matcher logic.
+  const PAGE = 1000;
+  const all: Array<{
+    product_id: string;
+    name: string;
+    price: number;
+    sale_price: number | null;
+    image_url: string | null;
+    image_url_2: string | null;
+    product_url: string | null;
+    category: string | null;
+    tags: unknown;
+    in_stock: boolean;
+  }> = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from("shelf_products")
+      .select(
+        "product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock"
+      )
+      .eq("workspace_id", params.workspaceId)
+      .eq("active", true)
+      .eq("in_stock", true)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...(data as typeof all));
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
 
-  const matched = catalog
-    .filter((p) => p.available !== false)
+  const effective = (p: { price: number; sale_price: number | null }) =>
+    p.sale_price && p.sale_price > 0 ? p.sale_price : p.price;
+
+  const matched = all
     .filter((p) => {
-      const price = effectivePrice(p);
-      return typeof price === "number" && price >= min && price <= max;
+      const price = effective(p);
+      if (typeof price !== "number" || price < min) return false;
+      if (max !== null && price > max) return false;
+      return true;
     })
-    .sort((a, b) => effectivePrice(a) - effectivePrice(b));
+    .sort((a, b) => effective(a) - effective(b))
+    .slice(0, params.limit);
 
-  return matched
-    .slice(0, params.limit)
-    .map((p) => mapVndaToShelf(p, config.storeHost));
+  return matched.map((p) => ({
+    product_id: p.product_id,
+    name: p.name,
+    price: p.price,
+    sale_price: p.sale_price,
+    image_url: p.image_url,
+    image_url_2: p.image_url_2,
+    product_url: p.product_url,
+    category: p.category,
+    tags: p.tags,
+    in_stock: p.in_stock,
+  }));
 }
 
 /** LastViewed: Products viewed by consumer, most recent first */
