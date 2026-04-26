@@ -29,6 +29,11 @@ const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; 
     metrics: ["sessions", "totalUsers", "transactions", "purchaseRevenue"],
     orderBy: { metric: "dayOfWeek", desc: false },
   },
+  best_hours_heatmap: {
+    dimensions: ["dayOfWeek", "hour"],
+    metrics: ["sessions", "totalUsers", "transactions", "purchaseRevenue"],
+    orderBy: { metric: "dayOfWeek", desc: false },
+  },
   traffic: {
     dimensions: ["sessionSource", "sessionMedium"],
     metrics: ["sessions", "totalUsers", "transactions", "purchaseRevenue", "bounceRate"],
@@ -74,9 +79,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // For hourly/day_of_week, ordering is by dimension not metric
+    // For hourly/day_of_week/heatmap, ordering is by dimension not metric
     let orderBy = config.orderBy;
-    if (reportType === "hourly" || reportType === "day_of_week") {
+    if (
+      reportType === "hourly" ||
+      reportType === "day_of_week" ||
+      reportType === "best_hours_heatmap"
+    ) {
       orderBy = undefined; // GA4 sorts dimensions differently
     }
 

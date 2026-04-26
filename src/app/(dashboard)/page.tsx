@@ -28,6 +28,7 @@ import {
 } from "recharts";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { TrendChart } from "@/components/dashboard/trend-chart";
+import { BestHoursHeatmap } from "@/components/dashboard/best-hours-heatmap";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -822,6 +823,9 @@ export default function OverviewPage() {
         ga4Configured={data.ga4Configured}
         loading={loading}
       />
+
+      {/* Best hours heatmap (GA4) */}
+      {data.ga4Configured && <BestHoursHeatmap />}
 
       {/* Controle Diário */}
       <div className="flex items-center gap-3 -mb-4">
