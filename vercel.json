@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/cashback-tick",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/shelf-catalog-sync",
+      "schedule": "0 */2 * * *"
     }
   ]
 }
