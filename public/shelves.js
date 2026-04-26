@@ -990,7 +990,10 @@
         ".product__buy",
         ".product-info",
         ".product__details",
-        ".product-purchase"
+        ".product-purchase",
+        ".add-to-cart",
+        ".add-to-cart-button",
+        ".actions-wrapper"
       ];
       for (var s = 0; s < fallbacks.length; s++) {
         anchor = document.querySelector(fallbacks[s]);
@@ -1162,7 +1165,10 @@
               ".product__buy",
               ".product-info",
               ".product__details",
-              ".product-purchase"
+              ".product-purchase",
+              ".add-to-cart",
+              ".add-to-cart-button",
+              ".actions-wrapper"
             ];
             for (var pa = 0; pa < pdpFallbacks.length; pa++) {
               pdpAnchor = document.querySelector(pdpFallbacks[pa]);
