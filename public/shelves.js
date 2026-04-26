@@ -1397,25 +1397,27 @@
         "box-sizing: border-box;" +
         "margin: 8px 0;" +
       "}" +
-      // Cashback badge near price (subtle, not uppercase)
+      // Cashback badge near price (block-level so it never overlaps flex price markup)
       ".vtx-promo-tag--cashback {" +
-        "display: inline-flex; align-items: center; gap: 6px;" +
-        "margin: 6px 0; padding: 4px 10px;" +
+        "display: flex; align-items: center; gap: 6px;" +
+        "width: fit-content; max-width: 100%; flex-basis: 100%;" +
+        "margin: 10px 0; padding: 5px 12px;" +
         "font-weight: 600; text-transform: none; font-size: 12px;" +
         "border-radius: 6px;" +
         "background: rgba(34,197,94,.12); color: #15803d;" +
-        "font-family: inherit; line-height: 1.3;" +
+        "font-family: inherit; line-height: 1.3; clear: both;" +
       "}" +
       ".vtx-promo-tag--cashback::before { content: '•'; opacity: .55 }" +
       ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
       // Live viewers badge — small pulsing red dot
       ".vtx-promo-tag--viewers {" +
-        "display: inline-flex; align-items: center; gap: 6px;" +
-        "margin: 6px 0; padding: 4px 10px;" +
+        "display: flex; align-items: center; gap: 6px;" +
+        "width: fit-content; max-width: 100%; flex-basis: 100%;" +
+        "margin: 10px 0; padding: 5px 12px;" +
         "font-weight: 500; text-transform: none; font-size: 11.5px;" +
         "border-radius: 6px;" +
         "background: rgba(244,63,94,.08); color: #be123c;" +
-        "font-family: inherit; line-height: 1.3;" +
+        "font-family: inherit; line-height: 1.3; clear: both;" +
       "}" +
       ".vtx-promo-tag--viewers strong { font-weight: 700 }" +
       ".vtx-promo-tag--viewers::before {" +
@@ -1539,9 +1541,25 @@
   }
 
   function insertNearPrice(badge, fallbackInsert) {
-    var anchor = findPriceAnchor();
-    if (anchor) {
-      anchor.parentNode.insertBefore(badge, anchor.nextSibling);
+    var price = findPriceAnchor();
+    if (price) {
+      // Walk up while the parent is a flex/grid container — prevents the badge
+      // from being absorbed into the price's inline layout (which causes the
+      // badge to visually overlap the price).
+      var anchor = price;
+      for (var i = 0; i < 6; i++) {
+        var parent = anchor.parentNode;
+        if (!parent || parent === document.body) break;
+        var s = window.getComputedStyle ? window.getComputedStyle(parent) : null;
+        var d = s ? s.display : "";
+        if (d !== "flex" && d !== "inline-flex" && d !== "grid" && d !== "inline-grid") {
+          parent.insertBefore(badge, anchor.nextSibling);
+          return true;
+        }
+        anchor = parent;
+      }
+      // Fallback: insert right after the price anyway
+      price.parentNode.insertBefore(badge, price.nextSibling);
       return true;
     }
     return fallbackInsert ? fallbackInsert(badge) : false;
