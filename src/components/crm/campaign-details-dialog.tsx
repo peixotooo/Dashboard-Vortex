@@ -144,6 +144,33 @@ export function CampaignDetailsDialog({
     [workspaceId]
   );
 
+  const runRecheck = useCallback(
+    async (silent: boolean): Promise<RecheckResult | null> => {
+      if (!campaignId) return null;
+      if (!silent) setRecheckResult(null);
+      setRechecking(true);
+      try {
+        const res = await fetch(
+          `/api/crm/whatsapp/campaigns/${campaignId}/recheck-template`,
+          { method: "POST", headers: headers() }
+        );
+        const data = await res.json();
+        if (data.error) {
+          if (!silent) setError(data.error);
+          return null;
+        }
+        setRecheckResult(data.recheck);
+        return data.recheck as RecheckResult;
+      } catch (e) {
+        if (!silent) setError(e instanceof Error ? e.message : "Erro ao verificar");
+        return null;
+      } finally {
+        setRechecking(false);
+      }
+    },
+    [campaignId, headers]
+  );
+
   const load = useCallback(async () => {
     if (!campaignId) return;
     setLoading(true);
@@ -154,13 +181,31 @@ export function CampaignDetailsDialog({
         headers: headers(),
       });
       const data = await res.json();
-      if (data.error) setError(data.error);
-      else setCampaign(data.campaign);
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      setCampaign(data.campaign);
+
+      // Auto-refresh template metadata from Meta so the category badge
+      // (UTILITY/MARKETING/AUTHENTICATION) is never stale when the modal opens.
+      if (data.campaign?.wa_templates?.meta_id) {
+        const recheck = await runRecheck(true);
+        if (recheck?.changed) {
+          // Re-fetch to pick up updated template fields
+          const r2 = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}`, {
+            headers: headers(),
+          });
+          const d2 = await r2.json();
+          if (d2.campaign) setCampaign(d2.campaign);
+          onChanged?.();
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao carregar");
     }
     setLoading(false);
-  }, [campaignId, headers]);
+  }, [campaignId, headers, runRecheck, onChanged]);
 
   useEffect(() => {
     if (open) load();
@@ -172,28 +217,16 @@ export function CampaignDetailsDialog({
   }, [open, load]);
 
   async function handleRecheck() {
-    if (!campaignId) return;
-    setRechecking(true);
-    setRecheckResult(null);
-    try {
-      const res = await fetch(
-        `/api/crm/whatsapp/campaigns/${campaignId}/recheck-template`,
-        { method: "POST", headers: headers() }
-      );
+    const recheck = await runRecheck(false);
+    if (recheck?.changed) {
+      // Reload to pick up updated template fields
+      const res = await fetch(`/api/crm/whatsapp/campaigns/${campaignId}`, {
+        headers: headers(),
+      });
       const data = await res.json();
-      if (data.error) setError(data.error);
-      else {
-        setRecheckResult(data.recheck);
-        // Reload to pick up updated template fields
-        if (data.recheck?.changed) {
-          await load();
-          onChanged?.();
-        }
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao verificar");
+      if (data.campaign) setCampaign(data.campaign);
+      onChanged?.();
     }
-    setRechecking(false);
   }
 
   async function handleCancel() {
@@ -399,11 +432,16 @@ export function CampaignDetailsDialog({
                       )}
                       {campaign.wa_templates.status}
                     </Badge>
-                    {campaign.wa_templates.synced_at && (
-                      <span className="text-[11px] text-muted-foreground ml-auto">
-                        Sincronizado: {fmtDateTime(campaign.wa_templates.synced_at)}
+                    {rechecking ? (
+                      <span className="text-[11px] text-muted-foreground ml-auto flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Verificando na Meta...
                       </span>
-                    )}
+                    ) : campaign.wa_templates.synced_at ? (
+                      <span className="text-[11px] text-muted-foreground ml-auto">
+                        Verificado: {fmtDateTime(campaign.wa_templates.synced_at)}
+                      </span>
+                    ) : null}
                   </div>
 
                   {recheckResult && (
