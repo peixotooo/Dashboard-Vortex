@@ -1649,12 +1649,14 @@
       badge.setAttribute("data-vtx-mark", marker);
 
       var inserted = false;
+      // By default, all PDP badges live in the shared row below the price so
+      // cashback / viewers / static promos line up together. Use
+      // placement=pdp_above_buy to opt a static badge out into the legacy slot.
       var goesNearPrice =
         placement === "pdp_price" ||
-        (placement === "auto" && (badgeType === "cashback" || badgeType === "viewers"));
+        placement === "auto";
 
       if (goesNearPrice) {
-        // Group cashback + viewers in a single side-by-side row below the price
         var row = getOrCreatePromoTagRow();
         if (row) {
           row.appendChild(badge);
