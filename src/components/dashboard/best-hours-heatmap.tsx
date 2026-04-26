@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Clock, Sparkles } from "lucide-react";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
 type MetricKey = "sessions" | "transactions" | "purchaseRevenue" | "cvr" | "rps";
@@ -44,6 +45,7 @@ function formatValue(v: number, metric: MetricKey): string {
 }
 
 export function BestHoursHeatmap() {
+  const { workspace } = useWorkspace();
   const [period, setPeriod] = useState("last_90d");
   const [metric, setMetric] = useState<MetricKey>("transactions");
   const [loading, setLoading] = useState(true);
@@ -51,11 +53,13 @@ export function BestHoursHeatmap() {
   const [rows, setRows] = useState<Row[]>([]);
 
   useEffect(() => {
+    if (!workspace?.id) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
     fetch(
-      `/api/ga4/report?report_type=best_hours_heatmap&date_preset=${period}&limit=200`
+      `/api/ga4/report?report_type=best_hours_heatmap&date_preset=${period}&limit=200`,
+      { headers: { "x-workspace-id": workspace.id } }
     )
       .then((r) => r.json())
       .then((data) => {
@@ -73,7 +77,7 @@ export function BestHoursHeatmap() {
     return () => {
       cancelled = true;
     };
-  }, [period]);
+  }, [period, workspace?.id]);
 
   // Build 7×24 grid
   const grid = useMemo(() => {
@@ -210,13 +214,14 @@ export function BestHoursHeatmap() {
 
       <CardContent>
         {loading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Carregando dados do Google Analytics...
           </div>
         )}
 
         {error && !loading && (
-          <div className="text-sm text-muted-foreground py-6 text-center">
+          <div className="text-sm text-muted-foreground py-1">
             {error}
           </div>
         )}
