@@ -1432,31 +1432,36 @@
         "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
         "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
       "}" +
-      // Coupon countdown banner — standalone block above the buy button
+      // Coupon countdown banner — monochrome, standalone block above the buy button
+      // pointer-events:auto overrides the .vtx-promo-tag base which had it none
       ".vtx-promo-tag--coupon {" +
         "display: block; position: relative; z-index: 2;" +
+        "pointer-events: auto;" +
         "width: 100%; box-sizing: border-box;" +
         "padding: 14px 16px; margin: 14px 0;" +
-        "border: 1px solid rgba(0,0,0,.08); border-radius: 12px;" +
-        "background: #fafafa; color: #0f172a;" +
+        "border: 1px solid #e5e7eb; border-radius: 12px;" +
+        "background: #ffffff; color: #0f172a;" +
         "font-family: inherit; line-height: 1.3; clear: both;" +
         "text-transform: none; font-weight: 400;" +
       "}" +
       "@media (prefers-color-scheme: dark) {" +
-        ".vtx-promo-tag--coupon { background: #0a0a0a; color: #fafafa; border-color: rgba(255,255,255,.12) }" +
+        ".vtx-promo-tag--coupon { background: #0a0a0a; color: #fafafa; border-color: #262626 }" +
       "}" +
-      // Header row: icon + title + subtitle
+      // Header
       ".vtx-promo-tag--coupon .vtx-coupon-header {" +
         "display: flex; align-items: center; gap: 10px; margin-bottom: 14px;" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-icon {" +
-        "width: 22px; height: 22px; flex-shrink: 0;" +
-        "color: var(--vtx-coupon-cta-bg, #dc2626);" +
+      ".vtx-promo-tag--coupon .vtx-coupon-icon { width: 22px; height: 22px; flex-shrink: 0; color: #525252 }" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-icon { color: #a3a3a3 }" +
       "}" +
       ".vtx-promo-tag--coupon .vtx-coupon-headline { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 }" +
       ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 14px; font-weight: 700; line-height: 1.2 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11.5px; opacity: .55; line-height: 1.2 }" +
-      // Timer — the hero
+      ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11.5px; color: #737373; line-height: 1.2 }" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-sub { color: #a3a3a3 }" +
+      "}" +
+      // Timer
       ".vtx-promo-tag--coupon .vtx-coupon-bottom {" +
         "display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;" +
       "}" +
@@ -1466,45 +1471,60 @@
       ".vtx-promo-tag--coupon .vtx-coupon-time {" +
         "display: flex; flex-direction: column; align-items: center; justify-content: center;" +
         "min-width: 42px; padding: 8px 10px;" +
-        "background: rgba(0,0,0,.05); border-radius: 8px;" +
+        "background: #f5f5f5; border-radius: 8px;" +
       "}" +
       "@media (prefers-color-scheme: dark) {" +
-        ".vtx-promo-tag--coupon .vtx-coupon-time { background: rgba(255,255,255,.08) }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time { background: #171717 }" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 18px; font-weight: 800; line-height: 1; letter-spacing: -.01em }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time .num {" +
+        "font-size: 18px; font-weight: 800; line-height: 1; letter-spacing: -.01em; color: #0f172a;" +
+      "}" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time .num { color: #fafafa }" +
+      "}" +
       ".vtx-promo-tag--coupon .vtx-coupon-time .lbl {" +
-        "font-size: 9px; opacity: .55; text-transform: uppercase; letter-spacing: .06em;" +
+        "font-size: 9px; color: #737373; text-transform: uppercase; letter-spacing: .06em;" +
         "margin-top: 4px; line-height: 1; font-weight: 500;" +
       "}" +
-      // Code + copy button — joined pill
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time .lbl { color: #a3a3a3 }" +
+      "}" +
+      // Code + copy — joined pill (monochrome)
       ".vtx-promo-tag--coupon .vtx-coupon-action {" +
         "display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden;" +
-        "box-shadow: 0 0 0 1px rgba(0,0,0,.1); flex-shrink: 0;" +
+        "border: 1px solid #e5e7eb; flex-shrink: 0; pointer-events: auto;" +
       "}" +
       "@media (prefers-color-scheme: dark) {" +
-        ".vtx-promo-tag--coupon .vtx-coupon-action { box-shadow: 0 0 0 1px rgba(255,255,255,.14) }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-action { border-color: #262626 }" +
       "}" +
       ".vtx-promo-tag--coupon .vtx-coupon-code {" +
         "display: inline-flex; align-items: center; padding: 8px 14px;" +
         "font-size: 13px; font-weight: 700; letter-spacing: .06em;" +
-        "background: #fff; color: #0f172a; user-select: all; cursor: text;" +
+        "background: #ffffff; color: #0f172a; user-select: all; cursor: text;" +
         "font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;" +
+        "pointer-events: auto;" +
       "}" +
       "@media (prefers-color-scheme: dark) {" +
-        ".vtx-promo-tag--coupon .vtx-coupon-code { background: rgba(255,255,255,.04); color: #fafafa }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-code { background: #0a0a0a; color: #fafafa }" +
       "}" +
       ".vtx-promo-tag--coupon .vtx-coupon-copy {" +
         "display: inline-flex; align-items: center; gap: 6px;" +
-        "padding: 8px 14px; cursor: pointer; border: 0;" +
+        "padding: 8px 14px; cursor: pointer; border: 0; outline: none;" +
         "font-size: 12px; font-weight: 700; letter-spacing: .04em;" +
-        "font-family: inherit;" +
-        "background: var(--vtx-coupon-cta-bg, #0f172a); color: var(--vtx-coupon-cta-fg, #fff);" +
-        "transition: background .2s ease;" +
-        "white-space: nowrap;" +
+        "font-family: inherit; white-space: nowrap;" +
+        "background: #0f172a; color: #ffffff;" +
+        "transition: background .15s ease;" +
+        "pointer-events: auto;" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-copy:hover { opacity: .92 }" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-copy { background: #fafafa; color: #0a0a0a }" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-copy:hover { background: #404040 }" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-copy:hover { background: #d4d4d4 }" +
+      "}" +
       ".vtx-promo-tag--coupon .vtx-coupon-copy svg { width: 14px; height: 14px }" +
-      ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-copy { background: #16a34a !important; color: #fff !important }" +
+      ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-copy { background: #16a34a; color: #ffffff }" +
       // Mobile — tighter so it never crowds the buy button
       "@media (max-width: 640px) {" +
         ".vtx-promo-tag--coupon { padding: 10px 12px; margin: 10px 0 12px; border-radius: 10px }" +
