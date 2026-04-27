@@ -290,6 +290,27 @@ export default function CouponsPage() {
     setBusy(null);
   }
 
+  async function togglePlanEnabled(p: Plan) {
+    setBusy("toggle-" + p.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/coupons/plans/${p.id}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ enabled: !p.enabled }),
+      });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else {
+        // Optimistic local update so the toggle feels instant
+        setPlans((prev) => prev.map((x) => (x.id === p.id ? { ...x, enabled: !p.enabled } : x)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "erro");
+    }
+    setBusy(null);
+  }
+
   async function verifyOnVnda(id: string) {
     setBusy("verify-" + id);
     try {
@@ -390,7 +411,18 @@ export default function CouponsPage() {
                     {p.discount_min_pct}–{p.discount_max_pct}% · {p.duration_hours}h · max {p.max_active_products} ativos · {p.recurring_cron || "sem cron"}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 mr-2" title={p.enabled ? "Clique para desativar" : "Clique para ativar"}>
+                    <Switch
+                      checked={p.enabled}
+                      onCheckedChange={() => togglePlanEnabled(p)}
+                      disabled={busy === "toggle-" + p.id}
+                      aria-label="Ativar/desativar plano"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {busy === "toggle-" + p.id ? "..." : p.enabled ? "Ativo" : "Inativo"}
+                    </span>
+                  </div>
                   {p.enabled && (
                     <Button
                       variant="default"
@@ -408,11 +440,15 @@ export default function CouponsPage() {
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={() => setEditing(p)}>Editar</Button>
-                  {p.enabled && (
-                    <Button variant="outline" size="sm" onClick={() => disablePlan(p.id)} disabled={busy === "del-" + p.id}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => disablePlan(p.id)}
+                    disabled={busy === "del-" + p.id}
+                    title="Apagar definitivamente (cupons ativos seguem ate expirar)"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
