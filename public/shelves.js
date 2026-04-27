@@ -1432,28 +1432,47 @@
         "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
         "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
       "}" +
-      // Coupon countdown — bigger, more eye-catching pill with code+timer
+      // Coupon countdown — banner style (icon + title/sub + timer blocks + code CTA)
       ".vtx-promo-tag--coupon {" +
-        "display: inline-flex; align-items: center; gap: 8px;" +
-        "padding: 6px 12px;" +
-        "font-weight: 600; text-transform: none; font-size: 12px;" +
-        "border-radius: 6px;" +
-        "font-family: inherit; line-height: 1.3;" +
-        "cursor: pointer;" +
+        "display: flex; align-items: center; justify-content: space-between; gap: 12px;" +
+        "padding: 10px 14px; margin: 12px 0;" +
+        "width: 100%; max-width: 100%; flex-basis: 100%; box-sizing: border-box;" +
+        "border: 1px solid rgba(0,0,0,.12); border-radius: 10px;" +
+        "background: #fff; color: #111;" +
+        "font-family: inherit; line-height: 1.3; clear: both;" +
+        "text-transform: none; font-weight: 400;" +
       "}" +
-      ".vtx-promo-tag--coupon strong { font-weight: 700 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-code {" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon { background: #0a0a0a; color: #fff; border-color: rgba(255,255,255,.14) }" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-icon { width: 24px; height: 24px; flex-shrink: 0; opacity: .75 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-info { display: flex; flex-direction: column; gap: 2px; min-width: 0 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 13px; font-weight: 600; line-height: 1.2 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11px; opacity: .6; line-height: 1.2 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-timer { display: flex; align-items: stretch; gap: 2px; font-variant-numeric: tabular-nums }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time { display: flex; flex-direction: column; align-items: center; padding: 4px 6px }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 14px; font-weight: 700; line-height: 1 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time .lbl { font-size: 9px; opacity: .5; line-height: 1.2; margin-top: 2px; text-transform: uppercase; letter-spacing: .04em }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-cta {" +
         "display: inline-flex; align-items: center; gap: 4px;" +
-        "padding: 2px 8px; border: 1px dashed currentColor; border-radius: 4px;" +
-        "letter-spacing: .04em; font-weight: 700;" +
+        "padding: 6px 12px; border-radius: 6px;" +
+        "font-size: 12px; font-weight: 700; letter-spacing: .04em;" +
+        "background: var(--vtx-coupon-cta-bg, #000); color: var(--vtx-coupon-cta-fg, #fff);" +
+        "cursor: pointer; transition: opacity .15s ease, transform .15s ease;" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-code:hover { opacity: .85 }" +
-      ".vtx-promo-tag--coupon .vtx-countdown { font-variant-numeric: tabular-nums; font-weight: 700 }" +
-      ".vtx-promo-tag--coupon.vtx-coupon-copied { animation: vtx-coupon-copied .8s ease }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-cta:hover { opacity: .9 }" +
+      ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-cta { animation: vtx-coupon-copied .8s ease }" +
       "@keyframes vtx-coupon-copied {" +
         "0% { transform: scale(1) }" +
-        "30% { transform: scale(1.04) }" +
+        "30% { transform: scale(1.06) }" +
         "100% { transform: scale(1) }" +
+      "}" +
+      "@media (max-width: 640px) {" +
+        ".vtx-promo-tag--coupon { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-right { justify-content: space-between }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-cta { flex: 1; justify-content: center }" +
       "}";
 
     var style = document.createElement("style");
@@ -1602,17 +1621,39 @@
     var expiresAt = new Date(rule.coupon_expires_at).getTime();
     if (!code || !pct || !expiresAt) return null;
 
-    function fmtCountdown(ms) {
-      if (ms <= 0) return "00:00:00";
-      var totalSec = Math.floor(ms / 1000);
-      var d = Math.floor(totalSec / 86400);
-      var h = Math.floor((totalSec % 86400) / 3600);
-      var m = Math.floor((totalSec % 3600) / 60);
-      var s = totalSec % 60;
-      function pad(n) { return n < 10 ? "0" + n : String(n); }
-      if (d > 0) return d + "d " + pad(h) + ":" + pad(m) + ":" + pad(s);
-      return pad(h) + ":" + pad(m) + ":" + pad(s);
+    // CTA chip uses the plan colors; the card itself stays neutral so it
+    // adapts to the store theme via prefers-color-scheme.
+    badge.style.setProperty("--vtx-coupon-cta-bg", rule.badge_bg_color || "#000");
+    badge.style.setProperty("--vtx-coupon-cta-fg", rule.badge_text_color || "#fff");
+
+    // Build title from badge_template (substitutes {discount}; ignores {coupon}/{countdown})
+    function buildTitle(tpl, p) {
+      if (!tpl) return "🔥 " + p + "% OFF Flash";
+      var parts = String(tpl).split("|").map(function (s) { return s.trim(); }).filter(Boolean);
+      var pick = parts.find(function (s) { return s.indexOf("{discount}") !== -1; }) || parts[0] || "";
+      var t = pick
+        .replace(/\{discount\}/g, p)
+        .replace(/\{coupon\}/g, "")
+        .replace(/\{countdown\}/g, "")
+        .trim();
+      return t || ("🔥 " + p + "% OFF Flash");
     }
+
+    var title = buildTitle(rule.badge_text, pct);
+    var sub = "Use o cupom ao finalizar a compra";
+
+    // Lucide TicketPercent inline SVG
+    var iconSvg =
+      '<svg class="vtx-coupon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/>' +
+      '<path d="m9 15 6-6"/>' +
+      '<circle cx="9.5" cy="9.5" r=".5" fill="currentColor"/>' +
+      '<circle cx="14.5" cy="14.5" r=".5" fill="currentColor"/>' +
+      '</svg>';
+
+    function pad(n) { return n < 10 ? "0" + n : String(n); }
+
+    var timer = null;
 
     function render() {
       var remaining = expiresAt - Date.now();
@@ -1621,30 +1662,49 @@
         if (timer) clearInterval(timer);
         return;
       }
-      var template = rule.badge_text || "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}";
-      var html = template
-        .replace(/\{discount\}/g, "<strong>" + pct + "</strong>")
-        .replace(/\{coupon\}/g, '<span class="vtx-coupon-code" title="Clique para copiar">' + code + '</span>')
-        .replace(/\{countdown\}/g, '<span class="vtx-countdown">' + fmtCountdown(remaining) + '</span>');
-      badge.innerHTML = html;
+      var totalSec = Math.floor(remaining / 1000);
+      var d = Math.floor(totalSec / 86400);
+      var h = Math.floor((totalSec % 86400) / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
 
-      // Re-bind copy on each render
-      var codeEl = badge.querySelector(".vtx-coupon-code");
-      if (codeEl) {
-        codeEl.addEventListener("click", function (e) {
+      var blocks = "";
+      if (d > 0) {
+        blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(d) + '</span><span class="lbl">Dias</span></div>';
+      }
+      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(h) + '</span><span class="lbl">Hrs</span></div>';
+      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(m) + '</span><span class="lbl">Min</span></div>';
+      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(s) + '</span><span class="lbl">Seg</span></div>';
+
+      badge.innerHTML =
+        '<div class="vtx-coupon-left">' +
+          iconSvg +
+          '<div class="vtx-coupon-info">' +
+            '<div class="vtx-coupon-title">' + escapeHtml(title) + '</div>' +
+            '<div class="vtx-coupon-sub">' + escapeHtml(sub) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="vtx-coupon-right">' +
+          '<div class="vtx-coupon-timer">' + blocks + '</div>' +
+          '<div class="vtx-coupon-cta" title="Clique para copiar o cupom">' + escapeHtml(code) + '</div>' +
+        '</div>';
+
+      // Re-bind copy on each tick (innerHTML wipes listeners)
+      var ctaEl = badge.querySelector(".vtx-coupon-cta");
+      if (ctaEl) {
+        ctaEl.addEventListener("click", function (e) {
           e.preventDefault();
           e.stopPropagation();
-          var text = code;
           var done = function () {
             badge.classList.add("vtx-coupon-copied");
             setTimeout(function () { badge.classList.remove("vtx-coupon-copied"); }, 800);
           };
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(done).catch(function () {});
+            navigator.clipboard.writeText(code).then(done).catch(function () {});
           } else {
             try {
               var ta = document.createElement("textarea");
-              ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+              ta.value = code; ta.style.position = "fixed"; ta.style.opacity = "0";
               document.body.appendChild(ta); ta.select(); document.execCommand("copy");
               document.body.removeChild(ta); done();
             } catch (err) { /* silent */ }
@@ -1654,8 +1714,7 @@
     }
 
     render();
-    var timer = setInterval(render, 1000);
-    applyRuleColors(badge, rule, "#dc2626", "#ffffff");
+    timer = setInterval(render, 1000);
     return badge;
   }
 
