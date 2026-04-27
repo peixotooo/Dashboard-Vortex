@@ -1431,6 +1431,29 @@
         "0% { box-shadow: 0 0 0 0 currentColor; opacity: .85 }" +
         "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
         "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
+      "}" +
+      // Coupon countdown — bigger, more eye-catching pill with code+timer
+      ".vtx-promo-tag--coupon {" +
+        "display: inline-flex; align-items: center; gap: 8px;" +
+        "padding: 6px 12px;" +
+        "font-weight: 600; text-transform: none; font-size: 12px;" +
+        "border-radius: 6px;" +
+        "font-family: inherit; line-height: 1.3;" +
+        "cursor: pointer;" +
+      "}" +
+      ".vtx-promo-tag--coupon strong { font-weight: 700 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-code {" +
+        "display: inline-flex; align-items: center; gap: 4px;" +
+        "padding: 2px 8px; border: 1px dashed currentColor; border-radius: 4px;" +
+        "letter-spacing: .04em; font-weight: 700;" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-code:hover { opacity: .85 }" +
+      ".vtx-promo-tag--coupon .vtx-countdown { font-variant-numeric: tabular-nums; font-weight: 700 }" +
+      ".vtx-promo-tag--coupon.vtx-coupon-copied { animation: vtx-coupon-copied .8s ease }" +
+      "@keyframes vtx-coupon-copied {" +
+        "0% { transform: scale(1) }" +
+        "30% { transform: scale(1.04) }" +
+        "100% { transform: scale(1) }" +
       "}";
 
     var style = document.createElement("style");
@@ -1571,6 +1594,71 @@
     return badge;
   }
 
+  function createCouponCountdownBadge(rule) {
+    var badge = document.createElement("div");
+    badge.className = "vtx-promo-tag vtx-promo-tag--coupon";
+    var code = String(rule.coupon_code || "").toUpperCase();
+    var pct = Number(rule.coupon_discount_pct || 0);
+    var expiresAt = new Date(rule.coupon_expires_at).getTime();
+    if (!code || !pct || !expiresAt) return null;
+
+    function fmtCountdown(ms) {
+      if (ms <= 0) return "00:00:00";
+      var totalSec = Math.floor(ms / 1000);
+      var d = Math.floor(totalSec / 86400);
+      var h = Math.floor((totalSec % 86400) / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
+      function pad(n) { return n < 10 ? "0" + n : String(n); }
+      if (d > 0) return d + "d " + pad(h) + ":" + pad(m) + ":" + pad(s);
+      return pad(h) + ":" + pad(m) + ":" + pad(s);
+    }
+
+    function render() {
+      var remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        badge.style.display = "none";
+        if (timer) clearInterval(timer);
+        return;
+      }
+      var template = rule.badge_text || "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}";
+      var html = template
+        .replace(/\{discount\}/g, "<strong>" + pct + "</strong>")
+        .replace(/\{coupon\}/g, '<span class="vtx-coupon-code" title="Clique para copiar">' + code + '</span>')
+        .replace(/\{countdown\}/g, '<span class="vtx-countdown">' + fmtCountdown(remaining) + '</span>');
+      badge.innerHTML = html;
+
+      // Re-bind copy on each render
+      var codeEl = badge.querySelector(".vtx-coupon-code");
+      if (codeEl) {
+        codeEl.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var text = code;
+          var done = function () {
+            badge.classList.add("vtx-coupon-copied");
+            setTimeout(function () { badge.classList.remove("vtx-coupon-copied"); }, 800);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function () {});
+          } else {
+            try {
+              var ta = document.createElement("textarea");
+              ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+              document.body.appendChild(ta); ta.select(); document.execCommand("copy");
+              document.body.removeChild(ta); done();
+            } catch (err) { /* silent */ }
+          }
+        });
+      }
+    }
+
+    render();
+    var timer = setInterval(render, 1000);
+    applyRuleColors(badge, rule, "#dc2626", "#ffffff");
+    return badge;
+  }
+
   // Returns (or creates+inserts) a single row container that holds the
   // cashback + viewers pills side-by-side below the price block.
   function getOrCreatePromoTagRow() {
@@ -1640,6 +1728,8 @@
         badge = createCashbackBadge(rule, fallbackCashbackPct);
       } else if (badgeType === "viewers") {
         badge = createViewersBadge(rule);
+      } else if (badgeType === "coupon_countdown") {
+        badge = createCouponCountdownBadge(rule);
       } else {
         // Static — only render once on PDP
         if (document.querySelector(".vtx-promo-tag--pdp")) continue;

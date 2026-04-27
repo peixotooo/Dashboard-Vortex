@@ -83,7 +83,7 @@ function lookupPopularity(
   return -1; // unknown — caller falls back to tag heuristic
 }
 
-export type BadgeType = "static" | "cashback" | "viewers";
+export type BadgeType = "static" | "cashback" | "viewers" | "coupon_countdown";
 export type BadgePlacement = "auto" | "pdp_price" | "pdp_above_buy" | "card_overlay";
 
 export interface PromoTagRule {
@@ -102,6 +102,10 @@ export interface PromoTagRule {
   viewers_baseline?: number;   // server-suggested live viewer count
   viewers_min?: number;
   viewers_max?: number;
+  // Countdown coupon — emitted when an active coupon exists for this product
+  coupon_code?: string;
+  coupon_discount_pct?: number;
+  coupon_expires_at?: string;  // ISO timestamp
 }
 
 interface ShelfProductRow {
@@ -357,6 +361,45 @@ export async function computePromoTagMatches(
       if (!matches[pid]) matches[pid] = [];
       matches[pid].push(baseRule);
     }
+  }
+
+  // --- Inject countdown coupon badges from active rotation coupons ---
+  // Each active coupon (status='active', not expired) becomes a synthetic
+  // badge attached to its product. The plan_id link gives us the badge styling.
+  const nowIso = new Date().toISOString();
+  const { data: activeCoupons } = await admin
+    .from("promo_active_coupons")
+    .select("product_id, vnda_coupon_code, discount_pct, expires_at, plan_id, promo_coupon_plans(badge_template, badge_bg_color, badge_text_color)")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "active")
+    .gt("expires_at", nowIso);
+
+  for (const c of (activeCoupons || []) as unknown as Array<{
+    product_id: string;
+    vnda_coupon_code: string;
+    discount_pct: number;
+    expires_at: string;
+    promo_coupon_plans?: { badge_template?: string; badge_bg_color?: string; badge_text_color?: string }
+      | Array<{ badge_template?: string; badge_bg_color?: string; badge_text_color?: string }>;
+  }>) {
+    const plan = Array.isArray(c.promo_coupon_plans) ? c.promo_coupon_plans[0] : c.promo_coupon_plans;
+    const badgeRule: PromoTagRule = {
+      badge_text: plan?.badge_template || "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
+      badge_bg_color: plan?.badge_bg_color || "#dc2626",
+      badge_text_color: plan?.badge_text_color || "#ffffff",
+      badge_font_size: "12px",
+      badge_border_radius: "6px",
+      badge_position: "top-left",
+      badge_padding: "5px 12px",
+      badge_type: "coupon_countdown",
+      badge_placement: "pdp_price",
+      priority: 100, // coupons take precedence in the row
+      coupon_code: c.vnda_coupon_code,
+      coupon_discount_pct: Number(c.discount_pct),
+      coupon_expires_at: c.expires_at,
+    };
+    if (!matches[c.product_id]) matches[c.product_id] = [];
+    matches[c.product_id].push(badgeRule);
   }
 
   return { matches, cashback_percent: cashbackPercent };
