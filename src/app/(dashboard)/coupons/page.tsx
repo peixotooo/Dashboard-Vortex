@@ -1,0 +1,505 @@
+"use client";
+
+import React, { useEffect, useState, useCallback } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useWorkspace } from "@/lib/workspace-context";
+import { Tag, Loader2, Plus, CheckCircle2, XCircle, PauseCircle, Clock, Trash2, Settings } from "lucide-react";
+
+interface Plan {
+  id: string;
+  name: string;
+  enabled: boolean;
+  mode: "one_shot" | "recurring";
+  target: "tier_b" | "tier_c" | "low_cvr_high_views" | "manual";
+  manual_product_ids: string[] | null;
+  discount_min_pct: number;
+  discount_max_pct: number;
+  duration_hours: number;
+  max_active_products: number;
+  recurring_cron: string | null;
+  recurring_last_run_at: string | null;
+  require_manual_approval: boolean;
+  badge_template: string;
+  badge_bg_color: string;
+  badge_text_color: string;
+  created_at: string;
+}
+
+interface ActiveCoupon {
+  id: string;
+  product_id: string;
+  vnda_coupon_code: string;
+  discount_pct: number;
+  starts_at: string;
+  expires_at: string;
+  status: "pending" | "active" | "paused" | "expired" | "cancelled" | "failed";
+  status_reason: string | null;
+  attributed_revenue: number;
+  attributed_units: number;
+  created_at: string;
+}
+
+interface Settings {
+  global_max_discount_pct: number;
+  global_max_active_coupons: number;
+  pending_approval_ttl_hours: number;
+  default_uses_per_code: number;
+  default_uses_per_user: number;
+  cumulative_with_other_promos: boolean;
+  notify_on_creation: boolean;
+  notify_on_failure: boolean;
+}
+
+const EMPTY_PLAN: Partial<Plan> = {
+  name: "",
+  enabled: true,
+  mode: "one_shot",
+  target: "low_cvr_high_views",
+  discount_min_pct: 10,
+  discount_max_pct: 20,
+  duration_hours: 48,
+  max_active_products: 5,
+  require_manual_approval: true,
+  badge_template: "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
+  badge_bg_color: "#dc2626",
+  badge_text_color: "#ffffff",
+};
+
+const TARGET_LABELS: Record<string, string> = {
+  low_cvr_high_views: "Muito visto + pouca conversão",
+  tier_b: "Tier B (vendas médias)",
+  tier_c: "Tier C (cauda longa)",
+  manual: "IDs manuais",
+};
+
+function fmtBRL(v: number) { return "R$ " + v.toFixed(2).replace(".", ","); }
+
+export default function CouponsPage() {
+  const { workspace } = useWorkspace();
+  const [tab, setTab] = useState("plans");
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [pending, setPending] = useState<ActiveCoupon[]>([]);
+  const [active, setActive] = useState<ActiveCoupon[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<Plan> | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const headers = useCallback(
+    () => ({ "Content-Type": "application/json", "x-workspace-id": workspace?.id || "" }),
+    [workspace?.id]
+  );
+
+  const reload = useCallback(async () => {
+    if (!workspace?.id) return;
+    setLoading(true);
+    try {
+      const [plansRes, pendingRes, activeRes, settingsRes] = await Promise.all([
+        fetch("/api/coupons/plans", { headers: headers() }).then(r => r.json()),
+        fetch("/api/coupons/active?status=pending", { headers: headers() }).then(r => r.json()),
+        fetch("/api/coupons/active?status=active", { headers: headers() }).then(r => r.json()),
+        fetch("/api/coupons/settings", { headers: headers() }).then(r => r.json()),
+      ]);
+      setPlans(plansRes.plans || []);
+      setPending(pendingRes.coupons || []);
+      setActive(activeRes.coupons || []);
+      setSettings(settingsRes.settings || null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "erro");
+    }
+    setLoading(false);
+  }, [workspace?.id, headers]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  async function savePlan() {
+    if (!editing || !editing.name) return;
+    setError(null);
+    setBusy("save");
+    try {
+      const path = editing.id ? `/api/coupons/plans/${editing.id}` : "/api/coupons/plans";
+      const method = editing.id ? "PATCH" : "POST";
+      const res = await fetch(path, { method, headers: headers(), body: JSON.stringify(editing) });
+      const data = await res.json();
+      if (data.error) setError(data.error);
+      else { setEditing(null); await reload(); }
+    } catch (e) { setError(e instanceof Error ? e.message : "erro"); }
+    setBusy(null);
+  }
+
+  async function disablePlan(id: string) {
+    if (!confirm("Desabilitar este plano? Cupons ativos continuam ate expirar.")) return;
+    setBusy("del-" + id);
+    await fetch(`/api/coupons/plans/${id}`, { method: "DELETE", headers: headers() });
+    await reload();
+    setBusy(null);
+  }
+
+  async function couponAction(id: string, action: "approve" | "reject" | "pause") {
+    setBusy(action + "-" + id);
+    setError(null);
+    const res = await fetch(`/api/coupons/active/${id}`, {
+      method: "POST", headers: headers(), body: JSON.stringify({ action }),
+    });
+    const data = await res.json();
+    if (data.error) setError(data.error);
+    await reload();
+    setBusy(null);
+  }
+
+  async function saveSettings(patch: Partial<Settings>) {
+    if (!settings) return;
+    setBusy("settings");
+    setError(null);
+    const res = await fetch("/api/coupons/settings", {
+      method: "PATCH", headers: headers(), body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (data.error) setError(data.error);
+    else setSettings(data.settings);
+    setBusy(null);
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Tag className="h-6 w-6" />
+          <div>
+            <h1 className="text-2xl font-bold">Cupons Automáticos</h1>
+            <p className="text-sm text-muted-foreground">
+              Rotação de cupons em produtos de baixo giro com countdown na PDP
+            </p>
+          </div>
+        </div>
+        <Button onClick={() => setEditing({ ...EMPTY_PLAN })}>
+          <Plus className="h-4 w-4 mr-2" /> Novo Plano
+        </Button>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+      )}
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="plans">Planos ({plans.filter(p => p.enabled).length})</TabsTrigger>
+          <TabsTrigger value="pending">Aguardando aprovação ({pending.length})</TabsTrigger>
+          <TabsTrigger value="active">Ativos ({active.length})</TabsTrigger>
+          <TabsTrigger value="settings"><Settings className="h-3.5 w-3.5 mr-1" /> Configurações</TabsTrigger>
+        </TabsList>
+
+        {/* PLANS */}
+        <TabsContent value="plans" className="space-y-3">
+          {plans.length === 0 && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              <p>Nenhum plano configurado.</p>
+              <p className="text-xs mt-1">Crie um plano pra que o cron escolha produtos pra promoção.</p>
+            </CardContent></Card>
+          )}
+          {plans.map((p) => (
+            <Card key={p.id} className={!p.enabled ? "opacity-50" : ""}>
+              <CardContent className="py-4 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{p.name}</span>
+                    <Badge variant={p.enabled ? "default" : "secondary"}>{p.enabled ? "Ativo" : "Desabilitado"}</Badge>
+                    <Badge variant="outline">{p.mode === "recurring" ? "Recorrente" : "Pontual"}</Badge>
+                    <Badge variant="outline">{TARGET_LABELS[p.target]}</Badge>
+                    {p.require_manual_approval && <Badge variant="outline" className="border-amber-500/40 text-amber-500">Aprovação manual</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {p.discount_min_pct}–{p.discount_max_pct}% · {p.duration_hours}h · max {p.max_active_products} ativos · {p.recurring_cron || "sem cron"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setEditing(p)}>Editar</Button>
+                  {p.enabled && (
+                    <Button variant="outline" size="sm" onClick={() => disablePlan(p.id)} disabled={busy === "del-" + p.id}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        {/* PENDING */}
+        <TabsContent value="pending" className="space-y-3">
+          {pending.length === 0 && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              <p>Nenhuma proposta pendente.</p>
+              <p className="text-xs mt-1">O cron roda diariamente às 09:00 UTC e popula esta lista.</p>
+            </CardContent></Card>
+          )}
+          {pending.map((c) => (
+            <Card key={c.id}>
+              <CardContent className="py-4 flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
+                    <Badge variant="default">{c.discount_pct}% OFF</Badge>
+                    <span className="text-xs text-muted-foreground">produto {c.product_id}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Vence em {new Date(c.expires_at).toLocaleString("pt-BR")} · proposto {new Date(c.created_at).toLocaleString("pt-BR")}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="default" size="sm" onClick={() => couponAction(c.id, "approve")} disabled={busy === "approve-" + c.id}>
+                    {busy === "approve-" + c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+                    Aprovar
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => couponAction(c.id, "reject")} disabled={busy === "reject-" + c.id}>
+                    <XCircle className="h-3.5 w-3.5 mr-1" /> Rejeitar
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        {/* ACTIVE */}
+        <TabsContent value="active" className="space-y-3">
+          {active.length === 0 && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              <p>Nenhum cupom ativo no momento.</p>
+            </CardContent></Card>
+          )}
+          {active.map((c) => (
+            <Card key={c.id}>
+              <CardContent className="py-4 flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
+                    <Badge>{c.discount_pct}% OFF</Badge>
+                    <span className="text-xs text-muted-foreground">produto {c.product_id}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <Clock className="inline h-3 w-3 mr-1" />
+                    Expira {new Date(c.expires_at).toLocaleString("pt-BR")}
+                    {c.attributed_units > 0 && (
+                      <span className="ml-2">· {c.attributed_units} venda(s) · {fmtBRL(c.attributed_revenue)}</span>
+                    )}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => couponAction(c.id, "pause")} disabled={busy === "pause-" + c.id}>
+                  <PauseCircle className="h-3.5 w-3.5 mr-1" /> Pausar
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        {/* SETTINGS */}
+        <TabsContent value="settings" className="space-y-4">
+          {settings && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Travas globais do workspace</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Cap máximo de desconto (%)</Label>
+                    <Input
+                      type="number" min={1} max={80}
+                      value={settings.global_max_discount_pct}
+                      onChange={(e) => setSettings({ ...settings, global_max_discount_pct: Number(e.target.value) })}
+                    />
+                    <p className="text-xs text-muted-foreground">Nenhum plano pode passar disto. Hoje: {settings.global_max_discount_pct}%.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Máximo de cupons ativos simultâneos</Label>
+                    <Input
+                      type="number" min={1} max={200}
+                      value={settings.global_max_active_coupons}
+                      onChange={(e) => setSettings({ ...settings, global_max_active_coupons: Number(e.target.value) })}
+                    />
+                    <p className="text-xs text-muted-foreground">Soma de todos os planos no workspace.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>TTL de aprovações pendentes (h)</Label>
+                    <Input
+                      type="number" min={1} max={168}
+                      value={settings.pending_approval_ttl_hours}
+                      onChange={(e) => setSettings({ ...settings, pending_approval_ttl_hours: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Usos por código (default)</Label>
+                    <Input
+                      type="number" min={1}
+                      value={settings.default_uses_per_code}
+                      onChange={(e) => setSettings({ ...settings, default_uses_per_code: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Usos por usuário (default)</Label>
+                    <Input
+                      type="number" min={1}
+                      value={settings.default_uses_per_user}
+                      onChange={(e) => setSettings({ ...settings, default_uses_per_user: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between space-x-2 pt-6">
+                    <Label>Cupons cumulativos com outras promos</Label>
+                    <Switch
+                      checked={settings.cumulative_with_other_promos}
+                      onCheckedChange={(v) => setSettings({ ...settings, cumulative_with_other_promos: v })}
+                    />
+                  </div>
+                </div>
+                <Button onClick={() => saveSettings(settings)} disabled={busy === "settings"}>
+                  {busy === "settings" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar travas
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* PLAN EDITOR */}
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editing?.id ? "Editar plano" : "Novo plano"}</DialogTitle></DialogHeader>
+          {editing && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Ex: Cupom flash semanal" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Modo</Label>
+                  <Select value={editing.mode} onValueChange={(v) => setEditing({ ...editing, mode: v as Plan["mode"] })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="one_shot">Pontual (não renova)</SelectItem>
+                      <SelectItem value="recurring">Recorrente (cron)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Alvo</Label>
+                  <Select value={editing.target} onValueChange={(v) => setEditing({ ...editing, target: v as Plan["target"] })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low_cvr_high_views">Muito visto + pouca conversão</SelectItem>
+                      <SelectItem value="tier_b">Tier B</SelectItem>
+                      <SelectItem value="tier_c">Tier C (cauda longa)</SelectItem>
+                      <SelectItem value="manual">IDs manuais</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {editing.target === "manual" && (
+                <div className="space-y-2">
+                  <Label>IDs dos produtos (separados por vírgula)</Label>
+                  <Input
+                    value={(editing.manual_product_ids || []).join(",")}
+                    onChange={(e) => setEditing({ ...editing, manual_product_ids: e.target.value.split(",").map(x => x.trim()).filter(Boolean) })}
+                    placeholder="1290, 1356, 681"
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Desconto mín (%)</Label>
+                  <Input type="number" min={1} max={80} value={editing.discount_min_pct ?? 10}
+                    onChange={(e) => setEditing({ ...editing, discount_min_pct: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Desconto máx (%)</Label>
+                  <Input type="number" min={1} max={80} value={editing.discount_max_pct ?? 20}
+                    onChange={(e) => setEditing({ ...editing, discount_max_pct: Number(e.target.value) })} />
+                  {settings && (editing.discount_max_pct ?? 0) > settings.global_max_discount_pct && (
+                    <p className="text-xs text-red-500">⚠ Excede o cap do workspace ({settings.global_max_discount_pct}%) — será bloqueado ao salvar</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Duração (h)</Label>
+                  <Input type="number" min={1} max={168} value={editing.duration_hours ?? 48}
+                    onChange={(e) => setEditing({ ...editing, duration_hours: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Máx ativos (este plano)</Label>
+                  <Input type="number" min={1} max={50} value={editing.max_active_products ?? 5}
+                    onChange={(e) => setEditing({ ...editing, max_active_products: Number(e.target.value) })} />
+                </div>
+              </div>
+              {editing.mode === "recurring" && (
+                <div className="space-y-2">
+                  <Label>Cron expression (UTC)</Label>
+                  <Input value={editing.recurring_cron || ""} onChange={(e) => setEditing({ ...editing, recurring_cron: e.target.value })} placeholder="0 9 * * 1 (toda segunda 9h UTC)" />
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Aprovação manual</Label>
+                  <p className="text-xs text-muted-foreground">Quando ligado, cron só sugere — você aprova individualmente</p>
+                </div>
+                <Switch checked={editing.require_manual_approval !== false}
+                  onCheckedChange={(v) => setEditing({ ...editing, require_manual_approval: v })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Texto do badge</Label>
+                <Input value={editing.badge_template || ""} onChange={(e) => setEditing({ ...editing, badge_template: e.target.value })} />
+                <p className="text-xs text-muted-foreground">Use {"{discount}"}, {"{coupon}"}, {"{countdown}"} como placeholders.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Cor de fundo</Label>
+                  <div className="flex gap-2">
+                    <input type="color" value={editing.badge_bg_color || "#dc2626"}
+                      onChange={(e) => setEditing({ ...editing, badge_bg_color: e.target.value })}
+                      className="w-8 h-8 rounded border cursor-pointer" />
+                    <Input value={editing.badge_bg_color || ""} onChange={(e) => setEditing({ ...editing, badge_bg_color: e.target.value })} className="font-mono text-xs" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor do texto</Label>
+                  <div className="flex gap-2">
+                    <input type="color" value={editing.badge_text_color || "#ffffff"}
+                      onChange={(e) => setEditing({ ...editing, badge_text_color: e.target.value })}
+                      className="w-8 h-8 rounded border cursor-pointer" />
+                    <Input value={editing.badge_text_color || ""} onChange={(e) => setEditing({ ...editing, badge_text_color: e.target.value })} className="font-mono text-xs" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+                <Button onClick={savePlan} disabled={busy === "save"}>
+                  {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

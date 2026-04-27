@@ -150,6 +150,7 @@ const navGroups: NavGroup[] = [
           { title: "Prateleiras", href: "/shelves", icon: LayoutGrid },
           { title: "Régua de Brinde", href: "/gift-bar", icon: Gift },
           { title: "Etiquetas Promo", href: "/promo-tags", icon: Tag },
+          { title: "Cupons Auto", href: "/coupons", icon: Tag },
         ],
       },
       {
