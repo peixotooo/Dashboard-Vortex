@@ -54,9 +54,23 @@ export async function PATCH(
     "discount_min_pct", "discount_max_pct",
     "duration_hours", "max_active_products",
     "recurring_cron", "require_manual_approval",
+    "discount_unit", "cooldown_days",
     "badge_template", "badge_bg_color", "badge_text_color",
   ]) {
     if (body[k] !== undefined) update[k] = body[k];
+  }
+  // Smart mode: cannot require manual approval. Force false at write time.
+  if (update.mode === "smart" || (update.mode === undefined && body.require_manual_approval === false)) {
+    if (update.mode === "smart") update.require_manual_approval = false;
+  }
+  if (update.cooldown_days !== undefined) {
+    const c = Number(update.cooldown_days);
+    if (!Number.isFinite(c) || c < 0 || c > 90) {
+      return NextResponse.json({ error: "cooldown_days deve estar entre 0 e 90" }, { status: 400 });
+    }
+  }
+  if (update.discount_unit !== undefined && !["pct", "brl", "auto"].includes(String(update.discount_unit))) {
+    return NextResponse.json({ error: "discount_unit deve ser pct, brl ou auto" }, { status: 400 });
   }
   update.updated_at = new Date().toISOString();
 

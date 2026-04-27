@@ -20,6 +20,10 @@ export interface CouponPick {
   abc_tier: "A" | "B" | "C";
   low_rotation_score: number;
   discount_pct: number;
+  /** When 'brl', the picker also computes discount_value_brl from price × pct. */
+  discount_unit: "pct" | "brl";
+  /** Absolute Reais discount when discount_unit='brl'. Undefined when 'pct'. */
+  discount_value_brl?: number;
   reason: string;
   /** True when the configured plan max was clamped down by workspace settings */
   clamped_by_workspace_cap: boolean;
@@ -36,6 +40,11 @@ export interface PickerInput {
   settings: CouponWorkspaceSettings;
   /** How many active coupons the workspace already has across all plans */
   workspaceActiveCount: number;
+  /** 'pct' or 'brl' → renders that unit on every pick.
+   *  'auto' → caller is expected to pre-resolve the unit per pick (smart mode). */
+  discountUnit?: "pct" | "brl";
+  /** Multiplier from getDemandSignal — applied to discount_pct (with the cap). */
+  demandModifier?: number;
 }
 
 function roundToStep(pct: number, step = 5): number {
@@ -86,12 +95,24 @@ export function pickCouponCandidates(input: PickerInput): CouponPick[] {
   candidates = candidates.slice(0, planSlots);
 
   const range = effectiveMax - effectiveMin;
+  const demand = Math.max(0.5, Math.min(1.5, Number(input.demandModifier) || 1.0));
+  const unit: "pct" | "brl" = input.discountUnit === "brl" ? "brl" : "pct";
+
   return candidates.map((p) => {
     const raw = effectiveMin + p.low_rotation_score * range;
-    let discount = roundToStep(raw, 5);
-    // Clamp inside [effectiveMin, effectiveMax] (rounding could push out)
+    // Apply demand modifier — re-clamp to workspace cap so we never exceed it
+    const adjusted = Math.min(cap, Math.max(effectiveMin, raw * demand));
+    let discount = roundToStep(adjusted, 5);
     if (discount < effectiveMin) discount = Math.ceil(effectiveMin);
     if (discount > effectiveMax) discount = Math.floor(effectiveMax);
+
+    // BRL value when unit='brl': discount_pct of effective_price, rounded to R$5
+    let discountValueBrl: number | undefined;
+    if (unit === "brl" && p.effective_price > 0) {
+      const brl = (p.effective_price * discount) / 100;
+      discountValueBrl = Math.max(5, Math.round(brl / 5) * 5); // round to nearest R$5, min R$5
+    }
+
     let reason = "";
     if (input.target === "manual") {
       reason = "Selecionado manualmente";
@@ -102,6 +123,7 @@ export function pickCouponCandidates(input: PickerInput): CouponPick[] {
     } else {
       reason = `Muito visto + pouca conversão — ${p.views} views, CVR ${(p.cvr * 100).toFixed(2)}%`;
     }
+
     return {
       product_id: p.product_id,
       name: p.name,
@@ -113,6 +135,8 @@ export function pickCouponCandidates(input: PickerInput): CouponPick[] {
       abc_tier: p.abc_tier,
       low_rotation_score: p.low_rotation_score,
       discount_pct: discount,
+      discount_unit: unit,
+      discount_value_brl: discountValueBrl,
       reason,
       clamped_by_workspace_cap: wasClamped,
     };

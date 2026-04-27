@@ -121,17 +121,25 @@ export interface VndaRule {
 export async function createVndaProductRule(
   config: VndaConfig,
   promotionId: number,
-  args: { product_id: string | number; discount_pct: number }
+  args: {
+    product_id: string | number;
+    /** Discount magnitude. Interpreted as % when discount_unit='pct',
+     * as BRL absolute amount when 'brl'. */
+    amount: number;
+    /** 'pct' = percentage off, 'brl' = absolute Reais off. Default 'pct'. */
+    discount_unit?: "pct" | "brl";
+  }
 ): Promise<VndaRule> {
   const productIdNum = typeof args.product_id === "string" ? parseInt(args.product_id, 10) : args.product_id;
   if (!Number.isFinite(productIdNum)) {
     throw new Error(`Invalid product_id: ${args.product_id}`);
   }
+  const amountType = args.discount_unit === "brl" ? "R$" : "%";
   return vndaWrite<VndaRule>("POST", `discounts/${promotionId}/rules/`, config, {
     product_id: productIdNum,
     apply_to: "product",
-    amount_type: "%",
-    amount: args.discount_pct,
+    amount_type: amountType,
+    amount: args.amount,
   });
 }
 
@@ -160,6 +168,59 @@ export async function createVndaCoupon(
   });
 }
 
+// --- Bucket helpers — many codes per promotion ---
+// VNDA supports N rules and N coupon codes per promotion. To reduce promotion
+// clutter on their side, the orchestrator can group all coupons from a single
+// cron run into ONE bucket (one parent promotion). createPromotionBucket() makes
+// the empty parent and addCodeToBucket() appends each (rule + code) pair.
+//
+// Pause = pausing the parent disables ALL codes inside, so buckets must group
+// coupons that share the SAME starts_at + expires_at + cumulative settings.
+
+export async function createPromotionBucket(
+  config: VndaConfig,
+  args: {
+    name: string;
+    starts_at: Date;
+    expires_at: Date;
+    cumulative?: boolean;
+    description?: string;
+  }
+): Promise<VndaPromotion> {
+  return createVndaPromotion(config, args);
+}
+
+export interface AddCodeToBucketResult {
+  rule_id: number;
+  coupon_id: number;
+  coupon_code: string;
+}
+
+export async function addCodeToBucket(
+  config: VndaConfig,
+  promotionId: number,
+  args: {
+    code: string;
+    product_id: string | number;
+    amount: number;
+    discount_unit: "pct" | "brl";
+    uses_per_code: number;
+    uses_per_user: number;
+  }
+): Promise<AddCodeToBucketResult> {
+  const rule = await createVndaProductRule(config, promotionId, {
+    product_id: args.product_id,
+    amount: args.amount,
+    discount_unit: args.discount_unit,
+  });
+  const coupon = await createVndaCoupon(config, promotionId, {
+    code: args.code,
+    uses_per_code: args.uses_per_code,
+    uses_per_user: args.uses_per_user,
+  });
+  return { rule_id: rule.id, coupon_id: coupon.id, coupon_code: coupon.code };
+}
+
 // --- Composite: create promotion + rule + coupon in one call ---
 // Used by the orchestrator after manual approval. Returns IDs we need to
 // store in promo_active_coupons. Rolls back the promotion if any step fails.
@@ -179,7 +240,10 @@ export async function createFullCoupon(
     name: string;
     code: string;
     product_id: string | number;
-    discount_pct: number;
+    /** Discount magnitude. Pct (0-100) or absolute BRL amount. */
+    amount: number;
+    /** Default 'pct' for backwards compatibility. */
+    discount_unit?: "pct" | "brl";
     starts_at: Date;
     expires_at: Date;
     cumulative: boolean;
@@ -187,7 +251,6 @@ export async function createFullCoupon(
     uses_per_user: number;
   }
 ): Promise<CreateFullCouponResult> {
-  // 1. Create the parent promotion
   const promo = await createVndaPromotion(config, {
     name: args.name,
     starts_at: args.starts_at,
@@ -196,14 +259,13 @@ export async function createFullCoupon(
     description: `Auto-created by Vortex coupon-rotation for product ${args.product_id}`,
   });
 
-  // 2. Create the product rule + coupon. If either fails, pause the promotion
-  //    so it never goes live with a half-configured state.
   let rule: VndaRule | undefined;
   let coupon: VndaCoupon | undefined;
   try {
     rule = await createVndaProductRule(config, promo.id, {
       product_id: args.product_id,
-      discount_pct: args.discount_pct,
+      amount: args.amount,
+      discount_unit: args.discount_unit || "pct",
     });
     coupon = await createVndaCoupon(config, promo.id, {
       code: args.code,
@@ -211,7 +273,6 @@ export async function createFullCoupon(
       uses_per_user: args.uses_per_user,
     });
   } catch (err) {
-    // Best-effort cleanup so we don't leave a dangling enabled promotion
     try {
       await pauseVndaPromotion(config, promo.id);
     } catch (cleanupErr) {

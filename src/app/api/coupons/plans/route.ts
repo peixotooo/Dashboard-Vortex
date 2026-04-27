@@ -61,6 +61,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const mode = body.mode || "one_shot";
+  // Smart mode is fully autonomous — manual approval is forbidden by design.
+  const requireManualApproval = mode === "smart" ? false : body.require_manual_approval !== false;
+  const discountUnit = ["pct", "brl", "auto"].includes(body.discount_unit) ? body.discount_unit : "pct";
+  const cooldownDays = Math.max(0, Math.min(90, Number(body.cooldown_days) || 7));
+
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("promo_coupon_plans")
@@ -68,7 +74,7 @@ export async function POST(request: NextRequest) {
       workspace_id: ctx.workspaceId,
       name: body.name,
       enabled: body.enabled ?? true,
-      mode: body.mode || "one_shot",
+      mode,
       target: body.target || "low_cvr_high_views",
       manual_product_ids: body.manual_product_ids || null,
       discount_min_pct: min,
@@ -76,7 +82,9 @@ export async function POST(request: NextRequest) {
       duration_hours: Number(body.duration_hours) || 48,
       max_active_products: Number(body.max_active_products) || 5,
       recurring_cron: body.recurring_cron || null,
-      require_manual_approval: body.require_manual_approval !== false,
+      require_manual_approval: requireManualApproval,
+      discount_unit: discountUnit,
+      cooldown_days: cooldownDays,
       badge_template: body.badge_template || "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
       badge_bg_color: body.badge_bg_color || "#dc2626",
       badge_text_color: body.badge_text_color || "#ffffff",

@@ -7,7 +7,8 @@ export type AuditAction =
   | "vnda_create_attempt" | "vnda_create_ok" | "vnda_create_fail"
   | "vnda_pause_attempt" | "vnda_pause_ok" | "vnda_pause_fail"
   | "product_out_of_stock" | "product_inactive"
-  | "manual_pause" | "manual_resume";
+  | "manual_pause" | "manual_resume"
+  | "attribution_synced" | "bandit_recomputed" | "bucket_reused";
 
 export interface AuditEntry {
   workspaceId: string;
