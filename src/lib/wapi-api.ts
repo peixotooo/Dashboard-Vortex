@@ -163,6 +163,83 @@ export async function restartInstance(
   return wapiRequest(config, "/instance/restart");
 }
 
+/**
+ * Pre-flight health check before dispatching messages.
+ *
+ * The W-API session can be in a half-broken state where
+ * /instance/status-instance reports `connected: true` but the underlying
+ * WhatsApp Web socket is dead — in that mode /message/send-text still
+ * returns 200 with a messageId, but messages are queued internally and
+ * fired in a single burst when the session is restored.
+ *
+ * We probe /group/get-all-groups as a canary: when the session is
+ * broken, that endpoint returns 500 with
+ * `Cannot read properties of undefined (reading 'instance')`. If status
+ * is connected AND the canary returns 2xx, the session is genuinely
+ * usable and it is safe to dispatch.
+ */
+export async function checkInstanceHealth(
+  config: WapiConfig
+): Promise<{ healthy: boolean; reason?: string }> {
+  // 1) status check — must be connected
+  let status: { connected?: boolean } | null = null;
+  try {
+    status = await wapiRequest<{ connected?: boolean }>(
+      config,
+      "/instance/status-instance"
+    );
+  } catch (err) {
+    return {
+      healthy: false,
+      reason: `Falha ao consultar status da instancia: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!status?.connected) {
+    return {
+      healthy: false,
+      reason:
+        "Instancia W-API nao esta conectada. Reconecte (escaneando o QR Code) antes de enviar.",
+    };
+  }
+
+  // 2) canary — group list endpoint must work. If it returns 500 with the
+  //    "instance undefined" signature, the WhatsApp Web layer is broken
+  //    and any message we send will queue without delivery, then burst on
+  //    reconnect.
+  const params = new URLSearchParams({ instanceId: config.instanceId });
+  const url = `https://api.w-api.app/v1/group/get-all-groups?${params.toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    return {
+      healthy: false,
+      reason: `Falha de rede ao validar sessao: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (res.status >= 500) {
+    const text = await res.text().catch(() => "");
+    return {
+      healthy: false,
+      reason: `Sessao W-API em estado inconsistente (${res.status} em /group/get-all-groups: ${text.slice(0, 180)}). Use 'Reiniciar instancia' ou reconecte antes de enviar para evitar disparo em massa quando a sessao voltar.`,
+    };
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return {
+      healthy: false,
+      reason: `W-API rejeitou validacao de sessao (${res.status}): ${text.slice(0, 180)}`,
+    };
+  }
+
+  return { healthy: true };
+}
+
 export async function sendText(
   config: WapiConfig,
   phone: string,

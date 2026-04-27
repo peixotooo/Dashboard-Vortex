@@ -7,6 +7,7 @@ import {
   sendVideo,
   sendAudio,
   sendDocument,
+  checkInstanceHealth,
 } from "@/lib/wapi-api";
 
 export const maxDuration = 120;
@@ -40,14 +41,6 @@ export async function GET(request: NextRequest) {
     let totalProcessed = 0;
 
     for (const dispatch of dispatches) {
-      await admin
-        .from("wapi_group_dispatches")
-        .update({
-          status: "sending",
-          started_at: new Date().toISOString(),
-        })
-        .eq("id", dispatch.id);
-
       const config = await getWapiConfig(dispatch.workspace_id);
       if (!config) {
         await admin
@@ -59,6 +52,27 @@ export async function GET(request: NextRequest) {
           .eq("id", dispatch.id);
         continue;
       }
+
+      // Pre-flight: only flip to "sending" once we know the session is
+      // genuinely usable. If the W-API instance is half-broken, dispatching
+      // would silently queue messages on their side and burst on reconnect.
+      // We leave the dispatch in its current status (queued/scheduled) so
+      // the next cron tick retries automatically once the session recovers.
+      const health = await checkInstanceHealth(config);
+      if (!health.healthy) {
+        console.warn(
+          `[WAPI Group Sender] Skipping dispatch ${dispatch.id}: ${health.reason}`
+        );
+        continue;
+      }
+
+      await admin
+        .from("wapi_group_dispatches")
+        .update({
+          status: "sending",
+          started_at: new Date().toISOString(),
+        })
+        .eq("id", dispatch.id);
 
       const groups = (dispatch.target_groups || []) as Array<{
         jid: string;
@@ -121,7 +135,12 @@ export async function GET(request: NextRequest) {
               );
           }
 
-          const sent = !result.error;
+          const sent = !result.error && !!result.messageId;
+          const errMsg = result.error
+            ? result.error
+            : !result.messageId
+              ? "W-API aceitou a chamada mas nao retornou messageId (mensagem provavelmente nao foi entregue)"
+              : null;
 
           try {
             await admin.from("wapi_group_messages").insert({
@@ -134,7 +153,7 @@ export async function GET(request: NextRequest) {
               media_url: dispatch.media_url || null,
               file_name: dispatch.file_name || null,
               status: sent ? "sent" : "failed",
-              error_message: result.error || null,
+              error_message: errMsg,
               sent_by: dispatch.sent_by,
             });
           } catch {

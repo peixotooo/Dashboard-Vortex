@@ -8,6 +8,7 @@ import {
   sendVideo,
   sendAudio,
   sendDocument,
+  checkInstanceHealth,
   WapiMessageType,
 } from "@/lib/wapi-api";
 
@@ -87,6 +88,23 @@ export async function POST(request: NextRequest) {
     // Create dispatch record
     const isScheduled =
       scheduled_at && new Date(scheduled_at).getTime() > Date.now();
+
+    // For immediate sends, validate the W-API session is genuinely healthy
+    // BEFORE dispatching anything. If the session is broken, sends would be
+    // accepted and queued internally, then fire in a burst on reconnect.
+    if (!isScheduled) {
+      const health = await checkInstanceHealth(config);
+      if (!health.healthy) {
+        return NextResponse.json(
+          {
+            error:
+              health.reason ||
+              "Sessao W-API nao esta saudavel. Tente reconectar antes de enviar.",
+          },
+          { status: 409 }
+        );
+      }
+    }
 
     const { data: dispatch, error: dispatchError } = await admin
       .from("wapi_group_dispatches")
