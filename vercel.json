@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/shelf-catalog-sync",
       "schedule": "0 6,18 * * *"
+    },
+    {
+      "path": "/api/cron/coupon-refresh",
+      "schedule": "0 9 * * *"
     }
   ]
 }
