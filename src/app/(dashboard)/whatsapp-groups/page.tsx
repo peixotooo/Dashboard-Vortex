@@ -1201,7 +1201,7 @@ export default function WhatsAppGroupsPage() {
                     </p>
                   </div>
 
-                  {/* Mention all */}
+                  {/* DM individual to each participant */}
                   <div className="flex items-start gap-3 rounded-lg border p-3">
                     <input
                       id="mentionAll"
@@ -1212,13 +1212,16 @@ export default function WhatsAppGroupsPage() {
                     />
                     <div className="flex-1">
                       <Label htmlFor="mentionAll" className="cursor-pointer">
-                        Mencionar todos os participantes do grupo
+                        Enviar individualmente para cada participante (DM
+                        privado)
                       </Label>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Quando ativado, a mensagem marcara os participantes do
-                        grupo no WhatsApp (estilo @todos). Limite de 50
-                        participantes por grupo. Use com moderacao para evitar
-                        percepcao de spam. Nao disponivel em envios agendados.
+                        Quando ativado, em vez de postar no grupo, o sistema
+                        busca os participantes do(s) grupo(s) selecionado(s) e
+                        envia uma mensagem privada para cada um — assim cada
+                        pessoa recebe a mensagem so para ela. Limite de 50
+                        participantes por grupo. Use com moderacao. Nao
+                        disponivel em envios agendados.
                       </p>
                     </div>
                   </div>
@@ -1232,8 +1235,8 @@ export default function WhatsAppGroupsPage() {
                     />
                     {mentionAll && scheduledAt && (
                       <p className="text-xs text-amber-600 mt-1">
-                        Mencao @todos nao funciona em envios agendados —
-                        desative o agendamento ou a mencao.
+                        DM individual nao funciona em envios agendados —
+                        desative o agendamento ou o DM.
                       </p>
                     )}
                   </div>

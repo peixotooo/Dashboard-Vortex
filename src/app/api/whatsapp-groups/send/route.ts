@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Mencao @todos em disparos agendados ainda nao esta disponivel — aplique a migration 065 e tente de novo, ou envie imediatamente.",
+            "DM individual em disparos agendados ainda nao esta disponivel — envie imediatamente, ou agende o disparo direto no grupo (sem o DM individual).",
         },
         { status: 400 }
       );
@@ -175,31 +175,64 @@ export async function POST(request: NextRequest) {
       error?: string;
     }> = [];
 
+    /**
+     * Send the configured payload to a single recipient (group jid OR
+     * private phone). Returns { sent, error, messageId }.
+     */
+    const sendOne = async (
+      recipientPhone: string,
+      msgText: string,
+      capText: string | undefined
+    ) => {
+      switch (messageType) {
+        case "text":
+          return sendText(config, recipientPhone, msgText, delay);
+        case "image":
+          return sendImage(config, recipientPhone, mediaUrl || "", capText, delay);
+        case "video":
+          return sendVideo(config, recipientPhone, mediaUrl || "", capText, delay);
+        case "audio":
+          return sendAudio(config, recipientPhone, mediaUrl || "", delay);
+        case "document":
+          return sendDocument(
+            config,
+            recipientPhone,
+            mediaUrl || "",
+            extension || "pdf",
+            fileName,
+            capText,
+            delay
+          );
+        default:
+          throw new Error(`Unknown message type: ${messageType}`);
+      }
+    };
+
     for (const group of groups) {
       try {
-        // --- Resolve mentions per group (mention-all only) ---
-        let mentionedPhones: string[] | undefined;
-        let mentionPrefix = "";
+        // ============================================================
+        // Mode A: mentionAll = true -> send a private DM to each
+        // resolvable participant of this group. Each user only sees
+        // their own copy; the group itself is not posted to.
+        // ============================================================
         if (mentionAll) {
+          let recipients: string[] = [];
           try {
             const participants = await getGroupParticipants(config, group.jid);
             const phones = participants
               .map((p) => participantPhone(p))
               .filter((x): x is string => !!x);
-            // Dedupe
-            const unique = Array.from(new Set(phones));
-            if (unique.length === 0) {
+            recipients = Array.from(new Set(phones));
+            if (recipients.length === 0) {
               throw new Error(
-                "W-API nao retornou participantes resolviveis para este grupo (talvez todos estejam em formato @lid sem phoneNumber mapeado)."
+                "W-API nao retornou participantes resolviveis para este grupo (todos podem estar em formato @lid sem phoneNumber mapeado)."
               );
             }
-            if (unique.length > MAX_MENTIONS_PER_MESSAGE) {
+            if (recipients.length > MAX_MENTIONS_PER_MESSAGE) {
               throw new Error(
-                `Grupo tem ${unique.length} participantes resolviveis (limite ${MAX_MENTIONS_PER_MESSAGE}). Reduza o publico ou envie sem mencao.`
+                `Grupo tem ${recipients.length} participantes resolviveis (limite ${MAX_MENTIONS_PER_MESSAGE}). Reduza o publico ou desative o DM individual.`
               );
             }
-            mentionedPhones = unique;
-            mentionPrefix = unique.map((p) => `@${p}`).join(" ");
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             try {
@@ -213,7 +246,7 @@ export async function POST(request: NextRequest) {
                 media_url: mediaUrl || null,
                 file_name: fileName || null,
                 status: "failed",
-                error_message: `Falha ao resolver mencoes: ${errMsg}`,
+                error_message: `Falha ao resolver participantes: ${errMsg}`,
                 sent_by: user.id,
               });
             } catch {
@@ -223,78 +256,101 @@ export async function POST(request: NextRequest) {
               group: group.jid,
               name: group.name,
               sent: false,
-              error: `Falha ao resolver mencoes: ${errMsg}`,
+              error: `Falha ao resolver participantes: ${errMsg}`,
             });
             continue;
           }
+
+          let groupSent = 0;
+          let groupFailed = 0;
+          const groupErrors: string[] = [];
+          for (const phone of recipients) {
+            const recipientJid = `${phone}@s.whatsapp.net`;
+            try {
+              const r = await sendOne(
+                recipientJid,
+                message || "",
+                caption || undefined
+              );
+              const ok = !r.error && !!r.messageId;
+              const eMsg = r.error
+                ? r.error
+                : !r.messageId
+                  ? "Sem messageId no retorno"
+                  : null;
+              try {
+                await admin.from("wapi_group_messages").insert({
+                  workspace_id: workspaceId,
+                  dispatch_id: dispatch.id,
+                  group_jid: group.jid,
+                  group_name: group.name
+                    ? `${group.name} -> ${phone}`
+                    : phone,
+                  message_type: messageType,
+                  content: message || caption || null,
+                  media_url: mediaUrl || null,
+                  file_name: fileName || null,
+                  status: ok ? "sent" : "failed",
+                  error_message: eMsg,
+                  sent_by: user.id,
+                });
+              } catch {
+                // ignore logging error
+              }
+              if (ok) groupSent++;
+              else {
+                groupFailed++;
+                if (eMsg) groupErrors.push(`${phone}: ${eMsg}`);
+              }
+            } catch (err) {
+              const errMsg =
+                err instanceof Error ? err.message : "Unknown error";
+              groupFailed++;
+              groupErrors.push(`${phone}: ${errMsg}`);
+              try {
+                await admin.from("wapi_group_messages").insert({
+                  workspace_id: workspaceId,
+                  dispatch_id: dispatch.id,
+                  group_jid: group.jid,
+                  group_name: group.name
+                    ? `${group.name} -> ${phone}`
+                    : phone,
+                  message_type: messageType,
+                  content: message || caption || null,
+                  media_url: mediaUrl || null,
+                  file_name: fileName || null,
+                  status: "failed",
+                  error_message: errMsg,
+                  sent_by: user.id,
+                });
+              } catch {
+                // ignore logging error
+              }
+            }
+          }
+
+          results.push({
+            group: group.jid,
+            name: group.name
+              ? `${group.name} (DM x${recipients.length})`
+              : `DM x${recipients.length}`,
+            sent: groupSent > 0 && groupFailed === 0,
+            error:
+              groupFailed > 0
+                ? `${groupFailed}/${recipients.length} DMs falharam${groupErrors.length ? `: ${groupErrors.slice(0, 3).join(" | ")}` : ""}`
+                : undefined,
+          });
+          continue;
         }
 
-        const baseMessage = message || "";
-        const baseCaption = caption || "";
-        const finalMessage = mentionPrefix
-          ? `${baseMessage}${baseMessage ? "\n\n" : ""}${mentionPrefix}`
-          : baseMessage;
-        const finalCaption = mentionPrefix
-          ? `${baseCaption}${baseCaption ? "\n\n" : ""}${mentionPrefix}`
-          : baseCaption || undefined;
-        const opts = mentionedPhones
-          ? { mentioned: mentionedPhones }
-          : undefined;
-
-        let sendResult;
-        switch (messageType) {
-          case "text":
-            sendResult = await sendText(
-              config,
-              group.jid,
-              finalMessage,
-              delay,
-              opts
-            );
-            break;
-          case "image":
-            sendResult = await sendImage(
-              config,
-              group.jid,
-              mediaUrl || "",
-              finalCaption,
-              delay,
-              opts
-            );
-            break;
-          case "video":
-            sendResult = await sendVideo(
-              config,
-              group.jid,
-              mediaUrl || "",
-              finalCaption,
-              delay,
-              opts
-            );
-            break;
-          case "audio":
-            sendResult = await sendAudio(
-              config,
-              group.jid,
-              mediaUrl || "",
-              delay
-            );
-            break;
-          case "document":
-            sendResult = await sendDocument(
-              config,
-              group.jid,
-              mediaUrl || "",
-              extension || "pdf",
-              fileName,
-              finalCaption,
-              delay,
-              opts
-            );
-            break;
-          default:
-            throw new Error(`Unknown message type: ${messageType}`);
-        }
+        // ============================================================
+        // Mode B (default): post one message into the group itself.
+        // ============================================================
+        const sendResult = await sendOne(
+          group.jid,
+          message || "",
+          caption || undefined
+        );
 
         const sent = !sendResult.error && !!sendResult.messageId;
         const errMsg = sendResult.error
