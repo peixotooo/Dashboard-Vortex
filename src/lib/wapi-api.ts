@@ -151,6 +151,12 @@ export async function listGroups(config: WapiConfig): Promise<unknown> {
   return wapiRequest(config, "/group/get-all-groups");
 }
 
+export async function disconnectInstance(
+  config: WapiConfig
+): Promise<{ error?: boolean; message?: string; instanceId?: string }> {
+  return wapiRequest(config, "/instance/disconnect");
+}
+
 export async function sendText(
   config: WapiConfig,
   phone: string,

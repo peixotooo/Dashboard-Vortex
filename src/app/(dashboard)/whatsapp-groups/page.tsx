@@ -88,6 +88,7 @@ export default function WhatsAppGroupsPage() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   // Groups state
   const [groups, setGroups] = useState<WapiGroup[]>([]);
@@ -282,6 +283,38 @@ export default function WhatsAppGroupsPage() {
       );
     }
     setSavingConfig(false);
+  }
+
+  async function handleDisconnect() {
+    if (!workspace?.id) return;
+    const ok = window.confirm(
+      "Desconectar essa instancia? Voce vai precisar escanear o QR Code de novo para reconectar."
+    );
+    if (!ok) return;
+    setDisconnecting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/whatsapp-groups/disconnect", {
+        method: "POST",
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao desconectar: ${data.error}`);
+      } else {
+        setConnected(false);
+        setQrCode(null);
+        setSuccessMsg(
+          "Instancia desconectada. Clique em 'Gerar QR Code' para reconectar."
+        );
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao desconectar: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    }
+    setDisconnecting(false);
   }
 
   async function handleSend() {
@@ -600,6 +633,21 @@ export default function WhatsAppGroupsPage() {
                           <QrCode className="h-4 w-4 mr-1" />
                         )}
                         Gerar QR Code
+                      </Button>
+                    )}
+                    {connected && (
+                      <Button
+                        onClick={handleDisconnect}
+                        disabled={disconnecting}
+                        variant="destructive"
+                        size="sm"
+                      >
+                        {disconnecting ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : (
+                          <WifiOff className="h-4 w-4 mr-1" />
+                        )}
+                        Desconectar
                       </Button>
                     )}
                   </div>

@@ -190,7 +190,12 @@ export async function POST(request: NextRequest) {
             throw new Error(`Unknown message type: ${messageType}`);
         }
 
-        const sent = !sendResult.error;
+        const sent = !sendResult.error && !!sendResult.messageId;
+        const errMsg = sendResult.error
+          ? sendResult.error
+          : !sendResult.messageId
+            ? "W-API aceitou a chamada mas nao retornou messageId (mensagem provavelmente nao foi entregue)"
+            : null;
 
         try {
           await admin.from("wapi_group_messages").insert({
@@ -203,7 +208,7 @@ export async function POST(request: NextRequest) {
             media_url: mediaUrl || null,
             file_name: fileName || null,
             status: sent ? "sent" : "failed",
-            error_message: sendResult.error || null,
+            error_message: errMsg,
             sent_by: user.id,
           });
         } catch {
@@ -214,7 +219,7 @@ export async function POST(request: NextRequest) {
           group: group.jid,
           name: group.name,
           sent,
-          error: sendResult.error,
+          error: errMsg || undefined,
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
