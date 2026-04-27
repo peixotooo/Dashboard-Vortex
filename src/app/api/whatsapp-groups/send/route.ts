@@ -9,8 +9,12 @@ import {
   sendAudio,
   sendDocument,
   checkInstanceHealth,
+  getGroupParticipants,
+  participantPhone,
   WapiMessageType,
 } from "@/lib/wapi-api";
+
+const MAX_MENTIONS_PER_MESSAGE = 50;
 
 export const maxDuration = 120;
 
@@ -63,6 +67,7 @@ export async function POST(request: NextRequest) {
       extension,
       delayMessage,
       scheduled_at,
+      mentionAll,
     } = body as {
       groups: Array<{ jid: string; name?: string }>;
       messageType: WapiMessageType;
@@ -73,6 +78,7 @@ export async function POST(request: NextRequest) {
       extension?: string;
       delayMessage?: number;
       scheduled_at?: string;
+      mentionAll?: boolean;
     };
 
     if (!groups || groups.length === 0) {
@@ -106,26 +112,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Schedule + mentionAll combo requires a migration we haven't applied
+    // yet (column wapi_group_dispatches.mention_all). Block this combo with
+    // a clear error until migration-065 lands.
+    if (isScheduled && mentionAll === true) {
+      return NextResponse.json(
+        {
+          error:
+            "Mencao @todos em disparos agendados ainda nao esta disponivel — aplique a migration 065 e tente de novo, ou envie imediatamente.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const dispatchInsert: Record<string, unknown> = {
+      workspace_id: workspaceId,
+      message_type: messageType,
+      content: message || caption || null,
+      media_url: mediaUrl || null,
+      file_name: fileName || null,
+      file_extension: extension || null,
+      delay_seconds: delay,
+      status: isScheduled ? "scheduled" : "sending",
+      scheduled_at: isScheduled ? scheduled_at : null,
+      started_at: isScheduled ? null : new Date().toISOString(),
+      target_groups: groups.map((g) => ({
+        jid: g.jid,
+        name: g.name || null,
+      })),
+      total_groups: groups.length,
+      sent_by: user.id,
+    };
+
     const { data: dispatch, error: dispatchError } = await admin
       .from("wapi_group_dispatches")
-      .insert({
-        workspace_id: workspaceId,
-        message_type: messageType,
-        content: message || caption || null,
-        media_url: mediaUrl || null,
-        file_name: fileName || null,
-        file_extension: extension || null,
-        delay_seconds: delay,
-        status: isScheduled ? "scheduled" : "sending",
-        scheduled_at: isScheduled ? scheduled_at : null,
-        started_at: isScheduled ? null : new Date().toISOString(),
-        target_groups: groups.map((g) => ({
-          jid: g.jid,
-          name: g.name || null,
-        })),
-        total_groups: groups.length,
-        sent_by: user.id,
-      })
+      .insert(dispatchInsert)
       .select("id")
       .single();
 
@@ -156,15 +177,79 @@ export async function POST(request: NextRequest) {
 
     for (const group of groups) {
       try {
-        let sendResult;
+        // --- Resolve mentions per group (mention-all only) ---
+        let mentionedPhones: string[] | undefined;
+        let mentionPrefix = "";
+        if (mentionAll) {
+          try {
+            const participants = await getGroupParticipants(config, group.jid);
+            const phones = participants
+              .map((p) => participantPhone(p))
+              .filter((x): x is string => !!x);
+            // Dedupe
+            const unique = Array.from(new Set(phones));
+            if (unique.length === 0) {
+              throw new Error(
+                "W-API nao retornou participantes resolviveis para este grupo (talvez todos estejam em formato @lid sem phoneNumber mapeado)."
+              );
+            }
+            if (unique.length > MAX_MENTIONS_PER_MESSAGE) {
+              throw new Error(
+                `Grupo tem ${unique.length} participantes resolviveis (limite ${MAX_MENTIONS_PER_MESSAGE}). Reduza o publico ou envie sem mencao.`
+              );
+            }
+            mentionedPhones = unique;
+            mentionPrefix = unique.map((p) => `@${p}`).join(" ");
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            try {
+              await admin.from("wapi_group_messages").insert({
+                workspace_id: workspaceId,
+                dispatch_id: dispatch.id,
+                group_jid: group.jid,
+                group_name: group.name || null,
+                message_type: messageType,
+                content: message || caption || null,
+                media_url: mediaUrl || null,
+                file_name: fileName || null,
+                status: "failed",
+                error_message: `Falha ao resolver mencoes: ${errMsg}`,
+                sent_by: user.id,
+              });
+            } catch {
+              // ignore logging error
+            }
+            results.push({
+              group: group.jid,
+              name: group.name,
+              sent: false,
+              error: `Falha ao resolver mencoes: ${errMsg}`,
+            });
+            continue;
+          }
+        }
 
+        const baseMessage = message || "";
+        const baseCaption = caption || "";
+        const finalMessage = mentionPrefix
+          ? `${baseMessage}${baseMessage ? "\n\n" : ""}${mentionPrefix}`
+          : baseMessage;
+        const finalCaption = mentionPrefix
+          ? `${baseCaption}${baseCaption ? "\n\n" : ""}${mentionPrefix}`
+          : baseCaption || undefined;
+        const opts = mentionedPhones
+          ? { mentioned: mentionedPhones }
+          : undefined;
+
+        let sendResult;
         switch (messageType) {
           case "text":
             sendResult = await sendText(
               config,
               group.jid,
-              message || "",
-              delay
+              finalMessage,
+              delay,
+              opts
             );
             break;
           case "image":
@@ -172,8 +257,9 @@ export async function POST(request: NextRequest) {
               config,
               group.jid,
               mediaUrl || "",
-              caption,
-              delay
+              finalCaption,
+              delay,
+              opts
             );
             break;
           case "video":
@@ -181,8 +267,9 @@ export async function POST(request: NextRequest) {
               config,
               group.jid,
               mediaUrl || "",
-              caption,
-              delay
+              finalCaption,
+              delay,
+              opts
             );
             break;
           case "audio":
@@ -200,8 +287,9 @@ export async function POST(request: NextRequest) {
               mediaUrl || "",
               extension || "pdf",
               fileName,
-              caption,
-              delay
+              finalCaption,
+              delay,
+              opts
             );
             break;
           default:

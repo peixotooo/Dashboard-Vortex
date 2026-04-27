@@ -113,6 +113,7 @@ export default function WhatsAppGroupsPage() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  const [mentionAll, setMentionAll] = useState(false);
 
   // Gallery
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -373,6 +374,7 @@ export default function WhatsAppGroupsPage() {
           extension: fileExtension || undefined,
           delayMessage,
           scheduled_at: scheduledAt ? scheduledAt.toISOString() : undefined,
+          mentionAll,
         }),
       });
       const data = await res.json();
@@ -1199,6 +1201,28 @@ export default function WhatsAppGroupsPage() {
                     </p>
                   </div>
 
+                  {/* Mention all */}
+                  <div className="flex items-start gap-3 rounded-lg border p-3">
+                    <input
+                      id="mentionAll"
+                      type="checkbox"
+                      checked={mentionAll}
+                      onChange={(e) => setMentionAll(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="mentionAll" className="cursor-pointer">
+                        Mencionar todos os participantes do grupo
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Quando ativado, a mensagem marcara os participantes do
+                        grupo no WhatsApp (estilo @todos). Limite de 50
+                        participantes por grupo. Use com moderacao para evitar
+                        percepcao de spam. Nao disponivel em envios agendados.
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Schedule */}
                   <div>
                     <Label>Agendamento</Label>
@@ -1206,6 +1230,12 @@ export default function WhatsAppGroupsPage() {
                       value={scheduledAt}
                       onChange={setScheduledAt}
                     />
+                    {mentionAll && scheduledAt && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        Mencao @todos nao funciona em envios agendados —
+                        desative o agendamento ou a mencao.
+                      </p>
+                    )}
                   </div>
 
                   {/* Send button */}
