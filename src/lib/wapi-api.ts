@@ -240,43 +240,15 @@ export async function checkInstanceHealth(
   return { healthy: true };
 }
 
-export interface SendOptions {
-  /**
-   * List of phone numbers (digits only, no + or @) to mention in the message.
-   * Internally we send the field under several common aliases (`mentioned`,
-   * `mentions`, `mentionedJidList`) so the call works regardless of which
-   * one the W-API build accepts — extra unknown fields are ignored server
-   * side. The text itself must already include `@<phone>` tokens for the
-   * mention to render in WhatsApp.
-   */
-  mentioned?: string[];
-}
-
-function withMentions(
-  body: Record<string, unknown>,
-  opts?: SendOptions
-): Record<string, unknown> {
-  if (!opts?.mentioned || opts.mentioned.length === 0) return body;
-  const phones = opts.mentioned;
-  const jids = phones.map((p) => `${p}@s.whatsapp.net`);
-  return {
-    ...body,
-    mentioned: phones,
-    mentions: jids,
-    mentionedJidList: jids,
-  };
-}
-
 export async function sendText(
   config: WapiConfig,
   phone: string,
   message: string,
-  delayMessage = 1,
-  opts?: SendOptions
+  delayMessage = 1
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-text", {
     method: "POST",
-    body: withMentions({ phone, message, delayMessage }, opts),
+    body: { phone, message, delayMessage },
   });
 }
 
@@ -285,12 +257,11 @@ export async function sendImage(
   phone: string,
   image: string,
   caption?: string,
-  delayMessage = 1,
-  opts?: SendOptions
+  delayMessage = 1
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-image", {
     method: "POST",
-    body: withMentions({ phone, image, caption, delayMessage }, opts),
+    body: { phone, image, caption, delayMessage },
   });
 }
 
@@ -299,12 +270,11 @@ export async function sendVideo(
   phone: string,
   video: string,
   caption?: string,
-  delayMessage = 1,
-  opts?: SendOptions
+  delayMessage = 1
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-video", {
     method: "POST",
-    body: withMentions({ phone, video, caption, delayMessage }, opts),
+    body: { phone, video, caption, delayMessage },
   });
 }
 
@@ -327,55 +297,10 @@ export async function sendDocument(
   extension: string,
   fileName?: string,
   caption?: string,
-  delayMessage = 1,
-  opts?: SendOptions
+  delayMessage = 1
 ): Promise<WapiSendResult> {
   return wapiRequest(config, "/message/send-document", {
     method: "POST",
-    body: withMentions(
-      { phone, document, extension, fileName, caption, delayMessage },
-      opts
-    ),
+    body: { phone, document, extension, fileName, caption, delayMessage },
   });
-}
-
-// --- Group participants (for mention-all) ---
-
-export interface WapiParticipant {
-  id: string; // e.g. "37885956890738@lid" or "55...@s.whatsapp.net"
-  phoneNumber?: string; // e.g. "556285955001@s.whatsapp.net" (when LID-mapped)
-  admin?: "admin" | "superadmin" | null;
-}
-
-export async function getGroupParticipants(
-  config: WapiConfig,
-  groupId: string
-): Promise<WapiParticipant[]> {
-  const result = await wapiRequest<{
-    error?: boolean;
-    participants?: WapiParticipant[];
-  }>(config, "/group/get-Participants", {
-    extraParams: { groupId },
-  });
-  return result.participants || [];
-}
-
-/**
- * Returns the bare phone number (digits only) for a participant, preferring
- * the `phoneNumber` field which W-API populates for LID-mapped accounts.
- * Falls back to parsing the `id`. Returns null if neither resolves to a
- * regular phone (e.g. pure @lid with no phoneNumber mapping).
- */
-export function participantPhone(p: WapiParticipant): string | null {
-  const candidate = p.phoneNumber || p.id || "";
-  // strip @s.whatsapp.net / @lid / @c.us suffixes and non-digits
-  const at = candidate.indexOf("@");
-  const left = at >= 0 ? candidate.slice(0, at) : candidate;
-  const suffix = at >= 0 ? candidate.slice(at + 1) : "";
-  // @lid ids are not real phone numbers; only accept if we have @s.whatsapp.net
-  if (suffix && suffix !== "s.whatsapp.net" && suffix !== "c.us") {
-    return null;
-  }
-  const digits = left.replace(/\D/g, "");
-  return digits.length >= 8 ? digits : null;
 }
