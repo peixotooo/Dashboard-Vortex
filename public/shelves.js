@@ -1432,47 +1432,90 @@
         "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
         "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
       "}" +
-      // Coupon countdown — banner style (icon + title/sub + timer blocks + code CTA)
+      // Coupon countdown banner — standalone block below the price
       ".vtx-promo-tag--coupon {" +
-        "display: flex; align-items: center; justify-content: space-between; gap: 12px;" +
-        "padding: 10px 14px; margin: 12px 0;" +
-        "width: 100%; max-width: 100%; flex-basis: 100%; box-sizing: border-box;" +
-        "border: 1px solid rgba(0,0,0,.12); border-radius: 10px;" +
-        "background: #fff; color: #111;" +
+        "display: block; width: 100%; box-sizing: border-box;" +
+        "padding: 14px 16px; margin: 14px 0 0;" +
+        "border: 1px solid rgba(0,0,0,.08); border-radius: 12px;" +
+        "background: #fafafa; color: #0f172a;" +
         "font-family: inherit; line-height: 1.3; clear: both;" +
         "text-transform: none; font-weight: 400;" +
       "}" +
       "@media (prefers-color-scheme: dark) {" +
-        ".vtx-promo-tag--coupon { background: #0a0a0a; color: #fff; border-color: rgba(255,255,255,.14) }" +
+        ".vtx-promo-tag--coupon { background: #0a0a0a; color: #fafafa; border-color: rgba(255,255,255,.12) }" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-icon { width: 24px; height: 24px; flex-shrink: 0; opacity: .75 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-info { display: flex; flex-direction: column; gap: 2px; min-width: 0 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 13px; font-weight: 600; line-height: 1.2 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11px; opacity: .6; line-height: 1.2 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-timer { display: flex; align-items: stretch; gap: 2px; font-variant-numeric: tabular-nums }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-time { display: flex; flex-direction: column; align-items: center; padding: 4px 6px }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 14px; font-weight: 700; line-height: 1 }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-time .lbl { font-size: 9px; opacity: .5; line-height: 1.2; margin-top: 2px; text-transform: uppercase; letter-spacing: .04em }" +
-      ".vtx-promo-tag--coupon .vtx-coupon-cta {" +
-        "display: inline-flex; align-items: center; gap: 4px;" +
-        "padding: 6px 12px; border-radius: 6px;" +
+      // Header row: icon + title + subtitle
+      ".vtx-promo-tag--coupon .vtx-coupon-header {" +
+        "display: flex; align-items: center; gap: 10px; margin-bottom: 14px;" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-icon {" +
+        "width: 22px; height: 22px; flex-shrink: 0;" +
+        "color: var(--vtx-coupon-cta-bg, #dc2626);" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-headline { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 14px; font-weight: 700; line-height: 1.2 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11.5px; opacity: .55; line-height: 1.2 }" +
+      // Timer — the hero
+      ".vtx-promo-tag--coupon .vtx-coupon-bottom {" +
+        "display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-timer {" +
+        "display: flex; gap: 6px; font-variant-numeric: tabular-nums; flex-shrink: 0;" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time {" +
+        "display: flex; flex-direction: column; align-items: center; justify-content: center;" +
+        "min-width: 42px; padding: 8px 10px;" +
+        "background: rgba(0,0,0,.05); border-radius: 8px;" +
+      "}" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time { background: rgba(255,255,255,.08) }" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 18px; font-weight: 800; line-height: 1; letter-spacing: -.01em }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-time .lbl {" +
+        "font-size: 9px; opacity: .55; text-transform: uppercase; letter-spacing: .06em;" +
+        "margin-top: 4px; line-height: 1; font-weight: 500;" +
+      "}" +
+      // Code + copy button — joined pill
+      ".vtx-promo-tag--coupon .vtx-coupon-action {" +
+        "display: inline-flex; align-items: stretch; border-radius: 8px; overflow: hidden;" +
+        "box-shadow: 0 0 0 1px rgba(0,0,0,.1); flex-shrink: 0;" +
+      "}" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-action { box-shadow: 0 0 0 1px rgba(255,255,255,.14) }" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-code {" +
+        "display: inline-flex; align-items: center; padding: 8px 14px;" +
+        "font-size: 13px; font-weight: 700; letter-spacing: .06em;" +
+        "background: #fff; color: #0f172a; user-select: all; cursor: text;" +
+        "font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;" +
+      "}" +
+      "@media (prefers-color-scheme: dark) {" +
+        ".vtx-promo-tag--coupon .vtx-coupon-code { background: rgba(255,255,255,.04); color: #fafafa }" +
+      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-copy {" +
+        "display: inline-flex; align-items: center; gap: 6px;" +
+        "padding: 8px 14px; cursor: pointer; border: 0;" +
         "font-size: 12px; font-weight: 700; letter-spacing: .04em;" +
-        "background: var(--vtx-coupon-cta-bg, #000); color: var(--vtx-coupon-cta-fg, #fff);" +
-        "cursor: pointer; transition: opacity .15s ease, transform .15s ease;" +
+        "font-family: inherit;" +
+        "background: var(--vtx-coupon-cta-bg, #0f172a); color: var(--vtx-coupon-cta-fg, #fff);" +
+        "transition: background .2s ease;" +
+        "white-space: nowrap;" +
       "}" +
-      ".vtx-promo-tag--coupon .vtx-coupon-cta:hover { opacity: .9 }" +
-      ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-cta { animation: vtx-coupon-copied .8s ease }" +
-      "@keyframes vtx-coupon-copied {" +
-        "0% { transform: scale(1) }" +
-        "30% { transform: scale(1.06) }" +
-        "100% { transform: scale(1) }" +
-      "}" +
+      ".vtx-promo-tag--coupon .vtx-coupon-copy:hover { opacity: .92 }" +
+      ".vtx-promo-tag--coupon .vtx-coupon-copy svg { width: 14px; height: 14px }" +
+      ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-copy { background: #16a34a !important; color: #fff !important }" +
+      // Mobile
       "@media (max-width: 640px) {" +
-        ".vtx-promo-tag--coupon { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px 12px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-right { justify-content: space-between }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-cta { flex: 1; justify-content: center }" +
+        ".vtx-promo-tag--coupon { padding: 12px 14px; margin-top: 12px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-header { margin-bottom: 12px; gap: 8px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 13px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-bottom { flex-direction: column; align-items: stretch; gap: 10px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-timer { justify-content: space-between; gap: 4px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time { flex: 1; min-width: 0; padding: 8px 4px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 17px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-action { display: flex }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-code { flex: 1; justify-content: center }" +
       "}";
 
     var style = document.createElement("style");
@@ -1655,49 +1698,59 @@
 
     var timer = null;
 
-    function render() {
-      var remaining = expiresAt - Date.now();
-      if (remaining <= 0) {
-        badge.style.display = "none";
-        if (timer) clearInterval(timer);
-        return;
-      }
-      var totalSec = Math.floor(remaining / 1000);
+    // Build the static skeleton once — only the timer numbers update each tick
+    function buildSkeleton(initialMs) {
+      var totalSec = Math.floor(initialMs / 1000);
       var d = Math.floor(totalSec / 86400);
       var h = Math.floor((totalSec % 86400) / 3600);
       var m = Math.floor((totalSec % 3600) / 60);
       var s = totalSec % 60;
 
       var blocks = "";
-      if (d > 0) {
-        blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(d) + '</span><span class="lbl">Dias</span></div>';
+      var showDays = d > 0;
+      if (showDays) {
+        blocks += '<div class="vtx-coupon-time" data-unit="d"><span class="num">' + pad(d) + '</span><span class="lbl">Dias</span></div>';
       }
-      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(h) + '</span><span class="lbl">Hrs</span></div>';
-      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(m) + '</span><span class="lbl">Min</span></div>';
-      blocks += '<div class="vtx-coupon-time"><span class="num">' + pad(s) + '</span><span class="lbl">Seg</span></div>';
+      blocks += '<div class="vtx-coupon-time" data-unit="h"><span class="num">' + pad(h) + '</span><span class="lbl">Horas</span></div>';
+      blocks += '<div class="vtx-coupon-time" data-unit="m"><span class="num">' + pad(m) + '</span><span class="lbl">Min</span></div>';
+      blocks += '<div class="vtx-coupon-time" data-unit="s"><span class="num">' + pad(s) + '</span><span class="lbl">Seg</span></div>';
+
+      var copySvg =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>' +
+        '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
 
       badge.innerHTML =
-        '<div class="vtx-coupon-left">' +
+        '<div class="vtx-coupon-header">' +
           iconSvg +
-          '<div class="vtx-coupon-info">' +
+          '<div class="vtx-coupon-headline">' +
             '<div class="vtx-coupon-title">' + escapeHtml(title) + '</div>' +
             '<div class="vtx-coupon-sub">' + escapeHtml(sub) + '</div>' +
           '</div>' +
         '</div>' +
-        '<div class="vtx-coupon-right">' +
+        '<div class="vtx-coupon-bottom">' +
           '<div class="vtx-coupon-timer">' + blocks + '</div>' +
-          '<div class="vtx-coupon-cta" title="Clique para copiar o cupom">' + escapeHtml(code) + '</div>' +
+          '<div class="vtx-coupon-action">' +
+            '<span class="vtx-coupon-code" title="Selecione e copie">' + escapeHtml(code) + '</span>' +
+            '<button type="button" class="vtx-coupon-copy" aria-label="Copiar cupom">' +
+              copySvg + '<span class="vtx-coupon-copy-label">Copiar</span>' +
+            '</button>' +
+          '</div>' +
         '</div>';
 
-      // Re-bind copy on each tick (innerHTML wipes listeners)
-      var ctaEl = badge.querySelector(".vtx-coupon-cta");
-      if (ctaEl) {
-        ctaEl.addEventListener("click", function (e) {
+      var copyBtn = badge.querySelector(".vtx-coupon-copy");
+      var copyLabel = badge.querySelector(".vtx-coupon-copy-label");
+      if (copyBtn) {
+        copyBtn.addEventListener("click", function (e) {
           e.preventDefault();
           e.stopPropagation();
           var done = function () {
             badge.classList.add("vtx-coupon-copied");
-            setTimeout(function () { badge.classList.remove("vtx-coupon-copied"); }, 800);
+            if (copyLabel) copyLabel.textContent = "Copiado!";
+            setTimeout(function () {
+              badge.classList.remove("vtx-coupon-copied");
+              if (copyLabel) copyLabel.textContent = "Copiar";
+            }, 1500);
           };
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(code).then(done).catch(function () {});
@@ -1713,8 +1766,35 @@
       }
     }
 
-    render();
-    timer = setInterval(render, 1000);
+    function tick() {
+      var remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        badge.style.display = "none";
+        if (timer) clearInterval(timer);
+        return;
+      }
+      var totalSec = Math.floor(remaining / 1000);
+      var d = Math.floor(totalSec / 86400);
+      var h = Math.floor((totalSec % 86400) / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
+      var nums = badge.querySelectorAll(".vtx-coupon-time");
+      var values = (d > 0 && nums.length === 4) ? [pad(d), pad(h), pad(m), pad(s)] : [pad(h), pad(m), pad(s)];
+      // Skip if days appeared/disappeared — rebuild skeleton
+      if ((d > 0 && nums.length === 3) || (d === 0 && nums.length === 4)) {
+        buildSkeleton(remaining);
+        return;
+      }
+      for (var i = 0; i < nums.length && i < values.length; i++) {
+        var span = nums[i].querySelector(".num");
+        if (span && span.textContent !== values[i]) span.textContent = values[i];
+      }
+    }
+
+    var initialRemaining = expiresAt - Date.now();
+    if (initialRemaining <= 0) return null;
+    buildSkeleton(initialRemaining);
+    timer = setInterval(tick, 1000);
     return badge;
   }
 
@@ -1805,7 +1885,17 @@
         placement === "pdp_price" ||
         placement === "auto";
 
-      if (goesNearPrice) {
+      if (badgeType === "coupon_countdown") {
+        // Coupon banner is its own block-level element below the pill row,
+        // so it never collides with cashback/viewers in flex layout.
+        var existingRow = document.getElementById("vtx-promo-tag-row");
+        if (existingRow && existingRow.parentNode) {
+          existingRow.parentNode.insertBefore(badge, existingRow.nextSibling);
+          inserted = true;
+        } else {
+          inserted = insertNearPrice(badge);
+        }
+      } else if (goesNearPrice) {
         var row = getOrCreatePromoTagRow();
         if (row) {
           row.appendChild(badge);
