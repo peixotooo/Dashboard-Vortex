@@ -157,6 +157,12 @@ export async function disconnectInstance(
   return wapiRequest(config, "/instance/disconnect");
 }
 
+export async function restartInstance(
+  config: WapiConfig
+): Promise<{ error?: boolean; message?: string }> {
+  return wapiRequest(config, "/instance/restart");
+}
+
 export async function sendText(
   config: WapiConfig,
   phone: string,

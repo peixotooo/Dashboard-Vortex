@@ -89,6 +89,7 @@ export default function WhatsAppGroupsPage() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   // Groups state
   const [groups, setGroups] = useState<WapiGroup[]>([]);
@@ -283,6 +284,37 @@ export default function WhatsAppGroupsPage() {
       );
     }
     setSavingConfig(false);
+  }
+
+  async function handleRestart() {
+    if (!workspace?.id) return;
+    setRestarting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/whatsapp-groups/restart", {
+        method: "POST",
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao reiniciar: ${data.error}`);
+      } else {
+        setSuccessMsg(
+          data.message || "Instancia reiniciada. Aguarde alguns segundos e clique em 'Verificar Status'."
+        );
+        // Wait a beat, then resync status + groups so the UI reflects post-restart state.
+        setTimeout(() => {
+          fetchStatus();
+          fetchGroups(true);
+        }, 4000);
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao reiniciar: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    }
+    setRestarting(false);
   }
 
   async function handleDisconnect() {
@@ -636,19 +668,34 @@ export default function WhatsAppGroupsPage() {
                       </Button>
                     )}
                     {connected && (
-                      <Button
-                        onClick={handleDisconnect}
-                        disabled={disconnecting}
-                        variant="destructive"
-                        size="sm"
-                      >
-                        {disconnecting ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                        ) : (
-                          <WifiOff className="h-4 w-4 mr-1" />
-                        )}
-                        Desconectar
-                      </Button>
+                      <>
+                        <Button
+                          onClick={handleRestart}
+                          disabled={restarting}
+                          variant="outline"
+                          size="sm"
+                        >
+                          {restarting ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4 mr-1" />
+                          )}
+                          Reiniciar instancia
+                        </Button>
+                        <Button
+                          onClick={handleDisconnect}
+                          disabled={disconnecting}
+                          variant="destructive"
+                          size="sm"
+                        >
+                          {disconnecting ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          ) : (
+                            <WifiOff className="h-4 w-4 mr-1" />
+                          )}
+                          Desconectar
+                        </Button>
+                      </>
                     )}
                   </div>
 
