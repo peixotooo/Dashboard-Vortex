@@ -1638,26 +1638,33 @@
     var min = Number(rule.viewers_min) || 6;
     var max = Number(rule.viewers_max) || 42;
     var baseline = Number(rule.viewers_baseline) || Math.round((min + max) / 2);
-    // Drift state: starts near baseline and walks step-by-step
-    var current = baseline;
+    // Drift state: each product gets its own random starting offset so multiple
+    // PDPs open in adjacent tabs don't all show the same number ticking together
+    var startOffset = Math.round((Math.random() - 0.5) * Math.max(2, baseline * 0.20));
+    var current = Math.max(min, Math.min(max, baseline + startOffset));
 
     function pickValue() {
-      // Spread ±20% of baseline (min 1, max 4)
-      var spread = Math.max(1, Math.min(4, Math.round(baseline * 0.20)));
+      // Spread is wider (~30% of baseline, min 2, max 7) and drift bounds
+      // ±2× spread — gives the count enough room to feel alive between ticks.
+      var spread = Math.max(2, Math.min(7, Math.round(baseline * 0.30)));
       var delta;
-      if (Math.random() < 0.7) {
-        // Random walk
+      var roll = Math.random();
+      if (roll < 0.55) {
+        // Free random walk
         delta = Math.round((Math.random() - 0.5) * 2 * spread);
+      } else if (roll < 0.85) {
+        // Mild step ±1..±2 (small breathing)
+        delta = (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.6 ? 1 : 2);
       } else {
-        // Pull back toward baseline so it doesn't drift forever
-        delta = Math.sign(baseline - current) * Math.min(2, Math.abs(baseline - current));
+        // Pull back toward baseline (rare, prevents permanent drift)
+        var pull = Math.sign(baseline - current) * Math.min(2, Math.abs(baseline - current));
+        delta = pull || (Math.random() < 0.5 ? -1 : 1);
       }
       current = current + delta;
-      // Clamp drift to ±1.5×spread of baseline so it never feels far off
-      var maxDrift = Math.round(spread * 1.5);
+      // Allow drift up to ±2× spread of baseline before the pull-back kicks harder
+      var maxDrift = Math.round(spread * 2);
       if (current > baseline + maxDrift) current = baseline + maxDrift;
       if (current < baseline - maxDrift) current = baseline - maxDrift;
-      // Final clamp to absolute min/max
       if (current < min) current = min;
       if (current > max) current = max;
       return current;

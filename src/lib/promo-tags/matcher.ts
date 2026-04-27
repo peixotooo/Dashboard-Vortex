@@ -55,10 +55,15 @@ async function getPopularityScores(workspaceId: string): Promise<PopularityCache
         if (k && v > 0) raw.push({ key: normalize ? normalize(k) : k, views: v });
       }
       if (raw.length === 0) return new Map<string, number>();
-      // Logarithmic scaling so top product doesn't dominate
-      const maxLog = Math.log(Math.max(...raw.map((r) => r.views)) + 1);
+      // Percentile rank — gives a uniform 0..1 distribution. Log scaling
+      // compressed too many products into the same mid-range, making most
+      // PDPs show similar viewer counts. Percentile spreads them evenly.
+      const sorted = [...raw].sort((a, b) => a.views - b.views);
       const map = new Map<string, number>();
-      for (const r of raw) map.set(r.key, Math.log(r.views + 1) / maxLog);
+      sorted.forEach((r, i) => {
+        const pct = sorted.length > 1 ? i / (sorted.length - 1) : 0.5;
+        map.set(r.key, pct);
+      });
       return map;
     }
 
@@ -154,20 +159,47 @@ function productSeed(productId: string): number {
   return ((h >>> 0) % 1000) / 1000; // 0..1
 }
 
+/**
+ * Two-arg seed (product + extra) for a second deterministic dim — used to
+ * shift each product slightly per day so the same SKU doesn't show the
+ * same baseline today vs tomorrow.
+ */
+function combinedSeed(productId: string, salt: string): number {
+  let h = 5381;
+  const s = productId + "|" + salt;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+/**
+ * Per-day shift in [-1, 1] — same value across all products on a given day,
+ * so the whole store's viewer counts gently rise on some days, drop on others.
+ */
+function dayShift(): number {
+  // Brasilia date as YYYY-MM-DD (UTC-3, no DST)
+  const d = new Date();
+  const brt = new Date(d.getTime() - 3 * 3600 * 1000);
+  const day = brt.toISOString().slice(0, 10);
+  let h = 2166136261;
+  for (let i = 0; i < day.length; i++) {
+    h = (h ^ day.charCodeAt(i)) * 16777619;
+  }
+  return (((h >>> 0) % 2000) / 1000) - 1; // -1..+1
+}
+
 function computeViewersBaseline(
   product: ShelfProductRow,
   min: number,
   max: number,
   hourMult: number,
-  popularityScore: number // -1 if unknown, else 0..1 from GA4 itemsViewed
+  popularityScore: number // -1 if unknown, else 0..1 percentile rank from GA4
 ): number {
   let rankWeight: number;
   if (popularityScore >= 0) {
-    // GA4 score is log-normalized so top product is around 0.95-1.0; we
-    // use it directly because the compression below already prevents max-out.
     rankWeight = popularityScore;
   } else {
-    // Fallback: tag-based heuristic when product isn't in GA4 (yet)
     const tagsArr =
       (product.tags as { vnda_tags?: Array<{ name?: string } | string> })?.vnda_tags ||
       (Array.isArray(product.tags) ? product.tags : []);
@@ -185,13 +217,27 @@ function computeViewersBaseline(
   }
 
   const seed = productSeed(product.product_id);
-  // Mix: 55% popularity (real GA4), 30% hour, 15% per-product seed
-  // Larger seed weight = top sellers don't all converge to the same number
-  const factor = rankWeight * 0.55 + hourMult * 0.30 + (seed - 0.5) * 0.30;
-  // Compress to [0.10, 0.85] so even top products rarely hit the configured max
-  // and bottom products don't sit at the floor — wider visible spread
-  const compressed = Math.max(0, Math.min(1, factor));
-  const ratio = 0.10 + compressed * 0.75;
+  // Per-day per-product seed — different number every day for the same SKU
+  const todaySeed = combinedSeed(product.product_id, new Date().toISOString().slice(0, 10));
+  // Global day shift — moves the whole store up/down on a given day
+  const dayJitter = dayShift();
+
+  // Mix the four signals:
+  //   30% popularity rank (real GA4 percentile)
+  //   25% hour-of-day curve (Brasília)
+  //   25% per-product stable seed
+  //   12% per-day per-product variation
+  //    8% global daily shift
+  const factor =
+    rankWeight * 0.30 +
+    hourMult * 0.25 +
+    (seed - 0.5) * 0.50 +              // ±25%
+    (todaySeed - 0.5) * 0.24 +          // ±12%
+    dayJitter * 0.16;                    // ±8%
+
+  // Wider output range — top products near max, bottom near min, but never exact
+  const compressed = Math.max(0, Math.min(1, factor + 0.5));
+  const ratio = 0.05 + compressed * 0.90;
   const range = Math.max(0, max - min);
   return Math.max(min, Math.min(max, Math.round(min + range * ratio)));
 }
