@@ -1432,10 +1432,11 @@
         "70% { box-shadow: 0 0 0 6px transparent; opacity: .85 }" +
         "100% { box-shadow: 0 0 0 0 transparent; opacity: .85 }" +
       "}" +
-      // Coupon countdown banner — standalone block below the price
+      // Coupon countdown banner — standalone block above the buy button
       ".vtx-promo-tag--coupon {" +
-        "display: block; width: 100%; box-sizing: border-box;" +
-        "padding: 14px 16px; margin: 14px 0 0;" +
+        "display: block; position: relative; z-index: 2;" +
+        "width: 100%; box-sizing: border-box;" +
+        "padding: 14px 16px; margin: 14px 0;" +
         "border: 1px solid rgba(0,0,0,.08); border-radius: 12px;" +
         "background: #fafafa; color: #0f172a;" +
         "font-family: inherit; line-height: 1.3; clear: both;" +
@@ -1504,18 +1505,21 @@
       ".vtx-promo-tag--coupon .vtx-coupon-copy:hover { opacity: .92 }" +
       ".vtx-promo-tag--coupon .vtx-coupon-copy svg { width: 14px; height: 14px }" +
       ".vtx-promo-tag--coupon.vtx-coupon-copied .vtx-coupon-copy { background: #16a34a !important; color: #fff !important }" +
-      // Mobile
+      // Mobile — tighter so it never crowds the buy button
       "@media (max-width: 640px) {" +
-        ".vtx-promo-tag--coupon { padding: 12px 14px; margin-top: 12px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-header { margin-bottom: 12px; gap: 8px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 13px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 11px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-bottom { flex-direction: column; align-items: stretch; gap: 10px }" +
+        ".vtx-promo-tag--coupon { padding: 10px 12px; margin: 10px 0 12px; border-radius: 10px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-header { margin-bottom: 10px; gap: 8px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-icon { width: 18px; height: 18px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-title { font-size: 12.5px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-sub { font-size: 10.5px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-bottom { flex-direction: column; align-items: stretch; gap: 8px }" +
         ".vtx-promo-tag--coupon .vtx-coupon-timer { justify-content: space-between; gap: 4px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-time { flex: 1; min-width: 0; padding: 8px 4px }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 17px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time { flex: 1; min-width: 0; padding: 6px 2px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time .num { font-size: 15px }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-time .lbl { font-size: 8.5px; margin-top: 2px }" +
         ".vtx-promo-tag--coupon .vtx-coupon-action { display: flex }" +
-        ".vtx-promo-tag--coupon .vtx-coupon-code { flex: 1; justify-content: center }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-code { flex: 1; justify-content: center; padding: 7px 8px; font-size: 12px; letter-spacing: .04em }" +
+        ".vtx-promo-tag--coupon .vtx-coupon-copy { padding: 7px 12px; font-size: 11.5px }" +
       "}";
 
     var style = document.createElement("style");
@@ -1886,14 +1890,25 @@
         placement === "auto";
 
       if (badgeType === "coupon_countdown") {
-        // Coupon banner is its own block-level element below the pill row,
-        // so it never collides with cashback/viewers in flex layout.
-        var existingRow = document.getElementById("vtx-promo-tag-row");
-        if (existingRow && existingRow.parentNode) {
-          existingRow.parentNode.insertBefore(badge, existingRow.nextSibling);
+        // Coupon banner sits RIGHT BEFORE the buy button so it always pushes
+        // it down and never visually overlaps any sibling, regardless of
+        // how the theme styles the price block.
+        var couponBuyBtn = document.querySelector(
+          ".buy-button-container, .product-buy, #buy-button, " +
+          "[data-cart-add], .add-to-cart, form.product-form .submit, " +
+          "button.buy-btn, .product-actions, .product-buy-area"
+        );
+        if (couponBuyBtn && couponBuyBtn.parentNode) {
+          couponBuyBtn.parentNode.insertBefore(badge, couponBuyBtn);
           inserted = true;
         } else {
-          inserted = insertNearPrice(badge);
+          var existingRow = document.getElementById("vtx-promo-tag-row");
+          if (existingRow && existingRow.parentNode) {
+            existingRow.parentNode.insertBefore(badge, existingRow.nextSibling);
+            inserted = true;
+          } else {
+            inserted = insertNearPrice(badge);
+          }
         }
       } else if (goesNearPrice) {
         var row = getOrCreatePromoTagRow();
