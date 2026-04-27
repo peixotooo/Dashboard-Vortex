@@ -19,9 +19,9 @@ async function main() {
     mode: "smart" as const,
     target: "low_cvr_high_views" as const,
     manual_product_ids: null,
-    // Range: o picker escolhe entre 10% e 20% baseado no score
+    // Range: o picker escolhe entre 10% e 15% baseado no score (cap workspace = 15%)
     discount_min_pct: 10,
-    discount_max_pct: 20,
+    discount_max_pct: 15,
     duration_hours: 48,           // cada cupom vive 48h
     max_active_products: 5,        // até 5 produtos por execução
     recurring_cron: null,          // smart usa throttle interno de 24h
