@@ -1,12 +1,13 @@
 // Picks low-rotation products + assigns discount percentages within the
 // plan's [min, max] band. Pure function — does NOT call VNDA or write to DB.
+//
+// Safety: callers must pass workspace settings so we can enforce the
+// configurable global ceilings (global_max_discount_pct / global_max_active_coupons).
+// There are NO hard-coded caps here anymore — caps live in the workspace settings
+// row (defaults: 25% discount, 30 active coupons), editable from the dashboard.
 
 import type { ProductPerformance } from "./performance";
-
-// Hard ceiling enforced regardless of plan config (margin protection)
-export const HARD_DISCOUNT_CAP_PCT = 25;
-// Hard ceiling on simultaneous active coupons per plan
-export const HARD_MAX_ACTIVE = 20;
+import type { CouponWorkspaceSettings } from "./settings";
 
 export interface CouponPick {
   product_id: string;
@@ -20,6 +21,8 @@ export interface CouponPick {
   low_rotation_score: number;
   discount_pct: number;
   reason: string;
+  /** True when the configured plan max was clamped down by workspace settings */
+  clamped_by_workspace_cap: boolean;
 }
 
 export interface PickerInput {
@@ -30,12 +33,9 @@ export interface PickerInput {
   discountMaxPct: number;
   maxActiveProducts: number;
   excludeProductIds?: Set<string>; // products that already have a live coupon
-}
-
-function clampDiscount(pct: number): number {
-  if (pct > HARD_DISCOUNT_CAP_PCT) return HARD_DISCOUNT_CAP_PCT;
-  if (pct < 1) return 1;
-  return Math.round(pct);
+  settings: CouponWorkspaceSettings;
+  /** How many active coupons the workspace already has across all plans */
+  workspaceActiveCount: number;
 }
 
 function roundToStep(pct: number, step = 5): number {
@@ -43,9 +43,19 @@ function roundToStep(pct: number, step = 5): number {
 }
 
 export function pickCouponCandidates(input: PickerInput): CouponPick[] {
-  const minPct = clampDiscount(Math.max(1, input.discountMinPct));
-  const maxPct = clampDiscount(Math.max(minPct, input.discountMaxPct));
-  const limit = Math.min(HARD_MAX_ACTIVE, Math.max(1, input.maxActiveProducts));
+  const { settings } = input;
+  const cap = settings.global_max_discount_pct;
+
+  // Effective bounds: plan can never exceed the workspace cap
+  const effectiveMin = Math.max(1, Math.min(input.discountMinPct, cap));
+  const effectiveMax = Math.max(effectiveMin, Math.min(input.discountMaxPct, cap));
+  const wasClamped = input.discountMaxPct > cap;
+
+  // Slot budget: how many MORE coupons this workspace can spawn right now
+  const remainingBudget = Math.max(0, settings.global_max_active_coupons - input.workspaceActiveCount);
+  const planSlots = Math.max(0, Math.min(input.maxActiveProducts, remainingBudget));
+  if (planSlots === 0) return [];
+
   const excluded = input.excludeProductIds || new Set<string>();
 
   let candidates: ProductPerformance[];
@@ -63,23 +73,25 @@ export function pickCouponCandidates(input: PickerInput): CouponPick[] {
       break;
     case "low_cvr_high_views":
     default:
-      // All non-A products with at least some views — prevents picking obscure SKUs
+      // Non-A products with at least some views (avoids picking obscure SKUs)
       candidates = input.performance.filter((p) => p.abc_tier !== "A" && p.views >= 50);
       break;
   }
 
-  // Exclude products already on a live coupon
+  // Drop products that already have a live coupon
   candidates = candidates.filter((p) => !excluded.has(p.product_id));
 
-  // Rank by score DESC and take top N
+  // Highest score wins; respect plan + workspace slot budget
   candidates.sort((a, b) => b.low_rotation_score - a.low_rotation_score);
-  candidates = candidates.slice(0, limit);
+  candidates = candidates.slice(0, planSlots);
 
-  // Discount picker: higher score → higher discount, rounded to 5%
-  const range = maxPct - minPct;
+  const range = effectiveMax - effectiveMin;
   return candidates.map((p) => {
-    const raw = minPct + p.low_rotation_score * range;
-    const discount = clampDiscount(roundToStep(raw, 5));
+    const raw = effectiveMin + p.low_rotation_score * range;
+    let discount = roundToStep(raw, 5);
+    // Clamp inside [effectiveMin, effectiveMax] (rounding could push out)
+    if (discount < effectiveMin) discount = Math.ceil(effectiveMin);
+    if (discount > effectiveMax) discount = Math.floor(effectiveMax);
     let reason = "";
     if (input.target === "manual") {
       reason = "Selecionado manualmente";
@@ -102,14 +114,18 @@ export function pickCouponCandidates(input: PickerInput): CouponPick[] {
       low_rotation_score: p.low_rotation_score,
       discount_pct: discount,
       reason,
+      clamped_by_workspace_cap: wasClamped,
     };
   });
 }
 
+/**
+ * Coupon code generator. Format: FLASH<pid4><pct><rand4>
+ * UNIQUE constraint on vnda_coupon_code in DB will catch the rare collision —
+ * caller should retry on conflict.
+ */
 export function generateCouponCode(productId: string, discountPct: number): string {
-  // 4-char random suffix so the code is unique even within the same product/discount
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  // Truncate product id so the code stays under 16 chars
   const pid = productId.replace(/\W/g, "").slice(-4);
   return `FLASH${pid}${discountPct}${rand}`;
 }

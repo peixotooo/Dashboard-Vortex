@@ -7,6 +7,7 @@ loadEnv({ path: ".env.local" });
 import { createAdminClient } from "../src/lib/supabase-admin";
 import { computeProductPerformance } from "../src/lib/coupons/performance";
 import { pickCouponCandidates } from "../src/lib/coupons/picker";
+import { getCouponSettings } from "../src/lib/coupons/settings";
 
 async function main() {
   const admin = createAdminClient();
@@ -18,6 +19,14 @@ async function main() {
     .single();
   if (!ws) throw new Error("workspace nao encontrado");
   console.log(`Workspace: ${ws.name} (${ws.id})\n`);
+
+  const settings = await getCouponSettings(ws.id);
+  console.log(`=== Workspace settings ===`);
+  console.log(`  global_max_discount_pct: ${settings.global_max_discount_pct}%`);
+  console.log(`  global_max_active_coupons: ${settings.global_max_active_coupons}`);
+  console.log(`  default_uses_per_code: ${settings.default_uses_per_code}`);
+  console.log(`  default_uses_per_user: ${settings.default_uses_per_user}`);
+  console.log(`  cumulative_with_other_promos: ${settings.cumulative_with_other_promos}\n`);
 
   console.log("Computando performance (GA4 itemViews 30d + VNDA orders 30d)...");
   const t0 = Date.now();
@@ -58,7 +67,12 @@ async function main() {
       discountMinPct: plan.min,
       discountMaxPct: plan.max,
       maxActiveProducts: plan.max_active,
+      settings,
+      workspaceActiveCount: 0,
     });
+    if (picks[0]?.clamped_by_workspace_cap) {
+      console.log(`  ⚠ plan max ${plan.max}% > workspace cap ${settings.global_max_discount_pct}% — clamped`);
+    }
     if (picks.length === 0) {
       console.log("  (sem candidatos)");
       continue;
