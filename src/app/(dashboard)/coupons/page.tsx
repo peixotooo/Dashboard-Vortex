@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspace } from "@/lib/workspace-context";
-import { Tag, Loader2, Plus, CheckCircle2, XCircle, PauseCircle, Clock, Trash2, Settings, Play } from "lucide-react";
+import { Tag, Loader2, Plus, CheckCircle2, XCircle, PauseCircle, Clock, Trash2, Settings, Play, ExternalLink, ShieldCheck, AlertTriangle } from "lucide-react";
 
 interface Plan {
   id: string;
@@ -48,6 +48,7 @@ interface ActiveCoupon {
   id: string;
   product_id: string;
   vnda_coupon_code: string;
+  vnda_discount_id: number | null;
   discount_pct: number;
   starts_at: string;
   expires_at: string;
@@ -56,6 +57,24 @@ interface ActiveCoupon {
   attributed_revenue: number;
   attributed_units: number;
   created_at: string;
+  // Enriched
+  product_name?: string | null;
+  product_url?: string | null;
+  product_image_url?: string | null;
+  product_price?: number | null;
+  product_sale_price?: number | null;
+}
+
+interface VndaVerify {
+  ok: boolean;
+  error?: string;
+  promotion_exists?: boolean;
+  promotion_enabled?: boolean | null;
+  promotion_name?: string | null;
+  coupon_code_exists?: boolean;
+  coupon_uses_per_code?: number | null;
+  coupon_used_count?: number | null;
+  vnda_discount_id?: number;
 }
 
 interface Settings {
@@ -104,6 +123,7 @@ export default function CouponsPage() {
   const [editing, setEditing] = useState<Partial<Plan> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, VndaVerify>>({});
 
   const headers = useCallback(
     () => ({ "Content-Type": "application/json", "x-workspace-id": workspace?.id || "" }),
@@ -181,6 +201,18 @@ export default function CouponsPage() {
     setBusy("del-" + id);
     await fetch(`/api/coupons/plans/${id}`, { method: "DELETE", headers: headers() });
     await reload();
+    setBusy(null);
+  }
+
+  async function verifyOnVnda(id: string) {
+    setBusy("verify-" + id);
+    try {
+      const res = await fetch(`/api/coupons/active/${id}/verify`, { headers: headers() });
+      const data = await res.json();
+      setVerifyResults((prev) => ({ ...prev, [id]: data }));
+    } catch (e) {
+      setVerifyResults((prev) => ({ ...prev, [id]: { ok: false, error: e instanceof Error ? e.message : "erro" } }));
+    }
     setBusy(null);
   }
 
@@ -305,17 +337,28 @@ export default function CouponsPage() {
           {pending.map((c) => (
             <Card key={c.id}>
               <CardContent className="py-4 flex items-center justify-between gap-3">
+                {c.product_image_url && (
+                  <img src={c.product_image_url} alt="" className="w-14 h-14 object-cover rounded border" />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
+                    <span className="font-medium truncate">{c.product_name || `Produto ${c.product_id}`}</span>
                     <Badge variant="default">{c.discount_pct}% OFF</Badge>
-                    <span className="text-xs text-muted-foreground">produto {c.product_id}</span>
+                    <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
+                    {c.product_url && (
+                      <a href={c.product_url} target="_blank" rel="noopener" className="text-xs text-primary inline-flex items-center gap-1 hover:underline">
+                        ver na loja <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Vence em {new Date(c.expires_at).toLocaleString("pt-BR")} · proposto {new Date(c.created_at).toLocaleString("pt-BR")}
+                    ID {c.product_id} · vence em {new Date(c.expires_at).toLocaleString("pt-BR")} · proposto {new Date(c.created_at).toLocaleString("pt-BR")}
+                    {c.product_price && (
+                      <span className="ml-2">· preço {(c.product_sale_price || c.product_price).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+                    )}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <Button variant="default" size="sm" onClick={() => couponAction(c.id, "approve")} disabled={busy === "approve-" + c.id}>
                     {busy === "approve-" + c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
                     Aprovar
@@ -336,29 +379,81 @@ export default function CouponsPage() {
               <p>Nenhum cupom ativo no momento.</p>
             </CardContent></Card>
           )}
-          {active.map((c) => (
-            <Card key={c.id}>
-              <CardContent className="py-4 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
-                    <Badge>{c.discount_pct}% OFF</Badge>
-                    <span className="text-xs text-muted-foreground">produto {c.product_id}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    <Clock className="inline h-3 w-3 mr-1" />
-                    Expira {new Date(c.expires_at).toLocaleString("pt-BR")}
-                    {c.attributed_units > 0 && (
-                      <span className="ml-2">· {c.attributed_units} venda(s) · {fmtBRL(c.attributed_revenue)}</span>
+          {active.map((c) => {
+            const v = verifyResults[c.id];
+            return (
+              <Card key={c.id}>
+                <CardContent className="py-4 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    {c.product_image_url && (
+                      <img src={c.product_image_url} alt="" className="w-14 h-14 object-cover rounded border" />
                     )}
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => couponAction(c.id, "pause")} disabled={busy === "pause-" + c.id}>
-                  <PauseCircle className="h-3.5 w-3.5 mr-1" /> Pausar
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium truncate">{c.product_name || `Produto ${c.product_id}`}</span>
+                        <Badge>{c.discount_pct}% OFF</Badge>
+                        <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{c.vnda_coupon_code}</code>
+                        {c.product_url && (
+                          <a href={c.product_url} target="_blank" rel="noopener" className="text-xs text-primary inline-flex items-center gap-1 hover:underline">
+                            ver na loja <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        <Clock className="inline h-3 w-3 mr-1" />
+                        Expira {new Date(c.expires_at).toLocaleString("pt-BR")} · ID produto {c.product_id}
+                        {c.vnda_discount_id && (
+                          <span className="ml-2">· VNDA promo #{c.vnda_discount_id}</span>
+                        )}
+                        {c.attributed_units > 0 && (
+                          <span className="ml-2 text-green-600">· {c.attributed_units} venda(s) · {fmtBRL(c.attributed_revenue)}</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => verifyOnVnda(c.id)}
+                        disabled={busy === "verify-" + c.id}
+                        title="Consulta a VNDA pra confirmar que a promocao esta lá e ativa"
+                      >
+                        {busy === "verify-" + c.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Verificar VNDA
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => couponAction(c.id, "pause")} disabled={busy === "pause-" + c.id}>
+                        <PauseCircle className="h-3.5 w-3.5 mr-1" /> Pausar
+                      </Button>
+                    </div>
+                  </div>
+                  {v && (
+                    <div className={`rounded-md border p-2 text-xs flex items-start gap-2 ${
+                      v.ok ? "border-green-500/30 bg-green-500/10 text-green-500" : "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                    }`}>
+                      {v.ok ? <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+                      <div className="flex-1">
+                        {v.ok ? (
+                          <>
+                            VNDA confirmou: promo "{v.promotion_name}" {v.promotion_enabled ? "habilitada" : "DESABILITADA"} ·
+                            código {v.coupon_code_exists ? "existe" : "NAO ENCONTRADO"}
+                            {typeof v.coupon_used_count === "number" && (
+                              <span> · usado {v.coupon_used_count}/{v.coupon_uses_per_code ?? "∞"} vezes</span>
+                            )}
+                          </>
+                        ) : (
+                          <>Falha: {v.error || "promo ou codigo nao encontrado na VNDA"}</>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </TabsContent>
 
         {/* SETTINGS */}
