@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspace } from "@/lib/workspace-context";
-import { Tag, Loader2, Plus, CheckCircle2, XCircle, PauseCircle, Clock, Trash2, Settings } from "lucide-react";
+import { Tag, Loader2, Plus, CheckCircle2, XCircle, PauseCircle, Clock, Trash2, Settings, Play } from "lucide-react";
 
 interface Plan {
   id: string;
@@ -147,6 +147,35 @@ export default function CouponsPage() {
     setBusy(null);
   }
 
+  async function runPlanNow(id: string) {
+    setError(null);
+    setBusy("run-" + id);
+    try {
+      const res = await fetch(`/api/coupons/plans/${id}/run`, {
+        method: "POST", headers: headers(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        const msg = data.require_manual_approval
+          ? `${data.proposed} sugestao(oes) criada(s). Veja na aba "Aguardando aprovacao".`
+          : `${data.proposed} sugestao(oes) criada(s) e ${data.auto_approved} aprovada(s) automaticamente.`;
+        // Switch to the relevant tab so user sees the result immediately
+        setTab(data.require_manual_approval ? "pending" : "active");
+        setError(null);
+        // Use error banner styling-agnostic alert via setError ainda nao serve;
+        // a aba ja mostra o resultado.
+        await reload();
+        // Pequena toast info
+        setTimeout(() => alert(msg), 50);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "erro");
+    }
+    setBusy(null);
+  }
+
   async function disablePlan(id: string) {
     if (!confirm("Desabilitar este plano? Cupons ativos continuam ate expirar.")) return;
     setBusy("del-" + id);
@@ -237,6 +266,22 @@ export default function CouponsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  {p.enabled && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => runPlanNow(p.id)}
+                      disabled={busy === "run-" + p.id}
+                      title="Roda o picker imediatamente para este plano (sem esperar o cron de 06h)"
+                    >
+                      {busy === "run-" + p.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      Rodar agora
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={() => setEditing(p)}>Editar</Button>
                   {p.enabled && (
                     <Button variant="outline" size="sm" onClick={() => disablePlan(p.id)} disabled={busy === "del-" + p.id}>
