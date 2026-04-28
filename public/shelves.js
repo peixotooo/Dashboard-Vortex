@@ -127,6 +127,39 @@
     return "other";
   }
 
+  // True when the current PDP is a "kit" product. The Bulking storefront uses
+  // /produto/kit-<slug> as the canonical URL pattern for bundles. The body
+  // fallback covers themes that flag kits with a class name.
+  function isKitProduct() {
+    try {
+      var path = (window.location.pathname || "").toLowerCase();
+      if (/\/produto\/kit-/.test(path)) return true;
+      if (document.body && /\bkit\b/.test(document.body.className || "")) return true;
+    } catch (e) { /* swallow */ }
+    return false;
+  }
+
+  // Finds the "skeleton" / selection box that wraps size/qty/buy controls.
+  // Returns the highest-priority container so we can insert blocks BEFORE it
+  // (i.e. visually outside the box) on kit PDPs.
+  function findProductSelectionBox() {
+    var selectors = [
+      ".product-info",
+      ".product-form",
+      ".product-buy",
+      "[data-product-buy]",
+      "form[data-product-form]",
+      ".product__details",
+      ".product__buy",
+      ".product-purchase"
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
   function extractProductId() {
     // Try meta tag first
     var meta = document.querySelector('meta[property="product:retailer_item_id"]');
@@ -1013,10 +1046,20 @@
     html += '</div>';
     block.innerHTML = html;
 
-    // Find anchor: admin override → fallback selectors
+    // Find anchor: admin override → fallback selectors.
+    // Kit products render benefits OUTSIDE the size/buy selection box
+    // (visually above it), matching where the promo tag row already sits.
     var anchor = null;
+    var insertBefore = false;
     if (cfg.product_benefits_anchor) {
       anchor = document.querySelector(cfg.product_benefits_anchor);
+    }
+    if (!anchor && isKitProduct()) {
+      var kitBox = findProductSelectionBox();
+      if (kitBox) {
+        anchor = kitBox;
+        insertBefore = true;
+      }
     }
     if (!anchor) {
       var fallbacks = [
@@ -1041,7 +1084,11 @@
       console.warn("[ProductBenefits] No anchor found — set product_benefits_anchor in admin");
       return;
     }
-    anchor.parentNode.insertBefore(block, anchor.nextSibling);
+    if (insertBefore) {
+      anchor.parentNode.insertBefore(block, anchor);
+    } else {
+      anchor.parentNode.insertBefore(block, anchor.nextSibling);
+    }
 
     // Wire up modals
     var btns = block.querySelectorAll(".vtx-pb-link[data-pb-idx]");
@@ -1186,8 +1233,16 @@
         var isMobile = window.innerWidth <= 768;
         if (inlineMode) {
           var pdpAnchor = null;
+          var pdpInsertBefore = false;
           if (cfg.product_benefits_anchor) {
             pdpAnchor = document.querySelector(cfg.product_benefits_anchor);
+          }
+          if (!pdpAnchor && isKitProduct()) {
+            var kitBox2 = findProductSelectionBox();
+            if (kitBox2) {
+              pdpAnchor = kitBox2;
+              pdpInsertBefore = true;
+            }
           }
           if (!pdpAnchor) {
             var pdpFallbacks = [
@@ -1212,7 +1267,11 @@
             console.warn("[GiftBar] inline-PDP: no anchor found — set product_benefits_anchor in admin");
             return;
           }
-          pdpAnchor.parentNode.insertBefore(bar, pdpAnchor.nextSibling);
+          if (pdpInsertBefore) {
+            pdpAnchor.parentNode.insertBefore(bar, pdpAnchor);
+          } else {
+            pdpAnchor.parentNode.insertBefore(bar, pdpAnchor.nextSibling);
+          }
         } else if (cfg.position === "bottom") {
           document.body.appendChild(bar);
         } else if (isMobile) {
@@ -1918,24 +1977,32 @@
         placement === "auto";
 
       if (badgeType === "coupon_countdown") {
-        // Coupon banner sits RIGHT BEFORE the buy button so it always pushes
-        // it down and never visually overlaps any sibling, regardless of
-        // how the theme styles the price block.
-        var couponBuyBtn = document.querySelector(
-          ".buy-button-container, .product-buy, #buy-button, " +
-          "[data-cart-add], .add-to-cart, form.product-form .submit, " +
-          "button.buy-btn, .product-actions, .product-buy-area"
-        );
-        if (couponBuyBtn && couponBuyBtn.parentNode) {
-          couponBuyBtn.parentNode.insertBefore(badge, couponBuyBtn);
+        // Kit products: place the countdown OUTSIDE the size/buy selection
+        // box, immediately before it (above the skeleton, alongside the
+        // existing promo tag row).
+        var kitBoxC = isKitProduct() ? findProductSelectionBox() : null;
+        if (kitBoxC && kitBoxC.parentNode) {
+          kitBoxC.parentNode.insertBefore(badge, kitBoxC);
           inserted = true;
         } else {
-          var existingRow = document.getElementById("vtx-promo-tag-row");
-          if (existingRow && existingRow.parentNode) {
-            existingRow.parentNode.insertBefore(badge, existingRow.nextSibling);
+          // Default: coupon banner sits RIGHT BEFORE the buy button so it
+          // always pushes it down and never visually overlaps any sibling.
+          var couponBuyBtn = document.querySelector(
+            ".buy-button-container, .product-buy, #buy-button, " +
+            "[data-cart-add], .add-to-cart, form.product-form .submit, " +
+            "button.buy-btn, .product-actions, .product-buy-area"
+          );
+          if (couponBuyBtn && couponBuyBtn.parentNode) {
+            couponBuyBtn.parentNode.insertBefore(badge, couponBuyBtn);
             inserted = true;
           } else {
-            inserted = insertNearPrice(badge);
+            var existingRow = document.getElementById("vtx-promo-tag-row");
+            if (existingRow && existingRow.parentNode) {
+              existingRow.parentNode.insertBefore(badge, existingRow.nextSibling);
+              inserted = true;
+            } else {
+              inserted = insertNearPrice(badge);
+            }
           }
         }
       } else if (goesNearPrice) {
