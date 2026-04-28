@@ -448,8 +448,14 @@ export async function approveCoupon(
 
   const settings = await getCouponSettings(workspaceId);
 
-  // discount_unit + discount_value_brl may not exist on legacy rows — default to pct
-  const discountUnit = ((row as Record<string, unknown>).discount_unit as "pct" | "brl" | undefined) || "pct";
+  // discount_unit + discount_value_brl may not exist on legacy rows — default to pct.
+  // In a shared bucket we ALWAYS force "pct" — fixed BRL rules combined with
+  // a non-cumulative bucket cause customer-facing price increases when the
+  // product already has a sale_price (VNDA discards the sale and applies the
+  // fixed off the regular price). Percentages always discount on top of
+  // whatever the customer is currently seeing.
+  const dbUnit = ((row as Record<string, unknown>).discount_unit as "pct" | "brl" | undefined) || "pct";
+  const discountUnit: "pct" | "brl" = bucket ? "pct" : dbUnit;
   const valueBrl = (row as Record<string, unknown>).discount_value_brl as number | null | undefined;
   const amount = discountUnit === "brl" && valueBrl ? Number(valueBrl) : Number(row.discount_pct);
 
@@ -689,8 +695,9 @@ export async function autoApprovePendingForAutoPlans(workspaceId: string): Promi
     buckets.get(key)!.push(e);
   }
 
-  // Pull VNDA config once — reused across every approve in every bucket
+  // Pull VNDA config + settings once — reused across every approve in every bucket
   const config = await getVndaConfigForWorkspace(workspaceId);
+  const settings = await getCouponSettings(workspaceId);
   if (!config) {
     // Fallback: approve one-by-one without bucket so each call surfaces its own error
     let approved = 0;
@@ -713,14 +720,16 @@ export async function autoApprovePendingForAutoPlans(workspaceId: string): Promi
       continue;
     }
 
-    // Multi-coupon: create one parent promotion, then add each code to it
+    // Multi-coupon: create one parent promotion, then add each code to it.
+    // cumulative respects the workspace setting so the bucket behaves the
+    // same way as single-coupon promotions.
     let promo;
     try {
       promo = await createPromotionBucket(config, {
         name: `Vortex bucket ${head.plan_name} (${bucketRows.length} produtos)`,
         starts_at: new Date(head.starts_at),
         expires_at: new Date(head.expires_at),
-        cumulative: false,
+        cumulative: settings.cumulative_with_other_promos,
         description: `Auto-bucket de ${bucketRows.length} cupons do plano ${head.plan_name}`,
       });
     } catch (e) {
