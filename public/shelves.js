@@ -141,11 +141,17 @@
 
   // Finds the "skeleton" / selection box that wraps size/qty/buy controls.
   // Returns the highest-priority container so we can insert blocks BEFORE it
-  // (i.e. visually outside the box) on kit PDPs. The Bulking VNDA theme uses
-  // `.product-infos` (plural) which isn't a common VNDA standard — list it
-  // first so we always grab the parent before any nested `.add-to-cart`.
+  // (i.e. visually outside the box) on kit PDPs.
+  //
+  // Order matters:
+  //   1. `.product-block-bundle` — Bulking kit pages: the per-bundle picker
+  //      card. Picking the FIRST one keeps countdown/benefits between the
+  //      product title+tags and the selection bundles, NOT above breadcrumbs.
+  //   2. `.product-infos` (plural) — Bulking non-kit panel.
+  //   3. Generic VNDA fallbacks.
   function findProductSelectionBox() {
     var selectors = [
+      ".product-block-bundle",
       ".product-infos",
       ".product-info",
       ".product-form",
