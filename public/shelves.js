@@ -141,14 +141,18 @@
 
   // Finds the "skeleton" / selection box that wraps size/qty/buy controls.
   // Returns the highest-priority container so we can insert blocks BEFORE it
-  // (i.e. visually outside the box) on kit PDPs.
+  // (i.e. visually outside the box) on kit PDPs. The Bulking VNDA theme uses
+  // `.product-infos` (plural) which isn't a common VNDA standard — list it
+  // first so we always grab the parent before any nested `.add-to-cart`.
   function findProductSelectionBox() {
     var selectors = [
+      ".product-infos",
       ".product-info",
       ".product-form",
       ".product-buy",
       "[data-product-buy]",
       "form[data-product-form]",
+      "form.add-to-cart",
       ".product__details",
       ".product__buy",
       ".product-purchase"
