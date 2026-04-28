@@ -64,6 +64,8 @@ export async function PATCH(
         ...(body.badge_placement && { badge_placement: body.badge_placement }),
         ...(body.viewers_min !== undefined && { viewers_min: body.viewers_min }),
         ...(body.viewers_max !== undefined && { viewers_max: body.viewers_max }),
+        ...(body.starts_at !== undefined && { starts_at: body.starts_at || null }),
+        ...(body.ends_at !== undefined && { ends_at: body.ends_at || null }),
       })
       .eq("id", id)
       .eq("workspace_id", workspaceId)

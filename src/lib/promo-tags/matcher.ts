@@ -281,14 +281,23 @@ export async function computePromoTagMatches(
     .maybeSingle();
   const cashbackPercent = cb?.percentage ? Number(cb.percentage) : 0;
 
-  const { data: rules } = await admin
+  const { data: rawRules } = await admin
     .from("promo_tag_configs")
     .select("*")
     .eq("workspace_id", workspaceId)
     .eq("enabled", true)
     .order("priority", { ascending: false });
 
-  if (!rules || rules.length === 0) {
+  // Honor optional schedule window: starts_at / ends_at columns from
+  // migration 065. A null bound means open-ended on that side.
+  const nowMs = Date.now();
+  const rules = (rawRules || []).filter((r) => {
+    if (r.starts_at && new Date(r.starts_at).getTime() > nowMs) return false;
+    if (r.ends_at && new Date(r.ends_at).getTime() <= nowMs) return false;
+    return true;
+  });
+
+  if (rules.length === 0) {
     return { matches: {}, cashback_percent: cashbackPercent };
   }
 

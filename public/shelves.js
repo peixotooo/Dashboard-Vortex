@@ -1901,8 +1901,9 @@
       } else if (badgeType === "coupon_countdown") {
         badge = createCouponCountdownBadge(rule);
       } else {
-        // Static — only render once on PDP
-        if (document.querySelector(".vtx-promo-tag--pdp")) continue;
+        // Static badge — multiple statics can coexist in the row (one per rule).
+        // Was previously deduped to "first only", which made a newly added
+        // rule visually replace the existing one.
         badge = createBadgeElement(rule, true);
       }
       if (!badge) continue;

@@ -56,6 +56,8 @@ interface PromoTagRule {
   badge_placement?: "auto" | "pdp_price" | "pdp_above_buy" | "card_overlay";
   viewers_min?: number;
   viewers_max?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
 }
 
 const EMPTY_RULE: PromoTagRule = {
@@ -91,6 +93,14 @@ const BADGE_TYPE_HELP: Record<string, string> = {
   viewers:
     "Aparece somente na PDP. Use {viewers} no texto pra ser substituído pelo número (ex: {viewers} pessoas vendo este produto). O valor varia por horário/popularidade do produto.",
 };
+
+/** ISO string → "YYYY-MM-DDTHH:mm" usable by <input type="datetime-local"> in local TZ */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+}
 
 const MATCH_TYPE_LABELS: Record<string, string> = {
   tag: "Tag VNDA",
@@ -394,7 +404,24 @@ export default function PromoTagsPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{rule.name}</p>
+                    <p className="font-medium truncate flex items-center gap-2">
+                      {rule.name}
+                      {(() => {
+                        const now = Date.now();
+                        const startsMs = rule.starts_at ? new Date(rule.starts_at).getTime() : null;
+                        const endsMs = rule.ends_at ? new Date(rule.ends_at).getTime() : null;
+                        if (startsMs && startsMs > now) {
+                          return <Badge variant="outline" className="border-amber-500/40 text-amber-500 text-[10px]">Agendada</Badge>;
+                        }
+                        if (endsMs && endsMs <= now) {
+                          return <Badge variant="outline" className="border-red-500/40 text-red-500 text-[10px]">Expirada</Badge>;
+                        }
+                        if (endsMs && endsMs > now) {
+                          return <Badge variant="outline" className="border-emerald-500/40 text-emerald-500 text-[10px]">Ate {new Date(endsMs).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Badge>;
+                        }
+                        return null;
+                      })()}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {MATCH_TYPE_LABELS[rule.match_type]}:{" "}
                       <span className="font-mono">{rule.match_value}</span>
@@ -734,6 +761,36 @@ export default function PromoTagsPage() {
               <p className="text-xs text-muted-foreground">
                 Maior = aparece primeiro quando um produto dá match em múltiplas regras
               </p>
+            </div>
+
+            {/* Schedule window */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Inicia em (opcional)</Label>
+                <Input
+                  type="datetime-local"
+                  value={editingRule.starts_at ? toLocalInput(editingRule.starts_at) : ""}
+                  onChange={(e) =>
+                    updateEditing({ starts_at: e.target.value ? new Date(e.target.value).toISOString() : null })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Vazio = sem data de início (já ativa).
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Expira em (opcional)</Label>
+                <Input
+                  type="datetime-local"
+                  value={editingRule.ends_at ? toLocalInput(editingRule.ends_at) : ""}
+                  onChange={(e) =>
+                    updateEditing({ ends_at: e.target.value ? new Date(e.target.value).toISOString() : null })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Vazio = sem expiração (always-on).
+                </p>
+              </div>
             </div>
 
             {/* Position */}
