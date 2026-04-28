@@ -139,35 +139,12 @@
     return false;
   }
 
-  // Finds the "skeleton" / selection box that wraps size/qty/buy controls.
-  // Returns the highest-priority container so we can insert blocks BEFORE it
-  // (i.e. visually outside the box) on kit PDPs.
-  //
-  // Order matters:
-  //   1. `.product-block-bundle` — Bulking kit pages: the per-bundle picker
-  //      card. Picking the FIRST one keeps countdown/benefits between the
-  //      product title+tags and the selection bundles, NOT above breadcrumbs.
-  //   2. `.product-infos` (plural) — Bulking non-kit panel.
-  //   3. Generic VNDA fallbacks.
-  function findProductSelectionBox() {
-    var selectors = [
-      ".product-block-bundle",
-      ".product-infos",
-      ".product-info",
-      ".product-form",
-      ".product-buy",
-      "[data-product-buy]",
-      "form[data-product-form]",
-      "form.add-to-cart",
-      ".product__details",
-      ".product__buy",
-      ".product-purchase"
-    ];
-    for (var i = 0; i < selectors.length; i++) {
-      var el = document.querySelector(selectors[i]);
-      if (el) return el;
-    }
-    return null;
+  // Anchor for kit PDPs. The promo tag row (#vtx-promo-tag-row) is already
+  // rendered OUTSIDE the size/buy panel in the Bulking theme — so for kits
+  // we just drop the coupon countdown and the benefits block right below it.
+  // Returns null if the row doesn't exist yet (caller should fall back).
+  function findKitDropAnchor() {
+    return document.getElementById("vtx-promo-tag-row");
   }
 
   function extractProductId() {
@@ -1065,10 +1042,11 @@
       anchor = document.querySelector(cfg.product_benefits_anchor);
     }
     if (!anchor && isKitProduct()) {
-      var kitBox = findProductSelectionBox();
-      if (kitBox) {
-        anchor = kitBox;
-        insertBefore = true;
+      var kitAnchor = findKitDropAnchor();
+      if (kitAnchor) {
+        anchor = kitAnchor;
+        // ProductBenefits is inserted as anchor.nextSibling by default — that's
+        // exactly what we want here: drop right below the promo tag row.
       }
     }
     if (!anchor) {
@@ -1248,10 +1226,10 @@
             pdpAnchor = document.querySelector(cfg.product_benefits_anchor);
           }
           if (!pdpAnchor && isKitProduct()) {
-            var kitBox2 = findProductSelectionBox();
-            if (kitBox2) {
-              pdpAnchor = kitBox2;
-              pdpInsertBefore = true;
+            var kitAnchor2 = findKitDropAnchor();
+            if (kitAnchor2) {
+              pdpAnchor = kitAnchor2;
+              // Default insertion (anchor.nextSibling) is what we want.
             }
           }
           if (!pdpAnchor) {
@@ -1987,12 +1965,12 @@
         placement === "auto";
 
       if (badgeType === "coupon_countdown") {
-        // Kit products: place the countdown OUTSIDE the size/buy selection
-        // box, immediately before it (above the skeleton, alongside the
-        // existing promo tag row).
-        var kitBoxC = isKitProduct() ? findProductSelectionBox() : null;
-        if (kitBoxC && kitBoxC.parentNode) {
-          kitBoxC.parentNode.insertBefore(badge, kitBoxC);
+        // Kit products: drop the countdown right below the promo tag row,
+        // which the theme already renders OUTSIDE the size/buy selection
+        // panel. No special anchor hunting — just sit beneath the tags.
+        var kitTagRow = isKitProduct() ? findKitDropAnchor() : null;
+        if (kitTagRow && kitTagRow.parentNode) {
+          kitTagRow.parentNode.insertBefore(badge, kitTagRow.nextSibling);
           inserted = true;
         } else {
           // Default: coupon banner sits RIGHT BEFORE the buy button so it
