@@ -142,9 +142,19 @@
   // Anchor for kit PDPs. The promo tag row (#vtx-promo-tag-row) is already
   // rendered OUTSIDE the size/buy panel in the Bulking theme — so for kits
   // we just drop the coupon countdown and the benefits block right below it.
-  // Returns null if the row doesn't exist yet (caller should fall back).
+  //
+  // Two-step lookup:
+  //   1. If the row already exists (because applyPromoTagsPDP ran), use it.
+  //   2. Otherwise force-create it via getOrCreatePromoTagRow(). That function
+  //      anchors off the price element; if even that hasn't rendered yet,
+  //      returns null and the caller is expected to retry.
   function findKitDropAnchor() {
-    return document.getElementById("vtx-promo-tag-row");
+    var existing = document.getElementById("vtx-promo-tag-row");
+    if (existing) return existing;
+    if (typeof getOrCreatePromoTagRow === "function") {
+      return getOrCreatePromoTagRow();
+    }
+    return null;
   }
 
   function extractProductId() {
@@ -983,7 +993,8 @@
   }
 
   // Product Benefits: vertical list rendered below the buy button on PDP
-  function renderProductBenefits(cfg) {
+  function renderProductBenefits(cfg, retries) {
+    retries = retries || 0;
     var benefits = Array.isArray(cfg.product_benefits) ? cfg.product_benefits : [];
     if (benefits.length === 0) return;
     if (document.getElementById("vtx-product-benefits")) return;
@@ -1047,6 +1058,12 @@
         anchor = kitAnchor;
         // ProductBenefits is inserted as anchor.nextSibling by default — that's
         // exactly what we want here: drop right below the promo tag row.
+      } else if (retries < 8) {
+        // Promo tag row not in DOM yet (price element may still be rendering
+        // or applyPromoTagsPDP hasn't run). Retry shortly so we don't fall
+        // through to the in-skeleton .product-buy fallback.
+        setTimeout(function () { renderProductBenefits(cfg, retries + 1); }, 250);
+        return;
       }
     }
     if (!anchor) {
