@@ -118,6 +118,36 @@ export interface VndaRule {
   amount: number;
 }
 
+/**
+ * Removes a single product binding (rule) from a discount. Used to "pause"
+ * a coupon in a bucket setup where multiple products share the same
+ * vnda_discount_id — disabling the parent discount would kill the whole
+ * bucket, so we surgically detach just the affected product.
+ *
+ * Returns true on 204/200/404 (idempotent: missing rule = already detached).
+ */
+export async function removeVndaProductRule(
+  config: VndaConfig,
+  promotionId: number,
+  ruleId: number
+): Promise<boolean> {
+  const url = `https://api.vnda.com.br/api/v2/discounts/${promotionId}/rules/${ruleId}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      Accept: "application/json",
+      "X-Shop-Host": config.storeHost,
+    },
+  });
+  if (res.status === 404) return true;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new VndaError(res.status, text);
+  }
+  return true;
+}
+
 export async function createVndaProductRule(
   config: VndaConfig,
   promotionId: number,

@@ -17,6 +17,7 @@ import {
   getVndaConfigForWorkspace,
   createFullCoupon,
   pauseVndaPromotion,
+  removeVndaProductRule,
   createPromotionBucket,
   addCodeToBucket,
   VndaError,
@@ -60,6 +61,44 @@ interface ActiveCouponRow {
   created_at: string;
 }
 
+// --- Helpers ---
+
+/**
+ * Surgical pause for a single coupon. Removes ONLY the product binding (rule)
+ * for this coupon, leaving the discount and other coupons in the same bucket
+ * intact. Falls back to pausing the whole discount when:
+ *   - the row has no vnda_rule_id (legacy data), OR
+ *   - this is the last live coupon under the discount (nothing left to keep up).
+ *
+ * Returns the action taken so callers can audit.
+ */
+async function pauseCouponSurgical(
+  config: VndaConfig,
+  workspaceId: string,
+  row: { id: string; vnda_discount_id: number | null; vnda_rule_id?: number | null }
+): Promise<"rule_removed" | "discount_paused" | "noop"> {
+  if (!row.vnda_discount_id) return "noop";
+
+  const admin = createAdminClient();
+  // Count siblings still in non-terminal status sharing the same discount
+  const { count: siblingsActive } = await admin
+    .from("promo_active_coupons")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("vnda_discount_id", row.vnda_discount_id)
+    .neq("id", row.id)
+    .in("status", ["active", "pending"]);
+
+  if (row.vnda_rule_id && (siblingsActive ?? 0) > 0) {
+    await removeVndaProductRule(config, row.vnda_discount_id, row.vnda_rule_id);
+    return "rule_removed";
+  }
+
+  // Last man standing — safe to pause the whole discount
+  await pauseVndaPromotion(config, row.vnda_discount_id);
+  return "discount_paused";
+}
+
 // --- 1. Expire ---
 
 export async function expireOldCoupons(workspaceId: string): Promise<number> {
@@ -75,7 +114,13 @@ export async function expireOldCoupons(workspaceId: string): Promise<number> {
 
   const config = await getVndaConfigForWorkspace(workspaceId);
 
-  for (const row of due) {
+  // Refetch with rule_id for surgical pause
+  const { data: dueWithRule } = await admin
+    .from("promo_active_coupons")
+    .select("id, plan_id, product_id, vnda_discount_id, vnda_rule_id, vnda_coupon_code")
+    .in("id", due.map((d) => d.id));
+
+  for (const row of dueWithRule || []) {
     // Pause on VNDA first; if it fails, keep DB as active so we retry next cycle
     if (config && row.vnda_discount_id) {
       await logCouponAudit({
@@ -85,16 +130,17 @@ export async function expireOldCoupons(workspaceId: string): Promise<number> {
         planId: row.plan_id || undefined,
         activeCouponId: row.id,
         productId: row.product_id,
-        details: { promotion_id: row.vnda_discount_id, reason: "expired" },
+        details: { promotion_id: row.vnda_discount_id, rule_id: row.vnda_rule_id, reason: "expired" },
       });
       try {
-        await pauseVndaPromotion(config, row.vnda_discount_id);
+        const action = await pauseCouponSurgical(config, workspaceId, row);
         await logCouponAudit({
           workspaceId,
           action: "vnda_pause_ok",
           actor: "cron",
           activeCouponId: row.id,
           productId: row.product_id,
+          details: { strategy: action },
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -559,9 +605,10 @@ export async function pauseActiveCoupon(
   if (row.status !== "active") return { ok: false, error: `Status atual: ${row.status}` };
 
   const config = await getVndaConfigForWorkspace(workspaceId);
+  let pauseStrategy: "rule_removed" | "discount_paused" | "noop" = "noop";
   if (config && row.vnda_discount_id) {
     try {
-      await pauseVndaPromotion(config, row.vnda_discount_id);
+      pauseStrategy = await pauseCouponSurgical(config, workspaceId, row);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await logCouponAudit({
@@ -577,7 +624,7 @@ export async function pauseActiveCoupon(
   }
   await admin
     .from("promo_active_coupons")
-    .update({ status: "paused" })
+    .update({ status: "paused", status_reason: `manual_${pauseStrategy}` })
     .eq("id", row.id);
   await logCouponAudit({
     workspaceId,
