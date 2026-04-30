@@ -113,9 +113,9 @@ export async function pickBestseller(
       startDate,
       endDate,
       dimensions: ["itemId"],
-      metrics: ["itemRevenue"],
+      metrics: ["itemPurchaseQuantity"],
       limit: 30,
-      orderBy: { metric: "itemRevenue", desc: true },
+      orderBy: { metric: "itemPurchaseQuantity", desc: true },
     });
     topIds = (report?.rows ?? [])
       .map((r) => String(r.dimensions?.itemId ?? ""))
