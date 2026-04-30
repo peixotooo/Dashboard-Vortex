@@ -20,7 +20,6 @@ interface ShelfRow {
   sale_price: number | null;
   image_url: string | null;
   product_url: string | null;
-  category: string | null;
   tags: unknown;
   created_at: string;
 }
@@ -86,7 +85,7 @@ async function fetchShelf(
   const supabase = createAdminClient();
   let q = supabase
     .from("shelf_products")
-    .select("product_id, name, price, sale_price, image_url, product_url, category, tags, created_at")
+    .select("product_id, name, price, sale_price, image_url, product_url, tags, created_at")
     .eq("workspace_id", workspace_id);
   if (filters.active !== false) q = q.eq("active", true);
   if (filters.in_stock !== false) q = q.eq("in_stock", true);
@@ -173,7 +172,7 @@ export async function pickSlowmoving(
       salesById[id] = Number(r.metrics?.itemPurchaseQuantity ?? 0);
     }
   } catch {
-    // GA4 missing → score everything with sales=0 (slowmoving by definition)
+    return { product: null, reason: "no_ga4" };
   }
 
   const used = await recentlyUsedProductIds(workspace_id, 2, 14);
@@ -192,7 +191,6 @@ export async function pickSlowmoving(
   }
 
   scored.sort((a, b) => b.score - a.score);
-  void idList; // referenced only for clarity
   return { product: toSnapshot(scored[0].row) };
 }
 
