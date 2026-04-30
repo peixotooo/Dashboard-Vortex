@@ -34,7 +34,7 @@ export async function getSettings(
 export async function upsertSettings(
   patch: Partial<EmailTemplateSettings> & { workspace_id: string }
 ): Promise<EmailTemplateSettings> {
-  // Enforce ranges
+  // Range checks
   if (patch.slowmoving_discount_percent !== undefined) {
     if (patch.slowmoving_discount_percent < 5 || patch.slowmoving_discount_percent > 20) {
       throw new Error("slowmoving_discount_percent must be between 5 and 20");
@@ -45,9 +45,25 @@ export async function upsertSettings(
       throw new Error("slowmoving_coupon_validity_hours must be between 12 and 168");
     }
   }
+  for (const key of [
+    "bestseller_lookback_days",
+    "slowmoving_lookback_days",
+    "newarrival_lookback_days",
+  ] as const) {
+    const v = patch[key];
+    if (v !== undefined && (v < 1 || v > 90)) {
+      throw new Error(`${key} must be between 1 and 90`);
+    }
+  }
+  if (patch.slowmoving_max_sales !== undefined) {
+    if (patch.slowmoving_max_sales < 0 || patch.slowmoving_max_sales > 50) {
+      throw new Error("slowmoving_max_sales must be between 0 and 50");
+    }
+  }
 
   const supabase = createAdminClient();
-  const merged = { ...getDefaults(patch.workspace_id), ...patch, updated_at: new Date().toISOString() };
+  const existing = await getSettings(patch.workspace_id);
+  const merged = { ...existing, ...patch, updated_at: new Date().toISOString() };
   const { data, error } = await supabase
     .from("email_template_settings")
     .upsert(merged, { onConflict: "workspace_id" })
