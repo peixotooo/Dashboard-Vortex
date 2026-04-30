@@ -158,10 +158,12 @@ async function persistSuggestion(args: {
       workspace: { name: "Bulking" },
     });
   } catch (err) {
+    const msg = String((err as Error).message);
+    console.error(`[email-templates/orchestrator] slot ${slot} render_failed:`, msg, (err as Error).stack);
     await logAudit({
       workspace_id,
       event: "render_failed",
-      payload: { slot, error: String((err as Error).message) },
+      payload: { slot, error: msg },
     });
     return { slot, ok: false, reason: "render_failed" };
   }
@@ -197,6 +199,7 @@ async function persistSuggestion(args: {
     .single();
 
   if (error) {
+    console.error(`[email-templates/orchestrator] slot ${slot} db upsert failed:`, error.message);
     await logAudit({ workspace_id, event: "render_failed", payload: { slot, db_error: error.message } });
     return { slot, ok: false, reason: "db_error" };
   }
