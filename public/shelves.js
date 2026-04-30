@@ -1215,37 +1215,52 @@
       var pct = maxThreshold > 0 ? Math.min(100, (total / maxThreshold) * 100) : 0;
       fillEl.style.width = pct.toFixed(2) + "%";
 
+      // Token replacement covers BOTH the legacy single-threshold names
+      // ({remaining}, {gift}, {threshold}, {total}) and the multi-step names
+      // ({gap}, {next_label}, {next_threshold}, {total}). Admins can mix any
+      // of them in any message field — same convention as the sticky bar.
       var msg;
-      if (total >= maxThreshold && cfg.message_all_achieved) {
-        msg = cfg.message_all_achieved;
-        bar.classList.add("vtx-gb-achieved");
+      if (total <= 0) {
+        msg = cfg.message_empty || cfg.message_progress || "";
+        bar.classList.remove("vtx-gb-achieved");
       } else if (hasSteps) {
-        // Find next unachieved step
         var next = null;
         for (var i = 0; i < steps.length; i++) {
           if (total < Number(steps[i].threshold)) { next = steps[i]; break; }
         }
         if (next) {
-          var remaining = Number(next.threshold) - total;
-          msg = (cfg.message_next_step || cfg.message_progress || "Faltam {remaining} para {gift}!")
-            .replace(/\{remaining\}/g, formatBRL(Math.max(0, remaining)))
-            .replace(/\{gift\}/g, next.label || cfg.gift_name || "")
-            .replace(/\{threshold\}/g, formatBRL(Number(next.threshold)));
+          msg = cfg.message_next_step || cfg.message_progress || "Faltam R$ {gap} para o proximo {next_label}!";
+          bar.classList.remove("vtx-gb-achieved");
         } else {
-          msg = cfg.message_achieved || "Parabéns!";
+          msg = cfg.message_all_achieved || cfg.message_achieved || "Parabéns!";
           bar.classList.add("vtx-gb-achieved");
         }
+      } else if (total >= Number(cfg.threshold)) {
+        msg = cfg.message_achieved || "";
+        bar.classList.add("vtx-gb-achieved");
       } else {
-        var remaining2 = Number(cfg.threshold) - total;
-        if (total >= Number(cfg.threshold)) {
-          msg = (cfg.message_achieved || "").replace(/\{gift\}/g, cfg.gift_name || "");
-          bar.classList.add("vtx-gb-achieved");
-        } else {
-          msg = (cfg.message_progress || "Faltam {remaining} para ganhar {gift}!")
-            .replace(/\{remaining\}/g, formatBRL(Math.max(0, remaining2)))
-            .replace(/\{gift\}/g, cfg.gift_name || "");
+        msg = cfg.message_progress || "Faltam {remaining} para ganhar {gift}!";
+        bar.classList.remove("vtx-gb-achieved");
+      }
+
+      var nextStep = null;
+      if (hasSteps) {
+        for (var ns = 0; ns < steps.length; ns++) {
+          if (total < Number(steps[ns].threshold)) { nextStep = steps[ns]; break; }
         }
       }
+      var gap = nextStep ? Math.max(Number(nextStep.threshold) - total, 0) : Math.max(Number(cfg.threshold) - total, 0);
+      var nextLabel = nextStep ? (nextStep.label || cfg.gift_name || "") : (cfg.gift_name || "");
+      var nextThreshold = nextStep ? Number(nextStep.threshold) : Number(cfg.threshold);
+
+      msg = (msg || "")
+        .replace(/\{gap\}/g, formatBRL(gap))
+        .replace(/\{remaining\}/g, formatBRL(gap))
+        .replace(/\{next_label\}/g, nextLabel)
+        .replace(/\{gift\}/g, nextLabel)
+        .replace(/\{next_threshold\}/g, formatBRL(nextThreshold))
+        .replace(/\{threshold\}/g, formatBRL(nextThreshold))
+        .replace(/\{total\}/g, formatBRL(total));
       textEl.textContent = msg;
 
       // Activate steps
