@@ -113,7 +113,7 @@ export async function pickBestseller(
       startDate,
       endDate,
       dimensions: ["itemId"],
-      metrics: ["itemRevenue", "addToCarts"],
+      metrics: ["itemRevenue"],
       limit: 30,
       orderBy: { metric: "itemRevenue", desc: true },
     });
