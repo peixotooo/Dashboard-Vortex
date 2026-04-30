@@ -1112,6 +1112,197 @@
     console.log("[ProductBenefits] Rendered", benefits.length, "benefits");
   }
 
+  // Static gift-bar variant injected into the Bulking cart drawer.
+  // The drawer is a JS-mounted off-canvas component (#component-cart-drawer-root)
+  // shown on every page on mobile, so we don't depend on detectPageType.
+  // Reads the cart total from any visible "R$ ..." subtotal element and
+  // re-renders progress/labels whenever the drawer DOM mutates.
+  function attachGiftBarToCartDrawer(cfg) {
+    var drawerRoot = document.getElementById("component-cart-drawer-root");
+    if (!drawerRoot) return;
+
+    // Inject styles once — reuse the existing #vtx-gift-bar look but scoped.
+    if (!document.getElementById("vtx-gift-bar-drawer-styles")) {
+      var ds = document.createElement("style");
+      ds.id = "vtx-gift-bar-drawer-styles";
+      ds.textContent =
+        "#vtx-gift-bar-drawer{" +
+          "position:relative;margin:10px 12px 16px;" +
+          "border:1px solid #e5e7eb;border-radius:10px;" +
+          "background:" + escapeHtml(cfg.bg_color) + ";" +
+          "color:" + escapeHtml(cfg.text_color) + ";" +
+          "padding:12px 14px;" +
+          "font-family:'Inter',system-ui,sans-serif;font-size:12.5px;" +
+        "}" +
+        "#vtx-gift-bar-drawer.vtx-gb-achieved{" +
+          "background:" + escapeHtml(cfg.achieved_bg_color) + "!important;" +
+          "color:" + escapeHtml(cfg.achieved_text_color) + "!important;" +
+        "}" +
+        "#vtx-gift-bar-drawer .vtx-gb-text{margin:0 0 8px;font-weight:600;text-align:center;line-height:1.3}" +
+        "#vtx-gift-bar-drawer .vtx-gb-track-wrap{position:relative;padding:7px 8px 22px}" +
+        "#vtx-gift-bar-drawer .vtx-gb-track{position:relative;width:100%;height:5px;" +
+          "background:" + escapeHtml(cfg.bar_bg_color) + ";border-radius:999px;overflow:visible}" +
+        "#vtx-gift-bar-drawer .vtx-gb-fill{height:100%;" +
+          "background:" + escapeHtml(cfg.bar_color) + ";border-radius:999px;transition:width .4s ease;width:0}" +
+        "#vtx-gift-bar-drawer .vtx-gb-steps{position:absolute;top:7px;left:8px;right:8px;height:5px;pointer-events:none}" +
+        "#vtx-gift-bar-drawer .vtx-gb-step{position:absolute;top:50%;transform:translate(-50%, -50%);display:flex;flex-direction:column;align-items:center;pointer-events:auto}" +
+        "#vtx-gift-bar-drawer .vtx-gb-step-icon{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:" + escapeHtml(cfg.bar_bg_color) + ";color:" + escapeHtml(cfg.text_color) + ";box-shadow:0 0 0 2px " + escapeHtml(cfg.bg_color) + ";transition:all .25s ease}" +
+        "#vtx-gift-bar-drawer .vtx-gb-step-icon svg{width:55%;height:55%}" +
+        "#vtx-gift-bar-drawer .vtx-gb-step.vtx-gb-step-active .vtx-gb-step-icon{background:" + escapeHtml(cfg.bar_color) + ";color:#fff}" +
+        "#vtx-gift-bar-drawer .vtx-gb-step-label{position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9.5px;font-weight:500;opacity:.85;line-height:1.1}";
+      document.head.appendChild(ds);
+    }
+
+    var hasSteps = Array.isArray(cfg.steps) && cfg.steps.length > 0;
+    var steps = hasSteps
+      ? cfg.steps.slice().sort(function (a, b) { return Number(a.threshold) - Number(b.threshold); })
+      : [];
+    var maxThreshold = hasSteps
+      ? Number(steps[steps.length - 1].threshold) || cfg.threshold
+      : Number(cfg.threshold);
+
+    function buildBar() {
+      var bar = document.createElement("div");
+      bar.id = "vtx-gift-bar-drawer";
+      var stepsHtml = "";
+      if (hasSteps && maxThreshold > 0) {
+        stepsHtml = '<div class="vtx-gb-steps">';
+        for (var i = 0; i < steps.length; i++) {
+          var s = steps[i];
+          var pct = Math.max(0, Math.min(100, (Number(s.threshold) / maxThreshold) * 100));
+          stepsHtml +=
+            '<div class="vtx-gb-step" data-threshold="' + Number(s.threshold) + '" style="left:' + pct.toFixed(2) + '%">' +
+              '<div class="vtx-gb-step-icon">' + renderIcon(s.icon) + '</div>' +
+              '<div class="vtx-gb-step-label">' + escapeHtml(s.label || "") + '</div>' +
+            '</div>';
+        }
+        stepsHtml += '</div>';
+      }
+      bar.innerHTML =
+        '<p class="vtx-gb-text"></p>' +
+        '<div class="vtx-gb-track-wrap">' +
+          '<div class="vtx-gb-track"><div class="vtx-gb-fill"></div></div>' +
+          stepsHtml +
+        '</div>';
+      return bar;
+    }
+
+    // Reads the largest "R$ X,YY" looking number inside the drawer — on
+    // VNDA cart drawers the subtotal is the highest visible price.
+    function readDrawerTotal() {
+      var max = 0;
+      var nodes = drawerRoot.querySelectorAll("*");
+      var seen = {};
+      for (var i = 0; i < nodes.length; i++) {
+        var t = nodes[i].textContent || "";
+        if (t.length > 200) continue;
+        var m = t.match(/R\$\s*([\d.]+,\d{2})/);
+        if (!m) continue;
+        var v = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
+        if (!isFinite(v) || v <= 0) continue;
+        if (seen[m[0]]) continue;
+        seen[m[0]] = true;
+        if (v > max) max = v;
+      }
+      return max;
+    }
+
+    function updateBar(bar, total) {
+      var textEl = bar.querySelector(".vtx-gb-text");
+      var fillEl = bar.querySelector(".vtx-gb-fill");
+      if (!textEl || !fillEl) return;
+
+      var pct = maxThreshold > 0 ? Math.min(100, (total / maxThreshold) * 100) : 0;
+      fillEl.style.width = pct.toFixed(2) + "%";
+
+      var msg;
+      if (total >= maxThreshold && cfg.message_all_achieved) {
+        msg = cfg.message_all_achieved;
+        bar.classList.add("vtx-gb-achieved");
+      } else if (hasSteps) {
+        // Find next unachieved step
+        var next = null;
+        for (var i = 0; i < steps.length; i++) {
+          if (total < Number(steps[i].threshold)) { next = steps[i]; break; }
+        }
+        if (next) {
+          var remaining = Number(next.threshold) - total;
+          msg = (cfg.message_next_step || cfg.message_progress || "Faltam {remaining} para {gift}!")
+            .replace(/\{remaining\}/g, formatBRL(Math.max(0, remaining)))
+            .replace(/\{gift\}/g, next.label || cfg.gift_name || "")
+            .replace(/\{threshold\}/g, formatBRL(Number(next.threshold)));
+        } else {
+          msg = cfg.message_achieved || "Parabéns!";
+          bar.classList.add("vtx-gb-achieved");
+        }
+      } else {
+        var remaining2 = Number(cfg.threshold) - total;
+        if (total >= Number(cfg.threshold)) {
+          msg = (cfg.message_achieved || "").replace(/\{gift\}/g, cfg.gift_name || "");
+          bar.classList.add("vtx-gb-achieved");
+        } else {
+          msg = (cfg.message_progress || "Faltam {remaining} para ganhar {gift}!")
+            .replace(/\{remaining\}/g, formatBRL(Math.max(0, remaining2)))
+            .replace(/\{gift\}/g, cfg.gift_name || "");
+        }
+      }
+      textEl.textContent = msg;
+
+      // Activate steps
+      var stepEls = bar.querySelectorAll(".vtx-gb-step");
+      for (var k = 0; k < stepEls.length; k++) {
+        var th = Number(stepEls[k].getAttribute("data-threshold"));
+        if (total >= th) stepEls[k].classList.add("vtx-gb-step-active");
+        else stepEls[k].classList.remove("vtx-gb-step-active");
+      }
+    }
+
+    var injectInProgress = false;
+    function maybeInject() {
+      if (injectInProgress) return;
+      injectInProgress = true;
+      try {
+        // No content yet (drawer closed or empty) — wait for next mutation
+        if (!drawerRoot.children.length) return;
+
+        var existing = drawerRoot.querySelector("#vtx-gift-bar-drawer");
+        if (existing) {
+          updateBar(existing, readDrawerTotal());
+          return;
+        }
+
+        var bar = buildBar();
+        // Try to find a sensible content container (drawer body) inside,
+        // else insert as the first element of the drawer root.
+        var target =
+          drawerRoot.querySelector("[class*='Body'], [class*='body'], [class*='content'], [class*='Content']") ||
+          drawerRoot.firstElementChild ||
+          drawerRoot;
+        if (target.tagName) {
+          // Prefer inserting at the very top of the inner panel.
+          target.insertBefore(bar, target.firstChild);
+        } else {
+          drawerRoot.insertBefore(bar, drawerRoot.firstChild);
+        }
+        updateBar(bar, readDrawerTotal());
+      } finally {
+        injectInProgress = false;
+      }
+    }
+
+    // Initial check (drawer might already be open from SSR/hydration)
+    maybeInject();
+
+    if (window.MutationObserver) {
+      var debounce = null;
+      var obs = new MutationObserver(function () {
+        clearTimeout(debounce);
+        debounce = setTimeout(maybeInject, 80);
+      });
+      obs.observe(drawerRoot, { childList: true, subtree: true });
+    }
+  }
+
   function initGiftBar() {
     fetchJSON(API_BASE + "/api/gift-bar/public-config?key=" + API_KEY)
       .then(function (data) {
@@ -1125,6 +1316,13 @@
         }
 
         if (!cfg.enabled) return;
+
+        // Bulking storefront has a side cart-drawer (#component-cart-drawer-root)
+        // that mounts on top of any page when the user taps the cart icon —
+        // most mobile users hit checkout through it instead of /carrinho.
+        // Watch for it being populated and inject a copy of the gift bar
+        // there so the benefits track shows up regardless of the URL.
+        attachGiftBarToCartDrawer(cfg);
 
         // User requested to completely remove the gift bar from the PDP
         // (but keep it on cart/checkout). Force sticky mode for non-PDP
