@@ -195,17 +195,24 @@ export function productMetaBlock(args: { name: string; price: number; old_price?
 }
 
 /**
- * Inline HTML countdown — static snapshot of remaining time at email
- * generation. Email clients don't run JS, so the timer cannot tick down
- * on its own; the value shown is whatever was true when the cron ran.
+ * Coupon block: code + product line + DYNAMIC countdown image.
+ *
+ * The countdown is rendered as a server-side PNG (`/api/email-countdown.png`)
+ * that re-renders on every fetch. Email clients re-fetch images each open
+ * (modulo their own cache), so the timer is effectively live without any JS.
+ * Adidas / NiftyImages / Sendtric all use the same trick — JS is blocked in
+ * Gmail / Outlook / Apple Mail inboxes.
+ *
+ * If a client blocks images, the alt text "Termina em HH:MM (snapshot)"
+ * still reads correctly.
  */
-function formatRemaining(expires_at: Date): { hh: string; mm: string; expired: boolean } {
+function staticTimerAlt(expires_at: Date): string {
   const ms = expires_at.getTime() - Date.now();
-  if (ms <= 0) return { hh: "00", mm: "00", expired: true };
+  if (ms <= 0) return "Promoção encerrada";
   const totalMin = Math.floor(ms / 60000);
-  const hh = Math.floor(totalMin / 60);
-  const mm = totalMin % 60;
-  return { hh: String(hh).padStart(2, "0"), mm: String(mm).padStart(2, "0"), expired: false };
+  const hh = String(Math.floor(totalMin / 60)).padStart(2, "0");
+  const mm = String(totalMin % 60).padStart(2, "0");
+  return `Termina em ${hh}:${mm}`;
 }
 
 export function couponBlock(args: {
@@ -213,27 +220,9 @@ export function couponBlock(args: {
   discount_percent: number;
   product_name: string;
   expires_at: Date;
+  countdown_url: string;
 }): string {
-  const t = formatRemaining(args.expires_at);
-  const digitColor = t.expired ? TOKENS.textSecondary : TOKENS.text;
-  const timerLabel = t.expired ? "Encerrado" : "Termina em";
-  const timerBody = t.expired
-    ? `<span style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;letter-spacing:0.04em;color:${digitColor};">ENCERRADO</span>`
-    : `
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
-  <tr>
-    <td align="center" style="padding:0 14px;">
-      <div style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;line-height:1;color:${digitColor};letter-spacing:0.02em;">${t.hh}</div>
-      <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.22em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-top:6px;">Horas</div>
-    </td>
-    <td valign="middle" style="padding:0 4px;font-family:${TOKENS.fontHead};font-weight:800;font-size:36px;color:${digitColor};">:</td>
-    <td align="center" style="padding:0 14px;">
-      <div style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;line-height:1;color:${digitColor};letter-spacing:0.02em;">${t.mm}</div>
-      <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.22em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-top:6px;">Min</div>
-    </td>
-  </tr>
-</table>`;
-
+  const alt = staticTimerAlt(args.expires_at);
   return `
 <tr><td class="pad" style="padding:8px 32px 16px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${TOKENS.text};background:${TOKENS.bg};">
@@ -245,8 +234,8 @@ export function couponBlock(args: {
   </table>
 </td></tr>
 <tr><td class="pad" align="center" style="padding:0 32px 32px;">
-  <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.24em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:14px;">${timerLabel}</div>
-  ${timerBody}
+  <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.24em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:14px;">Termina em</div>
+  <img src="${escapeHtml(args.countdown_url)}" alt="${escapeHtml(alt)}" width="600" height="160" style="width:100%;max-width:600px;height:auto;display:block;" />
 </td></tr>`;
 }
 

@@ -7,6 +7,7 @@ import { pickTopHours } from "./hours";
 import { pickBestseller, pickNewarrival, pickRelatedProducts, pickSlowmoving } from "./picker";
 import { generateCopy } from "./copy";
 import { createSlowmovingCoupon } from "./coupon";
+import { buildCountdownUrl } from "./countdown";
 import { renderBestseller } from "./templates/bestseller";
 import { renderSlowmoving } from "./templates/slowmoving";
 import { renderNewarrival } from "./templates/newarrival";
@@ -84,6 +85,11 @@ async function generateSlotSlowmoving(
     return { slot: 2, ok: false, reason: "coupon_failed" };
   }
 
+  const countdown_url = buildCountdownUrl({
+    base_url: APP_BASE_URL,
+    expires_at: coupon.expires_at,
+  });
+
   const related = await pickRelatedProducts(
     workspace_id,
     new Set([pick.product.vnda_id, ...exclude_ids]),
@@ -91,7 +97,7 @@ async function generateSlotSlowmoving(
   );
   return persistSuggestion({
     workspace_id, settings, date, slot: 2, product: pick.product, hours,
-    coupon,
+    coupon: { ...coupon, countdown_url },
     related_products: related,
     hook: "Estoque acabando",
     render: (ctx) => renderSlowmoving(ctx),
@@ -136,6 +142,7 @@ async function persistSuggestion(args: {
     vnda_coupon_id: number;
     expires_at: Date;
     discount_percent: number;
+    countdown_url: string;
   };
   render: (ctx: TemplateRenderContext) => string;
   related_products?: ProductSnapshot[];
@@ -169,6 +176,7 @@ async function persistSuggestion(args: {
             code: coupon.code,
             discount_percent: coupon.discount_percent,
             expires_at: coupon.expires_at,
+            countdown_url: coupon.countdown_url,
           }
         : undefined,
       workspace: { name: "Bulking" },

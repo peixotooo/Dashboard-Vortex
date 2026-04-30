@@ -95,7 +95,7 @@ export interface TemplateRenderContext {
   product: ProductSnapshot;
   related_products: ProductSnapshot[]; // up to 3 secondary products shown in a grid
   copy: CopyOutput;
-  coupon?: { code: string; discount_percent: number; expires_at: Date };
+  coupon?: { code: string; discount_percent: number; expires_at: Date; countdown_url: string };
   workspace: { name: string; logo_url?: string };
   hook?: string; // optional brand-voice tagline shown above the hero
 }

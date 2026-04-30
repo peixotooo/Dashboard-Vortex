@@ -34,6 +34,7 @@ export function renderSlowmoving(ctx: TemplateRenderContext): string {
       discount_percent: ctx.coupon.discount_percent,
       product_name: ctx.product.name,
       expires_at: ctx.coupon.expires_at,
+      countdown_url: ctx.coupon.countdown_url,
     }),
     productMetaBlock({ name: ctx.product.name, price: ctx.product.price, old_price: ctx.product.old_price }),
     ctaBlock({ text: ctx.copy.cta_text, url: ctx.copy.cta_url }),

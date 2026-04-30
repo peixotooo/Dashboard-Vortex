@@ -76,7 +76,6 @@ assert(html1.includes("Respect the Hustle"), "footer present");
 assert(html1.length > 1000 && html1.length < 50000, "html size sane");
 
 console.log("\n[templates] render slowmoving");
-// Pick an expires_at safely in the future so the HTML countdown shows non-zero digits.
 const futureExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
 const html2 = renderSlowmoving({
   ...baseCtx,
@@ -84,13 +83,13 @@ const html2 = renderSlowmoving({
     code: "EMAIL-SLOWMOV-A7K2X",
     discount_percent: 10,
     expires_at: futureExpires,
+    countdown_url: url,
   },
 });
 assert(html2.includes("EMAIL-SLOWMOV-A7K2X"), "coupon code in html");
 assert(html2.includes("ÚLTIMAS PEÇAS"), "slowmoving badge present");
-assert(html2.includes("Termina em"), "html countdown label present");
-assert(/font-size:48px/.test(html2), "html countdown digits present");
-assert(!/email-countdown\.png/.test(html2), "no countdown image (fully html now)");
+assert(html2.includes("Termina em"), "label present");
+assert(/email-countdown\.png/.test(html2), "dynamic countdown image present");
 
 console.log("\n[templates] render newarrival");
 const html3 = renderNewarrival(baseCtx);
