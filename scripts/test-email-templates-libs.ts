@@ -81,7 +81,7 @@ const html2 = renderSlowmoving({
 });
 assert(html2.includes("EMAIL-SLOWMOV-A7K2X"), "coupon code in html");
 assert(html2.includes("ÚLTIMAS PEÇAS"), "slowmoving badge present");
-assert(html2.includes(url), "countdown img src present");
+assert(html2.includes(url.replace(/&/g, "&amp;")), "countdown img src present");
 
 console.log("\n[templates] render newarrival");
 const html3 = renderNewarrival(baseCtx);

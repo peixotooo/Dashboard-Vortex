@@ -70,7 +70,7 @@ export function hero(args: { image_url: string; alt: string; badge?: string }): 
   return `
 <tr><td style="padding:0;">
   ${badge}
-  <img src="${args.image_url}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="width:100%;max-width:600px;height:auto;display:block;object-fit:cover;" />
+  <img src="${escapeHtml(args.image_url)}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="width:100%;max-width:600px;height:auto;display:block;object-fit:cover;" />
 </td></tr>`;
 }
 
@@ -91,7 +91,7 @@ export function leadBlock(text: string): string {
 export function ctaBlock(args: { text: string; url: string }): string {
   return `
 <tr><td class="pad" align="left" style="padding:8px 24px 32px;">
-  <a href="${args.url}" target="_blank" style="display:inline-block;background:${TOKENS.accent};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:14px;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:16px 32px;">${escapeHtml(args.text)}</a>
+  <a href="${escapeHtml(args.url)}" target="_blank" style="display:inline-block;background:${TOKENS.accent};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:14px;letter-spacing:0.1em;text-transform:uppercase;text-decoration:none;padding:16px 32px;">${escapeHtml(args.text)}</a>
 </td></tr>`;
 }
 
@@ -124,7 +124,7 @@ export function couponBlock(args: {
 </td></tr>
 <tr><td class="pad" align="center" style="padding:0 24px 24px;">
   <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.2em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:8px;">Termina em</div>
-  <img src="${args.countdown_url}" alt="Cronômetro" width="600" height="120" style="width:100%;max-width:600px;height:auto;display:block;" />
+  <img src="${escapeHtml(args.countdown_url)}" alt="Cronômetro" width="600" height="120" style="width:100%;max-width:600px;height:auto;display:block;" />
 </td></tr>`;
 }
 
