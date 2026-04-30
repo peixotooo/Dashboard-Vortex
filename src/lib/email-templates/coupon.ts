@@ -5,6 +5,7 @@
 // percent-based, single-use per user, capped at a generous total redemption
 // count for the email blast, and short-lived (validity_hours from settings).
 
+import { randomInt } from "crypto";
 import {
   createFullCoupon,
   getVndaConfigForWorkspace,
@@ -17,7 +18,7 @@ const BASE32_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 function randomBase32(len: number): string {
   let out = "";
   for (let i = 0; i < len; i++) {
-    out += BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)];
+    out += BASE32_ALPHABET[randomInt(0, BASE32_ALPHABET.length)];
   }
   return out;
 }
