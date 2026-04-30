@@ -26,8 +26,8 @@ A feature vive dentro do módulo CRM em `/(dashboard)/crm/email-templates` e seg
 2. Cada card mostra: produto, segmento alvo + estimativa de tamanho, **3 horários ótimos de disparo** (de GA4 hourly), cupom (slot 2), preview do email.
 3. Botão **"Copiar HTML"** copia o HTML pro clipboard, marca `selected_at` e incrementa `selected_count` (não destrutivo, copiável N vezes).
 4. Botão **"Marcar como disparado"** abre modal pedindo `sent_at` (default = now) e opcionalmente qual dos 3 horários sugeridos foi usado (`sent_hour_chosen`).
-5. Sugestões coexistem — usuário pode disparar as 3.
-6. Após 24h viram histórico (não somem ao serem usadas).
+5. Sugestões coexistem — usuário pode disparar as 3 sem que uma "consuma" a outra.
+6. Sugestões com `generated_for_date = current_date()` aparecem na tab **"Hoje"**; com data anterior aparecem na tab **"Histórico"** (rolling 30d). Sugestões de hoje NÃO somem após `selected` ou `sent`.
 
 ### Estados de uma sugestão
 
@@ -101,6 +101,7 @@ supabase/migrations/
 - Demais libs são puras (input → output). Nada de side-effects fora do que o nome diz.
 - **`templates/*` retornam `string` HTML email-safe** (tabelas inline, max 600px, todos estilos inline em cada elemento, dark-safe).
 - **`coupon.ts`** envolve `createFullCoupon` de `src/lib/coupons/vnda-coupons.ts` — não duplica lógica.
+- **`audit.ts`** centraliza a escrita em `email_template_audit`. Eventos de geração vêm do `orchestrator`; eventos de `selected`/`sent` vêm das rotas API.
 - **`countdown.ts`** retorna URL pública assinada (HMAC) com `expires` no query string — a rota `/api/email-countdown.png` valida assinatura, calcula tempo restante, renderiza PNG via `@vercel/og`.
 
 ---
@@ -324,6 +325,7 @@ interface CopyProvider {
 
 ### Regras transversais aos 3 templates
 
+- Templates aplicam a **identidade Bulking** definida em `brandbook/BRANDBOOK-BULKING.md`: arquétipo Hero+Creator, paleta preto/verde `#49E472`, tipografia Kanit (display) + fallback Arial, vocabulário on-brand (usar: "hustle", "shape", "vestir"; evitar: "barato", "mega promo", "guerreiro", urgência falsa).
 - Largura máxima **600px**, layout `<table role="presentation">` (não flex/grid).
 - Estilos **inline** em cada elemento (`<style>` no head é ignorado por Outlook/Gmail desktop).
 - Cores dos design tokens do brandbook: bg `#000`, accent `#49E472`, text `#FFFFFF`.
@@ -332,6 +334,7 @@ interface CopyProvider {
 - Dark-mode safe: `meta name="color-scheme" content="light dark"`.
 - Mobile responsivo: `@media (max-width: 599px)` com fonts +2-4px e padding ajustado.
 - Pre-header: `<div style="display:none;...">{preview}</div>` — primeira frase do lead.
+- **Unsubscribe**: o footer inclui um marcador literal `{{UNSUBSCRIBE_URL}}` (não um link válido) — o sistema externo de email-mkt (RD Station, Mailchimp, etc) faz substituição na hora do disparo. O dashboard NÃO mantém lista de descadastros, é responsabilidade do sistema externo.
 
 ### Estrutura comum (`shared.ts`)
 
@@ -343,7 +346,7 @@ interface CopyProvider {
 [BLOCO 3]  (slot 2 only) Cupom box + Countdown
 [BLOCO 4]  CTA Primary (verde #49E472, texto preto, uppercase, 16px, padding 16x32)
 [BLOCO 5]  Detalhes do produto (nome, preço, preço antigo riscado se houver)
-[FOOTER]   "Respect the Hustle." | links institucionais | unsubscribe placeholder
+[FOOTER]   "Respect the Hustle." | links institucionais | placeholder de unsubscribe
 ```
 
 ### Especificidades por slot
