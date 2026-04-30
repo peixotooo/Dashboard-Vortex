@@ -120,7 +120,8 @@ export async function pickBestseller(
     topIds = (report?.rows ?? [])
       .map((r) => String(r.dimensions?.itemId ?? ""))
       .filter(Boolean);
-  } catch {
+  } catch (err) {
+    console.error("[email-templates/picker] pickBestseller GA4 failed:", (err as Error).message);
     return { product: null, reason: "no_ga4" };
   }
   if (topIds.length === 0) return { product: null, reason: "no_candidate" };
@@ -171,7 +172,8 @@ export async function pickSlowmoving(
       const id = String(r.dimensions?.itemId ?? "");
       salesById[id] = Number(r.metrics?.itemPurchaseQuantity ?? 0);
     }
-  } catch {
+  } catch (err) {
+    console.error("[email-templates/picker] pickSlowmoving GA4 failed:", (err as Error).message);
     return { product: null, reason: "no_ga4" };
   }
 
