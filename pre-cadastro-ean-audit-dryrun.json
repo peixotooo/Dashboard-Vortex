@@ -1,0 +1,1009 @@
+{
+  "mode": "dry-run",
+  "totalChildren": 100,
+  "totalInvalid": 100,
+  "totalFixed": 0,
+  "totalErrors": 0,
+  "rows": [
+    {
+      "parentCodigo": "776282397",
+      "childCodigo": "776282397-1",
+      "eccId": "2078133444",
+      "gtin": "16814017687788",
+      "gtinEmbalagem": "16814017687788",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2302349774641"
+    },
+    {
+      "parentCodigo": "776282397",
+      "childCodigo": "776282397-2",
+      "eccId": "2078133547",
+      "gtin": "15161969201153",
+      "gtinEmbalagem": "15161969201153",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2179335514211"
+    },
+    {
+      "parentCodigo": "776282397",
+      "childCodigo": "776282397-3",
+      "eccId": "2078133632",
+      "gtin": "15449955028530",
+      "gtinEmbalagem": "15449955028530",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2593472700960"
+    },
+    {
+      "parentCodigo": "776282397",
+      "childCodigo": "776282397-4",
+      "eccId": "2078133745",
+      "gtin": "19268632694620",
+      "gtinEmbalagem": "19268632694620",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2445068866218"
+    },
+    {
+      "parentCodigo": "776282397",
+      "childCodigo": "776282397-5",
+      "eccId": "2078133812",
+      "gtin": "18515659811019",
+      "gtinEmbalagem": "18515659811019",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2945458178599"
+    },
+    {
+      "parentCodigo": "776262039",
+      "childCodigo": "776262039-1",
+      "eccId": "2077572960",
+      "gtin": "13604415387196",
+      "gtinEmbalagem": "13604415387196",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2525200928858"
+    },
+    {
+      "parentCodigo": "776262039",
+      "childCodigo": "776262039-2",
+      "eccId": "2077573010",
+      "gtin": "11891846310141",
+      "gtinEmbalagem": "11891846310141",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2947899203465"
+    },
+    {
+      "parentCodigo": "776262039",
+      "childCodigo": "776262039-3",
+      "eccId": "2077573042",
+      "gtin": "15308325970593",
+      "gtinEmbalagem": "15308325970593",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2601873087020"
+    },
+    {
+      "parentCodigo": "776262039",
+      "childCodigo": "776262039-4",
+      "eccId": "2077573073",
+      "gtin": "13526323910001",
+      "gtinEmbalagem": "13526323910001",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2817926152953"
+    },
+    {
+      "parentCodigo": "776262039",
+      "childCodigo": "776262039-5",
+      "eccId": "2077573091",
+      "gtin": "17915230504207",
+      "gtinEmbalagem": "17915230504207",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2975583266212"
+    },
+    {
+      "parentCodigo": "776262040",
+      "childCodigo": "776262040-1",
+      "eccId": "2077573548",
+      "gtin": "18390020766835",
+      "gtinEmbalagem": "18390020766835",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2465798259210"
+    },
+    {
+      "parentCodigo": "776262040",
+      "childCodigo": "776262040-2",
+      "eccId": "2077573617",
+      "gtin": "15048963614531",
+      "gtinEmbalagem": "15048963614531",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2524789877878"
+    },
+    {
+      "parentCodigo": "776262040",
+      "childCodigo": "776262040-3",
+      "eccId": "2077573639",
+      "gtin": "19510500352957",
+      "gtinEmbalagem": "19510500352957",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2397653958290"
+    },
+    {
+      "parentCodigo": "776262040",
+      "childCodigo": "776262040-4",
+      "eccId": "2077573692",
+      "gtin": "11593143993644",
+      "gtinEmbalagem": "11593143993644",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2707061643839"
+    },
+    {
+      "parentCodigo": "776262040",
+      "childCodigo": "776262040-5",
+      "eccId": "2077573770",
+      "gtin": "11983416379282",
+      "gtinEmbalagem": "11983416379282",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2441418911201"
+    },
+    {
+      "parentCodigo": "776262041",
+      "childCodigo": "776262041-1",
+      "eccId": "2077573901",
+      "gtin": "14510243771986",
+      "gtinEmbalagem": "14510243771986",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2280840466466"
+    },
+    {
+      "parentCodigo": "776262041",
+      "childCodigo": "776262041-2",
+      "eccId": "2077573963",
+      "gtin": "16821309339197",
+      "gtinEmbalagem": "16821309339197",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2281989955521"
+    },
+    {
+      "parentCodigo": "776262041",
+      "childCodigo": "776262041-3",
+      "eccId": "2077574010",
+      "gtin": "16892695848837",
+      "gtinEmbalagem": "16892695848837",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2394076798014"
+    },
+    {
+      "parentCodigo": "776262041",
+      "childCodigo": "776262041-4",
+      "eccId": "2077574029",
+      "gtin": "17195906684121",
+      "gtinEmbalagem": "17195906684121",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2920226938193"
+    },
+    {
+      "parentCodigo": "776262041",
+      "childCodigo": "776262041-5",
+      "eccId": "2077574054",
+      "gtin": "19086033856241",
+      "gtinEmbalagem": "19086033856241",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2880342451979"
+    },
+    {
+      "parentCodigo": "776262043",
+      "childCodigo": "776262043-1",
+      "eccId": "2077575340",
+      "gtin": "14831349423361",
+      "gtinEmbalagem": "14831349423361",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2481959386014"
+    },
+    {
+      "parentCodigo": "776262043",
+      "childCodigo": "776262043-2",
+      "eccId": "2077575356",
+      "gtin": "11287657689055",
+      "gtinEmbalagem": "11287657689055",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2792185950833"
+    },
+    {
+      "parentCodigo": "776262043",
+      "childCodigo": "776262043-3",
+      "eccId": "2077575392",
+      "gtin": "12620561132005",
+      "gtinEmbalagem": "12620561132005",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2989310244336"
+    },
+    {
+      "parentCodigo": "776262043",
+      "childCodigo": "776262043-4",
+      "eccId": "2077575471",
+      "gtin": "13304024924231",
+      "gtinEmbalagem": "13304024924231",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2717649255255"
+    },
+    {
+      "parentCodigo": "776262043",
+      "childCodigo": "776262043-5",
+      "eccId": "2077575589",
+      "gtin": "13578846278054",
+      "gtinEmbalagem": "13578846278054",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2973214146117"
+    },
+    {
+      "parentCodigo": "776262042",
+      "childCodigo": "776262042-1",
+      "eccId": "2077574218",
+      "gtin": "14719330753481",
+      "gtinEmbalagem": "14719330753481",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2947708925366"
+    },
+    {
+      "parentCodigo": "776262042",
+      "childCodigo": "776262042-2",
+      "eccId": "2077574291",
+      "gtin": "18667596297103",
+      "gtinEmbalagem": "18667596297103",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2203156080034"
+    },
+    {
+      "parentCodigo": "776262042",
+      "childCodigo": "776262042-3",
+      "eccId": "2077574339",
+      "gtin": "19429766242862",
+      "gtinEmbalagem": "19429766242862",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2586000486382"
+    },
+    {
+      "parentCodigo": "776262042",
+      "childCodigo": "776262042-4",
+      "eccId": "2077574475",
+      "gtin": "17862830239359",
+      "gtinEmbalagem": "17862830239359",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2520862734250"
+    },
+    {
+      "parentCodigo": "776262042",
+      "childCodigo": "776262042-5",
+      "eccId": "2077574493",
+      "gtin": "13475352103653",
+      "gtinEmbalagem": "13475352103653",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2832827443726"
+    },
+    {
+      "parentCodigo": "776282393",
+      "childCodigo": "776282393-1",
+      "eccId": "2078129831",
+      "gtin": "14254562534296",
+      "gtinEmbalagem": "14254562534296",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2129191765975"
+    },
+    {
+      "parentCodigo": "776282393",
+      "childCodigo": "776282393-2",
+      "eccId": "2078129998",
+      "gtin": "19479735986693",
+      "gtinEmbalagem": "19479735986693",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2145881917257"
+    },
+    {
+      "parentCodigo": "776282393",
+      "childCodigo": "776282393-3",
+      "eccId": "2078130095",
+      "gtin": "19212218926492",
+      "gtinEmbalagem": "19212218926492",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2733882705241"
+    },
+    {
+      "parentCodigo": "776282393",
+      "childCodigo": "776282393-4",
+      "eccId": "2078130173",
+      "gtin": "14443494676385",
+      "gtinEmbalagem": "14443494676385",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2413144617306"
+    },
+    {
+      "parentCodigo": "776282393",
+      "childCodigo": "776282393-5",
+      "eccId": "2078130287",
+      "gtin": "13224201755020",
+      "gtinEmbalagem": "13224201755020",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2332704172737"
+    },
+    {
+      "parentCodigo": "776282390",
+      "childCodigo": "776282390-1",
+      "eccId": "2078126685",
+      "gtin": "11871556783837",
+      "gtinEmbalagem": "11871556783837",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2448114554855"
+    },
+    {
+      "parentCodigo": "776282390",
+      "childCodigo": "776282390-2",
+      "eccId": "2078126875",
+      "gtin": "16939135431090",
+      "gtinEmbalagem": "16939135431090",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2489665503381"
+    },
+    {
+      "parentCodigo": "776282390",
+      "childCodigo": "776282390-3",
+      "eccId": "2078127086",
+      "gtin": "11491912502854",
+      "gtinEmbalagem": "11491912502854",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2275068490775"
+    },
+    {
+      "parentCodigo": "776282390",
+      "childCodigo": "776282390-4",
+      "eccId": "2078127172",
+      "gtin": "17364734013658",
+      "gtinEmbalagem": "17364734013658",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2017635274599"
+    },
+    {
+      "parentCodigo": "776282390",
+      "childCodigo": "776282390-5",
+      "eccId": "2078127253",
+      "gtin": "12144160472684",
+      "gtinEmbalagem": "12144160472684",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2675993177268"
+    },
+    {
+      "parentCodigo": "776282392",
+      "childCodigo": "776282392-1",
+      "eccId": "2078128623",
+      "gtin": "11446871938785",
+      "gtinEmbalagem": "11446871938785",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2432382221021"
+    },
+    {
+      "parentCodigo": "776282392",
+      "childCodigo": "776282392-2",
+      "eccId": "2078128721",
+      "gtin": "16261167669885",
+      "gtinEmbalagem": "16261167669885",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2197616633390"
+    },
+    {
+      "parentCodigo": "776282392",
+      "childCodigo": "776282392-3",
+      "eccId": "2078128776",
+      "gtin": "18813624494846",
+      "gtinEmbalagem": "18813624494846",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2099782662771"
+    },
+    {
+      "parentCodigo": "776282392",
+      "childCodigo": "776282392-4",
+      "eccId": "2078128862",
+      "gtin": "19395817499700",
+      "gtinEmbalagem": "19395817499700",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2150820994329"
+    },
+    {
+      "parentCodigo": "776282392",
+      "childCodigo": "776282392-5",
+      "eccId": "2078129062",
+      "gtin": "16186400910015",
+      "gtinEmbalagem": "16186400910015",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2661894087485"
+    },
+    {
+      "parentCodigo": "776282394",
+      "childCodigo": "776282394-1",
+      "eccId": "2078130900",
+      "gtin": "13888840452843",
+      "gtinEmbalagem": "13888840452843",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2783431201182"
+    },
+    {
+      "parentCodigo": "776282394",
+      "childCodigo": "776282394-2",
+      "eccId": "2078131001",
+      "gtin": "16616482196547",
+      "gtinEmbalagem": "16616482196547",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2774323758204"
+    },
+    {
+      "parentCodigo": "776282394",
+      "childCodigo": "776282394-3",
+      "eccId": "2078131291",
+      "gtin": "17887636852616",
+      "gtinEmbalagem": "17887636852616",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2119491482597"
+    },
+    {
+      "parentCodigo": "776282394",
+      "childCodigo": "776282394-4",
+      "eccId": "2078131387",
+      "gtin": "14729196805987",
+      "gtinEmbalagem": "14729196805987",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2916509767239"
+    },
+    {
+      "parentCodigo": "776282394",
+      "childCodigo": "776282394-5",
+      "eccId": "2078131511",
+      "gtin": "17609518286728",
+      "gtinEmbalagem": "17609518286728",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2430644140448"
+    },
+    {
+      "parentCodigo": "776282396",
+      "childCodigo": "776282396-1",
+      "eccId": "2078132602",
+      "gtin": "12064835061587",
+      "gtinEmbalagem": "12064835061587",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2305630926491"
+    },
+    {
+      "parentCodigo": "776282396",
+      "childCodigo": "776282396-2",
+      "eccId": "2078132779",
+      "gtin": "11239975635247",
+      "gtinEmbalagem": "11239975635247",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2712103237082"
+    },
+    {
+      "parentCodigo": "776282396",
+      "childCodigo": "776282396-3",
+      "eccId": "2078132889",
+      "gtin": "17275740376263",
+      "gtinEmbalagem": "17275740376263",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2803365714159"
+    },
+    {
+      "parentCodigo": "776282396",
+      "childCodigo": "776282396-4",
+      "eccId": "2078132949",
+      "gtin": "12012394339928",
+      "gtinEmbalagem": "12012394339928",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2357725769032"
+    },
+    {
+      "parentCodigo": "776282396",
+      "childCodigo": "776282396-5",
+      "eccId": "2078133016",
+      "gtin": "12448626430646",
+      "gtinEmbalagem": "12448626430646",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2715331278179"
+    },
+    {
+      "parentCodigo": "776282398",
+      "childCodigo": "776282398-1",
+      "eccId": "2078134251",
+      "gtin": "12275971634850",
+      "gtinEmbalagem": "12275971634850",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2243954563308"
+    },
+    {
+      "parentCodigo": "776282398",
+      "childCodigo": "776282398-2",
+      "eccId": "2078134317",
+      "gtin": "14582205576119",
+      "gtinEmbalagem": "14582205576119",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2785502372357"
+    },
+    {
+      "parentCodigo": "776282398",
+      "childCodigo": "776282398-3",
+      "eccId": "2078134368",
+      "gtin": "11853811388894",
+      "gtinEmbalagem": "11853811388894",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2612234416472"
+    },
+    {
+      "parentCodigo": "776282398",
+      "childCodigo": "776282398-4",
+      "eccId": "2078134433",
+      "gtin": "17532241212570",
+      "gtinEmbalagem": "17532241212570",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2505525889218"
+    },
+    {
+      "parentCodigo": "776282398",
+      "childCodigo": "776282398-5",
+      "eccId": "2078134487",
+      "gtin": "14879621466664",
+      "gtinEmbalagem": "14879621466664",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2402814459421"
+    },
+    {
+      "parentCodigo": "776282391",
+      "childCodigo": "776282391-1",
+      "eccId": "2078127690",
+      "gtin": "14746478337781",
+      "gtinEmbalagem": "14746478337781",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2618851130005"
+    },
+    {
+      "parentCodigo": "776282391",
+      "childCodigo": "776282391-2",
+      "eccId": "2078127877",
+      "gtin": "18706034845978",
+      "gtinEmbalagem": "18706034845978",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2589776864026"
+    },
+    {
+      "parentCodigo": "776282391",
+      "childCodigo": "776282391-3",
+      "eccId": "2078127993",
+      "gtin": "13915237141407",
+      "gtinEmbalagem": "13915237141407",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2107327582931"
+    },
+    {
+      "parentCodigo": "776282391",
+      "childCodigo": "776282391-4",
+      "eccId": "2078128046",
+      "gtin": "13461734703630",
+      "gtinEmbalagem": "13461734703630",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2770730730871"
+    },
+    {
+      "parentCodigo": "776282391",
+      "childCodigo": "776282391-5",
+      "eccId": "2078128120",
+      "gtin": "17481609250371",
+      "gtinEmbalagem": "17481609250371",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2212765575992"
+    },
+    {
+      "parentCodigo": "776282395",
+      "childCodigo": "776282395-1",
+      "eccId": "2078131862",
+      "gtin": "12125122197148",
+      "gtinEmbalagem": "12125122197148",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2012625115913"
+    },
+    {
+      "parentCodigo": "776282395",
+      "childCodigo": "776282395-2",
+      "eccId": "2078132015",
+      "gtin": "16459418760232",
+      "gtinEmbalagem": "16459418760232",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2584969684566"
+    },
+    {
+      "parentCodigo": "776282395",
+      "childCodigo": "776282395-3",
+      "eccId": "2078132222",
+      "gtin": "17383574499299",
+      "gtinEmbalagem": "17383574499299",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2764701869363"
+    },
+    {
+      "parentCodigo": "776282395",
+      "childCodigo": "776282395-4",
+      "eccId": "2078132275",
+      "gtin": "19977417556847",
+      "gtinEmbalagem": "19977417556847",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2146874929585"
+    },
+    {
+      "parentCodigo": "776282395",
+      "childCodigo": "776282395-5",
+      "eccId": "2078132351",
+      "gtin": "11951632261951",
+      "gtinEmbalagem": "11951632261951",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2488022169482"
+    },
+    {
+      "parentCodigo": "776282403",
+      "childCodigo": "776282403-1",
+      "eccId": "2078138971",
+      "gtin": "13197542376392",
+      "gtinEmbalagem": "13197542376392",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2352517222863"
+    },
+    {
+      "parentCodigo": "776282403",
+      "childCodigo": "776282403-2",
+      "eccId": "2078139106",
+      "gtin": "11999691866531",
+      "gtinEmbalagem": "11999691866531",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2673961812722"
+    },
+    {
+      "parentCodigo": "776282403",
+      "childCodigo": "776282403-3",
+      "eccId": "2078139208",
+      "gtin": "17074227293419",
+      "gtinEmbalagem": "17074227293419",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2974559292460"
+    },
+    {
+      "parentCodigo": "776282403",
+      "childCodigo": "776282403-4",
+      "eccId": "2078139291",
+      "gtin": "19795475438585",
+      "gtinEmbalagem": "19795475438585",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2108334304608"
+    },
+    {
+      "parentCodigo": "776282403",
+      "childCodigo": "776282403-5",
+      "eccId": "2078139406",
+      "gtin": "15413959878372",
+      "gtinEmbalagem": "15413959878372",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2360977822523"
+    },
+    {
+      "parentCodigo": "776282399",
+      "childCodigo": "776282399-1",
+      "eccId": "2078134759",
+      "gtin": "16521393193384",
+      "gtinEmbalagem": "16521393193384",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2747504459092"
+    },
+    {
+      "parentCodigo": "776282399",
+      "childCodigo": "776282399-2",
+      "eccId": "2078134830",
+      "gtin": "11515120912235",
+      "gtinEmbalagem": "11515120912235",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2335792112784"
+    },
+    {
+      "parentCodigo": "776282399",
+      "childCodigo": "776282399-3",
+      "eccId": "2078134896",
+      "gtin": "12716980735010",
+      "gtinEmbalagem": "12716980735010",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2191164923767"
+    },
+    {
+      "parentCodigo": "776282399",
+      "childCodigo": "776282399-4",
+      "eccId": "2078134962",
+      "gtin": "11047091357985",
+      "gtinEmbalagem": "11047091357985",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2251845608281"
+    },
+    {
+      "parentCodigo": "776282399",
+      "childCodigo": "776282399-5",
+      "eccId": "2078135305",
+      "gtin": "12946556996495",
+      "gtinEmbalagem": "12946556996495",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2321217001504"
+    },
+    {
+      "parentCodigo": "776282400",
+      "childCodigo": "776282400-1",
+      "eccId": "2078135550",
+      "gtin": "18126209001363",
+      "gtinEmbalagem": "18126209001363",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2530743213705"
+    },
+    {
+      "parentCodigo": "776282400",
+      "childCodigo": "776282400-2",
+      "eccId": "2078135878",
+      "gtin": "19746126427283",
+      "gtinEmbalagem": "19746126427283",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2023234177070"
+    },
+    {
+      "parentCodigo": "776282400",
+      "childCodigo": "776282400-3",
+      "eccId": "2078136381",
+      "gtin": "12739703449881",
+      "gtinEmbalagem": "12739703449881",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2931289540575"
+    },
+    {
+      "parentCodigo": "776282400",
+      "childCodigo": "776282400-4",
+      "eccId": "2078136513",
+      "gtin": "13347145837358",
+      "gtinEmbalagem": "13347145837358",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2383756544508"
+    },
+    {
+      "parentCodigo": "776282400",
+      "childCodigo": "776282400-5",
+      "eccId": "2078136570",
+      "gtin": "15510699421746",
+      "gtinEmbalagem": "15510699421746",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2271312008574"
+    },
+    {
+      "parentCodigo": "776282401",
+      "childCodigo": "776282401-1",
+      "eccId": "2078136889",
+      "gtin": "17217370637132",
+      "gtinEmbalagem": "17217370637132",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2960716420845"
+    },
+    {
+      "parentCodigo": "776282401",
+      "childCodigo": "776282401-2",
+      "eccId": "2078136960",
+      "gtin": "16229212495388",
+      "gtinEmbalagem": "16229212495388",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2623509269488"
+    },
+    {
+      "parentCodigo": "776282401",
+      "childCodigo": "776282401-3",
+      "eccId": "2078137027",
+      "gtin": "11976696676303",
+      "gtinEmbalagem": "11976696676303",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2827784792758"
+    },
+    {
+      "parentCodigo": "776282401",
+      "childCodigo": "776282401-4",
+      "eccId": "2078137132",
+      "gtin": "12588408867520",
+      "gtinEmbalagem": "12588408867520",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2210684633885"
+    },
+    {
+      "parentCodigo": "776282401",
+      "childCodigo": "776282401-5",
+      "eccId": "2078137185",
+      "gtin": "12961368746515",
+      "gtinEmbalagem": "12961368746515",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2952072367827"
+    },
+    {
+      "parentCodigo": "776282402",
+      "childCodigo": "776282402-1",
+      "eccId": "2078138088",
+      "gtin": "14955034299625",
+      "gtinEmbalagem": "14955034299625",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2369424088024"
+    },
+    {
+      "parentCodigo": "776282402",
+      "childCodigo": "776282402-2",
+      "eccId": "2078138126",
+      "gtin": "16520785805571",
+      "gtinEmbalagem": "16520785805571",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2608729141745"
+    },
+    {
+      "parentCodigo": "776282402",
+      "childCodigo": "776282402-3",
+      "eccId": "2078138237",
+      "gtin": "13506250965574",
+      "gtinEmbalagem": "13506250965574",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2155486752429"
+    },
+    {
+      "parentCodigo": "776282402",
+      "childCodigo": "776282402-4",
+      "eccId": "2078138420",
+      "gtin": "13264504057016",
+      "gtinEmbalagem": "13264504057016",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2599820430879"
+    },
+    {
+      "parentCodigo": "776282402",
+      "childCodigo": "776282402-5",
+      "eccId": "2078138503",
+      "gtin": "15354440039257",
+      "gtinEmbalagem": "15354440039257",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2670811588547"
+    },
+    {
+      "parentCodigo": "776708534",
+      "childCodigo": "776708534-1",
+      "eccId": "2081868026",
+      "gtin": "18853677157879",
+      "gtinEmbalagem": "18853677157879",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2241811838590"
+    },
+    {
+      "parentCodigo": "776708534",
+      "childCodigo": "776708534-2",
+      "eccId": "2081868071",
+      "gtin": "17387925497446",
+      "gtinEmbalagem": "17387925497446",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2159309812734"
+    },
+    {
+      "parentCodigo": "776708534",
+      "childCodigo": "776708534-3",
+      "eccId": "2081868111",
+      "gtin": "18964280445203",
+      "gtinEmbalagem": "18964280445203",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2482552013307"
+    },
+    {
+      "parentCodigo": "776708534",
+      "childCodigo": "776708534-4",
+      "eccId": "2081868146",
+      "gtin": "13933314546606",
+      "gtinEmbalagem": "13933314546606",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2541566077887"
+    },
+    {
+      "parentCodigo": "776708534",
+      "childCodigo": "776708534-5",
+      "eccId": "2081868255",
+      "gtin": "15046341405667",
+      "gtinEmbalagem": "15046341405667",
+      "gtinValid": false,
+      "embalagemValid": false,
+      "newGtin": "2099907476948"
+    }
+  ]
+}

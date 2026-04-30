@@ -50,6 +50,7 @@ export function htmlOpen(args: { subject: string; preview: string }): string {
     .pad { padding: 16px 20px !important; }
     .pad-top { padding-top: 24px !important; }
     .pad-bottom { padding-bottom: 24px !important; }
+    .related-cell { display:block !important; width:100% !important; padding:0 0 24px !important; }
   }
 </style>
 </head>
@@ -68,6 +69,78 @@ export function header(): string {
   return `
 <tr><td align="center" class="pad" style="padding:36px 24px 28px;border-bottom:1px solid ${TOKENS.border};">
   <span style="display:inline-block;font-family:${TOKENS.fontHead};font-weight:800;font-size:26px;letter-spacing:0.18em;color:${TOKENS.text};">BULKING</span>
+</td></tr>`;
+}
+
+/** Centered tagline shown above the hero — sets the tone for the email. */
+export function hookBlock(text: string): string {
+  return `
+<tr><td align="center" class="pad" style="padding:24px 32px 4px;">
+  <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.22em;color:${TOKENS.textSecondary};text-transform:uppercase;">${escapeHtml(text)}</div>
+</td></tr>`;
+}
+
+/** Static 5-star rating row — visual social proof. Real ratings are v2. */
+export function ratingStarsBlock(rating = 5, count?: number): string {
+  const filled = Math.max(0, Math.min(5, Math.round(rating)));
+  const stars = "★".repeat(filled) + "☆".repeat(5 - filled);
+  const tail = count ? ` <span style="color:${TOKENS.textSecondary};font-weight:400;">(${count})</span>` : "";
+  return `
+<tr><td class="pad" align="center" style="padding:0 32px 12px;">
+  <div style="font-family:${TOKENS.fontBody};font-size:14px;color:${TOKENS.text};letter-spacing:0.08em;">${stars}${tail}</div>
+</td></tr>`;
+}
+
+/** Bold discount call-out used by slot 2 (slowmoving). */
+export function discountBadgeBlock(discount_percent: number): string {
+  return `
+<tr><td align="center" class="pad" style="padding:0 32px 16px;">
+  <span style="display:inline-block;background:${TOKENS.text};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:800;font-size:18px;letter-spacing:0.16em;padding:10px 20px;text-transform:uppercase;">${discount_percent}% OFF · só hoje</span>
+</td></tr>`;
+}
+
+/** 3-up product grid rendered with email-safe nested tables. */
+export function relatedProductsGrid(products: Array<{
+  name: string;
+  price: number;
+  old_price?: number;
+  image_url: string;
+  url: string;
+}>): string {
+  if (!products || products.length === 0) return "";
+  const cols = products.slice(0, 3);
+  // Equal-width columns, mobile media query collapses to single column.
+  const widthPct = `${Math.floor(100 / cols.length)}%`;
+
+  const sectionTitle = `
+<tr><td align="center" class="pad" style="padding:48px 32px 8px;border-top:1px solid ${TOKENS.border};">
+  <div style="font-family:${TOKENS.fontHead};font-weight:800;font-size:13px;letter-spacing:0.22em;color:${TOKENS.text};text-transform:uppercase;">Mais para vestir o trabalho</div>
+</td></tr>
+<tr><td align="center" class="pad" style="padding:0 32px 24px;">
+  <div style="font-family:${TOKENS.fontBody};font-size:14px;color:${TOKENS.textSecondary};">Selecionados pra quem treina como você.</div>
+</td></tr>`;
+
+  const cells = cols.map((p) => {
+    const oldPrice = p.old_price && p.old_price > p.price
+      ? `<div style="font-family:${TOKENS.fontBody};font-size:12px;color:${TOKENS.textSecondary};text-decoration:line-through;">R$ ${p.old_price.toFixed(2)}</div>`
+      : "";
+    return `
+<td valign="top" align="center" width="${widthPct}" class="related-cell" style="width:${widthPct};padding:0 8px 32px;">
+  <a href="${escapeHtml(p.url)}" target="_blank" style="text-decoration:none;color:${TOKENS.text};">
+    <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="170" height="220" style="width:100%;max-width:180px;height:auto;display:block;margin:0 auto 10px;" />
+    <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:14px;color:${TOKENS.text};line-height:1.3;margin-bottom:6px;min-height:34px;">${escapeHtml(p.name)}</div>
+    ${oldPrice}
+    <div style="font-family:${TOKENS.fontHead};font-weight:700;font-size:16px;color:${TOKENS.text};">R$ ${p.price.toFixed(2)}</div>
+    <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:11px;color:${TOKENS.text};letter-spacing:0.16em;text-transform:uppercase;border-bottom:1px solid ${TOKENS.text};padding-bottom:2px;display:inline-block;margin-top:10px;">Ver produto</div>
+  </a>
+</td>`;
+  }).join("");
+
+  return `${sectionTitle}
+<tr><td class="pad" style="padding:0 24px 24px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr>${cells}</tr>
+  </table>
 </td></tr>`;
 }
 

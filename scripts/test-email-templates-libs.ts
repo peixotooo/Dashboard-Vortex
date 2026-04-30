@@ -47,6 +47,12 @@ assert(url.includes("sig="), "url has sig");
 
 console.log("\n[templates] render bestseller");
 const baseCtx: TemplateRenderContext = {
+  related_products: [
+    { vnda_id: "2", name: "Regata Hustle Verde", price: 79.9, image_url: "https://cdn.example.com/r1.jpg", url: "https://www.bulking.com.br/produto/r1" },
+    { vnda_id: "3", name: "Jogger Bulking", price: 149.9, old_price: 179.9, image_url: "https://cdn.example.com/r2.jpg", url: "https://www.bulking.com.br/produto/r2" },
+    { vnda_id: "4", name: "Boné Hustle", price: 59.9, image_url: "https://cdn.example.com/r3.jpg", url: "https://www.bulking.com.br/produto/r3" },
+  ],
+  hook: "O top 1 da semana",
   product: {
     vnda_id: "1",
     name: "Camiseta Hustle Preta",

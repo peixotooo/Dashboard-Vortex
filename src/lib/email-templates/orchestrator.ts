@@ -4,7 +4,7 @@ import { logAudit } from "./audit";
 import { getSettings } from "./settings";
 import { resolveSegmentForSlot } from "./segments";
 import { pickTopHours } from "./hours";
-import { pickBestseller, pickNewarrival, pickSlowmoving } from "./picker";
+import { pickBestseller, pickNewarrival, pickRelatedProducts, pickSlowmoving } from "./picker";
 import { generateCopy } from "./copy";
 import { createSlowmovingCoupon } from "./coupon";
 import { buildCountdownUrl } from "./countdown";
@@ -41,8 +41,15 @@ async function generateSlotBestseller(
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 1, reason: pick.reason } });
     return { slot: 1, ok: false, reason: pick.reason };
   }
+  const related = await pickRelatedProducts(
+    workspace_id,
+    new Set([pick.product.vnda_id, ...exclude_ids]),
+    3
+  );
   return persistSuggestion({
     workspace_id, settings, date, slot: 1, product: pick.product, hours,
+    related_products: related,
+    hook: "O top 1 da semana",
     render: (ctx) => renderBestseller(ctx),
   });
 }
@@ -83,9 +90,16 @@ async function generateSlotSlowmoving(
     expires_at: coupon.expires_at,
   });
 
+  const related = await pickRelatedProducts(
+    workspace_id,
+    new Set([pick.product.vnda_id, ...exclude_ids]),
+    3
+  );
   return persistSuggestion({
     workspace_id, settings, date, slot: 2, product: pick.product, hours,
     coupon: { ...coupon, countdown_url },
+    related_products: related,
+    hook: "Estoque acabando",
     render: (ctx) => renderSlowmoving(ctx),
   });
 }
@@ -102,8 +116,15 @@ async function generateSlotNewarrival(
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 3, reason: pick.reason } });
     return { slot: 3, ok: false, reason: pick.reason };
   }
+  const related = await pickRelatedProducts(
+    workspace_id,
+    new Set([pick.product.vnda_id, ...exclude_ids]),
+    3
+  );
   return persistSuggestion({
     workspace_id, settings, date, slot: 3, product: pick.product, hours,
+    related_products: related,
+    hook: "Acabou de chegar",
     render: (ctx) => renderNewarrival(ctx),
   });
 }
@@ -124,8 +145,10 @@ async function persistSuggestion(args: {
     countdown_url: string;
   };
   render: (ctx: TemplateRenderContext) => string;
+  related_products?: ProductSnapshot[];
+  hook?: string;
 }): Promise<SlotResult> {
-  const { workspace_id, settings, date, slot, product, hours, coupon, render } = args;
+  const { workspace_id, settings, date, slot, product, hours, coupon, render, related_products, hook } = args;
   const segment = await resolveSegmentForSlot(workspace_id, slot);
 
   const { output: copy, provider_used } = await generateCopy(
@@ -146,6 +169,7 @@ async function persistSuggestion(args: {
   try {
     rendered_html = render({
       product,
+      related_products: related_products ?? [],
       copy,
       coupon: coupon
         ? {
@@ -156,6 +180,7 @@ async function persistSuggestion(args: {
           }
         : undefined,
       workspace: { name: "Bulking" },
+      hook,
     });
   } catch (err) {
     const msg = String((err as Error).message);

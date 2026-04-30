@@ -215,3 +215,22 @@ export async function pickNewarrival(
   if (sorted.length === 0) return { product: null, reason: "all_recently_used" };
   return { product: toSnapshot(sorted[0]) };
 }
+
+/**
+ * Picks up to N secondary products to render in the email grid below the hero.
+ * Strategy: top-of-shelf (active + in_stock) ordered by created_at desc, excluding
+ * the primary product and anything else already in `exclude_ids` (e.g. siblings
+ * picked for other slots today, or recently used).
+ */
+export async function pickRelatedProducts(
+  workspace_id: string,
+  exclude_ids: Set<string>,
+  limit = 3
+): Promise<ProductSnapshot[]> {
+  const shelf = await fetchShelf(workspace_id, {});
+  return shelf
+    .filter((r) => !exclude_ids.has(r.product_id))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, limit)
+    .map(toSnapshot);
+}
