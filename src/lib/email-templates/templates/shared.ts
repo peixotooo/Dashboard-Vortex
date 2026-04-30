@@ -65,10 +65,15 @@ export function htmlClose(): string {
   return `</table></td></tr></table></body></html>`;
 }
 
+const BULKING_LOGO_URL =
+  "https://cdn.vnda.com.br/bulking/2023/12/01/18_12_2_290_logobulkingsite.svg?v=1701465320";
+
 export function header(): string {
   return `
-<tr><td align="center" class="pad" style="padding:36px 24px 28px;border-bottom:1px solid ${TOKENS.border};">
-  <span style="display:inline-block;font-family:${TOKENS.fontHead};font-weight:800;font-size:26px;letter-spacing:0.18em;color:${TOKENS.text};">BULKING</span>
+<tr><td align="center" class="pad" style="padding:32px 24px 24px;border-bottom:1px solid ${TOKENS.border};">
+  <a href="https://www.bulking.com.br" target="_blank" style="text-decoration:none;color:${TOKENS.text};">
+    <img src="${BULKING_LOGO_URL}" alt="BULKING" width="160" height="32" style="display:inline-block;width:160px;height:auto;max-width:160px;border:0;outline:none;" />
+  </a>
 </td></tr>`;
 }
 
@@ -189,12 +194,46 @@ export function productMetaBlock(args: { name: string; price: number; old_price?
 </td></tr>`;
 }
 
+/**
+ * Inline HTML countdown — static snapshot of remaining time at email
+ * generation. Email clients don't run JS, so the timer cannot tick down
+ * on its own; the value shown is whatever was true when the cron ran.
+ */
+function formatRemaining(expires_at: Date): { hh: string; mm: string; expired: boolean } {
+  const ms = expires_at.getTime() - Date.now();
+  if (ms <= 0) return { hh: "00", mm: "00", expired: true };
+  const totalMin = Math.floor(ms / 60000);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return { hh: String(hh).padStart(2, "0"), mm: String(mm).padStart(2, "0"), expired: false };
+}
+
 export function couponBlock(args: {
   code: string;
   discount_percent: number;
   product_name: string;
-  countdown_url: string;
+  expires_at: Date;
 }): string {
+  const t = formatRemaining(args.expires_at);
+  const digitColor = t.expired ? TOKENS.textSecondary : TOKENS.text;
+  const timerLabel = t.expired ? "Encerrado" : "Termina em";
+  const timerBody = t.expired
+    ? `<span style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;letter-spacing:0.04em;color:${digitColor};">ENCERRADO</span>`
+    : `
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="padding:0 14px;">
+      <div style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;line-height:1;color:${digitColor};letter-spacing:0.02em;">${t.hh}</div>
+      <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.22em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-top:6px;">Horas</div>
+    </td>
+    <td valign="middle" style="padding:0 4px;font-family:${TOKENS.fontHead};font-weight:800;font-size:36px;color:${digitColor};">:</td>
+    <td align="center" style="padding:0 14px;">
+      <div style="font-family:${TOKENS.fontHead};font-weight:800;font-size:48px;line-height:1;color:${digitColor};letter-spacing:0.02em;">${t.mm}</div>
+      <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.22em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-top:6px;">Min</div>
+    </td>
+  </tr>
+</table>`;
+
   return `
 <tr><td class="pad" style="padding:8px 32px 16px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${TOKENS.text};background:${TOKENS.bg};">
@@ -206,8 +245,8 @@ export function couponBlock(args: {
   </table>
 </td></tr>
 <tr><td class="pad" align="center" style="padding:0 32px 32px;">
-  <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.24em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:10px;">Termina em</div>
-  <img src="${escapeHtml(args.countdown_url)}" alt="Cronômetro" width="600" height="120" style="width:100%;max-width:600px;height:auto;display:block;" />
+  <div style="font-family:${TOKENS.fontHead};font-weight:600;font-size:10px;letter-spacing:0.24em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:14px;">${timerLabel}</div>
+  ${timerBody}
 </td></tr>`;
 }
 
