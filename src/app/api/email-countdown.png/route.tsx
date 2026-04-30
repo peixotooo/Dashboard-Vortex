@@ -3,7 +3,11 @@ import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
 import { verify } from "@/lib/email-templates/countdown";
 
-export const runtime = "edge";
+// Node runtime so this route shares the SAME `process.env` resolution
+// as the orchestrator (which signs the URL). Edge isolates may surface env
+// vars with subtle differences (encoding, trailing whitespace) that break
+// HMAC verification.
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ACCENT = "#49E472";
