@@ -1,14 +1,14 @@
 // src/app/api/crm/email-templates/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { workspaceId } = await getAuthenticatedContext(req);
+    const { workspaceId } = await getWorkspaceContext(req);
     const { id } = await params;
 
     const supabase = createAdminClient();

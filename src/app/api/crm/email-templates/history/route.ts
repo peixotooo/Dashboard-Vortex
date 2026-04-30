@@ -1,11 +1,11 @@
 // src/app/api/crm/email-templates/history/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
-    const { workspaceId } = await getAuthenticatedContext(req);
+    const { workspaceId } = await getWorkspaceContext(req);
 
     const { searchParams } = new URL(req.url);
     const days = Math.min(

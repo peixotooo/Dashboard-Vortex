@@ -1,11 +1,11 @@
 // src/app/api/crm/email-templates/active/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
   try {
-    const { workspaceId } = await getAuthenticatedContext(req);
+    const { workspaceId } = await getWorkspaceContext(req);
 
     // BRT date (UTC-3)
     const brt = new Date(Date.now() - 3 * 60 * 60 * 1000)

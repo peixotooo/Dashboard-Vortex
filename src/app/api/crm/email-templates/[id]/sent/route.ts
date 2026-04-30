@@ -1,7 +1,7 @@
 // src/app/api/crm/email-templates/[id]/sent/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { logAudit } from "@/lib/email-templates/audit";
 
 export async function POST(
@@ -9,7 +9,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { workspaceId } = await getAuthenticatedContext(req);
+    const { workspaceId } = await getWorkspaceContext(req);
     const { id } = await params;
 
     const body = await req.json().catch(() => ({}));
