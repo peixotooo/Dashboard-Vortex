@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/coupon-attribution",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/email-templates-refresh",
+      "schedule": "0 9 * * *"
     }
   ]
 }
