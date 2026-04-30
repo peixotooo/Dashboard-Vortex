@@ -58,7 +58,7 @@ export const FEATURES: Feature[] = [
     id: "financeiro",
     label: "Financeiro",
     description: "Simulador, Diagnostico, Escala e Configuracoes",
-    routes: ["/simulador"],
+    routes: ["/simulador", "/simulador-comercial"],
   },
   {
     id: "media",

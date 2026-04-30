@@ -203,6 +203,19 @@ const navGroups: NavGroup[] = [
           },
         ],
       },
+      {
+        title: "Comercial",
+        href: "/simulador-comercial",
+        icon: Tag,
+        items: [
+          { title: "Simulador", href: "/simulador-comercial", icon: Tag },
+          {
+            title: "Configuracoes",
+            href: "/simulador-comercial/config",
+            icon: SlidersHorizontal,
+          },
+        ],
+      },
     ],
   },
   {
