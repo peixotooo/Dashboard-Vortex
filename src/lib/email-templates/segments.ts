@@ -26,8 +26,6 @@ async function readSegmentSummaries(workspace_id: string): Promise<RfmSegmentSum
     .from("crm_rfm_snapshots")
     .select("segments")
     .eq("workspace_id", workspace_id)
-    .order("updated_at", { ascending: false })
-    .limit(1)
     .maybeSingle();
   const arr = (data?.segments as RfmSegmentSummary[] | undefined) ?? [];
   return Array.isArray(arr) ? arr : [];
