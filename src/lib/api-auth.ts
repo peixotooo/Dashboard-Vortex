@@ -102,6 +102,55 @@ export async function getAuthenticatedContext(
   };
 }
 
+/**
+ * Lightweight authenticated context for endpoints that don't need a Meta token.
+ * Verifies the user session and workspace membership only.
+ */
+export async function getWorkspaceContext(
+  request: NextRequest
+): Promise<{ userId: string; workspaceId: string }> {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {
+          // Read-only in API routes
+        },
+      },
+    }
+  );
+
+  const authResponse = await withTimeout(supabase.auth.getUser(), 3000);
+  const user = (authResponse as { data?: { user?: { id: string } | null } } | null)?.data?.user ?? null;
+  if (!user) throw new AuthError("Not authenticated", 401);
+
+  const workspaceId =
+    request.headers.get("x-workspace-id") ||
+    new URL(request.url).searchParams.get("workspace_id") ||
+    "";
+  if (!workspaceId) throw new AuthError("Workspace not specified", 400);
+
+  const membership = await withTimeout(
+    supabase
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .single(),
+    2000
+  );
+
+  if (!(membership as { data?: unknown } | null)?.data) {
+    throw new AuthError("Not a member of this workspace (or request timed out)", 403);
+  }
+
+  return { userId: user.id, workspaceId };
+}
+
 export class AuthError extends Error {
   status: number;
   constructor(message: string, status: number) {
