@@ -100,7 +100,8 @@ async function fetchShelf(
 
 export async function pickBestseller(
   workspace_id: string,
-  settings: EmailTemplateSettings
+  settings: EmailTemplateSettings,
+  exclude_ids: Set<string> = new Set()
 ): Promise<PickResult> {
   // 1. Top item ids from GA4 by revenue (last N days)
   let topIds: string[] = [];
@@ -127,7 +128,7 @@ export async function pickBestseller(
   if (topIds.length === 0) return { product: null, reason: "no_candidate" };
 
   const used = await recentlyUsedProductIds(workspace_id, 1, 7);
-  const candidateIds = topIds.filter((id) => !used.has(id));
+  const candidateIds = topIds.filter((id) => !used.has(id) && !exclude_ids.has(id));
   if (candidateIds.length === 0) return { product: null, reason: "all_recently_used" };
 
   const shelf = await fetchShelf(workspace_id, { ids: candidateIds });
@@ -144,17 +145,17 @@ export async function pickBestseller(
 
 export async function pickSlowmoving(
   workspace_id: string,
-  settings: EmailTemplateSettings
+  settings: EmailTemplateSettings,
+  exclude_ids: Set<string> = new Set()
 ): Promise<PickResult> {
-  // Candidates: in_stock + active + created at least N days ago
-  const cutoff = new Date(
-    Date.now() - settings.slowmoving_lookback_days * 24 * 60 * 60 * 1000
-  ).toISOString();
-  const shelf = await fetchShelf(workspace_id, { created_before_iso: cutoff });
+  // Candidates: every active in-stock product. The "slow-moving" signal is
+  // GA4 sales (≤ slowmoving_max_sales over the lookback) — not catalog age.
+  // The created_at filter was a proxy that caused false negatives on workspaces
+  // whose shelf_products mirror was synced recently.
+  const shelf = await fetchShelf(workspace_id, {});
   if (shelf.length === 0) return { product: null, reason: "no_shelf_data" };
 
-  // Sales per product from GA4
-  const idList = shelf.map((r) => r.product_id);
+  // Sales per product from GA4 over the slowmoving lookback window
   let salesById: Record<string, number> = {};
   try {
     const endDate = new Date().toISOString().slice(0, 10);
@@ -181,7 +182,7 @@ export async function pickSlowmoving(
 
   type Scored = { row: ShelfRow; sales: number; score: number };
   const scored: Scored[] = shelf
-    .filter((r) => !used.has(r.product_id))
+    .filter((r) => !used.has(r.product_id) && !exclude_ids.has(r.product_id))
     .map((row) => {
       const sales = salesById[row.product_id] ?? 0;
       return { row, sales, score: 1 / (sales + 1) };
@@ -198,7 +199,8 @@ export async function pickSlowmoving(
 
 export async function pickNewarrival(
   workspace_id: string,
-  settings: EmailTemplateSettings
+  settings: EmailTemplateSettings,
+  exclude_ids: Set<string> = new Set()
 ): Promise<PickResult> {
   const since = new Date(
     Date.now() - settings.newarrival_lookback_days * 24 * 60 * 60 * 1000
@@ -208,7 +210,7 @@ export async function pickNewarrival(
 
   const used = await recentlyUsedProductIds(workspace_id, 3, 14);
   const sorted = shelf
-    .filter((r) => !used.has(r.product_id))
+    .filter((r) => !used.has(r.product_id) && !exclude_ids.has(r.product_id))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   if (sorted.length === 0) return { product: null, reason: "all_recently_used" };
   return { product: toSnapshot(sorted[0]) };

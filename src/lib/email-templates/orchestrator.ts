@@ -33,9 +33,10 @@ async function generateSlotBestseller(
   workspace_id: string,
   settings: EmailTemplateSettings,
   date: string,
-  hours: { recommended_hours: number[]; hours_score: Record<string, number> }
+  hours: { recommended_hours: number[]; hours_score: Record<string, number> },
+  exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickBestseller(workspace_id, settings);
+  const pick = await pickBestseller(workspace_id, settings, exclude_ids);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 1, reason: pick.reason } });
     return { slot: 1, ok: false, reason: pick.reason };
@@ -50,9 +51,10 @@ async function generateSlotSlowmoving(
   workspace_id: string,
   settings: EmailTemplateSettings,
   date: string,
-  hours: { recommended_hours: number[]; hours_score: Record<string, number> }
+  hours: { recommended_hours: number[]; hours_score: Record<string, number> },
+  exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickSlowmoving(workspace_id, settings);
+  const pick = await pickSlowmoving(workspace_id, settings, exclude_ids);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 2, reason: pick.reason } });
     return { slot: 2, ok: false, reason: pick.reason };
@@ -92,9 +94,10 @@ async function generateSlotNewarrival(
   workspace_id: string,
   settings: EmailTemplateSettings,
   date: string,
-  hours: { recommended_hours: number[]; hours_score: Record<string, number> }
+  hours: { recommended_hours: number[]; hours_score: Record<string, number> },
+  exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickNewarrival(workspace_id, settings);
+  const pick = await pickNewarrival(workspace_id, settings, exclude_ids);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 3, reason: pick.reason } });
     return { slot: 3, ok: false, reason: pick.reason };
@@ -219,11 +222,37 @@ export async function generateForWorkspace(workspace_id: string): Promise<{
   const date = todayBrt();
   const hours = await pickTopHours(workspace_id, 14);
 
-  const results = await Promise.all([
-    generateSlotBestseller(workspace_id, settings, date, hours),
-    generateSlotSlowmoving(workspace_id, settings, date, hours),
-    generateSlotNewarrival(workspace_id, settings, date, hours),
-  ]);
+  // Sequential to enforce cross-slot product dedup: a product chosen for slot 1
+  // is excluded from slots 2 and 3 today; slot-2's product is excluded from slot 3.
+  const usedIdsToday = new Set<string>();
+  const results: SlotResult[] = [];
+
+  const r1 = await generateSlotBestseller(workspace_id, settings, date, hours, usedIdsToday);
+  results.push(r1);
+  if (r1.ok && r1.suggestion_id) {
+    const id = await getSuggestionProductId(r1.suggestion_id);
+    if (id) usedIdsToday.add(id);
+  }
+
+  const r2 = await generateSlotSlowmoving(workspace_id, settings, date, hours, usedIdsToday);
+  results.push(r2);
+  if (r2.ok && r2.suggestion_id) {
+    const id = await getSuggestionProductId(r2.suggestion_id);
+    if (id) usedIdsToday.add(id);
+  }
+
+  const r3 = await generateSlotNewarrival(workspace_id, settings, date, hours, usedIdsToday);
+  results.push(r3);
 
   return { workspace_id, date, results };
+}
+
+async function getSuggestionProductId(suggestion_id: string): Promise<string | null> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("email_template_suggestions")
+    .select("vnda_product_id")
+    .eq("id", suggestion_id)
+    .maybeSingle();
+  return (data?.vnda_product_id as string) ?? null;
 }
