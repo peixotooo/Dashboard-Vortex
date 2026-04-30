@@ -1,9 +1,12 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 function getSecret(): string {
-  const s = process.env.EMAIL_COUNTDOWN_SECRET;
-  if (!s) throw new Error("EMAIL_COUNTDOWN_SECRET is not set");
-  return s;
+  const raw = process.env.EMAIL_COUNTDOWN_SECRET;
+  if (!raw) throw new Error("EMAIL_COUNTDOWN_SECRET is not set");
+  // Trim whitespace/newlines — `vercel env add` fed from a piped echo
+  // can persist a trailing \n, which would silently differ between sign
+  // (Node serverless) and verify (Edge), producing 400s on every PNG load.
+  return raw.trim();
 }
 
 export function sign(expiresIso: string): string {

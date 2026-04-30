@@ -61,11 +61,15 @@ export async function createSlowmovingCoupon(args: {
     uses_per_user: 1,
   });
 
+  // Use our locally-generated `code` as the source of truth — VNDA's
+  // result.coupon_code occasionally comes back undefined despite the typed
+  // contract, which previously caused null coupon_code in the DB and broken
+  // {coupon} placeholders in copy/render.
   return {
-    code: result.coupon_code,
+    code: result.coupon_code ?? code,
     vnda_promotion_id: result.promotion_id,
     vnda_coupon_id: result.coupon_id,
-    expires_at: result.expires_at,
+    expires_at: result.expires_at ?? expires_at,
     discount_percent: args.discount_percent,
   };
 }
