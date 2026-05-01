@@ -55,7 +55,8 @@ export async function GET(req: NextRequest) {
       .from("shelf_products")
       .select("product_id, name, price, sale_price, image_url, product_url, tags")
       .eq("workspace_id", workspaceId)
-      .eq("active", true);
+      .eq("active", true)
+      .not("image_url", "is", null);
     if (term.length >= 2) {
       query = query.ilike("name", `%${term}%`);
     } else {

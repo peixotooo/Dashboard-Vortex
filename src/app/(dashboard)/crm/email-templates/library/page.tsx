@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ExternalLink, Maximize2, Wand2, Search, X } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -104,7 +104,7 @@ function PreviewCard({
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ slot: String(effectiveSlot) });
+    const params = new URLSearchParams({ slot: String(effectiveSlot), hero: "off" });
     if (productId) params.set("product_id", productId);
     fetch(`/api/crm/email-templates/layouts/${layout.id}/preview?${params}`, {
       headers: { "x-workspace-id": workspaceId },
@@ -448,12 +448,12 @@ export default function LayoutLibraryPage() {
         </div>
       )}
 
-      <Dialog
+      <Sheet
         open={lightboxHtml !== null}
         onOpenChange={(open) => !open && setLightboxHtml(null)}
       >
-        <DialogContent className="max-w-3xl w-[95vw] h-[90vh] p-0 overflow-hidden">
-          <DialogTitle className="sr-only">Preview ampliado</DialogTitle>
+        <SheetContent side="right" className="w-full sm:max-w-3xl p-0">
+          <SheetTitle className="sr-only">Preview ampliado</SheetTitle>
           {lightboxHtml && (
             <iframe
               srcDoc={lightboxHtml}
@@ -462,8 +462,8 @@ export default function LayoutLibraryPage() {
               title="Preview ampliado"
             />
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

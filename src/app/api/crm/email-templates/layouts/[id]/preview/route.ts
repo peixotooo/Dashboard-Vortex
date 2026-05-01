@@ -77,6 +77,7 @@ export async function GET(
           .eq("workspace_id", workspaceId)
           .eq("active", true)
           .eq("in_stock", true)
+          .not("image_url", "is", null)
           .neq("product_id", productId)
           .order("created_at", { ascending: false })
           .limit(3);
