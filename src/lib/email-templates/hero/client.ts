@@ -165,7 +165,9 @@ export async function generateImage(
         /timed out/i.test(msg) ||
         /5\d\d/.test(msg);
       if (!transient || attempt === max) throw lastErr;
-      const backoffMs = 2_000 * attempt;
+      // Aggressive backoff for kie.ai's "Internal Error" flakiness:
+      // attempt 1 fails -> wait 10s, attempt 2 fails -> wait 20s, then give up.
+      const backoffMs = 10_000 * attempt;
       await sleep(backoffMs);
     }
   }
