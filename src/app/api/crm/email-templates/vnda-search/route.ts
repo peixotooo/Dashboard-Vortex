@@ -50,16 +50,20 @@ export async function GET(req: NextRequest) {
   try {
     const { workspaceId } = await getWorkspaceContext(req);
     const term = (new URL(req.url).searchParams.get("q") ?? "").trim();
-    if (term.length < 2) {
-      return NextResponse.json({ products: [] });
-    }
     const supabase = createAdminClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("shelf_products")
       .select("product_id, name, price, sale_price, image_url, product_url, tags")
       .eq("workspace_id", workspaceId)
-      .eq("active", true)
-      .ilike("name", `%${term}%`)
+      .eq("active", true);
+    if (term.length >= 2) {
+      query = query.ilike("name", `%${term}%`);
+    } else {
+      // No query → return latest in-stock products so the library can pick a
+      // default sample product without requiring the user to search first.
+      query = query.eq("in_stock", true);
+    }
+    const { data, error } = await query
       .order("created_at", { ascending: false })
       .limit(12);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
