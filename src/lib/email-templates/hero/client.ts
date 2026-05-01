@@ -139,12 +139,35 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * One-shot: create a task and wait for the resulting image URLs.
+ *
+ * kie.ai surfaces a "Internal Error, Please try again later" failure that
+ * fires intermittently (observed in production). We retry the whole
+ * createTask + waitForImage roundtrip on those transient errors with a
+ * short backoff before giving up.
  */
 export async function generateImage(
   args: CreateImageArgs,
-  opts?: PollOptions
+  opts?: PollOptions & { maxAttempts?: number }
 ): Promise<{ taskId: string; urls: string[] }> {
-  const taskId = await createImageTask(args);
-  const urls = await waitForImage(taskId, opts);
-  return { taskId, urls };
+  const max = opts?.maxAttempts ?? 3;
+  let lastErr: Error | null = null;
+  for (let attempt = 1; attempt <= max; attempt++) {
+    try {
+      const taskId = await createImageTask(args);
+      const urls = await waitForImage(taskId, opts);
+      return { taskId, urls };
+    } catch (err) {
+      lastErr = err as Error;
+      const msg = lastErr.message;
+      const transient =
+        /Internal Error/i.test(msg) ||
+        /Please try again/i.test(msg) ||
+        /timed out/i.test(msg) ||
+        /5\d\d/.test(msg);
+      if (!transient || attempt === max) throw lastErr;
+      const backoffMs = 2_000 * attempt;
+      await sleep(backoffMs);
+    }
+  }
+  throw lastErr ?? new Error("kie.ai generateImage exhausted retries");
 }
