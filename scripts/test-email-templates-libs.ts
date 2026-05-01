@@ -39,7 +39,7 @@ const url = buildCountdownUrl({
   expires_at: new Date(expires),
 });
 assert(
-  url.startsWith("https://example.com/api/email-countdown.png?"),
+  url.startsWith("https://example.com/api/email-countdown.gif?"),
   "url shape correct"
 );
 assert(url.includes(`expires=${encodeURIComponent(expires)}`), "url has expires");
@@ -79,6 +79,7 @@ console.log("\n[templates] render slowmoving");
 const futureExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
 const html2 = renderSlowmoving({
   ...baseCtx,
+  hook: "Estoque acabando",
   coupon: {
     code: "EMAIL-SLOWMOV-A7K2X",
     discount_percent: 10,
@@ -88,8 +89,15 @@ const html2 = renderSlowmoving({
 });
 assert(html2.includes("EMAIL-SLOWMOV-A7K2X"), "coupon code in html");
 assert(html2.includes("ÚLTIMAS PEÇAS"), "slowmoving badge present");
-assert(html2.includes("Termina em"), "label present");
-assert(/email-countdown\.png/.test(html2), "dynamic countdown image present");
+assert(/email-countdown\.gif/.test(html2), "animated countdown gif present");
+// Countdown sits between the BULKING logo and the hook — top of the email.
+const headerIdx = html2.indexOf("BULKING");
+const countdownIdx = html2.indexOf("email-countdown.gif");
+const hookIdx = html2.indexOf("Estoque acabando");
+assert(
+  headerIdx > -1 && countdownIdx > headerIdx && hookIdx > countdownIdx,
+  "countdown is at the TOP of the email (header → countdown → hook)"
+);
 
 console.log("\n[templates] render newarrival");
 const html3 = renderNewarrival(baseCtx);

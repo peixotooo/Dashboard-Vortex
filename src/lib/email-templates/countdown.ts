@@ -31,7 +31,7 @@ export function buildCountdownUrl(args: {
 }): string {
   const expiresIso = args.expires_at.toISOString();
   const sig = sign(expiresIso);
-  const url = new URL("/api/email-countdown.png", args.base_url);
+  const url = new URL("/api/email-countdown.gif", args.base_url);
   url.searchParams.set("expires", expiresIso);
   url.searchParams.set("sig", sig);
   return url.toString();
