@@ -56,6 +56,40 @@ function absUrl(url: string): string {
   return url; // leave unmodified for any other shape
 }
 
+/**
+ * Lower-body items frequently trigger OpenAI's content moderation when paired
+ * with a "fitness model" prompt (skin exposure on legs / glutes etc). For
+ * these we switch composition to a flat-lay / mannequin shot with no model.
+ */
+const LOWER_BODY_KEYWORDS = [
+  "short",
+  "shorts",
+  "bermuda",
+  "calça",
+  "calca",
+  "calcao",
+  "calção",
+  "legging",
+  "leggin",
+  "biker",
+  "sunga",
+  "swim",
+  "underwear",
+  "boxer",
+  "cueca",
+  "saia",
+];
+
+const SPORTSWEAR_REVEALING_KEYWORDS = ["top esportivo", "top fitness", "sutiã", "sutia", "bra"];
+
+function isRevealingProduct(name: string): boolean {
+  const n = name.toLowerCase();
+  return (
+    LOWER_BODY_KEYWORDS.some((k) => n.includes(k)) ||
+    SPORTSWEAR_REVEALING_KEYWORDS.some((k) => n.includes(k))
+  );
+}
+
 export interface BuildPromptResult {
   prompt: string;
   input_urls: string[];
@@ -75,39 +109,62 @@ export function buildHeroPrompt(args: {
   const labelText = SLOT_TEXT[slot];
   const vibe = SLOT_VIBE[slot];
 
-  // Composition guidance differs per layout, but the visual system stays the
-  // same: monochrome, fitness-toned model when one is shown, generous space.
-  const compositionByLayout: Record<LayoutId, string> = {
+  // For revealing items we use a no-model flat-lay composition that keeps
+  // the editorial aesthetic and consistently passes content moderation.
+  const revealing = isRevealingProduct(product.name);
+
+  const compositionWithModel: Record<LayoutId, string> = {
     classic:
-      "vertical 3:4 editorial composition. The product is centered, full-bleed against a soft neutral gradient background.",
+      "vertical 3:4 editorial composition. Fully clothed athletic-build adult model wearing the product, three-quarter framing, hands relaxed, neutral expression. Soft neutral gradient background.",
     "editorial-overlay-light":
-      "vertical 3:4 composition with the product centered between two large words punched above and below in 84px sans-serif weight 500. The two words are TOP and SEMANA when slot is 1, ÚLTIMA and CHANCE when slot is 2, NOVO and DROP when slot is 3. The product image is centered between the words. Light gradient background.",
+      "vertical 3:4 composition with the product (worn by a fully clothed athletic-build adult model in a calm pose) centered between two large words punched above and below in 84px sans-serif weight 500. Slot 1 words: TOP / SEMANA. Slot 2 words: ÚLTIMA / CHANCE. Slot 3 words: NOVO / DROP. Light gradient background.",
     "numbered-grid-light":
-      "vertical 3:4 composition: a single fitness model wearing the product, full body, centered, hands at sides, neutral pose. Pale cream paper-textured background. Optional small cursive number '1.' top-right corner.",
+      "vertical 3:4 composition: a single fully clothed athletic-build adult model wearing the product, full body, centered, hands at sides, neutral pose. Pale cream paper-textured background. Optional small cursive number '1.' top-right corner.",
     "slash-labels-dark":
-      "vertical 3:4 dark editorial composition. Fitness model wearing the product, full body, dramatic side lighting, deep black gradient background. Small slash-separated meta labels in white sans-serif weight 500 floating top-left and bottom-right of the frame.",
+      "vertical 3:4 dark editorial composition. Fully clothed athletic-build adult model wearing the product, full body, dramatic side lighting, deep black gradient background. Small slash-separated meta labels in white sans-serif weight 500 floating top-left and bottom-right of the frame.",
     "single-detail-dark":
-      "vertical 3:4 dark moody portrait. Fitness model wearing the product, three-quarter view, soft directional rim light, gradient charcoal-to-black background. Shallow depth of field. Editorial, premium streetwear feel.",
+      "vertical 3:4 dark moody three-quarter portrait. Fully clothed athletic-build adult model wearing the product, soft directional rim light, gradient charcoal-to-black background. Shallow depth of field. Editorial, premium streetwear feel.",
   };
 
-  const composition = compositionByLayout[layoutId];
+  // Flat-lay variants used for body-revealing items (shorts, leggings, etc).
+  // These avoid models entirely and keep moderation green.
+  const compositionFlatLay: Record<LayoutId, string> = {
+    classic:
+      "vertical 3:4 studio still-life. The product laid flat (or arranged on a clean invisible mannequin) centered against a soft neutral gradient backdrop. No human figure, no model. Clean shadows.",
+    "editorial-overlay-light":
+      "vertical 3:4 still-life composition. The product floats centered (flat-lay or invisible mannequin) between two large words punched above and below in 84px sans-serif weight 500. Slot 1 words: TOP / SEMANA. Slot 2 words: ÚLTIMA / CHANCE. Slot 3 words: NOVO / DROP. Light gradient background. No human figure.",
+    "numbered-grid-light":
+      "vertical 3:4 studio still-life. The product flat-lay or on an invisible mannequin, centered. Pale cream paper-textured background. Optional small cursive number '1.' top-right corner. No human figure.",
+    "slash-labels-dark":
+      "vertical 3:4 dark editorial still-life. The product floating (flat-lay or invisible mannequin) under dramatic side lighting on a deep black gradient backdrop. Small slash-separated meta labels in white sans-serif weight 500 top-left and bottom-right. No human figure.",
+    "single-detail-dark":
+      "vertical 3:4 dark moody product still-life. The product centered under soft directional rim light, gradient charcoal-to-black background. Shallow depth of field. No human figure. Editorial premium feel.",
+  };
+
+  const composition = revealing
+    ? compositionFlatLay[layoutId]
+    : compositionWithModel[layoutId];
+
+  const safetyClause = revealing
+    ? `IMPORTANT: do NOT depict a human model. Render the product alone as studio still-life or on an invisible mannequin. No bodies, no skin.`
+    : `IMPORTANT: any model present must be fully clothed (no exposed midriff, no exposed legs above mid-thigh, no revealing poses). Conservative editorial styling like a magazine cover. Athletic build is fine; suggestive posing is not.`;
 
   const prompt = [
-    `Generate a premium fashion email hero image for the streetwear/fitness brand BULKING.`,
-    `Use the FIRST input image as the visual style reference (composition, palette, type weight, mood).`,
-    `Use the SECOND input image as the product to feature: "${product.name}". The product must be the visual centerpiece, faithfully reproduced (same colorway, same garment shape, same details).`,
+    `Generate a premium fashion email hero image for the streetwear/fitness apparel brand BULKING.`,
+    `Use the FIRST input image as a visual style reference (composition, palette, type weight, mood).`,
+    `Use the SECOND input image as the product to feature: "${product.name}". The product must be the visual centerpiece, faithfully reproduced (same colorway, garment shape, branding, every visible detail).`,
     "",
     `Composition: ${composition}`,
     `Mood: ${vibe}.`,
     "",
+    safetyClause,
+    "",
     `Typography on the image: render the text "${labelText}" in clean sans-serif at medium weight (500–600), monochrome, generous letter-spacing 0.2em–0.3em, all caps. Spell the text exactly, no decorative flourishes.`,
     `Also render the small product caption "${product.name.toUpperCase()}" in sans-serif weight 500, monochrome, letter-spacing 0.1em.`,
     "",
-    `Models (if any): athletic fitness body type, neutral expression, focused. Any gender. Always confident posture. No exaggerated facial expressions.`,
-    "",
     `Color system: white, black, grays only. No saturated brand color anywhere on the image. Background is a soft neutral gradient (white-to-grey for light layouts, charcoal-to-black for dark layouts).`,
-    `Negative space: generous. Avoid cluttered backgrounds, no busy graphic elements.`,
-    `Quality: editorial, magazine cover level. Sharp product reproduction. No text artifacts, no warped letters.`,
+    `Negative space: generous. Avoid cluttered backgrounds, no busy graphic elements, no logos beyond the product itself.`,
+    `Quality: editorial, magazine cover level. Sharp product reproduction. No text artifacts, no warped letters, no extra hands or limbs.`,
   ].join("\n");
 
   // Both references are passed; reference first, product second.
