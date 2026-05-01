@@ -8,8 +8,17 @@ import { generateImage } from "./client";
 import { buildHeroPrompt } from "./prompts";
 import { persistGeneratedHero } from "./storage";
 import { getHero, saveHero } from "./cache";
+import { logAudit } from "../audit";
 import type { LayoutId } from "../layouts/types";
 import type { Slot, ProductSnapshot } from "../types";
+
+async function audit(workspace_id: string, payload: Record<string, unknown>) {
+  try {
+    await logAudit({ workspace_id, event: "generated", payload: { hero_diag: payload } });
+  } catch {
+    // best-effort
+  }
+}
 
 export async function ensureHero(args: {
   workspace_id: string;
@@ -17,9 +26,13 @@ export async function ensureHero(args: {
   slot: Slot;
   product: ProductSnapshot;
 }): Promise<string | null> {
-  console.log(
-    `[hero] ensureHero start workspace=${args.workspace_id} product=${args.product.vnda_id} layout=${args.layout_id} slot=${args.slot} kieKeySet=${!!process.env.KIE_API_KEY}`
-  );
+  await audit(args.workspace_id, {
+    step: "start",
+    slot: args.slot,
+    layout: args.layout_id,
+    product: args.product.vnda_id,
+    kieKey: !!process.env.KIE_API_KEY,
+  });
 
   const cached = await getHero({
     workspace_id: args.workspace_id,
@@ -28,15 +41,15 @@ export async function ensureHero(args: {
     slot: args.slot,
   });
   if (cached) {
-    console.log(`[hero] cache hit slot=${args.slot} → ${cached.hero_url}`);
+    await audit(args.workspace_id, { step: "cache_hit", slot: args.slot });
     return cached.hero_url;
   }
 
   if (!process.env.KIE_API_KEY) {
-    console.warn(`[hero] KIE_API_KEY missing in runtime, falling back to product image`);
+    await audit(args.workspace_id, { step: "kie_missing", slot: args.slot });
     return null;
   }
-  console.log(`[hero] generating slot=${args.slot} layout=${args.layout_id}...`);
+  await audit(args.workspace_id, { step: "kie_call", slot: args.slot });
 
   // Build prompt + reference list.
   const built = buildHeroPrompt({
@@ -57,12 +70,19 @@ export async function ensureHero(args: {
       { pollIntervalMs: 4_000, timeoutMs: 150_000 }
     );
   } catch (err) {
-    console.error("[email-templates/hero] generation failed:", (err as Error).message);
+    await audit(args.workspace_id, {
+      step: "kie_failed",
+      slot: args.slot,
+      error: String((err as Error).message).slice(0, 240),
+    });
     return null;
   }
 
   const sourceUrl = kieResult.urls[0];
-  if (!sourceUrl) return null;
+  if (!sourceUrl) {
+    await audit(args.workspace_id, { step: "no_source_url", slot: args.slot });
+    return null;
+  }
 
   let permanentUrl: string;
   try {
@@ -74,9 +94,14 @@ export async function ensureHero(args: {
       source_url: sourceUrl,
     });
   } catch (err) {
-    console.error("[email-templates/hero] B2 persist failed:", (err as Error).message);
+    await audit(args.workspace_id, {
+      step: "b2_failed",
+      slot: args.slot,
+      error: String((err as Error).message).slice(0, 240),
+    });
     return null;
   }
+  await audit(args.workspace_id, { step: "b2_ok", slot: args.slot, url: permanentUrl });
 
   await saveHero({
     workspace_id: args.workspace_id,
