@@ -9,6 +9,7 @@
 // re-fetch on every open. This is the same trick Adidas/Nike/Booking/etc use
 // for "live" countdowns in inboxes — JS isn't an option in email clients.
 
+import path from "path";
 import { NextRequest } from "next/server";
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
@@ -17,6 +18,23 @@ import { verify } from "@/lib/email-templates/countdown";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+// Vercel's serverless Linux containers ship with NO system fonts. @napi-rs/canvas
+// silently renders nothing when fillText() can't find the requested family. We
+// bundle Kanit (the Bulking brand head font) and register it at module init so
+// fillText("Kanit", ...) resolves to a real glyph.
+const FONTS_DIR = path.join(process.cwd(), "src/app/api/email-countdown.gif/_fonts");
+let _fontsRegistered = false;
+function ensureFonts() {
+  if (_fontsRegistered) return;
+  try {
+    GlobalFonts.registerFromPath(path.join(FONTS_DIR, "Kanit-Bold.ttf"), "Kanit");
+    GlobalFonts.registerFromPath(path.join(FONTS_DIR, "Kanit-ExtraBold.ttf"), "Kanit");
+  } catch (err) {
+    console.error("[email-countdown.gif] font registration failed:", err);
+  }
+  _fontsRegistered = true;
+}
 
 const W = 600;
 const H = 220;
@@ -59,7 +77,7 @@ function drawFrame(
 
   if (expired) {
     ctx.fillStyle = MUTED;
-    ctx.font = "800 48px Arial, Helvetica, sans-serif";
+    ctx.font = "800 48px Kanit, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ENCERRADO", W / 2, H / 2);
@@ -68,7 +86,7 @@ function drawFrame(
 
   // Top label "ÚLTIMA CHANCE — TERMINA EM"
   ctx.fillStyle = FG;
-  ctx.font = "700 16px Arial, Helvetica, sans-serif";
+  ctx.font = "700 16px Kanit, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("ÚLTIMA CHANCE — TERMINA EM", W / 2, 36);
@@ -85,7 +103,7 @@ function drawFrame(
   const digitsY = 120;
   const labelY = 178;
 
-  ctx.font = "800 64px Arial, Helvetica, sans-serif";
+  ctx.font = "800 64px Kanit, Arial, sans-serif";
   ctx.fillStyle = FG;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;
@@ -95,7 +113,7 @@ function drawFrame(
   // Colon separators between boxes (positioned between adjacent slots).
   // Last colon (between MINUTOS and SEGUNDOS) gets the green accent so the
   // viewer's eye lands on the seconds box, where the animation is happening.
-  ctx.font = "800 44px Arial, Helvetica, sans-serif";
+  ctx.font = "800 44px Kanit, Arial, sans-serif";
 
   for (let i = 0; i < boxCount - 1; i++) {
     const cx = startX + slotWidth * i + slotWidth / 2;
@@ -104,7 +122,7 @@ function drawFrame(
   }
 
   // Labels below
-  ctx.font = "600 12px Arial, Helvetica, sans-serif";
+  ctx.font = "600 12px Kanit, Arial, sans-serif";
   ctx.fillStyle = MUTED;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;
@@ -113,6 +131,7 @@ function drawFrame(
 }
 
 export async function GET(req: NextRequest) {
+  ensureFonts();
   const { searchParams } = new URL(req.url);
   const expires = searchParams.get("expires") ?? "";
   const sig = searchParams.get("sig") ?? "";

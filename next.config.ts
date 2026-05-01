@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@modelcontextprotocol/sdk", "@napi-rs/canvas"],
+  // Bundle the bundled Kanit TTF files alongside the email-countdown.gif route
+  // so the serverless function can read them at runtime.
+  outputFileTracingIncludes: {
+    "/api/email-countdown.gif": ["./src/app/api/email-countdown.gif/_fonts/**"],
+  },
   async headers() {
     return [
       {
