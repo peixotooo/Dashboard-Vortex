@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@modelcontextprotocol/sdk"],
+  serverExternalPackages: ["@modelcontextprotocol/sdk", "@napi-rs/canvas"],
   async headers() {
     return [
       {
