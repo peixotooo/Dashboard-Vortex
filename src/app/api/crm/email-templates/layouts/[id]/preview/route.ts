@@ -27,12 +27,61 @@ export async function GET(
       return new Response("not found", { status: 404 });
     }
 
-    const slotParam = new URL(req.url).searchParams.get("slot");
+    const url = new URL(req.url);
+    const slotParam = url.searchParams.get("slot");
     const requested = slotParam ? (parseInt(slotParam, 10) as Slot) : layout.slots[0];
     const slot = layout.slots.includes(requested) ? requested : layout.slots[0];
-    const useHero = new URL(req.url).searchParams.get("hero") !== "off";
+    const useHero = url.searchParams.get("hero") !== "off";
+    const productId = url.searchParams.get("product_id");
 
-    const ctx = buildPreviewContext(slot);
+    let primary;
+    let related;
+    if (productId) {
+      const { createAdminClient } = await import("@/lib/supabase-admin");
+      const sb = createAdminClient();
+      const { data: rows } = await sb
+        .from("shelf_products")
+        .select("product_id, name, price, sale_price, image_url, product_url, tags")
+        .eq("workspace_id", workspaceId)
+        .eq("active", true)
+        .eq("in_stock", true)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (rows && rows.length > 0) {
+        type Row = {
+          product_id: string;
+          name: string;
+          price: number | null;
+          sale_price: number | null;
+          image_url: string | null;
+          product_url: string | null;
+          tags: unknown;
+        };
+        const toAbs = (u: string | null): string =>
+          !u ? "" : u.startsWith("//") ? `https:${u}` : u;
+        const toSnap = (r: Row) => ({
+          vnda_id: r.product_id,
+          name: r.name,
+          price: Number(r.sale_price ?? r.price ?? 0),
+          old_price:
+            r.sale_price != null && r.price != null && Number(r.price) > Number(r.sale_price)
+              ? Number(r.price)
+              : undefined,
+          image_url: toAbs(r.image_url),
+          url: r.product_url ?? "",
+        });
+        const target = (rows as Row[]).find((r) => r.product_id === productId);
+        if (target) {
+          primary = toSnap(target);
+          related = (rows as Row[])
+            .filter((r) => r.product_id !== productId)
+            .slice(0, 3)
+            .map(toSnap);
+        }
+      }
+    }
+
+    const ctx = buildPreviewContext(slot, { primary, related });
 
     // Generate (or read from cache) a hero image for the layout. ensureHero
     // returns null if KIE_API_KEY is missing or the call fails — preview just

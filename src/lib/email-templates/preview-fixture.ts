@@ -5,7 +5,7 @@
 // /CRM data is available for a given workspace. The fixture intentionally uses
 // real Bulking product imagery so the previews look representative.
 
-import type { TemplateRenderContext, Slot } from "./types";
+import type { TemplateRenderContext, Slot, ProductSnapshot } from "./types";
 import { buildCountdownUrl } from "./countdown";
 
 const APP_BASE_URL =
@@ -79,11 +79,14 @@ const HOOK_BY_SLOT: Record<Slot, string> = {
   3: "Acabou de chegar",
 };
 
-export function buildPreviewContext(slot: Slot = 1): TemplateRenderContext {
+export function buildPreviewContext(
+  slot: Slot = 1,
+  override?: { primary?: ProductSnapshot; related?: ProductSnapshot[] }
+): TemplateRenderContext {
   const ctx: TemplateRenderContext = {
     slot,
-    product: PRIMARY,
-    related_products: RELATED,
+    product: override?.primary ?? PRIMARY,
+    related_products: override?.related ?? RELATED,
     copy: COPY_BY_SLOT[slot],
     workspace: { name: "Bulking" },
     hook: HOOK_BY_SLOT[slot],

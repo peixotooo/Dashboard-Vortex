@@ -8,6 +8,7 @@ import { generateImage } from "./client";
 import { buildHeroPrompt } from "./prompts";
 import { persistGeneratedHero, mirrorToB2 } from "./storage";
 import { getHero, saveHero } from "./cache";
+import { analyzeProductOrientation } from "./vision";
 import { logAudit } from "../audit";
 import type { LayoutId } from "../layouts/types";
 import type { Slot, ProductSnapshot } from "../types";
@@ -50,11 +51,27 @@ export async function ensureHero(args: {
     return null;
   }
 
+  // Vision pre-pass: classify the product photo so the prompt can preserve
+  // orientation. Bulking pieces often carry the print on the back; a
+  // front-view hero would erase the product's defining detail.
+  const productSrc = args.product.image_url.startsWith("//")
+    ? `https:${args.product.image_url}`
+    : args.product.image_url;
+  const orientationInfo = await analyzeProductOrientation(productSrc);
+  await audit(args.workspace_id, {
+    step: "vision",
+    slot: args.slot,
+    orientation: orientationInfo.orientation,
+    has_back_print: orientationInfo.has_back_print,
+  });
+
   // Build prompt + reference list.
   const built = buildHeroPrompt({
     layoutId: args.layout_id,
     slot: args.slot,
     product: args.product,
+    orientation: orientationInfo.orientation,
+    has_back_print: orientationInfo.has_back_print,
   });
 
   // kie.ai's input_urls fetcher 400s on plenty of valid URLs (VNDA CDN photos,
