@@ -5,7 +5,8 @@
  * Validates:
  *   - countdown.sign + verify roundtrip and tampering detection
  *   - buildCountdownUrl shape
- *   - renderBestseller / renderSlowmoving / renderNewarrival templates
+ *   - Every layout in the registry renders email-safe HTML for slots 1, 2, 3
+ *   - No em-dashes, no green accent, no font-weight 700/800 in output
  *
  * Usage: npx tsx scripts/test-email-templates-libs.ts
  */
@@ -14,10 +15,8 @@ import {
   verify,
   buildCountdownUrl,
 } from "../src/lib/email-templates/countdown";
-import { renderBestseller } from "../src/lib/email-templates/templates/bestseller";
-import { renderSlowmoving } from "../src/lib/email-templates/templates/slowmoving";
-import { renderNewarrival } from "../src/lib/email-templates/templates/newarrival";
-import type { TemplateRenderContext } from "../src/lib/email-templates/types";
+import { LAYOUTS, LAYOUT_IDS, pickLayout } from "../src/lib/email-templates/layouts";
+import type { TemplateRenderContext, Slot } from "../src/lib/email-templates/types";
 
 process.env.EMAIL_COUNTDOWN_SECRET = process.env.EMAIL_COUNTDOWN_SECRET || "test-secret";
 
@@ -45,63 +44,59 @@ assert(
 assert(url.includes(`expires=${encodeURIComponent(expires)}`), "url has expires");
 assert(url.includes("sig="), "url has sig");
 
-console.log("\n[templates] render bestseller");
-const baseCtx: TemplateRenderContext = {
-  related_products: [
-    { vnda_id: "2", name: "Regata Hustle Verde", price: 79.9, image_url: "https://cdn.example.com/r1.jpg", url: "https://www.bulking.com.br/produto/r1" },
-    { vnda_id: "3", name: "Jogger Bulking", price: 149.9, old_price: 179.9, image_url: "https://cdn.example.com/r2.jpg", url: "https://www.bulking.com.br/produto/r2" },
-    { vnda_id: "4", name: "Boné Hustle", price: 59.9, image_url: "https://cdn.example.com/r3.jpg", url: "https://www.bulking.com.br/produto/r3" },
-  ],
-  hook: "O top 1 da semana",
-  product: {
-    vnda_id: "1",
-    name: "Camiseta Hustle Preta",
-    price: 89.9,
-    image_url: "https://cdn.example.com/img.jpg",
-    url: "https://www.bulking.com.br/produto/x",
-  },
-  copy: {
-    subject: "Top 1 da semana",
-    headline: "O mais vestido da semana.",
-    lead: "Lorem ipsum dolor sit amet.",
-    cta_text: "Ver na loja",
-    cta_url: "https://www.bulking.com.br/produto/x",
-  },
-  workspace: { name: "Bulking" },
-};
-const html1 = renderBestseller(baseCtx);
-assert(html1.includes("BULKING"), "header present");
-assert(html1.includes("TOP 1 DA SEMANA"), "bestseller badge present");
-assert(html1.includes("Respect the Hustle"), "footer present");
-assert(html1.length > 1000 && html1.length < 50000, "html size sane");
-
-console.log("\n[templates] render slowmoving");
 const futureExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
-const html2 = renderSlowmoving({
-  ...baseCtx,
-  hook: "Estoque acabando",
-  coupon: {
-    code: "EMAIL-SLOWMOV-A7K2X",
-    discount_percent: 10,
-    expires_at: futureExpires,
-    countdown_url: url,
-  },
-});
-assert(html2.includes("EMAIL-SLOWMOV-A7K2X"), "coupon code in html");
-assert(html2.includes("ÚLTIMAS PEÇAS"), "slowmoving badge present");
-assert(/email-countdown\.gif/.test(html2), "animated countdown gif present");
-// Countdown sits between the BULKING logo and the hook — top of the email.
-const headerIdx = html2.indexOf("BULKING");
-const countdownIdx = html2.indexOf("email-countdown.gif");
-const hookIdx = html2.indexOf("Estoque acabando");
-assert(
-  headerIdx > -1 && countdownIdx > headerIdx && hookIdx > countdownIdx,
-  "countdown is at the TOP of the email (header → countdown → hook)"
-);
 
-console.log("\n[templates] render newarrival");
-const html3 = renderNewarrival(baseCtx);
-assert(html3.includes("ACABOU DE CHEGAR"), "newarrival badge present");
-assert(!html3.includes("EMAIL-SLOWMOV-"), "no coupon in newarrival");
+function ctxFor(slot: Slot): TemplateRenderContext {
+  return {
+    slot,
+    product: {
+      vnda_id: "1",
+      name: "Camiseta Hustle Preta",
+      price: 89.9,
+      old_price: slot === 2 ? 119.9 : undefined,
+      image_url: "https://cdn.example.com/img.jpg",
+      url: "https://www.bulking.com.br/produto/x",
+    },
+    related_products: [
+      { vnda_id: "2", name: "Regata Hustle Verde", price: 79.9, image_url: "https://cdn.example.com/r1.jpg", url: "https://www.bulking.com.br/produto/r1" },
+      { vnda_id: "3", name: "Jogger Bulking Cinza", price: 149.9, old_price: 179.9, image_url: "https://cdn.example.com/r2.jpg", url: "https://www.bulking.com.br/produto/r2" },
+      { vnda_id: "4", name: "Boné Hustle", price: 59.9, image_url: "https://cdn.example.com/r3.jpg", url: "https://www.bulking.com.br/produto/r3" },
+    ],
+    copy: {
+      subject: "A peça mais vestida da semana",
+      headline: "Top 1 e dá pra ver por quê.",
+      lead: "Caimento pra quem treina, design feito pra durar.",
+      cta_text: "Ver na loja",
+      cta_url: "https://www.bulking.com.br/produto/x",
+    },
+    workspace: { name: "Bulking" },
+    coupon: slot === 2
+      ? { code: "EMAIL-SLOWMOV-A7K2X", discount_percent: 10, expires_at: futureExpires, countdown_url: url }
+      : undefined,
+  };
+}
+
+console.log("\n[layouts] each layout renders all slots cleanly");
+for (const id of LAYOUT_IDS) {
+  const layout = LAYOUTS[id];
+  for (const slot of layout.slots) {
+    const html = layout.render(ctxFor(slot));
+    assert(html.startsWith("<!DOCTYPE html>"), `${id} slot ${slot}: starts with doctype`);
+    assert(html.length > 1500 && html.length < 80000, `${id} slot ${slot}: html size sane (${html.length})`);
+    assert(!/—/.test(html), `${id} slot ${slot}: no em-dashes`);
+    assert(!/49E472/i.test(html), `${id} slot ${slot}: no green accent`);
+    assert(!/font-weight:(700|800)/.test(html), `${id} slot ${slot}: no font-weight 700/800`);
+    if (slot === 2) {
+      assert(/EMAIL-SLOWMOV-A7K2X/.test(html), `${id} slot 2: coupon code rendered`);
+    }
+  }
+}
+
+console.log("\n[picker] pickLayout is deterministic");
+const a = pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+const b = pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+assert(a.id === b.id, "same triple picks same layout");
+const c = pickLayout({ workspace_id: "ws-1", date: "2026-05-02", slot: 1 });
+assert(c.id !== a.id || LAYOUT_IDS.length === 1, "different date can pick different layout");
 
 console.log("\n✅ ALL SMOKE TESTS PASSED");

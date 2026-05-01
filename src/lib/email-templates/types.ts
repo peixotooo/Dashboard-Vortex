@@ -92,10 +92,11 @@ export interface EmailSuggestion {
 }
 
 export interface TemplateRenderContext {
+  slot: Slot; // 1 = bestseller, 2 = slowmoving, 3 = newarrival
   product: ProductSnapshot;
-  related_products: ProductSnapshot[]; // up to 3 secondary products shown in a grid
+  related_products: ProductSnapshot[];
   copy: CopyOutput;
   coupon?: { code: string; discount_percent: number; expires_at: Date; countdown_url: string };
   workspace: { name: string; logo_url?: string };
-  hook?: string; // optional brand-voice tagline shown above the hero
+  hook?: string;
 }

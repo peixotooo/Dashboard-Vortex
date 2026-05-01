@@ -8,9 +8,7 @@ import { pickBestseller, pickNewarrival, pickRelatedProducts, pickSlowmoving } f
 import { generateCopy } from "./copy";
 import { createSlowmovingCoupon } from "./coupon";
 import { buildCountdownUrl } from "./countdown";
-import { renderBestseller } from "./templates/bestseller";
-import { renderSlowmoving } from "./templates/slowmoving";
-import { renderNewarrival } from "./templates/newarrival";
+import { pickLayout } from "./layouts";
 import type { Slot, ProductSnapshot, EmailTemplateSettings, TemplateRenderContext } from "./types";
 
 interface SlotResult {
@@ -50,7 +48,7 @@ async function generateSlotBestseller(
     workspace_id, settings, date, slot: 1, product: pick.product, hours,
     related_products: related,
     hook: "O top 1 da semana",
-    render: (ctx) => renderBestseller(ctx),
+    render: (ctx) => pickLayout({ workspace_id, date, slot: 1 }).render(ctx),
   });
 }
 
@@ -100,7 +98,7 @@ async function generateSlotSlowmoving(
     coupon: { ...coupon, countdown_url },
     related_products: related,
     hook: "Estoque acabando",
-    render: (ctx) => renderSlowmoving(ctx),
+    render: (ctx) => pickLayout({ workspace_id, date, slot: 2 }).render(ctx),
   });
 }
 
@@ -125,7 +123,7 @@ async function generateSlotNewarrival(
     workspace_id, settings, date, slot: 3, product: pick.product, hours,
     related_products: related,
     hook: "Acabou de chegar",
-    render: (ctx) => renderNewarrival(ctx),
+    render: (ctx) => pickLayout({ workspace_id, date, slot: 3 }).render(ctx),
   });
 }
 
@@ -168,6 +166,7 @@ async function persistSuggestion(args: {
   let rendered_html: string;
   try {
     rendered_html = render({
+      slot,
       product,
       related_products: related_products ?? [],
       copy,
