@@ -43,8 +43,8 @@ export async function analyzeProductOrientation(imageUrl: string): Promise<Produ
 
   try {
     const resp = await callLLM({
-      provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
+      provider: "openrouter",
+      model: "anthropic/claude-haiku-4.5",
       maxTokens: 150,
       system: SYSTEM,
       tools: [],
