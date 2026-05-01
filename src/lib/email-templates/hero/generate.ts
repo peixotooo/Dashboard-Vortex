@@ -17,18 +17,26 @@ export async function ensureHero(args: {
   slot: Slot;
   product: ProductSnapshot;
 }): Promise<string | null> {
-  // Cache hit short-circuit.
+  console.log(
+    `[hero] ensureHero start workspace=${args.workspace_id} product=${args.product.vnda_id} layout=${args.layout_id} slot=${args.slot} kieKeySet=${!!process.env.KIE_API_KEY}`
+  );
+
   const cached = await getHero({
     workspace_id: args.workspace_id,
     vnda_product_id: args.product.vnda_id,
     layout_id: args.layout_id,
     slot: args.slot,
   });
-  if (cached) return cached.hero_url;
+  if (cached) {
+    console.log(`[hero] cache hit slot=${args.slot} → ${cached.hero_url}`);
+    return cached.hero_url;
+  }
 
   if (!process.env.KIE_API_KEY) {
+    console.warn(`[hero] KIE_API_KEY missing in runtime, falling back to product image`);
     return null;
   }
+  console.log(`[hero] generating slot=${args.slot} layout=${args.layout_id}...`);
 
   // Build prompt + reference list.
   const built = buildHeroPrompt({
