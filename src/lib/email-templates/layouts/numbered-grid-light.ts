@@ -111,5 +111,6 @@ export const numberedGridLightLayout: LayoutDef = {
   mode: "light",
   slots: [1, 3],
   product_count: 3,
+  uses_hero: false,
   render,
 };

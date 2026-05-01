@@ -146,13 +146,15 @@ async function persistSuggestion(args: {
   const { workspace_id, settings, date, slot, product, hours, coupon, related_products, hook } = args;
   const segment = await resolveSegmentForSlot(workspace_id, slot);
   const layout = pickLayout({ workspace_id, date, slot });
-  const hero_url =
-    (await ensureHero({
-      workspace_id,
-      layout_id: layout.id,
-      slot,
-      product,
-    })) ?? undefined;
+  const wantsHero = layout.uses_hero !== false;
+  const hero_url = wantsHero
+    ? (await ensureHero({
+        workspace_id,
+        layout_id: layout.id,
+        slot,
+        product,
+      })) ?? undefined
+    : undefined;
 
   const { output: copy, provider_used } = await generateCopy(
     {
