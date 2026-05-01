@@ -50,7 +50,15 @@ export default function EmailTemplatesPage() {
             {items.length} sugestão{items.length === 1 ? "" : "ões"} prontas pra hoje · {date}
           </p>
         </div>
-        <SettingsDrawer workspaceId={workspaceId} />
+        <div className="flex items-center gap-2">
+          <a
+            href="/crm/email-templates/library"
+            className="inline-flex items-center px-3 py-2 text-sm border rounded hover:bg-muted"
+          >
+            Biblioteca
+          </a>
+          <SettingsDrawer workspaceId={workspaceId} />
+        </div>
       </div>
       <Tabs defaultValue="today">
         <TabsList>
