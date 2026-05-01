@@ -39,45 +39,48 @@ export async function GET(
     if (productId) {
       const { createAdminClient } = await import("@/lib/supabase-admin");
       const sb = createAdminClient();
-      const { data: rows } = await sb
+      type Row = {
+        product_id: string;
+        name: string;
+        price: number | null;
+        sale_price: number | null;
+        image_url: string | null;
+        product_url: string | null;
+        tags: unknown;
+      };
+      const toAbs = (u: string | null): string =>
+        !u ? "" : u.startsWith("//") ? `https:${u}` : u;
+      const toSnap = (r: Row) => ({
+        vnda_id: r.product_id,
+        name: r.name,
+        price: Number(r.sale_price ?? r.price ?? 0),
+        old_price:
+          r.sale_price != null && r.price != null && Number(r.price) > Number(r.sale_price)
+            ? Number(r.price)
+            : undefined,
+        image_url: toAbs(r.image_url),
+        url: r.product_url ?? "",
+      });
+      // Fetch the specific product (might be deeper than the latest-8) so the
+      // preview doesn't silently fall back to the fixture.
+      const { data: targetRow } = await sb
         .from("shelf_products")
         .select("product_id, name, price, sale_price, image_url, product_url, tags")
         .eq("workspace_id", workspaceId)
-        .eq("active", true)
-        .eq("in_stock", true)
-        .order("created_at", { ascending: false })
-        .limit(8);
-      if (rows && rows.length > 0) {
-        type Row = {
-          product_id: string;
-          name: string;
-          price: number | null;
-          sale_price: number | null;
-          image_url: string | null;
-          product_url: string | null;
-          tags: unknown;
-        };
-        const toAbs = (u: string | null): string =>
-          !u ? "" : u.startsWith("//") ? `https:${u}` : u;
-        const toSnap = (r: Row) => ({
-          vnda_id: r.product_id,
-          name: r.name,
-          price: Number(r.sale_price ?? r.price ?? 0),
-          old_price:
-            r.sale_price != null && r.price != null && Number(r.price) > Number(r.sale_price)
-              ? Number(r.price)
-              : undefined,
-          image_url: toAbs(r.image_url),
-          url: r.product_url ?? "",
-        });
-        const target = (rows as Row[]).find((r) => r.product_id === productId);
-        if (target) {
-          primary = toSnap(target);
-          related = (rows as Row[])
-            .filter((r) => r.product_id !== productId)
-            .slice(0, 3)
-            .map(toSnap);
-        }
+        .eq("product_id", productId)
+        .maybeSingle();
+      if (targetRow) {
+        primary = toSnap(targetRow as Row);
+        const { data: relatedRows } = await sb
+          .from("shelf_products")
+          .select("product_id, name, price, sale_price, image_url, product_url, tags")
+          .eq("workspace_id", workspaceId)
+          .eq("active", true)
+          .eq("in_stock", true)
+          .neq("product_id", productId)
+          .order("created_at", { ascending: false })
+          .limit(3);
+        related = ((relatedRows ?? []) as Row[]).map(toSnap);
       }
     }
 

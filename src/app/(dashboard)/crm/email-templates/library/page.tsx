@@ -5,11 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ExternalLink, Maximize2, Wand2, Search, X } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -452,11 +448,12 @@ export default function LayoutLibraryPage() {
         </div>
       )}
 
-      <Sheet open={lightboxHtml !== null} onOpenChange={(open) => !open && setLightboxHtml(null)}>
-        <SheetTrigger asChild>
-          <span />
-        </SheetTrigger>
-        <SheetContent side="right" className="w-full sm:max-w-3xl p-0">
+      <Dialog
+        open={lightboxHtml !== null}
+        onOpenChange={(open) => !open && setLightboxHtml(null)}
+      >
+        <DialogContent className="max-w-3xl w-[95vw] h-[90vh] p-0 overflow-hidden">
+          <DialogTitle className="sr-only">Preview ampliado</DialogTitle>
           {lightboxHtml && (
             <iframe
               srcDoc={lightboxHtml}
@@ -465,8 +462,8 @@ export default function LayoutLibraryPage() {
               title="Preview ampliado"
             />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
