@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   Tag,
@@ -10,6 +10,7 @@ import {
   XCircle,
   Loader2,
   Package,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -39,15 +40,31 @@ const DEFAULT_SETTINGS: Settings = {
   isDefault: true,
 };
 
+type ProductOption = {
+  codigo: string;
+  nome: string;
+  precoCheio: number;
+  salePrice: number | null;
+  categoria: string | null;
+  imagem: string | null;
+  inStock: boolean;
+};
+
 export default function CommercialSimulatorPage() {
   const { workspace } = useWorkspace();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [results, setResults] = useState<ProductOption[]>([]);
   const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [sku, setSku] = useState<SkuLookup | null>(null);
+  const [skuLoading, setSkuLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [descontoPct, setDescontoPct] = useState(0);
   const [freteGratis, setFreteGratis] = useState(false);
@@ -73,35 +90,97 @@ export default function CommercialSimulatorPage() {
     fetchSettings();
   }, [workspace?.id]);
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!workspace?.id || !searchQuery.trim()) return;
-    setSearching(true);
-    setSearchError(null);
-    try {
-      const res = await fetch(
-        `/api/simulador-comercial/sku/${encodeURIComponent(searchQuery.trim())}`,
-        { headers: { "x-workspace-id": workspace.id } }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setSearchError(data.error ?? `Erro ${res.status}`);
-        setSku(null);
-      } else {
-        const data: SkuLookup = await res.json();
-        setSku(data);
-        setDescontoPct(0);
-        setFreteGratis(false);
-        setCustoFreteOverride(null);
-        setGatilho("");
-        setGatilhoOutro("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+    let cancelled = false;
+    async function fetchProducts() {
+      setSearching(true);
+      setSearchError(null);
+      try {
+        const params = new URLSearchParams();
+        if (debouncedQuery.trim()) params.set("q", debouncedQuery.trim());
+        params.set("limit", "20");
+        const res = await fetch(`/api/simulador-comercial/products?${params}`, {
+          headers: { "x-workspace-id": workspace!.id },
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setSearchError(data.error ?? `Erro ${res.status}`);
+          setResults([]);
+        } else {
+          setResults(data.items ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSearchError(err instanceof Error ? err.message : "Erro desconhecido");
+          setResults([]);
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
       }
-    } catch (err) {
-      setSearchError(err instanceof Error ? err.message : "Erro desconhecido");
-      setSku(null);
-    } finally {
-      setSearching(false);
     }
+    fetchProducts();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.id, debouncedQuery]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectProduct = useCallback(
+    async (option: ProductOption) => {
+      if (!workspace?.id) return;
+      setOpen(false);
+      setSkuLoading(true);
+      setSearchError(null);
+      try {
+        const res = await fetch(
+          `/api/simulador-comercial/sku/${encodeURIComponent(option.codigo)}`,
+          { headers: { "x-workspace-id": workspace.id } }
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setSearchError(data.error ?? `Erro ${res.status}`);
+          setSku(null);
+        } else {
+          const data: SkuLookup = await res.json();
+          setSku(data);
+          setQuery(data.nome);
+          setDescontoPct(0);
+          setFreteGratis(false);
+          setCustoFreteOverride(null);
+          setGatilho("");
+          setGatilhoOutro("");
+        }
+      } catch (err) {
+        setSearchError(err instanceof Error ? err.message : "Erro desconhecido");
+        setSku(null);
+      } finally {
+        setSkuLoading(false);
+      }
+    },
+    [workspace?.id]
+  );
+
+  function clearSelection() {
+    setSku(null);
+    setQuery("");
+    setSearchError(null);
+    inputRef.current?.focus();
   }
 
   const custoFreteAtual = custoFreteOverride ?? settings.custo_frete_medio_brl;
@@ -155,26 +234,111 @@ export default function CommercialSimulatorPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
+          <div ref={containerRef} className="relative">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
+                ref={inputRef}
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Digite o SKU ou código do produto"
-                className="w-full pl-10 pr-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-primary focus:outline-none"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setOpen(true);
+                  if (sku) setSku(null);
+                }}
+                onFocus={() => setOpen(true)}
+                placeholder="Busque por nome do produto ou SKU"
+                className="w-full pl-10 pr-10 py-2.5 rounded-lg border border-border bg-background text-sm focus:border-primary focus:outline-none"
               />
+              {(query || sku) && (
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:bg-accent transition-colors"
+                  aria-label="Limpar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
-            <button
-              type="submit"
-              disabled={searching || !searchQuery.trim()}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              Buscar
-            </button>
-          </form>
+
+            {open && (
+              <div className="absolute z-20 mt-1 w-full max-h-96 overflow-auto rounded-lg border border-border bg-popover shadow-lg">
+                {searching ? (
+                  <div className="px-4 py-6 flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Buscando...
+                  </div>
+                ) : results.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+                    {debouncedQuery.trim()
+                      ? "Nenhum produto encontrado."
+                      : "Catálogo vazio nesse workspace."}
+                  </div>
+                ) : (
+                  <>
+                    {!debouncedQuery.trim() && (
+                      <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border bg-muted/30">
+                        Produtos recentes
+                      </div>
+                    )}
+                    <ul>
+                      {results.map((p) => (
+                        <li key={p.codigo}>
+                          <button
+                            type="button"
+                            onClick={() => selectProduct(p)}
+                            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-accent transition-colors text-left"
+                          >
+                            {p.imagem ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={p.imagem}
+                                alt={p.nome}
+                                className="w-10 h-10 rounded object-cover bg-muted flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{p.nome}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className="font-mono">{p.codigo}</span>
+                                {p.categoria && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="truncate">{p.categoria}</span>
+                                  </>
+                                )}
+                                {!p.inStock && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="text-warning">indisponível</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-sm font-semibold flex-shrink-0">
+                              {formatCurrency(p.precoCheio)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {skuLoading && (
+            <p className="mt-3 text-sm text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando produto...
+            </p>
+          )}
           {searchError && (
             <p className="mt-3 text-sm text-destructive flex items-center gap-1.5">
               <AlertTriangle className="h-4 w-4" />
