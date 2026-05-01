@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, ExternalLink, Maximize2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, Maximize2, Wand2 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   Sheet,
@@ -110,6 +110,12 @@ function PreviewCard({
               )}
             </SheetContent>
           </Sheet>
+          <a
+            href={`/crm/email-templates/compose/${layout.id}`}
+            className="inline-flex items-center justify-center gap-1 h-8 px-3 text-xs font-semibold rounded bg-foreground text-background hover:opacity-90"
+          >
+            <Wand2 className="w-3 h-3" /> Usar este layout
+          </a>
         </div>
       </div>
       <div
