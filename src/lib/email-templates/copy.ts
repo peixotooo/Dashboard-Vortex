@@ -15,28 +15,40 @@ import type {
 
 // ---- Template-based (DEFAULT) -------------------------------------------
 
+// Subject lines: Andre Chaperon principle (intimate, no shouting), Eugene
+// Schwartz routing by awareness level. No em dashes. Slot 1 = product aware
+// (signal what is loved). Slot 2 = most aware (signal scarcity, stay calm).
+// Slot 3 = solution aware (lead with the new arrival itself).
 const SUBJECT_BANK: Record<1 | 2 | 3, string[]> = {
   1: [
-    "{name} — o mais vestido da semana.",
-    "Top 1 da semana: {name}.",
-    "{name} liderou. Veja por quê.",
+    "{name}: a peça mais vestida da semana",
+    "Quem treina escolheu {name}",
+    "Top 1 da semana é {name}",
   ],
   2: [
-    "Última chance pra vestir {name}.",
-    "{name} — ainda dá tempo.",
-    "Estoque acabando: {name}.",
+    "Estoque acabando: {name}",
+    "Sua chance em {name}",
+    "{name} antes de acabar",
   ],
   3: [
-    "{name} — acabou de chegar.",
-    "Nova fase, nova peça: {name}.",
-    "Lançamento: {name}.",
+    "{name} acabou de chegar",
+    "Nova peça. Mesma intenção. {name}",
+    "Lançamento Bulking: {name}",
   ],
 };
 
 const HEADLINE_BANK: Record<1 | 2 | 3, string[]> = {
-  1: ["O mais vestido da semana.", "Quem treina, escolheu essa.", "Top 1 — e dá pra ver por quê."],
-  2: ["Última chance.", "Tá indo embora.", "Antes que acabe."],
-  3: ["Acabou de chegar.", "Nova peça. Mesmo trabalho.", "Pronto pra vestir."],
+  1: [
+    "A peça mais vestida da semana.",
+    "Quem treina escolheu essa.",
+    "Top 1 e dá pra ver por quê.",
+  ],
+  2: ["Última chance pra essa.", "Tá indo embora.", "Antes que acabe."],
+  3: [
+    "Acabou de chegar.",
+    "Nova peça. Mesmo trabalho.",
+    "Pronto pra vestir.",
+  ],
 };
 
 const CTA_BANK: Record<1 | 2 | 3, string> = {
@@ -45,17 +57,20 @@ const CTA_BANK: Record<1 | 2 | 3, string> = {
   3: "Conferir lançamento",
 };
 
+// Lead copy: short, calm, two short sentences max. No em dashes. Andre
+// Chaperon: feels like a personal note, not a banner.
 const LEAD_BANK: Record<1 | 2 | 3, (input: CopyInput) => string> = {
   1: ({ product }) =>
-    `${product.name} foi a peça mais vendida dos últimos dias. Caimento pra quem treina, design feito pra durar. Vista o trabalho.`,
-  2: ({ product, coupon }) =>
-    coupon
-      ? `Estoque acabando em ${product.name}. Use o cupom ${coupon.code} e leve com ${coupon.discount_percent}% off — só por ${Math.round(
-          (coupon.expires_at.getTime() - Date.now()) / 36e5
-        )} horas.`
-      : `Estoque acabando em ${product.name}. Última chance pra vestir essa.`,
+    `${product.name} foi a peça mais vendida dos últimos dias. Caimento pra quem treina, design feito pra durar.`,
+  2: ({ product, coupon }) => {
+    if (!coupon) {
+      return `Estoque acabando em ${product.name}. Antes que ela saia da nossa grade.`;
+    }
+    const hours = Math.round((coupon.expires_at.getTime() - Date.now()) / 36e5);
+    return `Estoque acabando em ${product.name}. Use o cupom ${coupon.code} pra levar com ${coupon.discount_percent}% off. Vale por ${hours} horas.`;
+  },
   3: ({ product }) =>
-    `${product.name} acabou de chegar. Mesma intenção de sempre: design autoral, caimento pensado, qualidade que dura.`,
+    `${product.name} acabou de chegar na grade. Mesma intenção de sempre: design autoral, caimento pensado, qualidade que dura.`,
 };
 
 function pickRotated<T>(arr: T[], salt: number): T {
@@ -87,11 +102,13 @@ class TemplateProvider implements CopyProviderImpl {
 
 // ---- LLM hook (falls back to template if it fails) ----------------------
 
-const BRAND_VOICE_BRIEF = `Bulking é uma marca de fashion fitness masculina (Hero+Creator).
-Voz: determinada, direta, confiante. Sem exageros, sem gritos.
-Paleta: preto + verde neon. Lema: "Respect the Hustle" / "Vista o trabalho".
+const BRAND_VOICE_BRIEF = `Bulking é uma marca de fashion fitness masculina (Hero + Creator).
+Voz: determinada, direta, confiante. Calma. Sem exageros, sem gritos.
+Estética visual: monocromática (preto, branco e tons de cinza para texto). Verde neon só em ativos da marca, NUNCA em copy.
+Lema: "Respect the Hustle" / "Vista o trabalho".
 USAR: hustle, shape, treino, vestir, processo, construir, intenção.
-EVITAR (NUNCA usar): mega promo, baratinho, guerreiro, campeão, "só hoje!!!", urgência falsa, exclamações em cascata.`;
+EVITAR: mega promo, baratinho, guerreiro, campeão, "só hoje!!!", urgência falsa, exclamações em cascata, travessões longos.
+NUNCA use travessão (—) em nenhum texto. Use ponto ou vírgula.`;
 
 class LlmProvider implements CopyProviderImpl {
   // agent_slug is informational only (e.g., 'copywriting' / 'email-sequence');
@@ -107,7 +124,7 @@ class LlmProvider implements CopyProviderImpl {
 
     const system = `${BRAND_VOICE_BRIEF}
 
-Tarefa: gerar copy de email marketing como o agente "${this.agent_slug}" faria — em pt-BR, brand-on-voice.
+Tarefa: gerar copy de email marketing como o agente "${this.agent_slug}" faria, em pt-BR, brand-on-voice.
 
 REGRAS DURAS:
 - subject ≤ 60 caracteres.
@@ -117,7 +134,7 @@ REGRAS DURAS:
 - Retorne APENAS JSON válido com chaves: subject, headline, lead, cta_text. Sem markdown, sem comentários, sem prefixo "Aqui está", sem sufixo.`;
 
     const user = `Slot: ${input.slot} (${slotLabel}).
-Produto: ${input.product.name} — R$ ${input.product.price.toFixed(2)}.
+Produto: ${input.product.name} (R$ ${input.product.price.toFixed(2)}).
 Segmento alvo: ${input.segment.display_label}.
 ${couponPart}`;
 

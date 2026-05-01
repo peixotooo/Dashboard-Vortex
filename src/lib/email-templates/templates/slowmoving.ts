@@ -24,7 +24,7 @@ export function renderSlowmoving(ctx: TemplateRenderContext): string {
   return [
     htmlOpen({ subject: ctx.copy.subject, preview: ctx.copy.lead }),
     header(),
-    // Animated countdown sits right under the logo — top-of-email visibility,
+    // Animated countdown sits right under the logo for top-of-email visibility,
     // matching Adidas-style "ÚLTIMA CHANCE" banners.
     topCountdownBlock({
       countdown_url: ctx.coupon.countdown_url,

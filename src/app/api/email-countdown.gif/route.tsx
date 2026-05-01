@@ -40,10 +40,10 @@ const W = 600;
 const H = 220;
 const FRAMES = 60;
 const FRAME_DELAY_MS = 1000;
+// Monochrome only. No saturated accent on typography per brand system.
 const BG = "#000000";
 const FG = "#FFFFFF";
-const ACCENT = "#49E472";
-const MUTED = "#9AA0A6";
+const MUTED = "#A8A8A8";
 
 interface Parts {
   d: string;
@@ -77,52 +77,50 @@ function drawFrame(
 
   if (expired) {
     ctx.fillStyle = MUTED;
-    ctx.font = "800 48px Kanit, Arial, sans-serif";
+    ctx.font = "500 40px Kanit, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ENCERRADO", W / 2, H / 2);
     return;
   }
 
-  // Top label "ÚLTIMA CHANCE — TERMINA EM"
-  ctx.fillStyle = FG;
-  ctx.font = "700 16px Kanit, Arial, sans-serif";
+  // Top eyebrow label. No em dash. Letter spacing handled implicitly by Kanit.
+  ctx.fillStyle = MUTED;
+  ctx.font = "500 13px Kanit, Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("ÚLTIMA CHANCE — TERMINA EM", W / 2, 36);
+  ctx.fillText("ÚLTIMA CHANCE   ·   TERMINA EM", W / 2, 36);
 
   const p = parts(remainingSec);
   const labels = ["DIAS", "HORAS", "MINUTOS", "SEGUNDOS"];
   const digits = [p.d, p.h, p.m, p.s];
 
-  // Layout: 4 boxes evenly spaced, big digits centered, label below
   const boxCount = 4;
-  const totalContentWidth = 480; // leave 60px padding each side
+  const totalContentWidth = 480;
   const slotWidth = totalContentWidth / boxCount;
   const startX = (W - totalContentWidth) / 2 + slotWidth / 2;
   const digitsY = 120;
-  const labelY = 178;
+  const labelY = 184;
 
-  ctx.font = "800 64px Kanit, Arial, sans-serif";
+  // Digits at weight 500. Editorial references use medium not bold.
+  ctx.font = "500 64px Kanit, Arial, sans-serif";
   ctx.fillStyle = FG;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;
     ctx.fillText(digits[i], cx, digitsY);
   }
 
-  // Colon separators between boxes (positioned between adjacent slots).
-  // Last colon (between MINUTOS and SEGUNDOS) gets the green accent so the
-  // viewer's eye lands on the seconds box, where the animation is happening.
-  ctx.font = "800 44px Kanit, Arial, sans-serif";
+  // Colon separators between boxes. Same monochrome white, no accent.
+  ctx.font = "500 36px Kanit, Arial, sans-serif";
 
+  ctx.fillStyle = FG;
   for (let i = 0; i < boxCount - 1; i++) {
     const cx = startX + slotWidth * i + slotWidth / 2;
-    ctx.fillStyle = i === 2 ? ACCENT : FG; // last colon (between min and seg) gets the accent
     ctx.fillText(":", cx, digitsY);
   }
 
-  // Labels below
-  ctx.font = "600 12px Kanit, Arial, sans-serif";
+  // Labels below the digits. Subtle, weight 500.
+  ctx.font = "500 11px Kanit, Arial, sans-serif";
   ctx.fillStyle = MUTED;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;
