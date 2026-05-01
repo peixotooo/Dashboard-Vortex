@@ -44,6 +44,18 @@ function refUrl(filename: string): string {
   return `${APP_BASE_URL}/hero-refs/${filename}`;
 }
 
+/**
+ * VNDA's shelf_products.image_url is stored protocol-relative
+ * (e.g. "//cdn.vnda.com.br/..."). External fetchers like kie.ai treat that
+ * as a relative path and 404. Force https.
+ */
+function absUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return url; // leave unmodified for any other shape
+}
+
 export interface BuildPromptResult {
   prompt: string;
   input_urls: string[];
@@ -59,7 +71,7 @@ export function buildHeroPrompt(args: {
   const { layoutId, slot, product } = args;
   const refFile = LAYOUT_REF[layoutId];
   const refImage = refUrl(refFile);
-  const productImage = product.image_url;
+  const productImage = absUrl(product.image_url);
   const labelText = SLOT_TEXT[slot];
   const vibe = SLOT_VIBE[slot];
 
