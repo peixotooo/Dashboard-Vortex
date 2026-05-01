@@ -99,4 +99,9 @@ export interface TemplateRenderContext {
   coupon?: { code: string; discount_percent: number; expires_at: Date; countdown_url: string };
   workspace: { name: string; logo_url?: string };
   hook?: string;
+  /**
+   * Optional generated hero image (from kie.ai GPT Image 2 pipeline). When
+   * present, layouts use this URL for the hero block instead of product.image_url.
+   */
+  hero_url?: string;
 }

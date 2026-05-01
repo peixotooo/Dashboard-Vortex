@@ -76,7 +76,7 @@ function render(ctx: TemplateRenderContext): string {
   // Full-bleed product hero.
   blocks.push(`
 <tr><td style="padding:24px 0 0;background:${DARK_BG};">
-  <img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" width="600" height="780" style="width:100%;max-width:600px;height:auto;display:block;" />
+  <img src="${escapeHtml(ctx.hero_url ?? product.image_url)}" alt="${escapeHtml(product.name)}" width="600" height="780" style="width:100%;max-width:600px;height:auto;display:block;" />
 </td></tr>`);
 
   // Two-line product name + paragraph + brand wordmark.

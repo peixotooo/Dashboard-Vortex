@@ -9,6 +9,7 @@ import { generateCopy } from "./copy";
 import { createSlowmovingCoupon } from "./coupon";
 import { buildCountdownUrl } from "./countdown";
 import { pickLayout } from "./layouts";
+import { ensureHero } from "./hero/generate";
 import type { Slot, ProductSnapshot, EmailTemplateSettings, TemplateRenderContext } from "./types";
 
 interface SlotResult {
@@ -48,7 +49,6 @@ async function generateSlotBestseller(
     workspace_id, settings, date, slot: 1, product: pick.product, hours,
     related_products: related,
     hook: "O top 1 da semana",
-    render: (ctx) => pickLayout({ workspace_id, date, slot: 1 }).render(ctx),
   });
 }
 
@@ -98,7 +98,6 @@ async function generateSlotSlowmoving(
     coupon: { ...coupon, countdown_url },
     related_products: related,
     hook: "Estoque acabando",
-    render: (ctx) => pickLayout({ workspace_id, date, slot: 2 }).render(ctx),
   });
 }
 
@@ -123,7 +122,6 @@ async function generateSlotNewarrival(
     workspace_id, settings, date, slot: 3, product: pick.product, hours,
     related_products: related,
     hook: "Acabou de chegar",
-    render: (ctx) => pickLayout({ workspace_id, date, slot: 3 }).render(ctx),
   });
 }
 
@@ -142,12 +140,19 @@ async function persistSuggestion(args: {
     discount_percent: number;
     countdown_url: string;
   };
-  render: (ctx: TemplateRenderContext) => string;
   related_products?: ProductSnapshot[];
   hook?: string;
 }): Promise<SlotResult> {
-  const { workspace_id, settings, date, slot, product, hours, coupon, render, related_products, hook } = args;
+  const { workspace_id, settings, date, slot, product, hours, coupon, related_products, hook } = args;
   const segment = await resolveSegmentForSlot(workspace_id, slot);
+  const layout = pickLayout({ workspace_id, date, slot });
+  const hero_url =
+    (await ensureHero({
+      workspace_id,
+      layout_id: layout.id,
+      slot,
+      product,
+    })) ?? undefined;
 
   const { output: copy, provider_used } = await generateCopy(
     {
@@ -165,7 +170,7 @@ async function persistSuggestion(args: {
 
   let rendered_html: string;
   try {
-    rendered_html = render({
+    rendered_html = layout.render({
       slot,
       product,
       related_products: related_products ?? [],
@@ -180,6 +185,7 @@ async function persistSuggestion(args: {
         : undefined,
       workspace: { name: "Bulking" },
       hook,
+      hero_url,
     });
   } catch (err) {
     const msg = String((err as Error).message);

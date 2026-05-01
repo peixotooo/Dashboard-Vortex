@@ -75,7 +75,7 @@ function render(ctx: TemplateRenderContext): string {
     splitOverlay({
       topWord,
       bottomWord,
-      image_url: product.image_url,
+      image_url: ctx.hero_url ?? product.image_url,
       alt: product.name,
       eyebrow: hook,
     })

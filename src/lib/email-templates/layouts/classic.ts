@@ -51,7 +51,11 @@ function render(ctx: TemplateRenderContext): string {
   }
 
   blocks.push(
-    hero({ image_url: product.image_url, alt: product.name, badge: SLOT_BADGE[slot] }),
+    hero({
+      image_url: ctx.hero_url ?? product.image_url,
+      alt: product.name,
+      badge: SLOT_BADGE[slot],
+    }),
     headlineBlock(copy.headline),
     ratingStarsBlock(5),
     leadBlock(copy.lead)

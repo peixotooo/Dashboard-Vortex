@@ -89,7 +89,7 @@ function render(ctx: TemplateRenderContext): string {
   </table>
 </td></tr>
 <tr><td style="padding:0;background:${DARK_BG};">
-  <img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" width="600" height="780" style="width:100%;max-width:600px;height:auto;display:block;background:${DARK_BG};" />
+  <img src="${escapeHtml(ctx.hero_url ?? product.image_url)}" alt="${escapeHtml(product.name)}" width="600" height="780" style="width:100%;max-width:600px;height:auto;display:block;background:${DARK_BG};" />
 </td></tr>
 <tr><td style="padding:12px 32px 32px;background:${DARK_BG};">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
