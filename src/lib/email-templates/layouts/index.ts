@@ -8,18 +8,51 @@
 
 import type { Slot } from "../types";
 import type { LayoutDef, LayoutId } from "./types";
+
 import { classicLayout } from "./classic";
 import { editorialOverlayLightLayout } from "./editorial-overlay-light";
+import { editorialOverlayDarkLayout } from "./editorial-overlay-dark";
+import { reviewsSideHeroLightLayout } from "./reviews-side-hero-light";
+import { reviewsSideHeroDarkLayout } from "./reviews-side-hero-dark";
+import { logoAsymNarrativeLightLayout } from "./logo-asym-narrative-light";
+import { logoAsymNarrativeDarkLayout } from "./logo-asym-narrative-dark";
+import { overlayDualCtaLightLayout } from "./overlay-dual-cta-light";
+import { overlayDualCtaDarkLayout } from "./overlay-dual-cta-dark";
+import { editionNarrativeLightLayout } from "./edition-narrative-light";
+import { editionNarrativeDarkLayout } from "./edition-narrative-dark";
 import { numberedGridLightLayout } from "./numbered-grid-light";
-import { slashLabelsDarkLayout } from "./slash-labels-dark";
+import { numberedGridDarkLayout } from "./numbered-grid-dark";
+import { uniformGrid3x3LightLayout } from "./uniform-grid-3x3-light";
+import { uniformGrid3x3DarkLayout } from "./uniform-grid-3x3-dark";
+import { singleDetailLightLayout } from "./single-detail-light";
 import { singleDetailDarkLayout } from "./single-detail-dark";
+import { slashLabelsLightLayout } from "./slash-labels-light";
+import { slashLabelsDarkLayout } from "./slash-labels-dark";
+import { blurBestsellersLightLayout } from "./blur-bestsellers-light";
+import { blurBestsellersDarkLayout } from "./blur-bestsellers-dark";
 
 export const LAYOUTS: Record<LayoutId, LayoutDef> = {
   classic: classicLayout,
   "editorial-overlay-light": editorialOverlayLightLayout,
+  "editorial-overlay-dark": editorialOverlayDarkLayout,
+  "reviews-side-hero-light": reviewsSideHeroLightLayout,
+  "reviews-side-hero-dark": reviewsSideHeroDarkLayout,
+  "logo-asym-narrative-light": logoAsymNarrativeLightLayout,
+  "logo-asym-narrative-dark": logoAsymNarrativeDarkLayout,
+  "overlay-dual-cta-light": overlayDualCtaLightLayout,
+  "overlay-dual-cta-dark": overlayDualCtaDarkLayout,
+  "edition-narrative-light": editionNarrativeLightLayout,
+  "edition-narrative-dark": editionNarrativeDarkLayout,
   "numbered-grid-light": numberedGridLightLayout,
-  "slash-labels-dark": slashLabelsDarkLayout,
+  "numbered-grid-dark": numberedGridDarkLayout,
+  "uniform-grid-3x3-light": uniformGrid3x3LightLayout,
+  "uniform-grid-3x3-dark": uniformGrid3x3DarkLayout,
+  "single-detail-light": singleDetailLightLayout,
   "single-detail-dark": singleDetailDarkLayout,
+  "slash-labels-light": slashLabelsLightLayout,
+  "slash-labels-dark": slashLabelsDarkLayout,
+  "blur-bestsellers-light": blurBestsellersLightLayout,
+  "blur-bestsellers-dark": blurBestsellersDarkLayout,
 };
 
 export const LAYOUT_IDS: LayoutId[] = Object.keys(LAYOUTS) as LayoutId[];
@@ -34,20 +67,14 @@ function fnv1a(str: string): number {
   return h >>> 0;
 }
 
-/**
- * Pick a layout deterministically from a (workspace, date, slot) triple. Only
- * layouts whose `slots` list includes the requested slot are eligible. Falls
- * back to the classic layout if no eligible layout exists (defensive — every
- * layout currently supports every slot).
- */
 export function pickLayout(args: {
   workspace_id: string;
-  date: string; // ISO YYYY-MM-DD
+  date: string;
   slot: Slot;
 }): LayoutDef {
-  const eligible = LAYOUT_IDS
-    .map((id) => LAYOUTS[id])
-    .filter((l) => l.slots.includes(args.slot));
+  const eligible = LAYOUT_IDS.map((id) => LAYOUTS[id]).filter((l) =>
+    l.slots.includes(args.slot)
+  );
   if (eligible.length === 0) return classicLayout;
   const h = fnv1a(`${args.workspace_id}|${args.date}|${args.slot}`);
   return eligible[h % eligible.length];

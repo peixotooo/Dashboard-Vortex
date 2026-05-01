@@ -89,6 +89,80 @@ export function header(): string {
 </td></tr>`;
 }
 
+// ---------- Dark mode framing primitives ----------
+
+export const DARK = {
+  bg: "#000000",
+  fg: "#FFFFFF",
+  muted: "#A8A8A8",
+  faint: "#6E6E6E",
+  border: "#1F1F1F",
+  surfaceAlt: "#0E0E0E",
+};
+
+/** Wraps the body in a dark canvas. Pair with darkClose(). */
+export function darkOpen(args: { subject: string; preview: string }): string {
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark only" />
+<meta name="supported-color-schemes" content="dark" />
+<title>${escapeHtml(args.subject)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin:0; padding:0; background:${DARK.bg}; }
+  table { border-collapse:collapse; }
+  img { border:0; outline:none; text-decoration:none; display:block; }
+  a { color:${DARK.fg}; }
+  @media (max-width: 599px) {
+    .h1 { font-size: 30px !important; }
+    .lead { font-size: 15px !important; }
+    .container { width: 100% !important; }
+    .pad { padding: 18px 24px !important; }
+    .pad-l { padding: 28px 24px !important; }
+    .pad-xl { padding: 40px 24px !important; }
+    .related-cell { display:block !important; width:100% !important; padding:0 0 32px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:${DARK.bg};">
+<div style="display:none;max-height:0;overflow:hidden;color:${DARK.bg};">${escapeHtml(args.preview)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${DARK.bg};">
+  <tr><td align="center">
+  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:${DARK.bg};">`;
+}
+
+export const darkClose = htmlClose;
+
+export function darkHeader(): string {
+  return `
+<tr><td align="center" class="pad-xl" style="padding:48px 32px 36px;background:${DARK.bg};border-bottom:1px solid ${DARK.border};">
+  <a href="https://www.bulking.com.br" target="_blank" style="text-decoration:none;color:${DARK.fg};">
+    <span style="display:inline-block;font-family:${TOKENS.fontHead};font-weight:500;font-size:18px;letter-spacing:0.32em;color:${DARK.fg};text-transform:uppercase;">BULKING</span>
+  </a>
+</td></tr>`;
+}
+
+export function darkFooter(): string {
+  return `
+<tr><td class="pad-xl" style="padding:56px 40px 48px;background:${DARK.bg};border-top:1px solid ${DARK.border};">
+  <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:12px;letter-spacing:0.32em;color:${DARK.fg};text-transform:uppercase;margin-bottom:16px;text-align:center;">Respect the Hustle.</div>
+  <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${DARK.muted};line-height:1.8;text-align:center;">
+    Bulking · <a href="https://www.bulking.com.br" style="color:${DARK.muted};text-decoration:underline;">bulking.com.br</a><br />
+    Você está recebendo este email porque é cliente Bulking. <a href="{{UNSUBSCRIBE_URL}}" style="color:${DARK.muted};text-decoration:underline;">Descadastrar</a>.
+  </div>
+</td></tr>`;
+}
+
+export function darkCtaBlock(args: { text: string; url: string }): string {
+  return `
+<tr><td class="pad-xl" align="center" style="padding:8px 40px 56px;background:${DARK.bg};">
+  <a href="${escapeHtml(args.url)}" target="_blank" style="display:inline-block;background:${DARK.fg};color:${DARK.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.28em;text-transform:uppercase;text-decoration:none;padding:20px 44px;">${escapeHtml(args.text)}</a>
+</td></tr>`;
+}
+
 /** Spacer rows to compose vertical rhythm between sections. */
 export function spacer(px: number): string {
   return `

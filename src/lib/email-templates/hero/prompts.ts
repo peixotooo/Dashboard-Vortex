@@ -19,13 +19,31 @@ import type { Slot, ProductSnapshot } from "../types";
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://dash.bulking.com.br";
 
-// Layout id → reference filename in public/hero-refs/
+// Layout id → reference filename in public/hero-refs/. Light/dark variants of
+// the same pattern share the same reference image (their visual structure is
+// the same; only palette inverts).
 const LAYOUT_REF: Record<LayoutId, string> = {
   classic: "ref-8-puffer-detail.jpg",
   "editorial-overlay-light": "ref-1-black-friday.jpg",
+  "editorial-overlay-dark": "ref-1-black-friday.jpg",
+  "reviews-side-hero-light": "ref-2-flaw-reviews.jpg",
+  "reviews-side-hero-dark": "ref-2-flaw-reviews.jpg",
+  "logo-asym-narrative-light": "ref-3-void-asym.jpg",
+  "logo-asym-narrative-dark": "ref-3-void-asym.jpg",
+  "overlay-dual-cta-light": "ref-4-society-overlay.jpg",
+  "overlay-dual-cta-dark": "ref-4-society-overlay.jpg",
+  "edition-narrative-light": "ref-5-represent-edition.jpg",
+  "edition-narrative-dark": "ref-5-represent-edition.jpg",
   "numbered-grid-light": "ref-6-numbered-grid.jpg",
-  "slash-labels-dark": "ref-9-asics-slash.jpg",
+  "numbered-grid-dark": "ref-6-numbered-grid.jpg",
+  "uniform-grid-3x3-light": "ref-7-initial-3x3.jpg",
+  "uniform-grid-3x3-dark": "ref-7-initial-3x3.jpg",
+  "single-detail-light": "ref-8-puffer-detail.jpg",
   "single-detail-dark": "ref-8-puffer-detail.jpg",
+  "slash-labels-light": "ref-9-asics-slash.jpg",
+  "slash-labels-dark": "ref-9-asics-slash.jpg",
+  "blur-bestsellers-light": "ref-10-faine-blur.jpg",
+  "blur-bestsellers-dark": "ref-10-faine-blur.jpg",
 };
 
 const SLOT_TEXT: Record<Slot, string> = {
@@ -42,6 +60,14 @@ const SLOT_VIBE: Record<Slot, string> = {
 
 function refUrl(filename: string): string {
   return `${APP_BASE_URL}/hero-refs/${filename}`;
+}
+
+/**
+ * Strips the trailing -light / -dark variant suffix from a LayoutId and
+ * returns the family name (e.g. "editorial-overlay-light" → "editorial-overlay").
+ */
+function layoutFamily(id: LayoutId): string {
+  return id.replace(/-(light|dark)$/, "");
 }
 
 /**
@@ -113,37 +139,43 @@ export function buildHeroPrompt(args: {
   // the editorial aesthetic and consistently passes content moderation.
   const revealing = isRevealingProduct(product.name);
 
-  const compositionWithModel: Record<LayoutId, string> = {
-    classic:
-      "vertical 3:4 editorial composition. Fully clothed athletic-build adult model wearing the product, three-quarter framing, hands relaxed, neutral expression. Soft neutral gradient background.",
-    "editorial-overlay-light":
-      "vertical 3:4 composition with the product (worn by a fully clothed athletic-build adult model in a calm pose) centered between two large words punched above and below in 84px sans-serif weight 500. Slot 1 words: TOP / SEMANA. Slot 2 words: ÚLTIMA / CHANCE. Slot 3 words: NOVO / DROP. Light gradient background.",
-    "numbered-grid-light":
-      "vertical 3:4 composition: a single fully clothed athletic-build adult model wearing the product, full body, centered, hands at sides, neutral pose. Pale cream paper-textured background. Optional small cursive number '1.' top-right corner.",
-    "slash-labels-dark":
-      "vertical 3:4 dark editorial composition. Fully clothed athletic-build adult model wearing the product, full body, dramatic side lighting, deep black gradient background. Small slash-separated meta labels in white sans-serif weight 500 floating top-left and bottom-right of the frame.",
-    "single-detail-dark":
-      "vertical 3:4 dark moody three-quarter portrait. Fully clothed athletic-build adult model wearing the product, soft directional rim light, gradient charcoal-to-black background. Shallow depth of field. Editorial, premium streetwear feel.",
+  // Composition guidance per layout family. Light/dark variants share the
+  // same instruction; only the surface tone changes (controlled by `mode`).
+  const family = layoutFamily(layoutId);
+  const isDark = layoutId.endsWith("-dark");
+  const surface = isDark
+    ? "deep charcoal-to-black gradient background"
+    : "soft white-to-light-grey gradient background";
+
+  const compositionFamily: Record<string, string> = {
+    "editorial-overlay":
+      `vertical 3:4 composition with the product centered between two large words punched above and below in 84px sans-serif weight 500. ${surface}.`,
+    "reviews-side-hero":
+      `vertical 3:4 composition. Centered three-quarter portrait of the product on a ${surface}. Negative space top-left for floating typography.`,
+    "logo-asym-narrative":
+      `vertical 3:4 asymmetric composition. The product on the right two-thirds with the left third reserved for typography. ${surface}.`,
+    "overlay-dual-cta":
+      `vertical 3:4 full-bleed product portrait. The product fills the frame for an over-headline composition. ${surface}.`,
+    "edition-narrative":
+      `vertical 3:4 portrait composition. Three-quarter framing of the product, magazine cover energy. ${surface}.`,
+    "numbered-grid":
+      `vertical 3:4 single-product crop suitable for a 2x2 grid cell. Centered, plenty of breathing room. ${surface}.`,
+    "uniform-grid-3x3":
+      `vertical 3:4 uniform thumbnail-style crop. Centered product, generous margin. ${surface}.`,
+    "single-detail":
+      `vertical 3:4 dominant single-product portrait. Soft directional light, shallow depth of field. ${surface}.`,
+    "slash-labels":
+      `vertical 3:4 editorial still-life. The product framed in the center with empty negative space top-left and bottom-right for slash-separated meta labels in sans-serif weight 500. ${surface}.`,
+    "blur-bestsellers":
+      `vertical 3:4 atmospheric soft-focus hero. Subtle motion blur on the background while the product stays sharp. ${surface}.`,
+    classic: `vertical 3:4 editorial composition. The product centered, ${surface}.`,
   };
 
-  // Flat-lay variants used for body-revealing items (shorts, leggings, etc).
-  // These avoid models entirely and keep moderation green.
-  const compositionFlatLay: Record<LayoutId, string> = {
-    classic:
-      "vertical 3:4 studio still-life. The product laid flat (or arranged on a clean invisible mannequin) centered against a soft neutral gradient backdrop. No human figure, no model. Clean shadows.",
-    "editorial-overlay-light":
-      "vertical 3:4 still-life composition. The product floats centered (flat-lay or invisible mannequin) between two large words punched above and below in 84px sans-serif weight 500. Slot 1 words: TOP / SEMANA. Slot 2 words: ÚLTIMA / CHANCE. Slot 3 words: NOVO / DROP. Light gradient background. No human figure.",
-    "numbered-grid-light":
-      "vertical 3:4 studio still-life. The product flat-lay or on an invisible mannequin, centered. Pale cream paper-textured background. Optional small cursive number '1.' top-right corner. No human figure.",
-    "slash-labels-dark":
-      "vertical 3:4 dark editorial still-life. The product floating (flat-lay or invisible mannequin) under dramatic side lighting on a deep black gradient backdrop. Small slash-separated meta labels in white sans-serif weight 500 top-left and bottom-right. No human figure.",
-    "single-detail-dark":
-      "vertical 3:4 dark moody product still-life. The product centered under soft directional rim light, gradient charcoal-to-black background. Shallow depth of field. No human figure. Editorial premium feel.",
-  };
-
-  const composition = revealing
-    ? compositionFlatLay[layoutId]
-    : compositionWithModel[layoutId];
+  const baseComposition = compositionFamily[family] ?? compositionFamily.classic;
+  const modelClause = revealing
+    ? "No human figure. Studio still-life or invisible-mannequin treatment."
+    : "Fully clothed athletic-build adult model wearing the product, three-quarter framing, hands relaxed, neutral expression. No exposed midriff. No exposed legs above mid-thigh.";
+  const composition = `${baseComposition} ${modelClause}`;
 
   const safetyClause = revealing
     ? `IMPORTANT: do NOT depict a human model. Render the product alone as studio still-life or on an invisible mannequin. No bodies, no skin.`

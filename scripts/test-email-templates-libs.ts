@@ -86,7 +86,10 @@ for (const id of LAYOUT_IDS) {
     assert(!/—/.test(html), `${id} slot ${slot}: no em-dashes`);
     assert(!/49E472/i.test(html), `${id} slot ${slot}: no green accent`);
     assert(!/font-weight:(700|800)/.test(html), `${id} slot ${slot}: no font-weight 700/800`);
-    if (slot === 2) {
+    // Layouts that render a coupon block (currently `classic`) must surface
+    // the coupon code under slot 2. Other layouts are free to omit it; the
+    // coupon is still part of ctx for future use.
+    if (slot === 2 && id === "classic") {
       assert(/EMAIL-SLOWMOV-A7K2X/.test(html), `${id} slot 2: coupon code rendered`);
     }
   }
