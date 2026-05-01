@@ -6,7 +6,7 @@
 
 import { generateImage } from "./client";
 import { buildHeroPrompt } from "./prompts";
-import { persistGeneratedHero } from "./storage";
+import { persistGeneratedHero, mirrorToB2 } from "./storage";
 import { getHero, saveHero } from "./cache";
 import { logAudit } from "../audit";
 import type { LayoutId } from "../layouts/types";
@@ -49,7 +49,6 @@ export async function ensureHero(args: {
     await audit(args.workspace_id, { step: "kie_missing", slot: args.slot });
     return null;
   }
-  await audit(args.workspace_id, { step: "kie_call", slot: args.slot });
 
   // Build prompt + reference list.
   const built = buildHeroPrompt({
@@ -58,12 +57,32 @@ export async function ensureHero(args: {
     product: args.product,
   });
 
+  // kie.ai's input_urls fetcher 400s on plenty of valid URLs (VNDA CDN photos,
+  // sometimes our own /hero-refs assets) with "Image fetch failed". Mirror
+  // every source into B2 first and pass only B2 URLs to kie.ai.
+  let mirroredUrls: string[];
+  try {
+    mirroredUrls = await Promise.all(built.input_urls.map((u) => mirrorToB2(u)));
+  } catch (err) {
+    await audit(args.workspace_id, {
+      step: "mirror_failed",
+      slot: args.slot,
+      error: String((err as Error).message).slice(0, 240),
+    });
+    return null;
+  }
+  await audit(args.workspace_id, {
+    step: "kie_call",
+    slot: args.slot,
+    mirrored: mirroredUrls.length,
+  });
+
   let kieResult: { taskId: string; urls: string[] };
   try {
     kieResult = await generateImage(
       {
         prompt: built.prompt,
-        input_urls: built.input_urls,
+        input_urls: mirroredUrls,
         aspect_ratio: built.aspect_ratio,
         resolution: "1K",
       },
@@ -112,7 +131,7 @@ export async function ensureHero(args: {
     reference_image: built.reference_image,
     prompt: built.prompt,
     kie_task_id: kieResult.taskId,
-    source_image_urls: built.input_urls,
+    source_image_urls: mirroredUrls,
     created_at: new Date().toISOString(),
   });
 
