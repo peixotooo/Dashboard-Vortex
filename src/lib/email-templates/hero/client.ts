@@ -77,11 +77,11 @@ export async function createImageTask(args: CreateImageArgs): Promise<string> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`kie.ai createTask ${res.status}: ${text.slice(0, 240)}`);
+    throw new Error(`provider createTask ${res.status}: ${text.slice(0, 240)}`);
   }
   const data = (await res.json()) as CreateTaskResponse;
   if (data.code !== 200 || !data.data?.taskId) {
-    throw new Error(`kie.ai createTask failed: ${JSON.stringify(data).slice(0, 240)}`);
+    throw new Error(`provider createTask failed: ${JSON.stringify(data).slice(0, 240)}`);
   }
   return data.data.taskId;
 }
@@ -119,18 +119,18 @@ export async function waitForImage(
           return parsed.resultUrls;
         }
       } catch {
-        throw new Error("kie.ai returned malformed resultJson");
+        throw new Error("provider returned malformed result");
       }
-      throw new Error("kie.ai success but no resultUrls");
+      throw new Error("provider success but no result urls");
     }
     if (state === "fail") {
       throw new Error(
-        `kie.ai task failed: ${data.data?.failMsg ?? data.data?.failCode ?? "unknown"}`
+        `provider task failed: ${data.data?.failMsg ?? data.data?.failCode ?? "unknown"}`
       );
     }
     await sleep(interval);
   }
-  throw new Error(`kie.ai task ${taskId} timed out`);
+  throw new Error(`provider task ${taskId} timed out`);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -171,5 +171,5 @@ export async function generateImage(
       await sleep(backoffMs);
     }
   }
-  throw lastErr ?? new Error("kie.ai generateImage exhausted retries");
+  throw lastErr ?? new Error("provider generateImage exhausted retries");
 }

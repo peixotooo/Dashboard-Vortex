@@ -64,7 +64,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!process.env.KIE_API_KEY) {
-      return NextResponse.json({ error: "KIE_API_KEY not configured" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Geração de imagem não configurada. Contate o admin." },
+        { status: 503 }
+      );
     }
 
     // Mirror inputs to B2 first to sidestep kie.ai's flaky URL fetcher.
@@ -100,7 +103,7 @@ export async function POST(req: NextRequest) {
       );
     } catch (err) {
       return NextResponse.json(
-        { error: `kie.ai: ${(err as Error).message}` },
+        { error: `Falha na geração: ${(err as Error).message}` },
         { status: 502 }
       );
     }

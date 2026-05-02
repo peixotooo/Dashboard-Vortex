@@ -173,7 +173,7 @@ export function HeroGeneratorDialog({
       });
       const d = await r.json();
       if (!r.ok || !d.hero_url) {
-        throw new Error(d.error ?? "kie.ai falhou. Tente novamente em alguns minutos.");
+        throw new Error(d.error ?? "Geração falhou. Tente novamente em alguns minutos.");
       }
       onGenerated(d.hero_url, picked.name);
       handleClose();

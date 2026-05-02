@@ -60,7 +60,7 @@ export function TreePalette({ onAdd, onGenerateWithAI }: Props) {
         <div className="min-w-0 flex-1 text-left">
           <div className="text-xs font-semibold">Gerar header com IA</div>
           <div className="text-[10px] text-muted-foreground leading-tight">
-            Prompts prontos ou customizado · kie.ai
+            Prompts prontos ou customizado
           </div>
         </div>
       </button>
