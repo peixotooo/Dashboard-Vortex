@@ -6,6 +6,7 @@
 // days the visual rotates so subscribers don't see the same composition twice
 // in a row.
 
+import { createAdminClient } from "@/lib/supabase-admin";
 import type { Slot } from "../types";
 import type { LayoutDef, LayoutId } from "./types";
 
@@ -67,15 +68,54 @@ function fnv1a(str: string): number {
   return h >>> 0;
 }
 
-export function pickLayout(args: {
+function familyOf(layoutId: string): string {
+  return layoutId.replace(/-(light|dark)$/, "");
+}
+
+/**
+ * Returns the families used by the workspace in the last `days` days. Used
+ * to enforce a layout-rotation cooldown — even if the deterministic hash
+ * would land on the same family, we skip it when fresh families are
+ * available, so subscribers don't see the same composition every week.
+ */
+async function recentLayoutFamilies(workspace_id: string, days: number): Promise<Set<string>> {
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  try {
+    const sb = createAdminClient();
+    const { data } = await sb
+      .from("email_template_suggestions")
+      .select("layout_id")
+      .eq("workspace_id", workspace_id)
+      .gte("generated_for_date", sinceIso);
+    const out = new Set<string>();
+    for (const row of data ?? []) {
+      const lid = row.layout_id as string | null;
+      if (lid) out.add(familyOf(lid));
+    }
+    return out;
+  } catch {
+    // migration-069 not yet run, or DB blip — fall back to no cooldown.
+    return new Set();
+  }
+}
+
+export async function pickLayout(args: {
   workspace_id: string;
   date: string;
   slot: Slot;
-}): LayoutDef {
+}): Promise<LayoutDef> {
   const eligible = LAYOUT_IDS.map((id) => LAYOUTS[id]).filter((l) =>
     l.slots.includes(args.slot)
   );
   if (eligible.length === 0) return classicLayout;
+
+  // Avoid layout families used in the last 10 days. If everything is "used"
+  // (small workspace pool exhausted), fall through to the deterministic hash.
+  const recentFamilies = await recentLayoutFamilies(args.workspace_id, 10);
+  const fresh = eligible.filter((l) => !recentFamilies.has(familyOf(l.id)));
+  const pool = fresh.length > 0 ? fresh : eligible;
   const h = fnv1a(`${args.workspace_id}|${args.date}|${args.slot}`);
-  return eligible[h % eligible.length];
+  return pool[h % pool.length];
 }

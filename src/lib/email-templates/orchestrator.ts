@@ -35,7 +35,7 @@ async function generateSlotBestseller(
   hours: { recommended_hours: number[]; hours_score: Record<string, number> },
   exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickBestseller(workspace_id, settings, exclude_ids);
+  const pick = await pickBestseller(workspace_id, settings, exclude_ids, date);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 1, reason: pick.reason } });
     return { slot: 1, ok: false, reason: pick.reason };
@@ -59,7 +59,7 @@ async function generateSlotSlowmoving(
   hours: { recommended_hours: number[]; hours_score: Record<string, number> },
   exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickSlowmoving(workspace_id, settings, exclude_ids);
+  const pick = await pickSlowmoving(workspace_id, settings, exclude_ids, date);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 2, reason: pick.reason } });
     return { slot: 2, ok: false, reason: pick.reason };
@@ -108,7 +108,7 @@ async function generateSlotNewarrival(
   hours: { recommended_hours: number[]; hours_score: Record<string, number> },
   exclude_ids: Set<string>
 ): Promise<SlotResult> {
-  const pick = await pickNewarrival(workspace_id, settings, exclude_ids);
+  const pick = await pickNewarrival(workspace_id, settings, exclude_ids, date);
   if (!pick.product) {
     await logAudit({ workspace_id, event: "skipped_no_product", payload: { slot: 3, reason: pick.reason } });
     return { slot: 3, ok: false, reason: pick.reason };
@@ -145,7 +145,7 @@ async function persistSuggestion(args: {
 }): Promise<SlotResult> {
   const { workspace_id, settings, date, slot, product, hours, coupon, related_products, hook } = args;
   const segment = await resolveSegmentForSlot(workspace_id, slot);
-  const layout = pickLayout({ workspace_id, date, slot });
+  const layout = await pickLayout({ workspace_id, date, slot });
   const wantsHero = layout.uses_hero !== false;
   const hero_url = wantsHero
     ? (await ensureHero({

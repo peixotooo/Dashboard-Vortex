@@ -96,10 +96,10 @@ for (const id of LAYOUT_IDS) {
 }
 
 console.log("\n[picker] pickLayout is deterministic");
-const a = pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
-const b = pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+const a = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+const b = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
 assert(a.id === b.id, "same triple picks same layout");
-const c = pickLayout({ workspace_id: "ws-1", date: "2026-05-02", slot: 1 });
+const c = await pickLayout({ workspace_id: "ws-1", date: "2026-05-02", slot: 1 });
 assert(c.id !== a.id || LAYOUT_IDS.length === 1, "different date can pick different layout");
 
 console.log("\n✅ ALL SMOKE TESTS PASSED");
