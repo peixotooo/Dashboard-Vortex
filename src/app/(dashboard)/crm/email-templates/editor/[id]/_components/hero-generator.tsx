@@ -21,6 +21,75 @@ interface Props {
 
 const DEFAULT_LAYOUT_ID = "classic";
 
+interface Preset {
+  id: string;
+  label: string;
+  description: string;
+  prompt: string;
+}
+
+// Pre-defined prompts curated for the Bulking brand (monochrome, fitness,
+// editorial). Click a preset to fill the textarea — the user can still
+// tweak before generating.
+const PRESETS: Preset[] = [
+  {
+    id: "studio-portrait",
+    label: "Retrato studio",
+    description: "Modelo fitness, fundo neutro, luz lateral",
+    prompt:
+      "Retrato editorial de modelo fitness vestindo a peça, three-quarter framing, fundo cinza neutro com gradient sutil, luz lateral suave de studio, monocromático preto e branco. Composição vertical 3:4. Sem props, sem distrações, foco total no caimento da peça.",
+  },
+  {
+    id: "back-print",
+    label: "Costas / estampa",
+    description: "Mostra a estampa nas costas",
+    prompt:
+      "Modelo de costas mostrando a estampa principal da peça, three-quarter framing, fundo cinza charcoal com leve gradient, luz cinematográfica suave, monocromático. A estampa nas costas deve ser o ponto focal — fielmente reproduzida em forma, posição e detalhe.",
+  },
+  {
+    id: "flat-lay",
+    label: "Flat-lay editorial",
+    description: "Sem modelo, peça em superfície",
+    prompt:
+      "Flat-lay editorial da peça em uma superfície de tecido cinza claro com sombras suaves, vista superior ligeiramente angulada, monocromático preto e branco, composição minimalista. Sem modelo. Detalhes do tecido, costuras e gola visíveis.",
+  },
+  {
+    id: "fabric-macro",
+    label: "Macro tecido",
+    description: "Closeup com textura",
+    prompt:
+      "Macro closeup do tecido da peça, foco na textura e trama, contraste alto, luz lateral dura criando sombras e relevo, monocromático. Composição abstrata, quase tátil.",
+  },
+  {
+    id: "urban-lifestyle",
+    label: "Lifestyle urbano",
+    description: "Modelo na rua, B&W contraste",
+    prompt:
+      "Modelo fitness vestindo a peça em ambiente urbano cinza concreto, posição estática, luz natural overcast, vertical 3:4, monocromático preto e branco com contraste alto. Mood editorial, não publicitário. Sem texto, sem placas reconhecíveis no fundo.",
+  },
+  {
+    id: "atmospheric-blur",
+    label: "Atmosférico",
+    description: "Hero com motion blur sutil",
+    prompt:
+      "Hero atmosférico com modelo em pé vestindo a peça, fundo com motion blur sutil sugerindo movimento, luz quente lateral, mood cinematográfico, vertical 3:4. Modelo em foco, fundo desfocado. Monocromático com leve toque de quente nas sombras.",
+  },
+  {
+    id: "minimal-mannequin",
+    label: "Manequim invisível",
+    description: "Peça suspensa no ar",
+    prompt:
+      "Peça em invisible mannequin (manequim invisível), efeito como se a roupa estivesse vestindo no ar, vista frontal, fundo branco infinito, luz suave, vertical 3:4, monocromático. Sombras sutis abaixo da peça.",
+  },
+  {
+    id: "duo-shot",
+    label: "Duo de modelos",
+    description: "2 modelos lado-a-lado",
+    prompt:
+      "Dois modelos fitness lado-a-lado vestindo a peça em variações ou poses ligeiramente diferentes, fundo cinza neutro, luz uniforme de studio, vertical 3:4, monocromático preto e branco. Composição equilibrada, ambos em foco.",
+  },
+];
+
 export function HeroGeneratorDialog({
   open,
   onClose,
@@ -142,8 +211,27 @@ export function HeroGeneratorDialog({
           </TabsContent>
 
           <TabsContent value="manual" className="space-y-3 mt-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Prompts prontos · clique pra usar</Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPrompt(p.prompt)}
+                    disabled={loading}
+                    className="group flex flex-col items-start gap-0.5 p-2 rounded-md border border-border/60 bg-card hover:border-foreground/40 hover:bg-muted/40 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="text-[11px] font-medium leading-tight">{p.label}</span>
+                    <span className="text-[10px] text-muted-foreground leading-tight line-clamp-2">
+                      {p.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Prompt</Label>
+              <Label className="text-xs text-muted-foreground">Prompt (edite ou escreva do zero)</Label>
               <Textarea
                 rows={5}
                 value={prompt}

@@ -56,6 +56,7 @@ import { Inspector, LogoInspector } from "./_components/inspector";
 import { TreeInspector } from "./_components/tree-inspector";
 import { TreePalette } from "./_components/tree-palette";
 import { TreeStructure } from "./_components/tree-structure";
+import { HeroGeneratorDialog } from "./_components/hero-generator";
 import type { PickedProduct } from "./_components/product-picker";
 import type { SectionNode, LeafNode } from "@/lib/email-templates/tree/schema";
 import {
@@ -345,6 +346,19 @@ export default function EmailEditorPage({ params }: PageProps) {
     setSelectedId(leaf.id);
   };
 
+  const [heroGenOpen, setHeroGenOpen] = useState(false);
+  const onHeroGenerated = (url: string, alt: string) => {
+    if (!treeSections) return;
+    const leaf = defaultLeaf("image");
+    if (leaf.type === "image") {
+      leaf.src = url;
+      leaf.alt = alt;
+    }
+    const next = appendLeafToLastSection(treeSections, leaf);
+    setBlocks(next as unknown as BlockNode[]);
+    setSelectedId(leaf.id);
+  };
+
   const pickTreeProduct = (p: PickedProduct) => {
     if (!treeSections) return;
     const next = applyProductToTree(treeSections, {
@@ -467,7 +481,10 @@ export default function EmailEditorPage({ params }: PageProps) {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="add" className="p-3 mt-0 flex-1">
-                <TreePalette onAdd={addTreeLeaf} />
+                <TreePalette
+                  onAdd={addTreeLeaf}
+                  onGenerateWithAI={() => setHeroGenOpen(true)}
+                />
                 <div className="mt-6 px-1 text-[11px] text-muted-foreground/80 leading-relaxed">
                   Novos blocos vão pra última seção. Clique em qualquer
                   elemento do email pra editar inline.
@@ -634,6 +651,16 @@ export default function EmailEditorPage({ params }: PageProps) {
           />
         </SheetContent>
       </Sheet>
+
+      {/* Hero generator triggered from the palette's "Gerar com IA" tile.
+          On success, appends a new image leaf to the last section. */}
+      <HeroGeneratorDialog
+        open={heroGenOpen}
+        onClose={() => setHeroGenOpen(false)}
+        workspaceId={workspaceId}
+        layoutId={draft.layout_id}
+        onGenerated={onHeroGenerated}
+      />
     </div>
   );
 }
