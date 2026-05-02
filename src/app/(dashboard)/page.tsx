@@ -31,6 +31,7 @@ import { TrendChart } from "@/components/dashboard/trend-chart";
 import { BestHoursHeatmap } from "@/components/dashboard/best-hours-heatmap";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
+import { OverviewSummary } from "@/components/dashboard/overview-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
@@ -770,6 +771,9 @@ export default function OverviewPage() {
           badgeColor={revenueColor}
         />
       </div>
+
+      {/* Resumo: mais vendidos + novos vs recorrentes (últimos 7 dias) */}
+      <OverviewSummary />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
