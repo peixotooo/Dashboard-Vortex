@@ -15,6 +15,30 @@ import { DEFAULT_LOGO } from "@/lib/email-templates/editor/schema";
 import { Trash2, ChevronDown, ChevronUp, Italic, Bold } from "lucide-react";
 import { useState } from "react";
 import { ProductPicker, type PickedProduct } from "./product-picker";
+import { WysiwygEditor } from "./wysiwyg";
+
+function htmlToPlainText(html: string): string {
+  if (typeof window === "undefined") return html;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || "").trim();
+}
+
+/** Initial HTML for the WYSIWYG: prefer block.html, otherwise wrap legacy
+ *  block.text in a <p>. */
+function initialHtml(block: { html?: string; text?: string }): string {
+  if (block.html && block.html.trim() !== "") return block.html;
+  const text = block.text ?? "";
+  return text ? `<p>${escapeHtml(text)}</p>` : "<p></p>";
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 interface Props {
   block: BlockNode;
@@ -132,33 +156,39 @@ function renderFields(
   switch (block.type) {
     case "hook":
       return (
-        <>
-          <Field label="Texto">
-            <Input value={block.text} onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)} />
-          </Field>
-          <TypographyControls
-            style={block.style}
-            defaults={{ size: 11, weight: 500 }}
-            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+        <Field label="Texto (formate selecionando)">
+          <WysiwygEditor
+            value={initialHtml(block)}
+            singleLine
+            sizePresets={[10, 11, 12, 13, 14, 16]}
+            onChange={(html) =>
+              onChange({
+                html,
+                text: htmlToPlainText(html),
+              } as Partial<BlockNode>)
+            }
           />
-        </>
+        </Field>
       );
 
     case "headline":
       return (
         <>
-          <Field label="Texto">
-            <Textarea
-              rows={2}
-              value={block.text}
-              onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)}
+          <Field label="Texto (formate selecionando)">
+            <WysiwygEditor
+              value={initialHtml(block)}
+              sizePresets={[24, 30, 38, 48, 56, 64, 80]}
+              onChange={(html) =>
+                onChange({
+                  html,
+                  text: htmlToPlainText(html),
+                } as Partial<BlockNode>)
+              }
             />
           </Field>
-          <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
-          <TypographyControls
-            style={block.style}
-            defaults={{ size: 38, weight: 500 }}
-            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          <AlignField
+            value={block.align ?? "center"}
+            onChange={(v) => onChange({ align: v } as Partial<BlockNode>)}
           />
         </>
       );
@@ -166,18 +196,21 @@ function renderFields(
     case "lead":
       return (
         <>
-          <Field label="Texto">
-            <Textarea
-              rows={3}
-              value={block.text}
-              onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)}
+          <Field label="Texto (formate selecionando)">
+            <WysiwygEditor
+              value={initialHtml(block)}
+              sizePresets={[13, 14, 15, 16, 18, 20, 24]}
+              onChange={(html) =>
+                onChange({
+                  html,
+                  text: htmlToPlainText(html),
+                } as Partial<BlockNode>)
+              }
             />
           </Field>
-          <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
-          <TypographyControls
-            style={block.style}
-            defaults={{ size: 16, weight: 400 }}
-            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          <AlignField
+            value={block.align ?? "center"}
+            onChange={(v) => onChange({ align: v } as Partial<BlockNode>)}
           />
         </>
       );
@@ -185,18 +218,21 @@ function renderFields(
     case "rich-text":
       return (
         <>
-          <Field label="Texto (use linha em branco entre parágrafos)">
-            <Textarea
-              rows={6}
-              value={block.text}
-              onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)}
+          <Field label="Texto (formate selecionando)">
+            <WysiwygEditor
+              value={initialHtml(block)}
+              sizePresets={[12, 14, 15, 16, 18, 20, 24]}
+              onChange={(html) =>
+                onChange({
+                  html,
+                  text: htmlToPlainText(html),
+                } as Partial<BlockNode>)
+              }
             />
           </Field>
-          <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
-          <TypographyControls
-            style={block.style}
-            defaults={{ size: 15, weight: 400 }}
-            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          <AlignField
+            value={block.align ?? "center"}
+            onChange={(v) => onChange({ align: v } as Partial<BlockNode>)}
           />
         </>
       );

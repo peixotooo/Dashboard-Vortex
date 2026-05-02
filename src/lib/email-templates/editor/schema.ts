@@ -65,6 +65,8 @@ export interface HeadlineBlock {
   id: BlockId;
   type: "headline";
   text: string;
+  /** Optional WYSIWYG-produced HTML; takes precedence over `text` when set. */
+  html?: string;
   align?: "left" | "center";
   style?: TextStyle;
 }
@@ -73,6 +75,7 @@ export interface LeadBlock {
   id: BlockId;
   type: "lead";
   text: string;
+  html?: string;
   align?: "left" | "center";
   style?: TextStyle;
 }
@@ -81,6 +84,7 @@ export interface HookBlock {
   id: BlockId;
   type: "hook";
   text: string;
+  html?: string;
   style?: TextStyle;
 }
 
@@ -153,8 +157,10 @@ export interface DividerBlock {
 export interface RichTextBlock {
   id: BlockId;
   type: "rich-text";
-  /** Markdown-lite: only paragraph breaks (\n\n) and inline emphasis are honored */
+  /** Plain text, used only when `html` is empty (legacy drafts). */
   text: string;
+  /** Tiptap-produced HTML. Takes precedence when set. */
+  html?: string;
   align?: "left" | "center";
   style?: TextStyle;
 }

@@ -34,6 +34,43 @@ import {
   topCountdownBlock,
   relatedProductsGrid,
 } from "../templates/shared";
+/**
+ * Build the same inline CSS the shared helpers produce, but accept rich
+ * HTML for the body so a Tiptap-produced fragment (with its own inline
+ * <strong>, <em>, <span style="color/font-size">) can render inside the
+ * email's outer table shell without being escaped.
+ */
+function richHookHtml(html: string, mode: "light" | "dark"): string {
+  const c = mode === "dark" ? "#B8B8B8" : TOKENS.textSecondary;
+  return `
+<tr><td align="center" class="pad-l" style="padding:40px 32px 12px;">
+  <div style="font-family:${TOKENS.fontBody};font-size:11px;font-weight:500;color:${c};letter-spacing:0.32em;text-transform:uppercase;">${html}</div>
+</td></tr>`;
+}
+
+function richHeadlineHtml(html: string, mode: "light" | "dark"): string {
+  const c = mode === "dark" ? "#FFFFFF" : TOKENS.text;
+  return `
+<tr><td class="pad-xl" align="center" style="padding:56px 40px 14px;">
+  <h1 class="h1" style="margin:0;font-family:${TOKENS.fontHead};font-size:38px;font-weight:500;color:${c};line-height:1.1;letter-spacing:-0.005em;">${html}</h1>
+</td></tr>`;
+}
+
+function richLeadHtml(html: string, mode: "light" | "dark"): string {
+  const c = mode === "dark" ? "#D8D8D8" : TOKENS.textMuted;
+  return `
+<tr><td class="pad-l" align="center" style="padding:0 40px 40px;">
+  <div class="lead" style="margin:0;font-family:${TOKENS.fontBody};font-size:16px;font-weight:400;color:${c};line-height:1.7;max-width:480px;margin-left:auto;margin-right:auto;">${html}</div>
+</td></tr>`;
+}
+
+function richTextHtml(html: string, mode: "light" | "dark", align: "left" | "center"): string {
+  const c = mode === "dark" ? "#D8D8D8" : TOKENS.textMuted;
+  return `
+<tr><td class="pad-l" align="${align}" style="padding:0 40px 32px;text-align:${align};">
+  <div style="font-family:${TOKENS.fontBody};font-size:15px;font-weight:400;color:${c};line-height:1.7;">${html}</div>
+</td></tr>`;
+}
 import { buildCountdownUrl } from "../countdown";
 import type { BlockNode, Draft, LogoConfig } from "./schema";
 import { DEFAULT_LOGO } from "./schema";
@@ -46,11 +83,13 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
     case "hero":
       return heroBlock({ image_url: b.image_url, alt: b.alt, badge: b.badge, mode });
     case "headline":
-      return headlineBlock(b.text, mode, b.style);
+      return b.html
+        ? richHeadlineHtml(b.html, mode)
+        : headlineBlock(b.text, mode, b.style);
     case "lead":
-      return leadBlock(b.text, mode, b.style);
+      return b.html ? richLeadHtml(b.html, mode) : leadBlock(b.text, mode, b.style);
     case "hook":
-      return hookBlock(b.text, mode, b.style);
+      return b.html ? richHookHtml(b.html, mode) : hookBlock(b.text, mode, b.style);
     case "cta":
       return mode === "dark"
         ? darkCtaBlock({ text: b.text, url: b.url })
@@ -95,8 +134,11 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
 </td></tr>`;
     }
     case "rich-text": {
-      const text = b.text ?? "";
       const align = b.align ?? "center";
+      if (b.html) {
+        return richTextHtml(b.html, mode, align);
+      }
+      const text = b.text ?? "";
       const defaultColor = mode === "dark" ? "#D8D8D8" : TOKENS.textMuted;
       const fs = b.style?.font_size ?? 15;
       const fw = b.style?.font_weight ?? 400;
