@@ -477,6 +477,119 @@ export async function listVndaProducts(
   return data || [];
 }
 
+// --- Stock by parent reference (SKU pai) ---
+
+interface VndaProductWithVariants {
+  id: number;
+  reference?: string;
+  name: string;
+  available?: boolean;
+  variants?: Array<{
+    sku?: string;
+    name?: string;
+    available?: boolean;
+    stock?: number;
+    quantity?: number;
+  }>;
+}
+
+/**
+ * Fetches total stock across variants for a given parent reference (SKU pai).
+ * VNDA `/products` returns product objects with `variants[].stock` (or `quantity`).
+ * Returns null when the product is not found.
+ */
+export async function getVndaStockByReference(
+  config: VndaConfig,
+  reference: string
+): Promise<{ stock: number; available: boolean; variantCount: number } | null> {
+  const ref = reference.trim();
+  if (!ref) return null;
+
+  // Try the store-scoped endpoint first (more reliable in practice).
+  const headers = {
+    Authorization: `Bearer ${config.apiToken}`,
+    Accept: "application/json",
+  };
+
+  const tryUrls = [
+    `https://${config.storeHost}/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`,
+    `https://${config.storeHost}/api/v2/products?q=${encodeURIComponent(ref)}&per_page=10`,
+    `https://api.vnda.com.br/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`,
+  ];
+
+  for (const url of tryUrls) {
+    try {
+      const res = await fetch(url, {
+        headers: url.includes("api.vnda.com.br")
+          ? { ...headers, "X-Shop-Host": config.storeHost }
+          : headers,
+      });
+      if (!res.ok) continue;
+
+      const json = (await res.json()) as VndaProductWithVariants[] | { results?: VndaProductWithVariants[] };
+      const list: VndaProductWithVariants[] = Array.isArray(json)
+        ? json
+        : Array.isArray((json as { results?: VndaProductWithVariants[] }).results)
+          ? (json as { results: VndaProductWithVariants[] }).results
+          : [];
+
+      // Match by reference exact (case-insensitive); fallback to first result.
+      const refLower = ref.toLowerCase();
+      const match =
+        list.find((p) => (p.reference || "").toLowerCase() === refLower) ?? list[0];
+      if (!match) continue;
+
+      const variants = match.variants || [];
+      let total = 0;
+      let availableAny = false;
+      for (const v of variants) {
+        const stockNum = Number(v.stock ?? v.quantity ?? 0);
+        if (Number.isFinite(stockNum)) total += Math.max(0, stockNum);
+        if (v.available !== false && stockNum > 0) availableAny = true;
+      }
+      // If no variants but product itself is available, treat as 1+ stock.
+      if (variants.length === 0 && match.available !== false) {
+        total = total || 0;
+        availableAny = true;
+      }
+
+      return {
+        stock: total,
+        available: availableAny || match.available === true,
+        variantCount: variants.length,
+      };
+    } catch {
+      // try next URL
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Bulk version: fetches stock for multiple parent references in parallel.
+ * Returns a Map keyed by reference (original case) → stock info.
+ */
+export async function getVndaStockByReferences(
+  config: VndaConfig,
+  references: string[]
+): Promise<Map<string, { stock: number; available: boolean; variantCount: number }>> {
+  const result = new Map<string, { stock: number; available: boolean; variantCount: number }>();
+  if (references.length === 0) return result;
+
+  const unique = [...new Set(references.map((r) => r.trim()).filter(Boolean))];
+  const settled = await Promise.allSettled(
+    unique.map((ref) => getVndaStockByReference(config, ref))
+  );
+  unique.forEach((ref, i) => {
+    const r = settled[i];
+    if (r.status === "fulfilled" && r.value) {
+      result.set(ref, r.value);
+    }
+  });
+  return result;
+}
+
 // --- Health check ---
 
 export async function testVndaConnection(config: VndaConfig): Promise<{ ok: boolean; message: string; orderCount?: number }> {

@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { datePresetToTimeRange, getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
+import { getVndaConfig, getVndaStockByReferences } from "@/lib/vnda-api";
 
 export const maxDuration = 15;
 
@@ -28,6 +29,8 @@ interface ProductAgg {
   revenue: number;
   orders: number;
   variants: number;
+  stock: number | null;
+  stockAvailable: boolean | null;
 }
 
 const EMPTY = {
@@ -213,6 +216,8 @@ export async function GET(request: NextRequest) {
             revenue: total,
             orders: 1,
             variants: 0,
+            stock: null,
+            stockAvailable: null,
           });
         }
         seenInOrder.add(key);
@@ -235,6 +240,31 @@ export async function GET(request: NextRequest) {
     const topProducts = [...productMap.values()]
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
+
+    // Fetch live stock from VNDA for the top 5 parent SKUs (parallel, best-effort).
+    try {
+      const vndaConfig = await getVndaConfig(workspaceId);
+      if (vndaConfig) {
+        const refs = topProducts
+          .map((p) => p.parentSku)
+          .filter((s) => s && s !== "—");
+        if (refs.length > 0) {
+          const stockMap = await getVndaStockByReferences(vndaConfig, refs);
+          for (const p of topProducts) {
+            const s = stockMap.get(p.parentSku);
+            if (s) {
+              p.stock = s.stock;
+              p.stockAvailable = s.available;
+            }
+          }
+        }
+      }
+    } catch (stockErr) {
+      console.warn(
+        "[CRM Overview Summary] stock lookup failed:",
+        stockErr instanceof Error ? stockErr.message : stockErr
+      );
+    }
 
     // --- New vs returning customers ---
     const customersInCur = new Set<string>();

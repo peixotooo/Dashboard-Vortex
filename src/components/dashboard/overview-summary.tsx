@@ -16,6 +16,8 @@ interface TopProduct {
   revenue: number;
   orders: number;
   variants: number;
+  stock: number | null;
+  stockAvailable: boolean | null;
 }
 
 interface SummaryData {
@@ -190,17 +192,17 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
           ) : (
             <div className="space-y-1.5">
               <div className="grid grid-cols-12 px-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                <span className="col-span-6">Produto</span>
+                <span className="col-span-5">Produto</span>
                 <span className="col-span-2 text-right">Qtd</span>
-                <span className="col-span-2 text-right">Pedidos</span>
-                <span className="col-span-2 text-right">Receita</span>
+                <span className="col-span-2 text-right">Estoque</span>
+                <span className="col-span-3 text-right">Receita</span>
               </div>
               {data.topProducts.map((p, i) => (
                 <div
                   key={p.parentSku + i}
                   className="grid grid-cols-12 items-center px-2 py-1.5 rounded hover:bg-muted/40 transition-colors"
                 >
-                  <div className="col-span-6 min-w-0 flex items-center gap-2">
+                  <div className="col-span-5 min-w-0 flex items-center gap-2">
                     <span
                       className={cn(
                         "flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold flex-shrink-0",
@@ -222,16 +224,17 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
                         {p.variants > 1 && (
                           <span className="ml-1">· {p.variants} variantes</span>
                         )}
+                        <span className="ml-1">· {formatNumber(p.orders)} pedidos</span>
                       </p>
                     </div>
                   </div>
                   <span className="col-span-2 text-right text-xs font-medium">
                     {formatNumber(p.quantity)}
                   </span>
-                  <span className="col-span-2 text-right text-xs text-muted-foreground">
-                    {formatNumber(p.orders)}
+                  <span className="col-span-2 text-right text-xs">
+                    <StockCell stock={p.stock} available={p.stockAvailable} />
                   </span>
-                  <span className="col-span-2 text-right text-xs font-semibold">
+                  <span className="col-span-3 text-right text-xs font-semibold">
                     {formatCurrency(p.revenue)}
                   </span>
                 </div>
@@ -241,6 +244,37 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function StockCell({
+  stock,
+  available,
+}: {
+  stock: number | null;
+  available: boolean | null;
+}) {
+  if (stock === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (stock === 0) {
+    return (
+      <span className="font-medium text-destructive">
+        {formatNumber(0)}
+      </span>
+    );
+  }
+  const lowStock = stock < 10;
+  return (
+    <span
+      className={cn(
+        "font-medium",
+        available === false ? "text-muted-foreground" : lowStock ? "text-warning" : "text-foreground"
+      )}
+      title={available === false ? "Indisponível na loja" : undefined}
+    >
+      {formatNumber(stock)}
+    </span>
   );
 }
 
