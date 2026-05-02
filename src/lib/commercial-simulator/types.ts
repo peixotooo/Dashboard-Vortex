@@ -60,6 +60,52 @@ export type Gatilho =
   | "competitivo"
   | "outro";
 
+export type Baseline = {
+  inicio: string;
+  fim: string;
+  totalReceita: number;
+  numPedidos: number;
+  ticketMedio: number;
+  diasComVenda: number;
+  receitaMediaDiaria: number;
+};
+
+export type MacroSimulateInput = {
+  baseline: Baseline;
+  descontoPct: number;
+  coberturaPct: number;
+  incrementoVendasPct: number;
+  freteGratisCobertura: number;
+  custoProdutoPct: number;
+  taxPct: number;
+  outrasDespesasPct: number;
+  custoFreteMedioBrl: number;
+  pisoMargemPct: number;
+  bufferZonaVerdePct: number;
+};
+
+export type MacroSimulateOutput = {
+  projetadoMensal: {
+    receita: number;
+    margemBrl: number;
+    margemPct: number;
+    numPedidos: number;
+    ticketMedio: number;
+  };
+  historicoMensal: {
+    receita: number;
+    margemBrl: number;
+    margemPct: number;
+    numPedidos: number;
+    ticketMedio: number;
+  };
+  deltaReceita: number;
+  deltaMargemBrl: number;
+  deltaMargemPct: number;
+  veredicto: Veredicto;
+  explicacao: string;
+};
+
 export const GATILHOS: { value: Gatilho; label: string }[] = [
   { value: "queima_estoque", label: "Queima de estoque" },
   { value: "campanha_datada", label: "Campanha datada (Black Friday, aniversário)" },

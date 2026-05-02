@@ -208,7 +208,8 @@ const navGroups: NavGroup[] = [
         href: "/simulador-comercial",
         icon: Tag,
         items: [
-          { title: "Simulador", href: "/simulador-comercial", icon: Tag },
+          { title: "Simulador por produto", href: "/simulador-comercial", icon: Tag },
+          { title: "Macro (impacto global)", href: "/simulador-comercial/macro", icon: TrendingUp },
           {
             title: "Configuracoes",
             href: "/simulador-comercial/config",

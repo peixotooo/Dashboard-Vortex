@@ -12,6 +12,8 @@ const FIN_DEFAULTS = {
   product_cost_pct: 25,
   tax_pct: 6,
   other_expenses_pct: 5,
+  annual_revenue_target: 8000000,
+  monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
 };
 
 function createSupabase(request: NextRequest) {
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
       supabase
         .from("workspace_financial_settings")
-        .select("product_cost_pct, tax_pct, other_expenses_pct")
+        .select("product_cost_pct, tax_pct, other_expenses_pct, annual_revenue_target, monthly_seasonality")
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
     ]);
@@ -64,6 +66,14 @@ export async function GET(request: NextRequest) {
       product_cost_pct: Number(fin.product_cost_pct ?? FIN_DEFAULTS.product_cost_pct),
       tax_pct: Number(fin.tax_pct ?? FIN_DEFAULTS.tax_pct),
       other_expenses_pct: Number(fin.other_expenses_pct ?? FIN_DEFAULTS.other_expenses_pct),
+      annual_revenue_target: Number(
+        ("annual_revenue_target" in fin ? fin.annual_revenue_target : null) ??
+          FIN_DEFAULTS.annual_revenue_target
+      ),
+      monthly_seasonality:
+        ("monthly_seasonality" in fin && Array.isArray(fin.monthly_seasonality)
+          ? (fin.monthly_seasonality as number[])
+          : null) ?? FIN_DEFAULTS.monthly_seasonality,
       isDefault: !simRes.data,
     });
   } catch (error) {
