@@ -55,15 +55,19 @@ export async function POST(
     const { id } = await params;
     const sb = createAdminClient();
 
+    // Use select(*) so this keeps working whether or not migration-069
+    // (layout_id column on email_template_suggestions) has been run yet —
+    // production was 500'ing on a select that referenced layout_id directly.
     const { data: sug, error: sugErr } = await sb
       .from("email_template_suggestions")
-      .select(
-        "id, workspace_id, slot, layout_id, product_snapshot, copy, coupon_code, coupon_discount_percent, coupon_expires_at"
-      )
+      .select("*")
       .eq("workspace_id", workspaceId)
       .eq("id", id)
       .maybeSingle();
-    if (sugErr) return NextResponse.json({ error: sugErr.message }, { status: 500 });
+    if (sugErr) {
+      console.error("[to-draft] suggestion select failed:", sugErr);
+      return NextResponse.json({ error: sugErr.message }, { status: 500 });
+    }
     if (!sug) return NextResponse.json({ error: "suggestion not found" }, { status: 404 });
 
     const s = sug as unknown as SuggestionRow;
@@ -126,10 +130,14 @@ export async function POST(
       })
       .select()
       .single();
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+    if (insErr) {
+      console.error("[to-draft] draft insert failed:", insErr);
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
 
     return NextResponse.json({ draft: inserted });
   } catch (err) {
+    console.error("[to-draft] unhandled error:", err);
     return handleAuthError(err);
   }
 }
