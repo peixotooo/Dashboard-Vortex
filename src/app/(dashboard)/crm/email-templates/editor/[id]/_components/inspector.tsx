@@ -10,13 +10,83 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BlockNode } from "@/lib/email-templates/editor/schema";
+import type { BlockNode, LogoConfig } from "@/lib/email-templates/editor/schema";
+import { DEFAULT_LOGO } from "@/lib/email-templates/editor/schema";
 import { Trash2 } from "lucide-react";
 
 interface Props {
   block: BlockNode;
   onChange: (patch: Partial<BlockNode>) => void;
   onRemove: () => void;
+}
+
+export function LogoInspector({
+  logo,
+  onChange,
+  onRemove,
+}: {
+  logo: LogoConfig | null | undefined;
+  onChange: (next: LogoConfig | null) => void;
+  onRemove: () => void;
+}) {
+  const current = logo ?? DEFAULT_LOGO;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          Logo do email
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          onClick={onRemove}
+          title="Remover logo (esconder cabeçalho)"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      <Field label="URL da imagem">
+        <Input
+          value={current.image_url}
+          onChange={(e) => onChange({ ...current, image_url: e.target.value })}
+        />
+      </Field>
+      <Field label="Texto alternativo">
+        <Input
+          value={current.alt}
+          onChange={(e) => onChange({ ...current, alt: e.target.value })}
+        />
+      </Field>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground flex items-center justify-between">
+          <span>Largura ({current.width}px)</span>
+        </Label>
+        <input
+          type="range"
+          min={60}
+          max={300}
+          step={2}
+          value={current.width}
+          onChange={(e) => onChange({ ...current, width: parseInt(e.target.value, 10) })}
+          className="w-full accent-foreground"
+        />
+        <div className="grid grid-cols-4 gap-1.5 pt-1">
+          {[80, 120, 148, 200].map((w) => (
+            <Button
+              key={w}
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => onChange({ ...current, width: w })}
+            >
+              {w}px
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function Inspector({ block, onChange, onRemove }: Props) {

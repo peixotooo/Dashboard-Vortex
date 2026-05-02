@@ -1,20 +1,5 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, use } from "react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,20 +14,21 @@ import {
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   defaultBlock,
-  newId,
   type BlockNode,
   type BlockType,
   type DraftMeta,
   type Draft,
+  type LogoConfig,
 } from "@/lib/email-templates/editor/schema";
 import { ArrowLeft, Save, Copy as CopyIcon, Check, Loader2 } from "lucide-react";
 import { Palette } from "./_components/palette";
-import { SortableBlock } from "./_components/sortable-block";
-import { Inspector } from "./_components/inspector";
+import { Inspector, LogoInspector } from "./_components/inspector";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
+
+const LOGO_TOKEN = "__logo__";
 
 export default function EmailEditorPage({ params }: PageProps) {
   const { id } = use(params);
@@ -59,6 +45,8 @@ export default function EmailEditorPage({ params }: PageProps) {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // Load draft
   useEffect(() => {
@@ -77,7 +65,8 @@ export default function EmailEditorPage({ params }: PageProps) {
       });
   }, [id, workspaceId]);
 
-  // Render preview (debounced) on any block/meta change
+  // Render preview (debounced) on any block/meta change. editor=1 injects
+  // the click-handler script into the iframe.
   const debounceRef = useRef<number | null>(null);
   useEffect(() => {
     if (!workspaceId || !draft) return;
@@ -85,7 +74,7 @@ export default function EmailEditorPage({ params }: PageProps) {
     debounceRef.current = window.setTimeout(async () => {
       setRenderLoading(true);
       try {
-        const r = await fetch(`/api/crm/email-templates/drafts/${id}/render`, {
+        const r = await fetch(`/api/crm/email-templates/drafts/${id}/render?editor=1`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
           body: JSON.stringify({ meta, blocks }),
@@ -101,21 +90,23 @@ export default function EmailEditorPage({ params }: PageProps) {
     };
   }, [blocks, meta, id, workspaceId, draft]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
+  // Listen for clicks inside the iframe.
+  useEffect(() => {
+    function onMsg(e: MessageEvent) {
+      if (!e.data || e.data.type !== "block:select") return;
+      setSelectedId(e.data.id ?? null);
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
 
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    setBlocks((items) => {
-      const oldIndex = items.findIndex((b) => b.id === active.id);
-      const newIndex = items.findIndex((b) => b.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return items;
-      return arrayMove(items, oldIndex, newIndex);
-    });
-  };
+  // Push selection back into the iframe so the visual selection persists
+  // across re-renders / outline-only selections.
+  useEffect(() => {
+    const w = iframeRef.current?.contentWindow;
+    if (!w) return;
+    w.postMessage({ type: "block:set-selected", id: selectedId }, "*");
+  }, [selectedId, html]);
 
   const addBlock = (type: BlockType) => {
     const node = defaultBlock(type);
@@ -134,15 +125,8 @@ export default function EmailEditorPage({ params }: PageProps) {
     if (selectedId === blockId) setSelectedId(null);
   };
 
-  const duplicateBlock = (blockId: string) => {
-    setBlocks((b) => {
-      const idx = b.findIndex((blk) => blk.id === blockId);
-      if (idx === -1) return b;
-      const clone = { ...b[idx], id: newId() } as BlockNode;
-      const out = [...b];
-      out.splice(idx + 1, 0, clone);
-      return out;
-    });
+  const updateLogo = (next: LogoConfig | null) => {
+    setMeta((m) => ({ ...m, logo: next }));
   };
 
   const save = async () => {
@@ -161,8 +145,16 @@ export default function EmailEditorPage({ params }: PageProps) {
   };
 
   const copyHtml = async () => {
-    if (!html) return;
-    await navigator.clipboard.writeText(html);
+    // Re-render without the editor script for a clean copy.
+    if (!workspaceId) return;
+    const r = await fetch(`/api/crm/email-templates/drafts/${id}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
+      body: JSON.stringify({ meta, blocks }),
+    });
+    const d = await r.json();
+    if (!d.html) return;
+    await navigator.clipboard.writeText(d.html);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
@@ -171,6 +163,7 @@ export default function EmailEditorPage({ params }: PageProps) {
     () => blocks.find((b) => b.id === selectedId) ?? null,
     [blocks, selectedId]
   );
+  const isLogoSelected = selectedId === LOGO_TOKEN;
 
   if (!workspaceId) {
     return <div className="p-6 text-muted-foreground">Selecione um workspace.</div>;
@@ -218,45 +211,28 @@ export default function EmailEditorPage({ params }: PageProps) {
       </div>
 
       {/* 3-pane layout */}
-      <div className="flex-1 grid grid-cols-[260px_1fr_320px] min-h-0">
-        {/* left: palette + outline */}
-        <aside className="border-r bg-card overflow-y-auto p-4 space-y-6">
+      <div className="flex-1 grid grid-cols-[220px_1fr_320px] min-h-0">
+        {/* left: icon palette only */}
+        <aside className="border-r bg-card overflow-y-auto p-3">
           <Palette onAdd={addBlock} />
-
-          <div className="space-y-2">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Estrutura ({blocks.length})
-            </div>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-              <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                <div className="space-y-1.5">
-                  {blocks.map((b) => (
-                    <SortableBlock
-                      key={b.id}
-                      block={b}
-                      selected={selectedId === b.id}
-                      onSelect={() => setSelectedId(b.id)}
-                      onDuplicate={() => duplicateBlock(b.id)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+          <div className="mt-6 px-1 text-[11px] text-muted-foreground/80 leading-relaxed">
+            Clique em qualquer elemento do email à direita para abrir as configurações.
           </div>
         </aside>
 
-        {/* center: live preview */}
-        <main className="bg-neutral-100 dark:bg-neutral-900 overflow-y-auto p-6">
+        {/* center: clickable live preview */}
+        <main className="bg-neutral-100 dark:bg-neutral-900 overflow-y-auto p-6 relative">
+          {renderLoading && (
+            <div className="absolute right-8 top-8 z-10 flex items-center gap-1.5 bg-card/90 backdrop-blur px-2 py-1 rounded text-[10px] text-muted-foreground border">
+              <Loader2 className="w-3 h-3 animate-spin" /> Renderizando
+            </div>
+          )}
           <Card className="max-w-[640px] mx-auto overflow-hidden shadow-lg">
-            {renderLoading && (
-              <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 bg-card/90 backdrop-blur px-2 py-1 rounded text-[10px] text-muted-foreground border">
-                <Loader2 className="w-3 h-3 animate-spin" /> Renderizando
-              </div>
-            )}
             <iframe
+              ref={iframeRef}
               srcDoc={html}
               className="w-full border-0 bg-white"
-              sandbox=""
+              sandbox="allow-scripts"
               title="Preview"
               style={{ height: "calc(100vh - 9rem)" }}
             />
@@ -301,15 +277,22 @@ export default function EmailEditorPage({ params }: PageProps) {
           </div>
 
           <div className="border-t -mx-4 px-4 pt-4">
-            {selectedBlock ? (
+            {isLogoSelected ? (
+              <LogoInspector
+                logo={meta.logo}
+                onChange={(next) => updateLogo(next)}
+                onRemove={() => updateLogo(null)}
+              />
+            ) : selectedBlock ? (
               <Inspector
                 block={selectedBlock}
                 onChange={(patch) => updateBlock(selectedBlock.id, patch)}
                 onRemove={() => removeBlock(selectedBlock.id)}
               />
             ) : (
-              <div className="text-xs text-muted-foreground">
-                Selecione um bloco na coluna da esquerda para editar.
+              <div className="text-xs text-muted-foreground leading-relaxed">
+                <p className="mb-2">Clique em um bloco no email pra editar.</p>
+                <p>Ou adicione um novo bloco pelo painel à esquerda.</p>
               </div>
             )}
           </div>

@@ -32,7 +32,9 @@ export async function POST(
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    const html = renderDraft(draft);
+    const url = new URL(req.url);
+    const editorMode = url.searchParams.get("editor") === "1";
+    const html = renderDraft(draft, { editorMode });
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);

@@ -14,6 +14,15 @@ export type BlockId = string;
 
 export type EmailMode = "light" | "dark";
 
+export interface LogoConfig {
+  /** Image URL (or empty string for no logo, or "default" for the Bulking logo) */
+  image_url: string;
+  /** Display width in px (clamped 60–300) */
+  width: number;
+  /** Alt text */
+  alt: string;
+}
+
 export interface DraftMeta {
   /** Subject line (rendered in <title> + Gmail snippet) */
   subject: string;
@@ -21,7 +30,15 @@ export interface DraftMeta {
   preview: string;
   /** Light or dark canvas wrapper */
   mode: EmailMode;
+  /** Logo block at the top of the email. Optional — drop to hide entirely. */
+  logo?: LogoConfig | null;
 }
+
+export const DEFAULT_LOGO: LogoConfig = {
+  image_url: "https://cdn.vnda.com.br/bulking/2023/12/01/18_12_2_290_logobulkingsite.svg?v=1701465320",
+  width: 148,
+  alt: "BULKING",
+};
 
 // ---- Block types ----
 
