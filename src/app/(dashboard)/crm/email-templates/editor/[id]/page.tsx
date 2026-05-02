@@ -53,7 +53,14 @@ import {
 import { Palette } from "./_components/palette";
 import { SortableBlock } from "./_components/sortable-block";
 import { Inspector, LogoInspector } from "./_components/inspector";
+import {
+  TreeInspector,
+  findLeafById,
+  updateLeafById,
+  removeLeafById,
+} from "./_components/tree-inspector";
 import type { PickedProduct } from "./_components/product-picker";
+import type { SectionNode, LeafNode } from "@/lib/email-templates/tree/schema";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -288,6 +295,28 @@ export default function EmailEditorPage({ params }: PageProps) {
     [blocks, selectedId]
   );
   const isLogoSelected = selectedId === LOGO_TOKEN;
+  const isTreeMode =
+    (meta as DraftMeta & { engine?: string }).engine === "tree";
+  const treeSections = isTreeMode
+    ? (blocks as unknown as SectionNode[])
+    : null;
+  const selectedTreeNode = useMemo(
+    () => (treeSections && selectedId ? findLeafById(treeSections, selectedId) : null),
+    [treeSections, selectedId]
+  );
+
+  const updateTreeLeaf = (nodeId: string, patch: Partial<LeafNode>) => {
+    if (!treeSections) return;
+    const next = updateLeafById(treeSections, nodeId, patch);
+    setBlocks(next as unknown as BlockNode[]);
+  };
+
+  const removeTreeLeaf = (nodeId: string) => {
+    if (!treeSections) return;
+    const next = removeLeafById(treeSections, nodeId);
+    setBlocks(next as unknown as BlockNode[]);
+    if (selectedId === nodeId) setSelectedId(null);
+  };
 
   if (!workspaceId) {
     return <div className="p-6 text-muted-foreground">Selecione um workspace.</div>;
@@ -382,7 +411,21 @@ export default function EmailEditorPage({ params }: PageProps) {
 
       {/* 3-pane layout */}
       <div className="flex-1 grid grid-cols-[220px_1fr_320px] min-h-0">
-        {/* left: tabs — adicionar (palette) | estrutura (drag-and-drop) */}
+        {/* left: tabs — adicionar (palette) | estrutura (drag-and-drop).
+            Tree mode hides this panel because the editor doesn't yet support
+            adding/removing nodes from a multi-column layout — only inline
+            editing of existing nodes. */}
+        {isTreeMode ? (
+          <aside className="border-r bg-card overflow-y-auto p-4">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+              Modo template (tree)
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Layout original preservado pixel-a-pixel via react-email. Clique
+              em qualquer elemento do email à direita pra editar.
+            </p>
+          </aside>
+        ) : (
         <aside className="border-r bg-card overflow-y-auto">
             <Tabs defaultValue="add" className="h-full flex flex-col">
               <TabsList className="grid grid-cols-2 m-3 mb-0 h-8">
@@ -430,6 +473,7 @@ export default function EmailEditorPage({ params }: PageProps) {
               </TabsContent>
             </Tabs>
           </aside>
+        )}
 
         {/* center: clickable live preview */}
         <main className="bg-neutral-100 dark:bg-neutral-900 overflow-y-auto p-6 relative">
@@ -450,9 +494,25 @@ export default function EmailEditorPage({ params }: PageProps) {
           </Card>
         </main>
 
-        {/* right: per-block inspector (block-mode editor) */}
+        {/* right: inspector — tree mode uses tree inspector, otherwise block */}
         <aside className="border-l bg-card overflow-y-auto p-4">
-          {isLogoSelected ? (
+          {isTreeMode && selectedTreeNode ? (
+            <TreeInspector
+              node={selectedTreeNode}
+              workspaceId={workspaceId}
+              onChange={(patch) => updateTreeLeaf(selectedTreeNode.id, patch)}
+              onRemove={() => removeTreeLeaf(selectedTreeNode.id)}
+            />
+          ) : isTreeMode ? (
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              <p className="mb-2">Clique em qualquer texto, botão ou imagem do email pra editar.</p>
+              <p className="mt-3">
+                Esse template está usando o motor <span className="font-mono">tree</span> (react-email),
+                que preserva a estrutura visual original (multi-coluna, grade,
+                etc.).
+              </p>
+            </div>
+          ) : isLogoSelected ? (
             <LogoInspector
               logo={meta.logo}
               onChange={(next) => updateLogo(next)}

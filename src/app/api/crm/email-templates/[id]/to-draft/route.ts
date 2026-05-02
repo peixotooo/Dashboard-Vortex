@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { buildDraftFromSuggestion } from "@/lib/email-templates/editor/presets";
+import { buildTreeDraftFromSuggestion } from "@/lib/email-templates/tree/presets";
 import type { ProductSnapshot, Slot } from "@/lib/email-templates/types";
 
 export const runtime = "nodejs";
@@ -101,7 +101,7 @@ export async function POST(
           }
         : undefined;
 
-    const draftSeed = buildDraftFromSuggestion({
+    const tree = buildTreeDraftFromSuggestion({
       workspace_id: workspaceId,
       // Use the layout the cron actually rendered with (post migration-069).
       // Older suggestions without a stored layout_id fall back to "classic".
@@ -117,10 +117,12 @@ export async function POST(
       .from("email_template_drafts")
       .insert({
         workspace_id: workspaceId,
-        layout_id: draftSeed.layout_id ?? null,
-        name: draftSeed.name,
-        meta: draftSeed.meta,
-        blocks: draftSeed.blocks,
+        layout_id: tree.layout_id ?? null,
+        name: tree.name,
+        // Tree-engine drafts: meta carries engine="tree" and the JSONB blocks
+        // column stores the section list. Render endpoint dispatches on engine.
+        meta: { ...tree.meta, engine: "tree" },
+        blocks: tree.sections,
       })
       .select()
       .single();

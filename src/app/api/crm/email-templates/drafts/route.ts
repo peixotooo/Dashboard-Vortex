@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { buildDraftFromLayout } from "@/lib/email-templates/editor/presets";
+import { buildTreeDraftFromLayout } from "@/lib/email-templates/tree/presets";
 import type { Slot, ProductSnapshot } from "@/lib/email-templates/types";
 import type { Draft } from "@/lib/email-templates/editor/schema";
 
@@ -116,22 +117,34 @@ export async function POST(req: NextRequest) {
         .limit(9);
       const related = (relRows ?? []).map((r) => toSnap(r as Row));
 
-      const seed = buildDraftFromLayout({
+      const couponData =
+        slot === 2
+          ? {
+              code: `EMAIL-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+              discount_percent: 10,
+              expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000),
+            }
+          : undefined;
+
+      // New drafts use the tree engine (react-email) — preserves multi-column
+      // / grid / asymmetric layouts that the legacy block engine couldn't
+      // express. The tree is stored in the existing JSONB `blocks` column;
+      // meta.engine = "tree" is the dispatch signal for the renderer.
+      const tree = buildTreeDraftFromLayout({
         layoutId: body.layout_id,
         slot,
         primary,
         related,
         workspace_id: workspaceId,
-        coupon:
-          slot === 2
-            ? {
-                code: `EMAIL-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
-                discount_percent: 10,
-                expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000),
-              }
-            : undefined,
+        coupon: couponData,
       });
-      row = seed;
+      row = {
+        workspace_id: tree.workspace_id,
+        layout_id: tree.layout_id,
+        name: tree.name,
+        meta: { ...tree.meta, engine: "tree" } as unknown as Draft["meta"],
+        blocks: tree.sections as unknown as Draft["blocks"],
+      };
     } else {
       return NextResponse.json(
         { error: "either draft or layout_id is required" },

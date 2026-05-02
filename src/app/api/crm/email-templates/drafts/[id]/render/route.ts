@@ -12,7 +12,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
+import { renderTreeDraft } from "@/lib/email-templates/tree/render";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
+import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
+
+interface RuntimeMeta extends DraftMeta {
+  engine?: "tree" | "blocks";
+}
 
 export const runtime = "nodejs";
 
@@ -32,8 +38,27 @@ export async function GET(
       .maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
-    const draft = data as Draft;
-    const html = renderDraft(draft);
+    const draft = data as Draft & { meta: RuntimeMeta };
+    let html: string;
+    if (draft.meta?.engine === "tree") {
+      const tree: TreeDraft = {
+        id: draft.id,
+        workspace_id: draft.workspace_id,
+        layout_id: draft.layout_id,
+        name: draft.name,
+        meta: {
+          subject: draft.meta.subject,
+          preview: draft.meta.preview,
+          mode: draft.meta.mode,
+        },
+        sections: draft.blocks as unknown as SectionNode[],
+        created_at: draft.created_at,
+        updated_at: draft.updated_at,
+      };
+      html = await renderTreeDraft(tree);
+    } else {
+      html = renderDraft(draft);
+    }
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);
@@ -70,19 +95,36 @@ export async function POST(
         .maybeSingle();
       layoutId = (data?.layout_id as string | null) ?? null;
     }
-    const draft: Draft = {
-      id,
-      workspace_id: workspaceId,
-      layout_id: layoutId ?? undefined,
-      name: "",
-      meta: body.meta,
-      blocks: body.blocks,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
     const url = new URL(req.url);
     const editorMode = url.searchParams.get("editor") === "1";
-    const html = renderDraft(draft, { editorMode });
+    const meta = body.meta as RuntimeMeta;
+
+    let html: string;
+    if (meta?.engine === "tree") {
+      const tree: TreeDraft = {
+        id,
+        workspace_id: workspaceId,
+        layout_id: layoutId ?? undefined,
+        name: "",
+        meta: { subject: meta.subject, preview: meta.preview, mode: meta.mode },
+        sections: body.blocks as unknown as SectionNode[],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      html = await renderTreeDraft(tree, { editorMode });
+    } else {
+      const draft: Draft = {
+        id,
+        workspace_id: workspaceId,
+        layout_id: layoutId ?? undefined,
+        name: "",
+        meta: body.meta,
+        blocks: body.blocks,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      html = renderDraft(draft, { editorMode });
+    }
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);
