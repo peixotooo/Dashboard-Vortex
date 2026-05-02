@@ -212,9 +212,14 @@ export function hero(args: {
   <span style="display:inline-block;background:${TOKENS.text};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:500;font-size:11px;letter-spacing:0.32em;padding:10px 16px;text-transform:uppercase;">${escapeHtml(args.badge)}</span>
 </td></tr>`
     : "";
+  // Locked 3:4 portrait frame so swapping products never reflows the email.
+  // Object-fit:cover crops anything off-ratio. Outlook desktop stretches to
+  // the box (acceptable degradation; modern clients render correctly).
   return `${badge}
 <tr><td style="padding:0;">
-  <img src="${escapeHtml(args.image_url)}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="width:100%;max-width:600px;height:auto;display:block;" />
+  <div style="position:relative;width:100%;max-width:600px;padding-top:133.33%;margin:0 auto;background:${TOKENS.bgAlt};overflow:hidden;">
+    <img src="${escapeHtml(args.image_url)}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;" />
+  </div>
 </td></tr>`;
 }
 
@@ -338,10 +343,17 @@ export function relatedProductsGrid(
         p.old_price && p.old_price > p.price
           ? `<div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${TOKENS.textFaint};text-decoration:line-through;margin-bottom:2px;">R$ ${p.old_price.toFixed(2)}</div>`
           : "";
+      // Fixed 4:5 frame so all 3 cells line up regardless of source aspect
+      // ratio. Modern clients (Gmail, Apple Mail, iOS, Outlook web/365)
+      // honor object-fit:cover; Outlook 2016/desktop stretches to the box.
       return `
 <td valign="top" align="center" width="${widthPct}" class="related-cell" style="width:${widthPct};padding:0 10px 40px;">
   <a href="${escapeHtml(p.url)}" target="_blank" style="text-decoration:none;color:${TOKENS.text};">
-    <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="170" height="220" style="width:100%;max-width:180px;height:auto;display:block;margin:0 auto 14px;" />
+    <div style="width:100%;max-width:180px;margin:0 auto 14px;">
+      <div style="position:relative;width:100%;padding-top:125%;background:${TOKENS.bgAlt};overflow:hidden;">
+        <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="180" height="225" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;" />
+      </div>
+    </div>
     <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${TOKENS.text};line-height:1.4;margin-bottom:8px;min-height:38px;">${escapeHtml(p.name)}</div>
     ${oldPrice}
     <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:16px;color:${TOKENS.text};margin-bottom:14px;">R$ ${p.price.toFixed(2)}</div>

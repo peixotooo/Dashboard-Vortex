@@ -110,10 +110,14 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
 </td></tr>`;
     }
     case "image": {
-      const img = `<img src="${escapeHtml(b.image_url)}" alt="${escapeHtml(b.alt)}" width="600" style="width:100%;max-width:600px;height:auto;display:block;" />`;
+      // Locked 3:4 frame, same treatment as the hero — keeps the layout
+      // stable regardless of source aspect ratio.
+      const bg = mode === "dark" ? DARK.surfaceAlt : TOKENS.bgAlt;
+      const img = `<img src="${escapeHtml(b.image_url)}" alt="${escapeHtml(b.alt)}" width="600" height="800" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;" />`;
+      const inner = `<div style="position:relative;width:100%;max-width:600px;padding-top:133.33%;margin:0 auto;background:${bg};overflow:hidden;">${img}</div>`;
       const wrapped = b.href
-        ? `<a href="${escapeHtml(b.href)}" target="_blank" style="text-decoration:none;">${img}</a>`
-        : img;
+        ? `<a href="${escapeHtml(b.href)}" target="_blank" style="text-decoration:none;">${inner}</a>`
+        : inner;
       return `
 <tr><td style="padding:0;">${wrapped}</td></tr>`;
     }
