@@ -90,12 +90,16 @@ function PreviewCard({
   productId,
   slot,
   onOpen,
+  onUse,
+  creating,
 }: {
   layout: LayoutMeta;
   workspaceId: string;
   productId: string | null;
   slot: number;
   onOpen: (html: string) => void;
+  onUse: (layoutId: string, slot: number) => void;
+  creating: boolean;
 }) {
   const [html, setHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -184,12 +188,14 @@ function PreviewCard({
           >
             <Maximize2 className="w-3 h-3" /> Ampliar
           </Button>
-          <a
-            href={`/crm/email-templates/compose/${layout.id}`}
-            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-foreground text-background hover:opacity-90 shadow-md"
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 text-xs shadow-md"
+            disabled={creating}
+            onClick={() => onUse(layout.id, effectiveSlot)}
           >
-            <Wand2 className="w-3 h-3" /> Usar template
-          </a>
+            <Wand2 className="w-3 h-3" /> {creating ? "Abrindo..." : "Usar template"}
+          </Button>
         </div>
       </div>
 
@@ -319,6 +325,33 @@ export default function LayoutLibraryPage() {
   const [slot, setSlot] = useState<number>(1);
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [lightboxHtml, setLightboxHtml] = useState<string | null>(null);
+  const [creatingFor, setCreatingFor] = useState<string | null>(null);
+
+  const useTemplate = async (layoutId: string, layoutSlot: number) => {
+    if (!workspaceId || creatingFor) return;
+    setCreatingFor(layoutId);
+    try {
+      const r = await fetch("/api/crm/email-templates/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
+        body: JSON.stringify({
+          layout_id: layoutId,
+          slot: layoutSlot,
+          product_id: previewProduct?.vnda_id,
+        }),
+      });
+      const d = await r.json();
+      if (d.draft?.id) {
+        window.location.href = `/crm/email-templates/editor/${d.draft.id}`;
+      } else {
+        alert(d.error ?? "Falha ao criar draft");
+        setCreatingFor(null);
+      }
+    } catch (err) {
+      alert(`Falha ao criar draft: ${(err as Error).message}`);
+      setCreatingFor(null);
+    }
+  };
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -474,6 +507,8 @@ export default function LayoutLibraryPage() {
             productId={previewProduct?.vnda_id ?? null}
             slot={slot}
             onOpen={(html) => setLightboxHtml(html)}
+            onUse={useTemplate}
+            creating={creatingFor === layout.id}
           />
         ))}
       </div>
