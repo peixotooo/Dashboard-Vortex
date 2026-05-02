@@ -83,6 +83,7 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
 
     fetch(`/api/crm/overview-summary?${params.toString()}`, {
       headers: { "x-workspace-id": workspace.id },
+      cache: "no-store",
     })
       .then(async (r) => {
         const json = await r.json().catch(() => null);

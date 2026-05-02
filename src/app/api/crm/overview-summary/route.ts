@@ -41,6 +41,7 @@ const EMPTY = {
   },
   totals: { orders: 0, revenue: 0 },
   period: { since: "", until: "" },
+  debug: {} as Record<string, unknown>,
 };
 
 function createSupabase(request: NextRequest) {
@@ -64,11 +65,6 @@ function customerKey(row: Pick<VendaRow, "cpf" | "email">): string | null {
   return null;
 }
 
-// Strip trailing variant suffix from SKU. Patterns:
-//   "256392895-3" → "256392895"
-//   "ABC-123-S"   → "ABC-123"
-//   "ABC123"      → "ABC123" (no change)
-// Heuristic: drop the last "-..." segment if the suffix is short (<=6 chars).
 function getParentSku(sku: string): string {
   const trimmed = sku.trim();
   if (!trimmed) return trimmed;
@@ -79,9 +75,6 @@ function getParentSku(sku: string): string {
   return trimmed.slice(0, idx);
 }
 
-// Strip trailing size/color tokens from product names so variants collapse.
-//   "CAMISETA OVERSIZED TRUE CLUB BEGE - P"  → "CAMISETA OVERSIZED TRUE CLUB BEGE"
-//   "CAMISETA OVERSIZED TRUE CLUB BEGE / GG" → "CAMISETA OVERSIZED TRUE CLUB BEGE"
 function getParentName(name: string): string {
   return name
     .replace(/\s*[-/|]\s*(P|M|G|GG|XGG|XS|S|L|XL|XXL|UN|U)$/i, "")
@@ -90,7 +83,6 @@ function getParentName(name: string): string {
 }
 
 function rangeToDates(since: string, until: string) {
-  // Treat dates as full-day windows in local timezone, but use ISO range for query.
   const start = new Date(`${since}T00:00:00.000Z`);
   const end = new Date(`${until}T23:59:59.999Z`);
   return { start, end };
@@ -125,43 +117,77 @@ export async function GET(request: NextRequest) {
 
     const admin = createAdminClient();
 
-    // Fetch all orders for [prev.start, cur.end].
-    // Use .range() to lift the default 1000-row cap (we may have several
-    // thousand orders for 30d + 30d windows on busier workspaces).
-    const { data: recentOrders, error: recentErr } = await admin
-      .from("crm_vendas")
-      .select("cpf, email, cliente, valor, data_compra, items")
-      .eq("workspace_id", workspaceId)
-      .gte("data_compra", prevR.start.toISOString())
-      .lte("data_compra", cur.end.toISOString())
-      .order("data_compra", { ascending: true })
-      .range(0, 49999);
-
-    if (recentErr) {
-      console.error("[CRM Overview Summary] Recent orders error:", recentErr.message);
-      return NextResponse.json({ ...EMPTY, period });
+    // Helper: paginated fetch in chunks of 1000 to bypass PostgREST default cap.
+    async function fetchAllInWindow(
+      startISO: string,
+      endISO: string,
+      cols: string
+    ): Promise<VendaRow[]> {
+      const all: VendaRow[] = [];
+      const CHUNK = 1000;
+      const HARD_CAP = 50000;
+      let offset = 0;
+      while (offset < HARD_CAP) {
+        const { data, error } = await admin
+          .from("crm_vendas")
+          .select(cols)
+          .eq("workspace_id", workspaceId)
+          .gte("data_compra", startISO)
+          .lte("data_compra", endISO)
+          .order("data_compra", { ascending: false })
+          .range(offset, offset + CHUNK - 1);
+        if (error) {
+          console.error("[CRM Overview Summary] page error:", error.message);
+          break;
+        }
+        const rows = (data || []) as unknown as VendaRow[];
+        all.push(...rows);
+        if (rows.length < CHUNK) break;
+        offset += CHUNK;
+      }
+      return all;
     }
 
-    const orders = (recentOrders || []) as VendaRow[];
-    if (orders.length === 0) {
-      return NextResponse.json({ ...EMPTY, configured: true, period });
-    }
+    // Current window: need items, valor, cpf, email
+    const curOrders = await fetchAllInWindow(
+      cur.start.toISOString(),
+      cur.end.toISOString(),
+      "cpf, email, cliente, valor, data_compra, items"
+    );
 
-    // Split current vs previous window
-    const curOrders: VendaRow[] = [];
-    const prevOrders: VendaRow[] = [];
-    for (const o of orders) {
-      const t = new Date(o.data_compra).getTime();
-      if (t >= cur.start.getTime() && t <= cur.end.getTime()) curOrders.push(o);
-      else if (t >= prevR.start.getTime() && t <= prevR.end.getTime()) prevOrders.push(o);
+    // Previous window: only identifiers needed (for new/returning split)
+    const prevOrders = await fetchAllInWindow(
+      prevR.start.toISOString(),
+      prevR.end.toISOString(),
+      "cpf, email, cliente, valor, data_compra, items"
+    );
+
+    if (curOrders.length === 0 && prevOrders.length === 0) {
+      return NextResponse.json(
+        {
+          ...EMPTY,
+          configured: true,
+          period,
+          debug: {
+            curStart: cur.start.toISOString(),
+            curEnd: cur.end.toISOString(),
+            prevStart: prevR.start.toISOString(),
+            prevEnd: prevR.end.toISOString(),
+            curOrders: 0,
+            prevOrders: 0,
+            workspaceId,
+          },
+        },
+        { headers: { "Cache-Control": "private, max-age=60" } }
+      );
     }
 
     // --- Top products consolidated by parent SKU ---
     const productMap = new Map<string, ProductAgg>();
+    const allVariantsByParent = new Map<string, Set<string>>();
     for (const order of curOrders) {
       const items = Array.isArray(order.items) ? order.items : [];
       const seenInOrder = new Set<string>();
-      const variantsInOrder = new Map<string, Set<string>>();
       for (const it of items) {
         const rawSku = (it.sku || "").trim();
         const rawName = (it.name || rawSku || "Sem nome").trim();
@@ -179,11 +205,6 @@ export async function GET(request: NextRequest) {
           existing.quantity += qty;
           existing.revenue += total;
           if (!seenInOrder.has(key)) existing.orders += 1;
-          if (rawSku) {
-            const set = variantsInOrder.get(key) ?? new Set<string>();
-            set.add(rawSku);
-            variantsInOrder.set(key, set);
-          }
         } else {
           productMap.set(key, {
             parentSku: parentSku || "—",
@@ -191,30 +212,23 @@ export async function GET(request: NextRequest) {
             quantity: qty,
             revenue: total,
             orders: 1,
-            variants: rawSku ? 1 : 0,
+            variants: 0,
           });
-          if (rawSku) variantsInOrder.set(key, new Set([rawSku]));
         }
         seenInOrder.add(key);
-      }
-    }
 
-    // Recompute variant count globally (not just per-order) — track all distinct variant SKUs
-    const allVariantsByParent = new Map<string, Set<string>>();
-    for (const order of curOrders) {
-      const items = Array.isArray(order.items) ? order.items : [];
-      for (const it of items) {
-        const rawSku = (it.sku || "").trim();
-        if (!rawSku) continue;
-        const parent = getParentSku(rawSku);
-        const set = allVariantsByParent.get(parent) ?? new Set<string>();
-        set.add(rawSku);
-        allVariantsByParent.set(parent, set);
+        if (rawSku && parentSku) {
+          const set = allVariantsByParent.get(parentSku) ?? new Set<string>();
+          set.add(rawSku);
+          allVariantsByParent.set(parentSku, set);
+        }
       }
     }
     for (const [key, agg] of productMap) {
-      const set = allVariantsByParent.get(agg.parentSku);
-      if (set) agg.variants = set.size;
+      if (agg.parentSku !== "—") {
+        const set = allVariantsByParent.get(agg.parentSku);
+        if (set) agg.variants = set.size;
+      }
       productMap.set(key, agg);
     }
 
@@ -222,7 +236,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    // --- New vs returning customers (for current and previous periods) ---
+    // --- New vs returning customers ---
     const customersInCur = new Set<string>();
     const customersInPrev = new Set<string>();
     for (const o of curOrders) {
@@ -244,34 +258,41 @@ export async function GET(request: NextRequest) {
         .filter((k) => k.startsWith("email:"))
         .map((k) => k.slice(6));
 
-      if (cpfs.length > 0) {
-        const { data: cpfRows } = await admin
-          .from("crm_vendas")
-          .select("cpf, data_compra")
-          .eq("workspace_id", workspaceId)
-          .in("cpf", cpfs)
-          .order("data_compra", { ascending: true })
-          .range(0, 99999);
-        for (const r of (cpfRows || []) as Array<{ cpf: string | null; data_compra: string }>) {
-          if (!r.cpf) continue;
-          const k = `cpf:${r.cpf}`;
-          if (!firstSeen.has(k)) firstSeen.set(k, r.data_compra);
+      // Look up first-ever order date per customer, paginating to bypass the cap.
+      async function lookupFirstSeen(field: "cpf" | "email", values: string[]) {
+        const CHUNK = 1000;
+        // Process IN-list in chunks of 200 to keep URL size sane.
+        const VALUES_CHUNK = 200;
+        for (let i = 0; i < values.length; i += VALUES_CHUNK) {
+          const slice = values.slice(i, i + VALUES_CHUNK);
+          let offset = 0;
+          while (true) {
+            const { data, error } = await admin
+              .from("crm_vendas")
+              .select(`${field}, data_compra`)
+              .eq("workspace_id", workspaceId)
+              .in(field, slice)
+              .order("data_compra", { ascending: true })
+              .range(offset, offset + CHUNK - 1);
+            if (error) {
+              console.error("[CRM Overview Summary] firstSeen error:", error.message);
+              break;
+            }
+            const rows = (data || []) as Array<Record<string, string | null>>;
+            for (const r of rows) {
+              const v = r[field];
+              if (!v) continue;
+              const k = field === "cpf" ? `cpf:${v}` : `email:${v.toLowerCase()}`;
+              if (!firstSeen.has(k)) firstSeen.set(k, r.data_compra as string);
+            }
+            if (rows.length < CHUNK) break;
+            offset += CHUNK;
+          }
         }
       }
-      if (emails.length > 0) {
-        const { data: emailRows } = await admin
-          .from("crm_vendas")
-          .select("email, data_compra")
-          .eq("workspace_id", workspaceId)
-          .in("email", emails)
-          .order("data_compra", { ascending: true })
-          .range(0, 99999);
-        for (const r of (emailRows || []) as Array<{ email: string | null; data_compra: string }>) {
-          if (!r.email) continue;
-          const k = `email:${r.email.toLowerCase()}`;
-          if (!firstSeen.has(k)) firstSeen.set(k, r.data_compra);
-        }
-      }
+
+      if (cpfs.length > 0) await lookupFirstSeen("cpf", cpfs);
+      if (emails.length > 0) await lookupFirstSeen("email", emails);
     }
 
     let newCount = 0;
@@ -308,8 +329,18 @@ export async function GET(request: NextRequest) {
         },
         totals: { orders: curOrders.length, revenue: totalRevenue },
         period,
+        debug: {
+          curStart: cur.start.toISOString(),
+          curEnd: cur.end.toISOString(),
+          prevStart: prevR.start.toISOString(),
+          prevEnd: prevR.end.toISOString(),
+          curOrders: curOrders.length,
+          prevOrders: prevOrders.length,
+          uniqueCur: customersInCur.size,
+          uniquePrev: customersInPrev.size,
+        },
       },
-      { headers: { "Cache-Control": "private, max-age=300" } }
+      { headers: { "Cache-Control": "private, max-age=60" } }
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
