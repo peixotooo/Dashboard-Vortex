@@ -15,6 +15,7 @@ import {
   Timer,
   MoveVertical,
   Minus,
+  Shirt,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,7 +25,7 @@ interface Props {
 
 const ICON: Record<BlockType, LucideIcon> = {
   hook: Tag,
-  hero: ImageIcon,
+  hero: Shirt,
   headline: Heading1,
   lead: TextQuote,
   "rich-text": AlignLeft,

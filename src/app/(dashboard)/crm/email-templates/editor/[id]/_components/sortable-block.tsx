@@ -12,7 +12,7 @@ interface Props {
 }
 
 const TYPE_LABEL: Record<BlockNode["type"], string> = {
-  hero: "Hero",
+  hero: "Produto",
   headline: "Headline",
   lead: "Lead",
   hook: "Eyebrow",

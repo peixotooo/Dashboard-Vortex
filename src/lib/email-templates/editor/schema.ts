@@ -262,8 +262,8 @@ export const PALETTE: Array<{
   description: string;
   group: "header" | "content" | "commerce" | "structural";
 }> = [
-  { type: "hook", label: "Eyebrow", description: "Tagline acima do hero", group: "header" },
-  { type: "hero", label: "Hero image", description: "Imagem principal", group: "header" },
+  { type: "hook", label: "Eyebrow", description: "Tagline acima do produto", group: "header" },
+  { type: "hero", label: "Produto", description: "Foto principal do produto", group: "header" },
   { type: "headline", label: "Headline", description: "Título grande", group: "content" },
   { type: "lead", label: "Lead", description: "Parágrafo de apoio", group: "content" },
   { type: "rich-text", label: "Texto livre", description: "Parágrafo livre", group: "content" },

@@ -21,6 +21,9 @@ interface Props {
   workspaceId: string;
   onChange: (patch: Partial<BlockNode>) => void;
   onRemove: () => void;
+  /** Picking a product on hero / product-meta propagates to ALL product
+   *  blocks in the draft (image, alt, name, price, CTA url). */
+  onPickProduct: (p: PickedProduct) => void;
 }
 
 export function LogoInspector({
@@ -92,7 +95,13 @@ export function LogoInspector({
   );
 }
 
-export function Inspector({ block, workspaceId, onChange, onRemove }: Props) {
+export function Inspector({
+  block,
+  workspaceId,
+  onChange,
+  onRemove,
+  onPickProduct,
+}: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -109,7 +118,7 @@ export function Inspector({ block, workspaceId, onChange, onRemove }: Props) {
         </Button>
       </div>
 
-      {renderFields(block, workspaceId, onChange)}
+      {renderFields(block, workspaceId, onChange, onPickProduct)}
     </div>
   );
 }
@@ -117,7 +126,8 @@ export function Inspector({ block, workspaceId, onChange, onRemove }: Props) {
 function renderFields(
   block: BlockNode,
   workspaceId: string,
-  onChange: (patch: Partial<BlockNode>) => void
+  onChange: (patch: Partial<BlockNode>) => void,
+  onPickProduct: (p: PickedProduct) => void
 ) {
   switch (block.type) {
     case "hook":
@@ -174,16 +184,11 @@ function renderFields(
         <>
           <ProductPicker
             workspaceId={workspaceId}
-            label="Trocar produto (preenche imagem + alt)"
+            label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
             autoLoadInitial
-            onPick={(p) =>
-              onChange({
-                image_url: p.image_url,
-                alt: p.name,
-              } as Partial<BlockNode>)
-            }
+            onPick={onPickProduct}
           />
-          <CollapsibleAdvanced label="Editar manualmente">
+          <CollapsibleAdvanced label="Editar só este bloco">
             <Field label="URL da imagem">
               <Input
                 value={block.image_url}
@@ -255,17 +260,11 @@ function renderFields(
         <>
           <ProductPicker
             workspaceId={workspaceId}
-            label="Trocar produto (preenche nome + preço)"
+            label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
             autoLoadInitial
-            onPick={(p) =>
-              onChange({
-                name: p.name,
-                price: p.price,
-                old_price: p.old_price,
-              } as Partial<BlockNode>)
-            }
+            onPick={onPickProduct}
           />
-          <CollapsibleAdvanced label="Editar manualmente">
+          <CollapsibleAdvanced label="Editar só este bloco">
             <Field label="Nome do produto">
               <Input
                 value={block.name}

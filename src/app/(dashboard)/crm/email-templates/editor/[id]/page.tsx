@@ -11,19 +11,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   defaultBlock,
+  newId,
   type BlockNode,
   type BlockType,
   type DraftMeta,
   type Draft,
   type LogoConfig,
 } from "@/lib/email-templates/editor/schema";
+import { applyProductToBlocks } from "@/lib/email-templates/editor/apply-product";
 import { ArrowLeft, Save, Copy as CopyIcon, Check, Loader2, Settings2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Palette } from "./_components/palette";
+import { SortableBlock } from "./_components/sortable-block";
 import { Inspector, LogoInspector } from "./_components/inspector";
+import type { PickedProduct } from "./_components/product-picker";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -109,10 +129,41 @@ export default function EmailEditorPage({ params }: PageProps) {
     w.postMessage({ type: "block:set-selected", id: selectedId }, "*");
   }, [selectedId, html]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    setBlocks((items) => {
+      const oldIndex = items.findIndex((b) => b.id === active.id);
+      const newIndex = items.findIndex((b) => b.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return items;
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
+
+  const duplicateBlock = (blockId: string) => {
+    setBlocks((b) => {
+      const idx = b.findIndex((blk) => blk.id === blockId);
+      if (idx === -1) return b;
+      const clone = { ...b[idx], id: newId() } as BlockNode;
+      const out = [...b];
+      out.splice(idx + 1, 0, clone);
+      return out;
+    });
+  };
+
   const addBlock = (type: BlockType) => {
     const node = defaultBlock(type);
     setBlocks((b) => [...b, node]);
     setSelectedId(node.id);
+  };
+
+  const pickProduct = (p: PickedProduct) => {
+    setBlocks((current) => applyProductToBlocks(current, p));
   };
 
   const updateBlock = (blockId: string, patch: Partial<BlockNode>) => {
@@ -259,12 +310,53 @@ export default function EmailEditorPage({ params }: PageProps) {
 
       {/* 3-pane layout */}
       <div className="flex-1 grid grid-cols-[220px_1fr_320px] min-h-0">
-        {/* left: icon palette only */}
-        <aside className="border-r bg-card overflow-y-auto p-3">
-          <Palette onAdd={addBlock} />
-          <div className="mt-6 px-1 text-[11px] text-muted-foreground/80 leading-relaxed">
-            Clique em qualquer elemento do email à direita para abrir as configurações.
-          </div>
+        {/* left: tabs — adicionar (palette) | estrutura (drag-and-drop) */}
+        <aside className="border-r bg-card overflow-y-auto">
+          <Tabs defaultValue="add" className="h-full flex flex-col">
+            <TabsList className="grid grid-cols-2 m-3 mb-0 h-8">
+              <TabsTrigger value="add" className="text-xs">
+                Adicionar
+              </TabsTrigger>
+              <TabsTrigger value="structure" className="text-xs">
+                Estrutura
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="add" className="p-3 mt-0 flex-1">
+              <Palette onAdd={addBlock} />
+              <div className="mt-6 px-1 text-[11px] text-muted-foreground/80 leading-relaxed">
+                Clique em qualquer elemento do email à direita para editar.
+              </div>
+            </TabsContent>
+            <TabsContent value="structure" className="p-3 mt-0 flex-1">
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">
+                  {blocks.length} blocos · arraste pra reordenar
+                </div>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={onDragEnd}
+                >
+                  <SortableContext
+                    items={blocks.map((b) => b.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-1.5">
+                      {blocks.map((b) => (
+                        <SortableBlock
+                          key={b.id}
+                          block={b}
+                          selected={selectedId === b.id}
+                          onSelect={() => setSelectedId(b.id)}
+                          onDuplicate={() => duplicateBlock(b.id)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </div>
+            </TabsContent>
+          </Tabs>
         </aside>
 
         {/* center: clickable live preview */}
@@ -300,6 +392,7 @@ export default function EmailEditorPage({ params }: PageProps) {
               workspaceId={workspaceId}
               onChange={(patch) => updateBlock(selectedBlock.id, patch)}
               onRemove={() => removeBlock(selectedBlock.id)}
+              onPickProduct={pickProduct}
             />
           ) : (
             <div className="text-xs text-muted-foreground leading-relaxed">
