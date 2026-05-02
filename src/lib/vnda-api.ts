@@ -479,33 +479,104 @@ export async function listVndaProducts(
 
 // --- Stock by parent reference (SKU pai) ---
 
+interface VndaVariant {
+  id?: number;
+  sku?: string;
+  name?: string;
+  available?: boolean;
+  // Possible stock field names across VNDA API versions:
+  stock?: number;
+  quantity?: number;
+  balance?: number;
+  available_quantity?: number;
+  stock_total?: number;
+  total_stock?: number;
+}
+
 interface VndaProductWithVariants {
   id: number;
   reference?: string;
   name: string;
   available?: boolean;
-  variants?: Array<{
-    sku?: string;
-    name?: string;
-    available?: boolean;
-    stock?: number;
-    quantity?: number;
-  }>;
+  variants?: VndaVariant[];
+  total_stock?: number;
+  stock?: number;
+  balance?: number;
+}
+
+function extractVariantStock(v: VndaVariant): number {
+  const candidates = [
+    v.stock,
+    v.balance,
+    v.quantity,
+    v.available_quantity,
+    v.stock_total,
+    v.total_stock,
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null) {
+      const n = Number(c);
+      if (Number.isFinite(n)) return Math.max(0, n);
+    }
+  }
+  return 0;
+}
+
+function extractProductStock(p: VndaProductWithVariants): number {
+  const candidates = [p.total_stock, p.stock, p.balance];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null) {
+      const n = Number(c);
+      if (Number.isFinite(n)) return Math.max(0, n);
+    }
+  }
+  return 0;
+}
+
+async function fetchVndaProductDetail(
+  config: VndaConfig,
+  productId: number | string
+): Promise<VndaProductWithVariants | null> {
+  const headers = {
+    Authorization: `Bearer ${config.apiToken}`,
+    Accept: "application/json",
+  };
+  const urls = [
+    `https://${config.storeHost}/api/v2/products/${productId}`,
+    `https://api.vnda.com.br/api/v2/products/${productId}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: url.includes("api.vnda.com.br")
+          ? { ...headers, "X-Shop-Host": config.storeHost }
+          : headers,
+      });
+      if (!res.ok) continue;
+      const json = (await res.json()) as VndaProductWithVariants;
+      if (json && typeof json === "object") return json;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
 }
 
 /**
  * Fetches total stock across variants for a given parent reference (SKU pai).
- * VNDA `/products` returns product objects with `variants[].stock` (or `quantity`).
- * Returns null when the product is not found.
+ * Strategy:
+ *   1. List /products?reference=<ref> (or fuzzy q=<ref>) to find the product id.
+ *   2. Fetch /products/{id} for the full product (variants are not always
+ *      included on the listing endpoint, but always on the detail endpoint).
+ *   3. Sum variants[].stock across known field names (stock/balance/quantity).
  */
 export async function getVndaStockByReference(
   config: VndaConfig,
   reference: string
-): Promise<{ stock: number; available: boolean; variantCount: number } | null> {
+): Promise<{ stock: number; available: boolean; variantCount: number; productId?: number } | null> {
   const ref = reference.trim();
   if (!ref) return null;
 
-  // Try the store-scoped endpoint first (more reliable in practice).
   const headers = {
     Authorization: `Bearer ${config.apiToken}`,
     Accept: "application/json",
@@ -516,6 +587,8 @@ export async function getVndaStockByReference(
     `https://${config.storeHost}/api/v2/products?q=${encodeURIComponent(ref)}&per_page=10`,
     `https://api.vnda.com.br/api/v2/products?reference=${encodeURIComponent(ref)}&per_page=5`,
   ];
+
+  let match: VndaProductWithVariants | null = null;
 
   for (const url of tryUrls) {
     try {
@@ -533,37 +606,68 @@ export async function getVndaStockByReference(
           ? (json as { results: VndaProductWithVariants[] }).results
           : [];
 
-      // Match by reference exact (case-insensitive); fallback to first result.
       const refLower = ref.toLowerCase();
-      const match =
+      const found =
         list.find((p) => (p.reference || "").toLowerCase() === refLower) ?? list[0];
-      if (!match) continue;
-
-      const variants = match.variants || [];
-      let total = 0;
-      let availableAny = false;
-      for (const v of variants) {
-        const stockNum = Number(v.stock ?? v.quantity ?? 0);
-        if (Number.isFinite(stockNum)) total += Math.max(0, stockNum);
-        if (v.available !== false && stockNum > 0) availableAny = true;
+      if (found) {
+        match = found;
+        break;
       }
-      // If no variants but product itself is available, treat as 1+ stock.
-      if (variants.length === 0 && match.available !== false) {
-        total = total || 0;
-        availableAny = true;
-      }
-
-      return {
-        stock: total,
-        available: availableAny || match.available === true,
-        variantCount: variants.length,
-      };
     } catch {
       // try next URL
     }
   }
 
-  return null;
+  if (!match) return null;
+
+  // If the listing didn't include variants (or variants have no stock fields),
+  // fetch the product detail endpoint which always carries full variant data.
+  const listingVariants = match.variants || [];
+  const listingHasStock = listingVariants.some(
+    (v) =>
+      v.stock !== undefined ||
+      v.balance !== undefined ||
+      v.quantity !== undefined ||
+      v.available_quantity !== undefined
+  );
+
+  let productForStock = match;
+  if (!listingHasStock) {
+    const detail = await fetchVndaProductDetail(config, match.id);
+    if (detail) productForStock = detail;
+  }
+
+  const variants = productForStock.variants || [];
+  let total = 0;
+  let availableAny = false;
+  for (const v of variants) {
+    const stockNum = extractVariantStock(v);
+    total += stockNum;
+    if (v.available !== false && stockNum > 0) availableAny = true;
+  }
+
+  // If still no per-variant stock, fall back to product-level fields.
+  if (total === 0) {
+    const productLevel = extractProductStock(productForStock);
+    if (productLevel > 0) total = productLevel;
+  }
+
+  if (total === 0 && variants.length > 0) {
+    // Diagnostic: log the first variant's keys so we can identify the
+    // correct stock field if VNDA uses something we haven't covered yet.
+    const sampleKeys = Object.keys(variants[0] || {}).join(",");
+    console.log(
+      `[VNDA Stock] ref=${ref} id=${productForStock.id} variants=${variants.length} ` +
+        `stock=0 — variant keys: ${sampleKeys}`
+    );
+  }
+
+  return {
+    stock: total,
+    available: availableAny || productForStock.available === true,
+    variantCount: variants.length,
+    productId: productForStock.id,
+  };
 }
 
 /**
