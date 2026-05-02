@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink, Maximize2, Wand2, Search, X } from "lucide-react";
+import { ArrowLeft, Maximize2, Wand2, Search, X, Sparkles } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -115,55 +115,100 @@ function PreviewCard({
   }, [layout.id, effectiveSlot, workspaceId, productId]);
 
   return (
-    <Card className="group overflow-hidden flex flex-col border-border hover:border-foreground/40 hover:shadow-lg transition-all">
+    <Card className="group relative overflow-hidden flex flex-col border-border/60 bg-card/60 backdrop-blur-sm rounded-xl shadow-sm hover:shadow-xl hover:border-foreground/30 hover:-translate-y-0.5 transition-all duration-300">
+      {/* mock browser/email-client chrome */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b border-border/60">
+        <div className="flex gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+          <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/70" />
+          <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+        </div>
+        <span className="ml-1 font-mono text-[10px] text-muted-foreground/80 truncate">
+          inbox · {category.label.toLowerCase()}
+        </span>
+        <Badge
+          variant={layout.mode === "dark" ? "default" : "outline"}
+          className="ml-auto text-[9px] px-1.5 h-4 uppercase tracking-widest"
+        >
+          {layout.mode}
+        </Badge>
+      </div>
+
+      {/* email preview surface */}
       <div
-        className="relative bg-neutral-100 dark:bg-neutral-900 flex items-start justify-center overflow-hidden"
-        style={{ height: 360 }}
+        className={`relative flex items-start justify-center overflow-hidden ${
+          layout.mode === "dark"
+            ? "bg-gradient-to-br from-neutral-900 via-neutral-950 to-black"
+            : "bg-gradient-to-br from-neutral-50 via-white to-neutral-100"
+        }`}
+        style={{ height: 460 }}
       >
         {loading ? (
-          <div className="p-4 text-muted-foreground text-xs">Carregando...</div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse [animation-delay:120ms]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse [animation-delay:240ms]" />
+            </div>
+          </div>
         ) : (
           <iframe
             srcDoc={html}
-            className="w-full h-full border-0 bg-white pointer-events-none"
+            className="border-0 bg-white pointer-events-none shadow-md"
             sandbox=""
             title={`Preview ${layout.id} slot ${effectiveSlot}`}
-            style={{ transform: "scale(0.6)", transformOrigin: "top center" }}
+            style={{
+              width: "600px",
+              height: `${Math.round(460 / 0.62)}px`,
+              transform: "scale(0.62)",
+              transformOrigin: "top center",
+              marginTop: 8,
+            }}
           />
         )}
-        <button
-          type="button"
-          onClick={() => !loading && onOpen(html)}
-          className="absolute inset-0 flex flex-col items-center justify-center bg-black/0 group-hover:bg-black/55 transition-colors backdrop-blur-0 group-hover:backdrop-blur-sm"
-          aria-label={`Ampliar ${layout.pattern_name}`}
-        >
-          <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity mb-2" />
-          <span className="text-white text-xs uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-            Ampliar
-          </span>
-        </button>
+        {/* fade-out at bottom to suggest more content below */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 h-20 ${
+            layout.mode === "dark"
+              ? "bg-gradient-to-t from-black/90 to-transparent"
+              : "bg-gradient-to-t from-white/95 to-transparent"
+          }`}
+        />
+        {/* hover overlay with actions */}
+        <div className="absolute inset-0 flex items-end justify-center gap-2 p-4 bg-black/0 group-hover:bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-200">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 gap-1.5 text-xs shadow-md"
+            onClick={() => !loading && onOpen(html)}
+          >
+            <Maximize2 className="w-3 h-3" /> Ampliar
+          </Button>
+          <a
+            href={`/crm/email-templates/compose/${layout.id}`}
+            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-md bg-foreground text-background hover:opacity-90 shadow-md"
+          >
+            <Wand2 className="w-3 h-3" /> Usar template
+          </a>
+        </div>
       </div>
-      <div className="p-3 border-t flex items-center gap-2">
-        <div className="flex flex-col min-w-0 flex-1">
-          <div className="font-medium text-sm truncate">{category.label}</div>
+
+      {/* footer meta */}
+      <div className="p-3 flex items-center gap-2 border-t border-border/60">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-sm truncate leading-tight">
+            {category.label}
+          </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <Badge
-              variant={layout.mode === "dark" ? "default" : "outline"}
-              className="text-[10px] px-1.5 h-4"
-            >
-              {layout.mode}
-            </Badge>
-            <span className="font-mono text-[10px] text-muted-foreground truncate">
-              slot {effectiveSlot} · {SLOT_LABEL[effectiveSlot]}
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Sparkles className="w-2.5 h-2.5" /> {SLOT_LABEL[effectiveSlot]}
+            </span>
+            <span className="text-muted-foreground/40">·</span>
+            <span className="font-mono text-[10px] text-muted-foreground/70 truncate">
+              {layout.id}
             </span>
           </div>
         </div>
-        <a
-          href={`/crm/email-templates/compose/${layout.id}`}
-          className="inline-flex items-center justify-center gap-1 h-8 px-3 text-xs font-semibold rounded bg-foreground text-background hover:opacity-90"
-        >
-          <Wand2 className="w-3 h-3" /> Usar
-        </a>
       </div>
     </Card>
   );
@@ -356,15 +401,6 @@ export default function LayoutLibraryPage() {
             value={previewProduct}
             onChange={setPreviewProduct}
           />
-          <Button variant="outline" asChild>
-            <a
-              href="/docs/superpowers/specs/2026-05-01-email-layout-library-v2.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <ExternalLink className="w-4 h-4 mr-1" /> Spec
-            </a>
-          </Button>
         </div>
       </div>
 
