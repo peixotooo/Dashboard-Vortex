@@ -47,13 +47,33 @@ export async function POST(
   try {
     const { workspaceId } = await getWorkspaceContext(req);
     const { id } = await params;
-    const body = (await req.json()) as { meta: DraftMeta; blocks: BlockNode[] };
+    const body = (await req.json()) as {
+      meta: DraftMeta;
+      blocks: BlockNode[];
+      layout_id?: string;
+    };
     if (!body?.meta || !Array.isArray(body?.blocks)) {
       return NextResponse.json({ error: "meta + blocks required" }, { status: 400 });
+    }
+    // Look up layout_id in DB if the client didn't send it. Without this the
+    // template-mode dispatch in renderDraft falls through to block rendering
+    // because draft.layout_id ends up undefined — which is exactly the bug
+    // that made every preview look like a generic classic skeleton.
+    let layoutId: string | null = body.layout_id ?? null;
+    if (!layoutId) {
+      const sb = createAdminClient();
+      const { data } = await sb
+        .from("email_template_drafts")
+        .select("layout_id")
+        .eq("workspace_id", workspaceId)
+        .eq("id", id)
+        .maybeSingle();
+      layoutId = (data?.layout_id as string | null) ?? null;
     }
     const draft: Draft = {
       id,
       workspace_id: workspaceId,
+      layout_id: layoutId ?? undefined,
       name: "",
       meta: body.meta,
       blocks: body.blocks,

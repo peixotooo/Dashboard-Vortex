@@ -268,6 +268,17 @@ function buildTemplateCtx(
   slot: Slot
 ): TemplateRenderContext {
   const expiresDate = td.coupon?.expires_at ? new Date(td.coupon.expires_at) : undefined;
+  let countdown_url = "";
+  if (expiresDate) {
+    try {
+      countdown_url = buildCountdownUrl({
+        base_url: APP_BASE_URL,
+        expires_at: expiresDate,
+      });
+    } catch {
+      // EMAIL_COUNTDOWN_SECRET missing in dev — leave URL blank.
+    }
+  }
   return {
     slot,
     product: td.product,
@@ -284,7 +295,7 @@ function buildTemplateCtx(
           code: td.coupon.code,
           discount_percent: td.coupon.discount_percent,
           expires_at: expiresDate,
-          countdown_url: "", // computed downstream by topCountdownBlock if needed
+          countdown_url,
         }
       : undefined,
     workspace: { name: "Bulking" },

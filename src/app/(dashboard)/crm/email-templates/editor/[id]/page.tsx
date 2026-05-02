@@ -110,7 +110,7 @@ export default function EmailEditorPage({ params }: PageProps) {
         const r = await fetch(`/api/crm/email-templates/drafts/${id}/render?editor=1`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
-          body: JSON.stringify({ meta, blocks }),
+          body: JSON.stringify({ meta, blocks, layout_id: draft.layout_id }),
         });
         const d = await r.json();
         setHtml(d.html ?? "");
@@ -217,7 +217,7 @@ export default function EmailEditorPage({ params }: PageProps) {
     const r = await fetch(`/api/crm/email-templates/drafts/${id}/render`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
-      body: JSON.stringify({ meta, blocks }),
+      body: JSON.stringify({ meta, blocks, layout_id: draft?.layout_id }),
     });
     const d = await r.json();
     return d.html ?? null;
