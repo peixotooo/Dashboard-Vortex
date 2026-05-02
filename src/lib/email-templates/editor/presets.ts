@@ -234,6 +234,58 @@ export function buildDraftFromLayout(args: BuildPresetArgs): Omit<Draft, "id" | 
   };
 }
 
+export interface SuggestionLikeCopy {
+  subject: string;
+  headline: string;
+  lead: string;
+  cta_text: string;
+  cta_url: string;
+}
+
+/**
+ * Build a Draft from a daily auto-suggestion. We seed using the same family
+ * builders as the layout flow (classic by default), then walk the blocks and
+ * patch the text fields with the suggestion's actual copy (subject, headline,
+ * lead, cta) so the user lands in the editor with their real email rather
+ * than the generic preset copy.
+ */
+export function buildDraftFromSuggestion(args: {
+  workspace_id: string;
+  layoutId?: string;
+  slot: Slot;
+  primary: ProductSnapshot;
+  related: ProductSnapshot[];
+  copy: SuggestionLikeCopy;
+  coupon?: { code: string; discount_percent: number; expires_at: Date };
+}): Omit<Draft, "id" | "created_at" | "updated_at"> {
+  const seed = buildDraftFromLayout({
+    layoutId: args.layoutId ?? "classic",
+    slot: args.slot,
+    primary: args.primary,
+    related: args.related,
+    workspace_id: args.workspace_id,
+    coupon: args.coupon,
+  });
+
+  const patched: BlockNode[] = seed.blocks.map((b) => {
+    if (b.type === "headline") return { ...b, text: args.copy.headline };
+    if (b.type === "lead") return { ...b, text: args.copy.lead };
+    if (b.type === "cta") return { ...b, text: args.copy.cta_text, url: args.copy.cta_url };
+    return b;
+  });
+
+  return {
+    ...seed,
+    name: `${args.primary.name} · sugestão slot ${args.slot}`,
+    meta: {
+      ...seed.meta,
+      subject: args.copy.subject,
+      preview: args.copy.lead.slice(0, 90),
+    },
+    blocks: patched,
+  };
+}
+
 function subjectForSlot(slot: Slot, productName: string): string {
   if (slot === 1) return `${productName}: a peça mais vestida da semana`;
   if (slot === 2) return `Estoque acabando: ${productName}`;

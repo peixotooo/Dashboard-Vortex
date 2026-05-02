@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Eye, Copy, Check, Send } from "lucide-react";
+import { Eye, Copy, Check, Send, Pencil, Loader2 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 import { SentModal } from "./sent-modal";
 
@@ -26,6 +26,28 @@ export function SuggestionCard({
   const [copying, setCopying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sentOpen, setSentOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
+
+  async function openInEditor() {
+    if (opening) return;
+    setOpening(true);
+    try {
+      const r = await fetch(`/api/crm/email-templates/${suggestion.id}/to-draft`, {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const d = await r.json();
+      if (d.draft?.id) {
+        window.location.href = `/crm/email-templates/editor/${d.draft.id}`;
+      } else {
+        alert(d.error ?? "Falha ao abrir no editor");
+        setOpening(false);
+      }
+    } catch (err) {
+      alert(`Falha ao abrir no editor: ${(err as Error).message}`);
+      setOpening(false);
+    }
+  }
 
   async function copyHtml() {
     setCopying(true);
@@ -107,6 +129,14 @@ export function SuggestionCard({
             />
           </SheetContent>
         </Sheet>
+        <Button size="sm" variant="outline" onClick={openInEditor} disabled={opening}>
+          {opening ? (
+            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+          ) : (
+            <Pencil className="w-4 h-4 mr-1" />
+          )}
+          {opening ? "Abrindo..." : "Editar"}
+        </Button>
         <Button size="sm" onClick={copyHtml} disabled={copying}>
           {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
           {copied ? "Copiado!" : "Copiar HTML"}
