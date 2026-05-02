@@ -7,13 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import type { DatePreset } from "@/lib/types";
 
 interface TopProduct {
-  sku: string;
+  parentSku: string;
   name: string;
   quantity: number;
   revenue: number;
   orders: number;
+  variants: number;
 }
 
 interface SummaryData {
@@ -26,6 +28,7 @@ interface SummaryData {
     prevReturning: number;
   };
   totals: { orders: number; revenue: number };
+  period?: { since: string; until: string };
 }
 
 const EMPTY: SummaryData = {
@@ -35,12 +38,30 @@ const EMPTY: SummaryData = {
   totals: { orders: 0, revenue: 0 },
 };
 
+const PRESET_LABEL: Record<DatePreset, string> = {
+  today: "hoje",
+  yesterday: "ontem",
+  last_3d: "últimos 3 dias",
+  last_7d: "últimos 7 dias",
+  last_14d: "últimos 14 dias",
+  last_30d: "últimos 30 dias",
+  last_90d: "últimos 90 dias",
+  this_month: "este mês",
+  last_month: "mês passado",
+  custom: "período",
+};
+
 function calcChange(current: number, previous: number): number | undefined {
   if (!previous) return undefined;
   return ((current - previous) / previous) * 100;
 }
 
-export function OverviewSummary() {
+interface Props {
+  datePreset: DatePreset;
+  customRange?: { since: string; until: string };
+}
+
+export function OverviewSummary({ datePreset, customRange }: Props) {
   const { workspace } = useWorkspace();
   const [data, setData] = useState<SummaryData>(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -52,7 +73,15 @@ export function OverviewSummary() {
     }
     let cancelled = false;
     setLoading(true);
-    fetch("/api/crm/overview-summary", {
+
+    const params = new URLSearchParams();
+    params.set("date_preset", datePreset);
+    if (datePreset === "custom" && customRange) {
+      params.set("since", customRange.since);
+      params.set("until", customRange.until);
+    }
+
+    fetch(`/api/crm/overview-summary?${params.toString()}`, {
       headers: { "x-workspace-id": workspace.id },
     })
       .then(async (r) => {
@@ -75,8 +104,9 @@ export function OverviewSummary() {
     return () => {
       cancelled = true;
     };
-  }, [workspace?.id]);
+  }, [workspace?.id, datePreset, customRange]);
 
+  const periodLabel = PRESET_LABEL[datePreset] || "período";
   const newChange = calcChange(data.customers.new, data.customers.prevNew);
   const returningChange = calcChange(
     data.customers.returning,
@@ -91,7 +121,8 @@ export function OverviewSummary() {
       {/* Customer KPIs (1 col) */}
       <div className="lg:col-span-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
         <CustomerKpi
-          title="Novos clientes (7d)"
+          title="Novos clientes"
+          periodLabel={periodLabel}
           value={data.customers.new}
           change={newChange}
           icon={UserPlus}
@@ -104,7 +135,8 @@ export function OverviewSummary() {
           }
         />
         <CustomerKpi
-          title="Recorrentes (7d)"
+          title="Recorrentes"
+          periodLabel={periodLabel}
           value={data.customers.returning}
           change={returningChange}
           icon={Repeat}
@@ -124,7 +156,7 @@ export function OverviewSummary() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Trophy className="h-4 w-4 text-amber-400" />
-              Mais vendidos · últimos 7 dias
+              Mais vendidos · {periodLabel}
             </CardTitle>
             <Link
               href="/crm"
@@ -144,7 +176,7 @@ export function OverviewSummary() {
           ) : data.topProducts.length === 0 ? (
             <div className="py-6 text-center space-y-1">
               <p className="text-xs text-muted-foreground">
-                Nenhuma venda registrada nos últimos 7 dias.
+                Nenhuma venda registrada no período.
               </p>
               <p className="text-[10px] text-muted-foreground">
                 Os dados vêm do webhook VNDA. Confira em{" "}
@@ -164,7 +196,7 @@ export function OverviewSummary() {
               </div>
               {data.topProducts.map((p, i) => (
                 <div
-                  key={p.sku + i}
+                  key={p.parentSku + i}
                   className="grid grid-cols-12 items-center px-2 py-1.5 rounded hover:bg-muted/40 transition-colors"
                 >
                   <div className="col-span-6 min-w-0 flex items-center gap-2">
@@ -184,11 +216,12 @@ export function OverviewSummary() {
                     </span>
                     <div className="min-w-0">
                       <p className="text-xs font-medium truncate">{p.name}</p>
-                      {p.sku !== "—" && (
-                        <p className="text-[10px] text-muted-foreground truncate">
-                          SKU: {p.sku}
-                        </p>
-                      )}
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {p.parentSku !== "—" && <>SKU pai: {p.parentSku}</>}
+                        {p.variants > 1 && (
+                          <span className="ml-1">· {p.variants} variantes</span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   <span className="col-span-2 text-right text-xs font-medium">
@@ -212,6 +245,7 @@ export function OverviewSummary() {
 
 function CustomerKpi({
   title,
+  periodLabel,
   value,
   change,
   icon: Icon,
@@ -220,6 +254,7 @@ function CustomerKpi({
   subtitle,
 }: {
   title: string;
+  periodLabel: string;
   value: number;
   change?: number;
   icon: typeof UserPlus;
@@ -242,7 +277,14 @@ function CustomerKpi({
     <Card className="hover:border-primary/20 transition-colors">
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-muted-foreground truncate">
+              {title}
+            </p>
+            <p className="text-[10px] text-muted-foreground/70 truncate">
+              {periodLabel}
+            </p>
+          </div>
           <div className={cn("rounded-lg bg-muted p-1.5", accent)}>
             <Icon className="h-3.5 w-3.5" />
           </div>
@@ -265,7 +307,9 @@ function CustomerKpi({
                 {change >= 0 ? "+" : ""}
                 {change.toFixed(1)}%
               </span>
-              <span className="text-xs text-muted-foreground">vs 7d ant.</span>
+              <span className="text-xs text-muted-foreground">
+                vs per. anterior
+              </span>
             </>
           ) : subtitle ? (
             <span className="text-xs text-muted-foreground">{subtitle}</span>

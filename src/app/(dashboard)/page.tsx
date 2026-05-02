@@ -772,8 +772,8 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* Resumo: mais vendidos + novos vs recorrentes (últimos 7 dias) */}
-      <OverviewSummary />
+      {/* Resumo: mais vendidos + novos vs recorrentes (segue o período) */}
+      <OverviewSummary datePreset={datePreset} customRange={customRange} />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
