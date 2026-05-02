@@ -53,9 +53,7 @@ import {
 import { Palette } from "./_components/palette";
 import { SortableBlock } from "./_components/sortable-block";
 import { Inspector, LogoInspector } from "./_components/inspector";
-import { TemplateModeEditor } from "./_components/template-mode-editor";
 import type { PickedProduct } from "./_components/product-picker";
-import type { TemplateData } from "@/lib/email-templates/editor/schema";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -88,13 +86,35 @@ export default function EmailEditorPage({ params }: PageProps) {
       headers: { "x-workspace-id": workspaceId },
     })
       .then((r) => r.json())
-      .then((d: { draft?: Draft }) => {
-        if (d.draft) {
-          setDraft(d.draft);
-          setBlocks(d.draft.blocks);
-          setMeta(d.draft.meta);
-          setName(d.draft.name);
+      .then(async (d: { draft?: Draft }) => {
+        if (!d.draft) return;
+        let next = d.draft;
+        // Migration path for drafts created during the brief template-mode
+        // window: blocks=[] but template_data is present. Rebuild blocks
+        // from the picked layout's family preset using the stored copy/
+        // product so the editor opens with a real, editable structure.
+        if (
+          (!next.blocks || next.blocks.length === 0) &&
+          next.layout_id &&
+          next.meta?.template_data
+        ) {
+          try {
+            const r = await fetch(`/api/crm/email-templates/drafts/${id}/migrate-to-blocks`, {
+              method: "POST",
+              headers: { "x-workspace-id": workspaceId },
+            });
+            if (r.ok) {
+              const { draft: migrated } = await r.json();
+              if (migrated) next = migrated;
+            }
+          } catch {
+            // ignore — fall through with empty blocks
+          }
         }
+        setDraft(next);
+        setBlocks(next.blocks ?? []);
+        setMeta(next.meta);
+        setName(next.name);
       });
   }, [id, workspaceId]);
 
@@ -268,16 +288,6 @@ export default function EmailEditorPage({ params }: PageProps) {
     [blocks, selectedId]
   );
   const isLogoSelected = selectedId === LOGO_TOKEN;
-  const isTemplateMode = meta.render_mode === "template" && !!meta.template_data;
-  const updateTemplateData = (next: TemplateData) => {
-    setMeta((m) => ({
-      ...m,
-      template_data: next,
-      // Mirror copy fields up so the cards/listing surfaces stay coherent.
-      subject: next.copy.subject || m.subject,
-      preview: next.copy.preview || m.preview,
-    }));
-  };
 
   if (!workspaceId) {
     return <div className="p-6 text-muted-foreground">Selecione um workspace.</div>;
@@ -373,38 +383,7 @@ export default function EmailEditorPage({ params }: PageProps) {
       {/* 3-pane layout */}
       <div className="flex-1 grid grid-cols-[220px_1fr_320px] min-h-0">
         {/* left: tabs — adicionar (palette) | estrutura (drag-and-drop) */}
-        {/* In template mode, the blocks panel is hidden because edits flow
-            through the template form on the right. */}
-        {isTemplateMode ? (
-          <aside className="border-r bg-card overflow-y-auto p-4">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-              Modo template
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-              Esse draft está renderizando o layout original{" "}
-              <span className="font-mono">{draft.layout_id}</span>. Edite os
-              textos e produto no painel à direita — a identidade visual do
-              template é preservada.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    "Trocar pra modo blocos descarta a fidelidade visual do layout original. Continuar?"
-                  )
-                )
-                  return;
-                setMeta((m) => ({ ...m, render_mode: "blocks" }));
-              }}
-            >
-              Customizar livremente (modo blocos)
-            </Button>
-          </aside>
-        ) : (
-          <aside className="border-r bg-card overflow-y-auto">
+        <aside className="border-r bg-card overflow-y-auto">
             <Tabs defaultValue="add" className="h-full flex flex-col">
               <TabsList className="grid grid-cols-2 m-3 mb-0 h-8">
                 <TabsTrigger value="add" className="text-xs">
@@ -451,7 +430,6 @@ export default function EmailEditorPage({ params }: PageProps) {
               </TabsContent>
             </Tabs>
           </aside>
-        )}
 
         {/* center: clickable live preview */}
         <main className="bg-neutral-100 dark:bg-neutral-900 overflow-y-auto p-6 relative">
@@ -472,17 +450,9 @@ export default function EmailEditorPage({ params }: PageProps) {
           </Card>
         </main>
 
-        {/* right: in template mode, the form-based editor; in block mode, the
-            per-block inspector. */}
+        {/* right: per-block inspector (block-mode editor) */}
         <aside className="border-l bg-card overflow-y-auto p-4">
-          {isTemplateMode && meta.template_data ? (
-            <TemplateModeEditor
-              data={meta.template_data}
-              workspaceId={workspaceId}
-              layoutId={draft.layout_id}
-              onChange={updateTemplateData}
-            />
-          ) : isLogoSelected ? (
+          {isLogoSelected ? (
             <LogoInspector
               logo={meta.logo}
               onChange={(next) => updateLogo(next)}

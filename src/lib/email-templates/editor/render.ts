@@ -72,11 +72,8 @@ function richTextHtml(html: string, mode: "light" | "dark", align: "left" | "cen
 </td></tr>`;
 }
 import { buildCountdownUrl } from "../countdown";
-import type { BlockNode, Draft, LogoConfig, TemplateData } from "./schema";
+import type { BlockNode, Draft, LogoConfig } from "./schema";
 import { DEFAULT_LOGO } from "./schema";
-import { LAYOUTS } from "../layouts";
-import type { LayoutId } from "../layouts/types";
-import type { TemplateRenderContext, Slot } from "../types";
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://dash.bulking.com.br";
@@ -259,85 +256,10 @@ export interface RenderOpts {
   editorMode?: boolean;
 }
 
-/** Build a TemplateRenderContext from a draft's template_data + meta so we
- *  can call the original layout's render() function. We tag every <tr> with
- *  data-block-id when editorMode so the click-to-edit overlay still works. */
-function buildTemplateCtx(
-  draft: Draft,
-  td: TemplateData,
-  slot: Slot
-): TemplateRenderContext {
-  const expiresDate = td.coupon?.expires_at ? new Date(td.coupon.expires_at) : undefined;
-  let countdown_url = "";
-  if (expiresDate) {
-    try {
-      countdown_url = buildCountdownUrl({
-        base_url: APP_BASE_URL,
-        expires_at: expiresDate,
-      });
-    } catch {
-      // EMAIL_COUNTDOWN_SECRET missing in dev — leave URL blank.
-    }
-  }
-  return {
-    slot,
-    product: td.product,
-    related_products: td.related,
-    copy: {
-      subject: td.copy.subject || draft.meta.subject,
-      headline: td.copy.headline,
-      lead: td.copy.lead,
-      cta_text: td.copy.cta_text,
-      cta_url: td.copy.cta_url,
-    },
-    coupon: td.coupon && expiresDate
-      ? {
-          code: td.coupon.code,
-          discount_percent: td.coupon.discount_percent,
-          expires_at: expiresDate,
-          countdown_url,
-        }
-      : undefined,
-    workspace: { name: "Bulking" },
-    hook: td.copy.hook,
-  };
-}
-
-function inferSlotFromCopy(td: TemplateData): Slot {
-  // Heuristic: coupon present → slot 2 (slowmoving / last chance).
-  // Otherwise default to slot 1. Layouts only really care about slot to pick
-  // a coupon path; the editor doesn't expose slot to the user.
-  if (td.coupon) return 2;
-  return 1;
-}
 
 export function renderDraft(draft: Draft, opts: RenderOpts = {}): string {
   const { meta, blocks } = draft;
   const editorMode = !!opts.editorMode;
-
-  // Template mode: render through the picked layout's render() so we
-  // preserve its visual identity (split typography, side-by-side reviews,
-  // 3x3 grid, etc.) — none of which can be reproduced in the block model.
-  if (
-    meta.render_mode === "template" &&
-    draft.layout_id &&
-    meta.template_data &&
-    LAYOUTS[draft.layout_id as LayoutId]
-  ) {
-    const layout = LAYOUTS[draft.layout_id as LayoutId];
-    const slot = inferSlotFromCopy(meta.template_data);
-    const ctx = buildTemplateCtx(draft, meta.template_data, slot);
-    let html = layout.render(ctx);
-    if (editorMode) {
-      // Tag the body root <tr>s coarsely so the click-overlay can map at
-      // least block-level selections to edit fields. Cheap regex tag of every
-      // <tr> with a synthetic id; the editor treats __template__ as the
-      // signal to open the template-mode form.
-      html = html.replace(/<tr(\s|>)/g, `<tr data-block-id="__template__"$1`);
-      html = html.replace("</body>", `${buildEditorScript(meta.mode)}</body>`);
-    }
-    return html;
-  }
 
   const open =
     meta.mode === "dark"

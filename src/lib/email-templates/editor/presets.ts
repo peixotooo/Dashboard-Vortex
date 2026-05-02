@@ -451,6 +451,14 @@ export interface BuildPresetArgs {
 export function buildDraftFromLayout(args: BuildPresetArgs): Omit<Draft, "id" | "created_at" | "updated_at"> {
   const family = familyOf(args.layoutId);
   const isDark = args.layoutId.endsWith("-dark");
+  const builder = FAMILY_BUILDERS[family] ?? blocksForClassic;
+  const blocks = builder({
+    slot: args.slot,
+    primary: args.primary,
+    related: args.related,
+    mode: isDark ? "dark" : "light",
+    coupon: args.coupon,
+  });
   return {
     workspace_id: args.workspace_id,
     layout_id: args.layoutId,
@@ -459,29 +467,8 @@ export function buildDraftFromLayout(args: BuildPresetArgs): Omit<Draft, "id" | 
       subject: subjectForSlot(args.slot, args.primary.name),
       preview: previewForSlot(args.slot, args.primary.name),
       mode: isDark ? "dark" : "light",
-      render_mode: "template",
-      template_data: {
-        copy: {
-          subject: subjectForSlot(args.slot, args.primary.name),
-          preview: previewForSlot(args.slot, args.primary.name),
-          hook: SLOT_HOOK[args.slot],
-          headline: SLOT_HEADLINE[args.slot],
-          lead: SLOT_LEAD[args.slot],
-          cta_text: SLOT_CTA[args.slot],
-          cta_url: args.primary.url || "https://www.bulking.com.br",
-        },
-        product: args.primary,
-        related: args.related,
-        coupon: args.coupon
-          ? {
-              code: args.coupon.code,
-              discount_percent: args.coupon.discount_percent,
-              expires_at: args.coupon.expires_at.toISOString(),
-            }
-          : undefined,
-      },
     },
-    blocks: [],
+    blocks,
   };
 }
 
@@ -509,40 +496,34 @@ export function buildDraftFromSuggestion(args: {
   copy: SuggestionLikeCopy;
   coupon?: { code: string; discount_percent: number; expires_at: Date };
 }): Omit<Draft, "id" | "created_at" | "updated_at"> {
-  const layoutId = args.layoutId ?? "classic";
-  const isDark = layoutId.endsWith("-dark");
-  const family = familyOf(layoutId);
-  return {
+  const seed = buildDraftFromLayout({
+    layoutId: args.layoutId ?? "classic",
+    slot: args.slot,
+    primary: args.primary,
+    related: args.related,
     workspace_id: args.workspace_id,
-    layout_id: layoutId,
-    name: `${args.primary.name} · sugestão slot ${args.slot} · ${family}`,
+    coupon: args.coupon,
+  });
+
+  // Patch the seeded blocks with the suggestion's actual copy (LLM-generated
+  // headline/lead/cta) so the editor opens with the real email instead of
+  // the generic SLOT_HEADLINE preset copy.
+  const patched: BlockNode[] = seed.blocks.map((b) => {
+    if (b.type === "headline") return { ...b, text: args.copy.headline };
+    if (b.type === "lead") return { ...b, text: args.copy.lead };
+    if (b.type === "cta") return { ...b, text: args.copy.cta_text, url: args.copy.cta_url };
+    return b;
+  });
+
+  return {
+    ...seed,
+    name: `${args.primary.name} · sugestão slot ${args.slot}`,
     meta: {
+      ...seed.meta,
       subject: args.copy.subject,
       preview: args.copy.lead.slice(0, 90),
-      mode: isDark ? "dark" : "light",
-      render_mode: "template",
-      template_data: {
-        copy: {
-          subject: args.copy.subject,
-          preview: args.copy.lead.slice(0, 90),
-          hook: SLOT_HOOK[args.slot],
-          headline: args.copy.headline,
-          lead: args.copy.lead,
-          cta_text: args.copy.cta_text,
-          cta_url: args.copy.cta_url,
-        },
-        product: args.primary,
-        related: args.related,
-        coupon: args.coupon
-          ? {
-              code: args.coupon.code,
-              discount_percent: args.coupon.discount_percent,
-              expires_at: args.coupon.expires_at.toISOString(),
-            }
-          : undefined,
-      },
     },
-    blocks: [],
+    blocks: patched,
   };
 }
 
