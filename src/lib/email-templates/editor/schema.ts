@@ -32,6 +32,40 @@ export interface DraftMeta {
   mode: EmailMode;
   /** Logo block at the top of the email. Optional — drop to hide entirely. */
   logo?: LogoConfig | null;
+  /**
+   * Rendering mode. "template" preserves the picked layout's pixel-level
+   * identity (rendered via LAYOUTS[layout_id].render(ctx)); "blocks" uses
+   * the editor's free-form block list.
+   *
+   * New drafts seeded from Galeria or sugestões default to "template"
+   * because users picking a specific layout expect that layout's structure.
+   * Switching to "blocks" gives full customization but loses fidelity.
+   *
+   * Drafts written before this field existed default to "blocks" so
+   * legacy block-based drafts keep rendering as they always did.
+   */
+  render_mode?: "template" | "blocks";
+  /** Editable copy + product + coupon when render_mode === "template" */
+  template_data?: TemplateData;
+}
+
+export interface TemplateData {
+  copy: {
+    subject: string;
+    preview: string;
+    hook?: string;
+    headline: string;
+    lead: string;
+    cta_text: string;
+    cta_url: string;
+  };
+  product: ProductSnapshot;
+  related: ProductSnapshot[];
+  coupon?: {
+    code: string;
+    discount_percent: number;
+    expires_at: string; // ISO
+  };
 }
 
 export const DEFAULT_LOGO: LogoConfig = {
