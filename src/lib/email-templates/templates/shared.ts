@@ -169,11 +169,53 @@ export function spacer(px: number): string {
 <tr><td style="font-size:0;line-height:0;height:${px}px;">&nbsp;</td></tr>`;
 }
 
+type Mode = "light" | "dark";
+
+interface ModePalette {
+  bg: string;
+  text: string;
+  textMuted: string;
+  textSecondary: string;
+  textFaint: string;
+  border: string;
+  badgeBg: string;
+  badgeFg: string;
+  surfaceAlt: string;
+}
+
+function pal(mode: Mode = "light"): ModePalette {
+  if (mode === "dark") {
+    return {
+      bg: DARK.bg,
+      text: DARK.fg,
+      textMuted: "#D8D8D8",
+      textSecondary: "#B8B8B8",
+      textFaint: "#8A8A8A",
+      border: DARK.border,
+      badgeBg: DARK.fg,
+      badgeFg: DARK.bg,
+      surfaceAlt: DARK.surfaceAlt,
+    };
+  }
+  return {
+    bg: TOKENS.bg,
+    text: TOKENS.text,
+    textMuted: TOKENS.textMuted,
+    textSecondary: TOKENS.textSecondary,
+    textFaint: TOKENS.textFaint,
+    border: TOKENS.border,
+    badgeBg: TOKENS.text,
+    badgeFg: TOKENS.bg,
+    surfaceAlt: TOKENS.bgAlt,
+  };
+}
+
 /** Tagline above the hero. Letter-spaced, gray, light weight, ALL CAPS. */
-export function hookBlock(text: string): string {
+export function hookBlock(text: string, mode: Mode = "light"): string {
+  const c = pal(mode);
   return `
 <tr><td align="center" class="pad-l" style="padding:40px 32px 12px;">
-  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${TOKENS.textSecondary};text-transform:uppercase;">${escapeHtml(text)}</div>
+  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${c.textSecondary};text-transform:uppercase;">${escapeHtml(text)}</div>
 </td></tr>`;
 }
 
@@ -181,23 +223,25 @@ export function hookBlock(text: string): string {
  * Static 5 star rating row. Real ratings still v2.
  * Weight 500 (not bold) to keep the editorial feel.
  */
-export function ratingStarsBlock(rating = 5, count?: number): string {
+export function ratingStarsBlock(rating = 5, count?: number, mode: Mode = "light"): string {
+  const c = pal(mode);
   const filled = Math.max(0, Math.min(5, Math.round(rating)));
   const stars = "★".repeat(filled) + "☆".repeat(5 - filled);
   const tail = count
-    ? ` <span style="color:${TOKENS.textFaint};font-weight:400;">(${count})</span>`
+    ? ` <span style="color:${c.textFaint};font-weight:400;">(${count})</span>`
     : "";
   return `
 <tr><td class="pad" align="center" style="padding:0 32px 16px;">
-  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${TOKENS.text};letter-spacing:0.14em;">${stars}${tail}</div>
+  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${c.text};letter-spacing:0.14em;">${stars}${tail}</div>
 </td></tr>`;
 }
 
 /** Bold-but-not-loud discount badge. Uppercase, weight 600, no accent color. */
-export function discountBadgeBlock(discount_percent: number): string {
+export function discountBadgeBlock(discount_percent: number, mode: Mode = "light"): string {
+  const c = pal(mode);
   return `
 <tr><td align="center" class="pad" style="padding:8px 32px 24px;">
-  <span style="display:inline-block;background:${TOKENS.text};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.28em;padding:12px 22px;text-transform:uppercase;">${discount_percent}% off exclusivo</span>
+  <span style="display:inline-block;background:${c.badgeBg};color:${c.badgeFg};font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.28em;padding:12px 22px;text-transform:uppercase;">${discount_percent}% off exclusivo</span>
 </td></tr>`;
 }
 
@@ -205,11 +249,13 @@ export function hero(args: {
   image_url: string;
   alt: string;
   badge?: string;
+  mode?: Mode;
 }): string {
+  const c = pal(args.mode);
   const badge = args.badge
     ? `
 <tr><td class="pad" align="center" style="padding:24px 32px 16px;">
-  <span style="display:inline-block;background:${TOKENS.text};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:500;font-size:11px;letter-spacing:0.32em;padding:10px 16px;text-transform:uppercase;">${escapeHtml(args.badge)}</span>
+  <span style="display:inline-block;background:${c.badgeBg};color:${c.badgeFg};font-family:${TOKENS.fontHead};font-weight:500;font-size:11px;letter-spacing:0.32em;padding:10px 16px;text-transform:uppercase;">${escapeHtml(args.badge)}</span>
 </td></tr>`
     : "";
   // Locked 3:4 portrait frame so swapping products never reflows the email.
@@ -227,17 +273,19 @@ export function hero(args: {
  * Hero headline. Weight 500 (medium) — the editorial references use medium
  * weights at large sizes rather than bold extruded letters.
  */
-export function headlineBlock(text: string): string {
+export function headlineBlock(text: string, mode: Mode = "light"): string {
+  const c = pal(mode);
   return `
 <tr><td class="pad-xl" align="center" style="padding:56px 40px 14px;">
-  <h1 class="h1" style="margin:0;font-family:${TOKENS.fontHead};font-weight:500;font-size:38px;line-height:1.1;color:${TOKENS.text};letter-spacing:-0.005em;">${escapeHtml(text)}</h1>
+  <h1 class="h1" style="margin:0;font-family:${TOKENS.fontHead};font-weight:500;font-size:38px;line-height:1.1;color:${c.text};letter-spacing:-0.005em;">${escapeHtml(text)}</h1>
 </td></tr>`;
 }
 
-export function leadBlock(text: string): string {
+export function leadBlock(text: string, mode: Mode = "light"): string {
+  const c = pal(mode);
   return `
 <tr><td class="pad-l" align="center" style="padding:0 40px 40px;">
-  <p class="lead" style="margin:0;font-family:${TOKENS.fontBody};font-weight:400;font-size:16px;line-height:1.7;color:${TOKENS.textMuted};max-width:480px;margin-left:auto;margin-right:auto;">${escapeHtml(text)}</p>
+  <p class="lead" style="margin:0;font-family:${TOKENS.fontBody};font-weight:400;font-size:16px;line-height:1.7;color:${c.textMuted};max-width:480px;margin-left:auto;margin-right:auto;">${escapeHtml(text)}</p>
 </td></tr>`;
 }
 
@@ -254,14 +302,16 @@ export function productMetaBlock(args: {
   name: string;
   price: number;
   old_price?: number;
+  mode?: Mode;
 }): string {
+  const c = pal(args.mode);
   const oldPrice = args.old_price
-    ? `<span style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${TOKENS.textFaint};text-decoration:line-through;margin-right:12px;">R$ ${args.old_price.toFixed(2)}</span>`
+    ? `<span style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${c.textFaint};text-decoration:line-through;margin-right:12px;">R$ ${args.old_price.toFixed(2)}</span>`
     : "";
   return `
 <tr><td class="pad-l" align="center" style="padding:0 40px 28px;">
-  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:15px;color:${TOKENS.textMuted};margin-bottom:8px;letter-spacing:0.04em;">${escapeHtml(args.name)}</div>
-  <div>${oldPrice}<span style="font-family:${TOKENS.fontHead};font-weight:600;font-size:22px;color:${TOKENS.text};">R$ ${args.price.toFixed(2)}</span></div>
+  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:15px;color:${c.textMuted};margin-bottom:8px;letter-spacing:0.04em;">${escapeHtml(args.name)}</div>
+  <div>${oldPrice}<span style="font-family:${TOKENS.fontHead};font-weight:600;font-size:22px;color:${c.text};">R$ ${args.price.toFixed(2)}</span></div>
 </td></tr>`;
 }
 
@@ -298,14 +348,16 @@ export function couponBlock(args: {
   code: string;
   discount_percent: number;
   product_name: string;
+  mode?: Mode;
 }): string {
+  const c = pal(args.mode);
   return `
 <tr><td class="pad-l" style="padding:8px 40px 28px;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${TOKENS.text};background:${TOKENS.bg};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${c.text};background:${c.bg};">
     <tr><td align="center" style="padding:30px 24px;">
-      <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${TOKENS.textSecondary};text-transform:uppercase;margin-bottom:14px;">Cupom exclusivo</div>
-      <div style="font-family:${TOKENS.fontMono};font-weight:500;font-size:22px;letter-spacing:0.18em;color:${TOKENS.text};background:${TOKENS.bgAlt};padding:16px 26px;display:inline-block;">${escapeHtml(args.code)}</div>
-      <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${TOKENS.textSecondary};margin-top:18px;">${discount_percent_text(args.discount_percent)} ${escapeHtml(args.product_name)}</div>
+      <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${c.textSecondary};text-transform:uppercase;margin-bottom:14px;">Cupom exclusivo</div>
+      <div style="font-family:${TOKENS.fontMono};font-weight:500;font-size:22px;letter-spacing:0.18em;color:${c.text};background:${c.surfaceAlt};padding:16px 26px;display:inline-block;">${escapeHtml(args.code)}</div>
+      <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${c.textSecondary};margin-top:18px;">${discount_percent_text(args.discount_percent)} ${escapeHtml(args.product_name)}</div>
     </td></tr>
   </table>
 </td></tr>`;
@@ -323,41 +375,40 @@ export function relatedProductsGrid(
     old_price?: number;
     image_url: string;
     url: string;
-  }>
+  }>,
+  mode: Mode = "light"
 ): string {
   if (!products || products.length === 0) return "";
+  const c = pal(mode);
   const cols = products.slice(0, 3);
   const widthPct = `${Math.floor(100 / cols.length)}%`;
 
   const sectionTitle = `
-<tr><td align="center" class="pad-xl" style="padding:64px 40px 12px;border-top:1px solid ${TOKENS.border};">
-  <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:13px;letter-spacing:0.32em;color:${TOKENS.text};text-transform:uppercase;">Selecionados pra você</div>
+<tr><td align="center" class="pad-xl" style="padding:64px 40px 12px;border-top:1px solid ${c.border};">
+  <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:13px;letter-spacing:0.32em;color:${c.text};text-transform:uppercase;">Selecionados pra você</div>
 </td></tr>
 <tr><td align="center" class="pad" style="padding:0 40px 32px;">
-  <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${TOKENS.textSecondary};">Mais peças que combinam com a sua rotina.</div>
+  <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${c.textSecondary};">Mais peças que combinam com a sua rotina.</div>
 </td></tr>`;
 
   const cells = cols
     .map((p) => {
       const oldPrice =
         p.old_price && p.old_price > p.price
-          ? `<div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${TOKENS.textFaint};text-decoration:line-through;margin-bottom:2px;">R$ ${p.old_price.toFixed(2)}</div>`
+          ? `<div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${c.textFaint};text-decoration:line-through;margin-bottom:2px;">R$ ${p.old_price.toFixed(2)}</div>`
           : "";
-      // Fixed 4:5 frame so all 3 cells line up regardless of source aspect
-      // ratio. Modern clients (Gmail, Apple Mail, iOS, Outlook web/365)
-      // honor object-fit:cover; Outlook 2016/desktop stretches to the box.
       return `
 <td valign="top" align="center" width="${widthPct}" class="related-cell" style="width:${widthPct};padding:0 10px 40px;">
-  <a href="${escapeHtml(p.url)}" target="_blank" style="text-decoration:none;color:${TOKENS.text};">
+  <a href="${escapeHtml(p.url)}" target="_blank" style="text-decoration:none;color:${c.text};">
     <div style="width:100%;max-width:180px;margin:0 auto 14px;">
-      <div style="position:relative;width:100%;padding-top:125%;background:${TOKENS.bgAlt};overflow:hidden;">
+      <div style="position:relative;width:100%;padding-top:125%;background:${c.surfaceAlt};overflow:hidden;">
         <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="180" height="225" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;" />
       </div>
     </div>
-    <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${TOKENS.text};line-height:1.4;margin-bottom:8px;min-height:38px;">${escapeHtml(p.name)}</div>
+    <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${c.text};line-height:1.4;margin-bottom:8px;min-height:38px;">${escapeHtml(p.name)}</div>
     ${oldPrice}
-    <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:16px;color:${TOKENS.text};margin-bottom:14px;">R$ ${p.price.toFixed(2)}</div>
-    <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;color:${TOKENS.text};letter-spacing:0.28em;text-transform:uppercase;border-bottom:1px solid ${TOKENS.text};padding-bottom:3px;display:inline-block;">Ver produto</div>
+    <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:16px;color:${c.text};margin-bottom:14px;">R$ ${p.price.toFixed(2)}</div>
+    <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;color:${c.text};letter-spacing:0.28em;text-transform:uppercase;border-bottom:1px solid ${c.text};padding-bottom:3px;display:inline-block;">Ver produto</div>
   </a>
 </td>`;
     })

@@ -44,30 +44,31 @@ const APP_BASE_URL =
 function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
   switch (b.type) {
     case "hero":
-      return heroBlock({ image_url: b.image_url, alt: b.alt, badge: b.badge });
+      return heroBlock({ image_url: b.image_url, alt: b.alt, badge: b.badge, mode });
     case "headline":
-      return headlineBlock(b.text);
+      return headlineBlock(b.text, mode);
     case "lead":
-      return leadBlock(b.text);
+      return leadBlock(b.text, mode);
     case "hook":
-      return hookBlock(b.text);
+      return hookBlock(b.text, mode);
     case "cta":
       return mode === "dark"
         ? darkCtaBlock({ text: b.text, url: b.url })
         : ctaBlock({ text: b.text, url: b.url });
     case "product-meta":
-      return productMetaBlock({ name: b.name, price: b.price, old_price: b.old_price });
+      return productMetaBlock({ name: b.name, price: b.price, old_price: b.old_price, mode });
     case "related-products":
-      return relatedProductsGrid(b.products);
+      return relatedProductsGrid(b.products, mode);
     case "rating":
-      return ratingStarsBlock(b.rating, b.count);
+      return ratingStarsBlock(b.rating, b.count, mode);
     case "discount-badge":
-      return discountBadgeBlock(b.discount_percent);
+      return discountBadgeBlock(b.discount_percent, mode);
     case "coupon":
       return couponBlock({
         code: b.code,
         discount_percent: b.discount_percent,
         product_name: b.product_name,
+        mode,
       });
     case "countdown": {
       let url = "";

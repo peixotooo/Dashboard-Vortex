@@ -23,8 +23,18 @@ import {
   type LogoConfig,
 } from "@/lib/email-templates/editor/schema";
 import { applyProductToBlocks } from "@/lib/email-templates/editor/apply-product";
-import { ArrowLeft, Save, Copy as CopyIcon, Check, Loader2, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Copy as CopyIcon,
+  Check,
+  Loader2,
+  Settings2,
+  Code2,
+  RefreshCw,
+} from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   DndContext,
   closestCenter,
@@ -196,19 +206,59 @@ export default function EmailEditorPage({ params }: PageProps) {
     }
   };
 
-  const copyHtml = async () => {
-    // Re-render without the editor script for a clean copy.
-    if (!workspaceId) return;
+  const [htmlSheetOpen, setHtmlSheetOpen] = useState(false);
+  const [htmlContent, setHtmlContent] = useState("");
+  const [htmlLoading, setHtmlLoading] = useState(false);
+
+  const fetchCleanHtml = async (): Promise<string | null> => {
+    if (!workspaceId) return null;
     const r = await fetch(`/api/crm/email-templates/drafts/${id}/render`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
       body: JSON.stringify({ meta, blocks }),
     });
     const d = await r.json();
-    if (!d.html) return;
-    await navigator.clipboard.writeText(d.html);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+    return d.html ?? null;
+  };
+
+  const openHtmlPanel = async () => {
+    setHtmlLoading(true);
+    setHtmlSheetOpen(true);
+    try {
+      const fresh = await fetchCleanHtml();
+      if (fresh) {
+        setHtmlContent(fresh);
+        try {
+          await navigator.clipboard.writeText(fresh);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        } catch {
+          // clipboard API can fail silently in some embed contexts
+        }
+      }
+    } finally {
+      setHtmlLoading(false);
+    }
+  };
+
+  const regenerateHtml = async () => {
+    setHtmlLoading(true);
+    try {
+      const fresh = await fetchCleanHtml();
+      if (fresh) setHtmlContent(fresh);
+    } finally {
+      setHtmlLoading(false);
+    }
+  };
+
+  const copyCurrentHtml = async () => {
+    try {
+      await navigator.clipboard.writeText(htmlContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // ignore
+    }
   };
 
   const selectedBlock = useMemo(
@@ -297,9 +347,9 @@ export default function EmailEditorPage({ params }: PageProps) {
               </div>
             </PopoverContent>
           </Popover>
-          <Button size="sm" variant="outline" onClick={copyHtml} className="gap-1.5">
-            {copied ? <Check className="w-3.5 h-3.5" /> : <CopyIcon className="w-3.5 h-3.5" />}
-            {copied ? "Copiado" : "Copiar HTML"}
+          <Button size="sm" variant="outline" onClick={openHtmlPanel} className="gap-1.5">
+            <Code2 className="w-3.5 h-3.5" />
+            HTML
           </Button>
           <Button size="sm" onClick={save} disabled={saving} className="gap-1.5">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -402,6 +452,48 @@ export default function EmailEditorPage({ params }: PageProps) {
           )}
         </aside>
       </div>
+
+      {/* HTML view + editable code panel */}
+      <Sheet open={htmlSheetOpen} onOpenChange={setHtmlSheetOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-3xl p-0 flex flex-col">
+          <div className="flex items-center gap-2 px-4 py-3 border-b">
+            <Code2 className="w-4 h-4 text-muted-foreground" />
+            <SheetTitle className="text-sm font-medium">HTML do email</SheetTitle>
+            {htmlLoading && (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={regenerateHtml}
+                disabled={htmlLoading}
+                className="gap-1.5"
+                title="Re-gera o HTML a partir dos blocos atuais (descarta edições manuais)"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Regerar
+              </Button>
+              <Button size="sm" onClick={copyCurrentHtml} className="gap-1.5">
+                {copied ? <Check className="w-3.5 h-3.5" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                {copied ? "Copiado" : "Copiar"}
+              </Button>
+            </div>
+          </div>
+          <div className="px-4 pt-3 pb-1 text-[11px] text-muted-foreground leading-relaxed">
+            Edite linhas livremente — cada "Copiar" leva o que está aqui na caixa.
+            Mudanças no editor visual não voltam pra cá automaticamente; clique em
+            "Regerar" pra puxar a versão atual dos blocos.
+          </div>
+          <textarea
+            value={htmlContent}
+            onChange={(e) => setHtmlContent(e.target.value)}
+            spellCheck={false}
+            className="flex-1 w-full px-4 py-3 font-mono text-[11px] leading-5 bg-neutral-950 text-neutral-100 border-0 outline-none resize-none"
+            style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+          />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
