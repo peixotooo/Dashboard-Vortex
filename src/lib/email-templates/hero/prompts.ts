@@ -109,6 +109,33 @@ const LOWER_BODY_KEYWORDS = [
 
 const SPORTSWEAR_REVEALING_KEYWORDS = ["top esportivo", "top fitness", "sutiã", "sutia", "bra"];
 
+/**
+ * Builds the prompt fragment that pins the generated hero to the source's
+ * orientation. Both the auto path (buildHeroPrompt) and the manual path
+ * (compose-hero "manual" mode) use this so user-written prompts also keep
+ * the back-print intact.
+ */
+export function buildOrientationClause(
+  orientation: Orientation | undefined,
+  has_back_print: boolean | undefined
+): string {
+  if (orientation === "back") {
+    return has_back_print
+      ? `CRITICAL: the source product is photographed FROM THE BACK and carries the dominant print/graphic on the back. The hero MUST also show the garment from the back. The model's back faces the camera (or invisible mannequin from the back). The print on the back must be faithfully reproduced — same artwork, same placement, same colorway. Never flip to a front view.`
+      : `CRITICAL: the source product is photographed from the BACK. The hero MUST show the garment from the back. The model's back faces the camera (or invisible mannequin from the back). Never flip to a front view.`;
+  }
+  if (orientation === "front") {
+    return `Orientation: the source product is photographed from the FRONT. Keep the hero a front-view composition.`;
+  }
+  if (orientation === "side") {
+    return `Orientation: the source product is photographed in PROFILE / from the side. The hero should keep a similar three-quarter or side framing rather than a square front shot.`;
+  }
+  if (orientation === "flat-lay") {
+    return `Orientation: the source is a FLAT-LAY (no body in source). The hero should be a still-life / flat-lay composition unless the composition rule explicitly calls for a model.`;
+  }
+  return `Match the orientation visible in the source product photo. Do not invent a new view.`;
+}
+
 function isRevealingProduct(name: string): boolean {
   const n = name.toLowerCase();
   return (
@@ -184,27 +211,7 @@ export function buildHeroPrompt(args: {
     ? `IMPORTANT: do NOT depict a human model. Render the product alone as studio still-life or on an invisible mannequin. No bodies, no skin.`
     : `IMPORTANT: any model present must be fully clothed (no exposed midriff, no exposed legs above mid-thigh, no revealing poses). Conservative editorial styling like a magazine cover. Athletic build is fine; suggestive posing is not.`;
 
-  // Orientation must match the source. Bulking pieces frequently carry their
-  // signature print on the BACK — flipping to a front view would erase the
-  // product's defining detail. The vision pre-pass classifies the source so
-  // we can be explicit here.
-  const orientationClause = (() => {
-    if (orientation === "back") {
-      return has_back_print
-        ? `CRITICAL: the source product is photographed FROM THE BACK and carries the dominant print/graphic on the back. The hero MUST also show the garment from the back. The model's back faces the camera (or invisible mannequin from the back). The print on the back must be faithfully reproduced — same artwork, same placement, same colorway. Never flip to a front view.`
-        : `CRITICAL: the source product is photographed from the BACK. The hero MUST show the garment from the back. The model's back faces the camera (or invisible mannequin from the back). Never flip to a front view.`;
-    }
-    if (orientation === "front") {
-      return `Orientation: the source product is photographed from the FRONT. Keep the hero a front-view composition.`;
-    }
-    if (orientation === "side") {
-      return `Orientation: the source product is photographed in PROFILE / from the side. The hero should keep a similar three-quarter or side framing rather than a square front shot.`;
-    }
-    if (orientation === "flat-lay") {
-      return `Orientation: the source is a FLAT-LAY (no body in source). The hero should be a still-life / flat-lay composition unless the layout's composition rule above explicitly calls for a model.`;
-    }
-    return `Match the orientation visible in the source product photo. Do not invent a new view.`;
-  })();
+  const orientationClause = buildOrientationClause(orientation, has_back_print);
 
   const prompt = [
     `Generate a premium fashion email hero image for the streetwear/fitness apparel brand BULKING.`,

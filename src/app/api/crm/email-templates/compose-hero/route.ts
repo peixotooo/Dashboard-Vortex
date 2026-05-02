@@ -13,6 +13,8 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { ensureHero } from "@/lib/email-templates/hero/generate";
 import { generateImage } from "@/lib/email-templates/hero/client";
 import { mirrorToB2, persistGeneratedHero } from "@/lib/email-templates/hero/storage";
+import { analyzeProductOrientation } from "@/lib/email-templates/hero/vision";
+import { buildOrientationClause } from "@/lib/email-templates/hero/prompts";
 import type { LayoutId } from "@/lib/email-templates/layouts/types";
 import type { Slot, ProductSnapshot } from "@/lib/email-templates/types";
 
@@ -90,11 +92,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Vision pre-pass: classify the product photo's orientation (front /
+    // back / side / flat-lay) via OpenRouter so the user's free-form prompt
+    // doesn't accidentally flip a back-print piece to a front view. The
+    // orientation clause is prepended to the prompt, with a strict line
+    // about preserving back prints when the source shows one.
+    const productSrc = absUrl(body.product.image_url);
+    let orientationClause = "";
+    try {
+      const orientationInfo = await analyzeProductOrientation(productSrc);
+      orientationClause = buildOrientationClause(
+        orientationInfo.orientation,
+        orientationInfo.has_back_print
+      );
+    } catch (err) {
+      // Vision is best-effort. If it fails we fall back to a generic clause.
+      console.error("[compose-hero/manual] vision pre-pass failed:", (err as Error).message);
+      orientationClause = buildOrientationClause(undefined, false);
+    }
+    const augmentedPrompt = `${orientationClause}\n\n${prompt}`;
+
     let kieResult;
     try {
       kieResult = await generateImage(
         {
-          prompt,
+          prompt: augmentedPrompt,
           input_urls: mirrored,
           aspect_ratio: "3:4",
           resolution: "1K",
