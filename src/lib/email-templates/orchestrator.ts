@@ -214,6 +214,7 @@ async function persistSuggestion(args: {
         target_segment_payload: { ...segment.payload, estimated_size: segment.estimated_size, display_label: segment.display_label },
         copy,
         copy_provider: provider_used,
+        layout_id: layout.id,
         rendered_html,
         recommended_hours: hours.recommended_hours,
         hours_score: hours.hours_score,

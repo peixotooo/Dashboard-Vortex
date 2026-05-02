@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+      // Fetch up to 9 related products so grid-heavy layouts (numbered-grid,
+      // uniform-grid-3x3) actually have something to render in their cells.
       const { data: relRows } = await sb
         .from("shelf_products")
         .select("product_id, name, price, sale_price, image_url, product_url")
@@ -111,7 +113,7 @@ export async function POST(req: NextRequest) {
         .not("image_url", "is", null)
         .neq("product_id", primary.vnda_id)
         .order("created_at", { ascending: false })
-        .limit(3);
+        .limit(9);
       const related = (relRows ?? []).map((r) => toSnap(r as Row));
 
       const seed = buildDraftFromLayout({

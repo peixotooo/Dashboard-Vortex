@@ -18,6 +18,7 @@ interface SuggestionRow {
   id: string;
   workspace_id: string;
   slot: number;
+  layout_id: string | null;
   product_snapshot: ProductSnapshot;
   copy: {
     subject: string;
@@ -57,7 +58,7 @@ export async function POST(
     const { data: sug, error: sugErr } = await sb
       .from("email_template_suggestions")
       .select(
-        "id, workspace_id, slot, product_snapshot, copy, coupon_code, coupon_discount_percent, coupon_expires_at"
+        "id, workspace_id, slot, layout_id, product_snapshot, copy, coupon_code, coupon_discount_percent, coupon_expires_at"
       )
       .eq("workspace_id", workspaceId)
       .eq("id", id)
@@ -78,7 +79,7 @@ export async function POST(
       .not("image_url", "is", null)
       .neq("product_id", s.product_snapshot.vnda_id)
       .order("created_at", { ascending: false })
-      .limit(3);
+      .limit(9);
     const related: ProductSnapshot[] = ((relRows ?? []) as ShelfRow[]).map((r) => ({
       vnda_id: r.product_id,
       name: r.name,
@@ -102,6 +103,9 @@ export async function POST(
 
     const draftSeed = buildDraftFromSuggestion({
       workspace_id: workspaceId,
+      // Use the layout the cron actually rendered with (post migration-069).
+      // Older suggestions without a stored layout_id fall back to "classic".
+      layoutId: s.layout_id ?? "classic",
       slot: s.slot as Slot,
       primary: s.product_snapshot,
       related,

@@ -180,20 +180,258 @@ function blocksForBlurBestsellers(ctx: PresetCtx): BlockNode[] {
   return out;
 }
 
+// Each builder approximates the visual character of its source layout
+// using the editor's block primitives. Perfect 1:1 fidelity isn't possible
+// (the editor lacks split-headline / asymmetric / overlay primitives), but
+// the structural identity — which sections appear, in what order, with what
+// emphasis — must differ enough that picking different layouts in the
+// Galeria produces visibly different drafts. Earlier versions all collapsed
+// to the classic skeleton; that's the bug this fixes.
+
+function blocksForEditorialOverlay(ctx: PresetCtx): BlockNode[] {
+  // Big split-word typography around a centered hero. We approximate the
+  // split with two large headlines bracketing the hero image.
+  const out: BlockNode[] = [];
+  if (ctx.coupon) {
+    out.push({ id: newId(), type: "countdown", expires_at: ctx.coupon.expires_at.toISOString() });
+  }
+  out.push(
+    { id: newId(), type: "headline", text: "ÚLTIMA", align: "center" },
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+      badge: SLOT_BADGE[ctx.slot],
+    },
+    { id: newId(), type: "headline", text: "CHANCE.", align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+    {
+      id: newId(),
+      type: "product-meta",
+      name: ctx.primary.name,
+      price: ctx.primary.price,
+      old_price: ctx.primary.old_price,
+    },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url }
+  );
+  if (ctx.related.length > 0) {
+    out.push({
+      id: newId(),
+      type: "related-products",
+      products: ctx.related.slice(0, 3).map(toGridProduct),
+    });
+  }
+  return out;
+}
+
+function blocksForReviewsSideHero(ctx: PresetCtx): BlockNode[] {
+  // Reviews-led layout. The renderer can't do side-by-side, so we lead with
+  // the rating block + a quote rich-text, then the hero, then headline/lead.
+  return [
+    { id: newId(), type: "hook", text: "AVALIAÇÕES REAIS" },
+    { id: newId(), type: "rating", rating: 5, count: 248 },
+    {
+      id: newId(),
+      type: "rich-text",
+      text: "“Caimento absurdo. Não tira mais.” — cliente Bulking.",
+      align: "center",
+    },
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+      badge: SLOT_BADGE[ctx.slot],
+    },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+    {
+      id: newId(),
+      type: "product-meta",
+      name: ctx.primary.name,
+      price: ctx.primary.price,
+      old_price: ctx.primary.old_price,
+    },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url },
+  ];
+}
+
+function blocksForLogoAsymNarrative(ctx: PresetCtx): BlockNode[] {
+  // Asymmetric: hook left-aligned, headline left-aligned. Hero centered.
+  return [
+    { id: newId(), type: "hook", text: SLOT_HOOK[ctx.slot] },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "left" },
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+    },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "left" },
+    {
+      id: newId(),
+      type: "product-meta",
+      name: ctx.primary.name,
+      price: ctx.primary.price,
+      old_price: ctx.primary.old_price,
+    },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url },
+  ];
+}
+
+function blocksForOverlayDualCta(ctx: PresetCtx): BlockNode[] {
+  // Hero is dominant + 2 CTAs (primary + secondary).
+  const out: BlockNode[] = [
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+      badge: SLOT_BADGE[ctx.slot],
+    },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url },
+    { id: newId(), type: "cta", text: "Ver coleção", url: "https://www.bulking.com.br" },
+  ];
+  if (ctx.related.length > 0) {
+    out.push({
+      id: newId(),
+      type: "related-products",
+      products: ctx.related.slice(0, 3).map(toGridProduct),
+    });
+  }
+  return out;
+}
+
+function blocksForEditionNarrative(ctx: PresetCtx): BlockNode[] {
+  // Magazine cover: hook + small headline + paragraph + hero + product-meta.
+  return [
+    { id: newId(), type: "hook", text: "EDIÇÃO 003 · " + SLOT_HOOK[ctx.slot] },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "center" },
+    {
+      id: newId(),
+      type: "rich-text",
+      text:
+        "Cada peça da coleção foi pensada pra durar mais que a próxima onda.\n\nCaimento, gramatura, costuras: tudo testado em treino, não em studio.",
+      align: "center",
+    },
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+    },
+    { id: newId(), type: "divider" },
+    {
+      id: newId(),
+      type: "product-meta",
+      name: ctx.primary.name,
+      price: ctx.primary.price,
+      old_price: ctx.primary.old_price,
+    },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url },
+  ];
+}
+
+function blocksForNumberedGrid(ctx: PresetCtx): BlockNode[] {
+  // 4-up grid (we render as a single 3-cell row + one extra).
+  const all = [ctx.primary, ...ctx.related].slice(0, 4);
+  const out: BlockNode[] = [
+    { id: newId(), type: "hook", text: SLOT_HOOK[ctx.slot] },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+  ];
+  if (all.length > 0) {
+    out.push({
+      id: newId(),
+      type: "related-products",
+      products: all.slice(0, 3).map(toGridProduct),
+    });
+  }
+  if (all.length > 3) {
+    out.push({
+      id: newId(),
+      type: "related-products",
+      products: all.slice(3, 4).map(toGridProduct),
+    });
+  }
+  out.push({ id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url });
+  return out;
+}
+
+function blocksForUniformGrid3x3(ctx: PresetCtx): BlockNode[] {
+  // 3x3 thumbnail grid: stack three related-products blocks of 3 each.
+  const all = [ctx.primary, ...ctx.related].slice(0, 9);
+  const out: BlockNode[] = [
+    { id: newId(), type: "hook", text: SLOT_HOOK[ctx.slot] },
+    { id: newId(), type: "headline", text: "THE INITIAL COLLECTION.", align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+  ];
+  for (let i = 0; i < all.length; i += 3) {
+    out.push({
+      id: newId(),
+      type: "related-products",
+      products: all.slice(i, i + 3).map(toGridProduct),
+    });
+  }
+  out.push({ id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url });
+  return out;
+}
+
+function blocksForSlashLabels(ctx: PresetCtx): BlockNode[] {
+  // Editorial still-life with slash-separated meta labels.
+  return [
+    { id: newId(), type: "hook", text: "BULKING / 2026 / DROP 03" },
+    {
+      id: newId(),
+      type: "hero",
+      image_url: ctx.primary.image_url,
+      alt: ctx.primary.name,
+      badge: SLOT_BADGE[ctx.slot],
+    },
+    {
+      id: newId(),
+      type: "rich-text",
+      text: "AUTHENTIC / WORN / TESTED",
+      align: "center",
+    },
+    { id: newId(), type: "headline", text: SLOT_HEADLINE[ctx.slot], align: "center" },
+    { id: newId(), type: "lead", text: SLOT_LEAD[ctx.slot], align: "center" },
+    {
+      id: newId(),
+      type: "product-meta",
+      name: ctx.primary.name,
+      price: ctx.primary.price,
+      old_price: ctx.primary.old_price,
+    },
+    { id: newId(), type: "cta", text: SLOT_CTA[ctx.slot], url: ctx.primary.url },
+  ];
+}
+
+function toGridProduct(p: ProductSnapshot) {
+  return {
+    name: p.name,
+    price: p.price,
+    old_price: p.old_price,
+    image_url: p.image_url,
+    url: p.url,
+  };
+}
+
 const FAMILY_BUILDERS: Record<string, (ctx: PresetCtx) => BlockNode[]> = {
   classic: blocksForClassic,
   "single-detail": blocksForSingleDetail,
   "blur-bestsellers": blocksForBlurBestsellers,
-  // Layouts the editor doesn't have a custom decomposition for yet fall back
-  // to the classic skeleton — the user can rearrange from there.
-  "editorial-overlay": blocksForClassic,
-  "reviews-side-hero": blocksForClassic,
-  "logo-asym-narrative": blocksForClassic,
-  "overlay-dual-cta": blocksForClassic,
-  "edition-narrative": blocksForSingleDetail,
-  "numbered-grid": blocksForBlurBestsellers,
-  "uniform-grid-3x3": blocksForBlurBestsellers,
-  "slash-labels": blocksForSingleDetail,
+  "editorial-overlay": blocksForEditorialOverlay,
+  "reviews-side-hero": blocksForReviewsSideHero,
+  "logo-asym-narrative": blocksForLogoAsymNarrative,
+  "overlay-dual-cta": blocksForOverlayDualCta,
+  "edition-narrative": blocksForEditionNarrative,
+  "numbered-grid": blocksForNumberedGrid,
+  "uniform-grid-3x3": blocksForUniformGrid3x3,
+  "slash-labels": blocksForSlashLabels,
 };
 
 function familyOf(layoutId: string): string {
