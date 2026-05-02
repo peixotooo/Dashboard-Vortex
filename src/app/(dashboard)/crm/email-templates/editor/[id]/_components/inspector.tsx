@@ -12,10 +12,13 @@ import {
 } from "@/components/ui/select";
 import type { BlockNode, LogoConfig } from "@/lib/email-templates/editor/schema";
 import { DEFAULT_LOGO } from "@/lib/email-templates/editor/schema";
-import { Trash2 } from "lucide-react";
+import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { useState } from "react";
+import { ProductPicker, type PickedProduct } from "./product-picker";
 
 interface Props {
   block: BlockNode;
+  workspaceId: string;
   onChange: (patch: Partial<BlockNode>) => void;
   onRemove: () => void;
 }
@@ -89,7 +92,7 @@ export function LogoInspector({
   );
 }
 
-export function Inspector({ block, onChange, onRemove }: Props) {
+export function Inspector({ block, workspaceId, onChange, onRemove }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -106,13 +109,14 @@ export function Inspector({ block, onChange, onRemove }: Props) {
         </Button>
       </div>
 
-      {renderFields(block, onChange)}
+      {renderFields(block, workspaceId, onChange)}
     </div>
   );
 }
 
 function renderFields(
   block: BlockNode,
+  workspaceId: string,
   onChange: (patch: Partial<BlockNode>) => void
 ) {
   switch (block.type) {
@@ -168,24 +172,39 @@ function renderFields(
     case "hero":
       return (
         <>
-          <Field label="URL da imagem">
-            <Input
-              value={block.image_url}
-              onChange={(e) => onChange({ image_url: e.target.value } as Partial<BlockNode>)}
-            />
-          </Field>
-          <Field label="Texto alternativo">
-            <Input
-              value={block.alt}
-              onChange={(e) => onChange({ alt: e.target.value } as Partial<BlockNode>)}
-            />
-          </Field>
-          <Field label="Badge (opcional)">
-            <Input
-              value={block.badge ?? ""}
-              onChange={(e) => onChange({ badge: e.target.value || undefined } as Partial<BlockNode>)}
-            />
-          </Field>
+          <ProductPicker
+            workspaceId={workspaceId}
+            label="Trocar produto (preenche imagem + alt)"
+            autoLoadInitial
+            onPick={(p) =>
+              onChange({
+                image_url: p.image_url,
+                alt: p.name,
+              } as Partial<BlockNode>)
+            }
+          />
+          <CollapsibleAdvanced label="Editar manualmente">
+            <Field label="URL da imagem">
+              <Input
+                value={block.image_url}
+                onChange={(e) => onChange({ image_url: e.target.value } as Partial<BlockNode>)}
+              />
+            </Field>
+            <Field label="Texto alternativo">
+              <Input
+                value={block.alt}
+                onChange={(e) => onChange({ alt: e.target.value } as Partial<BlockNode>)}
+              />
+            </Field>
+            <Field label="Badge (opcional)">
+              <Input
+                value={block.badge ?? ""}
+                onChange={(e) =>
+                  onChange({ badge: e.target.value || undefined } as Partial<BlockNode>)
+                }
+              />
+            </Field>
+          </CollapsibleAdvanced>
         </>
       );
 
@@ -234,32 +253,48 @@ function renderFields(
     case "product-meta":
       return (
         <>
-          <Field label="Nome do produto">
-            <Input
-              value={block.name}
-              onChange={(e) => onChange({ name: e.target.value } as Partial<BlockNode>)}
-            />
-          </Field>
-          <Field label="Preço">
-            <Input
-              type="number"
-              step="0.01"
-              value={block.price}
-              onChange={(e) => onChange({ price: parseFloat(e.target.value) || 0 } as Partial<BlockNode>)}
-            />
-          </Field>
-          <Field label="Preço antigo (opcional)">
-            <Input
-              type="number"
-              step="0.01"
-              value={block.old_price ?? ""}
-              onChange={(e) =>
-                onChange({
-                  old_price: e.target.value ? parseFloat(e.target.value) : undefined,
-                } as Partial<BlockNode>)
-              }
-            />
-          </Field>
+          <ProductPicker
+            workspaceId={workspaceId}
+            label="Trocar produto (preenche nome + preço)"
+            autoLoadInitial
+            onPick={(p) =>
+              onChange({
+                name: p.name,
+                price: p.price,
+                old_price: p.old_price,
+              } as Partial<BlockNode>)
+            }
+          />
+          <CollapsibleAdvanced label="Editar manualmente">
+            <Field label="Nome do produto">
+              <Input
+                value={block.name}
+                onChange={(e) => onChange({ name: e.target.value } as Partial<BlockNode>)}
+              />
+            </Field>
+            <Field label="Preço">
+              <Input
+                type="number"
+                step="0.01"
+                value={block.price}
+                onChange={(e) =>
+                  onChange({ price: parseFloat(e.target.value) || 0 } as Partial<BlockNode>)
+                }
+              />
+            </Field>
+            <Field label="Preço antigo (opcional)">
+              <Input
+                type="number"
+                step="0.01"
+                value={block.old_price ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    old_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                  } as Partial<BlockNode>)
+                }
+              />
+            </Field>
+          </CollapsibleAdvanced>
         </>
       );
 
@@ -350,10 +385,11 @@ function renderFields(
 
     case "related-products":
       return (
-        <p className="text-xs text-muted-foreground">
-          Os 3 produtos vêm do produto-âncora do draft. Em breve: editor por slot
-          dentro da grade.
-        </p>
+        <RelatedProductsInspector
+          block={block}
+          workspaceId={workspaceId}
+          onChange={onChange}
+        />
       );
   }
 }
@@ -455,5 +491,150 @@ function CountdownInspector({
         usuário abrir depois do prazo, aparece <span className="font-mono">ENCERRADO</span>.
       </p>
     </>
+  );
+}
+
+function CollapsibleAdvanced({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2 pt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        {label}
+      </button>
+      {open && <div className="space-y-3 pl-4 border-l border-border/60">{children}</div>}
+    </div>
+  );
+}
+
+function RelatedProductsInspector({
+  block,
+  workspaceId,
+  onChange,
+}: {
+  block: Extract<BlockNode, { type: "related-products" }>;
+  workspaceId: string;
+  onChange: (patch: Partial<BlockNode>) => void;
+}) {
+  const remove = (idx: number) => {
+    const next = block.products.filter((_, i) => i !== idx);
+    onChange({ products: next } as Partial<BlockNode>);
+  };
+  const add = (p: PickedProduct) => {
+    if (block.products.length >= 3) return;
+    const next = [
+      ...block.products,
+      {
+        name: p.name,
+        price: p.price,
+        old_price: p.old_price,
+        image_url: p.image_url,
+        url: p.url,
+      },
+    ];
+    onChange({ products: next } as Partial<BlockNode>);
+  };
+  const replace = (idx: number, p: PickedProduct) => {
+    const next = [...block.products];
+    next[idx] = {
+      name: p.name,
+      price: p.price,
+      old_price: p.old_price,
+      image_url: p.image_url,
+      url: p.url,
+    };
+    onChange({ products: next } as Partial<BlockNode>);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-muted-foreground">
+        Até 3 produtos. Clique em um pra trocar; remova com a lixeira.
+      </div>
+      <div className="space-y-2">
+        {block.products.map((p, idx) => (
+          <RelatedSlot
+            key={`${idx}-${p.image_url}`}
+            product={p}
+            workspaceId={workspaceId}
+            onReplace={(np) => replace(idx, np)}
+            onRemove={() => remove(idx)}
+          />
+        ))}
+      </div>
+      {block.products.length < 3 && (
+        <ProductPicker
+          workspaceId={workspaceId}
+          label={`Adicionar produto (${block.products.length}/3)`}
+          autoLoadInitial
+          onPick={add}
+        />
+      )}
+    </div>
+  );
+}
+
+function RelatedSlot({
+  product,
+  workspaceId,
+  onReplace,
+  onRemove,
+}: {
+  product: { name: string; price: number; image_url: string };
+  workspaceId: string;
+  onReplace: (p: PickedProduct) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="border rounded-md p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <img
+          src={product.image_url}
+          alt={product.name}
+          className="w-9 h-11 object-cover shrink-0"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs truncate">{product.name}</div>
+          <div className="text-[10px] text-muted-foreground">R$ {product.price.toFixed(2)}</div>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-[11px]"
+          onClick={() => setEditing((v) => !v)}
+        >
+          {editing ? "Fechar" : "Trocar"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+          onClick={onRemove}
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      </div>
+      {editing && (
+        <ProductPicker
+          workspaceId={workspaceId}
+          autoLoadInitial
+          onPick={(p) => {
+            onReplace(p);
+            setEditing(false);
+          }}
+        />
+      )}
+    </div>
   );
 }

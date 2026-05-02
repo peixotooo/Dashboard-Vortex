@@ -130,20 +130,37 @@ function tagBlockHtml(html: string, blockId: string, editorMode: boolean): strin
   return html.replace(/<tr(\s|>)/g, `<tr data-block-id="${blockId}"$1`);
 }
 
+const DEFAULT_LOGO_URL =
+  "https://cdn.vnda.com.br/bulking/2023/12/01/18_12_2_290_logobulkingsite.svg?v=1701465320";
+
 function renderLogo(logo: LogoConfig, mode: "light" | "dark", editorMode: boolean): string {
   const w = Math.max(60, Math.min(300, logo.width));
   const border = mode === "dark" ? DARK.border : TOKENS.border;
   const bg = mode === "dark" ? DARK.bg : "transparent";
   const tagAttr = editorMode ? ` data-block-id="__logo__"` : "";
+  const fg = mode === "dark" ? DARK.fg : TOKENS.text;
+
+  // Dark mode + default Bulking SVG (solid black ink) would disappear on the
+  // dark canvas. Fall back to a text mark sized roughly equivalent to the
+  // image width. The user can still override with their own image URL.
+  const usingDefaultBlackSvg = !logo.image_url || logo.image_url === DEFAULT_LOGO_URL;
+  const inner =
+    mode === "dark" && usingDefaultBlackSvg
+      ? `<span style="display:inline-block;font-family:'Kanit','Inter',Arial,sans-serif;font-weight:500;font-size:${Math.round(w * 0.13)}px;letter-spacing:0.32em;color:${fg};text-transform:uppercase;">BULKING</span>`
+      : `<img src="${escapeHtml(logo.image_url)}" alt="${escapeHtml(logo.alt)}" width="${w}" style="display:inline-block;width:${w}px;height:auto;max-width:${w}px;border:0;outline:none;" />`;
+
   return `
 <tr${tagAttr}><td align="center" class="pad-xl" style="padding:48px 32px 36px;background:${bg};border-bottom:1px solid ${border};">
-  <a href="https://www.bulking.com.br" target="_blank" style="text-decoration:none;color:${mode === "dark" ? DARK.fg : TOKENS.text};">
-    <img src="${escapeHtml(logo.image_url)}" alt="${escapeHtml(logo.alt)}" width="${w}" style="display:inline-block;width:${w}px;height:auto;max-width:${w}px;border:0;outline:none;" />
+  <a href="https://www.bulking.com.br" target="_blank" style="text-decoration:none;color:${fg};">
+    ${inner}
   </a>
 </td></tr>`;
 }
 
-const EDITOR_CLICK_SCRIPT = `<script>(function(){
+function buildEditorScript(mode: "light" | "dark"): string {
+  const hover = mode === "dark" ? "1px dashed rgba(255,255,255,.45)" : "1px dashed rgba(0,0,0,.35)";
+  const selected = mode === "dark" ? "2px solid #60a5fa" : "2px solid #2563eb";
+  return `<script>(function(){
   var sel=null;
   function clear(){if(sel){sel.style.outline='';sel.style.outlineOffset='';sel=null;}}
   document.addEventListener('mouseover',function(e){
@@ -152,7 +169,7 @@ const EDITOR_CLICK_SCRIPT = `<script>(function(){
     var prev=document.querySelector('.__hover');
     if(prev){prev.classList.remove('__hover');prev.style.outline='';prev.style.outlineOffset='';}
     t.classList.add('__hover');
-    t.style.outline='1px dashed rgba(0,0,0,.35)';
+    t.style.outline='${hover}';
     t.style.outlineOffset='-1px';
   },true);
   document.addEventListener('mouseout',function(e){
@@ -167,7 +184,7 @@ const EDITOR_CLICK_SCRIPT = `<script>(function(){
     e.stopPropagation();
     clear();
     sel=t;
-    t.style.outline='2px solid #2563eb';
+    t.style.outline='${selected}';
     t.style.outlineOffset='-2px';
     try{parent.postMessage({type:'block:select',id:t.getAttribute('data-block-id')},'*');}catch(err){}
   },true);
@@ -179,9 +196,10 @@ const EDITOR_CLICK_SCRIPT = `<script>(function(){
     var nodes=document.querySelectorAll('[data-block-id="'+id+'"]');
     if(nodes.length===0)return;
     sel=nodes[0];
-    nodes.forEach(function(n){n.style.outline='2px solid #2563eb';n.style.outlineOffset='-2px';});
+    nodes.forEach(function(n){n.style.outline='${selected}';n.style.outlineOffset='-2px';});
   });
 })();</script>`;
+}
 
 export interface RenderOpts {
   editorMode?: boolean;
@@ -206,7 +224,7 @@ export function renderDraft(draft: Draft, opts: RenderOpts = {}): string {
     .map((b) => tagBlockHtml(renderBlockInner(b, meta.mode), b.id, editorMode))
     .join("\n");
 
-  const script = editorMode ? EDITOR_CLICK_SCRIPT : "";
+  const script = editorMode ? buildEditorScript(meta.mode) : "";
   const closeWithScript = script ? close.replace("</body>", `${script}</body>`) : close;
   return `${open}\n${head}\n${body}\n${foot}\n${closeWithScript}`;
 }

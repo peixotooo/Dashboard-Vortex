@@ -20,7 +20,8 @@ import {
   type Draft,
   type LogoConfig,
 } from "@/lib/email-templates/editor/schema";
-import { ArrowLeft, Save, Copy as CopyIcon, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Copy as CopyIcon, Check, Loader2, Settings2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Palette } from "./_components/palette";
 import { Inspector, LogoInspector } from "./_components/inspector";
 
@@ -199,6 +200,52 @@ export default function EmailEditorPage({ params }: PageProps) {
               salvo {savedAt.toLocaleTimeString()}
             </span>
           )}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <Settings2 className="w-3.5 h-3.5" />
+                Configurações
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="end">
+              <div className="space-y-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Configurações gerais
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Subject</Label>
+                  <Input
+                    value={meta.subject}
+                    onChange={(e) => setMeta((m) => ({ ...m, subject: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Preview text</Label>
+                  <Input
+                    value={meta.preview}
+                    onChange={(e) => setMeta((m) => ({ ...m, preview: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Modo</Label>
+                  <Select
+                    value={meta.mode}
+                    onValueChange={(v) =>
+                      setMeta((m) => ({ ...m, mode: v as "light" | "dark" }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="light">Light</SelectItem>
+                      <SelectItem value="dark">Dark</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button size="sm" variant="outline" onClick={copyHtml} className="gap-1.5">
             {copied ? <Check className="w-3.5 h-3.5" /> : <CopyIcon className="w-3.5 h-3.5" />}
             {copied ? "Copiado" : "Copiar HTML"}
@@ -239,63 +286,27 @@ export default function EmailEditorPage({ params }: PageProps) {
           </Card>
         </main>
 
-        {/* right: inspector */}
-        <aside className="border-l bg-card overflow-y-auto p-4 space-y-5">
-          <div className="space-y-3">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Geral
+        {/* right: block inspector only — general settings live in the top-bar popover */}
+        <aside className="border-l bg-card overflow-y-auto p-4">
+          {isLogoSelected ? (
+            <LogoInspector
+              logo={meta.logo}
+              onChange={(next) => updateLogo(next)}
+              onRemove={() => updateLogo(null)}
+            />
+          ) : selectedBlock ? (
+            <Inspector
+              block={selectedBlock}
+              workspaceId={workspaceId}
+              onChange={(patch) => updateBlock(selectedBlock.id, patch)}
+              onRemove={() => removeBlock(selectedBlock.id)}
+            />
+          ) : (
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              <p className="mb-2">Clique em um bloco no email pra editar.</p>
+              <p>Ou adicione um novo bloco pelo painel à esquerda.</p>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Subject</Label>
-              <Input
-                value={meta.subject}
-                onChange={(e) => setMeta((m) => ({ ...m, subject: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Preview text</Label>
-              <Input
-                value={meta.preview}
-                onChange={(e) => setMeta((m) => ({ ...m, preview: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Modo</Label>
-              <Select
-                value={meta.mode}
-                onValueChange={(v) => setMeta((m) => ({ ...m, mode: v as "light" | "dark" }))}
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="dark">Dark</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="border-t -mx-4 px-4 pt-4">
-            {isLogoSelected ? (
-              <LogoInspector
-                logo={meta.logo}
-                onChange={(next) => updateLogo(next)}
-                onRemove={() => updateLogo(null)}
-              />
-            ) : selectedBlock ? (
-              <Inspector
-                block={selectedBlock}
-                onChange={(patch) => updateBlock(selectedBlock.id, patch)}
-                onRemove={() => removeBlock(selectedBlock.id)}
-              />
-            ) : (
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                <p className="mb-2">Clique em um bloco no email pra editar.</p>
-                <p>Ou adicione um novo bloco pelo painel à esquerda.</p>
-              </div>
-            )}
-          </div>
+          )}
         </aside>
       </div>
     </div>
