@@ -233,10 +233,10 @@ export default function EmailEditorPage({ params }: PageProps) {
       {/* top bar */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card">
         <a
-          href="/crm/email-templates/library"
+          href="/crm/email-templates/drafts"
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="w-3 h-3" /> Galeria
+          <ArrowLeft className="w-3 h-3" /> Meus templates
         </a>
         <span className="w-px h-5 bg-border" />
         <Input

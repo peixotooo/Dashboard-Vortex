@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Maximize2, Wand2, Search, X, Sparkles } from "lucide-react";
+import { Maximize2, Wand2, Search, X, Sparkles } from "lucide-react";
+import { SectionNav } from "../_components/section-nav";
 import { useWorkspace } from "@/lib/workspace-context";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -414,18 +416,17 @@ export default function LayoutLibraryPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      <SectionNav />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <a
-            href="/crm/email-templates"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2"
-          >
-            <ArrowLeft className="w-3 h-3" /> Voltar para sugestões
-          </a>
           <h1 className="text-2xl font-bold">Galeria de templates</h1>
           <p className="text-muted-foreground text-sm">
-            {filtered.length} de {layouts.length} layouts. Selecione um produto pra renderizar
-            todos os previews com peças reais do catálogo VNDA.
+            {filtered.length} de {layouts.length} layouts originais. Edite a partir de
+            qualquer um — suas versões salvas vão pra{" "}
+            <Link href="/crm/email-templates/drafts" className="underline">
+              Meus templates
+            </Link>
+            .
           </p>
         </div>
         <div className="flex items-end gap-3 flex-wrap">

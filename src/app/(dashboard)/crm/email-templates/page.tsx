@@ -5,6 +5,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { SuggestionCard } from "./components/suggestion-card";
 import { HistoryTable } from "./components/history-table";
 import { SettingsDrawer } from "./components/settings-drawer";
+import { SectionNav } from "./_components/section-nav";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 
 export default function EmailTemplatesPage() {
@@ -43,6 +44,7 @@ export default function EmailTemplatesPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
+      <SectionNav />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Email Templates</h1>
@@ -51,12 +53,6 @@ export default function EmailTemplatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href="/crm/email-templates/library"
-            className="inline-flex items-center px-3 py-2 text-sm border rounded hover:bg-muted"
-          >
-            Biblioteca
-          </a>
           <SettingsDrawer workspaceId={workspaceId} />
         </div>
       </div>
