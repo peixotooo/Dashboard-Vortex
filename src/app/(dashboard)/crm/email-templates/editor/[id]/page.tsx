@@ -53,14 +53,21 @@ import {
 import { Palette } from "./_components/palette";
 import { SortableBlock } from "./_components/sortable-block";
 import { Inspector, LogoInspector } from "./_components/inspector";
-import {
-  TreeInspector,
-  findLeafById,
-  updateLeafById,
-  removeLeafById,
-} from "./_components/tree-inspector";
+import { TreeInspector } from "./_components/tree-inspector";
+import { TreePalette } from "./_components/tree-palette";
+import { TreeStructure } from "./_components/tree-structure";
 import type { PickedProduct } from "./_components/product-picker";
 import type { SectionNode, LeafNode } from "@/lib/email-templates/tree/schema";
+import {
+  findLeaf as findTreeLeaf,
+  updateLeaf as updateTreeLeafFn,
+  removeLeaf as removeTreeLeafFn,
+  duplicateLeaf as duplicateTreeLeafFn,
+  appendLeafToLastSection,
+  reorderLeaves as reorderTreeLeavesFn,
+  applyProductToTree,
+} from "@/lib/email-templates/tree/mutations";
+import { defaultLeaf, type LeafType } from "@/lib/email-templates/tree/defaults";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -301,21 +308,54 @@ export default function EmailEditorPage({ params }: PageProps) {
     ? (blocks as unknown as SectionNode[])
     : null;
   const selectedTreeNode = useMemo(
-    () => (treeSections && selectedId ? findLeafById(treeSections, selectedId) : null),
+    () => (treeSections && selectedId ? findTreeLeaf(treeSections, selectedId) : null),
     [treeSections, selectedId]
   );
 
   const updateTreeLeaf = (nodeId: string, patch: Partial<LeafNode>) => {
     if (!treeSections) return;
-    const next = updateLeafById(treeSections, nodeId, patch);
+    const next = updateTreeLeafFn(treeSections, nodeId, patch);
     setBlocks(next as unknown as BlockNode[]);
   };
 
   const removeTreeLeaf = (nodeId: string) => {
     if (!treeSections) return;
-    const next = removeLeafById(treeSections, nodeId);
+    const next = removeTreeLeafFn(treeSections, nodeId);
     setBlocks(next as unknown as BlockNode[]);
     if (selectedId === nodeId) setSelectedId(null);
+  };
+
+  const duplicateTreeLeaf = (nodeId: string) => {
+    if (!treeSections) return;
+    const next = duplicateTreeLeafFn(treeSections, nodeId);
+    setBlocks(next as unknown as BlockNode[]);
+  };
+
+  const reorderTreeLeaves = (activeId: string, overId: string) => {
+    if (!treeSections) return;
+    const next = reorderTreeLeavesFn(treeSections, activeId, overId);
+    setBlocks(next as unknown as BlockNode[]);
+  };
+
+  const addTreeLeaf = (type: LeafType) => {
+    if (!treeSections) return;
+    const leaf = defaultLeaf(type);
+    const next = appendLeafToLastSection(treeSections, leaf);
+    setBlocks(next as unknown as BlockNode[]);
+    setSelectedId(leaf.id);
+  };
+
+  const pickTreeProduct = (p: PickedProduct) => {
+    if (!treeSections) return;
+    const next = applyProductToTree(treeSections, {
+      vnda_id: p.vnda_id,
+      name: p.name,
+      price: p.price,
+      old_price: p.old_price,
+      image_url: p.image_url,
+      url: p.url,
+    });
+    setBlocks(next as unknown as BlockNode[]);
   };
 
   if (!workspaceId) {
@@ -415,15 +455,34 @@ export default function EmailEditorPage({ params }: PageProps) {
             Tree mode hides this panel because the editor doesn't yet support
             adding/removing nodes from a multi-column layout — only inline
             editing of existing nodes. */}
-        {isTreeMode ? (
-          <aside className="border-r bg-card overflow-y-auto p-4">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
-              Modo template (tree)
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Layout original preservado pixel-a-pixel via react-email. Clique
-              em qualquer elemento do email à direita pra editar.
-            </p>
+        {isTreeMode && treeSections ? (
+          <aside className="border-r bg-card overflow-y-auto">
+            <Tabs defaultValue="add" className="h-full flex flex-col">
+              <TabsList className="grid grid-cols-2 m-3 mb-0 h-8">
+                <TabsTrigger value="add" className="text-xs">
+                  Adicionar
+                </TabsTrigger>
+                <TabsTrigger value="structure" className="text-xs">
+                  Estrutura
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="add" className="p-3 mt-0 flex-1">
+                <TreePalette onAdd={addTreeLeaf} />
+                <div className="mt-6 px-1 text-[11px] text-muted-foreground/80 leading-relaxed">
+                  Novos blocos vão pra última seção. Clique em qualquer
+                  elemento do email pra editar inline.
+                </div>
+              </TabsContent>
+              <TabsContent value="structure" className="p-3 mt-0 flex-1">
+                <TreeStructure
+                  sections={treeSections}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onDuplicate={duplicateTreeLeaf}
+                  onReorder={reorderTreeLeaves}
+                />
+              </TabsContent>
+            </Tabs>
           </aside>
         ) : (
         <aside className="border-r bg-card overflow-y-auto">
@@ -502,15 +561,13 @@ export default function EmailEditorPage({ params }: PageProps) {
               workspaceId={workspaceId}
               onChange={(patch) => updateTreeLeaf(selectedTreeNode.id, patch)}
               onRemove={() => removeTreeLeaf(selectedTreeNode.id)}
+              onPickProduct={pickTreeProduct}
             />
           ) : isTreeMode ? (
             <div className="text-xs text-muted-foreground leading-relaxed">
-              <p className="mb-2">Clique em qualquer texto, botão ou imagem do email pra editar.</p>
-              <p className="mt-3">
-                Esse template está usando o motor <span className="font-mono">tree</span> (react-email),
-                que preserva a estrutura visual original (multi-coluna, grade,
-                etc.).
-              </p>
+              <p className="mb-2">Clique em qualquer elemento do email pra editar inline.</p>
+              <p className="mb-2">Use a aba <strong>Adicionar</strong> à esquerda pra inserir blocos novos.</p>
+              <p>A aba <strong>Estrutura</strong> mostra todos os blocos do email — arraste pra reordenar dentro de cada seção.</p>
             </div>
           ) : isLogoSelected ? (
             <LogoInspector

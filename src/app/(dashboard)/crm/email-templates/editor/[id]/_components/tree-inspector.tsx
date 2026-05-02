@@ -3,14 +3,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { LeafNode, AnyNode, SectionNode } from "@/lib/email-templates/tree/schema";
+import type { LeafNode } from "@/lib/email-templates/tree/schema";
 import { ProductPicker, type PickedProduct } from "./product-picker";
+import { WysiwygEditor } from "./wysiwyg";
+import { Trash2 } from "lucide-react";
 
 interface Props {
   node: LeafNode;
   workspaceId: string;
   onChange: (patch: Partial<LeafNode>) => void;
   onRemove: () => void;
+  /** Picking a product on any product-aware leaf propagates to all of them
+   *  via applyProductToTree at the editor page level. */
+  onPickProduct: (p: PickedProduct) => void;
 }
 
 const NODE_LABEL: Record<LeafNode["type"], string> = {
@@ -32,7 +37,27 @@ const NODE_LABEL: Record<LeafNode["type"], string> = {
   logo: "Logo",
 };
 
-export function TreeInspector({ node, workspaceId, onChange, onRemove }: Props) {
+function htmlToText(html: string): string {
+  if (typeof window === "undefined") return html;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  return (tmp.textContent || tmp.innerText || "").trim();
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function initialHtml(n: { html?: string; text?: string }): string {
+  if (n.html && n.html.trim() !== "") return n.html;
+  return n.text ? `<p>${escapeHtml(n.text)}</p>` : "<p></p>";
+}
+
+export function TreeInspector({ node, workspaceId, onChange, onRemove, onPickProduct }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -42,13 +67,13 @@ export function TreeInspector({ node, workspaceId, onChange, onRemove }: Props) 
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 text-xs text-destructive hover:text-destructive"
+          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
           onClick={onRemove}
         >
-          Remover
+          <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
-      {renderFields(node, workspaceId, onChange)}
+      {renderFields(node, workspaceId, onChange, onPickProduct)}
     </div>
   );
 }
@@ -56,18 +81,44 @@ export function TreeInspector({ node, workspaceId, onChange, onRemove }: Props) 
 function renderFields(
   n: LeafNode,
   workspaceId: string,
-  onChange: (patch: Partial<LeafNode>) => void
+  onChange: (patch: Partial<LeafNode>) => void,
+  onPickProduct: (p: PickedProduct) => void
 ) {
   switch (n.type) {
     case "heading":
+      return (
+        <Field label="Texto (formate selecionando)">
+          <WysiwygEditor
+            value={initialHtml(n)}
+            sizePresets={[24, 30, 38, 48, 56, 64, 80]}
+            onChange={(html) =>
+              onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
+            }
+          />
+        </Field>
+      );
     case "text":
+      return (
+        <Field label="Texto (formate selecionando)">
+          <WysiwygEditor
+            value={initialHtml(n)}
+            sizePresets={[13, 14, 15, 16, 18, 20, 24]}
+            onChange={(html) =>
+              onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
+            }
+          />
+        </Field>
+      );
     case "eyebrow":
       return (
-        <Field label="Texto">
-          <Textarea
-            rows={n.type === "text" ? 4 : 2}
-            value={n.text}
-            onChange={(e) => onChange({ text: e.target.value } as Partial<LeafNode>)}
+        <Field label="Texto (formate selecionando)">
+          <WysiwygEditor
+            value={initialHtml(n)}
+            singleLine
+            sizePresets={[10, 11, 12, 13, 14, 16]}
+            onChange={(html) =>
+              onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
+            }
           />
         </Field>
       );
@@ -87,13 +138,11 @@ function renderFields(
         <>
           <ProductPicker
             workspaceId={workspaceId}
-            label="Trocar produto (preenche imagem + alt)"
+            label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
             autoLoadInitial
-            onPick={(p: PickedProduct) =>
-              onChange({ src: p.image_url, alt: p.name } as Partial<LeafNode>)
-            }
+            onPick={onPickProduct}
           />
-          <Field label="URL da imagem">
+          <Field label="URL da imagem (manual)">
             <Input value={n.src} onChange={(e) => onChange({ src: e.target.value } as Partial<LeafNode>)} />
           </Field>
           <Field label="Texto alternativo">
@@ -110,16 +159,31 @@ function renderFields(
               onChange={(e) => onChange({ image_url: e.target.value } as Partial<LeafNode>)}
             />
           </Field>
-          <Field label={`Largura (${n.width ?? 148}px)`}>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Largura ({n.width ?? 148}px)</Label>
             <input
               type="range"
               min={60}
               max={300}
+              step={2}
               value={n.width ?? 148}
               onChange={(e) => onChange({ width: parseInt(e.target.value, 10) } as Partial<LeafNode>)}
               className="w-full accent-foreground"
             />
-          </Field>
+            <div className="grid grid-cols-4 gap-1.5 pt-1">
+              {[80, 120, 148, 200].map((w) => (
+                <Button
+                  key={w}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => onChange({ width: w } as Partial<LeafNode>)}
+                >
+                  {w}px
+                </Button>
+              ))}
+            </div>
+          </div>
         </>
       );
     case "product-meta":
@@ -127,15 +191,9 @@ function renderFields(
         <>
           <ProductPicker
             workspaceId={workspaceId}
-            label="Trocar produto"
+            label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
             autoLoadInitial
-            onPick={(p: PickedProduct) =>
-              onChange({
-                name: p.name,
-                price: p.price,
-                old_price: p.old_price,
-              } as Partial<LeafNode>)
-            }
+            onPick={onPickProduct}
           />
           <Field label="Nome">
             <Input value={n.name} onChange={(e) => onChange({ name: e.target.value } as Partial<LeafNode>)} />
@@ -160,6 +218,131 @@ function renderFields(
               }
             />
           </Field>
+        </>
+      );
+    case "product-card":
+      return (
+        <>
+          <ProductPicker
+            workspaceId={workspaceId}
+            label="Trocar produto"
+            autoLoadInitial
+            onPick={(p) =>
+              onChange({
+                product: {
+                  vnda_id: p.vnda_id,
+                  name: p.name,
+                  price: p.price,
+                  old_price: p.old_price,
+                  image_url: p.image_url,
+                  url: p.url,
+                },
+              } as Partial<LeafNode>)
+            }
+          />
+          <Field label="Texto do botão">
+            <Input
+              value={n.button_text ?? "Ver produto"}
+              onChange={(e) => onChange({ button_text: e.target.value } as Partial<LeafNode>)}
+            />
+          </Field>
+        </>
+      );
+    case "product-grid":
+      return (
+        <>
+          <Field label="Colunas">
+            <div className="grid grid-cols-3 gap-1">
+              {[2, 3, 4].map((c) => (
+                <Button
+                  key={c}
+                  size="sm"
+                  variant={n.columns === c ? "default" : "outline"}
+                  className="h-7 text-xs"
+                  onClick={() => onChange({ columns: c as 2 | 3 | 4 } as Partial<LeafNode>)}
+                >
+                  {c} cols
+                </Button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Numerar items">
+            <div className="grid grid-cols-2 gap-1">
+              <Button
+                size="sm"
+                variant={n.numbered ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => onChange({ numbered: true } as Partial<LeafNode>)}
+              >
+                Sim
+              </Button>
+              <Button
+                size="sm"
+                variant={!n.numbered ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => onChange({ numbered: false } as Partial<LeafNode>)}
+              >
+                Não
+              </Button>
+            </div>
+          </Field>
+          <div className="text-[11px] text-muted-foreground">
+            {n.products.length} produto(s) na grade. Use o picker abaixo pra adicionar.
+          </div>
+          <ProductPicker
+            workspaceId={workspaceId}
+            label="Adicionar produto"
+            autoLoadInitial
+            onPick={(p) =>
+              onChange({
+                products: [
+                  ...n.products,
+                  {
+                    vnda_id: p.vnda_id,
+                    name: p.name,
+                    price: p.price,
+                    old_price: p.old_price,
+                    image_url: p.image_url,
+                    url: p.url,
+                  },
+                ],
+              } as Partial<LeafNode>)
+            }
+          />
+          {n.products.length > 0 && (
+            <div className="space-y-1.5">
+              {n.products.map((p, idx) => (
+                <div
+                  key={idx + p.vnda_id}
+                  className="flex items-center gap-2 border rounded-md p-2"
+                >
+                  <img
+                    src={p.image_url}
+                    alt={p.name}
+                    className="w-7 h-9 object-cover shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs truncate">{p.name}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      R$ {p.price.toFixed(2)}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 text-destructive"
+                    onClick={() =>
+                      onChange({
+                        products: n.products.filter((_, i) => i !== idx),
+                      } as Partial<LeafNode>)
+                    }
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       );
     case "rating":
@@ -208,6 +391,12 @@ function renderFields(
               onChange={(e) => onChange({ discount_percent: parseFloat(e.target.value) || 0 } as Partial<LeafNode>)}
             />
           </Field>
+          <Field label="Produto vinculado">
+            <Input
+              value={n.product_name}
+              onChange={(e) => onChange({ product_name: e.target.value } as Partial<LeafNode>)}
+            />
+          </Field>
         </>
       );
     case "countdown": {
@@ -215,6 +404,11 @@ function renderFields(
       const remainingHours = Math.max(0, Math.round((expiresDate.getTime() - Date.now()) / 3600000));
       const setHoursFromNow = (h: number) =>
         onChange({ expires_at: new Date(Date.now() + h * 3600000).toISOString() } as Partial<LeafNode>);
+      const localValue = (() => {
+        const d = expiresDate;
+        const pad = (x: number) => String(x).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      })();
       return (
         <>
           <Field label={`Termina em ${remainingHours}h`}>
@@ -231,6 +425,16 @@ function renderFields(
               </Button>
             ))}
           </div>
+          <Field label="Ou data/hora exata">
+            <Input
+              type="datetime-local"
+              value={localValue}
+              onChange={(e) => {
+                const d = new Date(e.target.value);
+                if (!Number.isNaN(d.getTime())) onChange({ expires_at: d.toISOString() } as Partial<LeafNode>);
+              }}
+            />
+          </Field>
         </>
       );
     }
@@ -259,14 +463,6 @@ function renderFields(
           />
         </Field>
       );
-    case "product-card":
-    case "product-grid":
-      return (
-        <p className="text-xs text-muted-foreground">
-          Edição de produtos da grade em breve. Por enquanto, troque pelo painel
-          de configurações ou clique nos cards individuais.
-        </p>
-      );
   }
 }
 
@@ -277,72 +473,4 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
-}
-
-// ---------- Tree mutation helpers ----------
-
-export function findLeafById(sections: SectionNode[], id: string): LeafNode | null {
-  for (const s of sections) {
-    for (const child of s.children) {
-      if (child.type === "row") {
-        for (const col of child.columns) {
-          for (const leaf of col.children) {
-            if (leaf.id === id) return leaf;
-          }
-        }
-      } else {
-        if (child.id === id) return child;
-      }
-    }
-  }
-  return null;
-}
-
-export function updateLeafById(
-  sections: SectionNode[],
-  id: string,
-  patch: Partial<LeafNode>
-): SectionNode[] {
-  return sections.map((s) => ({
-    ...s,
-    children: s.children.map((child) => {
-      if (child.type === "row") {
-        return {
-          ...child,
-          columns: child.columns.map((col) => ({
-            ...col,
-            children: col.children.map((leaf) =>
-              leaf.id === id ? ({ ...leaf, ...patch } as LeafNode) : leaf
-            ),
-          })),
-        };
-      }
-      if (child.id === id) {
-        return { ...child, ...patch } as LeafNode;
-      }
-      return child;
-    }),
-  }));
-}
-
-export function removeLeafById(sections: SectionNode[], id: string): SectionNode[] {
-  return sections
-    .map((s) => ({
-      ...s,
-      children: s.children
-        .map((child) => {
-          if (child.type === "row") {
-            const cols = child.columns
-              .map((col) => ({
-                ...col,
-                children: col.children.filter((leaf) => leaf.id !== id),
-              }))
-              .filter((col) => col.children.length > 0);
-            return cols.length > 0 ? { ...child, columns: cols } : null;
-          }
-          return child.id === id ? null : child;
-        })
-        .filter(Boolean) as Array<LeafNode | (typeof s.children)[number]>,
-    }))
-    .filter((s) => s.children.length > 0) as SectionNode[];
 }
