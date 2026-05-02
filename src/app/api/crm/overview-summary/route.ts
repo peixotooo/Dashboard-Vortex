@@ -125,14 +125,17 @@ export async function GET(request: NextRequest) {
 
     const admin = createAdminClient();
 
-    // Fetch all orders for [prev.start, cur.end]
+    // Fetch all orders for [prev.start, cur.end].
+    // Use .range() to lift the default 1000-row cap (we may have several
+    // thousand orders for 30d + 30d windows on busier workspaces).
     const { data: recentOrders, error: recentErr } = await admin
       .from("crm_vendas")
       .select("cpf, email, cliente, valor, data_compra, items")
       .eq("workspace_id", workspaceId)
       .gte("data_compra", prevR.start.toISOString())
       .lte("data_compra", cur.end.toISOString())
-      .order("data_compra", { ascending: true });
+      .order("data_compra", { ascending: true })
+      .range(0, 49999);
 
     if (recentErr) {
       console.error("[CRM Overview Summary] Recent orders error:", recentErr.message);
@@ -247,7 +250,8 @@ export async function GET(request: NextRequest) {
           .select("cpf, data_compra")
           .eq("workspace_id", workspaceId)
           .in("cpf", cpfs)
-          .order("data_compra", { ascending: true });
+          .order("data_compra", { ascending: true })
+          .range(0, 99999);
         for (const r of (cpfRows || []) as Array<{ cpf: string | null; data_compra: string }>) {
           if (!r.cpf) continue;
           const k = `cpf:${r.cpf}`;
@@ -260,7 +264,8 @@ export async function GET(request: NextRequest) {
           .select("email, data_compra")
           .eq("workspace_id", workspaceId)
           .in("email", emails)
-          .order("data_compra", { ascending: true });
+          .order("data_compra", { ascending: true })
+          .range(0, 99999);
         for (const r of (emailRows || []) as Array<{ email: string | null; data_compra: string }>) {
           if (!r.email) continue;
           const k = `email:${r.email.toLowerCase()}`;
