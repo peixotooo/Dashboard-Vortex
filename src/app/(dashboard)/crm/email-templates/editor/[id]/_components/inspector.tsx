@@ -10,9 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BlockNode, LogoConfig } from "@/lib/email-templates/editor/schema";
+import type { BlockNode, LogoConfig, TextStyle } from "@/lib/email-templates/editor/schema";
 import { DEFAULT_LOGO } from "@/lib/email-templates/editor/schema";
-import { Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, ChevronDown, ChevronUp, Italic, Bold } from "lucide-react";
 import { useState } from "react";
 import { ProductPicker, type PickedProduct } from "./product-picker";
 
@@ -132,9 +132,16 @@ function renderFields(
   switch (block.type) {
     case "hook":
       return (
-        <Field label="Texto">
-          <Input value={block.text} onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)} />
-        </Field>
+        <>
+          <Field label="Texto">
+            <Input value={block.text} onChange={(e) => onChange({ text: e.target.value } as Partial<BlockNode>)} />
+          </Field>
+          <TypographyControls
+            style={block.style}
+            defaults={{ size: 11, weight: 500 }}
+            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          />
+        </>
       );
 
     case "headline":
@@ -148,6 +155,11 @@ function renderFields(
             />
           </Field>
           <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
+          <TypographyControls
+            style={block.style}
+            defaults={{ size: 38, weight: 500 }}
+            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          />
         </>
       );
 
@@ -162,6 +174,11 @@ function renderFields(
             />
           </Field>
           <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
+          <TypographyControls
+            style={block.style}
+            defaults={{ size: 16, weight: 400 }}
+            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          />
         </>
       );
 
@@ -176,6 +193,11 @@ function renderFields(
             />
           </Field>
           <AlignField value={block.align ?? "center"} onChange={(v) => onChange({ align: v } as Partial<BlockNode>)} />
+          <TypographyControls
+            style={block.style}
+            defaults={{ size: 15, weight: 400 }}
+            onChange={(s) => onChange({ style: s } as Partial<BlockNode>)}
+          />
         </>
       );
 
@@ -634,6 +656,137 @@ function RelatedSlot({
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+function TypographyControls({
+  style,
+  defaults,
+  onChange,
+}: {
+  style: TextStyle | undefined;
+  defaults: { size: number; weight: 300 | 400 | 500 | 600 };
+  onChange: (next: TextStyle | undefined) => void;
+}) {
+  const cur: TextStyle = style ?? {};
+  const size = cur.font_size ?? defaults.size;
+  const weight = cur.font_weight ?? defaults.weight;
+  const italic = !!cur.italic;
+  const color = cur.color ?? "";
+
+  const set = (patch: Partial<TextStyle>) => {
+    const next = { ...cur, ...patch };
+    if (
+      next.font_size === defaults.size &&
+      next.font_weight === defaults.weight &&
+      !next.italic &&
+      !next.color
+    ) {
+      onChange(undefined);
+    } else {
+      onChange(next);
+    }
+  };
+
+  return (
+    <div className="space-y-2 pt-1 border-t border-border/60 mt-2">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground pt-2">
+        Tipografia
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <Label className="text-[11px] text-muted-foreground">Tamanho ({size}px)</Label>
+          <input
+            type="range"
+            min={10}
+            max={80}
+            step={1}
+            value={size}
+            onChange={(e) => set({ font_size: parseInt(e.target.value, 10) })}
+            className="w-full accent-foreground"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        {[12, 16, 24, 38].map((s) => (
+          <Button
+            key={s}
+            size="sm"
+            variant={size === s ? "default" : "outline"}
+            className="h-7 text-[11px]"
+            onClick={() => set({ font_size: s })}
+          >
+            {s}px
+          </Button>
+        ))}
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Peso</Label>
+        <div className="grid grid-cols-4 gap-1">
+          {([300, 400, 500, 600] as const).map((w) => (
+            <Button
+              key={w}
+              size="sm"
+              variant={weight === w ? "default" : "outline"}
+              className="h-7 text-[11px]"
+              onClick={() => set({ font_weight: w })}
+            >
+              {w}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Estilo</Label>
+        <div className="grid grid-cols-2 gap-1">
+          <Button
+            size="sm"
+            variant={italic ? "default" : "outline"}
+            className="h-7 gap-1.5 text-[11px]"
+            onClick={() => set({ italic: !italic })}
+          >
+            <Italic className="w-3 h-3" /> Itálico
+          </Button>
+          <Button
+            size="sm"
+            variant={weight === 600 ? "default" : "outline"}
+            className="h-7 gap-1.5 text-[11px]"
+            onClick={() => set({ font_weight: weight === 600 ? 500 : 600 })}
+          >
+            <Bold className="w-3 h-3" /> Bold
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Cor</Label>
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={color || "#000000"}
+            onChange={(e) => set({ color: e.target.value })}
+            className="w-9 h-8 rounded border border-border cursor-pointer bg-transparent"
+          />
+          <Input
+            value={color}
+            placeholder="Padrão (light/dark auto)"
+            onChange={(e) => set({ color: e.target.value || undefined })}
+            className="h-8 text-xs flex-1 font-mono"
+          />
+          {color && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              onClick={() => set({ color: undefined })}
+              title="Voltar pro padrão"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

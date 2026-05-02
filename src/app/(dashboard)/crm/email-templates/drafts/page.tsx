@@ -8,6 +8,67 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Trash2, Copy as CopyIcon, Pencil, FolderOpen } from "lucide-react";
 import { SectionNav } from "../_components/section-nav";
 
+function DraftThumbnail({ id, workspaceId, mode }: { id: string; workspaceId: string; mode: "light" | "dark" }) {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/crm/email-templates/drafts/${id}/render`, {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setHtml(d.html ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setHtml("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, workspaceId]);
+
+  return (
+    <div
+      className={`relative w-full overflow-hidden border-b ${
+        mode === "dark"
+          ? "bg-gradient-to-br from-neutral-900 via-neutral-950 to-black"
+          : "bg-gradient-to-br from-neutral-50 via-white to-neutral-100"
+      }`}
+      style={{ height: 240 }}
+    >
+      {html === null ? (
+        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        </div>
+      ) : (
+        <iframe
+          srcDoc={html}
+          sandbox=""
+          title="Preview"
+          className="border-0 bg-white pointer-events-none"
+          style={{
+            width: "600px",
+            height: "800px",
+            transform: "scale(0.46)",
+            transformOrigin: "top center",
+            position: "absolute",
+            left: "50%",
+            marginLeft: "-300px",
+            top: 0,
+          }}
+        />
+      )}
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-0 h-12 ${
+          mode === "dark"
+            ? "bg-gradient-to-t from-black/90 to-transparent"
+            : "bg-gradient-to-t from-white/95 to-transparent"
+        }`}
+      />
+    </div>
+  );
+}
+
 interface DraftRow {
   id: string;
   name: string;
@@ -154,29 +215,31 @@ export default function DraftsPage() {
             return (
               <Card
                 key={d.id}
-                className="p-4 flex flex-col gap-3 hover:border-foreground/40 hover:shadow-md transition-all"
+                className="p-0 flex flex-col overflow-hidden hover:border-foreground/40 hover:shadow-md transition-all"
               >
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-sm truncate" title={d.name}>
-                      {d.name}
+                <DraftThumbnail id={d.id} workspaceId={workspaceId} mode={d.meta.mode} />
+                <div className="p-4 flex flex-col gap-3">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-sm truncate" title={d.name}>
+                        {d.name}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {d.meta.subject || "(sem subject)"}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground truncate">
-                      {d.meta.subject || "(sem subject)"}
-                    </div>
+                    <Badge
+                      variant={d.meta.mode === "dark" ? "default" : "outline"}
+                      className="text-[10px] px-1.5 h-5 uppercase tracking-widest shrink-0"
+                    >
+                      {d.meta.mode}
+                    </Badge>
                   </div>
-                  <Badge
-                    variant={d.meta.mode === "dark" ? "default" : "outline"}
-                    className="text-[10px] px-1.5 h-5 uppercase tracking-widest shrink-0"
-                  >
-                    {d.meta.mode}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span className="font-mono">{family}</span>
-                  <span>·</span>
-                  <span>editado {formatRel(d.updated_at)}</span>
-                </div>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="font-mono">{family}</span>
+                    <span>·</span>
+                    <span>editado {formatRel(d.updated_at)}</span>
+                  </div>
                 <div className="flex items-center gap-1 pt-1">
                   <Button asChild size="sm" className="flex-1 h-8 gap-1.5 text-xs">
                     <Link href={`/crm/email-templates/editor/${d.id}`}>
@@ -213,6 +276,7 @@ export default function DraftsPage() {
                   >
                     <Trash2 className="w-3 h-3" />
                   </Button>
+                </div>
                 </div>
               </Card>
             );

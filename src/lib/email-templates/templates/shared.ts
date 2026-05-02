@@ -171,6 +171,24 @@ export function spacer(px: number): string {
 
 type Mode = "light" | "dark";
 
+export interface TextStyle {
+  font_size?: number;
+  font_weight?: 300 | 400 | 500 | 600;
+  italic?: boolean;
+  color?: string;
+}
+
+function styleString(
+  style: TextStyle | undefined,
+  defaults: { font_size: number; font_weight: number; color: string }
+): string {
+  const fs = style?.font_size ?? defaults.font_size;
+  const fw = style?.font_weight ?? defaults.font_weight;
+  const fi = style?.italic ? "italic" : "normal";
+  const co = style?.color ?? defaults.color;
+  return `font-size:${fs}px;font-weight:${fw};font-style:${fi};color:${co};`;
+}
+
 interface ModePalette {
   bg: string;
   text: string;
@@ -211,11 +229,12 @@ function pal(mode: Mode = "light"): ModePalette {
 }
 
 /** Tagline above the hero. Letter-spaced, gray, light weight, ALL CAPS. */
-export function hookBlock(text: string, mode: Mode = "light"): string {
+export function hookBlock(text: string, mode: Mode = "light", style?: TextStyle): string {
   const c = pal(mode);
+  const inline = styleString(style, { font_size: 11, font_weight: 500, color: c.textSecondary });
   return `
 <tr><td align="center" class="pad-l" style="padding:40px 32px 12px;">
-  <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${c.textSecondary};text-transform:uppercase;">${escapeHtml(text)}</div>
+  <div style="font-family:${TOKENS.fontBody};${inline}letter-spacing:0.32em;text-transform:uppercase;">${escapeHtml(text)}</div>
 </td></tr>`;
 }
 
@@ -273,19 +292,21 @@ export function hero(args: {
  * Hero headline. Weight 500 (medium) — the editorial references use medium
  * weights at large sizes rather than bold extruded letters.
  */
-export function headlineBlock(text: string, mode: Mode = "light"): string {
+export function headlineBlock(text: string, mode: Mode = "light", style?: TextStyle): string {
   const c = pal(mode);
+  const inline = styleString(style, { font_size: 38, font_weight: 500, color: c.text });
   return `
 <tr><td class="pad-xl" align="center" style="padding:56px 40px 14px;">
-  <h1 class="h1" style="margin:0;font-family:${TOKENS.fontHead};font-weight:500;font-size:38px;line-height:1.1;color:${c.text};letter-spacing:-0.005em;">${escapeHtml(text)}</h1>
+  <h1 class="h1" style="margin:0;font-family:${TOKENS.fontHead};${inline}line-height:1.1;letter-spacing:-0.005em;">${escapeHtml(text)}</h1>
 </td></tr>`;
 }
 
-export function leadBlock(text: string, mode: Mode = "light"): string {
+export function leadBlock(text: string, mode: Mode = "light", style?: TextStyle): string {
   const c = pal(mode);
+  const inline = styleString(style, { font_size: 16, font_weight: 400, color: c.textMuted });
   return `
 <tr><td class="pad-l" align="center" style="padding:0 40px 40px;">
-  <p class="lead" style="margin:0;font-family:${TOKENS.fontBody};font-weight:400;font-size:16px;line-height:1.7;color:${c.textMuted};max-width:480px;margin-left:auto;margin-right:auto;">${escapeHtml(text)}</p>
+  <p class="lead" style="margin:0;font-family:${TOKENS.fontBody};${inline}line-height:1.7;max-width:480px;margin-left:auto;margin-right:auto;">${escapeHtml(text)}</p>
 </td></tr>`;
 }
 

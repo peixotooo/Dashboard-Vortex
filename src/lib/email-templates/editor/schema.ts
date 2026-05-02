@@ -42,6 +42,17 @@ export const DEFAULT_LOGO: LogoConfig = {
 
 // ---- Block types ----
 
+export interface TextStyle {
+  /** Font size in px (uncapped, but UI presets stay between 11–80) */
+  font_size?: number;
+  /** Capped at 600 per brand system — no 700/800 */
+  font_weight?: 300 | 400 | 500 | 600;
+  italic?: boolean;
+  /** Hex color override (e.g. "#FFFFFF"). When unset, the helper picks a
+   *  mode-aware default. */
+  color?: string;
+}
+
 export interface HeroBlock {
   id: BlockId;
   type: "hero";
@@ -55,6 +66,7 @@ export interface HeadlineBlock {
   type: "headline";
   text: string;
   align?: "left" | "center";
+  style?: TextStyle;
 }
 
 export interface LeadBlock {
@@ -62,12 +74,14 @@ export interface LeadBlock {
   type: "lead";
   text: string;
   align?: "left" | "center";
+  style?: TextStyle;
 }
 
 export interface HookBlock {
   id: BlockId;
   type: "hook";
   text: string;
+  style?: TextStyle;
 }
 
 export interface CtaBlock {
@@ -142,6 +156,7 @@ export interface RichTextBlock {
   /** Markdown-lite: only paragraph breaks (\n\n) and inline emphasis are honored */
   text: string;
   align?: "left" | "center";
+  style?: TextStyle;
 }
 
 export interface ImageBlock {

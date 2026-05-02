@@ -4,13 +4,41 @@
 // having to persist the draft on every keystroke. The client sends the
 // in-memory state; we return server-rendered HTML so the iframe stays in
 // sync.
+//
+// GET → loads the persisted draft from Supabase and returns HTML. Used by
+// the Meus templates page to render thumbnails per card.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
 
 export const runtime = "nodejs";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { workspaceId } = await getWorkspaceContext(req);
+    const { id } = await params;
+    const sb = createAdminClient();
+    const { data, error } = await sb
+      .from("email_template_drafts")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const draft = data as Draft;
+    const html = renderDraft(draft);
+    return NextResponse.json({ html });
+  } catch (err) {
+    return handleAuthError(err);
+  }
+}
 
 export async function POST(
   req: NextRequest,

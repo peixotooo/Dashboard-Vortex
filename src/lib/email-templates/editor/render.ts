@@ -46,11 +46,11 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
     case "hero":
       return heroBlock({ image_url: b.image_url, alt: b.alt, badge: b.badge, mode });
     case "headline":
-      return headlineBlock(b.text, mode);
+      return headlineBlock(b.text, mode, b.style);
     case "lead":
-      return leadBlock(b.text, mode);
+      return leadBlock(b.text, mode, b.style);
     case "hook":
-      return hookBlock(b.text, mode);
+      return hookBlock(b.text, mode, b.style);
     case "cta":
       return mode === "dark"
         ? darkCtaBlock({ text: b.text, url: b.url })
@@ -97,12 +97,16 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
     case "rich-text": {
       const text = b.text ?? "";
       const align = b.align ?? "center";
-      const color = mode === "dark" ? DARK.muted : TOKENS.textMuted;
+      const defaultColor = mode === "dark" ? "#D8D8D8" : TOKENS.textMuted;
+      const fs = b.style?.font_size ?? 15;
+      const fw = b.style?.font_weight ?? 400;
+      const fi = b.style?.italic ? "italic" : "normal";
+      const co = b.style?.color ?? defaultColor;
       const paragraphs = text
         .split(/\n{2,}/)
         .map(
           (p) =>
-            `<p style="margin:0 0 14px 0;font-family:${TOKENS.fontBody};font-weight:400;font-size:15px;line-height:1.7;color:${color};">${escapeHtml(p)}</p>`
+            `<p style="margin:0 0 14px 0;font-family:${TOKENS.fontBody};font-size:${fs}px;font-weight:${fw};font-style:${fi};color:${co};line-height:1.7;">${escapeHtml(p)}</p>`
         )
         .join("");
       return `
