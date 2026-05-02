@@ -6,11 +6,16 @@ import { Textarea } from "@/components/ui/textarea";
 import type { LeafNode } from "@/lib/email-templates/tree/schema";
 import { ProductPicker, type PickedProduct } from "./product-picker";
 import { WysiwygEditor } from "./wysiwyg";
-import { Trash2 } from "lucide-react";
+import { HeroGeneratorDialog } from "./hero-generator";
+import { Trash2, Sparkles } from "lucide-react";
+import { useState } from "react";
 
 interface Props {
   node: LeafNode;
   workspaceId: string;
+  /** Layout id of the draft — used by the AI hero generator to pick the
+   *  layout-specific prompt in auto mode. */
+  layoutId?: string;
   onChange: (patch: Partial<LeafNode>) => void;
   onRemove: () => void;
   /** Picking a product on any product-aware leaf propagates to all of them
@@ -23,7 +28,7 @@ const NODE_LABEL: Record<LeafNode["type"], string> = {
   text: "Texto",
   eyebrow: "Eyebrow",
   button: "Botão",
-  image: "Imagem",
+  image: "Produto",
   spacer: "Espaço",
   divider: "Divisor",
   rating: "Estrelas",
@@ -57,7 +62,14 @@ function initialHtml(n: { html?: string; text?: string }): string {
   return n.text ? `<p>${escapeHtml(n.text)}</p>` : "<p></p>";
 }
 
-export function TreeInspector({ node, workspaceId, onChange, onRemove, onPickProduct }: Props) {
+export function TreeInspector({
+  node,
+  workspaceId,
+  layoutId,
+  onChange,
+  onRemove,
+  onPickProduct,
+}: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -73,7 +85,7 @@ export function TreeInspector({ node, workspaceId, onChange, onRemove, onPickPro
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
-      {renderFields(node, workspaceId, onChange, onPickProduct)}
+      {renderFields(node, workspaceId, layoutId, onChange, onPickProduct)}
     </div>
   );
 }
@@ -81,6 +93,7 @@ export function TreeInspector({ node, workspaceId, onChange, onRemove, onPickPro
 function renderFields(
   n: LeafNode,
   workspaceId: string,
+  layoutId: string | undefined,
   onChange: (patch: Partial<LeafNode>) => void,
   onPickProduct: (p: PickedProduct) => void
 ) {
@@ -135,20 +148,13 @@ function renderFields(
       );
     case "image":
       return (
-        <>
-          <ProductPicker
-            workspaceId={workspaceId}
-            label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
-            autoLoadInitial
-            onPick={onPickProduct}
-          />
-          <Field label="URL da imagem (manual)">
-            <Input value={n.src} onChange={(e) => onChange({ src: e.target.value } as Partial<LeafNode>)} />
-          </Field>
-          <Field label="Texto alternativo">
-            <Input value={n.alt} onChange={(e) => onChange({ alt: e.target.value } as Partial<LeafNode>)} />
-          </Field>
-        </>
+        <ImageInspector
+          node={n}
+          workspaceId={workspaceId}
+          layoutId={layoutId}
+          onChange={onChange}
+          onPickProduct={onPickProduct}
+        />
       );
     case "logo":
       return (
@@ -472,5 +478,57 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
     </div>
+  );
+}
+
+function ImageInspector({
+  node,
+  workspaceId,
+  layoutId,
+  onChange,
+  onPickProduct,
+}: {
+  node: Extract<LeafNode, { type: "image" }>;
+  workspaceId: string;
+  layoutId?: string;
+  onChange: (patch: Partial<LeafNode>) => void;
+  onPickProduct: (p: PickedProduct) => void;
+}) {
+  const [genOpen, setGenOpen] = useState(false);
+  return (
+    <>
+      <ProductPicker
+        workspaceId={workspaceId}
+        label="Trocar produto (atualiza imagem, nome, preço e CTA do email inteiro)"
+        autoLoadInitial
+        onPick={onPickProduct}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full gap-1.5 text-xs"
+        onClick={() => setGenOpen(true)}
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+        Gerar header com IA
+      </Button>
+      <Field label="URL da imagem (manual)">
+        <Input value={node.src} onChange={(e) => onChange({ src: e.target.value } as Partial<LeafNode>)} />
+      </Field>
+      <Field label="Texto alternativo">
+        <Input value={node.alt} onChange={(e) => onChange({ alt: e.target.value } as Partial<LeafNode>)} />
+      </Field>
+      <HeroGeneratorDialog
+        open={genOpen}
+        onClose={() => setGenOpen(false)}
+        workspaceId={workspaceId}
+        layoutId={layoutId}
+        currentSrc={node.src}
+        onGenerated={(url, alt) =>
+          onChange({ src: url, alt } as Partial<LeafNode>)
+        }
+      />
+    </>
   );
 }

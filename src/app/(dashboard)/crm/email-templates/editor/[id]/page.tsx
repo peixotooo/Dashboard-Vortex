@@ -559,6 +559,7 @@ export default function EmailEditorPage({ params }: PageProps) {
             <TreeInspector
               node={selectedTreeNode}
               workspaceId={workspaceId}
+              layoutId={draft.layout_id}
               onChange={(patch) => updateTreeLeaf(selectedTreeNode.id, patch)}
               onRemove={() => removeTreeLeaf(selectedTreeNode.id)}
               onPickProduct={pickTreeProduct}

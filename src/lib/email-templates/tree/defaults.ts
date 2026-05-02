@@ -70,7 +70,7 @@ export const TREE_PALETTE: Array<{
   group: "header" | "content" | "commerce" | "structural";
 }> = [
   { type: "eyebrow", label: "Eyebrow", description: "Tagline acima do conteúdo", group: "header" },
-  { type: "image", label: "Imagem", description: "Hero / produto / banner", group: "header" },
+  { type: "image", label: "Produto", description: "Foto do produto / hero gerado por IA", group: "header" },
   { type: "heading", label: "Headline", description: "Título grande", group: "content" },
   { type: "text", label: "Texto", description: "Parágrafo", group: "content" },
   { type: "rating", label: "Estrelas", description: "Avaliação 0–5", group: "content" },

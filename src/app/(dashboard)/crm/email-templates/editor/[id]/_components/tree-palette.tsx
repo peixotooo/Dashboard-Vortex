@@ -16,6 +16,7 @@ import {
   Minus,
   Slash,
   Box,
+  Shirt,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,7 +26,7 @@ interface Props {
 
 const ICON: Record<LeafType, LucideIcon> = {
   eyebrow: Tag,
-  image: ImageIcon,
+  image: Shirt,
   heading: Heading1,
   text: TextQuote,
   rating: Star,

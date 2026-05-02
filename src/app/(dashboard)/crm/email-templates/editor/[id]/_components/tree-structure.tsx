@@ -24,7 +24,7 @@ const TYPE_LABEL: Record<LeafNode["type"], string> = {
   text: "Texto",
   eyebrow: "Eyebrow",
   button: "Botão",
-  image: "Imagem",
+  image: "Produto",
   spacer: "Espaço",
   divider: "Divisor",
   rating: "Estrelas",
