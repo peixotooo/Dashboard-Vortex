@@ -35,39 +35,56 @@ interface Props {
   workspaceId: string;
 }
 
-/** Quick-click context chips to seed the textarea. */
+/** Bulking-aligned context chips. Streetwear/fitness apparel, "Respect the
+ *  Hustle" tone, never institutional. */
 const CONTEXT_CHIPS: Array<{ label: string; text: string }> = [
   {
-    label: "Promoção noturna",
-    text: "Promoção da madrugada — desconto exclusivo só esta noite, expira em 6 horas.",
+    label: "Drop limitado",
+    text: "Drop limitado — peça nova da coleção, tiragem curta, primeira semana de exposição. Tom autoral, não promocional.",
   },
   {
-    label: "Frete grátis",
-    text: "Frete grátis em todo o site neste fim de semana, sem mínimo.",
-  },
-  {
-    label: "Lançamento",
-    text: "Lançamento de uma nova peça da coleção. Limited drop, primeira semana de exposição.",
+    label: "Restock best-seller",
+    text: "Voltou estoque da peça mais vestida do mês. Quem perdeu na primeira leva, pega agora.",
   },
   {
     label: "Última chance",
-    text: "Última chance — estoque acabando da peça mais vendida da semana, com 10% off.",
+    text: "Última chance — estoque acabando da peça top, 10% off por 48 horas.",
   },
   {
-    label: "Volta às aulas",
-    text: "Volta às aulas — combo conforto pra quem treina antes ou depois das aulas.",
+    label: "Cupom relâmpago",
+    text: "Cupom relâmpago só hoje — desconto exclusivo pra quem treina, expira em 6 horas.",
+  },
+  {
+    label: "Promoção fim de semana",
+    text: "Promoção do fim de semana — seleção curada da coleção com 15% off até domingo.",
   },
   {
     label: "Black Friday",
     text: "Black Friday Bulking — 30% off em uma seleção curada da coleção, prazo até segunda.",
   },
   {
+    label: "Frete grátis",
+    text: "Frete grátis em todo o site neste fim de semana, sem mínimo.",
+  },
+  {
+    label: "Combo treino",
+    text: "Combo treino — camiseta + short da coleção, kit pronto pra quem leva o treino a sério.",
+  },
+  {
+    label: "Top 1 da semana",
+    text: "Top 1 da semana — peça mais vendida nos últimos 7 dias, posicionada como confirmação social.",
+  },
+  {
     label: "Reativação",
-    text: "Reativação de cliente que sumiu por mais de 60 dias. Tom: 'sentimos sua falta', sem desconto.",
+    text: "Reativação de cliente que sumiu por mais de 60 dias. Tom: \"sentimos sua falta\", sem desconto, foco no novo drop.",
   },
   {
     label: "Aniversário",
-    text: "Email de aniversário do cliente com cupom de presente válido por 7 dias.",
+    text: "Aniversário do cliente — cupom de presente exclusivo válido por 7 dias.",
+  },
+  {
+    label: "Pré-treino",
+    text: "Pré-treino segunda — peça pra quem começa a semana suado, mood Respect the Hustle.",
   },
 ];
 
@@ -88,9 +105,10 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
   const [productSearch, setProductSearch] = useState("");
   const [productResults, setProductResults] = useState<PickedProduct[]>([]);
   const [productOpen, setProductOpen] = useState(false);
+  const [countdownEnabled, setCountdownEnabled] = useState(false);
+  const [countdownHours, setCountdownHours] = useState(48);
   const [couponEnabled, setCouponEnabled] = useState(false);
   const [couponPct, setCouponPct] = useState(10);
-  const [couponHours, setCouponHours] = useState(48);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,9 +148,10 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
     setProduct(null);
     setProductSearch("");
     setProductResults([]);
+    setCountdownEnabled(false);
+    setCountdownHours(48);
     setCouponEnabled(false);
     setCouponPct(10);
-    setCouponHours(48);
     setError(null);
     setLoading(false);
   };
@@ -166,12 +185,19 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
           layout_id: layoutId,
           product_id: product?.vnda_id,
           tone: tone ?? undefined,
-          coupon: couponEnabled
-            ? {
-                discount_percent: couponPct,
-                expires_in_hours: couponHours,
-              }
-            : undefined,
+          // Both toggles share the same expires_at on the backend (the
+          // countdown deadline). Cupom on alone gets a default 48h timer.
+          // Countdown alone gets a 0% discount block (no cupom code emitted).
+          coupon:
+            couponEnabled || countdownEnabled
+              ? {
+                  discount_percent: couponEnabled ? couponPct : 0,
+                  expires_in_hours: countdownEnabled
+                    ? countdownHours
+                    : 48,
+                }
+              : undefined,
+          countdown_only: !couponEnabled && countdownEnabled,
         }),
       });
       const d = await r.json();
@@ -214,10 +240,10 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
           </p>
         </div>
 
-        {/* Body — context (full-width) + 2-column grid below */}
-        <div className="flex-1 overflow-y-auto">
-          {/* Step 1 — Contexto */}
-          <div className="px-6 pt-5 pb-4 border-b">
+        {/* Body — context (full-width, fixed) + 2 independently-scrolling columns below */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Step 1 — Contexto (does not scroll) */}
+          <div className="px-6 pt-5 pb-4 border-b shrink-0">
             <div className="flex items-center gap-2 mb-2">
               <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
                 1
@@ -248,10 +274,10 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
             </div>
           </div>
 
-          {/* 2-column grid: Template (left, prominent) + Settings (right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] divide-y lg:divide-y-0 lg:divide-x">
-            {/* Step 2 — Template (left, prominent) */}
-            <div className="px-6 py-5">
+          {/* 2 independently-scrolling columns: Template (left, prominent) + Settings (right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] divide-y lg:divide-y-0 lg:divide-x flex-1 min-h-0">
+            {/* Step 2 — Template (left, prominent) — own scroll */}
+            <div className="px-6 py-5 overflow-y-auto">
               <div className="flex items-center gap-2 mb-3">
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
                   2
@@ -284,8 +310,8 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
               )}
             </div>
 
-            {/* Settings column (right): Produto · Tom · Cupom */}
-            <div className="px-6 py-5 space-y-5 bg-muted/10">
+            {/* Settings column (right) — own scroll */}
+            <div className="px-6 py-5 space-y-5 bg-muted/10 overflow-y-auto">
               {/* Step 3 — Produto */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -395,7 +421,7 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                 </div>
               </div>
 
-              {/* Step 5 — Cupom */}
+              {/* Step 5 — Countdown */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -403,7 +429,67 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                       5
                     </span>
                     <Label className="text-xs uppercase tracking-widest">
-                      Cupom + countdown
+                      Countdown
+                    </Label>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={countdownEnabled}
+                    disabled={loading}
+                    onClick={() => setCountdownEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
+                      countdownEnabled
+                        ? "bg-foreground border-foreground"
+                        : "bg-card border-border"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                        countdownEnabled ? "translate-x-5" : "translate-x-[2px]"
+                      }`}
+                    />
+                  </button>
+                </div>
+                {countdownEnabled && (
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      Termina em (horas)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={countdownHours}
+                      onChange={(e) => setCountdownHours(parseFloat(e.target.value) || 0)}
+                      disabled={loading}
+                      className="h-8 text-xs"
+                    />
+                    <div className="grid grid-cols-5 gap-1 pt-0.5">
+                      {[1, 6, 24, 48, 72].map((h) => (
+                        <Button
+                          key={h}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[11px]"
+                          disabled={loading}
+                          onClick={() => setCountdownHours(h)}
+                        >
+                          {h}h
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 6 — Cupom */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
+                      6
+                    </span>
+                    <Label className="text-xs uppercase tracking-widest">
+                      Cupom
                     </Label>
                   </div>
                   <button
@@ -426,31 +512,23 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                   </button>
                 </div>
                 {couponEnabled && (
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                        % off
-                      </Label>
-                      <Input
-                        type="number"
-                        value={couponPct}
-                        onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
-                        disabled={loading}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                        Termina em (h)
-                      </Label>
-                      <Input
-                        type="number"
-                        value={couponHours}
-                        onChange={(e) => setCouponHours(parseFloat(e.target.value) || 0)}
-                        disabled={loading}
-                        className="h-8 text-xs"
-                      />
-                    </div>
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      % off
+                    </Label>
+                    <Input
+                      type="number"
+                      value={couponPct}
+                      onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
+                      disabled={loading}
+                      className="h-8 text-xs"
+                    />
+                    {!countdownEnabled && (
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Sem countdown ligado o cupom expira em 48h por padrão.
+                        Ative o Countdown acima pra controlar o prazo.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
