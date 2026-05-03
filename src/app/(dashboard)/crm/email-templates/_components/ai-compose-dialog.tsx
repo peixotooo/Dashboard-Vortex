@@ -422,7 +422,7 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
               </div>
 
               {/* Step 5 — Countdown */}
-              <div className="space-y-2">
+              <div className="space-y-2 border rounded-lg p-3 bg-card">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
@@ -451,38 +451,41 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                     />
                   </button>
                 </div>
-                {countdownEnabled && (
-                  <div className="space-y-1.5 pt-1">
-                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      Termina em (horas)
-                    </Label>
-                    <Input
-                      type="number"
-                      value={countdownHours}
-                      onChange={(e) => setCountdownHours(parseFloat(e.target.value) || 0)}
-                      disabled={loading}
-                      className="h-8 text-xs"
-                    />
-                    <div className="grid grid-cols-5 gap-1 pt-0.5">
-                      {[1, 6, 24, 48, 72].map((h) => (
-                        <Button
-                          key={h}
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-[11px]"
-                          disabled={loading}
-                          onClick={() => setCountdownHours(h)}
-                        >
-                          {h}h
-                        </Button>
-                      ))}
-                    </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {countdownEnabled
+                    ? `Timer ativo · termina em ${countdownHours}h.`
+                    : "Adiciona um GIF animado de contagem regressiva no topo do email pra urgência."}
+                </p>
+                <div className="space-y-1.5 pt-1">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Termina em (horas)
+                  </Label>
+                  <Input
+                    type="number"
+                    value={countdownHours}
+                    onChange={(e) => setCountdownHours(parseFloat(e.target.value) || 0)}
+                    disabled={loading || !countdownEnabled}
+                    className="h-8 text-xs"
+                  />
+                  <div className="grid grid-cols-5 gap-1 pt-0.5">
+                    {[1, 6, 24, 48, 72].map((h) => (
+                      <Button
+                        key={h}
+                        size="sm"
+                        variant={countdownHours === h && countdownEnabled ? "default" : "outline"}
+                        className="h-7 text-[11px]"
+                        disabled={loading || !countdownEnabled}
+                        onClick={() => setCountdownHours(h)}
+                      >
+                        {h}h
+                      </Button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Step 6 — Cupom */}
-              <div className="space-y-2">
+              <div className="space-y-2 border rounded-lg p-3 bg-card">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
@@ -511,26 +514,43 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                     />
                   </button>
                 </div>
-                {couponEnabled && (
-                  <div className="space-y-1.5 pt-1">
-                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      % off
-                    </Label>
-                    <Input
-                      type="number"
-                      value={couponPct}
-                      onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
-                      disabled={loading}
-                      className="h-8 text-xs"
-                    />
-                    {!countdownEnabled && (
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Sem countdown ligado o cupom expira em 48h por padrão.
-                        Ative o Countdown acima pra controlar o prazo.
-                      </p>
-                    )}
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {couponEnabled
+                    ? `${couponPct}% off · código gerado automaticamente.`
+                    : "Adiciona um bloco de cupom com código único e desconto."}
+                </p>
+                <div className="space-y-1.5 pt-1">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    % off
+                  </Label>
+                  <Input
+                    type="number"
+                    value={couponPct}
+                    onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
+                    disabled={loading || !couponEnabled}
+                    className="h-8 text-xs"
+                  />
+                  <div className="grid grid-cols-4 gap-1 pt-0.5">
+                    {[5, 10, 15, 20].map((p) => (
+                      <Button
+                        key={p}
+                        size="sm"
+                        variant={couponPct === p && couponEnabled ? "default" : "outline"}
+                        className="h-7 text-[11px]"
+                        disabled={loading || !couponEnabled}
+                        onClick={() => setCouponPct(p)}
+                      >
+                        {p}%
+                      </Button>
+                    ))}
                   </div>
-                )}
+                  {couponEnabled && !countdownEnabled && (
+                    <p className="text-[10px] text-muted-foreground leading-relaxed pt-1">
+                      Cupom expira em 48h por padrão. Ative o Countdown acima pra
+                      controlar o prazo.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
