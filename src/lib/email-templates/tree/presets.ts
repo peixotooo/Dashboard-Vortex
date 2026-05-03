@@ -45,6 +45,42 @@ interface BuildCtx {
   coupon?: { code: string; discount_percent: number; expires_at: Date };
 }
 
+/**
+ * Section that hosts a countdown timer when the draft has a coupon. Renders
+ * the GIF banner the existing pipeline ships (HMAC-signed URL, expiry
+ * baked in). Returns null when no coupon is set so callers can ?? null
+ * .filter(Boolean) it.
+ */
+function countdownSectionFor(ctx: BuildCtx): SectionNode | null {
+  if (!ctx.coupon) return null;
+  return {
+    id: newId(),
+    type: "section",
+    padding: "0",
+    children: [
+      { id: newId(), type: "countdown", expires_at: ctx.coupon.expires_at.toISOString() },
+    ],
+  };
+}
+
+function couponSectionFor(ctx: BuildCtx): SectionNode | null {
+  if (!ctx.coupon) return null;
+  return {
+    id: newId(),
+    type: "section",
+    padding: "0 32px 24px",
+    children: [
+      {
+        id: newId(),
+        type: "coupon",
+        code: ctx.coupon.code,
+        discount_percent: ctx.coupon.discount_percent,
+        product_name: ctx.primary.name,
+      },
+    ],
+  };
+}
+
 function logoSection(): SectionNode {
   return {
     id: newId(),
@@ -201,6 +237,18 @@ function buildClassic(ctx: BuildCtx): SectionNode[] {
   return sections;
 }
 
+function withCouponSections(ctx: BuildCtx, sections: (SectionNode | null)[]): SectionNode[] {
+  // Strategy: countdown right after logo, coupon block right before footer.
+  const out = sections.filter((s): s is SectionNode => s !== null);
+  if (!ctx.coupon) return out;
+  const cd = countdownSectionFor(ctx);
+  const cp = couponSectionFor(ctx);
+  // Insert countdown after logoSection (index 0), coupon before footer (last).
+  if (cd) out.splice(1, 0, cd);
+  if (cp) out.splice(out.length - 1, 0, cp);
+  return out;
+}
+
 function buildReviewsSideHero(ctx: BuildCtx): SectionNode[] {
   // 2-column: reviews on left, hero on right.
   const reviewsCol: ColumnNode = {
@@ -273,12 +321,12 @@ function buildReviewsSideHero(ctx: BuildCtx): SectionNode[] {
     },
     footerSection(ctx.mode),
   ];
-  return sections;
+  return withCouponSections(ctx, sections);
 }
 
 function buildUniformGrid3x3(ctx: BuildCtx): SectionNode[] {
   const products = [ctx.primary, ...ctx.related].slice(0, 9);
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -309,12 +357,12 @@ function buildUniformGrid3x3(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildEditorialOverlay(ctx: BuildCtx): SectionNode[] {
   // Big split-word typography around the hero. Three sections stacked.
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -370,7 +418,7 @@ function buildEditorialOverlay(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildLogoAsymNarrative(ctx: BuildCtx): SectionNode[] {
@@ -404,7 +452,7 @@ function buildLogoAsymNarrative(ctx: BuildCtx): SectionNode[] {
       },
     ],
   };
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -413,11 +461,11 @@ function buildLogoAsymNarrative(ctx: BuildCtx): SectionNode[] {
       children: [{ id: newId(), type: "row", columns: [leftCol, rightCol] }],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildOverlayDualCta(ctx: BuildCtx): SectionNode[] {
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -447,11 +495,11 @@ function buildOverlayDualCta(ctx: BuildCtx): SectionNode[] {
     },
     ctx.related.length > 0 ? buildRelatedSection(ctx.related.slice(0, 3), 3) : null,
     footerSection(ctx.mode),
-  ].filter(Boolean) as SectionNode[];
+  ]);
 }
 
 function buildEditionNarrative(ctx: BuildCtx): SectionNode[] {
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -502,12 +550,12 @@ function buildEditionNarrative(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildNumberedGrid(ctx: BuildCtx): SectionNode[] {
   const products = [ctx.primary, ...ctx.related].slice(0, 4);
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -537,11 +585,11 @@ function buildNumberedGrid(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildSlashLabels(ctx: BuildCtx): SectionNode[] {
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -602,11 +650,11 @@ function buildSlashLabels(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildSingleDetail(ctx: BuildCtx): SectionNode[] {
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -650,11 +698,11 @@ function buildSingleDetail(ctx: BuildCtx): SectionNode[] {
       ],
     },
     footerSection(ctx.mode),
-  ];
+  ]);
 }
 
 function buildBlurBestsellers(ctx: BuildCtx): SectionNode[] {
-  return [
+  return withCouponSections(ctx, [
     logoSection(),
     {
       id: newId(),
@@ -684,7 +732,7 @@ function buildBlurBestsellers(ctx: BuildCtx): SectionNode[] {
     },
     ctx.related.length > 0 ? buildRelatedSection(ctx.related.slice(0, 3), 3) : null,
     footerSection(ctx.mode),
-  ].filter(Boolean) as SectionNode[];
+  ]);
 }
 
 function buildRelatedSection(products: ProductSnapshot[], cols: 2 | 3 | 4): SectionNode {
@@ -779,8 +827,11 @@ export function buildTreeDraftFromSuggestion(args: {
     workspace_id: args.workspace_id,
     coupon: args.coupon,
   });
-  // Patch the copy in headings/text/buttons.
-  const patched = seed.sections.map((s) => patchCopyInSection(s, args.copy));
+  // Patch only the FIRST headline / text / button in render order. Layouts
+  // typically have additional text leaves further down (footer "Respect the
+  // Hustle.", footer credit line, etc.) — overwriting all of them with the
+  // suggestion copy is what made every section read identical.
+  const patched = patchFirstCopyOccurrencesInTree(seed.sections, args.copy);
   return {
     ...seed,
     name: `${args.primary.name} · sugestão slot ${args.slot}`,
@@ -793,11 +844,28 @@ export function buildTreeDraftFromSuggestion(args: {
   };
 }
 
-function patchCopyInSection(
-  s: SectionNode,
+function patchFirstCopyOccurrencesInTree(
+  sections: SectionNode[],
   copy: { headline: string; lead: string; cta_text: string; cta_url: string }
-): SectionNode {
-  return {
+): SectionNode[] {
+  // Closure tracks whether each role has been patched. First match wins.
+  const seen = { heading: false, text: false, button: false };
+  const patchLeaf = (leaf: LeafNode): LeafNode => {
+    if (leaf.type === "heading" && !seen.heading) {
+      seen.heading = true;
+      return { ...leaf, text: copy.headline };
+    }
+    if (leaf.type === "text" && !seen.text) {
+      seen.text = true;
+      return { ...leaf, text: copy.lead };
+    }
+    if (leaf.type === "button" && !seen.button) {
+      seen.button = true;
+      return { ...leaf, text: copy.cta_text, href: copy.cta_url };
+    }
+    return leaf;
+  };
+  return sections.map((s) => ({
     ...s,
     children: s.children.map((child) => {
       if (child.type === "row") {
@@ -805,24 +873,13 @@ function patchCopyInSection(
           ...child,
           columns: child.columns.map((col) => ({
             ...col,
-            children: col.children.map((leaf) => patchLeaf(leaf, copy)) as LeafNode[],
+            children: col.children.map(patchLeaf),
           })),
         } as RowNode;
       }
-      return patchLeaf(child as LeafNode, copy);
+      return patchLeaf(child);
     }),
-  };
-}
-
-function patchLeaf(
-  leaf: LeafNode,
-  copy: { headline: string; lead: string; cta_text: string; cta_url: string }
-): LeafNode {
-  if (leaf.type === "heading") return { ...leaf, text: copy.headline };
-  if (leaf.type === "text") return { ...leaf, text: copy.lead };
-  if (leaf.type === "button")
-    return { ...leaf, text: copy.cta_text, href: copy.cta_url };
-  return leaf;
+  }));
 }
 
 function subjectForSlot(slot: Slot, productName: string): string {

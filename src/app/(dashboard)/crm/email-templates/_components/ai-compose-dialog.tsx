@@ -257,31 +257,18 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
           {layouts.length === 0 ? (
             <div className="text-xs text-muted-foreground">Carregando templates...</div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-44 overflow-y-auto p-1">
-              {layoutFamilies.map((l) => {
-                const family = l.id.replace(/-(light|dark)$/, "");
-                const active = layoutId === l.id;
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => setLayoutId(l.id)}
-                    className={`flex flex-col items-start text-left p-2 rounded border transition-colors disabled:opacity-50 ${
-                      active
-                        ? "border-foreground bg-foreground/5"
-                        : "border-border bg-card hover:border-foreground/40"
-                    }`}
-                  >
-                    <span className="text-[11px] font-medium leading-tight truncate w-full">
-                      {family}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground uppercase">
-                      {l.mode}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto p-1">
+              {layoutFamilies.map((l) => (
+                <TemplateThumbCard
+                  key={l.id}
+                  layout={l}
+                  workspaceId={workspaceId}
+                  active={layoutId === l.id}
+                  loading={loading}
+                  onSelect={() => setLayoutId(l.id)}
+                  productId={product?.vnda_id}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -459,5 +446,100 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TemplateThumbCard({
+  layout,
+  workspaceId,
+  active,
+  loading,
+  onSelect,
+  productId,
+}: {
+  layout: LayoutMeta;
+  workspaceId: string;
+  active: boolean;
+  loading: boolean;
+  onSelect: () => void;
+  productId?: string;
+}) {
+  const [html, setHtml] = useState<string | null>(null);
+  const family = layout.id.replace(/-(light|dark)$/, "");
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams({ slot: "1", hero: "off" });
+    if (productId) params.set("product_id", productId);
+    fetch(`/api/crm/email-templates/layouts/${layout.id}/preview?${params}`, {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setHtml(d.html ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setHtml("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [layout.id, workspaceId, productId]);
+
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={onSelect}
+      className={`group relative overflow-hidden rounded-lg border bg-card transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+        active
+          ? "border-foreground ring-2 ring-foreground/20 shadow-md"
+          : "border-border hover:border-foreground/40"
+      }`}
+    >
+      <div
+        className={`relative w-full overflow-hidden ${
+          layout.mode === "dark"
+            ? "bg-gradient-to-br from-neutral-900 to-black"
+            : "bg-gradient-to-br from-neutral-50 to-neutral-100"
+        }`}
+        style={{ height: 180 }}
+      >
+        {html === null ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground">
+            Carregando...
+          </div>
+        ) : (
+          <iframe
+            srcDoc={html}
+            sandbox=""
+            title={`Preview ${layout.id}`}
+            className="border-0 bg-white pointer-events-none absolute"
+            style={{
+              width: "600px",
+              height: "800px",
+              transform: "scale(0.36)",
+              transformOrigin: "top center",
+              left: "50%",
+              marginLeft: "-300px",
+              top: 0,
+            }}
+          />
+        )}
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 h-10 ${
+            layout.mode === "dark"
+              ? "bg-gradient-to-t from-black to-transparent"
+              : "bg-gradient-to-t from-white to-transparent"
+          }`}
+        />
+      </div>
+      <div className="px-2 py-1.5 flex items-center justify-between border-t">
+        <span className="text-[11px] font-medium truncate">{family}</span>
+        <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+          {layout.mode}
+        </span>
+      </div>
+    </button>
   );
 }
