@@ -5,8 +5,9 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Trash2, Copy as CopyIcon, Pencil, FolderOpen } from "lucide-react";
+import { Loader2, Trash2, Copy as CopyIcon, Pencil, FolderOpen, Sparkles } from "lucide-react";
 import { SectionNav } from "../_components/section-nav";
+import { AIComposeDialog } from "../_components/ai-compose-dialog";
 
 function DraftThumbnail({ id, workspaceId, mode }: { id: string; workspaceId: string; mode: "light" | "dark" }) {
   const [html, setHtml] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export default function DraftsPage() {
   const workspaceId = workspace?.id ?? "";
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -180,17 +182,28 @@ export default function DraftsPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <div className="space-y-3">
         <SectionNav />
-        <div>
-          <h1 className="text-2xl font-bold">Meus templates</h1>
-          <p className="text-muted-foreground text-sm">
-            Drafts salvos por você e seu time. Os templates originais da{" "}
-            <Link href="/crm/email-templates/library" className="underline">
-              Galeria
-            </Link>{" "}
-            ficam intactos — cada edição vira um novo draft aqui.
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold">Meus templates</h1>
+            <p className="text-muted-foreground text-sm">
+              Drafts salvos por você e seu time. Os templates originais da{" "}
+              <Link href="/crm/email-templates/library" className="underline">
+                Galeria
+              </Link>{" "}
+              ficam intactos — cada edição vira um novo draft aqui.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setAiOpen(true)} className="gap-1.5">
+            <Sparkles className="w-3.5 h-3.5" />
+            Criar com IA
+          </Button>
         </div>
       </div>
+      <AIComposeDialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        workspaceId={workspaceId}
+      />
 
       {drafts === null ? (
         <div className="flex items-center gap-2 text-muted-foreground">

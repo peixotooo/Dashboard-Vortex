@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Maximize2, Wand2, Search, X, Sparkles } from "lucide-react";
 import { SectionNav } from "../_components/section-nav";
+import { AIComposeDialog } from "../_components/ai-compose-dialog";
 import { useWorkspace } from "@/lib/workspace-context";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -328,6 +329,7 @@ export default function LayoutLibraryPage() {
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null);
   const [lightboxHtml, setLightboxHtml] = useState<string | null>(null);
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const useTemplate = async (layoutId: string, layoutSlot: number) => {
     if (!workspaceId || creatingFor) return;
@@ -435,8 +437,17 @@ export default function LayoutLibraryPage() {
             value={previewProduct}
             onChange={setPreviewProduct}
           />
+          <Button onClick={() => setAiOpen(true)} className="gap-1.5 h-9">
+            <Sparkles className="w-3.5 h-3.5" />
+            Criar com IA
+          </Button>
         </div>
       </div>
+      <AIComposeDialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        workspaceId={workspaceId}
+      />
 
       <div className="space-y-3">
         <div className="flex items-center gap-2 flex-wrap">

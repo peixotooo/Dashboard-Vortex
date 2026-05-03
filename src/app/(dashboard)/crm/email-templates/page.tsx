@@ -6,6 +6,9 @@ import { SuggestionCard } from "./components/suggestion-card";
 import { HistoryTable } from "./components/history-table";
 import { SettingsDrawer } from "./components/settings-drawer";
 import { SectionNav } from "./_components/section-nav";
+import { AIComposeDialog } from "./_components/ai-compose-dialog";
+import { Button } from "@/components/ui/button";
+import { Sparkles } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 
 export default function EmailTemplatesPage() {
@@ -14,6 +17,7 @@ export default function EmailTemplatesPage() {
   const [items, setItems] = useState<EmailSuggestion[]>([]);
   const [date, setDate] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const reload = useCallback(async () => {
     if (!workspaceId) return;
@@ -53,9 +57,22 @@ export default function EmailTemplatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => setAiOpen(true)}
+            className="gap-1.5"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Criar com IA
+          </Button>
           <SettingsDrawer workspaceId={workspaceId} />
         </div>
       </div>
+      <AIComposeDialog
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        workspaceId={workspaceId}
+      />
       <Tabs defaultValue="today">
         <TabsList>
           <TabsTrigger value="today">Hoje</TabsTrigger>
