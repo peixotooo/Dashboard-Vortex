@@ -36,8 +36,13 @@ function ensureFonts() {
   _fontsRegistered = true;
 }
 
-const W = 600;
-const H = 220;
+// Render at 2x logical so text stays sharp when the email client (Gmail, etc.)
+// displays the GIF at the declared 600×220 size on high-DPI screens. Without
+// the 2x bake, the bitmap is rasterized at exactly 600×220 and the browser
+// has nothing to upsample from on retina, so digits and labels go soft/blurry.
+const SCALE = 2;
+const W = 600 * SCALE;
+const H = 220 * SCALE;
 const FRAMES = 60;
 const FRAME_DELAY_MS = 1000;
 // Monochrome only. No saturated accent on typography per brand system.
@@ -77,7 +82,7 @@ function drawFrame(
 
   if (expired) {
     ctx.fillStyle = MUTED;
-    ctx.font = "500 40px Kanit, Arial, sans-serif";
+    ctx.font = `500 ${40 * SCALE}px Kanit, Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("ENCERRADO", W / 2, H / 2);
@@ -86,24 +91,24 @@ function drawFrame(
 
   // Top eyebrow label. No em dash. Letter spacing handled implicitly by Kanit.
   ctx.fillStyle = MUTED;
-  ctx.font = "500 13px Kanit, Arial, sans-serif";
+  ctx.font = `500 ${13 * SCALE}px Kanit, Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("ÚLTIMA CHANCE   ·   TERMINA EM", W / 2, 36);
+  ctx.fillText("ÚLTIMA CHANCE   ·   TERMINA EM", W / 2, 36 * SCALE);
 
   const p = parts(remainingSec);
   const labels = ["DIAS", "HORAS", "MINUTOS", "SEGUNDOS"];
   const digits = [p.d, p.h, p.m, p.s];
 
   const boxCount = 4;
-  const totalContentWidth = 480;
+  const totalContentWidth = 480 * SCALE;
   const slotWidth = totalContentWidth / boxCount;
   const startX = (W - totalContentWidth) / 2 + slotWidth / 2;
-  const digitsY = 120;
-  const labelY = 184;
+  const digitsY = 120 * SCALE;
+  const labelY = 184 * SCALE;
 
   // Digits at weight 500. Editorial references use medium not bold.
-  ctx.font = "500 64px Kanit, Arial, sans-serif";
+  ctx.font = `500 ${64 * SCALE}px Kanit, Arial, sans-serif`;
   ctx.fillStyle = FG;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;
@@ -111,7 +116,7 @@ function drawFrame(
   }
 
   // Colon separators between boxes. Same monochrome white, no accent.
-  ctx.font = "500 36px Kanit, Arial, sans-serif";
+  ctx.font = `500 ${36 * SCALE}px Kanit, Arial, sans-serif`;
 
   ctx.fillStyle = FG;
   for (let i = 0; i < boxCount - 1; i++) {
@@ -120,7 +125,7 @@ function drawFrame(
   }
 
   // Labels below the digits. Subtle, weight 500.
-  ctx.font = "500 11px Kanit, Arial, sans-serif";
+  ctx.font = `500 ${11 * SCALE}px Kanit, Arial, sans-serif`;
   ctx.fillStyle = MUTED;
   for (let i = 0; i < boxCount; i++) {
     const cx = startX + slotWidth * i;

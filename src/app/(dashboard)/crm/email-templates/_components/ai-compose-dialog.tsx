@@ -200,237 +200,292 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogTitle className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4" />
-          Criar email com IA
-        </DialogTitle>
-        <p className="text-xs text-muted-foreground -mt-2">
-          Conte o contexto em linguagem natural, escolha um template e em poucos
-          cliques você recebe o email pronto pra editar.
-        </p>
-
-        {/* 1. Contexto */}
-        <div className="space-y-2">
-          <Label className="text-xs flex items-center gap-1.5">
-            <span className="inline-block w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center">
-              1
-            </span>
-            Contexto do email
-          </Label>
-          <Textarea
-            rows={3}
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            placeholder='Ex: "Promoção da madrugada — 20% off só esta noite, expira em 6h"'
-            disabled={loading}
-          />
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {CONTEXT_CHIPS.map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                disabled={loading}
-                onClick={() => setContext(c.text)}
-                className="inline-flex items-center gap-1 px-2 h-6 rounded-full border border-border/60 text-[11px] hover:border-foreground/40 hover:bg-muted/40 transition-colors disabled:opacity-50"
-              >
-                <Tag className="w-2.5 h-2.5 opacity-60" />
-                {c.label}
-              </button>
-            ))}
-          </div>
+      <DialogContent className="max-w-5xl max-h-[92vh] p-0 gap-0 overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b bg-gradient-to-br from-foreground/[0.03] via-card to-foreground/[0.06]">
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <div className="w-8 h-8 rounded-lg bg-foreground text-background flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            Criar email com IA
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground mt-1.5 ml-10">
+            Conte o contexto, escolha um template e a IA monta o email pronto pra editar.
+          </p>
         </div>
 
-        {/* 2. Template */}
-        <div className="space-y-2">
-          <Label className="text-xs flex items-center gap-1.5">
-            <span className="inline-block w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center">
-              2
-            </span>
-            Template
-            {layoutId && (
-              <span className="font-mono text-[10px] text-muted-foreground ml-1">
-                · {layoutId}
+        {/* Body — context (full-width) + 2-column grid below */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Step 1 — Contexto */}
+          <div className="px-6 pt-5 pb-4 border-b">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
+                1
               </span>
-            )}
-          </Label>
-          {layouts.length === 0 ? (
-            <div className="text-xs text-muted-foreground">Carregando templates...</div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto p-1">
-              {layoutFamilies.map((l) => (
-                <TemplateThumbCard
-                  key={l.id}
-                  layout={l}
-                  workspaceId={workspaceId}
-                  active={layoutId === l.id}
-                  loading={loading}
-                  onSelect={() => setLayoutId(l.id)}
-                  productId={product?.vnda_id}
-                />
+              <Label className="text-xs uppercase tracking-widest">Contexto</Label>
+            </div>
+            <Textarea
+              rows={3}
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              placeholder='Ex: "Promoção da madrugada — 20% off só esta noite, expira em 6h"'
+              disabled={loading}
+              className="resize-none"
+            />
+            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+              {CONTEXT_CHIPS.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setContext(c.text)}
+                  className="inline-flex items-center gap-1 px-2.5 h-6 rounded-full border border-border/60 text-[11px] hover:border-foreground/40 hover:bg-muted/40 transition-colors disabled:opacity-50"
+                >
+                  <Tag className="w-2.5 h-2.5 opacity-60" />
+                  {c.label}
+                </button>
               ))}
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* 3. Produto */}
-        <div className="space-y-2">
-          <Label className="text-xs flex items-center gap-1.5">
-            <span className="inline-block w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold flex items-center justify-center">
-              3
-            </span>
-            Produto em destaque
-            <span className="text-[10px] text-muted-foreground font-normal ml-1">
-              (opcional · IA escolhe o best-seller atual se vazio)
-            </span>
-          </Label>
-          {product ? (
-            <div className="flex items-center gap-2 border rounded p-2 bg-muted/30">
-              <img
-                src={product.image_url}
-                alt={product.name}
-                className="w-9 h-12 object-cover shrink-0"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs truncate">{product.name}</div>
-                <div className="text-[10px] text-muted-foreground">
-                  R$ {product.price.toFixed(2)}
+          {/* 2-column grid: Template (left, prominent) + Settings (right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] divide-y lg:divide-y-0 lg:divide-x">
+            {/* Step 2 — Template (left, prominent) */}
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
+                  2
+                </span>
+                <Label className="text-xs uppercase tracking-widest">Template</Label>
+                {layoutId && (
+                  <span className="font-mono text-[10px] text-muted-foreground ml-auto truncate">
+                    {layoutId}
+                  </span>
+                )}
+              </div>
+              {layouts.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando templates...
                 </div>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                onClick={() => setProduct(null)}
-                disabled={loading}
-              >
-                <X className="w-3 h-3" />
-              </Button>
-            </div>
-          ) : (
-            <div className="relative">
-              <div className="flex items-center gap-2 border rounded-md px-2 h-8 bg-background focus-within:border-foreground/40">
-                <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <input
-                  placeholder="Buscar produto VNDA (deixe vazio pra IA escolher o best-seller)"
-                  value={productSearch}
-                  onChange={(e) => {
-                    setProductSearch(e.target.value);
-                    setProductOpen(true);
-                  }}
-                  onFocus={() => setProductOpen(true)}
-                  className="bg-transparent outline-none text-xs flex-1 min-w-0"
-                  disabled={loading}
-                />
-              </div>
-              {productOpen && productResults.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full bg-background border rounded-md shadow-lg max-h-56 overflow-y-auto">
-                  {productResults.slice(0, 12).map((p) => (
-                    <button
-                      key={p.vnda_id}
-                      type="button"
-                      onClick={() => {
-                        setProduct(p);
-                        setProductSearch("");
-                        setProductOpen(false);
-                      }}
-                      className="w-full flex items-center gap-2 p-2 hover:bg-muted text-left"
-                    >
-                      <img
-                        src={p.image_url}
-                        alt={p.name}
-                        className="w-7 h-9 object-cover shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs truncate">{p.name}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          R$ {p.price.toFixed(2)}
-                        </div>
-                      </div>
-                    </button>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {layoutFamilies.map((l) => (
+                    <TemplateThumbCard
+                      key={l.id}
+                      layout={l}
+                      workspaceId={workspaceId}
+                      active={layoutId === l.id}
+                      loading={loading}
+                      onSelect={() => setLayoutId(l.id)}
+                      productId={product?.vnda_id}
+                    />
                   ))}
                 </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* 4. Tom (opcional) */}
-        <div className="space-y-2">
-          <Label className="text-xs flex items-center gap-1.5">
-            <span className="inline-block w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold flex items-center justify-center">
-              4
-            </span>
-            Tom <span className="text-[10px] text-muted-foreground font-normal ml-1">(opcional)</span>
-          </Label>
-          <div className="flex flex-wrap gap-1">
-            {TONES.map((t) => (
-              <Button
-                key={t.id}
-                size="sm"
-                variant={tone === t.id ? "default" : "outline"}
-                className="h-7 text-xs"
-                disabled={loading}
-                onClick={() => setTone(tone === t.id ? null : t.id)}
-              >
-                {t.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {/* 5. Cupom (opcional) */}
-        <div className="space-y-2 border-t pt-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Cupom + countdown (opcional)</Label>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={loading}
-              onClick={() => setCouponEnabled((v) => !v)}
-            >
-              {couponEnabled ? "Remover" : "Adicionar"}
-            </Button>
-          </div>
-          {couponEnabled && (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">% off</Label>
-                <Input
-                  type="number"
-                  value={couponPct}
-                  onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
-                  disabled={loading}
-                />
+            {/* Settings column (right): Produto · Tom · Cupom */}
+            <div className="px-6 py-5 space-y-5 bg-muted/10">
+              {/* Step 3 — Produto */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
+                    3
+                  </span>
+                  <Label className="text-xs uppercase tracking-widest">Produto</Label>
+                </div>
+                <p className="text-[10px] text-muted-foreground -mt-1">
+                  Opcional · vazio = IA pega o best-seller atual.
+                </p>
+                {product ? (
+                  <div className="flex items-center gap-2 border rounded-md p-2 bg-background">
+                    <img
+                      src={product.image_url}
+                      alt={product.name}
+                      className="w-10 h-12 object-cover shrink-0 rounded"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs truncate font-medium">{product.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        R$ {product.price.toFixed(2)}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setProduct(null)}
+                      disabled={loading}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <div className="flex items-center gap-2 border rounded-md px-2 h-9 bg-background focus-within:border-foreground/40">
+                      <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <input
+                        placeholder="Buscar produto..."
+                        value={productSearch}
+                        onChange={(e) => {
+                          setProductSearch(e.target.value);
+                          setProductOpen(true);
+                        }}
+                        onFocus={() => setProductOpen(true)}
+                        className="bg-transparent outline-none text-xs flex-1 min-w-0"
+                        disabled={loading}
+                      />
+                    </div>
+                    {productOpen && productResults.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full bg-background border rounded-md shadow-lg max-h-56 overflow-y-auto">
+                        {productResults.slice(0, 12).map((p) => (
+                          <button
+                            key={p.vnda_id}
+                            type="button"
+                            onClick={() => {
+                              setProduct(p);
+                              setProductSearch("");
+                              setProductOpen(false);
+                            }}
+                            className="w-full flex items-center gap-2 p-2 hover:bg-muted text-left"
+                          >
+                            <img
+                              src={p.image_url}
+                              alt={p.name}
+                              className="w-7 h-9 object-cover shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs truncate">{p.name}</div>
+                              <div className="text-[10px] text-muted-foreground">
+                                R$ {p.price.toFixed(2)}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Termina em (h)</Label>
-                <Input
-                  type="number"
-                  value={couponHours}
-                  onChange={(e) => setCouponHours(parseFloat(e.target.value) || 0)}
-                  disabled={loading}
-                />
+
+              {/* Step 4 — Tom */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
+                    4
+                  </span>
+                  <Label className="text-xs uppercase tracking-widest">Tom</Label>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    opcional
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {TONES.map((t) => (
+                    <Button
+                      key={t.id}
+                      size="sm"
+                      variant={tone === t.id ? "default" : "outline"}
+                      className="h-8 text-xs"
+                      disabled={loading}
+                      onClick={() => setTone(tone === t.id ? null : t.id)}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Step 5 — Cupom */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
+                      5
+                    </span>
+                    <Label className="text-xs uppercase tracking-widest">
+                      Cupom + countdown
+                    </Label>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={couponEnabled}
+                    disabled={loading}
+                    onClick={() => setCouponEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
+                      couponEnabled
+                        ? "bg-foreground border-foreground"
+                        : "bg-card border-border"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                        couponEnabled ? "translate-x-5" : "translate-x-[2px]"
+                      }`}
+                    />
+                  </button>
+                </div>
+                {couponEnabled && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        % off
+                      </Label>
+                      <Input
+                        type="number"
+                        value={couponPct}
+                        onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
+                        disabled={loading}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Termina em (h)
+                      </Label>
+                      <Input
+                        type="number"
+                        value={couponHours}
+                        onChange={(e) => setCouponHours(parseFloat(e.target.value) || 0)}
+                        disabled={loading}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
         </div>
 
-        {error && (
-          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
-            {error}
+        {/* Sticky action bar */}
+        <div className="border-t bg-card px-6 py-3 flex items-center gap-3">
+          {error && (
+            <div className="text-xs text-destructive flex-1 min-w-0 truncate">
+              {error}
+            </div>
+          )}
+          {loading && !error && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              IA escrevendo a copy e montando o email... (~10-20s)
           </div>
-        )}
-
-        {loading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded bg-muted/30">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            IA escrevendo a copy e montando o email... (~10-20s)
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-1">
+          )}
+          {!error && !loading && (
+            <div className="text-[11px] text-muted-foreground flex-1">
+              {context.trim().length >= 5 && layoutId ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Pronto pra montar
+                </span>
+              ) : (
+                <span>
+                  {context.trim().length < 5 ? "Conte o contexto · " : ""}
+                  {!layoutId ? "Escolha um template" : ""}
+                </span>
+              )}
+            </div>
+          )}
           <Button variant="outline" size="sm" onClick={close} disabled={loading}>
             Cancelar
           </Button>
