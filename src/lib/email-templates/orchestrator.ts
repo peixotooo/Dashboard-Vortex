@@ -246,16 +246,35 @@ async function persistSuggestion(args: {
   return { slot, ok: true, suggestion_id: data.id as string };
 }
 
-export async function generateForWorkspace(workspace_id: string): Promise<{
+export async function generateForWorkspace(
+  workspace_id: string,
+  options: { date?: string; force?: boolean } = {}
+): Promise<{
   workspace_id: string;
   date: string;
   results: SlotResult[];
 }> {
   const settings = await getSettings(workspace_id);
+  const date = options.date ?? todayBrt();
   if (!settings.enabled) {
-    return { workspace_id, date: todayBrt(), results: [] };
+    return { workspace_id, date, results: [] };
   }
-  const date = todayBrt();
+
+  // Idempotency: skip the workspace if it already has 3 OK suggestions for
+  // the target date — prevents the safety-net cron from rewriting the day's
+  // emails on every hourly tick. Override with options.force = true.
+  if (!options.force) {
+    const supabase = createAdminClient();
+    const { count } = await supabase
+      .from("email_template_suggestions")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspace_id)
+      .eq("generated_for_date", date);
+    if ((count ?? 0) >= 3) {
+      return { workspace_id, date, results: [] };
+    }
+  }
+
   const hours = await pickTopHours(workspace_id, 14);
 
   // Sequential to enforce cross-slot product dedup: a product chosen for slot 1

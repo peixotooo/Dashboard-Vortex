@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/email-templates-refresh",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/email-templates-safety-net",
+      "schedule": "30 * * * *"
     }
   ]
 }
