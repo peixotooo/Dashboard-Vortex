@@ -8,7 +8,7 @@ import { SettingsDrawer } from "./components/settings-drawer";
 import { SectionNav } from "./_components/section-nav";
 import { AIComposeDialog } from "./_components/ai-compose-dialog";
 import { Button } from "@/components/ui/button";
-import { Sparkles } from "lucide-react";
+import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 
 export default function EmailTemplatesPage() {
@@ -18,6 +18,8 @@ export default function EmailTemplatesPage() {
   const [date, setDate] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!workspaceId) return;
@@ -37,6 +39,38 @@ export default function EmailTemplatesPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  const generateNow = async () => {
+    if (!workspaceId || generating) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const r = await fetch("/api/crm/email-templates/generate-now", {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        throw new Error(d.error ?? "Falha ao gerar sugestões.");
+      }
+      await reload();
+      if (
+        Array.isArray(d.slots_filled) &&
+        d.slots_filled.length === 0 &&
+        Array.isArray(d.slots_skipped) &&
+        d.slots_skipped.length > 0
+      ) {
+        const reasons = (d.slots_skipped as Array<{ slot: number; reason: string }>)
+          .map((s) => `slot ${s.slot}: ${s.reason}`)
+          .join(" · ");
+        setGenError(`Nenhum slot pôde ser gerado — ${reasons}`);
+      }
+    } catch (err) {
+      setGenError((err as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   if (!workspaceId) {
     return (
@@ -81,10 +115,57 @@ export default function EmailTemplatesPage() {
         <TabsContent value="today" className="space-y-4">
           {loading && <div>Carregando...</div>}
           {!loading && items.length === 0 && (
-            <div className="border rounded p-8 text-center text-muted-foreground">
-              Nenhuma sugestão pra hoje. Verifique se a feature está ativada em Configurações
-              e se o cron já rodou (06:00 BRT).
+            <div className="border rounded p-8 flex flex-col items-center gap-3 text-center">
+              <div className="text-sm font-medium">Nenhuma sugestão pra hoje</div>
+              <p className="text-xs text-muted-foreground max-w-md">
+                O cron diário gera as 3 sugestões às 06:00 BRT, e um safety-net
+                roda a cada hora. Você também pode disparar manualmente — refresca
+                o catálogo VNDA e gera as 3 sugestões na hora.
+              </p>
+              <Button
+                onClick={generateNow}
+                disabled={generating}
+                size="sm"
+                className="gap-1.5 mt-1"
+              >
+                {generating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                {generating ? "Gerando... (~30-60s)" : "Gerar sugestões agora"}
+              </Button>
+              {genError && (
+                <div className="text-[11px] text-destructive max-w-md">
+                  {genError}
+                </div>
+              )}
             </div>
+          )}
+          {!loading && items.length > 0 && items.length < 3 && (
+            <div className="border rounded-md p-3 flex items-center gap-3 bg-muted/40">
+              <div className="text-xs flex-1">
+                Só {items.length} de 3 sugestões pra hoje. Faltam slots —
+                clique pra completar.
+              </div>
+              <Button
+                onClick={generateNow}
+                disabled={generating}
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+              >
+                {generating ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                {generating ? "Gerando..." : "Completar"}
+              </Button>
+            </div>
+          )}
+          {genError && items.length > 0 && (
+            <div className="text-[11px] text-destructive">{genError}</div>
           )}
           {items.map((s) => (
             <SuggestionCard
