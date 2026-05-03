@@ -79,29 +79,32 @@ export type MacroSimulateInput = {
   custoProdutoPct: number;
   taxPct: number;
   outrasDespesasPct: number;
+  adsPct: number;
+  incluirAds: boolean;
   custoFreteMedioBrl: number;
+  custoFixoMensal: number;
   pisoMargemPct: number;
   bufferZonaVerdePct: number;
 };
 
+export type CenarioAggregate = {
+  receita: number;
+  margemBrl: number;
+  margemPct: number;
+  adsBrl: number;
+  custoFixo: number;
+  lucroOperacional: number;
+  numPedidos: number;
+  ticketMedio: number;
+};
+
 export type MacroSimulateOutput = {
-  projetadoMensal: {
-    receita: number;
-    margemBrl: number;
-    margemPct: number;
-    numPedidos: number;
-    ticketMedio: number;
-  };
-  historicoMensal: {
-    receita: number;
-    margemBrl: number;
-    margemPct: number;
-    numPedidos: number;
-    ticketMedio: number;
-  };
+  projetadoMensal: CenarioAggregate;
+  historicoMensal: CenarioAggregate;
   deltaReceita: number;
   deltaMargemBrl: number;
   deltaMargemPct: number;
+  deltaLucroOperacional: number;
   veredicto: Veredicto;
   explicacao: string;
 };

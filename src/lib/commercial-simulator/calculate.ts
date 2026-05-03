@@ -89,7 +89,10 @@ export function simulateMacro(input: MacroSimulateInput): MacroSimulateOutput {
     custoProdutoPct,
     taxPct,
     outrasDespesasPct,
+    adsPct,
+    incluirAds,
     custoFreteMedioBrl,
+    custoFixoMensal,
     pisoMargemPct,
     bufferZonaVerdePct,
   } = input;
@@ -98,6 +101,7 @@ export function simulateMacro(input: MacroSimulateInput): MacroSimulateOutput {
   const safeCobertura = Math.min(100, Math.max(0, coberturaPct)) / 100;
   const safeFreteCob = Math.min(100, Math.max(0, freteGratisCobertura)) / 100;
   const liftFactor = 1 + Math.max(-100, incrementoVendasPct) / 100;
+  const adsPctEfetivo = incluirAds ? Math.max(0, adsPct) : 0;
 
   const ticketBase = baseline.ticketMedio;
   const numPedidosMensalHist = baseline.receitaMediaDiaria > 0
@@ -146,15 +150,20 @@ export function simulateMacro(input: MacroSimulateInput): MacroSimulateOutput {
   const freteAbsorvidoTotal = numComFrete * custoFreteMedioBrl;
 
   const receitaProj = numPromo * ticketPromo + numCheio * ticketBase;
+  const adsBrlProj = receitaProj * (adsPctEfetivo / 100);
   const margemProj =
     numPromo * promoPerOrder.margemBrl +
     numCheio * cheioPerOrder.margemBrl -
-    freteAbsorvidoTotal;
+    freteAbsorvidoTotal -
+    adsBrlProj;
   const margemPctProj = receitaProj > 0 ? (margemProj / receitaProj) * 100 : 0;
   const ticketMedioProj = numPedidosProj > 0 ? receitaProj / numPedidosProj : ticketBase;
+  const lucroOperacionalProj = margemProj - custoFixoMensal;
 
-  const margemHist = numPedidosMensalHist * histPerOrder.margemBrl;
+  const adsBrlHist = receitaMensalHist * (adsPctEfetivo / 100);
+  const margemHist = numPedidosMensalHist * histPerOrder.margemBrl - adsBrlHist;
   const margemPctHist = receitaMensalHist > 0 ? (margemHist / receitaMensalHist) * 100 : 0;
+  const lucroOperacionalHist = margemHist - custoFixoMensal;
 
   const limiteVerde = pisoMargemPct + bufferZonaVerdePct;
   let veredicto: Veredicto;
@@ -169,6 +178,9 @@ export function simulateMacro(input: MacroSimulateInput): MacroSimulateOutput {
       receita: receitaProj,
       margemBrl: margemProj,
       margemPct: margemPctProj,
+      adsBrl: adsBrlProj,
+      custoFixo: custoFixoMensal,
+      lucroOperacional: lucroOperacionalProj,
       numPedidos: numPedidosProj,
       ticketMedio: ticketMedioProj,
     },
@@ -176,12 +188,16 @@ export function simulateMacro(input: MacroSimulateInput): MacroSimulateOutput {
       receita: receitaMensalHist,
       margemBrl: margemHist,
       margemPct: margemPctHist,
+      adsBrl: adsBrlHist,
+      custoFixo: custoFixoMensal,
+      lucroOperacional: lucroOperacionalHist,
       numPedidos: numPedidosMensalHist,
       ticketMedio: ticketBase,
     },
     deltaReceita: receitaProj - receitaMensalHist,
     deltaMargemBrl: margemProj - margemHist,
     deltaMargemPct: margemPctProj - margemPctHist,
+    deltaLucroOperacional: lucroOperacionalProj - lucroOperacionalHist,
     veredicto,
     explicacao,
   };

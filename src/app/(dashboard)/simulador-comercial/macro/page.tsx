@@ -34,6 +34,8 @@ type Settings = {
   other_expenses_pct: number;
   annual_revenue_target: number;
   monthly_seasonality: number[];
+  invest_pct: number;
+  monthly_fixed_costs: number;
   isDefault: boolean;
 };
 
@@ -47,6 +49,8 @@ const DEFAULT_SETTINGS: Settings = {
   other_expenses_pct: 5,
   annual_revenue_target: 8000000,
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
+  invest_pct: 12,
+  monthly_fixed_costs: 160000,
   isDefault: true,
 };
 
@@ -61,6 +65,7 @@ export default function MacroSimulatorPage() {
   const [coberturaPct, setCoberturaPct] = useState(100);
   const [incrementoPct, setIncrementoPct] = useState(0);
   const [freteGratisCob, setFreteGratisCob] = useState(0);
+  const [incluirAds, setIncluirAds] = useState(true);
 
   useEffect(() => {
     if (!workspace?.id) return;
@@ -109,11 +114,14 @@ export default function MacroSimulatorPage() {
       custoProdutoPct: settings.product_cost_pct,
       taxPct: settings.tax_pct,
       outrasDespesasPct: settings.other_expenses_pct,
+      adsPct: settings.invest_pct,
+      incluirAds,
       custoFreteMedioBrl: settings.custo_frete_medio_brl,
+      custoFixoMensal: settings.monthly_fixed_costs,
       pisoMargemPct: settings.piso_margem_pct,
       bufferZonaVerdePct: settings.buffer_zona_verde_pct,
     });
-  }, [baseline, settings, descontoPct, coberturaPct, incrementoPct, freteGratisCob]);
+  }, [baseline, settings, descontoPct, coberturaPct, incrementoPct, freteGratisCob, incluirAds]);
 
   const metaMensal = useMemo(() => {
     const mes = new Date().getMonth();
@@ -308,6 +316,40 @@ export default function MacroSimulatorPage() {
               formula: "pedidos_projetados = pedidos_baseline × (1 + lift%)",
             }}
           />
+
+          <div className="border-t border-border pt-5 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-sm font-medium">Incluir ads na contribuição</label>
+                <MetricInfo
+                  info={{
+                    what: `Quando ligado, subtrai ${settings.invest_pct.toFixed(1)}% da receita como gasto com ads na contribuição. Default vem de invest_pct das Configurações Financeiras.`,
+                    impacts: "Em e-commerce que adquire tráfego pago, ads é custo variável de aquisição e DEVE entrar na contribuição operacional. Desligue só pra comparar margem 'pura' (sem ads).",
+                    formula: `contribuicao_com_ads = contribuicao_sem_ads − (receita × ${settings.invest_pct.toFixed(1)}%)`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {incluirAds
+                  ? `Ativo: descontando ${settings.invest_pct.toFixed(1)}% da receita como ads.`
+                  : "Desligado: contribuição mostrada não inclui ads."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncluirAds(!incluirAds)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                incluirAds ? "bg-primary" : "bg-muted"
+              }`}
+              aria-label="Toggle ads"
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  incluirAds ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
         </CardContent>
       </Card>
 
@@ -320,6 +362,11 @@ export default function MacroSimulatorPage() {
               receita={result.historicoMensal.receita}
               margemBrl={result.historicoMensal.margemBrl}
               margemPct={result.historicoMensal.margemPct}
+              adsBrl={result.historicoMensal.adsBrl}
+              custoFixo={result.historicoMensal.custoFixo}
+              lucroOperacional={result.historicoMensal.lucroOperacional}
+              incluirAds={incluirAds}
+              adsPct={settings.invest_pct}
               numPedidos={result.historicoMensal.numPedidos}
               variant="neutral"
               cmvPctTexto={cmvPctTexto}
@@ -334,6 +381,11 @@ export default function MacroSimulatorPage() {
               receita={result.projetadoMensal.receita}
               margemBrl={result.projetadoMensal.margemBrl}
               margemPct={result.projetadoMensal.margemPct}
+              adsBrl={result.projetadoMensal.adsBrl}
+              custoFixo={result.projetadoMensal.custoFixo}
+              lucroOperacional={result.projetadoMensal.lucroOperacional}
+              incluirAds={incluirAds}
+              adsPct={settings.invest_pct}
               numPedidos={result.projetadoMensal.numPedidos}
               variant={result.veredicto}
               highlight
@@ -343,25 +395,38 @@ export default function MacroSimulatorPage() {
               ticketMedio={result.projetadoMensal.ticketMedio}
               cardKind="projecao"
             />
-            <ScenarioCard
-              icon={<Target className="h-5 w-5" />}
-              label="Meta deste mês"
-              receita={metaMensal}
-              margemBrl={metaMensal * (result.historicoMensal.margemPct / 100)}
-              margemPct={result.historicoMensal.margemPct}
-              numPedidos={
-                result.historicoMensal.ticketMedio > 0
-                  ? metaMensal / result.historicoMensal.ticketMedio
-                  : 0
-              }
-              variant="neutral"
-              metaContext
-              cmvPctTexto={cmvPctTexto}
-              taxPctTexto={taxPctTexto}
-              outrasPctTexto={outrasPctTexto}
-              ticketMedio={ticketMedio}
-              cardKind="meta"
-            />
+            {(() => {
+              const metaContribBruta = metaMensal * (result.historicoMensal.margemPct / 100);
+              const metaAds = incluirAds ? metaMensal * (settings.invest_pct / 100) : 0;
+              const metaContrib = metaContribBruta;
+              const metaLucro = metaContrib - settings.monthly_fixed_costs;
+              return (
+                <ScenarioCard
+                  icon={<Target className="h-5 w-5" />}
+                  label="Meta deste mês"
+                  receita={metaMensal}
+                  margemBrl={metaContrib}
+                  margemPct={result.historicoMensal.margemPct}
+                  adsBrl={metaAds}
+                  custoFixo={settings.monthly_fixed_costs}
+                  lucroOperacional={metaLucro}
+                  incluirAds={incluirAds}
+                  adsPct={settings.invest_pct}
+                  numPedidos={
+                    result.historicoMensal.ticketMedio > 0
+                      ? metaMensal / result.historicoMensal.ticketMedio
+                      : 0
+                  }
+                  variant="neutral"
+                  metaContext
+                  cmvPctTexto={cmvPctTexto}
+                  taxPctTexto={taxPctTexto}
+                  outrasPctTexto={outrasPctTexto}
+                  ticketMedio={ticketMedio}
+                  cardKind="meta"
+                />
+              );
+            })()}
           </div>
 
           <Card>
@@ -376,7 +441,7 @@ export default function MacroSimulatorPage() {
                   positive={result.deltaReceita >= 0}
                 />
                 <CompareRow
-                  label="Margem R$ projetada vs histórico"
+                  label="Contribuição R$ projetada vs histórico"
                   value={formatCurrency(result.deltaMargemBrl)}
                   positive={result.deltaMargemBrl >= 0}
                 />
@@ -384,6 +449,11 @@ export default function MacroSimulatorPage() {
                   label="Margem % projetada vs histórico"
                   value={`${result.deltaMargemPct >= 0 ? "+" : ""}${result.deltaMargemPct.toFixed(1)} pp`}
                   positive={result.deltaMargemPct >= 0}
+                />
+                <CompareRow
+                  label="Lucro operacional projetado vs histórico"
+                  value={formatCurrency(result.deltaLucroOperacional)}
+                  positive={result.deltaLucroOperacional >= 0}
                 />
                 <div className="border-t border-border pt-3">
                   <CompareRow
@@ -413,19 +483,19 @@ export default function MacroSimulatorPage() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground space-y-3">
           <p>
-            <strong className="text-foreground">"Margem R$" = margem de contribuição mensal</strong> — receita menos custos variáveis (CMV, impostos, outras despesas) e frete absorvido. <strong className="text-foreground">Não inclui custo fixo</strong> (folha, aluguel, ferramentas).
+            <strong className="text-foreground">Contribuição R$ = margem de contribuição mensal</strong> — receita menos custos variáveis (CMV, impostos, outras despesas, frete absorvido e — quando o toggle estiver ligado — ads).
           </p>
           <p>
-            Pra saber se cobre o break-even mensal, compare a margem R$ contra o custo fixo configurado em <em>Configurações Financeiras</em>. O lucro operacional aparece no <em>Overview</em>.
+            <strong className="text-foreground">Lucro operacional</strong> = contribuição menos custo fixo mensal. É a métrica que diz se a estratégia mantém o mês no azul.
           </p>
           <div className="bg-muted/40 rounded-lg p-3 font-mono text-xs space-y-1.5">
             <p>receita = pedidos_promo × ticket_promo + pedidos_cheios × ticket_medio</p>
-            <p>custo_total = receita × {cmvPctTexto}% (CMV) + receita × {taxPctTexto}% (impostos) + receita × {outrasPctTexto}% (outras) + frete_absorvido</p>
-            <p>margem_brl = receita − custo_total</p>
-            <p>margem_pct = margem_brl ÷ receita × 100</p>
+            <p>custo_var = receita × ({cmvPctTexto}% CMV + {taxPctTexto}% impostos + {outrasPctTexto}% outras{settings.invest_pct > 0 ? ` + ${settings.invest_pct.toFixed(1)}% ads` : ""}) + frete_absorvido</p>
+            <p>contribuicao = receita − custo_var</p>
+            <p>lucro_operacional = contribuicao − custo_fixo ({formatCurrency(settings.monthly_fixed_costs)})</p>
           </div>
           <p className="text-xs">
-            CMV usa o ticket bruto como base (não o ticket pós-desconto), então o desconto direto reduz margem em proporção maior que a receita — comportamento alinhado com o simulador por produto.
+            Ads é tratado como custo variável de aquisição (alinhado com a configuração do Vortex em invest_pct). Desligue o toggle pra ver contribuição "pura" sem ads. CMV usa o ticket bruto como base — desconto direto reduz a contribuição mais que a receita.
           </p>
         </CardContent>
       </Card>
@@ -548,6 +618,11 @@ function ScenarioCard({
   receita,
   margemBrl,
   margemPct,
+  adsBrl,
+  custoFixo,
+  lucroOperacional,
+  incluirAds,
+  adsPct,
   numPedidos,
   variant,
   highlight,
@@ -563,6 +638,11 @@ function ScenarioCard({
   receita: number;
   margemBrl: number;
   margemPct: number;
+  adsBrl: number;
+  custoFixo: number;
+  lucroOperacional: number;
+  incluirAds: boolean;
+  adsPct: number;
   numPedidos: number;
   variant: "verde" | "amarelo" | "vermelho" | "neutral";
   highlight?: boolean;
@@ -595,13 +675,34 @@ function ScenarioCard({
   };
 
   const margemBrlInfo: InfoCopy = {
-    what:
-      "Margem de contribuição em R$ — o que sobra da receita depois de tirar custos variáveis (CMV, impostos, outras despesas) e frete absorvido. NÃO desconta custo fixo (folha, aluguel, ferramentas).",
+    what: incluirAds
+      ? "Margem de contribuição em R$ — o que sobra da receita depois de tirar todos os custos variáveis (CMV, impostos, outras despesas, frete absorvido E ads). NÃO desconta custo fixo."
+      : "Margem de contribuição em R$ — o que sobra da receita depois de tirar custos variáveis (CMV, impostos, outras despesas e frete absorvido). NÃO inclui ads (toggle desligado) NEM custo fixo.",
     impacts:
       cardKind === "projecao"
-        ? "Cai com desconto direto e frete grátis. Sobe com lift positivo. Pra saber se cobre o break-even, compare contra o custo fixo no Overview."
-        : "Compare contra o custo fixo mensal pra ver lucro operacional. Se margem > custo fixo → lucro. Se < → prejuízo no mês.",
-    formula: `receita − (CMV ${cmvPctTexto}% + impostos ${taxPctTexto}% + outras ${outrasPctTexto}%) − frete_absorvido`,
+        ? "Cai com desconto, frete grátis e ads. Sobe com lift positivo. Pra ver lucro, subtraia o custo fixo (linha abaixo)."
+        : "Compare contra o custo fixo pra ver lucro operacional. A linha 'Lucro operacional' já faz isso pra você.",
+    formula: incluirAds
+      ? `receita − (CMV ${cmvPctTexto}% + impostos ${taxPctTexto}% + outras ${outrasPctTexto}% + ads ${adsPct.toFixed(1)}%) − frete_absorvido`
+      : `receita − (CMV ${cmvPctTexto}% + impostos ${taxPctTexto}% + outras ${outrasPctTexto}%) − frete_absorvido`,
+  };
+
+  const adsInfo: InfoCopy = {
+    what: `Gasto com ads no cenário. Aplica ${adsPct.toFixed(1)}% (vem de invest_pct das Configurações Financeiras) sobre a receita.`,
+    impacts: "Sobe linear com a receita projetada. Lift maior → mais ads. Se desligar o toggle 'Incluir ads', vira zero e a contribuição mostrada não considera aquisição paga.",
+    formula: `ads_brl = receita × ${adsPct.toFixed(1)}%`,
+  };
+
+  const custoFixoInfo: InfoCopy = {
+    what: "Custo fixo mensal vindo das Configurações Financeiras (monthly_fixed_costs). Inclui folha, aluguel, ferramentas, etc.",
+    impacts: "Não muda com as alavancas — é o piso de despesa do mês. Pra empresa virar o mês no azul, a margem de contribuição precisa cobrir isso.",
+    formula: "monthly_fixed_costs (constante)",
+  };
+
+  const lucroOpInfo: InfoCopy = {
+    what: "Lucro operacional do mês — o que sobra DEPOIS de cobrir todos os custos variáveis E o custo fixo. Acima de zero = lucro. Abaixo = prejuízo.",
+    impacts: "Métrica final que importa. Se a projeção fica negativa, a estratégia derruba o resultado mesmo gerando volume.",
+    formula: "lucro_operacional = contribuicao − custo_fixo",
   };
 
   const margemPctInfo: InfoCopy = {
@@ -712,6 +813,36 @@ function ScenarioCard({
               <MetricInfo info={ticketInfo} />
             </div>
             <p className="font-semibold">{ticketValor}</p>
+          </div>
+        </div>
+
+        <div className="pt-3 mt-2 border-t border-border/50 space-y-2">
+          {incluirAds && (
+            <div className="flex justify-between items-center text-sm">
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <span>− Ads ({adsPct.toFixed(1)}%)</span>
+                <MetricInfo info={adsInfo} />
+              </div>
+              <span className="font-mono">{formatCurrency(adsBrl)}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center text-sm">
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <span>− Custo fixo</span>
+              <MetricInfo info={custoFixoInfo} />
+            </div>
+            <span className="font-mono">{formatCurrency(custoFixo)}</span>
+          </div>
+          <div
+            className={`flex justify-between items-center pt-2 border-t border-border/50 ${
+              lucroOperacional >= 0 ? "text-emerald-600" : "text-red-600"
+            }`}
+          >
+            <div className="flex items-center gap-1 text-xs uppercase tracking-wider font-semibold">
+              <span>= Lucro operacional</span>
+              <MetricInfo info={lucroOpInfo} />
+            </div>
+            <span className="font-bold text-base">{formatCurrency(lucroOperacional)}</span>
           </div>
         </div>
       </CardContent>

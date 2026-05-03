@@ -14,6 +14,8 @@ const FIN_DEFAULTS = {
   other_expenses_pct: 5,
   annual_revenue_target: 8000000,
   monthly_seasonality: [6.48, 5.78, 7.53, 7.20, 8.65, 8.36, 8.71, 9.08, 8.39, 7.95, 12.88, 8.98],
+  invest_pct: 12,
+  monthly_fixed_costs: 160000,
 };
 
 function createSupabase(request: NextRequest) {
@@ -48,7 +50,9 @@ export async function GET(request: NextRequest) {
         .maybeSingle(),
       supabase
         .from("workspace_financial_settings")
-        .select("product_cost_pct, tax_pct, other_expenses_pct, annual_revenue_target, monthly_seasonality")
+        .select(
+          "product_cost_pct, tax_pct, other_expenses_pct, annual_revenue_target, monthly_seasonality, invest_pct, monthly_fixed_costs"
+        )
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
     ]);
@@ -74,6 +78,13 @@ export async function GET(request: NextRequest) {
         ("monthly_seasonality" in fin && Array.isArray(fin.monthly_seasonality)
           ? (fin.monthly_seasonality as number[])
           : null) ?? FIN_DEFAULTS.monthly_seasonality,
+      invest_pct: Number(
+        ("invest_pct" in fin ? fin.invest_pct : null) ?? FIN_DEFAULTS.invest_pct
+      ),
+      monthly_fixed_costs: Number(
+        ("monthly_fixed_costs" in fin ? fin.monthly_fixed_costs : null) ??
+          FIN_DEFAULTS.monthly_fixed_costs
+      ),
       isDefault: !simRes.data,
     });
   } catch (error) {
