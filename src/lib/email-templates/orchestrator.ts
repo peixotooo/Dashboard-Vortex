@@ -201,40 +201,58 @@ async function persistSuggestion(args: {
   }
 
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  const baseRow = {
+    workspace_id,
+    generated_for_date: date,
+    slot,
+    vnda_product_id: product.vnda_id,
+    product_snapshot: product,
+    target_segment_type: segment.type,
+    target_segment_payload: { ...segment.payload, estimated_size: segment.estimated_size, display_label: segment.display_label },
+    copy,
+    copy_provider: provider_used,
+    rendered_html,
+    recommended_hours: hours.recommended_hours,
+    hours_score: hours.hours_score,
+    coupon_code: coupon?.code ?? null,
+    coupon_vnda_promotion_id: coupon?.vnda_promotion_id ?? null,
+    coupon_vnda_coupon_id: coupon?.vnda_coupon_id ?? null,
+    coupon_expires_at: coupon?.expires_at?.toISOString() ?? null,
+    coupon_discount_percent: coupon?.discount_percent ?? null,
+    status: "pending",
+    updated_at: new Date().toISOString(),
+  };
+
+  // Try with layout_id (migration-069). If the column doesn't exist yet
+  // (Postgres "column does not exist"), retry without it. Without this
+  // fallback, every slot returns db_error on a workspace whose Supabase
+  // hasn't run the migration.
+  let { data, error } = await supabase
     .from("email_template_suggestions")
-    .upsert(
-      {
-        workspace_id,
-        generated_for_date: date,
-        slot,
-        vnda_product_id: product.vnda_id,
-        product_snapshot: product,
-        target_segment_type: segment.type,
-        target_segment_payload: { ...segment.payload, estimated_size: segment.estimated_size, display_label: segment.display_label },
-        copy,
-        copy_provider: provider_used,
-        layout_id: layout.id,
-        rendered_html,
-        recommended_hours: hours.recommended_hours,
-        hours_score: hours.hours_score,
-        coupon_code: coupon?.code ?? null,
-        coupon_vnda_promotion_id: coupon?.vnda_promotion_id ?? null,
-        coupon_vnda_coupon_id: coupon?.vnda_coupon_id ?? null,
-        coupon_expires_at: coupon?.expires_at?.toISOString() ?? null,
-        coupon_discount_percent: coupon?.discount_percent ?? null,
-        status: "pending",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "workspace_id,generated_for_date,slot" }
-    )
+    .upsert({ ...baseRow, layout_id: layout.id }, {
+      onConflict: "workspace_id,generated_for_date,slot",
+    })
     .select("id")
     .single();
 
-  if (error) {
-    console.error(`[email-templates/orchestrator] slot ${slot} db upsert failed:`, error.message);
-    await logAudit({ workspace_id, event: "render_failed", payload: { slot, db_error: error.message } });
-    return { slot, ok: false, reason: "db_error" };
+  if (error && /column .*layout_id/i.test(error.message)) {
+    console.warn(
+      "[email-templates/orchestrator] layout_id column missing; falling back without it. Run migration-069."
+    );
+    const retry = await supabase
+      .from("email_template_suggestions")
+      .upsert(baseRow, { onConflict: "workspace_id,generated_for_date,slot" })
+      .select("id")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error || !data) {
+    const msg = error?.message ?? "no row returned";
+    console.error(`[email-templates/orchestrator] slot ${slot} db upsert failed:`, msg);
+    await logAudit({ workspace_id, event: "render_failed", payload: { slot, db_error: msg } });
+    return { slot, ok: false, reason: `db_error: ${msg.slice(0, 120)}` };
   }
 
   await logAudit({
