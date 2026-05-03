@@ -116,6 +116,37 @@ function tagPenalty(tags: string[], recent: Map<string, number>): number {
 }
 
 /**
+ * Apply cooldown filters in tiers. Walks tiers in order; the first tier that
+ * leaves at least one candidate after `usedSlot ∪ usedAny ∪ exclude_ids` is
+ * filtered out wins. Last tier should be {0,0} (no cooldown beyond explicit
+ * excludes) so we never return empty just because every product was used
+ * recently — a stale cron is worse than a slightly-repeated email.
+ */
+async function tieredFilter(
+  candidateIds: string[],
+  workspace_id: string,
+  slot: Slot,
+  tiers: Array<{ perSlotDays: number; crossSlotDays: number }>,
+  exclude_ids: Set<string>
+): Promise<string[]> {
+  for (const tier of tiers) {
+    const usedSlot =
+      tier.perSlotDays > 0
+        ? await recentlyUsedProductIds(workspace_id, slot, tier.perSlotDays)
+        : new Set<string>();
+    const usedAny =
+      tier.crossSlotDays > 0
+        ? await recentlyUsedAcrossSlots(workspace_id, tier.crossSlotDays)
+        : new Set<string>();
+    const filtered = candidateIds.filter(
+      (id) => !usedSlot.has(id) && !usedAny.has(id) && !exclude_ids.has(id)
+    );
+    if (filtered.length > 0) return filtered;
+  }
+  return [];
+}
+
+/**
  * Pick a candidate from a ranked pool with anti-saturation scoring:
  *   score = rank_weight × (1 - tag_penalty) × deterministic_jitter
  * The jitter (FNV-style on workspace+date+slot) keeps the same workspace
@@ -256,12 +287,21 @@ export async function pickBestseller(
     .map(([id]) => id);
   if (ranked.length === 0) return { product: null, reason: "no_candidate" };
 
-  // 21-day per-slot cooldown + 7-day cross-slot dedupe.
-  const usedSlot = await recentlyUsedProductIds(workspace_id, 1, 21);
-  const usedAny = await recentlyUsedAcrossSlots(workspace_id, 7);
-  const candidateIds = ranked
-    .slice(0, 25)
-    .filter((id) => !usedSlot.has(id) && !usedAny.has(id) && !exclude_ids.has(id));
+  // Tiered cooldown: try strict first (21-day per-slot + 7-day cross-slot),
+  // then 7+1, then no cooldown. Without this fallback, small workspaces
+  // running daily emails saturate the strict window and the cron silently
+  // produces 0 suggestions every morning.
+  const candidateIds = await tieredFilter(
+    ranked.slice(0, 25),
+    workspace_id,
+    1,
+    [
+      { perSlotDays: 21, crossSlotDays: 7 },
+      { perSlotDays: 7, crossSlotDays: 1 },
+      { perSlotDays: 0, crossSlotDays: 0 },
+    ],
+    exclude_ids
+  );
   if (candidateIds.length === 0) return { product: null, reason: "all_recently_used" };
 
   const shelf = await fetchShelf(workspace_id, { ids: candidateIds });
@@ -320,25 +360,30 @@ export async function pickSlowmoving(
     return { product: null, reason: "no_ga4" };
   }
 
-  // 30-day per-slot cooldown for slowmoving (longer than bestseller because
-  // the slow pool naturally rotates less, and we don't want to keep blasting
-  // the same item every other week with a discount).
-  const usedSlot = await recentlyUsedProductIds(workspace_id, 2, 30);
-  const usedAny = await recentlyUsedAcrossSlots(workspace_id, 7);
-
-  type Scored = { row: ShelfRow; sales: number };
-  const eligible: Scored[] = shelf
-    .filter(
-      (r) =>
-        !usedSlot.has(r.product_id) &&
-        !usedAny.has(r.product_id) &&
-        !exclude_ids.has(r.product_id)
-    )
+  // Pre-filter by sales threshold first (the actual slowmoving signal),
+  // then tier-down on cooldowns so we never return empty just because the
+  // strict 30-day window saturated.
+  const slowOnly = shelf
     .map((row) => ({ row, sales: salesById[row.product_id] ?? 0 }))
     .filter((x) => x.sales <= settings.slowmoving_max_sales);
+  const slowIds = slowOnly.map((x) => x.row.product_id);
+
+  const filteredIds = await tieredFilter(
+    slowIds,
+    workspace_id,
+    2,
+    [
+      { perSlotDays: 30, crossSlotDays: 7 },
+      { perSlotDays: 14, crossSlotDays: 1 },
+      { perSlotDays: 0, crossSlotDays: 0 },
+    ],
+    exclude_ids
+  );
+  type Scored = { row: ShelfRow; sales: number };
+  const eligible: Scored[] = slowOnly.filter((x) => filteredIds.includes(x.row.product_id));
 
   if (eligible.length === 0) {
-    return { product: null, reason: usedSlot.size > 0 ? "all_recently_used" : "no_candidate" };
+    return { product: null, reason: "no_candidate" };
   }
 
   // Lower sales = higher base score. Then apply tag-cooldown variety + jitter.
@@ -367,18 +412,26 @@ export async function pickNewarrival(
   const shelf = await fetchShelf(workspace_id, { created_after_iso: since });
   if (shelf.length === 0) return { product: null, reason: "no_candidate" };
 
-  // 21-day per-slot + 7-day cross-slot cooldown.
-  const usedSlot = await recentlyUsedProductIds(workspace_id, 3, 21);
-  const usedAny = await recentlyUsedAcrossSlots(workspace_id, 7);
+  // Tiered cooldown: strict (21+7) → medium (7+1) → none. Newarrival pool
+  // is naturally small (just last N days of catalog adds), so we don't want
+  // to lose the slot when a recent re-sync makes everything "used".
+  const allIds = shelf.map((r) => r.product_id);
+  const filteredIds = await tieredFilter(
+    allIds,
+    workspace_id,
+    3,
+    [
+      { perSlotDays: 21, crossSlotDays: 7 },
+      { perSlotDays: 7, crossSlotDays: 1 },
+      { perSlotDays: 0, crossSlotDays: 0 },
+    ],
+    exclude_ids
+  );
+  const filteredSet = new Set(filteredIds);
   const eligible = shelf
-    .filter(
-      (r) =>
-        !usedSlot.has(r.product_id) &&
-        !usedAny.has(r.product_id) &&
-        !exclude_ids.has(r.product_id)
-    )
+    .filter((r) => filteredSet.has(r.product_id))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  if (eligible.length === 0) return { product: null, reason: "all_recently_used" };
+  if (eligible.length === 0) return { product: null, reason: "no_candidate" };
 
   // Top 12 freshest, then variety pick (penalizes repeating tag clusters).
   const recentTags = await recentTagFrequency(workspace_id, 14);
