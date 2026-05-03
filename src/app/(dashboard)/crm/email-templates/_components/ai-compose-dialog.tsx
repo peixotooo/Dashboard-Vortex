@@ -111,6 +111,10 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
   const [couponPct, setCouponPct] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Wizard step (1-based). Total 6 steps; the last one shows the summary +
+  // Montar email button.
+  const [step, setStep] = useState(1);
+  const TOTAL_STEPS = 6;
 
   // Load layouts when dialog opens
   useEffect(() => {
@@ -154,6 +158,23 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
     setCouponPct(10);
     setError(null);
     setLoading(false);
+    setStep(1);
+  };
+
+  // Validation per step: blocks "Próximo" until the user fills the required
+  // fields. Optional steps (3, 4, 5, 6) are always valid.
+  const canAdvance = (() => {
+    if (step === 1) return context.trim().length >= 5;
+    if (step === 2) return !!layoutId;
+    return true;
+  })();
+
+  const nextStep = () => {
+    if (!canAdvance) return;
+    if (step < TOTAL_STEPS) setStep(step + 1);
+  };
+  const prevStep = () => {
+    if (step > 1) setStep(step - 1);
   };
 
   const close = () => {
@@ -224,77 +245,119 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
     return out;
   })();
 
+  const isLast = step === TOTAL_STEPS;
+  const stepLabel = (() => {
+    switch (step) {
+      case 1: return "Contexto";
+      case 2: return "Template";
+      case 3: return "Produto";
+      case 4: return "Tom";
+      case 5: return "Countdown";
+      case 6: return "Cupom";
+      default: return "";
+    }
+  })();
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-w-5xl max-h-[92vh] p-0 gap-0 overflow-hidden flex flex-col">
+      <DialogContent className="max-w-3xl max-h-[92vh] p-0 gap-0 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b bg-gradient-to-br from-foreground/[0.03] via-card to-foreground/[0.06]">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <div className="w-8 h-8 rounded-lg bg-foreground text-background flex items-center justify-center">
               <Sparkles className="w-4 h-4" />
             </div>
-            Criar email com IA
+            <span>Criar email com IA</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">
+              {step} <span className="text-muted-foreground/60">de</span> {TOTAL_STEPS} · {stepLabel}
+            </span>
           </DialogTitle>
-          <p className="text-xs text-muted-foreground mt-1.5 ml-10">
-            Conte o contexto, escolha um template e a IA monta o email pronto pra editar.
-          </p>
-        </div>
-
-        {/* Body — context (full-width, fixed) + 2 independently-scrolling columns below */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Step 1 — Contexto (does not scroll) */}
-          <div className="px-6 pt-5 pb-4 border-b shrink-0">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
-                1
-              </span>
-              <Label className="text-xs uppercase tracking-widest">Contexto</Label>
-            </div>
-            <Textarea
-              rows={3}
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder='Ex: "Promoção da madrugada — 20% off só esta noite, expira em 6h"'
-              disabled={loading}
-              className="resize-none"
-            />
-            <div className="flex items-center gap-1.5 flex-wrap mt-2">
-              {CONTEXT_CHIPS.map((c) => (
+          {/* Progress bar */}
+          <div className="mt-3 grid grid-cols-6 gap-1">
+            {Array.from({ length: TOTAL_STEPS }).map((_, i) => {
+              const n = i + 1;
+              return (
                 <button
-                  key={c.label}
+                  key={n}
                   type="button"
                   disabled={loading}
-                  onClick={() => setContext(c.text)}
-                  className="inline-flex items-center gap-1 px-2.5 h-6 rounded-full border border-border/60 text-[11px] hover:border-foreground/40 hover:bg-muted/40 transition-colors disabled:opacity-50"
-                >
-                  <Tag className="w-2.5 h-2.5 opacity-60" />
-                  {c.label}
-                </button>
-              ))}
-            </div>
+                  onClick={() => {
+                    // Allow jumping back to any earlier step or to a step
+                    // already passed (forward only if validation lets us).
+                    if (n < step) setStep(n);
+                    else if (n === step) return;
+                    else if (canAdvance && n === step + 1) setStep(n);
+                  }}
+                  className={`h-1.5 rounded-full transition-colors ${
+                    n <= step
+                      ? "bg-foreground"
+                      : "bg-border hover:bg-border/80"
+                  }`}
+                  aria-label={`Ir pro passo ${n}`}
+                />
+              );
+            })}
           </div>
+        </div>
 
-          {/* 2 independently-scrolling columns: Template (left, prominent) + Settings (right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] divide-y lg:divide-y-0 lg:divide-x flex-1 min-h-0">
-            {/* Step 2 — Template (left, prominent) — own scroll */}
-            <div className="px-6 py-5 overflow-y-auto">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
-                  2
-                </span>
-                <Label className="text-xs uppercase tracking-widest">Template</Label>
-                {layoutId && (
-                  <span className="font-mono text-[10px] text-muted-foreground ml-auto truncate">
-                    {layoutId}
-                  </span>
-                )}
+        {/* Body — only the current step is rendered */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+          {/* Step 1 — Contexto */}
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-semibold">Conte o contexto do email</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Em linguagem natural. A IA usa isso pra escrever subject, headline, lead e CTA.
+                </p>
+              </div>
+              <Textarea
+                rows={4}
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                placeholder='Ex: "Promoção da madrugada — 20% off só esta noite, expira em 6h"'
+                disabled={loading}
+                className="resize-none text-sm"
+                autoFocus
+              />
+              <div>
+                <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Ou clique num atalho
+                </Label>
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  {CONTEXT_CHIPS.map((c) => (
+                    <button
+                      key={c.label}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setContext(c.text)}
+                      className="inline-flex items-center gap-1 px-3 h-7 rounded-full border border-border/60 text-xs hover:border-foreground/40 hover:bg-muted/40 transition-colors disabled:opacity-50"
+                    >
+                      <Tag className="w-2.5 h-2.5 opacity-60" />
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2 — Template */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-semibold">Escolha um template</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  A IA preserva a identidade visual do template — você só edita
+                  copy/produto depois.
+                </p>
               </div>
               {layouts.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-12 justify-center">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando templates...
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {layoutFamilies.map((l) => (
                     <TemplateThumbCard
                       key={l.id}
@@ -309,172 +372,175 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                 </div>
               )}
             </div>
+          )}
 
-            {/* Settings column (right) — own scroll */}
-            <div className="px-6 py-5 space-y-5 bg-muted/10 overflow-y-auto">
-              {/* Step 3 — Produto */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-bold">
-                    3
-                  </span>
-                  <Label className="text-xs uppercase tracking-widest">Produto</Label>
-                </div>
-                <p className="text-[10px] text-muted-foreground -mt-1">
-                  Opcional · vazio = IA pega o best-seller atual.
+          {/* Step 3 — Produto */}
+          {step === 3 && (
+            <div className="space-y-4 max-w-md">
+              <div>
+                <h3 className="text-base font-semibold">Produto em destaque</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Opcional. Se você não escolher, a IA pega o best-seller atual
+                  do catálogo automaticamente.
                 </p>
-                {product ? (
-                  <div className="flex items-center gap-2 border rounded-md p-2 bg-background">
-                    <img
-                      src={product.image_url}
-                      alt={product.name}
-                      className="w-10 h-12 object-cover shrink-0 rounded"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs truncate font-medium">{product.name}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        R$ {product.price.toFixed(2)}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      onClick={() => setProduct(null)}
-                      disabled={loading}
-                    >
-                      <X className="w-3 h-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <div className="flex items-center gap-2 border rounded-md px-2 h-9 bg-background focus-within:border-foreground/40">
-                      <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <input
-                        placeholder="Buscar produto..."
-                        value={productSearch}
-                        onChange={(e) => {
-                          setProductSearch(e.target.value);
-                          setProductOpen(true);
-                        }}
-                        onFocus={() => setProductOpen(true)}
-                        className="bg-transparent outline-none text-xs flex-1 min-w-0"
-                        disabled={loading}
-                      />
-                    </div>
-                    {productOpen && productResults.length > 0 && (
-                      <div className="absolute z-20 mt-1 w-full bg-background border rounded-md shadow-lg max-h-56 overflow-y-auto">
-                        {productResults.slice(0, 12).map((p) => (
-                          <button
-                            key={p.vnda_id}
-                            type="button"
-                            onClick={() => {
-                              setProduct(p);
-                              setProductSearch("");
-                              setProductOpen(false);
-                            }}
-                            className="w-full flex items-center gap-2 p-2 hover:bg-muted text-left"
-                          >
-                            <img
-                              src={p.image_url}
-                              alt={p.name}
-                              className="w-7 h-9 object-cover shrink-0"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs truncate">{p.name}</div>
-                              <div className="text-[10px] text-muted-foreground">
-                                R$ {p.price.toFixed(2)}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
-
-              {/* Step 4 — Tom */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
-                    4
-                  </span>
-                  <Label className="text-xs uppercase tracking-widest">Tom</Label>
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    opcional
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {TONES.map((t) => (
-                    <Button
-                      key={t.id}
-                      size="sm"
-                      variant={tone === t.id ? "default" : "outline"}
-                      className="h-8 text-xs"
-                      disabled={loading}
-                      onClick={() => setTone(tone === t.id ? null : t.id)}
-                    >
-                      {t.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Step 5 — Countdown */}
-              <div className="space-y-2 border rounded-lg p-3 bg-card">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
-                      5
-                    </span>
-                    <Label className="text-xs uppercase tracking-widest">
-                      Countdown
-                    </Label>
+              {product ? (
+                <div className="flex items-center gap-3 border rounded-md p-3 bg-muted/30">
+                  <img
+                    src={product.image_url}
+                    alt={product.name}
+                    className="w-12 h-16 object-cover shrink-0 rounded"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">{product.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      R$ {product.price.toFixed(2)}
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={countdownEnabled}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setProduct(null)}
                     disabled={loading}
-                    onClick={() => setCountdownEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
-                      countdownEnabled
-                        ? "bg-foreground border-foreground"
-                        : "bg-card border-border"
-                    }`}
                   >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
-                        countdownEnabled ? "translate-x-5" : "translate-x-[2px]"
-                      }`}
-                    />
-                  </button>
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {countdownEnabled
-                    ? `Timer ativo · termina em ${countdownHours}h.`
-                    : "Adiciona um GIF animado de contagem regressiva no topo do email pra urgência."}
+              ) : (
+                <div className="relative">
+                  <div className="flex items-center gap-2 border rounded-md px-3 h-10 bg-background focus-within:border-foreground/40">
+                    <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <input
+                      placeholder="Buscar produto VNDA..."
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setProductOpen(true);
+                      }}
+                      onFocus={() => setProductOpen(true)}
+                      className="bg-transparent outline-none text-sm flex-1 min-w-0"
+                      disabled={loading}
+                    />
+                  </div>
+                  {productOpen && productResults.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {productResults.slice(0, 12).map((p) => (
+                        <button
+                          key={p.vnda_id}
+                          type="button"
+                          onClick={() => {
+                            setProduct(p);
+                            setProductSearch("");
+                            setProductOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2 p-2 hover:bg-muted text-left"
+                        >
+                          <img
+                            src={p.image_url}
+                            alt={p.name}
+                            className="w-8 h-10 object-cover shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs truncate">{p.name}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              R$ {p.price.toFixed(2)}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 4 — Tom */}
+          {step === 4 && (
+            <div className="space-y-4 max-w-md">
+              <div>
+                <h3 className="text-base font-semibold">Tom de voz</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Opcional. Modula como a IA escreve a copy. Sem seleção, usa o
+                  tom padrão Bulking.
                 </p>
-                <div className="space-y-1.5 pt-1">
-                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Termina em (horas)
-                  </Label>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {TONES.map((t) => (
+                  <Button
+                    key={t.id}
+                    size="lg"
+                    variant={tone === t.id ? "default" : "outline"}
+                    className="h-12 text-sm"
+                    disabled={loading}
+                    onClick={() => setTone(tone === t.id ? null : t.id)}
+                  >
+                    {t.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step 5 — Countdown */}
+          {step === 5 && (
+            <div className="space-y-4 max-w-md">
+              <div>
+                <h3 className="text-base font-semibold">Countdown</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Adiciona um GIF animado de contagem regressiva no topo do email
+                  pra urgência. Opcional.
+                </p>
+              </div>
+              <div className="flex items-center justify-between border rounded-lg p-3 bg-card">
+                <div className="space-y-0.5">
+                  <div className="text-sm font-medium">
+                    {countdownEnabled ? `Timer ativo · termina em ${countdownHours}h` : "Sem countdown"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {countdownEnabled
+                      ? "Renderiza um GIF animado server-side."
+                      : "Ative pra incluir no email."}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={countdownEnabled}
+                  disabled={loading}
+                  onClick={() => setCountdownEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
+                    countdownEnabled
+                      ? "bg-foreground border-foreground"
+                      : "bg-card border-border"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 mt-[3px] transform rounded-full bg-background transition ${
+                      countdownEnabled ? "translate-x-6" : "translate-x-[3px]"
+                    }`}
+                  />
+                </button>
+              </div>
+              {countdownEnabled && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Termina em (horas)</Label>
                   <Input
                     type="number"
                     value={countdownHours}
                     onChange={(e) => setCountdownHours(parseFloat(e.target.value) || 0)}
-                    disabled={loading || !countdownEnabled}
-                    className="h-8 text-xs"
+                    disabled={loading}
+                    className="h-9 text-sm"
                   />
-                  <div className="grid grid-cols-5 gap-1 pt-0.5">
+                  <div className="grid grid-cols-5 gap-1.5">
                     {[1, 6, 24, 48, 72].map((h) => (
                       <Button
                         key={h}
                         size="sm"
-                        variant={countdownHours === h && countdownEnabled ? "default" : "outline"}
-                        className="h-7 text-[11px]"
-                        disabled={loading || !countdownEnabled}
+                        variant={countdownHours === h ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        disabled={loading}
                         onClick={() => setCountdownHours(h)}
                       >
                         {h}h
@@ -482,82 +548,117 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
                     ))}
                   </div>
                 </div>
-              </div>
+              )}
+            </div>
+          )}
 
-              {/* Step 6 — Cupom */}
-              <div className="space-y-2 border rounded-lg p-3 bg-card">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-foreground/30 text-foreground/70 text-[10px] font-bold">
-                      6
-                    </span>
-                    <Label className="text-xs uppercase tracking-widest">
-                      Cupom
-                    </Label>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={couponEnabled}
-                    disabled={loading}
-                    onClick={() => setCouponEnabled((v) => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
-                      couponEnabled
-                        ? "bg-foreground border-foreground"
-                        : "bg-card border-border"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
-                        couponEnabled ? "translate-x-5" : "translate-x-[2px]"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {couponEnabled
-                    ? `${couponPct}% off · código gerado automaticamente.`
-                    : "Adiciona um bloco de cupom com código único e desconto."}
+          {/* Step 6 — Cupom + summary */}
+          {step === 6 && (
+            <div className="space-y-5 max-w-md">
+              <div>
+                <h3 className="text-base font-semibold">Cupom de desconto</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Adiciona um bloco de cupom com código único e desconto.
+                  Opcional.
                 </p>
-                <div className="space-y-1.5 pt-1">
-                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                    % off
-                  </Label>
+              </div>
+              <div className="flex items-center justify-between border rounded-lg p-3 bg-card">
+                <div className="space-y-0.5">
+                  <div className="text-sm font-medium">
+                    {couponEnabled ? `${couponPct}% off · código gerado` : "Sem cupom"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {couponEnabled
+                      ? countdownEnabled
+                        ? `Expira junto com o countdown (${countdownHours}h).`
+                        : "Expira em 48h por padrão."
+                      : "Ative pra incluir um código de desconto."}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={couponEnabled}
+                  disabled={loading}
+                  onClick={() => setCouponEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
+                    couponEnabled
+                      ? "bg-foreground border-foreground"
+                      : "bg-card border-border"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 mt-[3px] transform rounded-full bg-background transition ${
+                      couponEnabled ? "translate-x-6" : "translate-x-[3px]"
+                    }`}
+                  />
+                </button>
+              </div>
+              {couponEnabled && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">% de desconto</Label>
                   <Input
                     type="number"
                     value={couponPct}
                     onChange={(e) => setCouponPct(parseFloat(e.target.value) || 0)}
-                    disabled={loading || !couponEnabled}
-                    className="h-8 text-xs"
+                    disabled={loading}
+                    className="h-9 text-sm"
                   />
-                  <div className="grid grid-cols-4 gap-1 pt-0.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                     {[5, 10, 15, 20].map((p) => (
                       <Button
                         key={p}
                         size="sm"
-                        variant={couponPct === p && couponEnabled ? "default" : "outline"}
-                        className="h-7 text-[11px]"
-                        disabled={loading || !couponEnabled}
+                        variant={couponPct === p ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        disabled={loading}
                         onClick={() => setCouponPct(p)}
                       >
                         {p}%
                       </Button>
                     ))}
                   </div>
-                  {couponEnabled && !countdownEnabled && (
-                    <p className="text-[10px] text-muted-foreground leading-relaxed pt-1">
-                      Cupom expira em 48h por padrão. Ative o Countdown acima pra
-                      controlar o prazo.
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {/* Mini-resumo */}
+              <div className="border-t pt-4 space-y-1.5">
+                <Label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Resumo
+                </Label>
+                <div className="text-xs space-y-0.5 text-muted-foreground">
+                  <div>
+                    <span className="text-foreground font-medium">Contexto:</span>{" "}
+                    <span className="line-clamp-1">{context.slice(0, 100)}{context.length > 100 ? "..." : ""}</span>
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Template:</span>{" "}
+                    <span className="font-mono">{layoutId ?? "—"}</span>
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Produto:</span>{" "}
+                    {product?.name ?? "automático (best-seller atual)"}
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Tom:</span>{" "}
+                    {tone ? TONES.find((t) => t.id === tone)?.label : "padrão Bulking"}
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Countdown:</span>{" "}
+                    {countdownEnabled ? `${countdownHours}h` : "não"}
+                  </div>
+                  <div>
+                    <span className="text-foreground font-medium">Cupom:</span>{" "}
+                    {couponEnabled ? `${couponPct}% off` : "não"}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Sticky action bar */}
-        <div className="border-t bg-card px-6 py-3 flex items-center gap-3">
+        <div className="border-t bg-card px-6 py-3 flex items-center gap-2">
           {error && (
             <div className="text-xs text-destructive flex-1 min-w-0 truncate">
               {error}
@@ -567,35 +668,65 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
             <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               IA escrevendo a copy e montando o email... (~10-20s)
-          </div>
-          )}
-          {!error && !loading && (
-            <div className="text-[11px] text-muted-foreground flex-1">
-              {context.trim().length >= 5 && layoutId ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  Pronto pra montar
-                </span>
-              ) : (
-                <span>
-                  {context.trim().length < 5 ? "Conte o contexto · " : ""}
-                  {!layoutId ? "Escolha um template" : ""}
-                </span>
-              )}
             </div>
           )}
-          <Button variant="outline" size="sm" onClick={close} disabled={loading}>
+          {!error && !loading && step === 1 && context.trim().length < 5 && (
+            <div className="text-[11px] text-muted-foreground flex-1">
+              Escreva pelo menos uma frase pra avançar.
+            </div>
+          )}
+          {!error && !loading && step === 2 && !layoutId && (
+            <div className="text-[11px] text-muted-foreground flex-1">
+              Escolha um template pra avançar.
+            </div>
+          )}
+          {!error && !loading && (step >= 3 && step <= 5) && (
+            <div className="text-[11px] text-muted-foreground flex-1">
+              Opcional · pode pular.
+            </div>
+          )}
+          {!error && !loading && step === 6 && (
+            <div className="text-[11px] flex-1 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span className="text-muted-foreground">Pronto pra montar.</span>
+            </div>
+          )}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={close}
+            disabled={loading}
+          >
             Cancelar
           </Button>
-          <Button size="sm" onClick={submit} disabled={loading} className="gap-1.5">
-            {loading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Wand2 className="w-3.5 h-3.5" />
-            )}
-            Montar email
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Button>
+          {step > 1 && (
+            <Button variant="outline" size="sm" onClick={prevStep} disabled={loading} className="gap-1.5">
+              <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+              Voltar
+            </Button>
+          )}
+          {!isLast && (
+            <Button
+              size="sm"
+              onClick={nextStep}
+              disabled={loading || !canAdvance}
+              className="gap-1.5"
+            >
+              Próximo
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          {isLast && (
+            <Button size="sm" onClick={submit} disabled={loading} className="gap-1.5">
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5" />
+              )}
+              Montar email
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
