@@ -29,11 +29,15 @@ export async function GET(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const url = new URL(request.url);
+    const ptParam = url.searchParams.get("planning_type");
+    const planningType: "social" | "performance" | undefined =
+      ptParam === "social" || ptParam === "performance" ? ptParam : undefined;
     const filters = {
       start: url.searchParams.get("start") || undefined,
       end: url.searchParams.get("end") || undefined,
       category: url.searchParams.get("category") || undefined,
       status: url.searchParams.get("status") || undefined,
+      planning_type: planningType,
     };
 
     const actions = await listMarketingActions(supabase, workspaceId, filters);
