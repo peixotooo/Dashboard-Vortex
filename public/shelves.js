@@ -1273,16 +1273,25 @@
     }
 
     var injectInProgress = false;
+    var lastTotal = -1;
     function maybeInject() {
       if (injectInProgress) return;
       injectInProgress = true;
       try {
         // No content yet (drawer closed or empty) — wait for next mutation
-        if (!drawerRoot.children.length) return;
+        if (!drawerRoot.children.length) {
+          lastTotal = -1;
+          return;
+        }
 
+        var total = readDrawerTotal();
         var existing = drawerRoot.querySelector("#vtx-gift-bar-drawer");
         if (existing) {
-          updateBar(existing, readDrawerTotal());
+          // Skip the paint when nothing relevant changed — kills the flicker
+          // while the drawer animation settles in.
+          if (total === lastTotal) return;
+          lastTotal = total;
+          updateBar(existing, total);
           return;
         }
 
@@ -1299,7 +1308,8 @@
         } else {
           drawerRoot.insertBefore(bar, drawerRoot.firstChild);
         }
-        updateBar(bar, readDrawerTotal());
+        lastTotal = total;
+        updateBar(bar, total);
       } finally {
         injectInProgress = false;
       }
@@ -1310,9 +1320,26 @@
 
     if (window.MutationObserver) {
       var debounce = null;
-      var obs = new MutationObserver(function () {
+      var obs = new MutationObserver(function (muts) {
+        // Filter out mutations that originate INSIDE our own bar — the
+        // updateBar() call mutates style/classList/textContent and we
+        // don't want it to retrigger this observer in a tight loop.
+        var hasExternal = false;
+        for (var i = 0; i < muts.length; i++) {
+          var t = muts[i].target;
+          var fromSelf = false;
+          while (t && t !== drawerRoot.parentNode) {
+            if (t.id === "vtx-gift-bar-drawer") { fromSelf = true; break; }
+            t = t.parentNode;
+          }
+          if (!fromSelf) { hasExternal = true; break; }
+        }
+        if (!hasExternal) return;
+
         clearTimeout(debounce);
-        debounce = setTimeout(maybeInject, 80);
+        // 250ms is long enough for the drawer's open animation to finish
+        // populating its body before we re-read the cart total.
+        debounce = setTimeout(maybeInject, 250);
       });
       obs.observe(drawerRoot, { childList: true, subtree: true });
     }
