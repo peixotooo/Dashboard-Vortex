@@ -32,6 +32,7 @@ import {
   Settings2,
   Code2,
   RefreshCw,
+  Send,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -57,6 +58,7 @@ import { TreeInspector } from "./_components/tree-inspector";
 import { TreePalette } from "./_components/tree-palette";
 import { TreeStructure } from "./_components/tree-structure";
 import { HeroGeneratorDialog } from "./_components/hero-generator";
+import { DispatchDialog } from "./_components/dispatch-dialog";
 import type { PickedProduct } from "./_components/product-picker";
 import type { SectionNode, LeafNode } from "@/lib/email-templates/tree/schema";
 import {
@@ -347,6 +349,7 @@ export default function EmailEditorPage({ params }: PageProps) {
   };
 
   const [heroGenOpen, setHeroGenOpen] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
   const onHeroGenerated = (url: string, alt: string) => {
     if (!treeSections) return;
     const leaf = defaultLeaf("image");
@@ -456,9 +459,18 @@ export default function EmailEditorPage({ params }: PageProps) {
             <Code2 className="w-3.5 h-3.5" />
             HTML
           </Button>
-          <Button size="sm" onClick={save} disabled={saving} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={save} disabled={saving} className="gap-1.5">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Salvar
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setDispatchOpen(true)}
+            disabled={saving}
+            className="gap-1.5"
+          >
+            <Send className="w-3.5 h-3.5" />
+            Disparar
           </Button>
         </div>
       </div>
@@ -660,6 +672,15 @@ export default function EmailEditorPage({ params }: PageProps) {
         workspaceId={workspaceId}
         layoutId={draft.layout_id}
         onGenerated={onHeroGenerated}
+      />
+
+      <DispatchDialog
+        open={dispatchOpen}
+        onClose={() => setDispatchOpen(false)}
+        draftId={draft.id}
+        workspaceId={workspaceId}
+        draftName={draft.name}
+        draftSubject={meta.subject}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { SuggestionCard } from "./components/suggestion-card";
 import { HistoryTable } from "./components/history-table";
 import { SettingsDrawer } from "./components/settings-drawer";
+import { LocawebSettingsDrawer } from "./components/locaweb-settings-drawer";
 import { SectionNav } from "./_components/section-nav";
 import { AIComposeDialog } from "./_components/ai-compose-dialog";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,7 @@ export default function EmailTemplatesPage() {
             <Sparkles className="w-3.5 h-3.5" />
             Criar com IA
           </Button>
+          <LocawebSettingsDrawer workspaceId={workspaceId} />
           <SettingsDrawer workspaceId={workspaceId} />
         </div>
       </div>
