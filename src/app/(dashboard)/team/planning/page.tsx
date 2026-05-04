@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   Plus,
@@ -12,9 +12,21 @@ import {
   Pencil,
   X,
   Link as LinkIcon,
-  ImageIcon,
   CalendarDays,
   AlertCircle,
+  Hash,
+  Megaphone,
+  Eye,
+  Upload,
+  FileText,
+  Film,
+  ImageIcon,
+  Download,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Heading2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,19 +52,36 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { MessageContent } from "@/components/ui/message-content";
 
 // --- Types ---
+
+type PlanningType = "social" | "performance";
+
+interface MediaItem {
+  url: string;
+  type: "image" | "video" | "pdf" | "file";
+  filename?: string;
+  size?: number;
+  storage_key?: string;
+}
 
 interface MarketingAction {
   id: string;
   title: string;
   description: string;
   category: string;
+  planning_type: PlanningType;
   color: string;
   start_date: string;
   end_date: string;
   status: string;
-  content: { images?: string[]; links?: string[]; notes?: string };
+  content: {
+    images?: string[];
+    links?: string[];
+    notes?: string;
+    media?: MediaItem[];
+  };
   created_at: string;
   updated_at: string;
 }
@@ -61,12 +90,20 @@ interface SpanSegment {
   actionId: string;
   title: string;
   color: string;
+  planningType: PlanningType;
   weekRow: number;
   startCol: number;
   colSpan: number;
   isStart: boolean;
   isEnd: boolean;
   lane: number;
+}
+
+interface UploadingFile {
+  id: string;
+  filename: string;
+  progress: "uploading" | "done" | "error";
+  error?: string;
 }
 
 // --- Constants ---
@@ -89,11 +126,32 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Cancelado" },
 ];
 
+const PLANNING_TYPES: {
+  value: PlanningType;
+  label: string;
+  shortLabel: string;
+  icon: typeof Hash;
+}[] = [
+  { value: "social", label: "Social Media", shortLabel: "Social", icon: Hash },
+  {
+    value: "performance",
+    label: "Performance",
+    shortLabel: "Performance",
+    icon: Megaphone,
+  },
+];
+
 const WEEKDAYS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"];
 
 const MONTH_NAMES = [
   "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+const ACCEPTED_MIME = [
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "video/mp4", "video/quicktime", "video/x-msvideo", "video/webm",
+  "application/pdf",
 ];
 
 // --- Helpers ---
@@ -123,6 +181,42 @@ function getMonthGrid(year: number, month: number): Date[] {
   return days;
 }
 
+function detectMediaType(mime: string): MediaItem["type"] {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime === "application/pdf") return "pdf";
+  return "file";
+}
+
+function detectMediaTypeFromUrl(url: string): MediaItem["type"] {
+  const lower = url.toLowerCase().split("?")[0];
+  if (/\.(jpe?g|png|gif|webp|avif)$/i.test(lower)) return "image";
+  if (/\.(mp4|mov|avi|webm)$/i.test(lower)) return "video";
+  if (/\.pdf$/i.test(lower)) return "pdf";
+  return "file";
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function normalizeMedia(content: MarketingAction["content"]): MediaItem[] {
+  if (content?.media && content.media.length > 0) return content.media;
+  // Backwards compat: legacy content.images: string[]
+  if (content?.images && content.images.length > 0) {
+    return content.images
+      .filter((u): u is string => Boolean(u))
+      .map((url) => ({
+        url,
+        type: detectMediaTypeFromUrl(url),
+      }));
+  }
+  return [];
+}
+
 function segmentActions(
   actions: MarketingAction[],
   gridDays: Date[]
@@ -147,6 +241,7 @@ function segmentActions(
         actionId: action.id,
         title: action.title,
         color: action.color,
+        planningType: action.planning_type || "social",
         weekRow: row,
         startCol,
         colSpan,
@@ -157,11 +252,20 @@ function segmentActions(
     }
   }
 
-  // Assign lanes to avoid overlaps
+  // Assign lanes to avoid overlaps (sort by type then by start so social goes first)
   for (let row = 0; row < 6; row++) {
     const rowSegments = segments
       .filter((s) => s.weekRow === row)
-      .sort((a, b) => a.startCol - b.startCol || b.colSpan - a.colSpan);
+      .sort(
+        (a, b) =>
+          (a.planningType === b.planningType
+            ? 0
+            : a.planningType === "social"
+            ? -1
+            : 1) ||
+          a.startCol - b.startCol ||
+          b.colSpan - a.colSpan
+      );
 
     const lanes: number[][] = [];
 
@@ -194,6 +298,27 @@ function segmentActions(
   return segments;
 }
 
+// Insert markdown around the textarea selection
+function applyMarkdown(
+  textarea: HTMLTextAreaElement,
+  before: string,
+  after: string,
+  placeholder: string,
+  setValue: (v: string) => void
+) {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const value = textarea.value;
+  const selected = value.slice(start, end) || placeholder;
+  const next = value.slice(0, start) + before + selected + after + value.slice(end);
+  setValue(next);
+  requestAnimationFrame(() => {
+    textarea.focus();
+    const cursorStart = start + before.length;
+    textarea.setSelectionRange(cursorStart, cursorStart + selected.length);
+  });
+}
+
 // --- Main Component ---
 
 export default function PlanningPage() {
@@ -208,19 +333,26 @@ export default function PlanningPage() {
   const [editingAction, setEditingAction] = useState<MarketingAction | null>(null);
   const [detailAction, setDetailAction] = useState<MarketingAction | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterType, setFilterType] = useState<"all" | PlanningType>("all");
 
   // Form state
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formCategory, setFormCategory] = useState("geral");
+  const [formPlanningType, setFormPlanningType] = useState<PlanningType>("social");
   const [formStartDate, setFormStartDate] = useState("");
   const [formEndDate, setFormEndDate] = useState("");
   const [formStatus, setFormStatus] = useState("planned");
-  const [formImages, setFormImages] = useState<string[]>([]);
+  const [formMedia, setFormMedia] = useState<MediaItem[]>([]);
   const [formLinks, setFormLinks] = useState<string[]>([]);
+  const [uploads, setUploads] = useState<UploadingFile[]>([]);
+  const [descTab, setDescTab] = useState<"edit" | "preview">("edit");
   const [saving, setSaving] = useState(false);
   const [improving, setImproving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const headers = useMemo(
     () =>
@@ -250,7 +382,13 @@ export default function PlanningPage() {
       );
       if (res.ok) {
         const data = await res.json();
-        setActions(data.actions || []);
+        const list: MarketingAction[] = (data.actions || []).map(
+          (a: MarketingAction) => ({
+            ...a,
+            planning_type: a.planning_type || "social",
+          })
+        );
+        setActions(list);
       }
     } catch {
       // silent on load
@@ -284,39 +422,58 @@ export default function PlanningPage() {
   };
 
   // --- Filter ---
-  const filteredActions = useMemo(
-    () =>
-      filterCategory === "all"
-        ? actions
-        : actions.filter((a) => a.category === filterCategory),
-    [actions, filterCategory]
-  );
+  const filteredActions = useMemo(() => {
+    let list = actions;
+    if (filterCategory !== "all") {
+      list = list.filter((a) => a.category === filterCategory);
+    }
+    if (filterType !== "all") {
+      list = list.filter((a) => (a.planning_type || "social") === filterType);
+    }
+    return list;
+  }, [actions, filterCategory, filterType]);
 
   const segments = useMemo(
     () => segmentActions(filteredActions, gridDays),
     [filteredActions, gridDays]
   );
 
+  // Counts for header badges
+  const typeCounts = useMemo(() => {
+    const social = actions.filter(
+      (a) => (a.planning_type || "social") === "social"
+    ).length;
+    const performance = actions.filter(
+      (a) => a.planning_type === "performance"
+    ).length;
+    return { social, performance };
+  }, [actions]);
+
   // --- Dialog helpers ---
   const resetForm = () => {
     setFormTitle("");
     setFormDescription("");
     setFormCategory("geral");
+    setFormPlanningType("social");
     setFormStartDate("");
     setFormEndDate("");
     setFormStatus("planned");
-    setFormImages([]);
+    setFormMedia([]);
     setFormLinks([]);
+    setUploads([]);
+    setDescTab("edit");
     setEditingAction(null);
     setFormError(null);
   };
 
-  const openCreateDialog = (date?: string) => {
+  const openCreateDialog = (date?: string, planningType?: PlanningType) => {
     resetForm();
     if (date) {
       setFormStartDate(date);
       setFormEndDate(date);
     }
+    if (planningType) setFormPlanningType(planningType);
+    else if (filterType !== "all") setFormPlanningType(filterType);
     setDialogOpen(true);
   };
 
@@ -325,14 +482,113 @@ export default function PlanningPage() {
     setFormTitle(action.title);
     setFormDescription(action.description);
     setFormCategory(action.category);
+    setFormPlanningType(action.planning_type || "social");
     setFormStartDate(action.start_date);
     setFormEndDate(action.end_date);
     setFormStatus(action.status);
-    setFormImages(action.content?.images || []);
+    setFormMedia(normalizeMedia(action.content));
     setFormLinks(action.content?.links || []);
+    setUploads([]);
+    setDescTab("edit");
     setFormError(null);
     setDetailAction(null);
     setDialogOpen(true);
+  };
+
+  // --- Upload ---
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!workspace) return;
+    const list = Array.from(files);
+
+    for (const file of list) {
+      if (!ACCEPTED_MIME.includes(file.type)) {
+        setFormError(`Tipo nao suportado: ${file.name}`);
+        continue;
+      }
+
+      const tmpId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setUploads((prev) => [
+        ...prev,
+        { id: tmpId, filename: file.name, progress: "uploading" },
+      ]);
+
+      try {
+        const wsHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (workspace?.id) wsHeaders["x-workspace-id"] = workspace.id;
+
+        const urlRes = await fetch("/api/media/upload-url", {
+          method: "POST",
+          headers: wsHeaders,
+          body: JSON.stringify({
+            filename: file.name,
+            mime_type: file.type,
+          }),
+        });
+        const urlData = await urlRes.json();
+        if (!urlRes.ok) {
+          throw new Error(urlData.error || "Falha ao obter URL de upload");
+        }
+
+        const putRes = await fetch(urlData.signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!putRes.ok) {
+          throw new Error(`Erro ao subir para storage (${putRes.status})`);
+        }
+
+        setFormMedia((prev) => [
+          ...prev,
+          {
+            url: urlData.publicUrl,
+            type: detectMediaType(file.type),
+            filename: file.name,
+            size: file.size,
+            storage_key: urlData.key,
+          },
+        ]);
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === tmpId ? { ...u, progress: "done" } : u
+          )
+        );
+        // Auto-clean done entries
+        setTimeout(() => {
+          setUploads((prev) => prev.filter((u) => u.id !== tmpId));
+        }, 1500);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Erro no upload";
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === tmpId ? { ...u, progress: "error", error: msg } : u
+          )
+        );
+        setFormError(msg);
+      }
+    }
+  };
+
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleUploadFiles(e.target.files);
+      e.target.value = "";
+    }
+  };
+
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUploadFiles(e.dataTransfer.files);
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   // --- Save ---
@@ -345,11 +601,14 @@ export default function PlanningPage() {
         title: formTitle,
         description: formDescription,
         category: formCategory,
+        planning_type: formPlanningType,
         start_date: formStartDate,
         end_date: formEndDate,
         status: formStatus,
         content: {
-          images: formImages.filter(Boolean),
+          media: formMedia,
+          // Legacy field for any downstream readers (sync, etc.)
+          images: formMedia.filter((m) => m.type === "image").map((m) => m.url),
           links: formLinks.filter(Boolean),
         },
       };
@@ -426,17 +685,6 @@ export default function PlanningPage() {
     }
   };
 
-  // --- Compute segments per cell for unified grid ---
-  const cellSegments = useMemo(() => {
-    const map: Record<string, SpanSegment[]> = {};
-    for (const seg of segments) {
-      const key = `${seg.weekRow}-${seg.startCol}`;
-      if (!map[key]) map[key] = [];
-      map[key].push(seg);
-    }
-    return map;
-  }, [segments]);
-
   // --- Render ---
   if (!workspace) {
     return (
@@ -448,6 +696,19 @@ export default function PlanningPage() {
 
   return (
     <div className="space-y-4 p-6">
+      {/* Striped pattern for performance chips */}
+      <style jsx global>{`
+        .perf-stripe {
+          background-image: repeating-linear-gradient(
+            -45deg,
+            rgba(255, 255, 255, 0) 0,
+            rgba(255, 255, 255, 0) 6px,
+            rgba(255, 255, 255, 0.18) 6px,
+            rgba(255, 255, 255, 0.18) 9px
+          );
+        }
+      `}</style>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -458,6 +719,51 @@ export default function PlanningPage() {
           <Plus className="mr-1 h-4 w-4" />
           Nova Acao
         </Button>
+      </div>
+
+      {/* Type segmented control */}
+      <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
+        <button
+          onClick={() => setFilterType("all")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            filterType === "all"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Tudo
+          <span className="text-[10px] text-muted-foreground/70">
+            {actions.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setFilterType("social")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            filterType === "social"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Hash className="h-3 w-3" />
+          Social Media
+          <span className="text-[10px] text-muted-foreground/70">
+            {typeCounts.social}
+          </span>
+        </button>
+        <button
+          onClick={() => setFilterType("performance")}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            filterType === "performance"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Megaphone className="h-3 w-3" />
+          Performance
+          <span className="text-[10px] text-muted-foreground/70">
+            {typeCounts.performance}
+          </span>
+        </button>
       </div>
 
       {/* Month nav + filters */}
@@ -537,10 +843,17 @@ export default function PlanningPage() {
               const rowIdx = Math.floor(idx / 7);
               const colIdx = idx % 7;
 
-              // Get segments that START in this cell
+              // Get segments that START in this cell, separated by type
               const segsHere = segments.filter(
                 (s) => s.weekRow === rowIdx && s.startCol === colIdx
               );
+              const socialSegs = segsHere.filter(
+                (s) => s.planningType === "social"
+              );
+              const perfSegs = segsHere.filter(
+                (s) => s.planningType === "performance"
+              );
+              const showDivider = socialSegs.length > 0 && perfSegs.length > 0;
 
               return (
                 <div
@@ -572,28 +885,28 @@ export default function PlanningPage() {
 
                   {/* Action spans that start in this cell */}
                   <div className="space-y-0.5">
-                    {segsHere.map((seg, i) => (
-                      <div
-                        key={`${seg.actionId}-${i}`}
-                        className="relative z-10 truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-tight cursor-pointer transition-all hover:brightness-90 hover:shadow-sm"
-                        style={{
-                          backgroundColor: seg.color,
-                          color: "#fff",
-                          width:
-                            seg.colSpan > 1
-                              ? `calc(${seg.colSpan * 100}% + ${(seg.colSpan - 1) * 1}px)`
-                              : "100%",
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const action = actions.find(
-                            (a) => a.id === seg.actionId
-                          );
-                          if (action) setDetailAction(action);
-                        }}
-                      >
-                        {seg.title}
+                    {socialSegs.map((seg, i) => (
+                      <ActionChip
+                        key={`s-${seg.actionId}-${i}`}
+                        seg={seg}
+                        actions={actions}
+                        onSelect={setDetailAction}
+                      />
+                    ))}
+                    {showDivider && (
+                      <div className="my-1 flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-muted-foreground/60">
+                        <span className="h-px flex-1 bg-border/60" />
+                        <Megaphone className="h-2.5 w-2.5" />
+                        <span className="h-px flex-1 bg-border/60" />
                       </div>
+                    )}
+                    {perfSegs.map((seg, i) => (
+                      <ActionChip
+                        key={`p-${seg.actionId}-${i}`}
+                        seg={seg}
+                        actions={actions}
+                        onSelect={setDetailAction}
+                      />
                     ))}
                   </div>
                 </div>
@@ -604,7 +917,17 @@ export default function PlanningPage() {
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground px-1">
+        <span className="flex items-center gap-1.5">
+          <Hash className="h-3 w-3" />
+          Social Media
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Megaphone className="h-3 w-3" />
+          <span className="inline-block h-2.5 w-5 rounded-sm bg-muted-foreground/40 perf-stripe" />
+          Performance
+        </span>
+        <span className="mx-2 h-3 w-px bg-border" />
         {CATEGORIES.map((cat) => (
           <span key={cat.value} className="flex items-center gap-1.5">
             <span
@@ -618,7 +941,7 @@ export default function PlanningPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingAction ? "Editar Acao" : "Nova Acao"}
@@ -633,6 +956,32 @@ export default function PlanningPage() {
                 <span>{formError}</span>
               </div>
             )}
+
+            {/* Planning type toggle */}
+            <div className="space-y-1.5">
+              <Label>Tipo de planejamento</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {PLANNING_TYPES.map((pt) => {
+                  const Icon = pt.icon;
+                  const active = formPlanningType === pt.value;
+                  return (
+                    <button
+                      key={pt.value}
+                      type="button"
+                      onClick={() => setFormPlanningType(pt.value)}
+                      className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted/40"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {pt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Title */}
             <div className="space-y-1.5">
@@ -704,7 +1053,7 @@ export default function PlanningPage() {
               </div>
             </div>
 
-            {/* Description + AI improve */}
+            {/* Description with markdown editor + preview */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label>Descricao</Label>
@@ -723,54 +1072,245 @@ export default function PlanningPage() {
                   {improving ? "Melhorando..." : "Melhorar com IA"}
                 </Button>
               </div>
-              <Textarea
-                placeholder="Descreva a acao, objetivo, canais, publico..."
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                className="min-h-[120px]"
-              />
+
+              <div className="rounded-lg border border-border overflow-hidden">
+                {/* Toolbar */}
+                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-2 py-1">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      title="Negrito"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "**",
+                            "**",
+                            "negrito",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <Bold className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Italico"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "*",
+                            "*",
+                            "italico",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <Italic className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Titulo"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "## ",
+                            "",
+                            "Titulo",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <Heading2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Lista"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "- ",
+                            "",
+                            "item",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Lista numerada"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "1. ",
+                            "",
+                            "item",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <ListOrdered className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Link"
+                      className="h-7 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        if (descRef.current)
+                          applyMarkdown(
+                            descRef.current,
+                            "[",
+                            "](https://)",
+                            "texto",
+                            setFormDescription
+                          );
+                      }}
+                    >
+                      <LinkIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setDescTab("edit")}
+                      className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                        descTab === "edit"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDescTab("preview")}
+                      className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                        descTab === "preview"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Eye className="h-3 w-3" />
+                      Preview
+                    </button>
+                  </div>
+                </div>
+
+                {descTab === "edit" ? (
+                  <Textarea
+                    ref={descRef}
+                    placeholder="Descreva a acao com markdown: **negrito**, *italico*, # titulos, - listas, [links](https://)..."
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    className="min-h-[160px] border-0 rounded-none font-mono text-xs focus-visible:ring-0"
+                  />
+                ) : (
+                  <div className="min-h-[160px] p-3">
+                    {formDescription ? (
+                      <MessageContent content={formDescription} />
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        Nada para mostrar.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Suporta markdown: **negrito**, *italico*, # titulos, - listas,
+                [links](url), tabelas.
+              </p>
             </div>
 
-            {/* Images */}
+            {/* Media uploads */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-1.5">
                   <ImageIcon className="h-3.5 w-3.5" />
-                  Imagens (URLs)
+                  Midias
                 </Label>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 text-xs"
-                  onClick={() => setFormImages([...formImages, ""])}
+                  className="h-7 text-xs gap-1"
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <Plus className="h-3 w-3" />
+                  <Upload className="h-3 w-3" />
+                  Enviar arquivos
                 </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ACCEPTED_MIME.join(",")}
+                  className="hidden"
+                  onChange={onFileInputChange}
+                />
               </div>
-              {formImages.map((img, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    placeholder="https://..."
-                    value={img}
-                    onChange={(e) => {
-                      const copy = [...formImages];
-                      copy[i] = e.target.value;
-                      setFormImages(copy);
-                    }}
-                    className="text-xs"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    onClick={() =>
-                      setFormImages(formImages.filter((_, j) => j !== i))
-                    }
+
+              <div
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                className="rounded-lg border-2 border-dashed border-border bg-muted/20 p-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
+              >
+                {formMedia.length === 0 && uploads.length === 0 ? (
+                  <div
+                    className="flex flex-col items-center justify-center py-6 text-center cursor-pointer"
+                    onClick={() => fileInputRef.current?.click()}
                   >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
+                    <Upload className="h-6 w-6 text-muted-foreground/60 mb-2" />
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Arraste arquivos aqui ou clique para enviar
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-1">
+                      Imagens, videos ou PDF (hospedado em Backblaze)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {formMedia.map((m, i) => (
+                      <MediaPreviewCard
+                        key={`${m.url}-${i}`}
+                        media={m}
+                        onRemove={() =>
+                          setFormMedia(formMedia.filter((_, j) => j !== i))
+                        }
+                      />
+                    ))}
+                    {uploads.map((u) => (
+                      <div
+                        key={u.id}
+                        className="relative aspect-square rounded-md border border-border bg-background flex flex-col items-center justify-center gap-1.5 p-2"
+                      >
+                        {u.progress === "uploading" ? (
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        ) : u.progress === "error" ? (
+                          <AlertCircle className="h-5 w-5 text-destructive" />
+                        ) : (
+                          <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                          </div>
+                        )}
+                        <p className="text-[9px] text-muted-foreground truncate w-full text-center">
+                          {u.filename}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Links */}
@@ -828,7 +1368,13 @@ export default function PlanningPage() {
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !formTitle || !formStartDate || !formEndDate}
+                disabled={
+                  saving ||
+                  !formTitle ||
+                  !formStartDate ||
+                  !formEndDate ||
+                  uploads.some((u) => u.progress === "uploading")
+                }
               >
                 {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                 {editingAction ? "Salvar" : "Criar"}
@@ -845,7 +1391,7 @@ export default function PlanningPage() {
           if (!open) setDetailAction(null);
         }}
       >
-        <SheetContent className="overflow-y-auto">
+        <SheetContent className="overflow-y-auto sm:max-w-lg">
           {detailAction && (
             <>
               <SheetHeader>
@@ -857,6 +1403,22 @@ export default function PlanningPage() {
               <div className="mt-4 space-y-4">
                 {/* Badges */}
                 <div className="flex flex-wrap gap-2">
+                  <Badge
+                    variant="outline"
+                    className="gap-1"
+                  >
+                    {(detailAction.planning_type || "social") === "performance" ? (
+                      <>
+                        <Megaphone className="h-3 w-3" />
+                        Performance
+                      </>
+                    ) : (
+                      <>
+                        <Hash className="h-3 w-3" />
+                        Social Media
+                      </>
+                    )}
+                  </Badge>
                   <Badge
                     style={{
                       backgroundColor: detailAction.color,
@@ -880,44 +1442,35 @@ export default function PlanningPage() {
                   {formatDateBR(detailAction.end_date)}
                 </div>
 
-                {/* Description */}
+                {/* Description (markdown) */}
                 {detailAction.description && (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground">
                       Descricao
                     </p>
-                    <p className="whitespace-pre-wrap text-sm">
-                      {detailAction.description}
-                    </p>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3">
+                      <MessageContent content={detailAction.description} />
+                    </div>
                   </div>
                 )}
 
-                {/* Images */}
-                {detailAction.content?.images &&
-                  detailAction.content.images.length > 0 && (
+                {/* Media */}
+                {(() => {
+                  const media = normalizeMedia(detailAction.content);
+                  if (media.length === 0) return null;
+                  return (
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">
-                        Imagens
+                        Midias ({media.length})
                       </p>
                       <div className="grid grid-cols-2 gap-2">
-                        {detailAction.content.images.map((url, i) => (
-                          <a
-                            key={i}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={url}
-                              alt={`Imagem ${i + 1}`}
-                              className="rounded-md border border-border object-cover w-full h-32"
-                            />
-                          </a>
+                        {media.map((m, i) => (
+                          <MediaPreviewCard key={i} media={m} />
                         ))}
                       </div>
                     </div>
-                  )}
+                  );
+                })()}
 
                 {/* Links */}
                 {detailAction.content?.links &&
@@ -932,9 +1485,9 @@ export default function PlanningPage() {
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                          className="flex items-center gap-1.5 text-sm text-primary hover:underline break-all"
                         >
-                          <LinkIcon className="h-3 w-3" />
+                          <LinkIcon className="h-3 w-3 shrink-0" />
                           {url}
                         </a>
                       ))}
@@ -965,6 +1518,117 @@ export default function PlanningPage() {
           )}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+// --- Subcomponents ---
+
+function ActionChip({
+  seg,
+  actions,
+  onSelect,
+}: {
+  seg: SpanSegment;
+  actions: MarketingAction[];
+  onSelect: (a: MarketingAction) => void;
+}) {
+  const isPerformance = seg.planningType === "performance";
+  const Icon = isPerformance ? Megaphone : Hash;
+  return (
+    <div
+      className={`relative z-10 flex items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-tight cursor-pointer transition-all hover:brightness-90 hover:shadow-sm ${
+        isPerformance ? "perf-stripe border-l-2 border-l-white/70" : ""
+      }`}
+      style={{
+        backgroundColor: seg.color,
+        color: "#fff",
+        width:
+          seg.colSpan > 1
+            ? `calc(${seg.colSpan * 100}% + ${(seg.colSpan - 1) * 1}px)`
+            : "100%",
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        const action = actions.find((a) => a.id === seg.actionId);
+        if (action) onSelect(action);
+      }}
+    >
+      <Icon className="h-2.5 w-2.5 shrink-0 opacity-90" />
+      <span className="truncate">{seg.title}</span>
+    </div>
+  );
+}
+
+function MediaPreviewCard({
+  media,
+  onRemove,
+}: {
+  media: MediaItem;
+  onRemove?: () => void;
+}) {
+  return (
+    <div className="group relative aspect-square rounded-md border border-border bg-background overflow-hidden">
+      {media.type === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={media.url}
+          alt={media.filename || "imagem"}
+          className="w-full h-full object-cover"
+        />
+      ) : media.type === "video" ? (
+        <video
+          src={media.url}
+          className="w-full h-full object-cover bg-black"
+          controls
+          preload="metadata"
+        />
+      ) : media.type === "pdf" ? (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-rose-500/10 text-rose-700 dark:text-rose-300">
+          <FileText className="h-7 w-7" />
+          <span className="text-[10px] mt-1 font-medium">PDF</span>
+        </div>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-muted text-muted-foreground">
+          <Film className="h-7 w-7" />
+          <span className="text-[10px] mt-1">Arquivo</span>
+        </div>
+      )}
+
+      {/* Overlay with filename + actions */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 flex items-end justify-between">
+        <span className="text-[10px] text-white truncate max-w-[70%]">
+          {media.filename || media.url.split("/").pop()}
+          {media.size ? (
+            <span className="text-white/60 ml-1">{formatBytes(media.size)}</span>
+          ) : null}
+        </span>
+        <a
+          href={media.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          download={media.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="h-5 w-5 flex items-center justify-center rounded bg-black/40 text-white hover:bg-black/60"
+          title="Baixar"
+        >
+          <Download className="h-3 w-3" />
+        </a>
+      </div>
+
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          className="absolute top-1 right-1 h-5 w-5 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-destructive transition-opacity"
+          title="Remover"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }

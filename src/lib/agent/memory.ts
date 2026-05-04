@@ -1406,16 +1406,30 @@ export async function updateCampaignNote(
 
 // --- Marketing Actions ---
 
+export interface MarketingMediaItem {
+  url: string;
+  type: "image" | "video" | "pdf" | "file";
+  filename?: string;
+  size?: number;
+  storage_key?: string;
+}
+
 export interface MarketingAction {
   id: string;
   workspace_id: string;
   title: string;
   description: string;
   category: string;
+  planning_type: "social" | "performance";
   start_date: string;
   end_date: string;
   status: string;
-  content: { images?: string[]; links?: string[]; notes?: string };
+  content: {
+    images?: string[];
+    links?: string[];
+    notes?: string;
+    media?: MarketingMediaItem[];
+  };
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1443,6 +1457,7 @@ export async function createMarketingAction(
     title: string;
     description?: string;
     category?: string;
+    planning_type?: "social" | "performance";
     start_date: string;
     end_date: string;
     status?: string;
@@ -1457,6 +1472,7 @@ export async function createMarketingAction(
       title: params.title,
       description: params.description || "",
       category: params.category || "geral",
+      planning_type: params.planning_type || "social",
       start_date: params.start_date,
       end_date: params.end_date,
       status: params.status || "planned",
@@ -1478,6 +1494,7 @@ export async function listMarketingActions(
     end?: string;
     category?: string;
     status?: string;
+    planning_type?: "social" | "performance";
   }
 ): Promise<MarketingAction[]> {
   let query = supabase
@@ -1490,6 +1507,7 @@ export async function listMarketingActions(
   if (filters?.end) query = query.lte("start_date", filters.end);
   if (filters?.category) query = query.eq("category", filters.category);
   if (filters?.status) query = query.eq("status", filters.status);
+  if (filters?.planning_type) query = query.eq("planning_type", filters.planning_type);
 
   const { data, error } = await query.order("start_date", { ascending: true });
 
@@ -1518,6 +1536,7 @@ export async function updateMarketingAction(
     title?: string;
     description?: string;
     category?: string;
+    planning_type?: "social" | "performance";
     start_date?: string;
     end_date?: string;
     status?: string;
