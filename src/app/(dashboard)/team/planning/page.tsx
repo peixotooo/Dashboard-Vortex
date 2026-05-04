@@ -22,6 +22,7 @@ import {
   Film,
   ImageIcon,
   Download,
+  Maximize2,
   Bold,
   Italic,
   List,
@@ -350,6 +351,10 @@ export default function PlanningPage() {
   const [saving, setSaving] = useState(false);
   const [improving, setImproving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{
+    items: MediaItem[];
+    index: number;
+  } | null>(null);
 
   const descRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1287,6 +1292,9 @@ export default function PlanningPage() {
                         onRemove={() =>
                           setFormMedia(formMedia.filter((_, j) => j !== i))
                         }
+                        onExpand={() =>
+                          setLightbox({ items: formMedia, index: i })
+                        }
                       />
                     ))}
                     {uploads.map((u) => (
@@ -1465,7 +1473,13 @@ export default function PlanningPage() {
                       </p>
                       <div className="grid grid-cols-2 gap-2">
                         {media.map((m, i) => (
-                          <MediaPreviewCard key={i} media={m} />
+                          <MediaPreviewCard
+                            key={i}
+                            media={m}
+                            onExpand={() =>
+                              setLightbox({ items: media, index: i })
+                            }
+                          />
                         ))}
                       </div>
                     </div>
@@ -1518,6 +1532,9 @@ export default function PlanningPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Lightbox */}
+      <MediaLightbox state={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }
@@ -1563,12 +1580,29 @@ function ActionChip({
 function MediaPreviewCard({
   media,
   onRemove,
+  onExpand,
 }: {
   media: MediaItem;
   onRemove?: () => void;
+  onExpand?: () => void;
 }) {
+  const handleExpand = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onExpand?.();
+  };
   return (
     <div className="group relative aspect-square rounded-md border border-border bg-background overflow-hidden">
+      {/* Clickable thumbnail layer (skip for video so native controls work) */}
+      {media.type !== "video" && onExpand ? (
+        <button
+          type="button"
+          onClick={handleExpand}
+          className="absolute inset-0 z-[1] cursor-zoom-in"
+          title="Ampliar"
+          aria-label="Ampliar"
+        />
+      ) : null}
+
       {media.type === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -1595,8 +1629,20 @@ function MediaPreviewCard({
         </div>
       )}
 
-      {/* Overlay with filename + actions */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 flex items-end justify-between">
+      {/* Hover expand button (visible for video too) */}
+      {onExpand && (
+        <button
+          type="button"
+          onClick={handleExpand}
+          className="absolute top-1 left-1 z-10 h-6 w-6 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-black/80 transition-opacity"
+          title="Ampliar"
+        >
+          <Maximize2 className="h-3 w-3" />
+        </button>
+      )}
+
+      {/* Overlay with filename + download */}
+      <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-1.5 flex items-end justify-between pointer-events-none">
         <span className="text-[10px] text-white truncate max-w-[70%]">
           {media.filename || media.url.split("/").pop()}
           {media.size ? (
@@ -1609,7 +1655,7 @@ function MediaPreviewCard({
           rel="noopener noreferrer"
           download={media.filename}
           onClick={(e) => e.stopPropagation()}
-          className="h-5 w-5 flex items-center justify-center rounded bg-black/40 text-white hover:bg-black/60"
+          className="h-5 w-5 flex items-center justify-center rounded bg-black/40 text-white hover:bg-black/60 pointer-events-auto"
           title="Baixar"
         >
           <Download className="h-3 w-3" />
@@ -1623,12 +1669,168 @@ function MediaPreviewCard({
             e.stopPropagation();
             onRemove();
           }}
-          className="absolute top-1 right-1 h-5 w-5 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-destructive transition-opacity"
+          className="absolute top-1 right-1 z-10 h-5 w-5 flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-destructive transition-opacity"
           title="Remover"
         >
           <X className="h-3 w-3" />
         </button>
       )}
+    </div>
+  );
+}
+
+function MediaLightbox({
+  state,
+  onClose,
+}: {
+  state: { items: MediaItem[]; index: number } | null;
+  onClose: () => void;
+}) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    if (state) setIdx(state.index);
+  }, [state]);
+
+  const items = state?.items || [];
+  const current = items[idx];
+  const hasPrev = idx > 0;
+  const hasNext = idx < items.length - 1;
+
+  const goPrev = useCallback(() => {
+    setIdx((i) => Math.max(0, i - 1));
+  }, []);
+  const goNext = useCallback(() => {
+    setIdx((i) => Math.min(items.length - 1, i + 1));
+  }, [items.length]);
+
+  useEffect(() => {
+    if (!state) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft") goPrev();
+      else if (e.key === "ArrowRight") goNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state, onClose, goPrev, goNext]);
+
+  if (!state || !current) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Close */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-4 right-4 h-10 w-10 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+        title="Fechar (Esc)"
+      >
+        <X className="h-5 w-5" />
+      </button>
+
+      {/* Filename + counter + download */}
+      <div className="absolute top-4 left-4 right-20 flex items-center gap-3 text-white">
+        <span className="text-sm font-medium truncate">
+          {current.filename || current.url.split("/").pop()}
+        </span>
+        {current.size ? (
+          <span className="text-xs text-white/60 shrink-0">
+            {formatBytes(current.size)}
+          </span>
+        ) : null}
+        {items.length > 1 ? (
+          <span className="text-xs text-white/60 shrink-0">
+            {idx + 1} / {items.length}
+          </span>
+        ) : null}
+        <a
+          href={current.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          download={current.filename}
+          onClick={(e) => e.stopPropagation()}
+          className="ml-auto h-8 w-8 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors shrink-0"
+          title="Baixar"
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      </div>
+
+      {/* Prev/Next */}
+      {items.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goPrev();
+            }}
+            disabled={!hasPrev}
+            className="absolute left-4 top-1/2 -translate-y-1/2 h-12 w-12 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Anterior (←)"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goNext();
+            }}
+            disabled={!hasNext}
+            className="absolute right-4 top-1/2 -translate-y-1/2 h-12 w-12 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Proximo (→)"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        </>
+      )}
+
+      {/* Content */}
+      <div
+        className="max-w-[92vw] max-h-[88vh] flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {current.type === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={current.url}
+            alt={current.filename || "imagem"}
+            className="max-w-[92vw] max-h-[88vh] object-contain rounded-md shadow-2xl"
+          />
+        ) : current.type === "video" ? (
+          <video
+            src={current.url}
+            controls
+            autoPlay
+            className="max-w-[92vw] max-h-[88vh] rounded-md bg-black shadow-2xl"
+          />
+        ) : current.type === "pdf" ? (
+          <iframe
+            src={current.url}
+            title={current.filename || "PDF"}
+            className="w-[92vw] h-[88vh] rounded-md bg-white shadow-2xl"
+          />
+        ) : (
+          <div className="rounded-md bg-card p-12 flex flex-col items-center gap-3 shadow-2xl">
+            <Film className="h-16 w-16 text-muted-foreground" />
+            <p className="text-sm">Pre-visualizacao indisponivel</p>
+            <a
+              href={current.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              download={current.filename}
+              className="text-sm text-primary hover:underline"
+            >
+              Abrir arquivo
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
