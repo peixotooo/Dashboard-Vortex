@@ -12,7 +12,7 @@ import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
-import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 import type { Draft } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
@@ -117,11 +117,13 @@ export async function POST(
       kind: body.suggestion_id ? "suggestion" : "draft",
       source_id: draft.id,
     });
-    html = applyUtmTracking(html, {
-      campaign: campaignSlug,
-      term: body.utm_term,
-      id: dispatchId,
-    });
+    html = sanitizeEmailHtml(
+      applyUtmTracking(html, {
+        campaign: campaignSlug,
+        term: body.utm_term,
+        id: dispatchId,
+      })
+    );
 
     const subject = draft.meta?.subject || draft.name || "Bulking";
     const campaignName =

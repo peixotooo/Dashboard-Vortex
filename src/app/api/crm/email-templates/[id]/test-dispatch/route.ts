@@ -20,7 +20,7 @@ import {
   addContactsToList,
   createMessage,
 } from "@/lib/locaweb/email-marketing";
-import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -135,10 +135,12 @@ export async function POST(
         slot: s.slot,
         source_id: s.id,
       }) + "-test";
-    const html = applyUtmTracking(s.rendered_html, {
-      campaign: campaignSlug,
-      id: dispatchId,
-    });
+    const html = sanitizeEmailHtml(
+      applyUtmTracking(s.rendered_html, {
+        campaign: campaignSlug,
+        id: dispatchId,
+      })
+    );
 
     const todayBrt = (() => {
       const d = new Date();

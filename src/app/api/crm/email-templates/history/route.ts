@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
-import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 
 interface SuggestionRow {
   id: string;
@@ -59,15 +59,17 @@ export async function GET(req: NextRequest) {
       if (typeof s.rendered_html !== "string") return s;
       return {
         ...s,
-        rendered_html: applyUtmTracking(s.rendered_html, {
-          campaign: buildCampaignSlug({
-            kind: "suggestion",
-            date: s.generated_for_date,
-            slot: s.slot,
-            source_id: s.id,
-          }),
-          id: s.id,
-        }),
+        rendered_html: sanitizeEmailHtml(
+          applyUtmTracking(s.rendered_html, {
+            campaign: buildCampaignSlug({
+              kind: "suggestion",
+              date: s.generated_for_date,
+              slot: s.slot,
+              source_id: s.id,
+            }),
+            id: s.id,
+          })
+        ),
       };
     });
 

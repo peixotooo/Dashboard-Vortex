@@ -25,9 +25,23 @@ export const TOKENS = {
 
   // Type families. Body sticks to Inter; headlines use Kanit but at moderate
   // weights — never above 600 — to match the editorial references.
-  fontHead: "'Kanit', 'Inter', Arial, sans-serif",
-  fontBody: "'Inter', 'Helvetica Neue', Arial, sans-serif",
-  fontMono: "'JetBrains Mono', 'Courier New', monospace",
+  //
+  // Email clients are inconsistent about web fonts:
+  //   - Apple Mail / iOS Mail / Samsung Mail load @font-face from <style>
+  //   - Gmail Web strips <link> AND @font-face entirely → falls to next stack
+  //   - Outlook desktop ignores web fonts → falls to next stack
+  //   - Outlook 365 web honors @font-face partially
+  //
+  // To give Gmail/Outlook readers something closer to the editorial weight
+  // we want for headlines, we name "Impact" and "Bebas Neue" before plain
+  // sans — both are pre-installed on Windows/macOS/iOS as condensed display
+  // faces. Body stays on Inter → Helvetica → Arial since those clients
+  // render readable copy fine.
+  fontHead:
+    "'Kanit', 'Bebas Neue', 'Impact', 'Helvetica Neue Condensed', 'Arial Narrow', Arial, sans-serif",
+  fontBody:
+    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
+  fontMono: "'JetBrains Mono', 'Courier New', Consolas, monospace",
 };
 
 export function escapeHtml(s: string | null | undefined): string {
@@ -61,11 +75,16 @@ export function htmlOpen(args: { subject: string; preview: string }): string {
 <![endif]-->
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <style>
+  /* Apple Mail, iOS Mail and Samsung Mail honor @import inside <style>
+     even when <link> is stripped. Gmail Web strips both, but the OS-level
+     fallback ('Bebas Neue', 'Impact', 'Arial Narrow') lands close enough
+     to the editorial weight we want. */
+  @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap');
   html, body { margin:0 !important; padding:0 !important; background:${TOKENS.bgAlt}; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
   body { width:100% !important; min-width:100% !important; mso-line-height-rule:exactly; }
   table { border-collapse:collapse !important; mso-table-lspace:0pt; mso-table-rspace:0pt; }
   td { mso-line-height-rule:exactly; }
-  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; }
+  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; max-width:100%; height:auto; }
   a { color:${TOKENS.text}; text-decoration:underline; }
   a[x-apple-data-detectors] { color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }
   u + #body a { color:inherit; text-decoration:none; font-size:inherit; font-family:inherit; font-weight:inherit; line-height:inherit; }
@@ -137,11 +156,13 @@ export function darkOpen(args: { subject: string; preview: string }): string {
 <![endif]-->
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <style>
+  /* Same dual-load strategy as htmlOpen — see comment there. */
+  @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap');
   html, body { margin:0 !important; padding:0 !important; background:${DARK.bg}; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
   body { width:100% !important; min-width:100% !important; mso-line-height-rule:exactly; }
   table { border-collapse:collapse !important; mso-table-lspace:0pt; mso-table-rspace:0pt; }
   td { mso-line-height-rule:exactly; }
-  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; }
+  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; max-width:100%; height:auto; }
   a { color:${DARK.fg}; text-decoration:underline; }
   a[x-apple-data-detectors] { color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }
   u + #body a { color:inherit; text-decoration:none; font-size:inherit; font-family:inherit; font-weight:inherit; line-height:inherit; }

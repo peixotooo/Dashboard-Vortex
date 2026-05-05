@@ -115,6 +115,26 @@ export function applyUtmTracking(html: string, ctx: UtmContext): string {
 }
 
 /**
+ * Defensive HTML sanitization for email clients. Specifically: rewrites
+ * protocol-relative `src="//host/..."` and `href="//host/..."` references to
+ * `https://host/...`. Gmail's image proxy and several Outlook builds treat
+ * `//host` as a relative path and fail to load the asset (we shipped a
+ * suggestion where every related-product image was broken in the inbox
+ * because the VNDA CDN returns protocol-relative URLs).
+ *
+ * Idempotent and conservative: it touches only `src=` / `href=` attributes
+ * whose value starts with `//`. Inline `style="background:url(//...)"` and
+ * other rare carriers are left alone — fix at the source if those become a
+ * problem in practice.
+ */
+export function sanitizeEmailHtml(html: string): string {
+  if (!html) return html;
+  return html
+    .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
+    .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://");
+}
+
+/**
  * Slug builder for utm_campaign. Normalizes a free-form context (suggestion
  * date+slot, draft id, AI compose context) into a stable, GA4-friendly token.
  */

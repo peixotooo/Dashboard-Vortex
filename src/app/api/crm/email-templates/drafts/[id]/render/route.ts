@@ -13,7 +13,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
-import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
 
@@ -73,6 +73,7 @@ export async function GET(
         id: draft.id,
       });
     }
+    html = sanitizeEmailHtml(html);
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);

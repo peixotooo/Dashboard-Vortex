@@ -10,7 +10,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
-import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import { materializeSegmentList } from "@/lib/email-templates/segment-list";
 import type { Slot } from "@/lib/email-templates/types";
 import { randomUUID } from "crypto";
@@ -114,11 +114,13 @@ export async function POST(
       slot: s.slot,
       source_id: s.id,
     });
-    const html = applyUtmTracking(s.rendered_html, {
-      campaign: campaignSlug,
-      term: body.utm_term,
-      id: dispatchId,
-    });
+    const html = sanitizeEmailHtml(
+      applyUtmTracking(s.rendered_html, {
+        campaign: campaignSlug,
+        term: body.utm_term,
+        id: dispatchId,
+      })
+    );
 
     // scheduled_to default = today BRT (Locaweb keeps messages as Rascunho
     // when schedule is missing).
