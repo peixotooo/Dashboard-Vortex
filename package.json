@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "email": "email dev --dir emails --port 3333"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -70,6 +71,7 @@
   },
   "devDependencies": {
     "pg": "^8.20.0",
+    "react-email": "^6.0.8",
     "shadcn": "^4.0.8"
   }
 }

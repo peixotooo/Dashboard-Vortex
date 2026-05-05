@@ -42,19 +42,33 @@ export function escapeHtml(s: string | null | undefined): string {
 
 export function htmlOpen(args: { subject: string; preview: string }): string {
   return `<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="light only" />
 <meta name="supported-color-schemes" content="light" />
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no" />
 <title>${escapeHtml(args.subject)}</title>
+<!--[if gte mso 9]>
+<xml>
+  <o:OfficeDocumentSettings>
+    <o:AllowPNG/>
+    <o:PixelsPerInch>96</o:PixelsPerInch>
+  </o:OfficeDocumentSettings>
+</xml>
+<![endif]-->
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <style>
-  body { margin:0; padding:0; background:${TOKENS.bgAlt}; }
-  table { border-collapse:collapse; }
-  img { border:0; outline:none; text-decoration:none; display:block; }
-  a { color:${TOKENS.text}; }
+  html, body { margin:0 !important; padding:0 !important; background:${TOKENS.bgAlt}; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  body { width:100% !important; min-width:100% !important; mso-line-height-rule:exactly; }
+  table { border-collapse:collapse !important; mso-table-lspace:0pt; mso-table-rspace:0pt; }
+  td { mso-line-height-rule:exactly; }
+  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; }
+  a { color:${TOKENS.text}; text-decoration:underline; }
+  a[x-apple-data-detectors] { color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }
+  u + #body a { color:inherit; text-decoration:none; font-size:inherit; font-family:inherit; font-weight:inherit; line-height:inherit; }
   @media (max-width: 599px) {
     .h1 { font-size: 32px !important; }
     .lead { font-size: 15px !important; }
@@ -66,11 +80,12 @@ export function htmlOpen(args: { subject: string; preview: string }): string {
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:${TOKENS.bgAlt};">
-<div style="display:none;max-height:0;overflow:hidden;color:${TOKENS.bgAlt};">${escapeHtml(args.preview)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${TOKENS.bgAlt};">
-  <tr><td align="center">
-  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:${TOKENS.bg};">`;
+<body id="body" style="margin:0;padding:0;background:${TOKENS.bgAlt};width:100%;">
+<div style="display:none;max-height:0;overflow:hidden;color:${TOKENS.bgAlt};font-size:1px;line-height:1px;mso-hide:all;">${escapeHtml(args.preview)}</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">&#847; &zwnj; &nbsp; &#8199; &#65279; &#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${TOKENS.bgAlt};width:100%;">
+  <tr><td align="center" style="padding:0;">
+  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${TOKENS.bg};">`;
 }
 
 export function htmlClose(): string {
@@ -103,19 +118,33 @@ export const DARK = {
 /** Wraps the body in a dark canvas. Pair with darkClose(). */
 export function darkOpen(args: { subject: string; preview: string }): string {
   return `<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="dark only" />
 <meta name="supported-color-schemes" content="dark" />
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no" />
 <title>${escapeHtml(args.subject)}</title>
+<!--[if gte mso 9]>
+<xml>
+  <o:OfficeDocumentSettings>
+    <o:AllowPNG/>
+    <o:PixelsPerInch>96</o:PixelsPerInch>
+  </o:OfficeDocumentSettings>
+</xml>
+<![endif]-->
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <style>
-  body { margin:0; padding:0; background:${DARK.bg}; }
-  table { border-collapse:collapse; }
-  img { border:0; outline:none; text-decoration:none; display:block; }
-  a { color:${DARK.fg}; }
+  html, body { margin:0 !important; padding:0 !important; background:${DARK.bg}; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  body { width:100% !important; min-width:100% !important; mso-line-height-rule:exactly; }
+  table { border-collapse:collapse !important; mso-table-lspace:0pt; mso-table-rspace:0pt; }
+  td { mso-line-height-rule:exactly; }
+  img { border:0; outline:none; text-decoration:none; display:block; -ms-interpolation-mode:bicubic; line-height:100%; }
+  a { color:${DARK.fg}; text-decoration:underline; }
+  a[x-apple-data-detectors] { color:inherit !important; text-decoration:none !important; font-size:inherit !important; font-family:inherit !important; font-weight:inherit !important; line-height:inherit !important; }
+  u + #body a { color:inherit; text-decoration:none; font-size:inherit; font-family:inherit; font-weight:inherit; line-height:inherit; }
   @media (max-width: 599px) {
     .h1 { font-size: 30px !important; }
     .lead { font-size: 15px !important; }
@@ -127,11 +156,12 @@ export function darkOpen(args: { subject: string; preview: string }): string {
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:${DARK.bg};">
-<div style="display:none;max-height:0;overflow:hidden;color:${DARK.bg};">${escapeHtml(args.preview)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${DARK.bg};">
-  <tr><td align="center">
-  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:${DARK.bg};">`;
+<body id="body" style="margin:0;padding:0;background:${DARK.bg};width:100%;">
+<div style="display:none;max-height:0;overflow:hidden;color:${DARK.bg};font-size:1px;line-height:1px;mso-hide:all;">${escapeHtml(args.preview)}</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">&#847; &zwnj; &nbsp; &#8199; &#65279; &#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${DARK.bg};width:100%;">
+  <tr><td align="center" style="padding:0;">
+  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${DARK.bg};">`;
 }
 
 export const darkClose = htmlClose;
@@ -159,8 +189,49 @@ export function darkFooter(): string {
 export function darkCtaBlock(args: { text: string; url: string }): string {
   return `
 <tr><td class="pad-xl" align="center" style="padding:8px 40px 56px;background:${DARK.bg};">
-  <a href="${escapeHtml(args.url)}" target="_blank" style="display:inline-block;background:${DARK.fg};color:${DARK.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.28em;text-transform:uppercase;text-decoration:none;padding:20px 44px;">${escapeHtml(args.text)}</a>
+  ${bulletproofButton({ text: args.text, url: args.url, bg: DARK.fg, fg: DARK.bg })}
 </td></tr>`;
+}
+
+/**
+ * Bulletproof email button. Outlook 2007–2019 ignores padding on inline `<a>`
+ * elements, which is why our previous CTAs collapsed to ~14px height in those
+ * clients. This pattern wraps the link in a single-cell `<table>` with
+ * `mso-padding-alt` so Outlook (Word renderer) honors the padding via MSO,
+ * while every other client uses the regular CSS padding on the `<a>`. Same
+ * shape react-email's `<Button>` produces internally.
+ *
+ * Defaults match the brand: solid black background, white text, weight 600,
+ * uppercase, 0.28em letter spacing, no border radius (squared edges per the
+ * editorial references).
+ */
+export function bulletproofButton(args: {
+  text: string;
+  url: string;
+  /** Background color of the button. Defaults to black. */
+  bg?: string;
+  /** Foreground (text) color of the button. Defaults to white. */
+  fg?: string;
+  /** Vertical / horizontal padding. */
+  padY?: number;
+  padX?: number;
+  /** Optional `data-utm-content` for per-anchor attribution. */
+  utmContent?: string;
+}): string {
+  const bg = args.bg ?? TOKENS.text;
+  const fg = args.fg ?? TOKENS.bg;
+  const py = args.padY ?? 20;
+  const px = args.padX ?? 44;
+  const utm = args.utmContent
+    ? ` data-utm-content="${escapeHtml(args.utmContent)}"`
+    : "";
+  return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:separate;line-height:100%;">
+  <tr>
+    <td align="center" bgcolor="${bg}" role="presentation" valign="middle" style="border:none;border-radius:0;cursor:auto;mso-padding-alt:${py}px ${px}px;background:${bg};">
+      <a href="${escapeHtml(args.url)}" target="_blank"${utm} style="background:${bg};color:${fg};display:inline-block;font-family:${TOKENS.fontHead};font-size:13px;font-weight:600;line-height:100%;letter-spacing:0.28em;margin:0;mso-padding-alt:0;padding:${py}px ${px}px;text-decoration:none;text-transform:uppercase;text-underline-color:${bg};">${escapeHtml(args.text)}</a>
+    </td>
+  </tr>
+</table>`;
 }
 
 /** Spacer rows to compose vertical rhythm between sections. */
@@ -314,7 +385,7 @@ export function leadBlock(text: string, mode: Mode = "light", style?: TextStyle)
 export function ctaBlock(args: { text: string; url: string }): string {
   return `
 <tr><td class="pad-xl" align="center" style="padding:8px 40px 56px;">
-  <a href="${escapeHtml(args.url)}" target="_blank" style="display:inline-block;background:${TOKENS.text};color:${TOKENS.bg};font-family:${TOKENS.fontHead};font-weight:600;font-size:13px;letter-spacing:0.28em;text-transform:uppercase;text-decoration:none;padding:20px 44px;">${escapeHtml(args.text)}</a>
+  ${bulletproofButton({ text: args.text, url: args.url, utmContent: "primary-cta" })}
 </td></tr>`;
 }
 
