@@ -141,15 +141,20 @@ export async function upsertLocawebSettings(
   const sb = createAdminClient();
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.enabled !== undefined) update.enabled = patch.enabled;
-  if (patch.base_url !== undefined) update.locaweb_base_url = patch.base_url;
-  if (patch.account_id !== undefined) update.locaweb_account_id = patch.account_id;
-  if (patch.token !== undefined) update.locaweb_token = patch.token;
+  if (patch.base_url !== undefined) update.locaweb_base_url = patch.base_url?.trim() || null;
+  if (patch.account_id !== undefined)
+    update.locaweb_account_id = patch.account_id?.toString().trim() || null;
+  // Trim the token at save time too — paste artifacts (trailing \n from
+  // copying out of the Locaweb panel) caused inconsistent 401s on some
+  // endpoints downstream. Belt-and-suspenders with the runtime trim in
+  // email-marketing.ts.
+  if (patch.token !== undefined) update.locaweb_token = patch.token?.trim() || null;
   if (patch.default_sender_email !== undefined)
-    update.default_sender_email = patch.default_sender_email;
+    update.default_sender_email = patch.default_sender_email?.trim() || null;
   if (patch.default_sender_name !== undefined)
-    update.default_sender_name = patch.default_sender_name;
+    update.default_sender_name = patch.default_sender_name?.trim() || null;
   if (patch.default_domain_id !== undefined)
-    update.default_domain_id = patch.default_domain_id;
+    update.default_domain_id = patch.default_domain_id?.toString().trim() || null;
   if (patch.list_ids !== undefined) update.list_ids = patch.list_ids;
 
   await sb

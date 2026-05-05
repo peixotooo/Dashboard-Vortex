@@ -28,11 +28,14 @@ async function request<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
-  const url = `${creds.base_url.replace(/\/+$/, "")}/accounts/${creds.account_id}${path}`;
+  const url = `${creds.base_url.replace(/\/+$/, "")}/accounts/${creds.account_id.toString().trim()}${path}`;
+  // Trim the token defensively. Locaweb's /senders and /domains endpoints
+  // were returning 401 when the stored token had a trailing newline (paste
+  // artifact), while /lists tolerated it — this normalizes both cases.
   const res = await fetch(url, {
     method,
     headers: {
-      "X-Auth-Token": creds.token,
+      "X-Auth-Token": creds.token.trim(),
       "Content-Type": "application/json",
       Accept: "application/json",
     },
