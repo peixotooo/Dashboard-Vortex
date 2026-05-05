@@ -36,6 +36,7 @@ const SLOT_LABEL: Record<number, string> = {
 export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: Props) {
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
+  const [useSegment, setUseSegment] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledTo, setScheduledTo] = useState(() =>
     new Date().toISOString().slice(0, 10)
@@ -45,6 +46,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const [success, setSuccess] = useState<{
     locaweb_message_id: string;
     scheduled?: string | null;
+    materialized_segment?: { list_name: string; count: number } | null;
   } | null>(null);
 
   useEffect(() => {
@@ -52,6 +54,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     setLists(null);
     setError(null);
     setSelectedListIds(new Set());
+    setUseSegment(false);
     setSuccess(null);
     fetch("/api/crm/email-templates/locaweb/lists", {
       headers: { "x-workspace-id": workspaceId },
@@ -98,8 +101,8 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   };
 
   const submit = async () => {
-    if (selectedListIds.size === 0) {
-      setError("Escolha ao menos uma lista.");
+    if (selectedListIds.size === 0 && !useSegment) {
+      setError("Escolha ao menos uma lista ou ative o segmento sugerido.");
       return;
     }
     setLoading(true);
@@ -115,6 +118,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           },
           body: JSON.stringify({
             list_ids: Array.from(selectedListIds),
+            use_segment: useSegment,
             scheduled_to: scheduleEnabled ? scheduledTo : undefined,
             // Pass the suggestion's segment label as the utm_term so click
             // attribution can split campaign performance by segment.
@@ -128,6 +132,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
       setSuccess({
         locaweb_message_id: d.locaweb_message_id,
         scheduled: d.scheduled_to,
+        materialized_segment: d.materialized_segment ?? null,
       });
     } catch (err) {
       setError((err as Error).message);
@@ -160,6 +165,13 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                 <div className="text-muted-foreground mt-1">
                   Stats começam a aparecer no painel de relatórios em algumas horas.
                 </div>
+                {success.materialized_segment && (
+                  <div className="text-muted-foreground mt-1">
+                    Segmento materializado em lista{" "}
+                    <span className="font-mono">{success.materialized_segment.list_name}</span>{" "}
+                    com {success.materialized_segment.count.toLocaleString("pt-BR")} contatos.
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex justify-end">
@@ -195,6 +207,49 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
 
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                Para quem enviar
+              </Label>
+
+              {/* Virtual "segmento sugerido" row. When toggled on, the
+                  backend materializes the RFM cluster into a fresh Locaweb
+                  list on the fly and dispatches there. */}
+              <button
+                type="button"
+                onClick={() => setUseSegment((v) => !v)}
+                disabled={loading || segmentSize == null || segmentSize === 0}
+                className={`w-full flex items-center gap-2 p-3 text-left rounded-md border transition-colors disabled:opacity-50 ${
+                  useSegment
+                    ? "border-foreground bg-foreground/5"
+                    : "border-border hover:bg-muted/40"
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                    useSegment
+                      ? "bg-foreground border-foreground text-background"
+                      : "border-border"
+                  }`}
+                >
+                  {useSegment && <CheckCircle2 className="w-3 h-3" />}
+                </div>
+                <Target className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium flex items-center gap-1.5">
+                    Segmento sugerido
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                      RFM
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    {segmentLabel}
+                    {segmentSize != null && segmentSize > 0
+                      ? ` · ~${segmentSize.toLocaleString("pt-BR")} contatos`
+                      : " · sem snapshot RFM"}
+                  </div>
+                </div>
+              </button>
+
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
                 Listas Locaweb
               </Label>
               {lists === null ? (
@@ -204,7 +259,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
               ) : lists.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  Nenhuma lista. Crie uma no painel da Locaweb antes de disparar.
+                  Nenhuma lista. Use o segmento sugerido acima ou crie uma no painel da Locaweb.
                 </div>
               ) : (
                 <div className="border rounded-md max-h-56 overflow-y-auto divide-y">
@@ -244,9 +299,8 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Idealmente escolha a lista que melhor casa com a segmentação{" "}
-                <span className="font-mono">{segmentLabel}</span>. Sync automático
-                cluster→lista vem em v2.
+                Você pode combinar listas existentes com o segmento sugerido — a Locaweb
+                deduplica destinatários no envio.
               </p>
             </div>
 
@@ -300,7 +354,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
               <Button
                 size="sm"
                 onClick={submit}
-                disabled={loading || selectedListIds.size === 0}
+                disabled={loading || (selectedListIds.size === 0 && !useSegment)}
                 className="gap-1.5"
               >
                 {loading ? (

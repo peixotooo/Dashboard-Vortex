@@ -11,6 +11,8 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { materializeSegmentList } from "@/lib/email-templates/segment-list";
+import type { Slot } from "@/lib/email-templates/types";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -18,6 +20,11 @@ export const maxDuration = 60;
 
 interface Body {
   list_ids: Array<string | number>;
+  /** When true, materialize the suggestion's RFM cluster into a Locaweb list
+   *  on the fly and append it to list_ids. Lets users dispatch to the
+   *  "Champions + Loyal" segmentação the cron suggests without having to
+   *  pre-create a matching list in the Locaweb panel. */
+  use_segment?: boolean;
   scheduled_to?: string;
   utm_term?: string;
 }
@@ -31,9 +38,10 @@ export async function POST(
     const { id } = await params;
     const body = (await req.json()) as Body;
 
-    if (!Array.isArray(body.list_ids) || body.list_ids.length === 0) {
+    const manualListIds = Array.isArray(body.list_ids) ? body.list_ids : [];
+    if (manualListIds.length === 0 && !body.use_segment) {
       return NextResponse.json(
-        { error: "Selecione ao menos uma lista da Locaweb." },
+        { error: "Selecione ao menos uma lista da Locaweb ou use o segmento sugerido." },
         { status: 400 }
       );
     }
@@ -75,6 +83,31 @@ export async function POST(
 
     // Universal UTM tracking — same contract as draft dispatch + active feed.
     const dispatchId = randomUUID();
+
+    // If the user opted in to dispatching to the suggested RFM cluster,
+    // materialize it as a Locaweb list right now and merge the resulting
+    // id into list_ids. This is the cluster→lista sync that used to be
+    // marked "v2" in the dialog.
+    let materialized: { list_id: string | number; list_name: string; count: number } | null = null;
+    if (body.use_segment) {
+      try {
+        materialized = await materializeSegmentList({
+          workspace_id: workspaceId,
+          slot: s.slot as Slot,
+          dispatch_id: dispatchId,
+          creds: creds.creds,
+        });
+      } catch (err) {
+        return NextResponse.json(
+          { error: `Falha ao materializar segmento: ${(err as Error).message}` },
+          { status: 502 }
+        );
+      }
+    }
+    const finalListIds: Array<string | number> = [
+      ...manualListIds,
+      ...(materialized ? [materialized.list_id] : []),
+    ];
     const campaignSlug = buildCampaignSlug({
       kind: "suggestion",
       date: s.generated_for_date,
@@ -110,7 +143,7 @@ export async function POST(
         sender_name: creds.sender_name,
         domain_id: creds.domain_id,
         html_body: html,
-        list_ids: body.list_ids,
+        list_ids: finalListIds,
         scheduled_to: effectiveScheduledTo,
       });
     } catch (err) {
@@ -142,7 +175,7 @@ export async function POST(
         workspace_id: workspaceId,
         suggestion_id: s.id,
         locaweb_message_id: messageId,
-        locaweb_list_ids: body.list_ids.map(String),
+        locaweb_list_ids: finalListIds.map(String),
         scheduled_to: body.scheduled_to
           ? new Date(`${body.scheduled_to}T00:00:00`).toISOString()
           : null,
@@ -152,6 +185,13 @@ export async function POST(
           utm_id: dispatchId,
           utm_term: body.utm_term ?? null,
           target_segment: s.target_segment_payload?.display_label ?? null,
+          materialized_segment_list: materialized
+            ? {
+                list_id: String(materialized.list_id),
+                list_name: materialized.list_name,
+                count: materialized.count,
+              }
+            : null,
         },
       })
       .select()
@@ -178,6 +218,13 @@ export async function POST(
       locaweb_message_id: messageId,
       status: initialStatus,
       scheduled_to: body.scheduled_to ?? null,
+      materialized_segment: materialized
+        ? {
+            list_id: String(materialized.list_id),
+            list_name: materialized.list_name,
+            count: materialized.count,
+          }
+        : null,
     });
   } catch (err) {
     return handleAuthError(err);
