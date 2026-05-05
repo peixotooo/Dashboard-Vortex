@@ -115,23 +115,50 @@ export function applyUtmTracking(html: string, ctx: UtmContext): string {
 }
 
 /**
- * Defensive HTML sanitization for email clients. Specifically: rewrites
- * protocol-relative `src="//host/..."` and `href="//host/..."` references to
- * `https://host/...`. Gmail's image proxy and several Outlook builds treat
- * `//host` as a relative path and fail to load the asset (we shipped a
- * suggestion where every related-product image was broken in the inbox
- * because the VNDA CDN returns protocol-relative URLs).
+ * Defensive HTML sanitization for email clients. Two transforms:
  *
- * Idempotent and conservative: it touches only `src=` / `href=` attributes
- * whose value starts with `//`. Inline `style="background:url(//...)"` and
- * other rare carriers are left alone — fix at the source if those become a
- * problem in practice.
+ * 1. Protocol-relative URLs. Rewrites `src="//host/..."` and
+ *    `href="//host/..."` → `https://host/...`. Gmail's image proxy and
+ *    several Outlook builds treat `//host` as a relative path and fail to
+ *    load the asset (the VNDA CDN returns protocol-relative URLs, which
+ *    broke every related-product image).
+ *
+ * 2. Aspect-ratio div wrappers. Strips `<div style="padding-top:N%">` +
+ *    nested `<img style="position:absolute">` patterns and replaces them
+ *    with a plain `<img width height>`. The padding-top hack reserves
+ *    height while letting an absolutely-positioned image fill it — works
+ *    in browsers, breaks in Gmail/Outlook because they ignore
+ *    `position:absolute` on inline styles, leaving an empty grey box
+ *    above each image. We fixed shared.ts so new renders don't emit the
+ *    pattern, but suggestions already cached in the DB still carry it.
+ *    This sanitizer rewrites them at dispatch time so old rendered_html
+ *    still renders cleanly without re-generating.
+ *
+ * Idempotent and conservative.
  */
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return html;
-  return html
-    .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
-    .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://");
+  return unwrapAspectRatioImages(
+    html
+      .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
+      .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://")
+  );
+}
+
+function unwrapAspectRatioImages(html: string): string {
+  // Match any <div style="...padding-top:N%..."> that wraps a single <img>,
+  // and replace the wrapper with just the image styled to render naturally.
+  // The original width attribute is preserved as max-width so the layout
+  // doesn't reflow for clients that honor it.
+  return html.replace(
+    /<div\s+style="[^"]*padding-top:[^"]+"[^>]*>\s*(<img\b[^>]*?)\s*\/?>\s*<\/div>/gi,
+    (_full, imgPrefix: string) => {
+      const widthMatch = imgPrefix.match(/\swidth=["']?(\d+)["']?/i);
+      const w = widthMatch ? widthMatch[1] : "600";
+      const cleanedAttrs = imgPrefix.replace(/\sstyle="[^"]*"/i, "");
+      return `${cleanedAttrs} style="display:block;width:100%;max-width:${w}px;height:auto;margin:0 auto;background:#F7F7F7;" />`;
+    }
+  );
 }
 
 /**
