@@ -118,13 +118,22 @@ function render(ctx: TemplateRenderContext): string {
 
   // Slot-2 coupon. Inverted version of the standard couponBlock.
   if (slot === 2 && coupon) {
+    const hint =
+      coupon.discount_percent && coupon.discount_percent > 0
+        ? `${coupon.discount_percent}% off em ${escapeHtml(product.name)}`
+        : product.name
+          ? `Válido em ${escapeHtml(product.name)}`
+          : "";
+    const hintRow = hint
+      ? `<div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${DARK_MUTED};margin-top:18px;">${hint}</div>`
+      : "";
     blocks.push(`
 <tr><td class="pad-l" style="padding:0 40px 28px;background:${DARK_BG};">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${DARK_FG};">
     <tr><td align="center" style="padding:30px 24px;">
       <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${DARK_MUTED};text-transform:uppercase;margin-bottom:14px;">Cupom exclusivo</div>
       <div style="font-family:${TOKENS.fontMono};font-weight:500;font-size:22px;letter-spacing:0.18em;color:${DARK_FG};background:${DARK_BG};padding:16px 26px;display:inline-block;border:1px dashed ${DARK_BORDER};">${escapeHtml(coupon.code)}</div>
-      <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${DARK_MUTED};margin-top:18px;">${coupon.discount_percent}% off em ${escapeHtml(product.name)}</div>
+      ${hintRow}
     </td></tr>
   </table>
 </td></tr>`);

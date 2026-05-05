@@ -342,16 +342,20 @@ function LeafRenderer({
           >
             {node.code}
           </span>
-          <Text
-            style={{
-              margin: "18px 0 0 0",
-              fontFamily: FONTS.body,
-              fontSize: "14px",
-              color: c.textSecondary,
-            }}
-          >
-            {node.discount_percent}% off em {node.product_name}
-          </Text>
+          {(node.discount_percent && node.discount_percent > 0) || node.product_name ? (
+            <Text
+              style={{
+                margin: "18px 0 0 0",
+                fontFamily: FONTS.body,
+                fontSize: "14px",
+                color: c.textSecondary,
+              }}
+            >
+              {node.discount_percent && node.discount_percent > 0
+                ? `${node.discount_percent}% off em ${node.product_name ?? ""}`.trim()
+                : `Válido em ${node.product_name}`}
+            </Text>
+          ) : null}
         </Section>
       );
     case "countdown": {

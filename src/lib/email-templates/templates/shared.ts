@@ -464,20 +464,30 @@ export function couponBlock(args: {
   mode?: Mode;
 }): string {
   const c = pal(args.mode);
+  // Hint line below the code reads "<X>% off em <produto>". When the
+  // discount is missing or zero (manual draft, AI compose without a
+  // numeric discount, or coupon that just unlocks free shipping etc.)
+  // the literal "0% off em ..." was rendering and looked broken. We
+  // omit the percentage and just say "Válido em <produto>" instead.
+  const hint =
+    args.discount_percent && args.discount_percent > 0
+      ? `${args.discount_percent}% off em ${escapeHtml(args.product_name)}`
+      : args.product_name
+        ? `Válido em ${escapeHtml(args.product_name)}`
+        : "";
+  const hintRow = hint
+    ? `<div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${c.textSecondary};margin-top:18px;">${hint}</div>`
+    : "";
   return `
 <tr><td class="pad-l" style="padding:8px 40px 28px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${c.text};background:${c.bg};">
     <tr><td align="center" style="padding:30px 24px;">
       <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:11px;letter-spacing:0.32em;color:${c.textSecondary};text-transform:uppercase;margin-bottom:14px;">Cupom exclusivo</div>
       <div style="font-family:${TOKENS.fontMono};font-weight:500;font-size:22px;letter-spacing:0.18em;color:${c.text};background:${c.surfaceAlt};padding:16px 26px;display:inline-block;">${escapeHtml(args.code)}</div>
-      <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:14px;color:${c.textSecondary};margin-top:18px;">${discount_percent_text(args.discount_percent)} ${escapeHtml(args.product_name)}</div>
+      ${hintRow}
     </td></tr>
   </table>
 </td></tr>`;
-}
-
-function discount_percent_text(p: number): string {
-  return `${p}% off em`;
 }
 
 /** 3 product grid below the hero. Editorial tight typography, no bold. */
