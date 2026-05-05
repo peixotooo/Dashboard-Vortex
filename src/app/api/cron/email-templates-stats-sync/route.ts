@@ -28,6 +28,7 @@ interface DispatchRow {
   workspace_id: string;
   locaweb_message_id: string;
   status: string;
+  stats: Record<string, unknown> | null;
   last_synced_at: string | null;
   created_at: string;
 }
@@ -39,17 +40,31 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  return runSync({});
+}
+
+interface RunSyncOptions {
+  /** Restrict the sync to a single workspace. Used by the manual /sync
+   *  endpoint that runs on demand from the reports page. */
+  workspaceId?: string;
+}
+
+export async function runSync(opts: RunSyncOptions) {
   const sb = createAdminClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: rows, error } = await sb
+  let q = sb
     .from("email_template_dispatches")
-    .select("id, workspace_id, locaweb_message_id, status, last_synced_at, created_at")
+    .select("id, workspace_id, locaweb_message_id, status, stats, last_synced_at, created_at")
     .gte("created_at", since)
     .neq("status", "canceled")
     .neq("status", "failed")
     .order("created_at", { ascending: false })
     .limit(200);
+  if (opts.workspaceId) {
+    q = q.eq("workspace_id", opts.workspaceId);
+  }
+  const { data: rows, error } = await q;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -83,7 +98,16 @@ async function handle(req: NextRequest) {
         getMessageOverview(creds, d.locaweb_message_id).catch(() => null),
       ]);
       const newStatus = mapStatus(msg?.status, d.status);
-      const stats = overview ?? {};
+      // Merge — never replace. The dispatch insert seeds stats with
+      // utm_campaign / utm_id / utm_term / target_segment /
+      // materialized_segment_list metadata that the reports dashboard
+      // relies on. Locaweb's overview only carries delivery metrics, so
+      // a wholesale assignment used to wipe the metadata on every cron
+      // tick. We layer overview on top of the prior stats so both
+      // coexist; metric keys win on conflict so fresh numbers always
+      // overwrite stale ones.
+      const prevStats = (d.stats ?? {}) as Record<string, unknown>;
+      const stats = { ...prevStats, ...(overview ?? {}) };
       const { error: upErr } = await sb
         .from("email_template_dispatches")
         .update({

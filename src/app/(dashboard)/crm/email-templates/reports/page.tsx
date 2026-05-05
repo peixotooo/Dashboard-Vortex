@@ -125,9 +125,14 @@ export default function ReportsPage() {
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      // The cron endpoint requires the cron secret; instead just re-load the
-      // dispatches with whatever the last cron pulled. If nothing fresh, the
-      // detail view will hit Locaweb directly when opened.
+      // Workspace-scoped manual sync: pulls overview/status from Locaweb for
+      // every dispatch in the workspace, merges into stats, and updates the
+      // row. After it returns we re-fetch the list so KPIs reflect the
+      // freshly-synced numbers.
+      await fetch("/api/crm/email-templates/reports/sync", {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId },
+      }).catch(() => null);
       await load();
     } finally {
       setRefreshing(false);
