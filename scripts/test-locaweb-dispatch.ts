@@ -134,6 +134,14 @@ async function main() {
   console.log(`      ✓ contato adicionado\n`);
 
   console.log("[6/6] disparando campanha ...");
+  // Locaweb cria messages como "Rascunho" se você não passar scheduled_to —
+  // elas precisariam ser aprovadas manualmente no painel. Setando
+  // scheduled_to pra hoje (BRT) força o envio imediato.
+  const todayBrt = (() => {
+    const d = new Date();
+    d.setUTCHours(d.getUTCHours() - 3);
+    return d.toISOString().slice(0, 10);
+  })();
   const message = await createMessage(creds, {
     name: `Teste Vortex ${new Date().toISOString().slice(0, 19)}`,
     subject: "Teste · integração Vortex × Locaweb",
@@ -142,6 +150,7 @@ async function main() {
     domain_id: matchedDomain.id,
     html_body: SAMPLE_HTML,
     list_ids: [list.id],
+    scheduled_to: todayBrt,
   });
   const messageId =
     message.id ??

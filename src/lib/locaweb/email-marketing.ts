@@ -201,7 +201,17 @@ export async function createList(
   creds: LocawebCreds,
   name: string
 ): Promise<List> {
-  return request<List>(creds, "POST", "/lists", { name });
+  // Locaweb returns the created resource at the top level, but on some
+  // endpoints they wrap it under `list` or `data`. We probe both.
+  const data = await request<unknown>(creds, "POST", "/lists", { name });
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (obj.id != null) return obj as unknown as List;
+    if (obj.list && typeof obj.list === "object") return obj.list as List;
+    if (obj.data && typeof obj.data === "object") return obj.data as List;
+    // Fall through with what we have, including the _location header set by request().
+  }
+  return data as List;
 }
 
 export interface ContactInput {

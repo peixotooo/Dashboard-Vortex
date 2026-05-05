@@ -109,6 +109,18 @@ export async function POST(
     const campaignName =
       body.campaign_name ?? `tpl_${draft.id.slice(0, 8)}_${draft.name.slice(0, 50)}`;
 
+    // Locaweb leaves messages in "Rascunho" status when scheduled_to is
+    // missing — they then need manual approval in the panel. We always
+    // set scheduled_to (today BRT for "send now", future date for the
+    // schedule toggle) so dispatched campaigns actually fire without
+    // human intervention.
+    const todayBrt = (() => {
+      const d = new Date();
+      d.setUTCHours(d.getUTCHours() - 3);
+      return d.toISOString().slice(0, 10);
+    })();
+    const effectiveScheduledTo = body.scheduled_to ?? todayBrt;
+
     let messageRef;
     try {
       messageRef = await createMessage(creds.creds, {
@@ -119,7 +131,7 @@ export async function POST(
         domain_id: creds.domain_id,
         html_body: html,
         list_ids: body.list_ids,
-        scheduled_to: body.scheduled_to,
+        scheduled_to: effectiveScheduledTo,
       });
     } catch (err) {
       const e = err as { status?: number; message?: string };
