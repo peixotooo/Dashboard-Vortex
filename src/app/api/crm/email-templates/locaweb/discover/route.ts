@@ -26,11 +26,23 @@ export async function GET(req: NextRequest) {
       account_id: s.account_id,
       token: s.token,
     };
-    const [senders, domains] = await Promise.all([
-      listSenders(creds).catch(() => []),
-      listDomains(creds).catch(() => []),
-    ]);
-    return NextResponse.json({ senders, domains });
+    // Capture errors per-endpoint so the drawer can show what failed
+    // (Locaweb may surface 404 if the endpoint name differs in their account
+    // or 403 if scopes don't allow listing).
+    const senders = await listSenders(creds).catch((err) => ({
+      _error: (err as { message?: string }).message ?? "senders endpoint failed",
+    }));
+    const domains = await listDomains(creds).catch((err) => ({
+      _error: (err as { message?: string }).message ?? "domains endpoint failed",
+    }));
+    return NextResponse.json({
+      senders: Array.isArray(senders) ? senders : [],
+      domains: Array.isArray(domains) ? domains : [],
+      senders_error:
+        Array.isArray(senders) ? null : (senders as { _error: string })._error,
+      domains_error:
+        Array.isArray(domains) ? null : (domains as { _error: string })._error,
+    });
   } catch (err) {
     return handleAuthError(err);
   }

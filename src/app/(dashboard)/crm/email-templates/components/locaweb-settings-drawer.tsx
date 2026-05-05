@@ -58,6 +58,10 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
   const [domainId, setDomainId] = useState("");
   const [senders, setSenders] = useState<Sender[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
+  const [discoverError, setDiscoverError] = useState<{
+    senders?: string | null;
+    domains?: string | null;
+  }>({});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [probeResult, setProbeResult] = useState<
@@ -86,10 +90,19 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.senders) setSenders(d.senders);
-        if (d.domains) setDomains(d.domains);
+        setSenders(Array.isArray(d.senders) ? d.senders : []);
+        setDomains(Array.isArray(d.domains) ? d.domains : []);
+        setDiscoverError({
+          senders: d.senders_error ?? null,
+          domains: d.domains_error ?? null,
+        });
       })
-      .catch(() => {});
+      .catch((err) => {
+        setDiscoverError({
+          senders: (err as Error).message,
+          domains: (err as Error).message,
+        });
+      });
   }, [open, workspaceId]);
 
   const test = async () => {
@@ -119,6 +132,12 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
   };
 
   const save = async () => {
+    if (domainId && /^https?:\/\//i.test(domainId)) {
+      setError(
+        "Domínio inválido — esse campo é o domain_id (alfanumérico), não a URL da API."
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -306,12 +325,22 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
                       </SelectContent>
                     </Select>
                   ) : (
-                    <Input
-                      value={senderEmail}
-                      onChange={(e) => setSenderEmail(e.target.value)}
-                      placeholder="envios@bulking.com.br"
-                      className="h-9 text-sm"
-                    />
+                    <>
+                      <Input
+                        value={senderEmail}
+                        onChange={(e) => setSenderEmail(e.target.value)}
+                        placeholder="contato@bulking.com.br"
+                        className="h-9 text-sm"
+                      />
+                      {discoverError.senders && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                          Não foi possível listar senders automaticamente: {discoverError.senders.slice(0, 100)}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Use um email do domínio que você verificou na Locaweb.
+                      </p>
+                    </>
                   )}
                 </div>
                 <div className="space-y-1">
@@ -324,7 +353,7 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Domínio</Label>
+                  <Label className="text-xs">Domínio (domain_id)</Label>
                   {domains.length > 0 ? (
                     <Select value={domainId} onValueChange={setDomainId}>
                       <SelectTrigger className="h-9 text-sm">
@@ -344,12 +373,35 @@ export function LocawebSettingsDrawer({ workspaceId }: { workspaceId: string }) 
                       </SelectContent>
                     </Select>
                   ) : (
-                    <Input
-                      value={domainId}
-                      onChange={(e) => setDomainId(e.target.value)}
-                      placeholder="domain_id da Locaweb"
-                      className="h-9 text-sm font-mono"
-                    />
+                    <>
+                      <Input
+                        value={domainId}
+                        onChange={(e) => setDomainId(e.target.value)}
+                        placeholder="ex: 5f8e28abf8d79f935000002"
+                        className="h-9 text-sm font-mono"
+                      />
+                      {discoverError.domains && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                          Não foi possível listar domínios automaticamente: {discoverError.domains.slice(0, 100)}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Cole aqui o <span className="font-mono">domain_id</span> do
+                        domínio verificado.{" "}
+                        <a
+                          href={`https://emailmarketing.locaweb.com.br/api/v1/accounts/${
+                            settings.account_id ?? ""
+                          }/domains`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline hover:text-foreground"
+                        >
+                          Ver na API
+                        </a>{" "}
+                        ou no painel Locaweb → Configurações → Domínios.
+                        Não é a URL — é um id alfanumérico.
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
