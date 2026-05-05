@@ -12,11 +12,9 @@ import {
   CheckCircle2,
   Inbox,
   Target,
-  Eye,
-  Mail,
 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
-import { useAuth } from "@/lib/auth-context";
+import { TestSendCard } from "./test-send-card";
 
 interface LocawebList {
   id: string | number;
@@ -39,11 +37,8 @@ const SLOT_LABEL: Record<number, string> = {
 type Stage = "test" | "real";
 
 export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: Props) {
-  const { user } = useAuth();
   const [stage, setStage] = useState<Stage>("test");
-  const [testEmail, setTestEmail] = useState("");
   const [testSentTo, setTestSentTo] = useState<string | null>(null);
-  const [testLoading, setTestLoading] = useState(false);
 
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
@@ -63,14 +58,13 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   useEffect(() => {
     if (!suggestion) return;
     setStage("test");
-    setTestEmail(user?.email ?? "");
     setTestSentTo(null);
     setLists(null);
     setError(null);
     setSelectedListIds(new Set());
     setUseSegment(false);
     setSuccess(null);
-  }, [suggestion, user?.email]);
+  }, [suggestion]);
 
   useEffect(() => {
     if (!suggestion || stage !== "real" || lists !== null) return;
@@ -105,7 +99,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
       ?.estimated_size ?? null;
 
   const close = () => {
-    if (loading || testLoading) return;
+    if (loading) return;
     onClose();
   };
 
@@ -116,36 +110,6 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
       else next.add(id);
       return next;
     });
-  };
-
-  const sendTest = async () => {
-    const email = testEmail.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Email de teste inválido.");
-      return;
-    }
-    setTestLoading(true);
-    setError(null);
-    try {
-      const r = await fetch(
-        `/api/crm/email-templates/${suggestion.id}/test-dispatch`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-workspace-id": workspaceId,
-          },
-          body: JSON.stringify({ test_emails: [email] }),
-        }
-      );
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Falha ao enviar teste.");
-      setTestSentTo(email);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setTestLoading(false);
-    }
   };
 
   const submit = async () => {
@@ -255,81 +219,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           <>
             <div className="space-y-2 -mt-2">{SuggestionInfo}</div>
 
-            <div className="space-y-3 border rounded-md p-4 bg-foreground/[0.02]">
-              <div className="flex items-start gap-2">
-                <Eye className="w-4 h-4 text-foreground/70 mt-0.5 shrink-0" />
-                <div className="space-y-1">
-                  <div className="text-xs font-medium">
-                    Teste antes de disparar
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Recomendamos enviar uma cópia para o seu email primeiro. Você
-                    confere como o template chega na caixa de entrada — botão,
-                    espaçamento, links — antes de mandar pra audiência real.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="test-email"
-                  className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"
-                >
-                  <Mail className="w-3 h-3" />
-                  Enviar teste para
-                </Label>
-                <Input
-                  id="test-email"
-                  type="email"
-                  value={testEmail}
-                  onChange={(e) => setTestEmail(e.target.value)}
-                  disabled={testLoading}
-                  className="h-9 text-xs"
-                  placeholder="seu@email.com"
-                />
-              </div>
-
-              {testSentTo && (
-                <div className="flex items-start gap-2 text-[11px] p-2.5 border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 rounded">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <div className="text-emerald-700 dark:text-emerald-300">
-                    Teste enviado para{" "}
-                    <span className="font-mono">{testSentTo}</span>. Pode levar até
-                    alguns minutos pra chegar.
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant={testSentTo ? "outline" : "default"}
-                  onClick={sendTest}
-                  disabled={testLoading || !testEmail.trim()}
-                  className="gap-1.5"
-                >
-                  {testLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Eye className="w-3.5 h-3.5" />
-                  )}
-                  {testLoading
-                    ? "Enviando..."
-                    : testSentTo
-                      ? "Reenviar teste"
-                      : "Enviar teste"}
-                </Button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
-                {error}
-              </div>
-            )}
+            <TestSendCard
+              endpoint={`/api/crm/email-templates/${suggestion.id}/test-dispatch`}
+              workspaceId={workspaceId}
+              onSent={(email) => setTestSentTo(email)}
+            />
 
             <div className="flex justify-between gap-2 pt-2">
-              <Button variant="ghost" size="sm" onClick={close} disabled={testLoading}>
+              <Button variant="ghost" size="sm" onClick={close}>
                 Cancelar
               </Button>
               <Button
@@ -338,7 +235,6 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                   setError(null);
                   setStage("real");
                 }}
-                disabled={testLoading}
                 className="gap-1.5"
               >
                 <Send className="w-3.5 h-3.5" />

@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Inbox,
 } from "lucide-react";
+import { TestSendCard } from "../../../components/test-send-card";
 
 interface LocawebList {
   id: string;
@@ -28,6 +29,8 @@ interface Props {
   draftSubject?: string;
 }
 
+type Stage = "test" | "real";
+
 export function DispatchDialog({
   open,
   onClose,
@@ -36,6 +39,9 @@ export function DispatchDialog({
   draftName,
   draftSubject,
 }: Props) {
+  const [stage, setStage] = useState<Stage>("test");
+  const [testSentTo, setTestSentTo] = useState<string | null>(null);
+
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -53,8 +59,17 @@ export function DispatchDialog({
 
   useEffect(() => {
     if (!open) return;
+    setStage("test");
+    setTestSentTo(null);
     setLists(null);
+    setSelectedListIds(new Set());
+    setScheduleEnabled(false);
     setError(null);
+    setSuccess(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || stage !== "real" || lists !== null) return;
     fetch("/api/crm/email-templates/locaweb/lists", {
       headers: { "x-workspace-id": workspaceId },
     })
@@ -76,7 +91,7 @@ export function DispatchDialog({
         setError(`Falha ao carregar listas: ${(err as Error).message}`);
         setLists([]);
       });
-  }, [open, workspaceId]);
+  }, [open, stage, lists, workspaceId]);
 
   const toggle = (id: string) => {
     setSelectedListIds((prev) => {
@@ -89,11 +104,6 @@ export function DispatchDialog({
 
   const close = () => {
     if (loading) return;
-    setSelectedListIds(new Set());
-    setScheduleEnabled(false);
-    setError(null);
-    setSuccess(null);
-    setLoading(false);
     onClose();
   };
 
@@ -140,6 +150,21 @@ export function DispatchDialog({
         .reduce((a, b) => a + b, 0)
     : 0;
 
+  const DraftInfo = draftSubject ? (
+    <div className="text-xs flex items-start gap-1.5 p-2 border rounded bg-muted/30">
+      <Inbox className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
+      <div className="min-w-0">
+        <div className="text-muted-foreground">Subject:</div>
+        <div className="font-medium truncate">{draftSubject}</div>
+        {draftName && (
+          <div className="text-[10px] text-muted-foreground/70 truncate mt-0.5">
+            {draftName}
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-w-lg">
@@ -173,27 +198,51 @@ export function DispatchDialog({
               </Button>
             </div>
           </div>
+        ) : stage === "test" ? (
+          <>
+            {DraftInfo && <div className="space-y-2 -mt-2">{DraftInfo}</div>}
+
+            <TestSendCard
+              endpoint={`/api/crm/email-templates/drafts/${draftId}/test-dispatch`}
+              workspaceId={workspaceId}
+              onSent={(email) => setTestSentTo(email)}
+            />
+
+            <div className="flex justify-between gap-2 pt-2">
+              <Button variant="ghost" size="sm" onClick={close}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  setStage("real");
+                }}
+                className="gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" />
+                {testSentTo ? "Continuar para envio real" : "Pular teste e disparar"}
+              </Button>
+            </div>
+          </>
         ) : (
           <>
-            <div className="space-y-2 -mt-2">
-              <p className="text-xs text-muted-foreground">
-                Selecione a(s) lista(s) que vão receber o email.
-              </p>
-              {draftSubject && (
-                <div className="text-xs flex items-start gap-1.5 p-2 border rounded bg-muted/30">
-                  <Inbox className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-muted-foreground">Subject:</div>
-                    <div className="font-medium truncate">{draftSubject}</div>
-                    {draftName && (
-                      <div className="text-[10px] text-muted-foreground/70 truncate mt-0.5">
-                        {draftName}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            {DraftInfo && <div className="space-y-2 -mt-2">{DraftInfo}</div>}
+
+            {testSentTo && (
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground -mt-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                Teste enviado para{" "}
+                <span className="font-mono">{testSentTo}</span>.
+                <button
+                  type="button"
+                  onClick={() => setStage("test")}
+                  className="underline hover:text-foreground"
+                >
+                  Reenviar
+                </button>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -307,27 +356,40 @@ export function DispatchDialog({
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={close} disabled={loading}>
-                Cancelar
-              </Button>
+            <div className="flex justify-between gap-2 pt-2">
               <Button
+                variant="ghost"
                 size="sm"
-                onClick={submit}
-                disabled={loading || selectedListIds.size === 0}
-                className="gap-1.5"
+                onClick={() => {
+                  setError(null);
+                  setStage("test");
+                }}
+                disabled={loading}
               >
-                {loading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Send className="w-3.5 h-3.5" />
-                )}
-                {loading
-                  ? "Enviando..."
-                  : scheduleEnabled
-                    ? `Agendar para ${scheduledTo}`
-                    : "Disparar agora"}
+                Voltar
               </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={close} disabled={loading}>
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={submit}
+                  disabled={loading || selectedListIds.size === 0}
+                  className="gap-1.5"
+                >
+                  {loading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  {loading
+                    ? "Enviando..."
+                    : scheduleEnabled
+                      ? `Agendar para ${scheduledTo}`
+                      : "Disparar agora"}
+                </Button>
+              </div>
             </div>
           </>
         )}
