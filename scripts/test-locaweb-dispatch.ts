@@ -98,16 +98,11 @@ async function main() {
     process.exit(2);
   }
   for (const d of domains) {
-    console.log(`      • ${d.name ?? "(sem nome)"} · id=${d.id} · status=${d.status ?? "?"}`);
+    console.log(`      • ${d.name ?? "(sem nome)"} · id=${d.id} · status=${d.status ?? "?"} · default=${d.default ?? false}`);
   }
-  // Prefer an active domain matching the sender's host. Fall back to first.
-  const senderDomain = SENDER.split("@")[1]?.toLowerCase();
-  const matchedDomain =
-    domains.find(
-      (d) =>
-        (d.name ?? "").toLowerCase() === senderDomain &&
-        (!d.status || /(active|verified|ativ)/i.test(d.status))
-    ) ?? domains[0];
+  // Prefer the default domain (Locaweb marks one as default=true). Fall back
+  // to first available.
+  const matchedDomain = domains.find((d) => d.default === true) ?? domains[0];
   console.log(`      → usando domain_id=${matchedDomain.id} (${matchedDomain.name})\n`);
 
   console.log("[3/6] listando senders ...");
@@ -115,10 +110,14 @@ async function main() {
   for (const s of senders) {
     console.log(`      • ${s.email} · status=${s.status ?? "?"}`);
   }
-  const senderOk = senders.some((s) => s.email?.toLowerCase() === SENDER.toLowerCase());
+  const senderOk = senders.some(
+    (s) =>
+      s.email?.toLowerCase() === SENDER.toLowerCase() &&
+      (s.status === 1 || s.status === "1" || /(active|aprov|ativ)/i.test(String(s.status ?? "")))
+  );
   if (!senderOk) {
     console.warn(
-      `      ⚠ sender ${SENDER} não está na lista de senders ativos. Pode falhar.`
+      `      ⚠ sender ${SENDER} não está aprovado. Confirma o email de verificação que a Locaweb enviou pra essa caixa.`
     );
   }
   console.log("");

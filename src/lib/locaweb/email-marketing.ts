@@ -79,12 +79,12 @@ export interface CreateMessageInput {
   sender: string;
   /** From-name shown to recipients. */
   sender_name: string;
-  /** Verified domain id from listDomains. */
-  domain_id: string;
+  /** Verified domain id from listDomains. Locaweb accepts numeric or string. */
+  domain_id: string | number;
   /** HTML body. Must already be email-safe. */
   html_body: string;
   /** List ids the campaign goes to. */
-  list_ids: string[];
+  list_ids: Array<string | number>;
   /** Optional ISO date "YYYY-MM-DD" — granularity is daily. */
   scheduled_to?: string;
 }
@@ -167,7 +167,9 @@ export async function getMessageUniqOpenings(
 // ---------- Lists / contacts ----------
 
 export interface List {
-  id: string;
+  /** Locaweb may return numeric ids (e.g. 224323). The createMessage
+   *  endpoint accepts either form in `list_ids`. */
+  id: string | number;
   name: string;
   /** Tokens are sometimes used in lieu of ids (contact_imports, etc.) */
   token?: string;
@@ -175,10 +177,24 @@ export interface List {
   [k: string]: unknown;
 }
 
+/** Locaweb wraps every list response in { items: [...], page: {...} }.
+ *  Older docs / SDK examples sometimes show top-level arrays, so we accept
+ *  both shapes defensively. */
+function unwrapItems<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.items)) return obj.items as T[];
+    if (Array.isArray(obj.lists)) return obj.lists as T[];
+    if (Array.isArray(obj.senders)) return obj.senders as T[];
+    if (Array.isArray(obj.domains)) return obj.domains as T[];
+  }
+  return [];
+}
+
 export async function listLists(creds: LocawebCreds): Promise<List[]> {
-  const data = await request<List[] | { lists?: List[] }>(creds, "GET", "/lists");
-  if (Array.isArray(data)) return data;
-  return data.lists ?? [];
+  const data = await request<unknown>(creds, "GET", "/lists");
+  return unwrapItems<List>(data);
 }
 
 export async function createList(
@@ -196,7 +212,7 @@ export interface ContactInput {
 
 export async function addContactsToList(
   creds: LocawebCreds,
-  listId: string,
+  listId: string | number,
   contacts: ContactInput[]
 ): Promise<unknown> {
   return request<unknown>(creds, "POST", `/lists/${listId}/contacts`, {
@@ -206,7 +222,7 @@ export async function addContactsToList(
 
 export async function removeContactsFromList(
   creds: LocawebCreds,
-  listId: string,
+  listId: string | number,
   emails: string[]
 ): Promise<unknown> {
   return request<unknown>(
@@ -220,38 +236,29 @@ export async function removeContactsFromList(
 // ---------- Senders / domains ----------
 
 export interface Sender {
-  id?: string;
+  id?: string | number;
   email: string;
-  status?: string;
+  /** Locaweb returns 1 = active. */
+  status?: string | number;
   [k: string]: unknown;
 }
 
 export interface Domain {
-  id: string;
+  id: string | number;
   name: string;
   default?: boolean;
-  status?: string;
+  status?: string | number;
   [k: string]: unknown;
 }
 
 export async function listSenders(creds: LocawebCreds): Promise<Sender[]> {
-  const data = await request<Sender[] | { senders?: Sender[] }>(
-    creds,
-    "GET",
-    "/senders"
-  );
-  if (Array.isArray(data)) return data;
-  return data.senders ?? [];
+  const data = await request<unknown>(creds, "GET", "/senders");
+  return unwrapItems<Sender>(data);
 }
 
 export async function listDomains(creds: LocawebCreds): Promise<Domain[]> {
-  const data = await request<Domain[] | { domains?: Domain[] }>(
-    creds,
-    "GET",
-    "/domains"
-  );
-  if (Array.isArray(data)) return data;
-  return data.domains ?? [];
+  const data = await request<unknown>(creds, "GET", "/domains");
+  return unwrapItems<Domain>(data);
 }
 
 // ---------- Connectivity probe ----------
