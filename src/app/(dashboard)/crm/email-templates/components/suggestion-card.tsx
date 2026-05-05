@@ -4,9 +4,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Eye, Copy, Check, Send, Pencil, Loader2 } from "lucide-react";
+import { Eye, Copy, Check, Send, Pencil, Loader2, Zap } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 import { SentModal } from "./sent-modal";
+import { SuggestionDispatchDialog } from "./suggestion-dispatch-dialog";
 
 const SLOT_LABEL: Record<number, string> = {
   1: "Best-seller",
@@ -27,6 +28,7 @@ export function SuggestionCard({
   const [copied, setCopied] = useState(false);
   const [sentOpen, setSentOpen] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
 
   async function openInEditor() {
     if (opening) return;
@@ -137,11 +139,18 @@ export function SuggestionCard({
           )}
           {opening ? "Abrindo..." : "Editar"}
         </Button>
-        <Button size="sm" onClick={copyHtml} disabled={copying}>
+        <Button size="sm" variant="outline" onClick={copyHtml} disabled={copying}>
           {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
           {copied ? "Copiado!" : "Copiar HTML"}
         </Button>
-        <Button size="sm" variant="secondary" onClick={() => setSentOpen(true)}>
+        <Button
+          size="sm"
+          onClick={() => setDispatchOpen(true)}
+          className="gap-1.5"
+        >
+          <Zap className="w-4 h-4" /> Disparar
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setSentOpen(true)}>
           <Send className="w-4 h-4 mr-1" /> Marcar disparado
         </Button>
       </div>
@@ -152,6 +161,14 @@ export function SuggestionCard({
         workspaceId={workspaceId}
         onDone={() => {
           setSentOpen(false);
+          onChanged();
+        }}
+      />
+      <SuggestionDispatchDialog
+        suggestion={dispatchOpen ? suggestion : null}
+        workspaceId={workspaceId}
+        onClose={() => {
+          setDispatchOpen(false);
           onChanged();
         }}
       />

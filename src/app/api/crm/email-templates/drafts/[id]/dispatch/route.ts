@@ -12,6 +12,8 @@ import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
+import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+import { randomUUID } from "crypto";
 import type { Draft } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
 
@@ -30,6 +32,8 @@ interface Body {
   sender_name?: string;
   /** Optional reference to the source suggestion (for stats reconciliation). */
   suggestion_id?: string;
+  /** Optional UTM term (RFM segment). Default: undefined. */
+  utm_term?: string;
 }
 
 export async function POST(
@@ -105,6 +109,20 @@ export async function POST(
       );
     }
 
+    // Universal UTM tracking — every link to a Bulking host gets the same
+    // utm_source/medium/campaign/id/term so click attribution lands in GA4
+    // under one well-known set of dimensions.
+    const dispatchId = randomUUID();
+    const campaignSlug = buildCampaignSlug({
+      kind: body.suggestion_id ? "suggestion" : "draft",
+      source_id: draft.id,
+    });
+    html = applyUtmTracking(html, {
+      campaign: campaignSlug,
+      term: body.utm_term,
+      id: dispatchId,
+    });
+
     const subject = draft.meta?.subject || draft.name || "Bulking";
     const campaignName =
       body.campaign_name ?? `tpl_${draft.id.slice(0, 8)}_${draft.name.slice(0, 50)}`;
@@ -163,6 +181,7 @@ export async function POST(
     const { data: dispatchRow, error: insErr } = await sb
       .from("email_template_dispatches")
       .insert({
+        id: dispatchId,
         workspace_id: workspaceId,
         draft_id: draft.id,
         suggestion_id: body.suggestion_id ?? null,
@@ -172,6 +191,7 @@ export async function POST(
           ? new Date(`${body.scheduled_to}T00:00:00`).toISOString()
           : null,
         status: initialStatus,
+        stats: { utm_campaign: campaignSlug, utm_id: dispatchId, utm_term: body.utm_term ?? null },
       })
       .select()
       .single();

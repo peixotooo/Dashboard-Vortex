@@ -13,6 +13,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
+import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
 
@@ -39,6 +40,8 @@ export async function GET(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
     const draft = data as Draft & { meta: RuntimeMeta };
+    const url0 = new URL(req.url);
+    const skipTracking = url0.searchParams.get("track") === "off";
     let html: string;
     if (draft.meta?.engine === "tree") {
       const tree: TreeDraft = {
@@ -58,6 +61,17 @@ export async function GET(
       html = await renderTreeDraft(tree);
     } else {
       html = renderDraft(draft);
+    }
+    // GET endpoint serves the user-facing copy/preview path. Stamp the same
+    // utm_campaign as a future dispatch would, so manually-copied HTML
+    // attributes correctly even before going through Locaweb. ?track=off
+    // bails out for the thumbnail render in /drafts/page.tsx where UTMs
+    // would just clutter the link inspector.
+    if (!skipTracking) {
+      html = applyUtmTracking(html, {
+        campaign: buildCampaignSlug({ kind: "draft", source_id: draft.id }),
+        id: draft.id,
+      });
     }
     return NextResponse.json({ html });
   } catch (err) {

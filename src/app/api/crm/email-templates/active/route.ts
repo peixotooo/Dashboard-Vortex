@@ -2,6 +2,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { applyUtmTracking, buildCampaignSlug } from "@/lib/email-templates/tracking";
+
+interface SuggestionRow {
+  id: string;
+  slot: number;
+  generated_for_date: string;
+  rendered_html?: string;
+  [k: string]: unknown;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,7 +30,27 @@ export async function GET(req: NextRequest) {
       .order("slot", { ascending: true });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ date: brt, suggestions: data ?? [] });
+
+    // Stamp UTMs on the rendered_html as we serve it. Stored HTML stays
+    // canonical; tracking rules can change without rewriting rows.
+    const suggestions = ((data ?? []) as SuggestionRow[]).map((s) => {
+      if (typeof s.rendered_html !== "string") return s;
+      const campaign = buildCampaignSlug({
+        kind: "suggestion",
+        date: s.generated_for_date,
+        slot: s.slot,
+        source_id: s.id,
+      });
+      return {
+        ...s,
+        rendered_html: applyUtmTracking(s.rendered_html, {
+          campaign,
+          id: s.id,
+        }),
+      };
+    });
+
+    return NextResponse.json({ date: brt, suggestions });
   } catch (err) {
     return handleAuthError(err);
   }

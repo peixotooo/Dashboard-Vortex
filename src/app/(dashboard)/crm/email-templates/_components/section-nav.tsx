@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sparkles, LayoutGrid, FolderOpen } from "lucide-react";
+import { Sparkles, LayoutGrid, FolderOpen, BarChart3 } from "lucide-react";
 
 const TABS = [
   { href: "/crm/email-templates", label: "Sugestões", icon: Sparkles },
   { href: "/crm/email-templates/library", label: "Galeria", icon: LayoutGrid },
   { href: "/crm/email-templates/drafts", label: "Meus templates", icon: FolderOpen },
+  { href: "/crm/email-templates/reports", label: "Relatórios", icon: BarChart3 },
 ];
 
 /**

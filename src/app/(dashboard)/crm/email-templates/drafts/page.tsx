@@ -13,7 +13,7 @@ function DraftThumbnail({ id, workspaceId, mode }: { id: string; workspaceId: st
   const [html, setHtml] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/crm/email-templates/drafts/${id}/render`, {
+    fetch(`/api/crm/email-templates/drafts/${id}/render?track=off`, {
       headers: { "x-workspace-id": workspaceId },
     })
       .then((r) => r.json())
