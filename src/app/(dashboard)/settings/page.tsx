@@ -33,7 +33,73 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useAuth } from "@/lib/auth-context";
-import { FEATURES, ALL_FEATURE_IDS } from "@/lib/features";
+import {
+  FEATURES,
+  ALL_FEATURE_IDS,
+  PARENT_FEATURES,
+  PARENT_FEATURE_IDS,
+  getSubFeatures,
+} from "@/lib/features";
+
+// Effective: feature is granted directly OR via its parent.
+function hasEffectiveFeature(features: string[], featureId: string): boolean {
+  if (features.includes(featureId)) return true;
+  const f = FEATURES.find((x) => x.id === featureId);
+  if (f?.parent && features.includes(f.parent)) return true;
+  return false;
+}
+
+// Full access = every parent feature is in the array.
+function isFullAccess(features: string[]): boolean {
+  return PARENT_FEATURE_IDS.every((p) => features.includes(p));
+}
+
+// Toggle a feature on/off applying parent/sub semantics.
+// Returns the new flat features array.
+function toggleFeature(
+  features: string[],
+  featureId: string,
+  enabled: boolean
+): string[] {
+  const feature = FEATURES.find((f) => f.id === featureId);
+  if (!feature) return features;
+  const isParent = !feature.parent;
+  let next = [...features];
+
+  if (enabled) {
+    if (isParent) {
+      const subIds = getSubFeatures(featureId).map((s) => s.id);
+      next = next.filter((f) => !subIds.includes(f));
+      if (!next.includes(featureId)) next.push(featureId);
+    } else {
+      if (
+        !next.includes(feature.parent!) &&
+        !next.includes(featureId)
+      ) {
+        next.push(featureId);
+      }
+    }
+  } else {
+    if (isParent) {
+      next = next.filter((f) => f !== featureId);
+      const subIds = getSubFeatures(featureId).map((s) => s.id);
+      next = next.filter((f) => !subIds.includes(f));
+    } else {
+      const parentId = feature.parent!;
+      if (next.includes(parentId)) {
+        // Expand parent into siblings minus this one.
+        const siblings = getSubFeatures(parentId).map((s) => s.id);
+        next = next.filter((f) => f !== parentId);
+        for (const s of siblings) {
+          if (s !== featureId && !next.includes(s)) next.push(s);
+        }
+      } else {
+        next = next.filter((f) => f !== featureId);
+      }
+    }
+  }
+  return next;
+}
 
 interface MetaAccount {
   id: string;
@@ -85,7 +151,7 @@ export default function SettingsPage() {
   const [teamError, setTeamError] = useState("");
 
   // Invite feature permissions
-  const [inviteFeatures, setInviteFeatures] = useState<string[]>(ALL_FEATURE_IDS);
+  const [inviteFeatures, setInviteFeatures] = useState<string[]>(PARENT_FEATURE_IDS);
 
   // Pending invitations
   interface PendingInvite {
@@ -427,7 +493,7 @@ export default function SettingsPage() {
           email: inviteEmail,
           role: inviteRole,
           features:
-            inviteRole === "member" && inviteFeatures.length < ALL_FEATURE_IDS.length
+            inviteRole === "member" && !isFullAccess(inviteFeatures)
               ? inviteFeatures
               : null,
         }),
@@ -438,7 +504,7 @@ export default function SettingsPage() {
       } else {
         setTeamMessage("Convite enviado por email!");
         setInviteEmail("");
-        setInviteFeatures(ALL_FEATURE_IDS);
+        setInviteFeatures(PARENT_FEATURE_IDS);
         refreshMembers();
         fetchPendingInvites();
       }
@@ -558,14 +624,12 @@ export default function SettingsPage() {
     const member = members.find((m) => m.user_id === userId);
     if (!member || !workspace) return;
 
-    const currentFeatures = member.features ?? [...ALL_FEATURE_IDS];
-    const newFeatures = enabled
-      ? [...new Set([...currentFeatures, featureId])]
-      : currentFeatures.filter((f) => f !== featureId);
+    // null = full access; materialize as parent IDs so toggling is granular.
+    const currentFeatures = member.features ?? [...PARENT_FEATURE_IDS];
+    const newFeatures = toggleFeature(currentFeatures, featureId, enabled);
 
-    // If all features enabled, send null (= full access)
-    const featuresToSave =
-      newFeatures.length >= ALL_FEATURE_IDS.length ? null : newFeatures;
+    // If user has every parent module, save null (= legacy full access)
+    const featuresToSave = isFullAccess(newFeatures) ? null : newFeatures;
 
     try {
       const res = await fetch("/api/workspaces", {
@@ -1305,27 +1369,17 @@ export default function SettingsPage() {
                   {inviteRole === "member" && (
                     <div className="space-y-2 pl-1">
                       <p className="text-xs text-muted-foreground">
-                        Funcionalidades que este membro tera acesso:
+                        Funcionalidades que este membro tera acesso. Ative o
+                        modulo inteiro ou apenas as features especificas.
                       </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {FEATURES.map((feature) => (
-                          <label key={feature.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={inviteFeatures.includes(feature.id)}
-                              onChange={(e) => {
-                                setInviteFeatures((prev) =>
-                                  e.target.checked
-                                    ? [...prev, feature.id]
-                                    : prev.filter((f) => f !== feature.id)
-                                );
-                              }}
-                              className="h-4 w-4 rounded border-border accent-primary"
-                            />
-                            {feature.label}
-                          </label>
-                        ))}
-                      </div>
+                      <FeatureToggleList
+                        value={inviteFeatures}
+                        onToggle={(featureId, enabled) =>
+                          setInviteFeatures((prev) =>
+                            toggleFeature(prev, featureId, enabled)
+                          )
+                        }
+                      />
                     </div>
                   )}
                 </div>
@@ -1345,7 +1399,8 @@ export default function SettingsPage() {
                   {members
                     .filter((m) => m.role === "member")
                     .map((member) => {
-                      const memberFeatures = member.features ?? ALL_FEATURE_IDS;
+                      const memberFeatures =
+                        member.features ?? PARENT_FEATURE_IDS;
                       return (
                         <div
                           key={member.user_id}
@@ -1354,31 +1409,16 @@ export default function SettingsPage() {
                           <p className="text-sm font-medium">
                             {member.profile?.full_name || "Membro"}
                           </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {FEATURES.map((feature) => (
-                              <div
-                                key={feature.id}
-                                className="flex items-center justify-between gap-2"
-                              >
-                                <div className="min-w-0">
-                                  <p className="text-sm">{feature.label}</p>
-                                  <p className="text-xs text-muted-foreground truncate">
-                                    {feature.description}
-                                  </p>
-                                </div>
-                                <Switch
-                                  checked={memberFeatures.includes(feature.id)}
-                                  onCheckedChange={(checked) => {
-                                    handleToggleFeature(
-                                      member.user_id,
-                                      feature.id,
-                                      checked
-                                    );
-                                  }}
-                                />
-                              </div>
-                            ))}
-                          </div>
+                          <FeatureToggleList
+                            value={memberFeatures}
+                            onToggle={(featureId, enabled) =>
+                              handleToggleFeature(
+                                member.user_id,
+                                featureId,
+                                enabled
+                              )
+                            }
+                          />
                         </div>
                       );
                     })}
@@ -2021,6 +2061,106 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ===== FeatureToggleList =====
+// Renders all parent features as cards. Each card has a "module-level" switch
+// plus expandable per-feature switches. When the parent switch is on, the
+// sub-feature switches are visually checked and toggling them off triggers an
+// "expand siblings" downgrade in the storage layer.
+function FeatureToggleList({
+  value,
+  onToggle,
+}: {
+  value: string[];
+  onToggle: (featureId: string, enabled: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  return (
+    <div className="space-y-2">
+      {PARENT_FEATURES.map((parent) => {
+        const subs = getSubFeatures(parent.id);
+        const parentOn = value.includes(parent.id);
+        const isOpen = !!expanded[parent.id];
+        return (
+          <div
+            key={parent.id}
+            className="rounded-lg border border-border bg-card"
+          >
+            <div className="flex items-center justify-between gap-3 p-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{parent.label}</p>
+                  {parentOn && subs.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] h-5">
+                      Modulo completo
+                    </Badge>
+                  )}
+                  {!parentOn && subs.length > 0 && (
+                    <Badge variant="outline" className="text-[10px] h-5">
+                      {
+                        subs.filter((s) =>
+                          hasEffectiveFeature(value, s.id)
+                        ).length
+                      }
+                      /{subs.length} features
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground truncate">
+                  {parent.description}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {subs.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    onClick={() =>
+                      setExpanded((s) => ({ ...s, [parent.id]: !isOpen }))
+                    }
+                  >
+                    {isOpen ? "Ocultar" : "Detalhar"}
+                  </Button>
+                )}
+                <Switch
+                  checked={parentOn}
+                  onCheckedChange={(checked) => onToggle(parent.id, checked)}
+                />
+              </div>
+            </div>
+            {isOpen && subs.length > 0 && (
+              <div className="border-t border-border p-3 space-y-2 bg-muted/20">
+                {subs.map((sub) => {
+                  const effective = hasEffectiveFeature(value, sub.id);
+                  return (
+                    <div
+                      key={sub.id}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm">{sub.label}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {sub.description}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={effective}
+                        onCheckedChange={(checked) => onToggle(sub.id, checked)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

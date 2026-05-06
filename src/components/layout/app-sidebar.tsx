@@ -414,9 +414,20 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return navGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) =>
-          canAccessPath(item.href, userRole, userFeatures)
-        ),
+        items: group.items
+          .map((item) => {
+            const subs = item.items?.filter((sub) =>
+              canAccessPath(sub.href, userRole, userFeatures)
+            );
+            return { ...item, items: subs };
+          })
+          .filter((item) => {
+            const itemAccess = canAccessPath(item.href, userRole, userFeatures);
+            const hasSubs = (item.items?.length ?? 0) > 0;
+            // Hide a parent only if the user can access neither its own page
+            // nor any of its sub-items.
+            return itemAccess || hasSubs;
+          }),
       }))
       .filter((group) => group.items.length > 0);
   }, [userRole, userFeatures]);
