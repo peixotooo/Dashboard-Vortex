@@ -306,54 +306,80 @@ export async function getAccountBalance(creds: LocawebCreds): Promise<AccountBal
 
 function parseBalance(data: unknown): { total?: number; used?: number; remaining?: number } {
   if (!data || typeof data !== "object") return {};
-  const obj = data as Record<string, unknown>;
-  // Common Locaweb shapes — try each in order. First numeric match wins.
-  const pick = (...keys: string[]): number | undefined => {
+  // Locaweb's GET /accounts/{id} response shape (per their docs page):
+  //   { id, email, display_name, credits: { ... }, ... }
+  // The `credits` object holds the actual numbers. Older / smaller plans
+  // sometimes flatten the values onto the root, so we search both the
+  // root and the nested object using the same key dictionaries.
+  const root = data as Record<string, unknown>;
+  const credits =
+    root.credits && typeof root.credits === "object"
+      ? (root.credits as Record<string, unknown>)
+      : null;
+
+  const toNumber = (v: unknown): number | undefined => {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+    return undefined;
+  };
+
+  const findIn = (
+    obj: Record<string, unknown> | null,
+    keys: string[]
+  ): number | undefined => {
+    if (!obj) return undefined;
     for (const k of keys) {
-      const v = obj[k];
-      if (typeof v === "number" && Number.isFinite(v)) return v;
-      if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim())) return Number(v);
-      if (v && typeof v === "object") {
-        const sub = v as Record<string, unknown>;
-        for (const innerKey of ["amount", "value", "remaining", "available", "saldo"]) {
-          const iv = sub[innerKey];
-          if (typeof iv === "number" && Number.isFinite(iv)) return iv;
-        }
-      }
+      const direct = toNumber(obj[k]);
+      if (direct != null) return direct;
     }
     return undefined;
   };
 
-  const remaining = pick(
+  const REMAINING_KEYS = [
+    "available",
+    "available_credits",
+    "remaining",
     "remaining_credits",
     "monthly_credits_remaining",
-    "available_credits",
-    "creditos_disponiveis",
     "saldo",
     "saldo_envios",
-    "credits_remaining",
-    "credits",
-    "balance"
-  );
-  const used = pick(
+    "saldo_disponivel",
+    "creditos_disponiveis",
+    "disponivel",
+    "balance",
+  ];
+  const USED_KEYS = [
+    "used",
     "used_credits",
     "monthly_credits_used",
-    "creditos_utilizados",
-    "envios_realizados",
     "consumed",
-    "sent_count"
-  );
-  const total = pick(
+    "spent",
+    "sent_count",
+    "envios_realizados",
+    "utilizado",
+    "utilizados",
+    "creditos_utilizados",
+  ];
+  const TOTAL_KEYS = [
+    "total",
     "total_credits",
+    "limit",
+    "monthly_limit",
     "monthly_credits_total",
     "plan_credits",
     "creditos_mensais",
     "envios_contratados",
-    "limit"
-  );
+    "limite",
+  ];
 
-  // If only two of the three are present, derive the third — saldo views
-  // tend to give two and leave the user to compute the rest.
+  // Search the credits object first (canonical), fall back to root for
+  // older shapes.
+  const remaining = findIn(credits, REMAINING_KEYS) ?? findIn(root, REMAINING_KEYS);
+  const used = findIn(credits, USED_KEYS) ?? findIn(root, USED_KEYS);
+  const total = findIn(credits, TOTAL_KEYS) ?? findIn(root, TOTAL_KEYS);
+
+  // Derive whichever field is missing when the other two exist — saldo
+  // views often only ship two of the three.
   if (remaining == null && total != null && used != null) {
     return { total, used, remaining: Math.max(0, total - used) };
   }

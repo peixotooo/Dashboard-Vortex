@@ -29,6 +29,13 @@ export async function GET(req: NextRequest) {
         total: balance.total ?? null,
         used: balance.used ?? null,
         remaining: balance.remaining ?? null,
+        // Surface the raw Locaweb response when the parsed fields are all
+        // null so we can diagnose unexpected schema shapes from the UI
+        // without redeploying.
+        debug:
+          balance.total == null && balance.used == null && balance.remaining == null
+            ? balance.raw
+            : undefined,
       });
     } catch (err) {
       return NextResponse.json(
