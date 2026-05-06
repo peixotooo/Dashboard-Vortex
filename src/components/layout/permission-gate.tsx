@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-context";
-import { canAccessPath } from "@/lib/features";
+import { canAccessPath, getFirstAllowedRoute } from "@/lib/features";
 
 export function PermissionGate({ children }: { children: React.ReactNode }) {
   const { userRole, userFeatures, loading } = useWorkspace();
@@ -13,9 +13,10 @@ export function PermissionGate({ children }: { children: React.ReactNode }) {
   const hasAccess = loading || canAccessPath(pathname, userRole, userFeatures);
 
   useEffect(() => {
-    if (!loading && !canAccessPath(pathname, userRole, userFeatures)) {
-      router.replace("/");
-    }
+    if (loading) return;
+    if (canAccessPath(pathname, userRole, userFeatures)) return;
+    const target = getFirstAllowedRoute(userRole, userFeatures);
+    if (target !== pathname) router.replace(target);
   }, [pathname, userRole, userFeatures, loading, router]);
 
   if (!hasAccess) return null;

@@ -12,6 +12,14 @@ export interface Feature {
 }
 
 export const FEATURES: Feature[] = [
+  // ===== Overview =====
+  {
+    id: "overview",
+    label: "Overview",
+    description: "Pagina inicial / dashboard geral",
+    routes: ["/"],
+  },
+
   // ===== Time =====
   {
     id: "team",
@@ -333,11 +341,14 @@ ROUTE_TO_FEATURE.sort((a, b) => b.route.length - a.route.length);
 
 /**
  * Given a pathname, return the most specific feature ID it belongs to.
- * Returns null for unrestricted routes (Overview, Settings).
+ * Returns null for unrestricted routes (Settings, login flows, etc.).
+ *
+ * The "/" overview route only matches exactly so it never claims sub-paths.
  */
 export function getFeatureForPath(pathname: string): string | null {
   for (const { route, featureId } of ROUTE_TO_FEATURE) {
     if (pathname === route) return featureId;
+    if (route === "/") continue;
     if (pathname.startsWith(route + "/")) return featureId;
   }
   return null;
@@ -376,6 +387,29 @@ export function canAccessPath(
   }
 
   return false;
+}
+
+/**
+ * The first route the user can land on. Walks features in declaration order
+ * (Overview -> Time -> ... -> Galeria) and returns the first route that
+ * canAccessPath would allow. Sub-features count too — useful for redirecting
+ * a user whose only granted thing is, say, team.planning.
+ *
+ * Falls back to "/" so callers always have a string. PermissionGate avoids
+ * loops by only redirecting when the current path is denied.
+ */
+export function getFirstAllowedRoute(
+  role: string | null,
+  features: string[] | null
+): string {
+  if (role === "owner" || role === "admin") return "/";
+  if (!features) return "/";
+  for (const f of FEATURES) {
+    const route = f.routes[0];
+    if (!route) continue;
+    if (canAccessPath(route, role, features)) return route;
+  }
+  return "/";
 }
 
 /**
