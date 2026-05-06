@@ -18,6 +18,9 @@
 # react-email preview build artifacts
 /.react-email/
 
+# Claude Code transient locks
+.claude/scheduled_tasks.lock
+
 # production
 /build
 
