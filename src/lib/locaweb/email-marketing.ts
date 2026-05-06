@@ -88,7 +88,10 @@ export interface CreateMessageInput {
   html_body: string;
   /** List ids the campaign goes to. */
   list_ids: Array<string | number>;
-  /** Optional ISO date "YYYY-MM-DD" — granularity is daily. */
+  /** ISO datetime ("YYYY-MM-DDTHH:mm:ss-03:00") or date ("YYYY-MM-DD").
+   *  Locaweb's API accepts both — when only a date is provided the message
+   *  goes out at the default morning slot; with a full datetime it
+   *  schedules at the specified BRT hour. */
   scheduled_to?: string;
 }
 

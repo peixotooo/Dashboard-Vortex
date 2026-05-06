@@ -94,7 +94,6 @@ export async function POST(
         materialized = await materializeSegmentList({
           workspace_id: workspaceId,
           slot: s.slot as Slot,
-          dispatch_id: dispatchId,
           creds: creds.creds,
         });
       } catch (err) {
@@ -179,7 +178,12 @@ export async function POST(
         locaweb_message_id: messageId,
         locaweb_list_ids: finalListIds.map(String),
         scheduled_to: body.scheduled_to
-          ? new Date(`${body.scheduled_to}T00:00:00`).toISOString()
+          ? new Date(
+              // Bare YYYY-MM-DD → midnight BRT; full ISO datetime → as-is.
+              /T/.test(body.scheduled_to)
+                ? body.scheduled_to
+                : `${body.scheduled_to}T00:00:00-03:00`
+            ).toISOString()
           : null,
         status: initialStatus,
         stats: {

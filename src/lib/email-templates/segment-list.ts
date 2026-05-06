@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import {
   addContactsToList,
   createList,
+  listLists,
   type LocawebCreds,
   type ContactInput,
 } from "@/lib/locaweb/email-marketing";
@@ -31,6 +32,12 @@ const RFM_BY_SLOT: Record<Slot, string[]> = {
   3: ["recent_customers", "champions"],
 };
 
+const SLOT_LABELS: Record<Slot, string> = {
+  1: "Champions + Loyal",
+  2: "Loyal + Potential Loyalists",
+  3: "Recent Customers + Champions",
+};
+
 const BATCH_SIZE = 200;
 
 interface SnapshotRow {
@@ -44,10 +51,11 @@ function isValidEmail(e: string | undefined | null): e is string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 }
 
-function buildListName(slot: Slot, dispatchId: string): string {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const short = dispatchId.replace(/-/g, "").slice(0, 8);
-  return `_seg_slot${slot}_${date}_${short}`;
+function buildListName(slot: Slot): string {
+  // Stable per-slot name so the same cluster reuses the same Locaweb list
+  // across dispatches. Includes the human-readable cluster label so it's
+  // immediately recognizable in the Locaweb panel.
+  return `Vortex · ${SLOT_LABELS[slot]} (RFM)`;
 }
 
 export interface MaterializedSegmentList {
@@ -58,9 +66,11 @@ export interface MaterializedSegmentList {
 
 /**
  * Reads the workspace's RFM snapshot, filters customers by the slot's
- * target classes, creates a brand-new Locaweb list, and pushes every
- * matching contact. The list name is timestamped + suffixed with the
- * dispatch id so concurrent dispatches don't collide.
+ * target classes, finds-or-creates a Locaweb list named after the
+ * cluster ("Vortex · Champions + Loyal (RFM)"), and pushes every
+ * matching contact. List names are stable per-slot so re-dispatching
+ * to the same cluster reuses the existing list — no list-explosion in
+ * the panel and contacts dedup naturally on the Locaweb side.
  *
  * Throws if the snapshot is missing, the cluster has zero matching
  * customers, or Locaweb rejects the list creation. Caller should surface
@@ -69,10 +79,9 @@ export interface MaterializedSegmentList {
 export async function materializeSegmentList(args: {
   workspace_id: string;
   slot: Slot;
-  dispatch_id: string;
   creds: LocawebCreds;
 }): Promise<MaterializedSegmentList> {
-  const { workspace_id, slot, dispatch_id, creds } = args;
+  const { workspace_id, slot, creds } = args;
   const targetClasses = new Set(RFM_BY_SLOT[slot]);
   if (targetClasses.size === 0) {
     throw new Error(`Slot ${slot} não tem rfm_classes mapeadas.`);
@@ -112,15 +121,30 @@ export async function materializeSegmentList(args: {
     );
   }
 
-  const listName = buildListName(slot, dispatch_id);
-  const list = await createList(creds, listName);
-  const list_id =
-    list.id ??
-    (typeof list._location === "string"
-      ? list._location.split("/").filter(Boolean).pop() ?? null
-      : null);
+  const listName = buildListName(slot);
+
+  // Find-or-create. Reusing a stable list keeps the Locaweb panel tidy
+  // and lets repeat dispatches benefit from Locaweb's own contact dedup.
+  let list_id: string | number | null = null;
+  try {
+    const lists = await listLists(creds);
+    const existing = lists.find(
+      (l) => typeof l.name === "string" && l.name.trim().toLowerCase() === listName.toLowerCase()
+    );
+    if (existing) list_id = existing.id;
+  } catch {
+    // tolerate listing failure — fall through to create()
+  }
   if (list_id == null) {
-    throw new Error("Locaweb aceitou criar a lista mas não retornou um id.");
+    const list = await createList(creds, listName);
+    list_id =
+      list.id ??
+      (typeof list._location === "string"
+        ? list._location.split("/").filter(Boolean).pop() ?? null
+        : null);
+    if (list_id == null) {
+      throw new Error("Locaweb aceitou criar a lista mas não retornou um id.");
+    }
   }
 
   // Push contacts in chunks. Locaweb's per-call ceiling isn't formally

@@ -10,11 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import {
-  createList,
-  addContactsToList,
-  createMessage,
-} from "@/lib/locaweb/email-marketing";
+import { createMessage } from "@/lib/locaweb/email-marketing";
+import { ensureTestList } from "@/lib/email-templates/test-list";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
@@ -119,22 +116,15 @@ export async function POST(
 
     const dispatchId = randomUUID();
     const short = dispatchId.replace(/-/g, "").slice(0, 8);
-    const listName = `_test_${short}`;
 
-    let listId: string | number;
+    let listIds: Array<string | number>;
+    let testListNames: string[];
     try {
-      const list = await createList(creds.creds, listName);
-      const listIdRaw = list.id ??
-        (typeof list._location === "string"
-          ? list._location.split("/").filter(Boolean).pop() ?? null
-          : null);
-      if (listIdRaw == null) throw new Error("Locaweb não retornou id da lista de teste.");
-      listId = listIdRaw;
-      await addContactsToList(
-        creds.creds,
-        listId,
-        emails.map((email) => ({ email }))
+      const lists = await Promise.all(
+        emails.map((email) => ensureTestList({ creds: creds.creds, email }))
       );
+      listIds = lists.map((l) => l.list_id);
+      testListNames = lists.map((l) => l.list_name);
     } catch (err) {
       return NextResponse.json(
         { error: `Falha ao preparar lista de teste: ${(err as Error).message}` },
@@ -171,7 +161,7 @@ export async function POST(
         sender_name: creds.sender_name,
         domain_id: creds.domain_id,
         html_body: html,
-        list_ids: [listId],
+        list_ids: listIds,
         scheduled_to: todayBrt,
       });
     } catch (err) {
@@ -193,8 +183,8 @@ export async function POST(
       ok: true,
       locaweb_message_id: messageId,
       sent_to: emails,
-      list_id: String(listId),
-      list_name: listName,
+      list_ids: listIds.map(String),
+      list_names: testListNames,
     });
   } catch (err) {
     return handleAuthError(err);

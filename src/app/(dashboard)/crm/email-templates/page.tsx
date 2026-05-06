@@ -5,7 +5,6 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { SuggestionCard } from "./components/suggestion-card";
 import { HistoryTable } from "./components/history-table";
 import { SettingsDrawer } from "./components/settings-drawer";
-import { LocawebSettingsDrawer } from "./components/locaweb-settings-drawer";
 import { SectionNav } from "./_components/section-nav";
 import { AIComposeDialog } from "./_components/ai-compose-dialog";
 import { Button } from "@/components/ui/button";
@@ -13,8 +12,9 @@ import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 
 export default function EmailTemplatesPage() {
-  const { workspace } = useWorkspace();
+  const { workspace, userRole } = useWorkspace();
   const workspaceId = workspace?.id || "";
+  const isAdmin = userRole === "owner" || userRole === "admin";
   const [items, setItems] = useState<EmailSuggestion[]>([]);
   const [date, setDate] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -100,8 +100,7 @@ export default function EmailTemplatesPage() {
             <Sparkles className="w-3.5 h-3.5" />
             Criar com IA
           </Button>
-          <LocawebSettingsDrawer workspaceId={workspaceId} />
-          <SettingsDrawer workspaceId={workspaceId} />
+          {isAdmin && <SettingsDrawer workspaceId={workspaceId} />}
         </div>
       </div>
       <AIComposeDialog

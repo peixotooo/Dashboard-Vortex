@@ -4,9 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Eye, Copy, Check, Send, Pencil, Loader2, Zap } from "lucide-react";
+import { Eye, Copy, Check, Pencil, Loader2, Zap } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
-import { SentModal } from "./sent-modal";
 import { SuggestionDispatchDialog } from "./suggestion-dispatch-dialog";
 
 const SLOT_LABEL: Record<number, string> = {
@@ -26,7 +25,6 @@ export function SuggestionCard({
 }) {
   const [copying, setCopying] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [sentOpen, setSentOpen] = useState(false);
   const [opening, setOpening] = useState(false);
   const [dispatchOpen, setDispatchOpen] = useState(false);
 
@@ -150,20 +148,7 @@ export function SuggestionCard({
         >
           <Zap className="w-4 h-4" /> Disparar
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setSentOpen(true)}>
-          <Send className="w-4 h-4 mr-1" /> Marcar disparado
-        </Button>
       </div>
-      <SentModal
-        open={sentOpen}
-        onClose={() => setSentOpen(false)}
-        suggestion={suggestion}
-        workspaceId={workspaceId}
-        onDone={() => {
-          setSentOpen(false);
-          onChanged();
-        }}
-      />
       <SuggestionDispatchDialog
         suggestion={dispatchOpen ? suggestion : null}
         workspaceId={workspaceId}

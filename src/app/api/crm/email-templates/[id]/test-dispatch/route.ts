@@ -6,20 +6,18 @@
 // audience. No stats are persisted to email_template_dispatches and the
 // suggestion stays in `pending` — this is ephemeral.
 //
-// Implementation: spin up a throwaway Locaweb list named
-// `_test_<short_dispatchId>`, push the test contacts, and dispatch through
-// the same createMessage path the real send uses (so the rendered HTML,
-// UTMs, and headers match exactly what the audience would receive).
+// Reuses a stable per-recipient Locaweb list ("Vortex · Teste · <email>")
+// via ensureTestList so the panel doesn't pile up hundreds of throwaway
+// lists from repeated previews. Dispatches via the same createMessage
+// path the real send uses (so the rendered HTML, UTMs, and headers match
+// exactly what the audience would receive).
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import {
-  createList,
-  addContactsToList,
-  createMessage,
-} from "@/lib/locaweb/email-marketing";
+import { createMessage } from "@/lib/locaweb/email-marketing";
+import { ensureTestList } from "@/lib/email-templates/test-list";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 
@@ -102,23 +100,18 @@ export async function POST(
     }
 
     const dispatchId = randomUUID();
-    const short = dispatchId.replace(/-/g, "").slice(0, 8);
-    const listName = `_test_${short}`;
 
-    let listId: string | number;
+    // Reuse a stable test list per recipient instead of creating a fresh
+    // one each preview. If multiple emails were passed, we materialize
+    // each one's list and union the ids — keeps Locaweb tidy.
+    let listIds: Array<string | number>;
+    let testListNames: string[];
     try {
-      const list = await createList(creds.creds, listName);
-      const id = list.id ??
-        (typeof list._location === "string"
-          ? list._location.split("/").filter(Boolean).pop() ?? null
-          : null);
-      if (id == null) throw new Error("Locaweb não retornou id da lista de teste.");
-      listId = id;
-      await addContactsToList(
-        creds.creds,
-        listId,
-        emails.map((email) => ({ email }))
+      const lists = await Promise.all(
+        emails.map((email) => ensureTestList({ creds: creds.creds, email }))
       );
+      listIds = lists.map((l) => l.list_id);
+      testListNames = lists.map((l) => l.list_name);
     } catch (err) {
       return NextResponse.json(
         { error: `Falha ao preparar lista de teste: ${(err as Error).message}` },
@@ -150,6 +143,7 @@ export async function POST(
 
     const subject =
       `[TESTE] ${s.copy?.subject || s.product_snapshot?.name || "Bulking"}`;
+    const short = dispatchId.replace(/-/g, "").slice(0, 8);
     const campaignName = `test_${s.slot}_${s.generated_for_date}_${short}`;
 
     let messageRef;
@@ -161,7 +155,7 @@ export async function POST(
         sender_name: creds.sender_name,
         domain_id: creds.domain_id,
         html_body: html,
-        list_ids: [listId],
+        list_ids: listIds,
         scheduled_to: todayBrt,
       });
     } catch (err) {
@@ -183,8 +177,8 @@ export async function POST(
       ok: true,
       locaweb_message_id: messageId,
       sent_to: emails,
-      list_id: String(listId),
-      list_name: listName,
+      list_ids: listIds.map(String),
+      list_names: testListNames,
     });
   } catch (err) {
     return handleAuthError(err);

@@ -44,9 +44,10 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
   const [useSegment, setUseSegment] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduledTo, setScheduledTo] = useState(() =>
+  const [scheduledDate, setScheduledDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
+  const [scheduledTime, setScheduledTime] = useState("09:00");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -131,7 +132,11 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           body: JSON.stringify({
             list_ids: Array.from(selectedListIds),
             use_segment: useSegment,
-            scheduled_to: scheduleEnabled ? scheduledTo : undefined,
+            // ISO datetime in BRT (UTC-3) — Locaweb honors hour-level
+            // scheduling when the value is a full datetime.
+            scheduled_to: scheduleEnabled
+              ? `${scheduledDate}T${scheduledTime}:00-03:00`
+              : undefined,
             // Pass the suggestion's segment label as the utm_term so click
             // attribution can split campaign performance by segment.
             utm_term: (suggestion.target_segment_payload as { display_label?: string })
@@ -386,14 +391,24 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                 </button>
               </div>
               {scheduleEnabled && (
-                <Input
-                  type="date"
-                  value={scheduledTo}
-                  onChange={(e) => setScheduledTo(e.target.value)}
-                  disabled={loading}
-                  className="h-9 text-xs"
-                  min={new Date().toISOString().slice(0, 10)}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    disabled={loading}
+                    className="h-9 text-xs flex-1"
+                    min={new Date().toISOString().slice(0, 10)}
+                  />
+                  <Input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    disabled={loading}
+                    className="h-9 text-xs w-28"
+                    step={300}
+                  />
+                </div>
               )}
             </div>
 
@@ -433,7 +448,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                   {loading
                     ? "Enviando..."
                     : scheduleEnabled
-                      ? `Agendar ${scheduledTo}`
+                      ? `Agendar ${scheduledDate} ${scheduledTime}`
                       : "Disparar"}
                 </Button>
               </div>

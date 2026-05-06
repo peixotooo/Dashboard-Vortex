@@ -45,11 +45,12 @@ export function DispatchDialog({
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduledTo, setScheduledTo] = useState(() => {
+  const [scheduledDate, setScheduledDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d.toISOString().slice(0, 10);
   });
+  const [scheduledTime, setScheduledTime] = useState("09:00");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -125,7 +126,9 @@ export function DispatchDialog({
           },
           body: JSON.stringify({
             list_ids: Array.from(selectedListIds),
-            scheduled_to: scheduleEnabled ? scheduledTo : undefined,
+            scheduled_to: scheduleEnabled
+              ? `${scheduledDate}T${scheduledTime}:00-03:00`
+              : undefined,
           }),
         }
       );
@@ -329,19 +332,23 @@ export function DispatchDialog({
                 </button>
               </div>
               {scheduleEnabled ? (
-                <div className="space-y-1">
+                <div className="flex gap-2">
                   <Input
                     type="date"
-                    value={scheduledTo}
-                    onChange={(e) => setScheduledTo(e.target.value)}
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
                     disabled={loading}
-                    className="h-9 text-xs"
+                    className="h-9 text-xs flex-1"
                     min={new Date().toISOString().slice(0, 10)}
                   />
-                  <p className="text-[10px] text-muted-foreground">
-                    Locaweb agenda por dia (não por hora). A campanha vai ser
-                    enviada na manhã da data escolhida.
-                  </p>
+                  <Input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    disabled={loading}
+                    className="h-9 text-xs w-28"
+                    step={300}
+                  />
                 </div>
               ) : (
                 <p className="text-[10px] text-muted-foreground">
@@ -386,7 +393,7 @@ export function DispatchDialog({
                   {loading
                     ? "Enviando..."
                     : scheduleEnabled
-                      ? `Agendar para ${scheduledTo}`
+                      ? `Agendar ${scheduledDate} ${scheduledTime}`
                       : "Disparar agora"}
                 </Button>
               </div>
