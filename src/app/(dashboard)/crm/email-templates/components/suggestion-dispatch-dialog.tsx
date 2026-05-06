@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 import { TestSendCard } from "./test-send-card";
+import { BalanceCard } from "./balance-card";
 
 interface LocawebList {
   id: string | number;
@@ -364,6 +365,19 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                 deduplica destinatários no envio.
               </p>
             </div>
+
+            <BalanceCard
+              workspaceId={workspaceId}
+              estimatedRecipients={
+                // Sum picked-list contact counts + segment estimate when
+                // useSegment is on. Locaweb dedups across multiple lists,
+                // so this is an upper bound.
+                (lists ?? [])
+                  .filter((l) => selectedListIds.has(String(l.id)))
+                  .reduce((sum, l) => sum + (l.contacts_count ?? 0), 0) +
+                (useSegment && segmentSize ? segmentSize : 0)
+              }
+            />
 
             <div className="space-y-2 border-t pt-3">
               <div className="flex items-center justify-between">

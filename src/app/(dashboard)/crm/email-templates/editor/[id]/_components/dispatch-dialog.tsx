@@ -13,6 +13,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { TestSendCard } from "../../../components/test-send-card";
+import { BalanceCard } from "../../../components/balance-card";
 
 interface LocawebList {
   id: string;
@@ -299,12 +300,12 @@ export function DispatchDialog({
                   })}
                 </div>
               )}
-              {selectedListIds.size > 0 && totalContacts > 0 && (
-                <div className="text-[11px] text-muted-foreground">
-                  Total estimado: {totalContacts.toLocaleString("pt-BR")} destinatários.
-                </div>
-              )}
             </div>
+
+            <BalanceCard
+              workspaceId={workspaceId}
+              estimatedRecipients={totalContacts}
+            />
 
             <div className="space-y-2 border-t pt-3">
               <div className="flex items-center justify-between">

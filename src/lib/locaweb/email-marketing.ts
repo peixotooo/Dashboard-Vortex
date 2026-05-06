@@ -277,6 +277,95 @@ export async function listDomains(creds: LocawebCreds): Promise<Domain[]> {
   return unwrapItems<Domain>(data);
 }
 
+// ---------- Account balance / sending credits ----------
+
+export interface AccountBalance {
+  /** Monthly plan ceiling (when known). */
+  total?: number;
+  /** Sends consumed in the current billing window. */
+  used?: number;
+  /** Available sends — what we cross-reference with the audience size. */
+  remaining?: number;
+  /** Raw response from Locaweb so the UI can fall back if the parsed
+   *  fields above don't show up. Locaweb's docs aren't crisp on the
+   *  exact key names; defensive parsing handles the variants we've seen
+   *  ("creditos", "saldo", "monthly_credits_*"). */
+  raw: unknown;
+}
+
+/**
+ * Pulls remaining sending credits for the account. Locaweb exposes this
+ * as part of the account resource (`GET /accounts/{accountId}`); some
+ * tenants also surface a dedicated `/info` shape. We try the canonical
+ * path first and parse the response with a lenient picker.
+ */
+export async function getAccountBalance(creds: LocawebCreds): Promise<AccountBalance> {
+  const raw = await request<unknown>(creds, "GET", "");
+  return { ...parseBalance(raw), raw };
+}
+
+function parseBalance(data: unknown): { total?: number; used?: number; remaining?: number } {
+  if (!data || typeof data !== "object") return {};
+  const obj = data as Record<string, unknown>;
+  // Common Locaweb shapes — try each in order. First numeric match wins.
+  const pick = (...keys: string[]): number | undefined => {
+    for (const k of keys) {
+      const v = obj[k];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+      if (v && typeof v === "object") {
+        const sub = v as Record<string, unknown>;
+        for (const innerKey of ["amount", "value", "remaining", "available", "saldo"]) {
+          const iv = sub[innerKey];
+          if (typeof iv === "number" && Number.isFinite(iv)) return iv;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const remaining = pick(
+    "remaining_credits",
+    "monthly_credits_remaining",
+    "available_credits",
+    "creditos_disponiveis",
+    "saldo",
+    "saldo_envios",
+    "credits_remaining",
+    "credits",
+    "balance"
+  );
+  const used = pick(
+    "used_credits",
+    "monthly_credits_used",
+    "creditos_utilizados",
+    "envios_realizados",
+    "consumed",
+    "sent_count"
+  );
+  const total = pick(
+    "total_credits",
+    "monthly_credits_total",
+    "plan_credits",
+    "creditos_mensais",
+    "envios_contratados",
+    "limit"
+  );
+
+  // If only two of the three are present, derive the third — saldo views
+  // tend to give two and leave the user to compute the rest.
+  if (remaining == null && total != null && used != null) {
+    return { total, used, remaining: Math.max(0, total - used) };
+  }
+  if (used == null && total != null && remaining != null) {
+    return { total, used: Math.max(0, total - remaining), remaining };
+  }
+  if (total == null && used != null && remaining != null) {
+    return { total: used + remaining, used, remaining };
+  }
+  return { total, used, remaining };
+}
+
 // ---------- Connectivity probe ----------
 
 /** Cheap probe used by the settings UI to validate token+account before save. */
