@@ -17,6 +17,10 @@ interface BalanceState {
   total: number | null;
   used: number | null;
   remaining: number | null;
+  extra: number | null;
+  plan_name: string | null;
+  period_start: string | null;
+  period_end: string | null;
   error?: string;
   debug?: unknown;
 }
@@ -43,6 +47,10 @@ export function BalanceBanner() {
             total: null,
             used: null,
             remaining: null,
+            extra: null,
+            plan_name: null,
+            period_start: null,
+            period_end: null,
             error: (err as Error).message,
           });
       });
@@ -107,9 +115,22 @@ export function BalanceBanner() {
             · de {total.toLocaleString("pt-BR")}
           </span>
         )}
-        {used != null && total == null && (
+        {used != null && (
           <span className="text-muted-foreground">
             · {used.toLocaleString("pt-BR")} usados
+          </span>
+        )}
+        {state.plan_name && (
+          <span className="text-muted-foreground">· {state.plan_name}</span>
+        )}
+        {state.period_end && (
+          <span className="text-muted-foreground">
+            · renova {state.period_end}
+          </span>
+        )}
+        {state.extra != null && state.extra > 0 && (
+          <span className="text-muted-foreground">
+            · +{state.extra.toLocaleString("pt-BR")} extra
           </span>
         )}
         {lowBalance && (

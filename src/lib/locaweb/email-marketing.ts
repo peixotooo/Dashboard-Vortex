@@ -286,10 +286,18 @@ export interface AccountBalance {
   used?: number;
   /** Available sends — what we cross-reference with the audience size. */
   remaining?: number;
+  /** Plan name from Locaweb (e.g. "Email Marketing I"). */
+  plan_name?: string;
+  /** Bonus messages above the plan baseline. Locaweb returns this as a
+   *  string in some payloads; we normalize to number. */
+  extra?: number;
+  /** Current billing period (DD/MM/YYYY in Locaweb's response). */
+  period_start?: string;
+  period_end?: string;
   /** Raw response from Locaweb so the UI can fall back if the parsed
-   *  fields above don't show up. Locaweb's docs aren't crisp on the
-   *  exact key names; defensive parsing handles the variants we've seen
-   *  ("creditos", "saldo", "monthly_credits_*"). */
+   *  fields above don't show up. Defensive parsing handles known variants
+   *  (actual_period.{bought,consumed_this_month,available} on the
+   *  current EM API; flat fields on legacy payloads). */
   raw: unknown;
 }
 
@@ -304,14 +312,38 @@ export async function getAccountBalance(creds: LocawebCreds): Promise<AccountBal
   return { ...parseBalance(raw), raw };
 }
 
-function parseBalance(data: unknown): { total?: number; used?: number; remaining?: number } {
+interface ParsedBalance {
+  total?: number;
+  used?: number;
+  remaining?: number;
+  plan_name?: string;
+  extra?: number;
+  period_start?: string;
+  period_end?: string;
+}
+
+function parseBalance(data: unknown): ParsedBalance {
   if (!data || typeof data !== "object") return {};
-  // Locaweb's GET /accounts/{id} response shape (per their docs page):
-  //   { id, email, display_name, credits: { ... }, ... }
-  // The `credits` object holds the actual numbers. Older / smaller plans
-  // sometimes flatten the values onto the root, so we search both the
-  // root and the nested object using the same key dictionaries.
+  // Real Locaweb shape (probed against guilherme@bulking.com.br):
+  //   {
+  //     id, email, display_name, plan_name, status, ...
+  //     actual_period: {
+  //       start_on, end_on,
+  //       bought,                 // monthly plan ceiling
+  //       extra_messages,         // bonus credits (sometimes a string)
+  //       consumed_this_month,    // sends already used
+  //       available               // remaining
+  //     },
+  //     next_period: { start_on, end_on, renew_with }
+  //   }
+  // We also accept a few legacy/alternate shapes (`credits.*`, flat keys
+  // on root) so older accounts and any future schema tweaks don't blank
+  // the banner without warning.
   const root = data as Record<string, unknown>;
+  const period =
+    root.actual_period && typeof root.actual_period === "object"
+      ? (root.actual_period as Record<string, unknown>)
+      : null;
   const credits =
     root.credits && typeof root.credits === "object"
       ? (root.credits as Record<string, unknown>)
@@ -343,24 +375,23 @@ function parseBalance(data: unknown): { total?: number; used?: number; remaining
     "monthly_credits_remaining",
     "saldo",
     "saldo_envios",
-    "saldo_disponivel",
     "creditos_disponiveis",
     "disponivel",
     "balance",
   ];
   const USED_KEYS = [
+    "consumed_this_month",
+    "consumed",
     "used",
     "used_credits",
     "monthly_credits_used",
-    "consumed",
     "spent",
     "sent_count",
     "envios_realizados",
-    "utilizado",
     "utilizados",
-    "creditos_utilizados",
   ];
   const TOTAL_KEYS = [
+    "bought",
     "total",
     "total_credits",
     "limit",
@@ -369,27 +400,48 @@ function parseBalance(data: unknown): { total?: number; used?: number; remaining
     "plan_credits",
     "creditos_mensais",
     "envios_contratados",
-    "limite",
   ];
+  const EXTRA_KEYS = ["extra_messages", "extra", "bonus", "extra_credits"];
 
-  // Search the credits object first (canonical), fall back to root for
-  // older shapes.
-  const remaining = findIn(credits, REMAINING_KEYS) ?? findIn(root, REMAINING_KEYS);
-  const used = findIn(credits, USED_KEYS) ?? findIn(root, USED_KEYS);
-  const total = findIn(credits, TOTAL_KEYS) ?? findIn(root, TOTAL_KEYS);
+  const remaining =
+    findIn(period, REMAINING_KEYS) ?? findIn(credits, REMAINING_KEYS) ?? findIn(root, REMAINING_KEYS);
+  const used =
+    findIn(period, USED_KEYS) ?? findIn(credits, USED_KEYS) ?? findIn(root, USED_KEYS);
+  const total =
+    findIn(period, TOTAL_KEYS) ?? findIn(credits, TOTAL_KEYS) ?? findIn(root, TOTAL_KEYS);
+  const extra =
+    findIn(period, EXTRA_KEYS) ?? findIn(credits, EXTRA_KEYS) ?? findIn(root, EXTRA_KEYS);
 
-  // Derive whichever field is missing when the other two exist — saldo
-  // views often only ship two of the three.
-  if (remaining == null && total != null && used != null) {
-    return { total, used, remaining: Math.max(0, total - used) };
+  const plan_name =
+    typeof root.plan_name === "string" ? (root.plan_name as string) : undefined;
+  const period_start =
+    period && typeof period.start_on === "string" ? (period.start_on as string) : undefined;
+  const period_end =
+    period && typeof period.end_on === "string" ? (period.end_on as string) : undefined;
+
+  // Derive whichever field is missing when the other two exist.
+  let resolvedTotal = total;
+  let resolvedUsed = used;
+  let resolvedRemaining = remaining;
+  if (resolvedRemaining == null && resolvedTotal != null && resolvedUsed != null) {
+    resolvedRemaining = Math.max(0, resolvedTotal - resolvedUsed);
   }
-  if (used == null && total != null && remaining != null) {
-    return { total, used: Math.max(0, total - remaining), remaining };
+  if (resolvedUsed == null && resolvedTotal != null && resolvedRemaining != null) {
+    resolvedUsed = Math.max(0, resolvedTotal - resolvedRemaining);
   }
-  if (total == null && used != null && remaining != null) {
-    return { total: used + remaining, used, remaining };
+  if (resolvedTotal == null && resolvedUsed != null && resolvedRemaining != null) {
+    resolvedTotal = resolvedUsed + resolvedRemaining;
   }
-  return { total, used, remaining };
+
+  return {
+    total: resolvedTotal,
+    used: resolvedUsed,
+    remaining: resolvedRemaining,
+    plan_name,
+    extra,
+    period_start,
+    period_end,
+  };
 }
 
 // ---------- Connectivity probe ----------

@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
         total: balance.total ?? null,
         used: balance.used ?? null,
         remaining: balance.remaining ?? null,
+        extra: balance.extra ?? null,
+        plan_name: balance.plan_name ?? null,
+        period_start: balance.period_start ?? null,
+        period_end: balance.period_end ?? null,
         // Surface the raw Locaweb response when the parsed fields are all
         // null so we can diagnose unexpected schema shapes from the UI
         // without redeploying.
