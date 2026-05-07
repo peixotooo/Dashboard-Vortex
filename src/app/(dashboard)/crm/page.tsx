@@ -17,6 +17,7 @@ import {
   ShieldOff,
   RefreshCw,
   MessageSquareMore,
+  Mail,
   FileText,
   Plus,
 } from "lucide-react";
@@ -60,6 +61,7 @@ import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
 import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
+import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog";
 import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Constants ---
@@ -409,6 +411,11 @@ export default function CrmPage() {
   const [campaignContacts, setCampaignContacts] = useState<Array<{ name: string; email: string; phone: string }>>([]);
   const [campaignSuggestedName, setCampaignSuggestedName] = useState<string | undefined>();
   const [pendingCampaign, setPendingCampaign] = useState<{ name: string; filters: CrmFilters } | null>(null);
+
+  // Email-list dialog (Locaweb)
+  const [emailListDialogOpen, setEmailListDialogOpen] = useState(false);
+  const [emailListContacts, setEmailListContacts] = useState<Array<{ email: string; name: string }>>([]);
+  const [emailListSuggestedName, setEmailListSuggestedName] = useState<string | undefined>();
 
   // Customer row selection
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
@@ -1045,6 +1052,21 @@ export default function CrmPage() {
               size="sm"
               className="gap-1.5"
               onClick={() => {
+                const source = selectedEmails.size > 0 ? selectedCustomers : filteredCustomers;
+                const contacts = source.map((c) => ({ name: c.name, email: c.email }));
+                setEmailListContacts(contacts);
+                setEmailListSuggestedName(undefined);
+                setEmailListDialogOpen(true);
+              }}
+            >
+              <Mail className="h-4 w-4" />
+              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
                 const contacts = selectedEmails.size > 0
                   ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
                   : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
@@ -1628,6 +1650,14 @@ export default function CrmPage() {
       <TemplateCreateDialog
         open={templateDialogOpen}
         onOpenChange={setTemplateDialogOpen}
+      />
+
+      {/* Email List Create Dialog (Locaweb) */}
+      <EmailListCreateDialog
+        open={emailListDialogOpen}
+        onOpenChange={setEmailListDialogOpen}
+        contacts={emailListContacts}
+        suggestedName={emailListSuggestedName}
       />
     </div>
   );
