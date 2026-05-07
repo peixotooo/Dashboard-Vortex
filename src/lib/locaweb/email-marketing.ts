@@ -249,93 +249,15 @@ export async function removeContactsFromList(
   );
 }
 
-// ---------- Async bulk contact import ----------
-//
-// Locaweb's `add contacts` endpoint processes ~140ms per email — 1000 in
-// one call already 504s server-side. For 7k+ lists the answer is the
-// async import flow: we host the CSV on a public URL, Locaweb downloads
-// it on their side, processes it in their queue, and we poll the status.
-//
-// Probed body shape (the docs are misleading):
-//   POST /accounts/{id}/contact_imports
-//   { "list_id": <int>, "url": "<public-csv-url>", "has_header": true }
-// Returns { id: <importId> }. Polling GET /contact_imports/{id} returns
-// { status, total_lines, created_count, errors_count, ... } where
-// status transitions "Processando" → "Finalizado" or "Erro inesperado".
-
-export interface ContactImportInput {
-  list_id: string | number;
-  /** Publicly-fetchable HTTPS URL of the CSV. Locaweb downloads from this
-   *  URL on their side, so it has to be reachable from public internet. */
-  url: string;
-  has_header?: boolean;
-  description?: string;
-}
-
-export interface ContactImportRef {
-  id: number | string;
-  [k: string]: unknown;
-}
-
-export interface ContactImportStatus {
-  id: number | string;
-  status: string;
-  url?: string;
-  file_name?: string | null;
-  total_lines?: number;
-  created_count?: number;
-  updated_count?: number;
-  errors_count?: number;
-  created_at?: string;
-  updated_at?: string;
-  [k: string]: unknown;
-}
-
-export async function createContactImport(
-  creds: LocawebCreds,
-  input: ContactImportInput
-): Promise<ContactImportRef> {
-  return request<ContactImportRef>(creds, "POST", "/contact_imports", {
-    list_id: typeof input.list_id === "string" ? Number(input.list_id) : input.list_id,
-    url: input.url,
-    has_header: input.has_header ?? true,
-    description: input.description,
-  });
-}
-
-export async function getContactImport(
-  creds: LocawebCreds,
-  importId: string | number
-): Promise<ContactImportStatus> {
-  return request<ContactImportStatus>(
-    creds,
-    "GET",
-    `/contact_imports/${importId}`
-  );
-}
-
-export async function listContactImports(
-  creds: LocawebCreds
-): Promise<ContactImportStatus[]> {
-  const data = await request<unknown>(creds, "GET", "/contact_imports");
-  if (Array.isArray(data)) return data as ContactImportStatus[];
-  if (data && typeof data === "object") {
-    const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj.items)) return obj.items as ContactImportStatus[];
-  }
-  return [];
-}
-
-/** Locaweb returns the status as a localized PT-BR string. Normalize to
- *  three buckets so callers don't string-compare the raw label. */
-export type ImportStatus = "processing" | "finished" | "error";
-
-export function normalizeImportStatus(raw: string | undefined): ImportStatus {
-  const lower = (raw ?? "").toLowerCase();
-  if (lower.includes("finaliz") || lower.includes("conclu")) return "finished";
-  if (lower.includes("erro") || lower.includes("falh")) return "error";
-  return "processing";
-}
+// NOTE: We tried using Locaweb's POST /contact_imports (async CSV import)
+// to avoid the per-contact latency of /lists/{id}/contacts. It accepts
+// every payload shape we tried, but the response always comes back with
+// `list_ids: []` — the contacts get created in the global pool but
+// nothing is associated with the target list. Probed with the Bulking
+// account against multiple body shapes (list_id, list_ids, lists, with
+// and without contact_import wrapper). Without a way to bind the import
+// to a list, the endpoint is useless for our flow, so we stick with the
+// chunked /lists/{id}/contacts approach (~150ms/contact, parallelized).
 
 // ---------- Senders / domains ----------
 
