@@ -1,31 +1,31 @@
 // src/lib/email-templates/segment-list.ts
 //
-// Materializes an RFM cluster into a Locaweb list on the fly. The dispatch
-// dialog used to require the user to pre-create lists in Locaweb that
-// matched our RFM segments — but Locaweb doesn't know about RFM, so the
-// "Champions + Loyal Customers" segmentação the cron suggests had no
-// corresponding list, and the user couldn't dispatch to it.
+// Materializes an RFM cluster into a Locaweb list on the fly. Reads the
+// workspace's RFM snapshot, filters customers by the slot's target
+// rfm_classes, finds-or-creates a per-slot Locaweb list named after the
+// cluster ("Vortex · Champions + Loyal (RFM)"), and ships every matching
+// contact via the async bulk-import flow. Returns the list_id once
+// import is finished so the caller can pass it straight into
+// createMessage.list_ids.
 //
-// This helper reads the workspace's latest RFM snapshot, filters customers
-// by the slot's target rfm_classes, creates a fresh Locaweb list named
-// `_seg_slot{N}_{YYYYMMDD}_{short}`, and pushes every matching contact in
-// chunks. Returns the list id + final count so the caller can pass it
-// straight into createMessage.list_ids.
+// Performance: bulk-import via Locaweb's /contact_imports endpoint
+// finishes ~7k contatos in ~10 seconds end-to-end. Previously we used
+// chunked /lists/{id}/contacts at ~150ms per contact — a 7k cluster
+// took ~4 minutes and routinely tripped Vercel timeouts.
 
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
-  addContactsToList,
   createList,
   listLists,
   type LocawebCreds,
-  type ContactInput,
 } from "@/lib/locaweb/email-marketing";
+import { bulkImportContacts } from "./bulk-import";
 import type { Slot } from "./types";
 import type { RfmCustomer } from "@/lib/crm-rfm";
 
-// Mirror of segments.ts — keep in sync. Duplicated rather than imported to
-// avoid a circular import (segments.ts → segment-list.ts → segments.ts) and
-// because the values are stable enough to live in two places.
+// Mirror of segments.ts — kept in sync. Duplicated rather than imported
+// to avoid a circular dependency (segments.ts → segment-list.ts →
+// segments.ts).
 const RFM_BY_SLOT: Record<Slot, string[]> = {
   1: ["champions", "loyal_customers"],
   2: ["loyal_customers", "potential_loyalists"],
@@ -38,23 +38,16 @@ const SLOT_LABELS: Record<Slot, string> = {
   3: "Recent Customers + Champions",
 };
 
-const BATCH_SIZE = 200;
-
 interface SnapshotRow {
   customers: RfmCustomer[];
 }
 
 function isValidEmail(e: string | undefined | null): e is string {
   if (!e) return false;
-  // Locaweb rejects malformed addresses outright. Cheap regex catches
-  // obvious typos without being overly strict.
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 }
 
 function buildListName(slot: Slot): string {
-  // Stable per-slot name so the same cluster reuses the same Locaweb list
-  // across dispatches. Includes the human-readable cluster label so it's
-  // immediately recognizable in the Locaweb panel.
   return `Vortex · ${SLOT_LABELS[slot]} (RFM)`;
 }
 
@@ -66,15 +59,13 @@ export interface MaterializedSegmentList {
 
 /**
  * Reads the workspace's RFM snapshot, filters customers by the slot's
- * target classes, finds-or-creates a Locaweb list named after the
- * cluster ("Vortex · Champions + Loyal (RFM)"), and pushes every
- * matching contact. List names are stable per-slot so re-dispatching
- * to the same cluster reuses the existing list — no list-explosion in
- * the panel and contacts dedup naturally on the Locaweb side.
+ * target classes, finds-or-creates the cluster's Locaweb list, and
+ * runs an async bulk-import. List names are stable per-slot so
+ * re-dispatching to the same cluster reuses the existing list and
+ * Locaweb dedups contacts on import.
  *
  * Throws if the snapshot is missing, the cluster has zero matching
- * customers, or Locaweb rejects the list creation. Caller should surface
- * the error and let the user pick a regular list instead.
+ * customers, or the import errors out / times out (60s default).
  */
 export async function materializeSegmentList(args: {
   workspace_id: string;
@@ -101,18 +92,18 @@ export async function materializeSegmentList(args: {
     ? (snapshot!.customers as RfmCustomer[])
     : [];
 
-  // Filter to the slot's clusters AND dedup by lowercase email — the
-  // snapshot can carry duplicate rows when the same customer appears under
-  // multiple normalized phones.
+  // Filter + dedup by lowercase email. The RFM snapshot occasionally
+  // carries duplicate rows when the same customer matches multiple
+  // normalized phones.
   const seen = new Set<string>();
-  const matched: ContactInput[] = [];
+  const matched: Array<{ email: string; name?: string | null }> = [];
   for (const c of customers) {
     if (!targetClasses.has(c.segment)) continue;
     if (!isValidEmail(c.email)) continue;
     const key = c.email.trim().toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    matched.push({ email: key, name: c.name?.trim() || undefined });
+    matched.push({ email: key, name: c.name?.trim() || null });
   }
 
   if (matched.length === 0) {
@@ -121,15 +112,15 @@ export async function materializeSegmentList(args: {
     );
   }
 
+  // Find-or-create per-slot list.
   const listName = buildListName(slot);
-
-  // Find-or-create. Reusing a stable list keeps the Locaweb panel tidy
-  // and lets repeat dispatches benefit from Locaweb's own contact dedup.
   let list_id: string | number | null = null;
   try {
     const lists = await listLists(creds);
     const existing = lists.find(
-      (l) => typeof l.name === "string" && l.name.trim().toLowerCase() === listName.toLowerCase()
+      (l) =>
+        typeof l.name === "string" &&
+        l.name.trim().toLowerCase() === listName.toLowerCase()
     );
     if (existing) list_id = existing.id;
   } catch {
@@ -147,31 +138,25 @@ export async function materializeSegmentList(args: {
     }
   }
 
-  // Push contacts in chunks. Locaweb's per-call ceiling isn't formally
-  // documented — 200 keeps us well under any reasonable cap and stays
-  // responsive on slow workspaces. We swallow per-batch failures only when
-  // a *later* batch fails (so the user gets a partial list rather than no
-  // list); the first batch failing is fatal because it likely indicates a
-  // schema / auth issue that won't fix itself.
-  let pushed = 0;
-  for (let i = 0; i < matched.length; i += BATCH_SIZE) {
-    const chunk = matched.slice(i, i + BATCH_SIZE);
-    try {
-      await addContactsToList(creds, list_id, chunk);
-      pushed += chunk.length;
-    } catch (err) {
-      if (i === 0) {
-        throw new Error(
-          `Locaweb rejeitou o primeiro lote de contatos: ${(err as Error).message}`
-        );
-      }
-      console.warn(
-        `[email-templates/segment-list] batch ${i}-${i + chunk.length} falhou:`,
-        (err as Error).message
-      );
-      break;
-    }
-  }
+  // Async bulk-import. ~10s for 7k contacts end-to-end.
+  const result = await bulkImportContacts({
+    creds,
+    list_ids: [list_id],
+    contacts: matched,
+    storage_prefix: `${workspace_id}/segment-slot${slot}`,
+    // Cap at 50s so the caller (dispatch route, maxDuration=60s on
+    // Vercel pro) still has budget for createMessage afterward.
+    // Empirical: 7k contacts finish in ~10s, so 50s leaves plenty of
+    // headroom.
+    timeout_ms: 50_000,
+  });
 
-  return { list_id, list_name: listName, count: pushed };
+  // Locaweb's `created_count` skips contacts that already existed in
+  // the global pool but were re-bound to the list — so we report the
+  // matched count as the "actual" target audience.
+  return {
+    list_id,
+    list_name: listName,
+    count: result.created_count + result.updated_count,
+  };
 }

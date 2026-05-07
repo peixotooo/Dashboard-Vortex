@@ -1,13 +1,11 @@
 // src/app/api/crm/email-templates/locaweb/lists/[id]/bulk-import/route.ts
 //
-// Async bulk-import of contacts into an existing Locaweb list. Builds a
-// CSV from the contacts payload, uploads to Supabase Storage on a
-// public URL, and tells Locaweb's `/contact_imports` to fetch + ingest.
-// Returns immediately with the import_id; the client polls
-// /imports/[id] for status.
+// Async bulk-import of contacts into an existing Locaweb list. Returns
+// immediately with import_id (the heavy lifting happens in Locaweb's
+// queue); the client polls /imports/[id] for status.
 //
-// 7000 contacts end-to-end: ~8s server side. The endpoint itself only
-// does CSV upload + one POST to Locaweb, so it returns in ~1-2s.
+// Implementation lives in lib/email-templates/bulk-import.ts so the
+// suggestion-dispatch flow (RFM cluster → list) can reuse it.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
@@ -36,8 +34,6 @@ function csvCell(v: string): string {
 }
 
 function buildCsv(rows: Array<{ email: string; name?: string | null }>): string {
-  // Locaweb requires `email` as the first column (lowercase). Other
-  // columns are treated as custom fields; we only ship `name`.
   const lines = ["email,name"];
   for (const r of rows) {
     lines.push(`${csvCell(r.email)},${csvCell(r.name?.trim() ?? "")}`);
@@ -87,6 +83,10 @@ async function uploadCsv(path: string, csv: string): Promise<string> {
   return `${url}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
+// This endpoint kicks off the import without waiting for completion —
+// the client polls /imports/[id] for live status. Different from
+// bulkImportContacts() in the lib, which waits for completion (used by
+// server-side flows like materializeSegmentList).
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -136,8 +136,6 @@ export async function POST(
 
     let importRef;
     try {
-      // PURE shape: { contact_import: { list_ids: [N], url } }. Adding
-      // ANY other field (name, description, has_header) triggers 500.
       importRef = await createContactImport(creds.creds, {
         list_ids: [Number(id)],
         url: publicUrl,
