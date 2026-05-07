@@ -190,7 +190,12 @@ export async function POST(
         locaweb_message_id: messageId,
         locaweb_list_ids: body.list_ids,
         scheduled_to: body.scheduled_to
-          ? new Date(`${body.scheduled_to}T00:00:00`).toISOString()
+          ? new Date(
+              // Bare YYYY-MM-DD → midnight BRT; full ISO datetime → as-is.
+              /T/.test(body.scheduled_to)
+                ? body.scheduled_to
+                : `${body.scheduled_to}T00:00:00-03:00`
+            ).toISOString()
           : null,
         status: initialStatus,
         stats: { utm_campaign: campaignSlug, utm_id: dispatchId, utm_term: body.utm_term ?? null },
