@@ -1,30 +1,21 @@
 "use client";
 
 // EmailListCreateDialog — turns a filtered customer set from the CRM page
-// into a Locaweb email-marketing list.
+// into a Locaweb email-marketing list, using Locaweb's async
+// /contact_imports endpoint. End-to-end for 7k contacts: ~10 seconds.
 //
-// Why we chunk instead of using bulk import: Locaweb's async import
-// endpoint (/contact_imports) creates contacts globally without binding
-// them to any list (response always comes back with `list_ids: []`,
-// regardless of body shape). The only API path that actually populates a
-// list is POST /lists/{id}/contacts, which runs at ~150ms per contact
-// server-side. That's the bottleneck — Vercel and our network add
-// negligible time on top.
+// Three phases:
+//   1. creating  — POST /lists with no contacts → list_id (~1s)
+//   2. uploading — POST /lists/{id}/bulk-import → server builds CSV,
+//                  uploads to Supabase Storage, calls Locaweb. Returns
+//                  import_id (~1-2s)
+//   3. importing — poll GET /imports/{id} every 2s. Locaweb reports
+//                  total_lines / created_count / errors_count in real
+//                  time, so the progress bar reflects actual work.
 //
-// Strategy:
-//   1. POST /lists with empty contacts → list_id (~1s)
-//   2. Build chunks of 50 contacts (each chunk ≈ 7-8s on Locaweb, fits
-//      Vercel hobby/pro timeouts)
-//   3. Run a worker pool of 5 in parallel — wall-clock ÷ 5 vs sequential
-//   4. Show real progress (chunks completed × chunk_size)
-//
-// Practical timing for the user:
-//   500 contatos  → ~30s
-//   2000 contatos → ~2 min
-//   5000 contatos → ~5 min
-//   10000 contatos → ~10 min
-// Locaweb is the bottleneck. Their async import is the only thing that
-// would fix it but doesn't work for our use case (see note above).
+// Crucial body shape gotcha (see lib/locaweb/email-marketing.ts):
+// `contact_import` wrapper accepts ONLY `list_ids` + `url`. Any other
+// field (name, description, has_header) triggers a 500 from Locaweb.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -42,7 +33,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Users,
-  Clock,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
 
@@ -55,14 +45,21 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contacts: Contact[];
-  /** Pre-filled list name suggestion. */
   suggestedName?: string;
 }
 
-const CHUNK_SIZE = 50;
-const CONCURRENCY = 5;
-/** Empirical: ~150ms per contact in /lists/{id}/contacts probes. */
-const MS_PER_CONTACT = 150;
+type Phase = "idle" | "creating" | "uploading" | "importing" | "done";
+
+interface ImportStatusResponse {
+  id: number | string;
+  status: "processing" | "finished" | "error";
+  raw_status: string;
+  list_ids: Array<number | string>;
+  total_lines: number | null;
+  created_count: number | null;
+  updated_count: number | null;
+  errors_count: number | null;
+}
 
 export function EmailListCreateDialog({
   open,
@@ -73,13 +70,17 @@ export function EmailListCreateDialog({
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
   const [name, setName] = useState("");
-  const [phase, setPhase] = useState<"idle" | "creating" | "uploading" | "done">("idle");
-  const [progress, setProgress] = useState({ pushed: 0, total: 0 });
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [importStatus, setImportStatus] = useState<ImportStatusResponse | null>(null);
+  const [totalToImport, setTotalToImport] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [result, setResult] = useState<{
     list_id: string;
     list_name: string;
+    created: number;
+    updated: number;
+    errors: number;
   } | null>(null);
   const cancelledRef = useRef(false);
 
@@ -89,13 +90,12 @@ export function EmailListCreateDialog({
     setError(null);
     setWarning(null);
     setResult(null);
-    setProgress({ pushed: 0, total: 0 });
+    setImportStatus(null);
+    setTotalToImport(0);
     setPhase("idle");
     cancelledRef.current = false;
   }, [open, suggestedName]);
 
-  // Pre-dedup + validate on the client so server-side and client-side
-  // counts agree.
   const validContacts = (() => {
     const seen = new Set<string>();
     const out: Contact[] = [];
@@ -122,7 +122,9 @@ export function EmailListCreateDialog({
     setError(null);
     setWarning(null);
     cancelledRef.current = false;
+    setTotalToImport(validContacts.length);
 
+    // 1. Create the empty list
     setPhase("creating");
     let listId: string;
     let listName: string;
@@ -149,96 +151,100 @@ export function EmailListCreateDialog({
       return;
     }
 
+    if (cancelledRef.current) return;
+
+    // 2. Kick off the bulk import (server uploads CSV + calls Locaweb)
     setPhase("uploading");
-    setProgress({ pushed: 0, total: validContacts.length });
-
-    const chunks: Contact[][] = [];
-    for (let i = 0; i < validContacts.length; i += CHUNK_SIZE) {
-      chunks.push(validContacts.slice(i, i + CHUNK_SIZE));
-    }
-
-    let pushed = 0;
-    let firstError: string | null = null;
-    let nextIndex = 0;
-
-    const worker = async () => {
-      while (true) {
-        if (cancelledRef.current || firstError) return;
-        const idx = nextIndex++;
-        if (idx >= chunks.length) return;
-        const chunk = chunks[idx];
-        try {
-          const r = await fetch(
-            `/api/crm/email-templates/locaweb/lists/${encodeURIComponent(listId)}/contacts`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-workspace-id": workspaceId,
-              },
-              body: JSON.stringify({ contacts: chunk }),
-            }
-          );
-          const text = await r.text();
-          let d: unknown;
-          try {
-            d = JSON.parse(text);
-          } catch {
-            throw new Error(`Resposta inesperada (HTTP ${r.status})`);
-          }
-          const data = d as { ok?: boolean; pushed?: number; error?: string };
-          if (!r.ok || !data.ok) throw new Error(data.error ?? "Falha ao enviar lote.");
-          pushed += chunk.length;
-          setProgress({ pushed, total: validContacts.length });
-        } catch (err) {
-          if (!firstError) firstError = (err as Error).message;
-          return;
+    let importId: string;
+    try {
+      const r = await fetch(
+        `/api/crm/email-templates/locaweb/lists/${encodeURIComponent(listId)}/bulk-import`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
+          body: JSON.stringify({ contacts: validContacts }),
         }
+      );
+      const text = await r.text();
+      let d: unknown;
+      try {
+        d = JSON.parse(text);
+      } catch {
+        throw new Error(`Resposta inesperada (HTTP ${r.status})`);
       }
-    };
-
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-
-    if (firstError && pushed < validContacts.length) {
-      setWarning(
-        `Falha parcial: ${pushed.toLocaleString("pt-BR")}/${validContacts.length.toLocaleString(
-          "pt-BR"
-        )} contatos enviados — ${firstError}`
-      );
-    }
-
-    if (pushed === 0) {
-      setError(
-        firstError
-          ? `Lista criada mas nenhum contato foi enviado: ${firstError}`
-          : "Lista criada mas nenhum contato foi enviado."
-      );
+      const data = d as { import_id?: string; error?: string };
+      if (!r.ok || !data.import_id) throw new Error(data.error ?? "Falha ao iniciar importação.");
+      importId = data.import_id;
+    } catch (err) {
+      setError(`Lista criada mas a importação não começou: ${(err as Error).message}`);
       setPhase("idle");
       return;
     }
 
-    setResult({ list_id: listId, list_name: listName });
-    setPhase("done");
+    if (cancelledRef.current) return;
+
+    // 3. Poll Locaweb's import status
+    setPhase("importing");
+    const pollUrl = `/api/crm/email-templates/locaweb/imports/${encodeURIComponent(importId)}`;
+    const start = Date.now();
+    while (true) {
+      if (cancelledRef.current) return;
+      if (Date.now() - start > 5 * 60_000) {
+        setError("Importação demorou mais que 5 minutos sem finalizar.");
+        setPhase("idle");
+        return;
+      }
+      let status: ImportStatusResponse;
+      try {
+        const r = await fetch(pollUrl, { headers: { "x-workspace-id": workspaceId } });
+        const text = await r.text();
+        const d = JSON.parse(text) as ImportStatusResponse & { error?: string };
+        if (!r.ok) throw new Error(d.error ?? `HTTP ${r.status}`);
+        status = d;
+      } catch (err) {
+        setWarning(`Falha ao consultar status: ${(err as Error).message}`);
+        await sleep(3000);
+        continue;
+      }
+      setImportStatus(status);
+
+      if (status.status === "finished") {
+        setResult({
+          list_id: listId,
+          list_name: listName,
+          created: status.created_count ?? 0,
+          updated: status.updated_count ?? 0,
+          errors: status.errors_count ?? 0,
+        });
+        setPhase("done");
+        return;
+      }
+      if (status.status === "error") {
+        setError(
+          `Locaweb reportou erro ao processar a importação (status: ${status.raw_status}).`
+        );
+        setPhase("idle");
+        return;
+      }
+      await sleep(2000);
+    }
   };
 
   const close = () => {
-    if (phase === "creating" || phase === "uploading") {
+    if (phase === "creating" || phase === "uploading" || phase === "importing") {
       cancelledRef.current = true;
     }
     onOpenChange(false);
   };
 
-  const isWorking = phase === "creating" || phase === "uploading";
-  const progressPct =
-    progress.total > 0 ? Math.round((progress.pushed / progress.total) * 100) : 0;
+  const isWorking = phase === "creating" || phase === "uploading" || phase === "importing";
 
-  // Estimate wall-clock for the remaining work, given parallelism.
-  const remaining = Math.max(0, progress.total - progress.pushed);
-  const etaMs = (remaining * MS_PER_CONTACT) / CONCURRENCY;
-  const etaText = formatDuration(etaMs);
-  const upfrontEtaText = formatDuration(
-    (validContacts.length * MS_PER_CONTACT) / CONCURRENCY
-  );
+  const processed =
+    (importStatus?.created_count ?? 0) +
+    (importStatus?.errors_count ?? 0) +
+    (importStatus?.updated_count ?? 0);
+  const total = importStatus?.total_lines || totalToImport;
+  const progressPct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
@@ -248,8 +254,8 @@ export function EmailListCreateDialog({
           Criar lista de email (Locaweb)
         </DialogTitle>
         <DialogDescription className="text-xs">
-          A lista vai ser criada na Locaweb com os contatos selecionados. Em
-          seguida, você consegue dispará-la pelo módulo Email Templates.
+          A lista é importada de forma assíncrona via CSV. 7k contatos
+          finalizam em torno de 10 segundos.
         </DialogDescription>
 
         {phase === "done" && result ? (
@@ -258,22 +264,33 @@ export function EmailListCreateDialog({
               <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="text-xs space-y-0.5">
                 <div className="font-medium text-emerald-700 dark:text-emerald-300">
-                  Lista criada
+                  Lista importada
                 </div>
                 <div className="text-muted-foreground">
                   <span className="font-mono">{result.list_name}</span> · id{" "}
                   <span className="font-mono">{result.list_id}</span>
                 </div>
                 <div className="text-muted-foreground">
-                  {progress.pushed.toLocaleString("pt-BR")} de{" "}
-                  {progress.total.toLocaleString("pt-BR")} contatos enviados.
+                  {result.created.toLocaleString("pt-BR")} criado
+                  {result.created === 1 ? "" : "s"}
+                  {result.updated > 0 && (
+                    <>
+                      {" · "}
+                      {result.updated.toLocaleString("pt-BR")} já existia
+                      {result.updated === 1 ? "" : "m"} (atualizado
+                      {result.updated === 1 ? "" : "s"})
+                    </>
+                  )}
+                  {result.errors > 0 && (
+                    <>
+                      {" · "}
+                      <span className="text-amber-700 dark:text-amber-300">
+                        {result.errors.toLocaleString("pt-BR")} erro
+                        {result.errors === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  )}
                 </div>
-                {warning && (
-                  <div className="text-amber-700 dark:text-amber-300 mt-1 flex items-start gap-1.5">
-                    <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                    {warning}
-                  </div>
-                )}
               </div>
             </div>
             <div className="flex justify-end">
@@ -313,58 +330,29 @@ export function EmailListCreateDialog({
                 placeholder="Ex: RFM Champions · Noite"
                 maxLength={120}
               />
+              <p className="text-[10px] text-muted-foreground">
+                Esse nome aparece no painel da Locaweb e na seleção de listas
+                ao disparar.
+              </p>
             </div>
 
-            {!isWorking && validContacts.length > 0 && (
-              <div className="flex items-start gap-2 text-[11px] text-muted-foreground p-2 border rounded bg-muted/20">
-                <Clock className="w-3 h-3 mt-0.5 shrink-0" />
-                <div>
-                  Tempo estimado: <span className="font-mono">{upfrontEtaText}</span>.
-                  A Locaweb processa cada contato em ~150ms; com 5 lotes em
-                  paralelo dá pra fazer essa estimativa. Pode deixar o dialog
-                  aberto enquanto roda.
-                </div>
-              </div>
-            )}
-
-            {!isWorking && validContacts.length >= 5000 && (
-              <div className="flex items-start gap-2 text-[11px] p-2 border border-amber-300/40 rounded bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300">
-                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                <div>
-                  Lista grande ({validContacts.length.toLocaleString("pt-BR")}{" "}
-                  contatos). Pra acelerar, considere{" "}
-                  <a
-                    href="https://emailmarketing.locaweb.com.br/lists"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:text-amber-900 dark:hover:text-amber-100"
-                  >
-                    importar manualmente no painel da Locaweb
-                  </a>{" "}
-                  — eles têm um upload de CSV no botão "Importar Contatos"
-                  da página de Listas que processa em segundos. Use{" "}
-                  <span className="font-mono">Exportar CSV</span> aqui pra
-                  gerar o arquivo.
-                </div>
-              </div>
-            )}
-
             {phase === "creating" && (
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Criando lista na Locaweb...
-              </div>
+              <PhaseRow label="Criando lista na Locaweb..." />
             )}
-
             {phase === "uploading" && (
+              <PhaseRow label="Subindo CSV e enfileirando importação..." />
+            )}
+            {phase === "importing" && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-muted-foreground">
-                    Enviando contatos para Locaweb...
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Locaweb processando ({importStatus?.raw_status ?? "..."})
                   </span>
                   <span className="font-mono tabular-nums">
-                    {progress.pushed.toLocaleString("pt-BR")} /{" "}
-                    {progress.total.toLocaleString("pt-BR")} ({progressPct}%)
+                    {importStatus?.total_lines
+                      ? `${processed.toLocaleString("pt-BR")} / ${total.toLocaleString("pt-BR")} (${progressPct}%)`
+                      : "aguardando..."}
                   </span>
                 </div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -373,10 +361,10 @@ export function EmailListCreateDialog({
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
-                {remaining > 0 && (
-                  <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    Faltam ~{etaText}
+                {importStatus?.errors_count != null && importStatus.errors_count > 0 && (
+                  <div className="text-[10px] text-amber-700 dark:text-amber-300">
+                    {importStatus.errors_count.toLocaleString("pt-BR")} erro(s)
+                    reportados pela Locaweb (linhas inválidas).
                   </div>
                 )}
               </div>
@@ -389,7 +377,8 @@ export function EmailListCreateDialog({
             )}
 
             {warning && phase !== "done" && (
-              <div className="text-xs text-amber-700 dark:text-amber-300 p-2 border border-amber-300/40 rounded bg-amber-50 dark:bg-amber-900/10">
+              <div className="text-xs text-amber-700 dark:text-amber-300 p-2 border border-amber-300/40 rounded bg-amber-50 dark:bg-amber-900/10 flex items-start gap-1.5">
+                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                 {warning}
               </div>
             )}
@@ -410,10 +399,12 @@ export function EmailListCreateDialog({
                   <Mail className="w-3.5 h-3.5" />
                 )}
                 {phase === "creating"
-                  ? "Criando lista..."
+                  ? "Criando..."
                   : phase === "uploading"
-                    ? `Enviando ${progressPct}%`
-                    : `Criar lista (${validContacts.length.toLocaleString("pt-BR")})`}
+                    ? "Enviando CSV..."
+                    : phase === "importing"
+                      ? `Importando ${progressPct}%`
+                      : `Criar lista (${validContacts.length.toLocaleString("pt-BR")})`}
               </Button>
             </div>
           </>
@@ -423,14 +414,20 @@ export function EmailListCreateDialog({
   );
 }
 
+function PhaseRow({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      {label}
+    </div>
+  );
+}
+
 function defaultName(): string {
   const d = new Date();
   return `CRM · ${d.toISOString().slice(0, 10)}`;
 }
 
-function formatDuration(ms: number): string {
-  if (ms <= 0) return "<1s";
-  if (ms < 60_000) return `${Math.ceil(ms / 1000)}s`;
-  const min = Math.ceil(ms / 60_000);
-  return `${min} min`;
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
 }

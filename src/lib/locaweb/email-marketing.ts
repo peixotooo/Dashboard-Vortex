@@ -249,32 +249,97 @@ export async function removeContactsFromList(
   );
 }
 
-// NOTE: Locaweb's POST /contact_imports (async CSV import) is a dead end
-// for binding-to-a-list on the v1 API. We probed exhaustively against
-// the Bulking account:
-//   • Body field names: list_id, list_ids, lists, list_tokens (both as
-//     numeric and string), tags, mailing_list_ids, subscribe_list_ids,
-//     subscribers_lists, lists.ids
-//   • Wrappers: contact_import.{...}, list_import.{...}, import.{...}
-//   • Query params: ?list_id=, ?list_ids[]=, ?lists[]=
-//   • Methods on /contact_imports/{id}: PUT/PATCH (404)
-//   • Per-list paths: /lists/{id}/contact_imports (404),
-//     /lists/{id}/import (500 except with {contacts:[...]} which works
-//     but doesn't bind), /lists/{id}/{subscribers,subscribe,
-//     contacts/bulk,subscribe_csv,import_csv} (404)
-//   • API versions: /api/v2 / /api/v3 (all 404)
+// ---------- Async bulk contact import ----------
 //
-// Every attempt either errored out OR succeeded but returned
-// `list_ids: []` and the target list's contacts_count stayed at 0. The
-// fabioperrella/locaweb-emailmarketing community library mentions
-// `list_tokens` as a required field, but that was for an older API
-// version; the field is silently accepted but no-op'd in v1 today.
+// Locaweb's POST /contact_imports binds the imported contacts directly
+// to one or more lists, processes asynchronously, and is *fast* — 7000
+// contacts finish in ~8s end-to-end vs ~4 minutes for chunked
+// /lists/{id}/contacts.
 //
-// Locaweb's panel UI does bind imports to lists, but uses an internal
-// endpoint we can't reach. The only public path that demonstrably puts
-// contacts into a list is POST /lists/{id}/contacts at ~150ms/contact.
-// We chunk + parallelize that and warn the user about timing for big
-// lists; for >10k they should use the Locaweb panel directly.
+// CRITICAL — body shape gotchas (probed against the Bulking account):
+//   • Wrap in `contact_import` and ONLY pass `list_ids` + `url`:
+//       { "contact_import": { "list_ids": [18], "url": "..." } }
+//   • ANY extra field inside the wrapper triggers a server-side 500
+//     "Erro interno". This includes `name`, `description`, `has_header`,
+//     `list_tokens`. The fabioperrella/locaweb-emailmarketing Ruby
+//     community lib documents `list_tokens` and `name` — that lib is
+//     pre-v1 and the fields no longer work.
+//   • CSV must be on a publicly fetchable URL (Locaweb downloads it on
+//     their side; no multipart). First column header must be `email`.
+//   • Status flow: "Aguardando" → "Processando" → "Avaliando lista" →
+//     "Finalizado" / "Erro inesperado".
+//   • Multiple list ids in `list_ids` are supported.
+//
+// We poll GET /contact_imports/{id} for { status, list_ids,
+// total_lines, created_count, updated_count, errors_count }.
+
+export interface ContactImportInput {
+  /** Numeric list ids to bind the import to. Locaweb accepts int or
+   *  string. Multiple ids supported. Required. */
+  list_ids: Array<number | string>;
+  /** Public HTTPS URL of the CSV. Locaweb fetches from this URL on
+   *  their side, so it must be reachable without auth. */
+  url: string;
+}
+
+export interface ContactImportRef {
+  id: number | string;
+  [k: string]: unknown;
+}
+
+export interface ContactImportStatus {
+  id: number | string;
+  status: string;
+  url?: string;
+  file_name?: string | null;
+  total_lines?: number;
+  created_count?: number;
+  updated_count?: number;
+  errors_count?: number;
+  duplicated_emails_count?: number;
+  list_ids?: Array<number | string>;
+  created_at?: string;
+  updated_at?: string;
+  [k: string]: unknown;
+}
+
+export async function createContactImport(
+  creds: LocawebCreds,
+  input: ContactImportInput
+): Promise<ContactImportRef> {
+  // The wrapper + minimal body is required. DO NOT add name /
+  // description / has_header — every extra field returns 500.
+  return request<ContactImportRef>(creds, "POST", "/contact_imports", {
+    contact_import: {
+      list_ids: input.list_ids,
+      url: input.url,
+    },
+  });
+}
+
+export async function getContactImport(
+  creds: LocawebCreds,
+  importId: string | number
+): Promise<ContactImportStatus> {
+  return request<ContactImportStatus>(
+    creds,
+    "GET",
+    `/contact_imports/${importId}`
+  );
+}
+
+/** Locaweb status labels are PT-BR free-form. Normalize to three buckets
+ *  so callers don't string-compare the raw label. Observed labels:
+ *  "Aguardando", "Processando", "Avaliando lista", "Finalizado",
+ *  "Erro inesperado". */
+export type ImportStatus = "processing" | "finished" | "error";
+
+export function normalizeImportStatus(raw: string | undefined): ImportStatus {
+  const lower = (raw ?? "").toLowerCase();
+  if (lower.includes("finaliz") || lower.includes("conclu")) return "finished";
+  if (lower.includes("erro") || lower.includes("falh")) return "error";
+  return "processing";
+}
 
 // ---------- Senders / domains ----------
 
