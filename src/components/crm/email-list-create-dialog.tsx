@@ -327,6 +327,28 @@ export function EmailListCreateDialog({
               </div>
             )}
 
+            {!isWorking && validContacts.length >= 5000 && (
+              <div className="flex items-start gap-2 text-[11px] p-2 border border-amber-300/40 rounded bg-amber-50 dark:bg-amber-900/10 text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                <div>
+                  Lista grande ({validContacts.length.toLocaleString("pt-BR")}{" "}
+                  contatos). Pra acelerar, considere{" "}
+                  <a
+                    href="https://emailmarketing.locaweb.com.br/lists"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-amber-900 dark:hover:text-amber-100"
+                  >
+                    importar manualmente no painel da Locaweb
+                  </a>{" "}
+                  — eles têm um upload de CSV no botão "Importar Contatos"
+                  da página de Listas que processa em segundos. Use{" "}
+                  <span className="font-mono">Exportar CSV</span> aqui pra
+                  gerar o arquivo.
+                </div>
+              </div>
+            )}
+
             {phase === "creating" && (
               <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

@@ -249,15 +249,32 @@ export async function removeContactsFromList(
   );
 }
 
-// NOTE: We tried using Locaweb's POST /contact_imports (async CSV import)
-// to avoid the per-contact latency of /lists/{id}/contacts. It accepts
-// every payload shape we tried, but the response always comes back with
-// `list_ids: []` — the contacts get created in the global pool but
-// nothing is associated with the target list. Probed with the Bulking
-// account against multiple body shapes (list_id, list_ids, lists, with
-// and without contact_import wrapper). Without a way to bind the import
-// to a list, the endpoint is useless for our flow, so we stick with the
-// chunked /lists/{id}/contacts approach (~150ms/contact, parallelized).
+// NOTE: Locaweb's POST /contact_imports (async CSV import) is a dead end
+// for binding-to-a-list on the v1 API. We probed exhaustively against
+// the Bulking account:
+//   • Body field names: list_id, list_ids, lists, list_tokens (both as
+//     numeric and string), tags, mailing_list_ids, subscribe_list_ids,
+//     subscribers_lists, lists.ids
+//   • Wrappers: contact_import.{...}, list_import.{...}, import.{...}
+//   • Query params: ?list_id=, ?list_ids[]=, ?lists[]=
+//   • Methods on /contact_imports/{id}: PUT/PATCH (404)
+//   • Per-list paths: /lists/{id}/contact_imports (404),
+//     /lists/{id}/import (500 except with {contacts:[...]} which works
+//     but doesn't bind), /lists/{id}/{subscribers,subscribe,
+//     contacts/bulk,subscribe_csv,import_csv} (404)
+//   • API versions: /api/v2 / /api/v3 (all 404)
+//
+// Every attempt either errored out OR succeeded but returned
+// `list_ids: []` and the target list's contacts_count stayed at 0. The
+// fabioperrella/locaweb-emailmarketing community library mentions
+// `list_tokens` as a required field, but that was for an older API
+// version; the field is silently accepted but no-op'd in v1 today.
+//
+// Locaweb's panel UI does bind imports to lists, but uses an internal
+// endpoint we can't reach. The only public path that demonstrably puts
+// contacts into a list is POST /lists/{id}/contacts at ~150ms/contact.
+// We chunk + parallelize that and warn the user about timing for big
+// lists; for >10k they should use the Locaweb panel directly.
 
 // ---------- Senders / domains ----------
 
