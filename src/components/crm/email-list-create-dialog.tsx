@@ -5,13 +5,18 @@
 // (same trigger spot, same contact-shape input).
 //
 // Implementation note: large contact sets (10k+) used to ship as a single
-// /lists POST and routinely 504'd on Vercel (the HTML error page came
-// back as JSON parse error in the dialog). We now do the upload in two
-// phases:
-//   1. Init   — POST /lists with empty contacts → returns list_id (fast)
-//   2. Chunks — POST /lists/{id}/contacts with batches of 500 in series,
-//               with a progress bar in the UI. Locaweb dedups on add, so
-//               re-running the same filter is safe.
+// /lists POST and routinely 504'd. Probing Locaweb directly:
+//   - 100 contacts → 14s
+//   - 500 contacts → 46s
+//   - 1000 contacts → 504 from Locaweb itself
+// They process ~140ms per contact. Their async import endpoint
+// (contact_imports) returns 404 on the current plan, so we can't
+// offload there.
+//
+// Solution: small chunks (75 ≈ 10s each, well under any timeout) shipped
+// with bounded parallelism (4 concurrent requests) so wall-clock for
+// 7k contacts stays around 4 min instead of 16 min sequential. Locaweb
+// dedups on add, so partial failures are safe to retry.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -45,7 +50,8 @@ interface Props {
   suggestedName?: string;
 }
 
-const CHUNK_SIZE = 500;
+const CHUNK_SIZE = 75;
+const CONCURRENCY = 4;
 
 export function EmailListCreateDialog({
   open,
@@ -133,48 +139,82 @@ export function EmailListCreateDialog({
       return;
     }
 
-    // Phase 2: ship contacts in chunks. Sequential so Locaweb rate limits
-    // don't bite us; the bottleneck is their API anyway.
+    // Phase 2: parallel chunked upload. Build all chunks up front, then
+    // process them with a bounded concurrency pool. Each chunk-fetch
+    // takes ~10s on Locaweb (140ms × 75 contacts), so 4 parallel cuts
+    // wall-clock by ~4× without tripping Locaweb rate limits.
     setPhase("uploading");
     setProgress({ pushed: 0, total: validContacts.length });
 
-    let pushed = 0;
+    const chunks: Contact[][] = [];
     for (let i = 0; i < validContacts.length; i += CHUNK_SIZE) {
-      if (cancelledRef.current) break;
-      const chunk = validContacts.slice(i, i + CHUNK_SIZE);
-      try {
-        const r = await fetch(
-          `/api/crm/email-templates/locaweb/lists/${encodeURIComponent(listId)}/contacts`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-workspace-id": workspaceId,
-            },
-            body: JSON.stringify({ contacts: chunk }),
-          }
-        );
-        const text = await r.text();
-        let d: unknown;
+      chunks.push(validContacts.slice(i, i + CHUNK_SIZE));
+    }
+
+    let pushed = 0;
+    let firstError: string | null = null;
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        if (cancelledRef.current || firstError) return;
+        const idx = nextIndex++;
+        if (idx >= chunks.length) return;
+        const chunk = chunks[idx];
         try {
-          d = JSON.parse(text);
-        } catch {
-          throw new Error(`Resposta inesperada (HTTP ${r.status})`);
+          const r = await fetch(
+            `/api/crm/email-templates/locaweb/lists/${encodeURIComponent(listId)}/contacts`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-workspace-id": workspaceId,
+              },
+              body: JSON.stringify({ contacts: chunk }),
+            }
+          );
+          const text = await r.text();
+          let d: unknown;
+          try {
+            d = JSON.parse(text);
+          } catch {
+            throw new Error(`Resposta inesperada (HTTP ${r.status})`);
+          }
+          const data = d as { ok?: boolean; pushed?: number; error?: string };
+          if (!r.ok || !data.ok) throw new Error(data.error ?? "Falha ao enviar lote.");
+          pushed += chunk.length;
+          setProgress({ pushed, total: validContacts.length });
+        } catch (err) {
+          // First failure short-circuits the remaining workers. The list
+          // still exists with whatever already made it through; Locaweb
+          // dedups on add so retrying the same filter is safe.
+          if (!firstError) firstError = (err as Error).message;
+          return;
         }
-        const data = d as { ok?: boolean; pushed?: number; error?: string };
-        if (!r.ok || !data.ok) throw new Error(data.error ?? "Falha ao enviar lote.");
-        pushed += chunk.length;
-        setProgress({ pushed, total: validContacts.length });
-      } catch (err) {
-        // Partial failure — list still exists with whatever made it
-        // through. Re-running the same filter is safe (Locaweb dedups).
-        setWarning(
-          `Falha parcial: ${pushed.toLocaleString("pt-BR")}/${validContacts.length.toLocaleString(
-            "pt-BR"
-          )} contatos enviados antes do erro — ${(err as Error).message}`
-        );
-        break;
       }
+    };
+
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+    if (firstError && pushed < validContacts.length) {
+      setWarning(
+        `Falha parcial: ${pushed.toLocaleString("pt-BR")}/${validContacts.length.toLocaleString(
+          "pt-BR"
+        )} contatos enviados — ${firstError}`
+      );
+    }
+
+    if (pushed === 0) {
+      // Nothing made it through — surface as a hard error rather than a
+      // misleading "lista criada" success. The empty list is left in the
+      // panel; user can delete it manually.
+      setError(
+        firstError
+          ? `Lista criada mas nenhum contato foi enviado: ${firstError}`
+          : "Lista criada mas nenhum contato foi enviado."
+      );
+      setPhase("idle");
+      return;
     }
 
     setResult({ list_id: listId, list_name: listName });
