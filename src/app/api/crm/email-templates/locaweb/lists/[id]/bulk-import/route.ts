@@ -53,11 +53,16 @@ function buildCsv(rows: Array<{ email: string; name?: string | null }>): string 
   return lines.join("\n");
 }
 
+// In-memory cache: once the bucket exists we never need to re-create it.
+// Saves ~300-500ms per import after the first one in a given Vercel
+// instance (cold-starts re-check, which is fine).
+let bucketKnownToExist = false;
+
 async function ensureBucket() {
-  // Idempotent — Supabase returns 409 if the bucket already exists, which
-  // we silently swallow.
+  if (bucketKnownToExist) return;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim().replace(/\/+$/, "");
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!.trim();
+  // Idempotent — Supabase returns 409 if the bucket already exists.
   await fetch(`${url}/storage/v1/bucket`, {
     method: "POST",
     headers: {
@@ -72,6 +77,7 @@ async function ensureBucket() {
       file_size_limit: 50 * 1024 * 1024, // 50MB hard cap; ~1M rows of CSV
     }),
   }).catch(() => {});
+  bucketKnownToExist = true;
 }
 
 async function uploadCsv(path: string, csv: string): Promise<string> {

@@ -153,9 +153,17 @@ export function EmailListCreateDialog({
 
     if (cancelledRef.current) return;
 
-    // Phase 2: kick off the bulk import.
+    // Phase 2: kick off the bulk import. If the /bulk-import call times
+    // out on Vercel (504, HTML response, etc) the import almost
+    // certainly did reach Locaweb's queue anyway — Vercel kills our
+    // function but the upstream HTTP call already completed. We fall
+    // back to listing the workspace's recent imports and matching by
+    // the list_id (encoded in the CSV file path) to recover the
+    // import_id.
     setPhase("uploading");
-    let importId: string;
+    const phase2Started = Date.now();
+    let importId: string | null = null;
+    let phase2Error: string | null = null;
     try {
       const r = await fetch(
         `/api/crm/email-templates/locaweb/lists/${encodeURIComponent(listId)}/bulk-import`,
@@ -170,15 +178,42 @@ export function EmailListCreateDialog({
       try {
         d = JSON.parse(text);
       } catch {
+        // Vercel timeout returns an HTML 504 page. We'll try the
+        // fallback below.
         throw new Error(`Resposta inesperada (HTTP ${r.status})`);
       }
       const data = d as { import_id?: string; error?: string };
       if (!r.ok || !data.import_id) throw new Error(data.error ?? "Falha ao iniciar importação.");
       importId = data.import_id;
     } catch (err) {
-      setError(`Lista criada mas a importação não começou: ${(err as Error).message}`);
-      setPhase("idle");
-      return;
+      phase2Error = (err as Error).message;
+    }
+
+    if (cancelledRef.current) return;
+
+    if (!importId) {
+      // Fallback: poll Locaweb's import history for an entry created
+      // after we started phase 2 whose URL contains our list_id and
+      // workspace_id. Try a few times since Locaweb's queue may take a
+      // second to register the import.
+      setWarning(
+        "A primeira chamada falhou (provavelmente timeout do Vercel). Procurando o import na Locaweb..."
+      );
+      const candidate = await findRecentImport({
+        workspaceId,
+        listId,
+        startedAtMs: phase2Started,
+      });
+      if (candidate) {
+        importId = candidate;
+        setWarning(null);
+      } else {
+        setError(
+          `Lista criada mas a importação não começou: ${phase2Error ?? "erro desconhecido"}`
+        );
+        setPhase("idle");
+        return;
+      }
     }
 
     if (cancelledRef.current) return;
@@ -427,4 +462,47 @@ function defaultName(): string {
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+interface ImportListItem {
+  id: number | string;
+  url?: string;
+  status: "processing" | "finished" | "error";
+  created_at?: string | null;
+}
+
+/**
+ * Look up Locaweb's import history for an entry created after the dialog
+ * started phase 2 whose CSV URL is scoped to our list. Used as a
+ * fallback when the /bulk-import POST 504s on Vercel — the Locaweb call
+ * almost certainly went through, we just lost the response.
+ */
+async function findRecentImport(args: {
+  workspaceId: string;
+  listId: string;
+  startedAtMs: number;
+}): Promise<string | null> {
+  // Try a few times, each separated by 2s. Locaweb's queue can take a
+  // moment to register the import after createContactImport responds.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await sleep(attempt === 0 ? 1000 : 2000);
+    try {
+      const r = await fetch("/api/crm/email-templates/locaweb/imports", {
+        headers: { "x-workspace-id": args.workspaceId },
+      });
+      if (!r.ok) continue;
+      const d = (await r.json()) as { items?: ImportListItem[] };
+      const items = d.items ?? [];
+      // Match URLs that came out of our bulk-import endpoint:
+      //   .../email-list-imports/<workspace>/<list_id>-<ts>-<rand>.csv
+      const needle = `/${args.workspaceId}/${args.listId}-`;
+      const match = items.find(
+        (it) => typeof it.url === "string" && it.url.includes(needle)
+      );
+      if (match) return String(match.id);
+    } catch {
+      // ignore, retry
+    }
+  }
+  return null;
 }

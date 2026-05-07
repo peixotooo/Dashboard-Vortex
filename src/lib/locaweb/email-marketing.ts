@@ -314,6 +314,18 @@ export async function getContactImport(
   );
 }
 
+export async function listContactImports(
+  creds: LocawebCreds
+): Promise<ContactImportStatus[]> {
+  const data = await request<unknown>(creds, "GET", "/contact_imports");
+  if (Array.isArray(data)) return data as ContactImportStatus[];
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.items)) return obj.items as ContactImportStatus[];
+  }
+  return [];
+}
+
 /** Locaweb returns the status as a localized PT-BR string. Normalize to
  *  three buckets so callers don't string-compare the raw label. */
 export type ImportStatus = "processing" | "finished" | "error";
