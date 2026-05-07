@@ -48,7 +48,10 @@ export async function GET(req: NextRequest) {
 
 interface CreateListBody {
   name: string;
-  contacts: Array<{ email: string; name?: string | null }>;
+  /** Optional inline contacts. Kept for small lists that fit in one request.
+   *  For large lists, omit this and POST chunks to /lists/[id]/contacts to
+   *  avoid Vercel timeouts (10k contacts in one round-trip routinely 504'd). */
+  contacts?: Array<{ email: string; name?: string | null }>;
 }
 
 const BATCH_SIZE = 200;
@@ -74,7 +77,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Dedup + validate emails up-front so we don't ship trash to Locaweb.
+    // Dedup + validate emails up-front (still cheap; if the inline payload
+    // is huge we'd reject it earlier on Vercel anyway).
     const seen = new Set<string>();
     const contacts: ContactInput[] = [];
     for (const c of body.contacts ?? []) {
@@ -86,12 +90,6 @@ export async function POST(req: NextRequest) {
         email,
         name: typeof c.name === "string" && c.name.trim() ? c.name.trim() : undefined,
       });
-    }
-    if (contacts.length === 0) {
-      return NextResponse.json(
-        { error: "Nenhum email válido nos contatos enviados." },
-        { status: 400 }
-      );
     }
 
     let creds;
@@ -122,9 +120,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Push contacts in chunks. First-batch failure is fatal (likely auth /
-    // schema), later batches are best-effort — we surface the partial
-    // count back to the UI so the user knows.
+    // Inline-contacts mode (small lists). Large flows go through the
+    // dedicated /lists/[id]/contacts batch endpoint.
     let pushed = 0;
     let warning: string | null = null;
     for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
