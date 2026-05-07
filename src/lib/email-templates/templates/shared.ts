@@ -197,12 +197,15 @@ export function darkHeader(): string {
 }
 
 export function darkFooter(): string {
+  // No internal unsubscribe link — Locaweb appends a compliant
+  // "cancele sua inscrição" line below the body automatically. Adding
+  // our own Descadastrar with a `{{UNSUBSCRIBE_URL}}` placeholder
+  // shipped a broken link in real sends.
   return `
 <tr><td class="pad-xl" style="padding:56px 40px 48px;background:${DARK.bg};border-top:1px solid ${DARK.border};">
   <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:12px;letter-spacing:0.32em;color:${DARK.fg};text-transform:uppercase;margin-bottom:16px;text-align:center;">Respect the Hustle.</div>
   <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${DARK.muted};line-height:1.8;text-align:center;">
-    Bulking · <a href="https://www.bulking.com.br" style="color:${DARK.muted};text-decoration:underline;">bulking.com.br</a><br />
-    Você está recebendo este email porque é cliente Bulking. <a href="{{UNSUBSCRIBE_URL}}" style="color:${DARK.muted};text-decoration:underline;">Descadastrar</a>.
+    Bulking · <a href="https://www.bulking.com.br" style="color:${DARK.muted};text-decoration:underline;">bulking.com.br</a>
   </div>
 </td></tr>`;
 }
@@ -549,13 +552,13 @@ export function relatedProductsGrid(
 }
 
 export function footer(): string {
+  // See darkFooter() for the unsubscribe rationale — Locaweb appends its
+  // own compliant link automatically; we don't double up.
   return `
 <tr><td class="pad-xl" style="padding:56px 40px 48px;border-top:1px solid ${TOKENS.border};">
   <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:12px;letter-spacing:0.32em;color:${TOKENS.text};text-transform:uppercase;margin-bottom:16px;text-align:center;">Respect the Hustle.</div>
   <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${TOKENS.textSecondary};line-height:1.8;text-align:center;">
     Bulking · <a href="https://www.bulking.com.br" style="color:${TOKENS.textSecondary};text-decoration:underline;">bulking.com.br</a>
-    <br />
-    Você está recebendo este email porque é cliente Bulking. <a href="{{UNSUBSCRIBE_URL}}" style="color:${TOKENS.textSecondary};text-decoration:underline;">Descadastrar</a>.
   </div>
 </td></tr>`;
 }

@@ -159,8 +159,7 @@ function render(ctx: TemplateRenderContext): string {
 <tr><td class="pad-xl" style="padding:48px 40px;background:${DARK_BG};border-top:1px solid ${DARK_BORDER};">
   <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:12px;letter-spacing:0.32em;color:${DARK_FG};text-transform:uppercase;margin-bottom:16px;text-align:center;">Respect the Hustle.</div>
   <div style="font-family:${TOKENS.fontBody};font-weight:400;font-size:12px;color:${DARK_MUTED};line-height:1.8;text-align:center;">
-    Bulking · <a href="https://www.bulking.com.br" style="color:${DARK_MUTED};text-decoration:underline;">bulking.com.br</a><br />
-    Você está recebendo este email porque é cliente Bulking. <a href="{{UNSUBSCRIBE_URL}}" style="color:${DARK_MUTED};text-decoration:underline;">Descadastrar</a>.
+    Bulking · <a href="https://www.bulking.com.br" style="color:${DARK_MUTED};text-decoration:underline;">bulking.com.br</a>
   </div>
 </td></tr>`);
 

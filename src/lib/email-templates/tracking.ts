@@ -115,7 +115,7 @@ export function applyUtmTracking(html: string, ctx: UtmContext): string {
 }
 
 /**
- * Defensive HTML sanitization for email clients. Two transforms:
+ * Defensive HTML sanitization for email clients. Three transforms:
  *
  * 1. Protocol-relative URLs. Rewrites `src="//host/..."` and
  *    `href="//host/..."` → `https://host/...`. Gmail's image proxy and
@@ -129,19 +129,38 @@ export function applyUtmTracking(html: string, ctx: UtmContext): string {
  *    height while letting an absolutely-positioned image fill it — works
  *    in browsers, breaks in Gmail/Outlook because they ignore
  *    `position:absolute` on inline styles, leaving an empty grey box
- *    above each image. We fixed shared.ts so new renders don't emit the
- *    pattern, but suggestions already cached in the DB still carry it.
- *    This sanitizer rewrites them at dispatch time so old rendered_html
- *    still renders cleanly without re-generating.
+ *    above each image.
  *
- * Idempotent and conservative.
+ * 3. Broken `{{UNSUBSCRIBE_URL}}` placeholder. Older renders include an
+ *    internal "Descadastrar" link with that literal placeholder as the
+ *    href — clicking it lands on a junk URL. Locaweb appends its own
+ *    compliant unsubscribe footer below the body, so we strip the
+ *    redundant line entirely at dispatch time.
+ *
+ * Each transform fixes pattern at the source (new renders avoid the
+ * issue) AND in already-cached rendered_html on dispatch — older
+ * suggestions in the DB benefit without needing to re-render.
  */
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return html;
-  return unwrapAspectRatioImages(
-    html
-      .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
-      .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://")
+  return stripBrokenUnsubscribe(
+    unwrapAspectRatioImages(
+      html
+        .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
+        .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://")
+    )
+  );
+}
+
+function stripBrokenUnsubscribe(html: string): string {
+  // Match the legacy line "Você está recebendo este email porque é
+  // cliente Bulking. <a href="{{UNSUBSCRIBE_URL}}">Descadastrar</a>."
+  // along with the <br /> that precedes it (so we don't leave a
+  // dangling <br>). Both lower- and uppercase URL placeholder are
+  // accepted.
+  return html.replace(
+    /(?:\s*<br\s*\/?>\s*)?\s*Você está recebendo este email porque é cliente Bulking\.\s*<a\b[^>]*\{\{UNSUBSCRIBE_URL\}\}[^>]*>[^<]*<\/a>\.?/gi,
+    ""
   );
 }
 
