@@ -14,7 +14,14 @@ const DEFAULTS: Omit<EmailTemplateSettings, "workspace_id"> = {
   slowmoving_max_sales: 3,
   slowmoving_discount_percent: 10,
   slowmoving_coupon_validity_hours: 48,
-  copy_provider: "template",
+  // LLM is now the default provider (Frente D-lite). The single-shot
+  // enriched flow loads slot-specific copywriter souls (Andre Chaperon
+  // for slot 1, Ben Settle for slot 2, Dan Koe for slot 3) and bakes
+  // recent-subject anti-repetition + persona context into the prompt.
+  // Falls back to template automatically on any LLM failure.
+  copy_provider: "llm",
+  // null = auto-pick by slot. Set to a specific slug to force one
+  // copywriter persona across all 3 slots.
   llm_agent_slug: null,
   // Variant attribute label mapping. VNDA's BR fashion catalogs almost
   // always put color in attribute1 and size in attribute2; if a tenant
