@@ -56,6 +56,13 @@ export type HourPref = "madrugada" | "manha" | "tarde" | "noite";
 export type CouponSensitivity = "never" | "occasional" | "frequent" | "always";
 export type LifecycleStage = "new" | "returning" | "regular" | "vip";
 
+export interface PreferenceCount {
+  /** Lowercased label (e.g. "azul", "preto", "calça"). */
+  value: string;
+  /** Number of order items that carried this label. */
+  count: number;
+}
+
 export interface RfmCustomer {
   email: string;
   name: string;
@@ -80,6 +87,13 @@ export interface RfmCustomer {
   preferredHour: HourPref;
   couponSensitivity: CouponSensitivity;
   lifecycleStage: LifecycleStage;
+  // Product preferences (Frente A — populated from crm_vendas.items
+  // variant_name + attribute1/2/3, joined with shelf_products.category
+  // via SKU). Used by personalization flows. Top entries first.
+  preferredColors?: PreferenceCount[];
+  preferredCategories?: PreferenceCount[];
+  mostBoughtSku?: string | null;
+  topProductIds?: string[];
 }
 
 export interface RfmSegmentSummary {
@@ -177,6 +191,59 @@ interface AggregatedCustomer {
   weekdayCounts: Record<Weekday, number>;
   hourCounts: { madrugada: number; manha: number; tarde: number; noite: number };
   couponPurchases: number;
+  // Product preference counters (Frente A). Computed from items[] in
+  // each crm_vendas row. Color comes from variant_name OR attribute1
+  // (whichever the workspace uses); SKU + product reference are tracked
+  // raw and resolved to category later in crm-compute via shelf_products.
+  colorCounts: Map<string, number>;
+  skuCounts: Map<string, number>;
+  productIdCounts: Map<string, number>;
+}
+
+interface ItemRow {
+  sku?: string | null;
+  reference?: string | null;
+  variant_name?: string | null;
+  attribute1?: string | null;
+  attribute2?: string | null;
+  attribute3?: string | null;
+  quantity?: number | null;
+  [k: string]: unknown;
+}
+
+function bumpMap(m: Map<string, number>, key: string | null | undefined, by = 1) {
+  if (!key) return;
+  const k = key.trim().toLowerCase();
+  if (!k) return;
+  m.set(k, (m.get(k) ?? 0) + by);
+}
+
+/** Variant_name examples from VNDA: "Camiseta - Preto - M", "Calça Bege".
+ *  We extract a single color token by trying attribute1 first (cleanest
+ *  signal in BR fashion catalogs), then falling back to the variant_name
+ *  string. Returns null when no plausible color shows up. */
+function extractColorFromItem(item: ItemRow): string | null {
+  if (item.attribute1 && typeof item.attribute1 === "string") {
+    const a1 = item.attribute1.trim();
+    if (a1) return a1;
+  }
+  if (typeof item.variant_name === "string") {
+    // Heuristic: variant_name is usually "<product> - <color> - <size>".
+    // Take the middle token if there are 2+ separators.
+    const parts = item.variant_name.split(/\s*-\s*/).filter((p) => p.trim());
+    if (parts.length >= 2) return parts[parts.length - 2].trim();
+  }
+  return null;
+}
+
+function topPreferences(
+  m: Map<string, number>,
+  limit = 5
+): PreferenceCount[] {
+  return [...m.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([value, count]) => ({ value, count }));
 }
 
 function getDayRange(day: number): DayRange {
@@ -215,6 +282,8 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
 
     const hasCoupon = !!(row.cupom && row.cupom.trim());
 
+    const items = (Array.isArray(row.items) ? row.items : []) as ItemRow[];
+
     const existing = map.get(email);
     if (existing) {
       existing.totalPurchases += 1;
@@ -232,6 +301,12 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         existing.weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] += 1;
         existing.hourCounts[getHourPref(purchaseDate.getHours())] += 1;
       }
+      for (const item of items) {
+        const qty = Math.max(1, Number(item.quantity ?? 1));
+        bumpMap(existing.colorCounts, extractColorFromItem(item), qty);
+        bumpMap(existing.skuCounts, item.sku ?? null, qty);
+        bumpMap(existing.productIdCounts, item.reference ?? null, qty);
+      }
     } else {
       const coupons = new Set<string>();
       if (hasCoupon) coupons.add(row.cupom!.trim());
@@ -243,6 +318,16 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         dayRangeCounts[getDayRange(purchaseDate.getDate())] = 1;
         weekdayCounts[JS_DOW_TO_WEEKDAY[purchaseDate.getDay()]] = 1;
         hourCounts[getHourPref(purchaseDate.getHours())] = 1;
+      }
+
+      const colorCounts = new Map<string, number>();
+      const skuCounts = new Map<string, number>();
+      const productIdCounts = new Map<string, number>();
+      for (const item of items) {
+        const qty = Math.max(1, Number(item.quantity ?? 1));
+        bumpMap(colorCounts, extractColorFromItem(item), qty);
+        bumpMap(skuCounts, item.sku ?? null, qty);
+        bumpMap(productIdCounts, item.reference ?? null, qty);
       }
 
       map.set(email, {
@@ -258,6 +343,9 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         weekdayCounts,
         hourCounts,
         couponPurchases: hasCoupon ? 1 : 0,
+        colorCounts,
+        skuCounts,
+        productIdCounts,
       });
     }
   }
@@ -458,6 +546,17 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
       preferredHour: getMaxKey(c.hourCounts),
       couponSensitivity: classifyCouponSensitivity(c.couponPurchases, c.totalPurchases),
       lifecycleStage: classifyLifecycle(c.totalPurchases),
+      // Product preferences (Frente A). preferredCategories is filled in
+      // a later pass by crm-compute that joins skuCounts with
+      // shelf_products.category. We populate the pure-from-items signals
+      // here (colors, SKUs, product IDs).
+      preferredColors: topPreferences(c.colorCounts, 5),
+      mostBoughtSku:
+        [...c.skuCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+      topProductIds: [...c.productIdCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([k]) => k),
     };
   });
 

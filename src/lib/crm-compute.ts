@@ -1,5 +1,5 @@
 import { generateRfmReport, generateMonthlyCohort } from "@/lib/crm-rfm";
-import type { CrmVendaRow } from "@/lib/crm-rfm";
+import type { CrmVendaRow, RfmCustomer, PreferenceCount } from "@/lib/crm-rfm";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PAGE_SIZE = 1000; // Supabase default max rows per request
@@ -21,7 +21,10 @@ export async function recomputeRfmSnapshot(
     const { data, error } = await client
       .from("crm_vendas")
       .select(
-        "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores"
+        // `items` is the jsonb that carries variant_name + attribute1/2/3 +
+        // sku per line — needed by the RFM aggregator for preferredColors
+        // and for the SKU→category enrichment pass below.
+        "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items"
       )
       .eq("workspace_id", workspaceId)
       .range(from, from + PAGE_SIZE - 1);
@@ -48,6 +51,13 @@ export async function recomputeRfmSnapshot(
 
   // Compute RFM report
   const report = generateRfmReport(allRows);
+
+  // Enrich customers with preferredCategories by joining their SKU
+  // counts with the workspace's shelf_products. We do this AFTER the
+  // RFM report so the data layer (crm-rfm.ts) stays focused on order
+  // signals — category lookup belongs at the integration layer
+  // because shelf_products is workspace-specific catalog data.
+  await enrichCustomerCategories(client, workspaceId, report.customers, allRows);
 
   // Compute monthly cohort
   const cohort = generateMonthlyCohort(allRows);
@@ -83,4 +93,85 @@ export async function recomputeRfmSnapshot(
   }
 
   return { rowCount: allRows.length, customerCount: report.customers.length };
+}
+
+/**
+ * Second-pass enrichment: walk each customer's SKU/product-id counts and
+ * resolve them against shelf_products to compute `preferredCategories`.
+ * Mutates the customers array in-place. Best-effort — if shelf_products
+ * is missing or a SKU isn't in the catalog, we just skip that line.
+ */
+async function enrichCustomerCategories(
+  client: SupabaseClient,
+  workspaceId: string,
+  customers: RfmCustomer[],
+  rows: CrmVendaRow[]
+): Promise<void> {
+  // Pull a SKU→category map for the workspace. Cap the page size since
+  // catalogs can be large; 5k covers Bulking comfortably.
+  const skuToCategory = new Map<string, string>();
+  const productIdToCategory = new Map<string, string>();
+  try {
+    const { data } = await client
+      .from("shelf_products")
+      .select("sku, product_id, category")
+      .eq("workspace_id", workspaceId)
+      .limit(5000);
+    for (const r of (data ?? []) as Array<{
+      sku: string | null;
+      product_id: string | null;
+      category: string | null;
+    }>) {
+      if (r.category) {
+        if (r.sku) skuToCategory.set(r.sku.trim().toLowerCase(), r.category);
+        if (r.product_id)
+          productIdToCategory.set(r.product_id.trim().toLowerCase(), r.category);
+      }
+    }
+  } catch {
+    // Catalog query failed — leave preferredCategories empty.
+    return;
+  }
+
+  if (skuToCategory.size === 0 && productIdToCategory.size === 0) return;
+
+  // Re-walk the raw items per customer to count categories. Cheaper
+  // than asking the RFM aggregator to know about catalogs.
+  const counts = new Map<string, Map<string, number>>(); // email → category → count
+  for (const row of rows) {
+    const email = (row.email || "").trim().toLowerCase();
+    if (!email) continue;
+    const items = Array.isArray(row.items) ? row.items : [];
+    if (items.length === 0) continue;
+    let bucket = counts.get(email);
+    if (!bucket) {
+      bucket = new Map();
+      counts.set(email, bucket);
+    }
+    for (const item of items as Array<{
+      sku?: string | null;
+      reference?: string | null;
+      quantity?: number | null;
+    }>) {
+      const qty = Math.max(1, Number(item.quantity ?? 1));
+      const skuKey = item.sku?.trim().toLowerCase();
+      const refKey = item.reference?.trim().toLowerCase();
+      const cat =
+        (skuKey && skuToCategory.get(skuKey)) ||
+        (refKey && productIdToCategory.get(refKey)) ||
+        null;
+      if (!cat) continue;
+      bucket.set(cat, (bucket.get(cat) ?? 0) + qty);
+    }
+  }
+
+  for (const customer of customers) {
+    const bucket = counts.get(customer.email);
+    if (!bucket) continue;
+    const top: PreferenceCount[] = [...bucket.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([value, count]) => ({ value, count }));
+    customer.preferredCategories = top;
+  }
 }

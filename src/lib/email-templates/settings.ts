@@ -12,6 +12,19 @@ const DEFAULTS: Omit<EmailTemplateSettings, "workspace_id"> = {
   slowmoving_coupon_validity_hours: 48,
   copy_provider: "template",
   llm_agent_slug: null,
+  // Variant attribute label mapping. VNDA's BR fashion catalogs almost
+  // always put color in attribute1 and size in attribute2; if a tenant
+  // breaks the convention they can flip the labels via settings. Null
+  // means "ignore this attribute" — the column is still preserved in
+  // crm_vendas.items, just not aggregated into preferredColors etc.
+  attribute1_label: "cor",
+  attribute2_label: "tamanho",
+  // Anti-repetition tunables (Frente C). Defaults are conservative —
+  // they preserve current behavior unless a workspace opts in. The
+  // picker will read these and adjust scoring + exploration accordingly.
+  category_penalty_weight: 0.5,
+  exploration_rate: 0.15,
+  auto_relax_threshold: 0.3,
 };
 
 export function getDefaults(workspace_id: string): EmailTemplateSettings {

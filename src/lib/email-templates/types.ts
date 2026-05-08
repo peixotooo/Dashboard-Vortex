@@ -22,6 +22,15 @@ export interface ProductSnapshot {
   url: string;
   description?: string;
   tags?: string[];
+  /** Product category (e.g. "calça", "camiseta") — populated from
+   *  shelf_products.category. Used by the picker's category-penalty to
+   *  prevent slot saturation by the same category over consecutive
+   *  days. Optional because older snapshots predate this field. */
+  category?: string;
+  /** Primary SKU. Lets the RFM aggregator cross-reference customer
+   *  purchase items.sku with the product catalog and populate
+   *  preferredColors / preferredCategories per customer. */
+  sku?: string;
 }
 
 export interface CopyOutput {
@@ -61,6 +70,16 @@ export interface EmailTemplateSettings {
   slowmoving_coupon_validity_hours: number;
   copy_provider: CopyProvider;
   llm_agent_slug: string | null;
+  /** Maps the VNDA item attribute1 column to a human label per workspace.
+   *  Default "cor" — matches Bulking and most BR fashion catalogs.
+   *  Used by the RFM aggregator to bucket purchases into preferredColors. */
+  attribute1_label: string | null;
+  /** Same idea for attribute2. Default "tamanho". */
+  attribute2_label: string | null;
+  /** Anti-repetition tunables (Frente C). */
+  category_penalty_weight: number;
+  exploration_rate: number;
+  auto_relax_threshold: number;
 }
 
 export interface EmailSuggestion {

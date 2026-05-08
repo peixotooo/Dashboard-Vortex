@@ -119,7 +119,12 @@ export function mapVndaPayloadToCrmRow(
     else paymentMethod = payload.payment_method;
   }
 
-  // Map items to compact JSON
+  // Map items to compact JSON. We preserve variant_name + attribute1/2/3
+  // (typically color/size in VNDA's Brazilian fashion catalogs) and
+  // reference (the product_id) so downstream RFM aggregation can compute
+  // preferredColors / preferredCategories / mostBoughtSku per customer.
+  // Column labels for attribute1/2/3 are workspace-configurable in
+  // email_template_settings (default "cor" / "tamanho" / null).
   const items = (payload.items || []).map((item) => ({
     name: item.product_name,
     sku: item.sku,
@@ -127,6 +132,12 @@ export function mapVndaPayloadToCrmRow(
     price: item.price,
     original_price: item.original_price,
     total: item.total,
+    // Variant signals — preserved for personalization. Null-safe.
+    reference: item.reference ?? null,
+    variant_name: item.variant_name ?? null,
+    attribute1: item.attribute1 ?? null,
+    attribute2: item.attribute2 ?? null,
+    attribute3: item.attribute3 ?? null,
   }));
 
   // Map discounts

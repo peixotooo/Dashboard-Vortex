@@ -22,6 +22,10 @@ interface ShelfRow {
   product_url: string | null;
   tags: unknown;
   created_at: string;
+  /** Populated by shelf-catalog-sync (migration-030). Used downstream
+   *  for category-penalty (anti-repetition) and personalization. */
+  category?: string | null;
+  sku?: string | null;
 }
 
 export interface PickResult {
@@ -202,6 +206,8 @@ function toSnapshot(row: ShelfRow): ProductSnapshot {
     url: row.product_url ?? "",
     description: undefined,
     tags,
+    category: row.category ?? undefined,
+    sku: row.sku ?? undefined,
   };
 }
 
@@ -218,7 +224,9 @@ async function fetchShelf(
   const supabase = createAdminClient();
   let q = supabase
     .from("shelf_products")
-    .select("product_id, name, price, sale_price, image_url, product_url, tags, created_at")
+    .select(
+      "product_id, name, price, sale_price, image_url, product_url, tags, created_at, category, sku"
+    )
     .eq("workspace_id", workspace_id);
   if (filters.active !== false) q = q.eq("active", true);
   if (filters.in_stock !== false) q = q.eq("in_stock", true);
