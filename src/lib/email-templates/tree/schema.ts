@@ -74,6 +74,25 @@ export interface ImageNode {
   href?: string;
 }
 
+export interface ImageGridItem {
+  src: string;
+  alt: string;
+  href?: string;
+}
+
+/** A flat row of N images side by side (2/3/4 columns). For mood-board /
+ *  collection / gallery style sections — distinct from product-grid which
+ *  carries name/price/button per cell. */
+export interface ImageGridNode {
+  id: NodeId;
+  type: "image-grid";
+  items: ImageGridItem[];
+  columns: 2 | 3 | 4;
+  /** Per-cell image ratio. Default 1:1 because galleries usually want
+   *  uniform squares. */
+  ratio?: "1:1" | "3:4" | "4:5" | "16:9";
+}
+
 export interface SpacerNode {
   id: NodeId;
   type: "spacer";
@@ -197,6 +216,7 @@ export type LeafNode =
   | EyebrowNode
   | ButtonNode
   | ImageNode
+  | ImageGridNode
   | SpacerNode
   | DividerNode
   | RatingNode

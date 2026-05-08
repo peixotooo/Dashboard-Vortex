@@ -21,6 +21,18 @@ export function defaultLeaf(type: LeafType): LeafNode {
       return { id, type, text: "Ver na loja", href: "https://www.bulking.com.br", variant: "primary" };
     case "image":
       return { id, type, src: "", alt: "", ratio: "3:4" };
+    case "image-grid":
+      return {
+        id,
+        type,
+        columns: 3,
+        ratio: "1:1",
+        items: [
+          { src: "", alt: "" },
+          { src: "", alt: "" },
+          { src: "", alt: "" },
+        ],
+      };
     case "spacer":
       return { id, type, height: 24 };
     case "divider":
@@ -70,7 +82,8 @@ export const TREE_PALETTE: Array<{
   group: "header" | "content" | "commerce" | "structural";
 }> = [
   { type: "eyebrow", label: "Eyebrow", description: "Tagline acima do conteúdo", group: "header" },
-  { type: "image", label: "Produto", description: "Foto do produto / hero gerado por IA", group: "header" },
+  { type: "image", label: "Imagem", description: "Foto única (produto, hero, banner)", group: "header" },
+  { type: "image-grid", label: "Grade de imagens", description: "2/3/4 imagens lado a lado (mood / coleção)", group: "header" },
   { type: "heading", label: "Headline", description: "Título grande", group: "content" },
   { type: "text", label: "Texto", description: "Parágrafo", group: "content" },
   { type: "rating", label: "Estrelas", description: "Avaliação 0–5", group: "content" },

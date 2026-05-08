@@ -681,6 +681,7 @@ export default function EmailEditorPage({ params }: PageProps) {
         workspaceId={workspaceId}
         draftName={draft.name}
         draftSubject={meta.subject}
+        draftPreview={meta.preview}
       />
     </div>
   );

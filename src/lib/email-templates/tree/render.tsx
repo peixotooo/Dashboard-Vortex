@@ -249,6 +249,69 @@ function LeafRenderer({
         </div>
       );
     }
+    case "image-grid": {
+      // Plain <img>s in a Row/Column grid. We deliberately don't reuse
+      // the padding-top:% aspect-ratio hack from the single-image case
+      // because Gmail / Outlook ignore position:absolute on inline
+      // styles, leaving an empty grey box above each photo. The
+      // explicit width/height attrs on Img give them enough hint to
+      // render at the correct ratio.
+      const cols = Math.max(2, Math.min(4, node.columns ?? 3)) as 2 | 3 | 4;
+      const items = (node.items ?? []).slice(0, cols);
+      // Render fewer than `cols` items if the user hasn't filled them
+      // all, but always emit `cols` columns so the layout is balanced.
+      while (items.length < cols) items.push({ src: "", alt: "" });
+      const ratio = node.ratio ?? "1:1";
+      const ratios: Record<string, number> = {
+        "1:1": 1,
+        "3:4": 4 / 3,
+        "4:5": 5 / 4,
+        "16:9": 9 / 16,
+      };
+      // Approx. cell width for a 600px container with 10px gutter on
+      // each side. Used only as the img width attr (clients still scale
+      // to the column).
+      const cellWidth = Math.floor((600 - (cols + 1) * 10) / cols);
+      const cellHeight = Math.floor(cellWidth * (ratios[ratio] ?? 1));
+      const cell = (item: { src: string; alt: string; href?: string }, i: number) => {
+        const img = (
+          <Img
+            src={item.src}
+            alt={item.alt}
+            width={cellWidth}
+            height={cellHeight}
+            style={{
+              display: "block",
+              width: "100%",
+              maxWidth: `${cellWidth}px`,
+              height: "auto",
+              background: c.surfaceAlt,
+            }}
+          />
+        );
+        return (
+          <Column
+            key={i}
+            align="center"
+            valign="top"
+            style={{ padding: "0 5px" }}
+          >
+            {item.href ? (
+              <Link href={item.href} style={{ textDecoration: "none" }}>
+                {img}
+              </Link>
+            ) : (
+              img
+            )}
+          </Column>
+        );
+      };
+      return (
+        <div {...tagAttr(node.id, editorMode)} style={{ padding: "0 5px" }}>
+          <Row>{items.map((it, i) => cell(it, i))}</Row>
+        </div>
+      );
+    }
     case "spacer":
       return (
         <div

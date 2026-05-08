@@ -24,7 +24,8 @@ const TYPE_LABEL: Record<LeafNode["type"], string> = {
   text: "Texto",
   eyebrow: "Eyebrow",
   button: "Botão",
-  image: "Produto",
+  image: "Imagem",
+  "image-grid": "Grade de imagens",
   spacer: "Espaço",
   divider: "Divisor",
   rating: "Estrelas",
@@ -48,6 +49,8 @@ function summary(leaf: LeafNode): string {
       return leaf.text;
     case "image":
       return leaf.alt || leaf.src;
+    case "image-grid":
+      return `${leaf.items?.length ?? 0} imagens · ${leaf.columns} cols`;
     case "logo":
       return `${leaf.width ?? 148}px`;
     case "product-meta":

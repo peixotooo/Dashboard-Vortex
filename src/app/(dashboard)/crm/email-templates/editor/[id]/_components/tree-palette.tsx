@@ -28,14 +28,15 @@ interface Props {
 
 const ICON: Record<LeafType, LucideIcon> = {
   eyebrow: Tag,
-  image: Shirt,
+  image: ImageIcon,
+  "image-grid": LayoutGrid,
   heading: Heading1,
   text: TextQuote,
   rating: Star,
   button: MousePointerClick,
   "product-meta": ShoppingBag,
   "product-card": Box,
-  "product-grid": LayoutGrid,
+  "product-grid": Shirt,
   "discount-badge": BadgePercent,
   coupon: Ticket,
   countdown: Timer,

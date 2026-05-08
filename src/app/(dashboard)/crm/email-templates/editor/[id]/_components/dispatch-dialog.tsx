@@ -1,4 +1,10 @@
 "use client";
+
+// DispatchDialog — wizard de 5 etapas pra disparar um draft do editor.
+// Mesma estrutura da SuggestionDispatchDialog (etapas 1-5: Conteúdo /
+// Teste / Listas / Agendar / Revisar) mas sem o passo de "segmento
+// sugerido" porque drafts não vêm com cluster RFM atrelado.
+
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,9 +17,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   Inbox,
+  Mail,
+  ListChecks,
 } from "lucide-react";
 import { TestSendCard } from "../../../components/test-send-card";
 import { BalanceCard } from "../../../components/balance-card";
+import {
+  DispatchWizardShell,
+  type WizardStep,
+} from "../../../components/dispatch-wizard-shell";
 
 interface LocawebList {
   id: string;
@@ -28,9 +40,9 @@ interface Props {
   workspaceId: string;
   draftName?: string;
   draftSubject?: string;
+  /** Preview text (hidden text shown in inbox listings). */
+  draftPreview?: string;
 }
-
-type Stage = "test" | "real";
 
 export function DispatchDialog({
   open,
@@ -39,12 +51,15 @@ export function DispatchDialog({
   workspaceId,
   draftName,
   draftSubject,
+  draftPreview,
 }: Props) {
-  const [stage, setStage] = useState<Stage>("test");
+  const [stepIndex, setStepIndex] = useState(0);
+  const [reviewed, setReviewed] = useState(false);
   const [testSentTo, setTestSentTo] = useState<string | null>(null);
 
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
+
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState(() => {
     const d = new Date();
@@ -52,7 +67,8 @@ export function DispatchDialog({
     return d.toISOString().slice(0, 10);
   });
   const [scheduledTime, setScheduledTime] = useState("09:00");
-  const [loading, setLoading] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     locaweb_message_id: string;
@@ -61,17 +77,20 @@ export function DispatchDialog({
 
   useEffect(() => {
     if (!open) return;
-    setStage("test");
+    setStepIndex(0);
+    setReviewed(false);
     setTestSentTo(null);
     setLists(null);
     setSelectedListIds(new Set());
     setScheduleEnabled(false);
     setError(null);
     setSuccess(null);
+    setSubmitting(false);
   }, [open]);
 
+  // Lazy-load lists when we hit the audience step.
   useEffect(() => {
-    if (!open || stage !== "real" || lists !== null) return;
+    if (!open || stepIndex < 2 || lists !== null) return;
     fetch("/api/crm/email-templates/locaweb/lists", {
       headers: { "x-workspace-id": workspaceId },
     })
@@ -93,9 +112,14 @@ export function DispatchDialog({
         setError(`Falha ao carregar listas: ${(err as Error).message}`);
         setLists([]);
       });
-  }, [open, stage, lists, workspaceId]);
+  }, [open, stepIndex, lists, workspaceId]);
 
-  const toggle = (id: string) => {
+  const close = () => {
+    if (submitting) return;
+    onClose();
+  };
+
+  const toggleList = (id: string) => {
     setSelectedListIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -104,17 +128,18 @@ export function DispatchDialog({
     });
   };
 
-  const close = () => {
-    if (loading) return;
-    onClose();
-  };
+  const totalContacts = lists
+    ? Array.from(selectedListIds)
+        .map((id) => lists.find((l) => l.id === id)?.contacts_count ?? 0)
+        .reduce((a, b) => a + b, 0)
+    : 0;
 
   const submit = async () => {
     if (selectedListIds.size === 0) {
       setError("Escolha ao menos uma lista.");
       return;
     }
-    setLoading(true);
+    setSubmitting(true);
     setError(null);
     try {
       const r = await fetch(
@@ -134,9 +159,7 @@ export function DispatchDialog({
         }
       );
       const d = await r.json();
-      if (!r.ok) {
-        throw new Error(d.error ?? "Falha ao disparar.");
-      }
+      if (!r.ok) throw new Error(d.error ?? "Falha ao disparar.");
       setSuccess({
         locaweb_message_id: d.locaweb_message_id,
         scheduled: d.scheduled_to,
@@ -144,34 +167,318 @@ export function DispatchDialog({
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const totalContacts = lists
-    ? Array.from(selectedListIds)
-        .map((id) => lists.find((l) => l.id === id)?.contacts_count ?? 0)
-        .reduce((a, b) => a + b, 0)
-    : 0;
-
-  const DraftInfo = draftSubject ? (
-    <div className="text-xs flex items-start gap-1.5 p-2 border rounded bg-muted/30">
+  const DraftInfo = (
+    <div className="text-xs flex items-start gap-2 p-3 border rounded bg-muted/30">
       <Inbox className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
-      <div className="min-w-0">
-        <div className="text-muted-foreground">Subject:</div>
-        <div className="font-medium truncate">{draftSubject}</div>
-        {draftName && (
-          <div className="text-[10px] text-muted-foreground/70 truncate mt-0.5">
-            {draftName}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="font-medium truncate">{draftName ?? "Draft"}</div>
+        {draftSubject && (
+          <div className="text-[10px] text-muted-foreground truncate">
+            Subject: {draftSubject}
           </div>
         )}
       </div>
     </div>
-  ) : null;
+  );
+
+  const stepReview: WizardStep = {
+    id: "review",
+    label: "Conteúdo",
+    canProceed: reviewed,
+    nextHint: !reviewed ? "Marque o checkbox pra continuar" : undefined,
+    content: (
+      <>
+        {DraftInfo}
+        <div className="space-y-3 border rounded-md p-4">
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <Mail className="w-3 h-3" />
+              Subject (linha de assunto)
+            </div>
+            <div className="text-sm font-medium">
+              {draftSubject || (
+                <span className="text-amber-700 dark:text-amber-300">
+                  (sem subject — preencha no editor antes de disparar)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1 border-t pt-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Preview text (texto curto que aparece na lista do inbox)
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {draftPreview ? (
+                draftPreview
+              ) : (
+                <span className="italic">
+                  Sem preview definido. Sem isso, os clients de email vão usar
+                  os primeiros caracteres do corpo como prévia — pode ser
+                  qualquer coisa. Recomendado: voltar no editor e preencher.
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setReviewed((v) => !v)}
+          className={`w-full flex items-center gap-2 p-3 text-left rounded-md border transition-colors ${
+            reviewed
+              ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800"
+              : "border-border hover:bg-muted/30"
+          }`}
+        >
+          <div
+            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+              reviewed
+                ? "bg-emerald-600 border-emerald-600 text-white"
+                : "border-border"
+            }`}
+          >
+            {reviewed && <CheckCircle2 className="w-3 h-3" />}
+          </div>
+          <span className="text-xs">
+            Li o subject e o preview e está tudo correto.
+          </span>
+        </button>
+      </>
+    ),
+  };
+
+  const stepTest: WizardStep = {
+    id: "test",
+    label: "Teste",
+    canProceed: true,
+    nextLabel: testSentTo ? "Continuar" : "Pular teste",
+    nextHint: !testSentTo ? "Recomendado: envie um teste pro seu email" : undefined,
+    content: (
+      <>
+        {DraftInfo}
+        <TestSendCard
+          endpoint={`/api/crm/email-templates/drafts/${draftId}/test-dispatch`}
+          workspaceId={workspaceId}
+          onSent={(email) => setTestSentTo(email)}
+        />
+      </>
+    ),
+  };
+
+  const stepAudience: WizardStep = {
+    id: "audience",
+    label: "Listas",
+    canProceed: selectedListIds.size > 0,
+    nextHint:
+      selectedListIds.size === 0 ? "Selecione ao menos uma lista" : undefined,
+    content: (
+      <>
+        {DraftInfo}
+        <div className="space-y-2">
+          <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+            Listas Locaweb
+          </Label>
+          {lists === null ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
+            </div>
+          ) : lists.length === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Nenhuma lista. Crie uma no painel da Locaweb ou na página de CRM.
+            </div>
+          ) : (
+            <div className="border rounded-md max-h-56 overflow-y-auto divide-y">
+              {lists.map((l) => {
+                const sel = selectedListIds.has(l.id);
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => toggleList(l.id)}
+                    className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 ${
+                      sel ? "bg-foreground/5" : ""
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        sel
+                          ? "bg-foreground border-foreground text-background"
+                          : "border-border"
+                      }`}
+                    >
+                      {sel && <CheckCircle2 className="w-3 h-3" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium truncate">{l.name}</div>
+                      {l.contacts_count != null && (
+                        <div className="text-[10px] text-muted-foreground">
+                          {l.contacts_count.toLocaleString("pt-BR")} contatos
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <BalanceCard
+          workspaceId={workspaceId}
+          estimatedRecipients={totalContacts}
+        />
+      </>
+    ),
+  };
+
+  const stepSchedule: WizardStep = {
+    id: "schedule",
+    label: "Agendar",
+    canProceed: true,
+    content: (
+      <>
+        {DraftInfo}
+        <div className="space-y-3 border rounded-md p-4">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5" />
+              Agendar para data específica
+            </Label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={scheduleEnabled}
+              onClick={() => setScheduleEnabled((v) => !v)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                scheduleEnabled
+                  ? "bg-foreground border-foreground"
+                  : "bg-card border-border"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                  scheduleEnabled ? "translate-x-5" : "translate-x-[2px]"
+                }`}
+              />
+            </button>
+          </div>
+          {scheduleEnabled ? (
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                className="h-9 text-xs flex-1"
+                min={new Date().toISOString().slice(0, 10)}
+              />
+              <Input
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+                className="h-9 text-xs w-28"
+                step={300}
+              />
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Sem agendamento, dispara assim que você confirmar na próxima
+              etapa.
+            </p>
+          )}
+        </div>
+      </>
+    ),
+  };
+
+  const stepConfirm: WizardStep = {
+    id: "confirm",
+    label: "Revisar",
+    canProceed: selectedListIds.size > 0,
+    content: (
+      <>
+        <div className="space-y-3 border rounded-md p-4">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <ListChecks className="w-3 h-3" />
+            Resumo do disparo
+          </div>
+          <SummaryRow
+            label="Subject"
+            value={draftSubject ?? "(sem subject)"}
+            mono
+          />
+          <SummaryRow label="Preview" value={draftPreview ?? "(sem preview)"} />
+          <SummaryRow
+            label="Listas"
+            value={
+              <>
+                {Array.from(selectedListIds).map((id) => {
+                  const l = lists?.find((x) => x.id === id);
+                  return (
+                    <div key={id}>
+                      {l?.name ?? id}
+                      {l?.contacts_count != null && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          ({l.contacts_count.toLocaleString("pt-BR")})
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {selectedListIds.size === 0 && (
+                  <span className="text-destructive">
+                    Nenhuma lista selecionada
+                  </span>
+                )}
+              </>
+            }
+          />
+          <SummaryRow
+            label="Total estimado"
+            value={`${totalContacts.toLocaleString("pt-BR")} contatos`}
+          />
+          <SummaryRow
+            label="Quando"
+            value={
+              scheduleEnabled
+                ? `${scheduledDate} às ${scheduledTime}`
+                : "Agora (assim que confirmar)"
+            }
+          />
+          <SummaryRow
+            label="Teste enviado?"
+            value={
+              testSentTo ? (
+                <span className="text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Sim, para {testSentTo}
+                </span>
+              ) : (
+                <span className="text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  Não — você pulou essa etapa
+                </span>
+              )
+            }
+          />
+        </div>
+        {error && (
+          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
+            {error}
+          </div>
+        )}
+      </>
+    ),
+  };
+
+  const steps = [stepReview, stepTest, stepAudience, stepSchedule, stepConfirm];
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-xl">
         <DialogTitle className="flex items-center gap-2">
           <Send className="w-4 h-4" />
           Disparar campanha
@@ -188,11 +495,11 @@ export function DispatchDialog({
                     : "Campanha enviada à Locaweb"}
                 </div>
                 <div className="text-muted-foreground mt-0.5">
-                  ID Locaweb: <span className="font-mono">{success.locaweb_message_id}</span>
+                  ID Locaweb:{" "}
+                  <span className="font-mono">{success.locaweb_message_id}</span>
                 </div>
                 <div className="text-muted-foreground mt-1">
-                  Stats (open/click/bounce) começam a aparecer aqui em algumas
-                  horas conforme os destinatários abrem o email.
+                  Stats começam a aparecer aqui em algumas horas.
                 </div>
               </div>
             </div>
@@ -202,206 +509,49 @@ export function DispatchDialog({
               </Button>
             </div>
           </div>
-        ) : stage === "test" ? (
-          <>
-            {DraftInfo && <div className="space-y-2 -mt-2">{DraftInfo}</div>}
-
-            <TestSendCard
-              endpoint={`/api/crm/email-templates/drafts/${draftId}/test-dispatch`}
-              workspaceId={workspaceId}
-              onSent={(email) => setTestSentTo(email)}
-            />
-
-            <div className="flex justify-between gap-2 pt-2">
-              <Button variant="ghost" size="sm" onClick={close}>
-                Cancelar
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setStage("real");
-                }}
-                className="gap-1.5"
-              >
-                <Send className="w-3.5 h-3.5" />
-                {testSentTo ? "Continuar para envio real" : "Pular teste e disparar"}
-              </Button>
-            </div>
-          </>
         ) : (
-          <>
-            {DraftInfo && <div className="space-y-2 -mt-2">{DraftInfo}</div>}
-
-            {testSentTo && (
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground -mt-1">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                Teste enviado para{" "}
-                <span className="font-mono">{testSentTo}</span>.
-                <button
-                  type="button"
-                  onClick={() => setStage("test")}
-                  className="underline hover:text-foreground"
-                >
-                  Reenviar
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground">
-                Listas
-              </Label>
-              {lists === null ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando listas Locaweb...
-                </div>
-              ) : lists.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Nenhuma lista encontrada na Locaweb. Crie uma no painel da
-                  Locaweb antes de disparar.
-                </div>
+          <DispatchWizardShell
+            steps={steps}
+            currentIndex={stepIndex}
+            onBack={() => setStepIndex((i) => Math.max(0, i - 1))}
+            onNext={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))}
+            onClose={close}
+            onFinish={submit}
+            isSubmitting={submitting}
+            finishLabel={
+              scheduleEnabled
+                ? `Agendar ${scheduledDate} ${scheduledTime}`
+                : "Disparar agora"
+            }
+            finishIcon={
+              scheduleEnabled ? (
+                <Calendar className="w-3.5 h-3.5" />
               ) : (
-                <div className="border rounded-md max-h-56 overflow-y-auto divide-y">
-                  {lists.map((l) => {
-                    const sel = selectedListIds.has(l.id);
-                    return (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={() => toggle(l.id)}
-                        disabled={loading}
-                        className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 disabled:opacity-50 ${
-                          sel ? "bg-foreground/5" : ""
-                        }`}
-                      >
-                        <div
-                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                            sel
-                              ? "bg-foreground border-foreground text-background"
-                              : "border-border"
-                          }`}
-                        >
-                          {sel && <CheckCircle2 className="w-3 h-3" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium truncate">
-                            {l.name}
-                          </div>
-                          {l.contacts_count != null && (
-                            <div className="text-[10px] text-muted-foreground">
-                              {l.contacts_count.toLocaleString("pt-BR")} contatos
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <BalanceCard
-              workspaceId={workspaceId}
-              estimatedRecipients={totalContacts}
-            />
-
-            <div className="space-y-2 border-t pt-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5" />
-                  Agendar
-                </Label>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={scheduleEnabled}
-                  disabled={loading}
-                  onClick={() => setScheduleEnabled((v) => !v)}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors disabled:opacity-50 ${
-                    scheduleEnabled
-                      ? "bg-foreground border-foreground"
-                      : "bg-card border-border"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
-                      scheduleEnabled ? "translate-x-5" : "translate-x-[2px]"
-                    }`}
-                  />
-                </button>
-              </div>
-              {scheduleEnabled ? (
-                <div className="flex gap-2">
-                  <Input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    disabled={loading}
-                    className="h-9 text-xs flex-1"
-                    min={new Date().toISOString().slice(0, 10)}
-                  />
-                  <Input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    disabled={loading}
-                    className="h-9 text-xs w-28"
-                    step={300}
-                  />
-                </div>
-              ) : (
-                <p className="text-[10px] text-muted-foreground">
-                  Sem agendamento, dispara agora.
-                </p>
-              )}
-            </div>
-
-            {error && (
-              <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
-                {error}
-              </div>
-            )}
-
-            <div className="flex justify-between gap-2 pt-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setStage("test");
-                }}
-                disabled={loading}
-              >
-                Voltar
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={close} disabled={loading}>
-                  Cancelar
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={submit}
-                  disabled={loading || selectedListIds.size === 0}
-                  className="gap-1.5"
-                >
-                  {loading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Send className="w-3.5 h-3.5" />
-                  )}
-                  {loading
-                    ? "Enviando..."
-                    : scheduleEnabled
-                      ? `Agendar ${scheduledDate} ${scheduledTime}`
-                      : "Disparar agora"}
-                </Button>
-              </div>
-            </div>
-          </>
+                <Send className="w-3.5 h-3.5" />
+              )
+            }
+          />
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[120px,1fr] gap-2 text-xs">
+      <div className="text-[10px] uppercase tracking-widest text-muted-foreground self-start mt-0.5">
+        {label}
+      </div>
+      <div className={mono ? "font-mono text-xs" : ""}>{value}</div>
+    </div>
   );
 }

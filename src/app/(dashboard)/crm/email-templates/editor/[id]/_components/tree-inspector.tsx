@@ -28,7 +28,8 @@ const NODE_LABEL: Record<LeafNode["type"], string> = {
   text: "Texto",
   eyebrow: "Eyebrow",
   button: "Botão",
-  image: "Produto",
+  image: "Imagem",
+  "image-grid": "Grade de imagens",
   spacer: "Espaço",
   divider: "Divisor",
   rating: "Estrelas",
@@ -156,6 +157,8 @@ function renderFields(
           onPickProduct={onPickProduct}
         />
       );
+    case "image-grid":
+      return <ImageGridInspector node={n} onChange={onChange} />;
     case "logo":
       return (
         <>
@@ -529,6 +532,96 @@ function ImageInspector({
           onChange({ src: url, alt } as Partial<LeafNode>)
         }
       />
+    </>
+  );
+}
+
+function ImageGridInspector({
+  node,
+  onChange,
+}: {
+  node: Extract<LeafNode, { type: "image-grid" }>;
+  onChange: (patch: Partial<LeafNode>) => void;
+}) {
+  const items = node.items ?? [];
+  const cols = node.columns ?? 3;
+  const ratio = node.ratio ?? "1:1";
+
+  const setItem = (i: number, patch: Partial<{ src: string; alt: string; href: string }>) => {
+    const next = [...items];
+    next[i] = { ...(next[i] ?? { src: "", alt: "" }), ...patch };
+    onChange({ items: next } as Partial<LeafNode>);
+  };
+
+  const setColumns = (c: 2 | 3 | 4) => {
+    // Resize the items array to match the new column count, preserving
+    // existing items.
+    const next = [...items];
+    while (next.length < c) next.push({ src: "", alt: "" });
+    next.length = c;
+    onChange({ columns: c, items: next } as Partial<LeafNode>);
+  };
+
+  return (
+    <>
+      <Field label="Colunas">
+        <div className="grid grid-cols-3 gap-1">
+          {[2, 3, 4].map((c) => (
+            <Button
+              key={c}
+              size="sm"
+              variant={cols === c ? "default" : "outline"}
+              className="h-7 text-xs"
+              onClick={() => setColumns(c as 2 | 3 | 4)}
+            >
+              {c} cols
+            </Button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Proporção das imagens">
+        <div className="grid grid-cols-4 gap-1">
+          {(["1:1", "3:4", "4:5", "16:9"] as const).map((r) => (
+            <Button
+              key={r}
+              size="sm"
+              variant={ratio === r ? "default" : "outline"}
+              className="h-7 text-xs"
+              onClick={() => onChange({ ratio: r } as Partial<LeafNode>)}
+            >
+              {r}
+            </Button>
+          ))}
+        </div>
+      </Field>
+      {items.slice(0, cols).map((it, i) => (
+        <div key={i} className="space-y-1.5 border rounded-md p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Imagem {i + 1}
+          </div>
+          <Field label="URL">
+            <Input
+              value={it.src}
+              onChange={(e) => setItem(i, { src: e.target.value })}
+              placeholder="https://..."
+            />
+          </Field>
+          <Field label="Texto alternativo">
+            <Input
+              value={it.alt}
+              onChange={(e) => setItem(i, { alt: e.target.value })}
+              placeholder="Descrição curta"
+            />
+          </Field>
+          <Field label="Link ao clicar (opcional)">
+            <Input
+              value={it.href ?? ""}
+              onChange={(e) => setItem(i, { href: e.target.value })}
+              placeholder="https://..."
+            />
+          </Field>
+        </div>
+      ))}
     </>
   );
 }
