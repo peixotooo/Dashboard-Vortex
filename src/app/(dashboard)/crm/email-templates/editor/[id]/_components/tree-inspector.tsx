@@ -7,6 +7,7 @@ import type { LeafNode } from "@/lib/email-templates/tree/schema";
 import { ProductPicker, type PickedProduct } from "./product-picker";
 import { WysiwygEditor } from "./wysiwyg";
 import { HeroGeneratorDialog } from "./hero-generator";
+import { ImageUploader } from "./image-uploader";
 import { Trash2, Sparkles } from "lucide-react";
 import { useState } from "react";
 
@@ -516,6 +517,10 @@ function ImageInspector({
         <Sparkles className="w-3.5 h-3.5" />
         Gerar header com IA
       </Button>
+      <ImageUploader
+        label="Upload de imagem (Backblaze)"
+        onUploaded={(url) => onChange({ src: url } as Partial<LeafNode>)}
+      />
       <Field label="URL da imagem (manual)">
         <Input value={node.src} onChange={(e) => onChange({ src: e.target.value } as Partial<LeafNode>)} />
       </Field>
@@ -599,7 +604,11 @@ function ImageGridInspector({
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
             Imagem {i + 1}
           </div>
-          <Field label="URL">
+          <ImageUploader
+            label={it.src ? "Trocar imagem" : "Upload de imagem"}
+            onUploaded={(url) => setItem(i, { src: url })}
+          />
+          <Field label="URL (manual ou pós-upload)">
             <Input
               value={it.src}
               onChange={(e) => setItem(i, { src: e.target.value })}
