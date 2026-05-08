@@ -75,15 +75,26 @@ async function recentlyUsedAcrossSlots(
 }
 
 /**
- * Tag-frequency map for products used in the last N days. Used to penalize
- * candidates whose tags overlap heavily with the recent rotation, so we
- * don't run "shorts" three days in a row even when GA4 keeps surfacing
- * them. Higher count = more recent saturation.
+ * Recent-rotation context. Bundles two things the picker uses to avoid
+ * saturation:
+ *   - `tagFreq`: how often each product TAG appeared in the last N days
+ *     of slots (legacy signal — finer-grained but noisy)
+ *   - `categoryFreq`: how often each product CATEGORY appeared. Coarser
+ *     and what users actually feel ("calça → calça → calça" is repetition
+ *     even with different tags)
+ *   - `totalSlots`: total #slots considered, so penalties can be
+ *     normalized as a fraction of the rotation
  */
-async function recentTagFrequency(
+interface RotationContext {
+  tagFreq: Map<string, number>;
+  categoryFreq: Map<string, number>;
+  totalSlots: number;
+}
+
+async function recentRotationContext(
   workspace_id: string,
   days: number
-): Promise<Map<string, number>> {
+): Promise<RotationContext> {
   const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -93,47 +104,112 @@ async function recentTagFrequency(
     .select("product_snapshot")
     .eq("workspace_id", workspace_id)
     .gte("generated_for_date", sinceIso);
-  const freq = new Map<string, number>();
+  const tagFreq = new Map<string, number>();
+  const categoryFreq = new Map<string, number>();
+  let totalSlots = 0;
   for (const row of data ?? []) {
-    const snap = row.product_snapshot as { tags?: unknown } | null;
-    if (!snap || !Array.isArray(snap.tags)) continue;
-    for (const t of snap.tags) {
-      const tag = (typeof t === "string" ? t : (t as { name?: string })?.name ?? "")
-        .toLowerCase()
-        .trim();
-      if (!tag) continue;
-      freq.set(tag, (freq.get(tag) ?? 0) + 1);
+    const snap = row.product_snapshot as
+      | { tags?: unknown; category?: unknown }
+      | null;
+    if (!snap) continue;
+    totalSlots += 1;
+    if (Array.isArray(snap.tags)) {
+      for (const t of snap.tags) {
+        const tag = (typeof t === "string" ? t : (t as { name?: string })?.name ?? "")
+          .toLowerCase()
+          .trim();
+        if (!tag) continue;
+        tagFreq.set(tag, (tagFreq.get(tag) ?? 0) + 1);
+      }
+    }
+    if (typeof snap.category === "string") {
+      const cat = snap.category.toLowerCase().trim();
+      if (cat) categoryFreq.set(cat, (categoryFreq.get(cat) ?? 0) + 1);
     }
   }
-  return freq;
-}
-
-function tagPenalty(tags: string[], recent: Map<string, number>): number {
-  // 0 = totally fresh, 1 = saturated. Sum of recency hits per tag, normalized
-  // by 6 (about 2 days × 3 slots). Cap at 1.
-  let sum = 0;
-  for (const t of tags) {
-    const k = t.toLowerCase().trim();
-    sum += recent.get(k) ?? 0;
-  }
-  return Math.min(1, sum / 6);
+  return { tagFreq, categoryFreq, totalSlots };
 }
 
 /**
- * Apply cooldown filters in tiers. Walks tiers in order; the first tier that
- * leaves at least one candidate after `usedSlot ∪ usedAny ∪ exclude_ids` is
- * filtered out wins. Last tier should be {0,0} (no cooldown beyond explicit
- * excludes) so we never return empty just because every product was used
- * recently — a stale cron is worse than a slightly-repeated email.
+ * Combined freshness penalty (0 fresh → 1 saturated). Two components
+ * blended:
+ *   - Tag overlap with recent rotation (cheap, granular)
+ *   - Category overlap normalized by total recent slots, weighted by
+ *     `categoryWeight` (default 0.5). Categories matter more —
+ *     calça-calça-calça is repetition even with different tags.
+ */
+function freshnessPenalty(
+  tags: string[],
+  category: string | undefined,
+  rotation: RotationContext,
+  categoryWeight: number
+): number {
+  // Tag component: same as legacy, normalized by ~6 (2 days × 3 slots).
+  let tagSum = 0;
+  for (const t of tags) {
+    tagSum += rotation.tagFreq.get(t.toLowerCase().trim()) ?? 0;
+  }
+  const tagP = Math.min(1, tagSum / 6);
+
+  // Category component: fraction of recent slots that were the same
+  // category, capped at 0.7 so a candidate with the most-used category
+  // can still win when nothing fresher exists.
+  let catP = 0;
+  if (category && rotation.totalSlots > 0) {
+    const cat = category.toLowerCase().trim();
+    const count = rotation.categoryFreq.get(cat) ?? 0;
+    catP = Math.min(0.7, count / rotation.totalSlots);
+  }
+
+  // Blend. categoryWeight controls how much the category dominates;
+  // 0 = legacy tag-only behavior, 1 = category-only.
+  const w = Math.max(0, Math.min(1, categoryWeight));
+  return Math.min(1, tagP * (1 - w) + catP * w * 1.4);
+}
+
+/** Quick stat used to decide whether cooldown tiers are realistic. If
+ *  the eligible pool after a tier is too small relative to the catalog,
+ *  the picker auto-relaxes to the next tier. */
+async function catalogAwareness(workspace_id: string): Promise<{
+  totalActive: number;
+}> {
+  const supabase = createAdminClient();
+  const { count } = await supabase
+    .from("shelf_products")
+    .select("product_id", { count: "exact", head: true })
+    .eq("workspace_id", workspace_id)
+    .eq("active", true)
+    .eq("in_stock", true);
+  return { totalActive: count ?? 0 };
+}
+
+/**
+ * Apply cooldown filters in tiers. Walks tiers in order; first tier that
+ * leaves enough candidates wins. Last tier should be {0,0} so we never
+ * return empty.
+ *
+ * Auto-relax: previously a tier was accepted as soon as ≥1 candidate
+ * survived, which let a workspace with a small catalog get pinned to a
+ * single product (cooldown at 21d → only 2 products survive → same
+ * winner every day for 3 weeks). Now we require the surviving pool to
+ * be at least `relaxThreshold × catalogSize` (default 30%); below that
+ * we step to the next, looser tier.
  */
 async function tieredFilter(
   candidateIds: string[],
   workspace_id: string,
   slot: Slot,
   tiers: Array<{ perSlotDays: number; crossSlotDays: number }>,
-  exclude_ids: Set<string>
+  exclude_ids: Set<string>,
+  options: { catalogSize?: number; relaxThreshold?: number } = {}
 ): Promise<string[]> {
-  for (const tier of tiers) {
+  const catalogSize = options.catalogSize ?? candidateIds.length;
+  const minPool = Math.max(
+    1,
+    Math.floor(catalogSize * (options.relaxThreshold ?? 0.3))
+  );
+  for (let i = 0; i < tiers.length; i++) {
+    const tier = tiers[i];
     const usedSlot =
       tier.perSlotDays > 0
         ? await recentlyUsedProductIds(workspace_id, slot, tier.perSlotDays)
@@ -145,45 +221,84 @@ async function tieredFilter(
     const filtered = candidateIds.filter(
       (id) => !usedSlot.has(id) && !usedAny.has(id) && !exclude_ids.has(id)
     );
-    if (filtered.length > 0) return filtered;
+    // Last tier always accepts (better stale repeat than empty cron).
+    if (i === tiers.length - 1) return filtered;
+    if (filtered.length >= minPool) return filtered;
   }
   return [];
 }
 
 /**
- * Pick a candidate from a ranked pool with anti-saturation scoring:
- *   score = rank_weight × (1 - tag_penalty) × deterministic_jitter
- * The jitter (FNV-style on workspace+date+slot) keeps the same workspace
- * picking the same item if everything else is equal, but breaks rank ties
- * across days.
+ * Pick a candidate from a ranked pool with anti-saturation scoring +
+ * epsilon-greedy exploration.
+ *   score = rank_weight × (1 - freshness_penalty) × deterministic_jitter
+ *
+ * Two changes vs legacy `variedPick`:
+ *   1. Freshness penalty considers BOTH tag and category overlap (and
+ *      categories are normalized by total recent slots — see
+ *      freshnessPenalty), so "calça → calça" gets penalized even when
+ *      the tags differ.
+ *   2. With prob `explorationRate` (default 0.15) we don't pick the
+ *      argmax — instead we sample from the top-5 weighted by score.
+ *      This breaks the always-the-same-product trap on small catalogs
+ *      where the top item dominates after dedup.
+ *
+ * The deterministic jitter and exploration sampling both seed off
+ * (workspace, date, slot) — same workspace+day+slot still produces the
+ * same pick (idempotent cron), but the jitter shifts day-by-day.
  */
-function variedPick<T extends { product_id: string; rank: number; tags: string[] }>(
+function variedPick<
+  T extends {
+    product_id: string;
+    rank: number;
+    tags: string[];
+    category?: string;
+  },
+>(
   pool: T[],
-  recentTags: Map<string, number>,
+  rotation: RotationContext,
   workspace_id: string,
   date: string,
-  slot: Slot
+  slot: Slot,
+  options: { categoryWeight?: number; explorationRate?: number } = {}
 ): T | null {
   if (pool.length === 0) return null;
+  const categoryWeight = options.categoryWeight ?? 0.5;
+  const explorationRate = Math.max(0, Math.min(1, options.explorationRate ?? 0.15));
+
+  // FNV-1a seed off the deterministic context.
   let h = 0x811c9dc5;
   const seed = `${workspace_id}|${date}|${slot}`;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);
     h = Math.imul(h, 0x01000193) >>> 0;
   }
-  let best: T | null = null;
-  let bestScore = -Infinity;
-  pool.forEach((p, i) => {
-    const rankWeight = 1 / Math.log2(p.rank + 2); // 1.0, 0.63, 0.5, 0.43...
-    const freshness = 1 - tagPenalty(p.tags, recentTags);
-    const jitter = 0.85 + (((h ^ i) >>> 0) % 1000) / 1000 / 6.6; // 0.85..1.0
-    const score = rankWeight * freshness * jitter;
-    if (score > bestScore) {
-      bestScore = score;
-      best = p;
-    }
+
+  // Compute scores once.
+  const scored = pool.map((p, i) => {
+    const rankWeight = 1 / Math.log2(p.rank + 2);
+    const freshness = 1 - freshnessPenalty(p.tags, p.category, rotation, categoryWeight);
+    const jitter = 0.85 + (((h ^ i) >>> 0) % 1000) / 1000 / 6.6;
+    return { item: p, score: rankWeight * Math.max(0.05, freshness) * jitter };
   });
-  return best;
+  scored.sort((a, b) => b.score - a.score);
+
+  // Coin-flip on jitter to decide explore vs exploit.
+  const exploreRoll = (h % 1000) / 1000;
+  if (exploreRoll < explorationRate && scored.length > 1) {
+    // Weighted sample from the top-5 (or fewer) by score.
+    const top = scored.slice(0, Math.min(5, scored.length));
+    const totalWeight = top.reduce((s, x) => s + Math.max(x.score, 0.0001), 0);
+    let target = ((h * 1664525 + 1013904223) >>> 0) % 1000;
+    target = (target / 1000) * totalWeight;
+    let acc = 0;
+    for (const cand of top) {
+      acc += Math.max(cand.score, 0.0001);
+      if (acc >= target) return cand.item;
+    }
+    return top[top.length - 1].item;
+  }
+  return scored[0].item;
 }
 
 function toSnapshot(row: ShelfRow): ProductSnapshot {
@@ -295,20 +410,24 @@ export async function pickBestseller(
     .map(([id]) => id);
   if (ranked.length === 0) return { product: null, reason: "no_candidate" };
 
-  // Tiered cooldown: try strict first (21-day per-slot + 7-day cross-slot),
-  // then 7+1, then no cooldown. Without this fallback, small workspaces
-  // running daily emails saturate the strict window and the cron silently
-  // produces 0 suggestions every morning.
+  // Tiered cooldown with auto-relax. Cascade is now finer-grained
+  // (21+7 → 14+3 → 7+1 → 0+0) so the cliff between "strict cooldown"
+  // and "no cooldown" is gentler. Auto-relax kicks if a tier leaves
+  // less than auto_relax_threshold × catalog_size candidates — small
+  // catalogs no longer pin themselves to 1-2 products for weeks.
+  const { totalActive } = await catalogAwareness(workspace_id);
   const candidateIds = await tieredFilter(
     ranked.slice(0, 25),
     workspace_id,
     1,
     [
       { perSlotDays: 21, crossSlotDays: 7 },
+      { perSlotDays: 14, crossSlotDays: 3 },
       { perSlotDays: 7, crossSlotDays: 1 },
       { perSlotDays: 0, crossSlotDays: 0 },
     ],
-    exclude_ids
+    exclude_ids,
+    { catalogSize: totalActive, relaxThreshold: settings.auto_relax_threshold }
   );
   if (candidateIds.length === 0) return { product: null, reason: "all_recently_used" };
 
@@ -316,18 +435,37 @@ export async function pickBestseller(
   if (shelf.length === 0) return { product: null, reason: "no_shelf_data" };
 
   const byId = new Map(shelf.map((r) => [r.product_id, r]));
-  const recentTags = await recentTagFrequency(workspace_id, 7);
+  // Look back 14d for rotation context — catches week-over-week
+  // saturation, not just last few days. categoryFreq pulls double duty
+  // alongside tagFreq inside freshnessPenalty.
+  const rotation = await recentRotationContext(workspace_id, 14);
   const pool = candidateIds
     .map((id, idx) => {
       const r = byId.get(id);
       if (!r) return null;
       const snap = toSnapshot(r);
-      return { product_id: r.product_id, rank: idx, tags: snap.tags ?? [], row: r };
+      return {
+        product_id: r.product_id,
+        rank: idx,
+        tags: snap.tags ?? [],
+        category: snap.category,
+        row: r,
+      };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .slice(0, 12);
 
-  const winner = variedPick(pool, recentTags, workspace_id, date ?? new Date().toISOString().slice(0, 10), 1);
+  const winner = variedPick(
+    pool,
+    rotation,
+    workspace_id,
+    date ?? new Date().toISOString().slice(0, 10),
+    1,
+    {
+      categoryWeight: settings.category_penalty_weight,
+      explorationRate: settings.exploration_rate,
+    }
+  );
   if (!winner) return { product: null, reason: "no_candidate" };
   return { product: toSnapshot(winner.row) };
 }
@@ -376,16 +514,19 @@ export async function pickSlowmoving(
     .filter((x) => x.sales <= settings.slowmoving_max_sales);
   const slowIds = slowOnly.map((x) => x.row.product_id);
 
+  const { totalActive } = await catalogAwareness(workspace_id);
   const filteredIds = await tieredFilter(
     slowIds,
     workspace_id,
     2,
     [
       { perSlotDays: 30, crossSlotDays: 7 },
-      { perSlotDays: 14, crossSlotDays: 1 },
+      { perSlotDays: 14, crossSlotDays: 3 },
+      { perSlotDays: 7, crossSlotDays: 1 },
       { perSlotDays: 0, crossSlotDays: 0 },
     ],
-    exclude_ids
+    exclude_ids,
+    { catalogSize: totalActive, relaxThreshold: settings.auto_relax_threshold }
   );
   type Scored = { row: ShelfRow; sales: number };
   const eligible: Scored[] = slowOnly.filter((x) => filteredIds.includes(x.row.product_id));
@@ -394,16 +535,31 @@ export async function pickSlowmoving(
     return { product: null, reason: "no_candidate" };
   }
 
-  // Lower sales = higher base score. Then apply tag-cooldown variety + jitter.
+  // Lower sales = higher base score. Then apply combined freshness +
+  // epsilon-greedy exploration via the new variedPick.
   eligible.sort((a, b) => a.sales - b.sales);
-  const recentTags = await recentTagFrequency(workspace_id, 14);
-  const pool = eligible.slice(0, 15).map((x, idx) => ({
-    product_id: x.row.product_id,
-    rank: idx,
-    tags: toSnapshot(x.row).tags ?? [],
-    row: x.row,
-  }));
-  const winner = variedPick(pool, recentTags, workspace_id, date ?? new Date().toISOString().slice(0, 10), 2);
+  const rotation = await recentRotationContext(workspace_id, 14);
+  const pool = eligible.slice(0, 15).map((x, idx) => {
+    const snap = toSnapshot(x.row);
+    return {
+      product_id: x.row.product_id,
+      rank: idx,
+      tags: snap.tags ?? [],
+      category: snap.category,
+      row: x.row,
+    };
+  });
+  const winner = variedPick(
+    pool,
+    rotation,
+    workspace_id,
+    date ?? new Date().toISOString().slice(0, 10),
+    2,
+    {
+      categoryWeight: settings.category_penalty_weight,
+      explorationRate: settings.exploration_rate,
+    }
+  );
   if (!winner) return { product: null, reason: "no_candidate" };
   return { product: toSnapshot(winner.row) };
 }
@@ -420,20 +576,23 @@ export async function pickNewarrival(
   const shelf = await fetchShelf(workspace_id, { created_after_iso: since });
   if (shelf.length === 0) return { product: null, reason: "no_candidate" };
 
-  // Tiered cooldown: strict (21+7) → medium (7+1) → none. Newarrival pool
-  // is naturally small (just last N days of catalog adds), so we don't want
-  // to lose the slot when a recent re-sync makes everything "used".
+  // Newarrival pool is naturally small (just last N days of adds), so
+  // the relax threshold matters less here — but the finer-grained
+  // cascade still helps prevent the same "novidade" looping daily.
   const allIds = shelf.map((r) => r.product_id);
+  const { totalActive } = await catalogAwareness(workspace_id);
   const filteredIds = await tieredFilter(
     allIds,
     workspace_id,
     3,
     [
       { perSlotDays: 21, crossSlotDays: 7 },
+      { perSlotDays: 14, crossSlotDays: 3 },
       { perSlotDays: 7, crossSlotDays: 1 },
       { perSlotDays: 0, crossSlotDays: 0 },
     ],
-    exclude_ids
+    exclude_ids,
+    { catalogSize: totalActive, relaxThreshold: settings.auto_relax_threshold }
   );
   const filteredSet = new Set(filteredIds);
   const eligible = shelf
@@ -441,15 +600,29 @@ export async function pickNewarrival(
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   if (eligible.length === 0) return { product: null, reason: "no_candidate" };
 
-  // Top 12 freshest, then variety pick (penalizes repeating tag clusters).
-  const recentTags = await recentTagFrequency(workspace_id, 14);
-  const pool = eligible.slice(0, 12).map((row, idx) => ({
-    product_id: row.product_id,
-    rank: idx,
-    tags: toSnapshot(row).tags ?? [],
-    row,
-  }));
-  const winner = variedPick(pool, recentTags, workspace_id, date ?? new Date().toISOString().slice(0, 10), 3);
+  // Top 12 freshest, then combined freshness + epsilon-greedy.
+  const rotation = await recentRotationContext(workspace_id, 14);
+  const pool = eligible.slice(0, 12).map((row, idx) => {
+    const snap = toSnapshot(row);
+    return {
+      product_id: row.product_id,
+      rank: idx,
+      tags: snap.tags ?? [],
+      category: snap.category,
+      row,
+    };
+  });
+  const winner = variedPick(
+    pool,
+    rotation,
+    workspace_id,
+    date ?? new Date().toISOString().slice(0, 10),
+    3,
+    {
+      categoryWeight: settings.category_penalty_weight,
+      explorationRate: settings.exploration_rate,
+    }
+  );
   if (!winner) return { product: null, reason: "no_candidate" };
   return { product: toSnapshot(winner.row) };
 }
