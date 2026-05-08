@@ -80,6 +80,13 @@ export interface EmailTemplateSettings {
   category_penalty_weight: number;
   exploration_rate: number;
   auto_relax_threshold: number;
+  /** Bestseller scoring tunables (Frente B). */
+  momentum_window_hours: number;
+  bestseller_revenue_weight: number;
+  /** When true, cross-validates GA4 top sellers against crm_vendas.items
+   *  before promoting them — kills products with strong GA4 ghost
+   *  signal but no real receipts. */
+  crm_validation_enabled: boolean;
 }
 
 export interface EmailSuggestion {

@@ -3,7 +3,11 @@ import type { EmailTemplateSettings } from "./types";
 
 const DEFAULTS: Omit<EmailTemplateSettings, "workspace_id"> = {
   enabled: false,
-  bestseller_lookback_days: 7,
+  // 90 days = "real bestseller" rather than week's tendency. The
+  // multi-component score in pickBestseller (volume + revenue +
+  // momentum + freshness + stock) brings 48h momentum back as a
+  // separate signal so we don't lose right-now-trending products.
+  bestseller_lookback_days: 90,
   slowmoving_lookback_days: 30,
   newarrival_lookback_days: 14,
   min_stock_bestseller: 5,
@@ -25,6 +29,13 @@ const DEFAULTS: Omit<EmailTemplateSettings, "workspace_id"> = {
   category_penalty_weight: 0.5,
   exploration_rate: 0.15,
   auto_relax_threshold: 0.3,
+  // Bestseller scoring tunables (Frente B). 48h momentum window catches
+  // "right now" trends; revenue weight of 0.25 lets a high-ticket item
+  // win against a slightly higher-volume cheap one. crm_validation
+  // defaults true — cheap to opt out when GA4 is the only source.
+  momentum_window_hours: 48,
+  bestseller_revenue_weight: 0.25,
+  crm_validation_enabled: true,
 };
 
 export function getDefaults(workspace_id: string): EmailTemplateSettings {

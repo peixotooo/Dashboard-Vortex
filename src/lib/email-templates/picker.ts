@@ -167,6 +167,44 @@ function freshnessPenalty(
   return Math.min(1, tagP * (1 - w) + catP * w * 1.4);
 }
 
+/**
+ * Aggregates real qty-sold-per-SKU from `crm_vendas.items` over the last
+ * `lookbackDays`. Used to cross-validate GA4 bestseller signals — if
+ * GA4 reports strong qty for a product but CRM has barely any receipts
+ * for the matching SKU, the picker damps the score (sign of GA4 ghost
+ * tracking, e.g. mis-tagged item events).
+ *
+ * Returns a Map<sku_lowercase, qty>. Best-effort: if `items` doesn't
+ * carry SKU (older webhook captures), the entry just won't be there
+ * and the caller treats it as "no signal" (no damping).
+ */
+async function fetchCrmSalesByLookback(
+  workspace_id: string,
+  lookbackDays: number
+): Promise<Map<string, number>> {
+  const sinceIso = new Date(
+    Date.now() - lookbackDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("crm_vendas")
+    .select("items")
+    .eq("workspace_id", workspace_id)
+    .gte("data_compra", sinceIso)
+    .limit(5000);
+  const out = new Map<string, number>();
+  for (const row of (data ?? []) as Array<{ items: unknown }>) {
+    const items = Array.isArray(row.items) ? row.items : [];
+    for (const item of items as Array<{ sku?: string | null; quantity?: number }>) {
+      const sku = item.sku?.trim().toLowerCase();
+      if (!sku) continue;
+      const q = Math.max(1, Number(item.quantity ?? 1));
+      out.set(sku, (out.get(sku) ?? 0) + q);
+    }
+  }
+  return out;
+}
+
 /** Quick stat used to decide whether cooldown tiers are realistic. If
  *  the eligible pool after a tier is too small relative to the catalog,
  *  the picker auto-relaxes to the next tier. */
@@ -360,52 +398,181 @@ export async function pickBestseller(
   exclude_ids: Set<string> = new Set(),
   date?: string
 ): Promise<PickResult> {
-  // Two GA4 windows blended: the configured lookback (volume signal) and a
-  // 7-day recency window. Items strong in BOTH bubble up; items strong only
-  // in the long window (declining) sink.
-  let scoreById: Record<string, number> = {};
+  // Multi-component bestseller score (Frente B). The legacy version
+  // was just GA4 long(7d) × 1.0 + GA4 recent(7d) × 1.5 — a 7-day window
+  // raw, so a transient hit could win. The new score blends volume,
+  // revenue, momentum, freshness and stock health, smoothed with a
+  // Bayesian floor to keep noise from dominating, and optionally
+  // cross-validated against crm_vendas.items.sku.
+  //
+  //   score = log(1 + qty)        × 0.35
+  //         + log(1 + revenue)    × bestseller_revenue_weight (default 0.25)
+  //         + momentum_norm       × 0.20
+  //         + freshness_bonus     × 0.10
+  //         + stock_health        × 0.10
+  //         × bayes_smoothing
+  //         × crm_validation_factor (1.0 unless settings.crm_validation_enabled)
+  let qtyById: Record<string, number> = {};
+  let revenueById: Record<string, number> = {};
+  let momentumById: Record<string, number> = {};
   try {
     const endDate = new Date().toISOString().slice(0, 10);
     const longStart = new Date(
       Date.now() - settings.bestseller_lookback_days * 24 * 60 * 60 * 1000
     ).toISOString().slice(0, 10);
-    const recentStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const momentumHours = Math.max(6, Math.min(168, settings.momentum_window_hours));
+    const momentumStart = new Date(
+      Date.now() - momentumHours * 60 * 60 * 1000
+    ).toISOString().slice(0, 10);
 
-    const [longReport, recentReport] = await Promise.all([
+    const [longReport, momentumReport] = await Promise.all([
       getGA4Report({
         startDate: longStart,
         endDate,
         dimensions: ["itemId"],
-        metrics: ["itemPurchaseQuantity"],
-        limit: 50,
+        // itemRevenue gives us monetary signal alongside qty — a high-
+        // ticket item with fewer units can still beat a cheaper
+        // lookalike on score.
+        metrics: ["itemPurchaseQuantity", "itemRevenue"],
+        limit: 100,
         orderBy: { metric: "itemPurchaseQuantity", desc: true },
       }),
       getGA4Report({
-        startDate: recentStart,
+        startDate: momentumStart,
         endDate,
         dimensions: ["itemId"],
         metrics: ["itemPurchaseQuantity"],
-        limit: 50,
+        limit: 100,
         orderBy: { metric: "itemPurchaseQuantity", desc: true },
       }),
     ]);
 
     for (const r of longReport?.rows ?? []) {
       const id = String(r.dimensions?.itemId ?? "");
-      if (id) scoreById[id] = (scoreById[id] ?? 0) + Number(r.metrics?.itemPurchaseQuantity ?? 0);
+      if (!id) continue;
+      qtyById[id] = Number(r.metrics?.itemPurchaseQuantity ?? 0);
+      revenueById[id] = Number(r.metrics?.itemRevenue ?? 0);
     }
-    // Recent window weighted 1.5x — boost products trending RIGHT NOW.
-    for (const r of recentReport?.rows ?? []) {
+    for (const r of momentumReport?.rows ?? []) {
       const id = String(r.dimensions?.itemId ?? "");
-      if (id) scoreById[id] = (scoreById[id] ?? 0) + 1.5 * Number(r.metrics?.itemPurchaseQuantity ?? 0);
+      if (id) momentumById[id] = Number(r.metrics?.itemPurchaseQuantity ?? 0);
     }
   } catch (err) {
     console.error("[email-templates/picker] pickBestseller GA4 failed:", (err as Error).message);
     return { product: null, reason: "no_ga4" };
   }
 
+  if (Object.keys(qtyById).length === 0) {
+    return { product: null, reason: "no_candidate" };
+  }
+
+  // Optional CRM cross-validation. Pulls SKU-level qty from crm_vendas
+  // for the same lookback. If GA4 says top but CRM disagrees by > 50%,
+  // the candidate's score gets damped — sign of GA4 ghost tracking.
+  let crmQtyBySku: Map<string, number> | null = null;
+  if (settings.crm_validation_enabled) {
+    try {
+      crmQtyBySku = await fetchCrmSalesByLookback(
+        workspace_id,
+        settings.bestseller_lookback_days
+      );
+    } catch (err) {
+      console.warn(
+        "[email-templates/picker] CRM cross-validation skipped:",
+        (err as Error).message
+      );
+    }
+  }
+
+  // Pre-fetch shelf rows for all candidates so we can read sku, category,
+  // created_at, in_stock during scoring.
+  const candidateGa4Ids = Object.keys(qtyById);
+  const shelfPre = await fetchShelf(workspace_id, { ids: candidateGa4Ids });
+  const shelfByIdPre = new Map(shelfPre.map((r) => [r.product_id, r]));
+
+  // Compute baseline daily qty from the full lookback for momentum
+  // normalization. Avoid division by zero with a 0.5/day floor.
+  const lookbackDays = Math.max(7, settings.bestseller_lookback_days);
+  const momentumHoursVal = Math.max(6, Math.min(168, settings.momentum_window_hours));
+
+  // Bayesian prior — global average qty across all candidates. Smooths
+  // out one-off spikes (a single 5-unit order) when the catalog has a
+  // big stable seller in the same period.
+  const allQty = Object.values(qtyById);
+  const priorMean =
+    allQty.length > 0 ? allQty.reduce((s, x) => s + x, 0) / allQty.length : 0;
+  const PRIOR_STRENGTH = 10;
+
+  const NOW = Date.now();
+  const FRESHNESS_WINDOW_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+  const revenueWeight = Math.max(
+    0,
+    Math.min(1, settings.bestseller_revenue_weight)
+  );
+
+  const scoreById: Record<string, number> = {};
+  for (const id of candidateGa4Ids) {
+    const qty = qtyById[id] ?? 0;
+    const revenue = revenueById[id] ?? 0;
+    const momentumQty = momentumById[id] ?? 0;
+    const row = shelfByIdPre.get(id);
+
+    // Bayesian smoothing on qty (prior mean as if every product had
+    // PRIOR_STRENGTH "phantom" days of average sales).
+    const qtySmoothed = (qty * lookbackDays + priorMean * PRIOR_STRENGTH) /
+      (lookbackDays + PRIOR_STRENGTH);
+
+    // Momentum: sales-per-hour during the recent window relative to
+    // sales-per-hour of the full lookback. >1.0 = trending up, <1.0 =
+    // declining. Capped at 3.0 to stop one viral day dominating.
+    const baselinePerHour = qty / Math.max(1, lookbackDays * 24);
+    const momentumPerHour = momentumQty / Math.max(1, momentumHoursVal);
+    const momentumRaw =
+      baselinePerHour > 0
+        ? momentumPerHour / baselinePerHour
+        : momentumPerHour > 0
+          ? 1.5
+          : 0;
+    const momentum = Math.min(3, momentumRaw);
+
+    // Freshness: linear decay from 1.0 (just created) to 0.0 (>60d).
+    let freshness = 0;
+    if (row?.created_at) {
+      const ageMs = NOW - new Date(row.created_at).getTime();
+      if (ageMs >= 0) freshness = Math.max(0, 1 - ageMs / FRESHNESS_WINDOW_MS);
+    }
+
+    // Stock health: 1.0 if in_stock with healthy supply, 0.3 if barely
+    // available, 0 if out. We don't have per-row stock count without
+    // an extra query, so we approximate: ShelfRow has in_stock boolean
+    // already filtered in fetchShelf, so anything we got back is at
+    // least available. Future improvement: fetch stock count and grade
+    // against settings.min_stock_bestseller.
+    const stockHealth = row ? 1 : 0.3;
+
+    // CRM cross-validation: damp the score when GA4 qty wildly
+    // overstates real receipts.
+    let crmFactor = 1;
+    if (crmQtyBySku && row?.sku) {
+      const crmQty = crmQtyBySku.get(row.sku.toLowerCase()) ?? 0;
+      if (qty > 0 && crmQty / qty < 0.5) {
+        // GA4 reports more than 2× what CRM saw. Damp.
+        crmFactor = Math.max(0.4, crmQty / qty);
+      }
+    }
+
+    const score =
+      (Math.log1p(qtySmoothed) * 0.35 +
+        Math.log1p(revenue) * revenueWeight +
+        momentum * 0.2 +
+        freshness * 0.1 +
+        stockHealth * 0.1) *
+      crmFactor;
+
+    if (score > 0) scoreById[id] = score;
+  }
+
   const ranked = Object.entries(scoreById)
-    .filter(([, s]) => s > 0)
     .sort(([, a], [, b]) => b - a)
     .map(([id]) => id);
   if (ranked.length === 0) return { product: null, reason: "no_candidate" };
