@@ -106,6 +106,7 @@ export default function CurvaAbcPage() {
     try {
       const res = await fetch(`/api/financeiro/abc?view=summary&product_limit=500`, {
         headers: { "x-workspace-id": workspace.id },
+        cache: "no-store",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -139,6 +140,7 @@ export default function CurvaAbcPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ period_days: days }),
+        cache: "no-store",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

@@ -122,6 +122,7 @@ export default function LucratividadePage() {
 
         const res = await fetch(url.pathname + url.search, {
           headers: { "x-workspace-id": workspace.id },
+          cache: "no-store",
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -160,6 +161,7 @@ export default function LucratividadePage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ period_days: days }),
+        cache: "no-store",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

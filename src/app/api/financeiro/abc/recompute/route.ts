@@ -77,8 +77,13 @@ export async function POST(request: NextRequest) {
 
     const admin = createAdminClient();
 
-    // Carrega crm_vendas (paginado). Mesma seleção de colunas usada no
-    // crm-compute pra que ABC tenha shipping/discount/source_order_id.
+    // Filtra crm_vendas pelo SQL — a recompute só precisa do período
+    // pedido (e.g., 7d). Sem isso, Bulking carregava 80k+ rows pra
+    // calcular 7d e estourava o timeout da Vercel.
+    const cutoff = new Date(
+      Date.now() - periodDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+
     const allRows: CrmVendaRow[] = [];
     let from = 0;
     let hasMore = true;
@@ -89,6 +94,7 @@ export async function POST(request: NextRequest) {
           "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id"
         )
         .eq("workspace_id", workspaceId)
+        .gte("data_compra", cutoff)
         .range(from, from + PAGE_SIZE - 1);
 
       if (error) {
