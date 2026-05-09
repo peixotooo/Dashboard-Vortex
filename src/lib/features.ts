@@ -259,8 +259,15 @@ export const FEATURES: Feature[] = [
   {
     id: "financeiro",
     label: "Financeiro",
-    description: "Simulador, Diagnostico, Escala, Config e Comercial",
-    routes: ["/simulador", "/simulador-comercial"],
+    description: "Curva ABC, Simulador, Diagnostico, Escala, Config e Comercial",
+    routes: ["/financeiro", "/simulador", "/simulador-comercial"],
+  },
+  {
+    id: "financeiro.abc",
+    label: "Curva ABC",
+    description: "Curva ABC e lucratividade por venda",
+    routes: ["/financeiro"],
+    parent: "financeiro",
   },
   {
     id: "financeiro.simulador",

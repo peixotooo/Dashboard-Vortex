@@ -14,9 +14,10 @@
 --      gera, frontend lê. Evita recomputar a cada page-view e mantém
 --      determinismo entre múltiplos consumidores (picker / reports
 --      dashboard / exports).
---   3. email_template_settings.default_margin_pct — fallback usado pra
---      estimar custo quando product_costs não tem o SKU. 0.5 = 50% de
---      margem (vestuário típico). Configurável por workspace.
+--
+-- Fallback de custo (quando product_costs não tem o SKU) vem de
+-- workspace_financial_settings.product_cost_pct — mesma fonte que o
+-- commercial-simulator usa pra margem. Não precisa coluna nova aqui.
 
 -- 1. Custo por SKU (workspace-scoped)
 create table if not exists product_costs (
@@ -64,11 +65,8 @@ create table if not exists crm_abc_snapshots (
   computed_at timestamptz default now() not null
 );
 
--- 3. Margin default no settings (fallback quando product_costs não tem o SKU)
-alter table email_template_settings
-  add column if not exists default_margin_pct numeric default 0.5
-    check (default_margin_pct >= 0 and default_margin_pct <= 1);
-
-comment on column email_template_settings.default_margin_pct is
-  'Margem assumida quando product_costs não tem o SKU (0.0..1.0). '
-  'Usado pelo compute ABC pra estimar custo: cost = price × (1 - margin).';
+-- 3. Fallback de custo de produto vem de workspace_financial_settings
+--    .product_cost_pct (mesma fonte que o commercial-simulator usa pra
+--    margem). product_costs.cost por SKU sempre ganha quando existe.
+--    Não precisa de coluna nova aqui — só garantir que financial
+--    settings exista (criada em migration anterior do simulador).

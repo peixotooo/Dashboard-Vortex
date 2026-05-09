@@ -1,8 +1,9 @@
-// src/app/api/crm/abc/route.ts
+// src/app/api/financeiro/abc/route.ts
 //
 // Returns the workspace's pre-computed ABC + profitability snapshot.
-// The heavy lifting (Pareto + per-order P&L) runs in the
-// crm-compute cron — this endpoint just serves the cached jsonb.
+// The heavy lifting (Pareto + per-order P&L) runs as a side-effect of
+// the crm-compute cron (lib/financeiro/recompute.ts) — this endpoint
+// just serves the cached jsonb.
 //
 // Query params:
 //   ?view=summary            → returns summary + product top-N (default 50)

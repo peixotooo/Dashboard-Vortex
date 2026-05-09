@@ -44,6 +44,7 @@ import {
   ShieldAlert,
   Coins,
   Mail,
+  PieChart,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -188,6 +189,7 @@ const navGroups: NavGroup[] = [
   {
     label: "Financeiro",
     items: [
+      { title: "Curva ABC", href: "/financeiro", icon: PieChart },
       {
         title: "Financeiro",
         href: "/simulador",

@@ -87,12 +87,6 @@ export interface EmailTemplateSettings {
    *  before promoting them — kills products with strong GA4 ghost
    *  signal but no real receipts. */
   crm_validation_enabled: boolean;
-  /** Margin (0..1) used to estimate cost when a SKU has no entry in
-   *  product_costs. Default 0.5 = "50% gross margin assumed" — typical
-   *  baseline for fashion. The ABC compute (lib/crm-abc.ts) uses this
-   *  as the fallback when a SKU isn't in the costs table; product_costs
-   *  always wins when available. */
-  default_margin_pct: number;
 }
 
 export interface EmailSuggestion {
