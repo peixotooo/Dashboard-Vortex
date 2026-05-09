@@ -4,12 +4,14 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Loader2,
+  TrendingUp,
+  TrendingDown,
+  Minus,
   AlertTriangle,
   Calculator,
   ExternalLink,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -29,45 +31,37 @@ import {
 import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/utils";
 
-type AbcClass = "A" | "B" | "C";
-
-type ProductRow = {
-  sku: string | null;
-  product_id: string | null;
-  name: string;
-  qty_sold: number;
-  revenue: number;
-  cost_unit: number;
-  cost_total: number;
+type OrderRow = {
+  order_id: string | null;
+  numero_pedido: string | null;
+  customer_email: string | null;
+  data_compra: string | null;
+  valor: number;
+  items_revenue: number;
+  items_cost: number;
+  taxes: number;
+  other_expenses: number;
+  shipping_absorbed: number;
+  discount_total: number;
   profit: number;
   margin_pct: number;
-  abc_class: AbcClass;
-  cumulative_revenue_pct: number;
-  cost_source: "tracked" | "estimated";
+  status: "profit" | "loss" | "breakeven";
 };
 
 type Summary = {
   total_revenue: number;
-  total_cost: number;
-  total_taxes: number;
-  total_other_expenses: number;
-  total_shipping_absorbed: number;
   total_profit: number;
   gross_margin_pct: number;
-  a_count: number;
-  b_count: number;
-  c_count: number;
   profitable_orders: number;
   loss_orders: number;
   breakeven_orders: number;
   period_start: string | null;
   period_end: string | null;
-  coverage_pct: number;
 };
 
 type AbcResponse = {
   summary: Summary | null;
-  products: ProductRow[];
+  orders?: OrderRow[];
   period_days?: number;
   row_count?: number;
   computedAt: string | null;
@@ -85,27 +79,35 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
-function classBadgeVariant(cls: AbcClass): "default" | "secondary" | "outline" {
-  if (cls === "A") return "default";
-  if (cls === "B") return "secondary";
-  return "outline";
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export default function CurvaAbcPage() {
+export default function LucratividadePage() {
   const { workspace } = useWorkspace();
   const [data, setData] = React.useState<AbcResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [recomputing, setRecomputing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [classFilter, setClassFilter] = React.useState<"all" | AbcClass>("all");
+  const [orderFilter, setOrderFilter] = React.useState<
+    "all" | "profit" | "loss" | "breakeven"
+  >("all");
   const [periodDays, setPeriodDays] = React.useState<number>(30);
+  const [pageSize, setPageSize] = React.useState<number>(100);
 
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/financeiro/abc?view=summary&product_limit=500`, {
+      const res = await fetch(`/api/financeiro/abc?view=full&product_limit=1`, {
         headers: { "x-workspace-id": workspace.id },
       });
       if (!res.ok) {
@@ -161,19 +163,30 @@ export default function CurvaAbcPage() {
   };
 
   const summary = data?.summary;
-  const products = data?.products ?? [];
-  const filteredProducts = React.useMemo(() => {
-    if (classFilter === "all") return products;
-    return products.filter((p) => p.abc_class === classFilter);
-  }, [products, classFilter]);
+  const orders = data?.orders ?? [];
+
+  const sortedFilteredOrders = React.useMemo(() => {
+    // Pedidos mais recentes primeiro. Se data_compra for null, vai pro
+    // final.
+    const sorted = [...orders].sort((a, b) => {
+      const aTs = a.data_compra ? Date.parse(a.data_compra) : 0;
+      const bTs = b.data_compra ? Date.parse(b.data_compra) : 0;
+      return bTs - aTs;
+    });
+    if (orderFilter === "all") return sorted;
+    return sorted.filter((o) => o.status === orderFilter);
+  }, [orders, orderFilter]);
+
+  const visibleOrders = sortedFilteredOrders.slice(0, pageSize);
 
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Curva ABC</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Lucratividade por pedido</h1>
           <p className="text-sm text-muted-foreground">
-            Pareto de produtos por receita
+            P&L pedido a pedido — receita menos CMV, impostos, despesas e frete
+            absorvido
             {summary?.period_start && summary?.period_end ? (
               <>
                 {" "}
@@ -246,8 +259,7 @@ export default function CurvaAbcPage() {
           <CardContent className="space-y-2 p-6 text-sm text-muted-foreground">
             <p>{data.message}</p>
             <p>
-              Use o botão <strong>Recalcular</strong> acima pra gerar a primeira
-              versão.
+              Use <strong>Recalcular</strong> acima pra gerar a primeira versão.
             </p>
           </CardContent>
         </Card>
@@ -259,7 +271,6 @@ export default function CurvaAbcPage() {
             <KpiCard
               label="Receita"
               value={formatCurrency(summary.total_revenue)}
-              hint={`${summary.a_count + summary.b_count + summary.c_count} produtos`}
             />
             <KpiCard
               label="Lucro"
@@ -268,25 +279,21 @@ export default function CurvaAbcPage() {
               tone={summary.total_profit >= 0 ? "positive" : "negative"}
             />
             <KpiCard
-              label="Classe A"
-              value={`${summary.a_count}`}
-              hint="Top 70% da receita"
+              label="Pedidos com prejuízo"
+              value={summary.loss_orders.toLocaleString("pt-BR")}
+              tone={summary.loss_orders > 0 ? "negative" : "neutral"}
             />
             <KpiCard
-              label="Cobertura de custo"
-              value={formatPct(summary.coverage_pct)}
-              hint={
-                summary.coverage_pct < 0.5
-                  ? "Cadastre custos por SKU pra precisão"
-                  : "Receita coberta por product_costs"
-              }
-              tone={summary.coverage_pct < 0.5 ? "neutral" : "positive"}
+              label="Pedidos com lucro"
+              value={summary.profitable_orders.toLocaleString("pt-BR")}
+              hint={`${summary.breakeven_orders} neutros`}
+              tone="positive"
             />
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Os percentuais de impostos, CMV fallback, outras despesas e frete
-            absorvido vêm de{" "}
+            Os percentuais usados em cada pedido (impostos, CMV fallback, frete
+            médio) vêm de{" "}
             <Link
               href="/simulador-comercial/config"
               className="inline-flex items-center gap-1 underline underline-offset-2"
@@ -297,31 +304,48 @@ export default function CurvaAbcPage() {
             .
           </p>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterChip
-              active={classFilter === "all"}
-              onClick={() => setClassFilter("all")}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterChip
+                active={orderFilter === "all"}
+                onClick={() => setOrderFilter("all")}
+              >
+                Todos
+              </FilterChip>
+              <FilterChip
+                active={orderFilter === "loss"}
+                onClick={() => setOrderFilter("loss")}
+              >
+                Prejuízo ({summary.loss_orders})
+              </FilterChip>
+              <FilterChip
+                active={orderFilter === "breakeven"}
+                onClick={() => setOrderFilter("breakeven")}
+              >
+                Empate ({summary.breakeven_orders})
+              </FilterChip>
+              <FilterChip
+                active={orderFilter === "profit"}
+                onClick={() => setOrderFilter("profit")}
+              >
+                Lucro ({summary.profitable_orders})
+              </FilterChip>
+            </div>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => setPageSize(parseInt(v, 10))}
             >
-              Todos
-            </FilterChip>
-            <FilterChip
-              active={classFilter === "A"}
-              onClick={() => setClassFilter("A")}
-            >
-              A ({summary.a_count})
-            </FilterChip>
-            <FilterChip
-              active={classFilter === "B"}
-              onClick={() => setClassFilter("B")}
-            >
-              B ({summary.b_count})
-            </FilterChip>
-            <FilterChip
-              active={classFilter === "C"}
-              onClick={() => setClassFilter("C")}
-            >
-              C ({summary.c_count})
-            </FilterChip>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[50, 100, 200, 500].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    Mostrar {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <Card>
@@ -329,74 +353,94 @@ export default function CurvaAbcPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12">#</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead className="w-20">Classe</TableHead>
-                    <TableHead className="w-20 text-right">Qtd</TableHead>
-                    <TableHead className="w-32 text-right">Receita</TableHead>
-                    <TableHead className="w-32 text-right">Custo</TableHead>
-                    <TableHead className="w-32 text-right">Lucro</TableHead>
-                    <TableHead className="w-24 text-right">Margem</TableHead>
-                    <TableHead className="w-28 text-right">Acumulado</TableHead>
+                    <TableHead className="w-32">Pedido</TableHead>
+                    <TableHead className="w-40">Data</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead className="w-28 text-right">Valor</TableHead>
+                    <TableHead className="w-28 text-right">CMV</TableHead>
+                    <TableHead className="w-28 text-right">Imp+Out</TableHead>
+                    <TableHead className="w-24 text-right">Frete</TableHead>
+                    <TableHead className="w-28 text-right">Lucro</TableHead>
+                    <TableHead className="w-20 text-right">Margem</TableHead>
+                    <TableHead className="w-24">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredProducts.map((p, idx) => (
-                    <TableRow key={`${p.sku ?? p.product_id ?? p.name}-${idx}`}>
-                      <TableCell className="text-muted-foreground">
-                        {idx + 1}
+                  {visibleOrders.map((o, idx) => (
+                    <TableRow key={`${o.order_id ?? idx}`}>
+                      <TableCell className="font-mono text-xs">
+                        {o.numero_pedido ?? o.order_id ?? "—"}
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {p.sku ?? p.product_id ?? "—"}
-                          {p.cost_source === "estimated" && (
-                            <span className="ml-2 italic">custo estimado</span>
-                          )}
-                        </div>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {formatDateTime(o.data_compra)}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={classBadgeVariant(p.abc_class)}>
-                          {p.abc_class}
-                        </Badge>
+                      <TableCell className="text-sm">
+                        {o.customer_email ?? "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {p.qty_sold.toLocaleString("pt-BR")}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(p.revenue)}
+                        {formatCurrency(o.valor)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(p.cost_total)}
+                        {formatCurrency(o.items_cost)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatCurrency(o.taxes + o.other_expenses)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {o.shipping_absorbed > 0
+                          ? formatCurrency(o.shipping_absorbed)
+                          : "—"}
                       </TableCell>
                       <TableCell
                         className={
                           "text-right " +
-                          (p.profit >= 0 ? "text-green-700" : "text-red-700")
+                          (o.profit > 0
+                            ? "text-green-700"
+                            : o.profit < 0
+                              ? "text-red-700"
+                              : "text-muted-foreground")
                         }
                       >
-                        {formatCurrency(p.profit)}
+                        {formatCurrency(o.profit)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatPct(p.margin_pct)}
+                        {formatPct(o.margin_pct)}
                       </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatPct(p.cumulative_revenue_pct)}
+                      <TableCell>
+                        {o.status === "profit" ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                            <TrendingUp className="h-3 w-3" /> Lucro
+                          </span>
+                        ) : o.status === "loss" ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-red-700">
+                            <TrendingDown className="h-3 w-3" /> Prejuízo
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <Minus className="h-3 w-3" /> Neutro
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
-                  {filteredProducts.length === 0 && (
+                  {visibleOrders.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={10}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
-                        Sem produtos nesta classe.
+                        Nenhum pedido neste filtro.
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
+              {sortedFilteredOrders.length > visibleOrders.length && (
+                <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+                  Mostrando {visibleOrders.length} de{" "}
+                  {sortedFilteredOrders.length} pedidos.
+                </div>
+              )}
             </CardContent>
           </Card>
         </>

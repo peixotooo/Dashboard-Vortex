@@ -16,10 +16,17 @@ import {
   type FinancialSettings,
 } from "./abc";
 
-/** Lookback the snapshot covers. Matches Frente B's
- *  bestseller_lookback_days default — "ABC class A" should agree with
- *  "real bestseller" on what counts as recent. */
-export const ABC_PERIOD_DAYS = 90;
+/** Default lookback the snapshot covers (30d). A janela é editável na
+ *  UI — passar period_days pra recomputeAbcSnapshot pra alterar.
+ *  Mantemos 30d como default porque é a janela mais útil pra decisão
+ *  comercial (mais curto que os 90d do bestseller_lookback) e evita
+ *  arrastar produtos antigos que pararam de vender. */
+export const ABC_PERIOD_DAYS_DEFAULT = 30;
+export const ABC_ALLOWED_PERIODS = [7, 14, 30, 60, 90] as const;
+export type AbcPeriodDays = (typeof ABC_ALLOWED_PERIODS)[number];
+
+/** @deprecated use ABC_PERIOD_DAYS_DEFAULT */
+export const ABC_PERIOD_DAYS = ABC_PERIOD_DAYS_DEFAULT;
 
 /** Defaults mirror /api/financial-settings/route.ts so a workspace
  *  with no row in workspace_financial_settings still gets sensible
@@ -34,11 +41,12 @@ const FINANCIAL_DEFAULTS: FinancialSettings = {
 export async function recomputeAbcSnapshot(
   client: SupabaseClient,
   workspaceId: string,
-  allRows: CrmVendaRow[]
+  allRows: CrmVendaRow[],
+  periodDays: number = ABC_PERIOD_DAYS_DEFAULT
 ): Promise<void> {
   // 1. Filter to the analysis window.
   const cutoff = new Date(
-    Date.now() - ABC_PERIOD_DAYS * 24 * 60 * 60 * 1000
+    Date.now() - periodDays * 24 * 60 * 60 * 1000
   ).toISOString();
   const recentRows = allRows.filter(
     (r) => r.data_compra && r.data_compra >= cutoff
@@ -105,7 +113,7 @@ export async function recomputeAbcSnapshot(
     .upsert(
       {
         workspace_id: workspaceId,
-        period_days: ABC_PERIOD_DAYS,
+        period_days: periodDays,
         products: result.products,
         orders: result.orders,
         summary: result.summary,
