@@ -129,13 +129,13 @@ function toItems(row: CrmVendaRow): ItemRow[] {
  * separadamente quando o usuário quer entender quais produtos puxam
  * receita.
  *
- * Prioridade:
- *   1. item.reference — VNDA preenche com a referência do produto pai
- *      (não da variante). Se vier, é a fonte mais confiável.
- *   2. item.sku com sufixo de variante removido — SKUs VNDA seguem o
- *      formato "256392392-3" onde "-3" indica a variante. Strip do
- *      último "-NNNN" recupera o pai.
- *   3. item.name normalizado — fallback quando não há código.
+ * VNDA preenche os dois (sku e reference) no nível da variante:
+ *   sku       = "256392812-4"
+ *   reference = "256392812-4"  (ou similar com sufixo)
+ *
+ * Pra recuperar o pai, sempre removemos o sufixo "-NNNN" do final.
+ * SKU é a fonte primária (formato consistente entre tenants); o
+ * reference só serve de fallback quando SKU está vazio.
  */
 function aggregationKey(item: ItemRow): {
   key: string;
@@ -146,17 +146,18 @@ function aggregationKey(item: ItemRow): {
   const ref = (item.reference ?? "").trim();
   const name = (item.name ?? "").trim();
 
-  // Strip do sufixo "-NNNNN" (1-5 dígitos) — pega o último "-N".
-  let parentFromSku = sku;
-  if (sku) {
-    const m = sku.match(/^(.+)-(\d{1,5})$/);
-    if (m) parentFromSku = m[1];
-  }
+  const stripVariantSuffix = (s: string): string => {
+    const m = s.match(/^(.+)-(\d{1,5})$/);
+    return m ? m[1] : s;
+  };
 
-  // Prioridade: reference > parent-from-sku > sku as-is > name fallback.
-  const key = (ref || parentFromSku || (name ? `n_${name}` : "n_unknown")).toLowerCase();
-  const displayCode = ref || parentFromSku || sku || null;
-  const productId = ref || parentFromSku || null;
+  const skuParent = sku ? stripVariantSuffix(sku) : "";
+  const refParent = ref ? stripVariantSuffix(ref) : "";
+
+  const parent = skuParent || refParent;
+  const key = (parent || (name ? `n_${name.toLowerCase()}` : "n_unknown")).toLowerCase();
+  const displayCode = parent || sku || ref || null;
+  const productId = parent || null;
 
   return { key, displayCode, productId };
 }
