@@ -290,7 +290,7 @@ export function computeAbcAndProfitability(
       shipping_absorbed: round2(shippingAbsorbed),
       discount_total: round2(discount),
       profit: round2(profit),
-      margin_pct: round2(marginPct),
+      margin_pct: round4(marginPct),
       status,
     });
   }
@@ -323,9 +323,9 @@ export function computeAbcAndProfitability(
       cost_unit: p.qty_sold > 0 ? round2(p.cost_total / p.qty_sold) : 0,
       cost_total: round2(p.cost_total),
       profit: round2(profit),
-      margin_pct: round2(margin),
+      margin_pct: round4(margin),
       abc_class: abcClass,
-      cumulative_revenue_pct: round2(cumPct),
+      cumulative_revenue_pct: round4(cumPct),
       cost_source: p.cost_source,
     });
   }
@@ -349,7 +349,7 @@ export function computeAbcAndProfitability(
     total_other_expenses: round2(totalOther),
     total_shipping_absorbed: round2(totalShipping),
     total_profit: round2(totalProfit),
-    gross_margin_pct: totalRevenue > 0 ? round2(totalProfit / totalRevenue) : 0,
+    gross_margin_pct: totalRevenue > 0 ? round4(totalProfit / totalRevenue) : 0,
     a_count: products.filter((p) => p.abc_class === "A").length,
     b_count: products.filter((p) => p.abc_class === "B").length,
     c_count: products.filter((p) => p.abc_class === "C").length,
@@ -358,7 +358,7 @@ export function computeAbcAndProfitability(
     breakeven_orders: orders.filter((o) => o.status === "breakeven").length,
     period_start: periodStart,
     period_end: periodEnd,
-    coverage_pct: totalRevenue > 0 ? round2(trackedRevenue / totalRevenue) : 0,
+    coverage_pct: totalRevenue > 0 ? round4(trackedRevenue / totalRevenue) : 0,
   };
 
   return { products, orders, summary };
@@ -371,4 +371,11 @@ function clamp(n: number, min: number, max: number): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Pra frações usadas como % no UI (margem, cobertura, %acumulado).
+ *  4 casas no número = 2 casas após multiplicar por 100. round2 numa
+ *  fração 0.0262 viraria 0.03 (3.0%) — round4 preserva como 0.0262 (2.6%). */
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }
