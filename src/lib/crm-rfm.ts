@@ -201,6 +201,11 @@ interface AggregatedCustomer {
 }
 
 interface ItemRow {
+  /** Display name of the product line (e.g. "Camiseta Oversized Lion
+   *  Preta"). Critical fallback for color extraction in catalogs that
+   *  don't use VNDA attribute1 for color (Bulking is the canonical
+   *  example — color lives in the product name, not in an attribute). */
+  name?: string | null;
   sku?: string | null;
   reference?: string | null;
   variant_name?: string | null;
@@ -218,20 +223,105 @@ function bumpMap(m: Map<string, number>, key: string | null | undefined, by = 1)
   m.set(k, (m.get(k) ?? 0) + by);
 }
 
-/** Variant_name examples from VNDA: "Camiseta - Preto - M", "Calça Bege".
- *  We extract a single color token by trying attribute1 first (cleanest
- *  signal in BR fashion catalogs), then falling back to the variant_name
- *  string. Returns null when no plausible color shows up. */
+/**
+ * Color dictionary used to extract a color token from free-form product
+ * names or variant strings. Two-word entries come first so they match
+ * before the single-word fallback ("azul marinho" before "azul"). The
+ * canonical label is what gets stored in preferredColors — inflections
+ * (preto/preta, vermelho/vermelha) and English synonyms (lilac/lilás,
+ * navy/marinho) collapse to one bucket so personalization downstream
+ * doesn't see the same color twice under different spellings.
+ *
+ * Exported so the picker / personalization layer can reuse the same
+ * matcher when scoring the workspace's catalog (e.g. "this customer
+ * loves azul → boost azul-named products").
+ */
+const COLOR_PATTERNS: Array<{ regex: RegExp; canonical: string }> = [
+  // Two-word colors (must come first)
+  { regex: /\bazul\s+marinho\b/i, canonical: "marinho" },
+  { regex: /\bvermelho\s+vinho\b/i, canonical: "vinho" },
+  { regex: /\bverde\s+militar\b/i, canonical: "verde militar" },
+  { regex: /\bverde\s+oliva\b/i, canonical: "oliva" },
+  { regex: /\bcinza\s+claro\b/i, canonical: "cinza claro" },
+  { regex: /\bcinza\s+escuro\b/i, canonical: "cinza escuro" },
+  // Neutrals
+  { regex: /\bpret[oa]s?\b|\bblack\b/i, canonical: "preto" },
+  { regex: /\bbranc[oa]s?\b|\bwhite\b|\boff[\s-]?white\b/i, canonical: "branco" },
+  { regex: /\bcinz[ao]s?\b|\bgr[ae]y\b|\bgrigio\b/i, canonical: "cinza" },
+  { regex: /\bbege\b|\bbeige\b/i, canonical: "bege" },
+  { regex: /\bnud[eo]\b|\bnude\b/i, canonical: "nude" },
+  // Earth tones
+  { regex: /\bmarrom\b|\bbrown\b/i, canonical: "marrom" },
+  { regex: /\bcaqui\b|\bk[ah]aki\b/i, canonical: "caqui" },
+  { regex: /\boliv[ao]s?\b|\bolive\b/i, canonical: "oliva" },
+  { regex: /\bmostarda\b|\bmustard\b/i, canonical: "mostarda" },
+  { regex: /\bbord[ôo]\b|\bbordeaux\b/i, canonical: "bordô" },
+  { regex: /\bvinho\b|\bwine\b/i, canonical: "vinho" },
+  // Cool tones
+  { regex: /\bmarinho\b|\bnavy\b/i, canonical: "marinho" },
+  { regex: /\bazul\b|\bblue\b/i, canonical: "azul" },
+  { regex: /\bturquesa\b|\bturquoise\b/i, canonical: "turquesa" },
+  // Greens
+  { regex: /\bverde\b|\bgreen\b/i, canonical: "verde" },
+  // Warm tones
+  { regex: /\bvermelh[oa]s?\b|\bred\b/i, canonical: "vermelho" },
+  { regex: /\blaranj[ao]s?\b|\borange\b/i, canonical: "laranja" },
+  { regex: /\bamarel[oa]s?\b|\byellow\b/i, canonical: "amarelo" },
+  // Pinks / purples
+  { regex: /\brosa\b|\bpink\b/i, canonical: "rosa" },
+  { regex: /\blil[áa]s\b|\blilac\b/i, canonical: "lilás" },
+  { regex: /\broxo\b|\bpurple\b|\bvioleta\b/i, canonical: "roxo" },
+  // Metallics
+  { regex: /\bdourad[oa]\b|\bgold(en)?\b/i, canonical: "dourado" },
+  { regex: /\bprateado\b|\bsilver\b/i, canonical: "prateado" },
+];
+
+/**
+ * Pulls a canonical color label from arbitrary text by scanning against
+ * the color dictionary. First match wins (and the dictionary is ordered
+ * so two-word entries beat single words). Returns null when nothing
+ * matches — caller should treat that as "no color signal".
+ */
+export function extractColorFromText(text: string): string | null {
+  if (!text) return null;
+  for (const p of COLOR_PATTERNS) {
+    if (p.regex.test(text)) return p.canonical;
+  }
+  return null;
+}
+
+/**
+ * Extract a color from one order item, trying signals in priority
+ * order:
+ *   1. `attribute1` (used by VNDA tenants who configure color as an
+ *      attribute — typical setup outside Bulking).
+ *   2. `variant_name`, parsed via the color dictionary. Catches "Calça
+ *      Skinny Preta - M" style strings without false positives.
+ *   3. `name` (full product name) via the dictionary. Critical for
+ *      catalogs like Bulking that bake the color into the title
+ *      ("Camiseta Oversized Lion Preta").
+ *
+ * Returns the canonical lowercase label or null. The aggregator only
+ * counts non-null values, so misses are silent (and the customer's
+ * preferredColors stays accurate even when half their orders had no
+ * detectable color).
+ */
 function extractColorFromItem(item: ItemRow): string | null {
+  // Priority 1: explicit attribute1.
   if (item.attribute1 && typeof item.attribute1 === "string") {
     const a1 = item.attribute1.trim();
-    if (a1) return a1;
+    if (a1) return a1.toLowerCase();
   }
-  if (typeof item.variant_name === "string") {
-    // Heuristic: variant_name is usually "<product> - <color> - <size>".
-    // Take the middle token if there are 2+ separators.
-    const parts = item.variant_name.split(/\s*-\s*/).filter((p) => p.trim());
-    if (parts.length >= 2) return parts[parts.length - 2].trim();
+  // Priority 2: variant_name → dictionary.
+  if (typeof item.variant_name === "string" && item.variant_name.trim()) {
+    const fromVariant = extractColorFromText(item.variant_name);
+    if (fromVariant) return fromVariant;
+  }
+  // Priority 3: product name → dictionary. Catches Bulking-style
+  // catalogs where color lives in the title.
+  if (typeof item.name === "string" && item.name.trim()) {
+    const fromName = extractColorFromText(item.name);
+    if (fromName) return fromName;
   }
   return null;
 }
