@@ -6,7 +6,6 @@ import {
   Loader2,
   AlertTriangle,
   Calculator,
-  ExternalLink,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -262,10 +261,8 @@ export default function CurvaAbcPage() {
               hint={`${summary.a_count + summary.b_count + summary.c_count} produtos`}
             />
             <KpiCard
-              label="Lucro"
-              value={formatCurrency(summary.total_profit)}
-              hint={`Margem ${formatPct(summary.gross_margin_pct)}`}
-              tone={summary.total_profit >= 0 ? "positive" : "negative"}
+              label="Pedidos na janela"
+              value={(data?.row_count ?? 0).toLocaleString("pt-BR")}
             />
             <KpiCard
               label="Classe A"
@@ -273,28 +270,21 @@ export default function CurvaAbcPage() {
               hint="Top 70% da receita"
             />
             <KpiCard
-              label="Cobertura de custo"
-              value={formatPct(summary.coverage_pct)}
-              hint={
-                summary.coverage_pct < 0.5
-                  ? "Cadastre custos por SKU pra precisão"
-                  : "Receita coberta por product_costs"
-              }
-              tone={summary.coverage_pct < 0.5 ? "neutral" : "positive"}
+              label="Classe B / C"
+              value={`${summary.b_count} / ${summary.c_count}`}
+              hint="20% e 10% restantes"
             />
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Os percentuais de impostos, CMV fallback, outras despesas e frete
-            absorvido vêm de{" "}
+            Curva ABC ranqueia produtos por receita.{" "}
             <Link
-              href="/simulador-comercial/config"
-              className="inline-flex items-center gap-1 underline underline-offset-2"
+              href="/financeiro/lucratividade"
+              className="underline underline-offset-2"
             >
-              Financeiro &rsaquo; Configurações
-              <ExternalLink className="h-3 w-3" />
-            </Link>
-            .
+              P&L pedido a pedido
+            </Link>{" "}
+            fica em Lucratividade.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -334,61 +324,51 @@ export default function CurvaAbcPage() {
                     <TableHead className="w-20">Classe</TableHead>
                     <TableHead className="w-20 text-right">Qtd</TableHead>
                     <TableHead className="w-32 text-right">Receita</TableHead>
-                    <TableHead className="w-32 text-right">Custo</TableHead>
-                    <TableHead className="w-32 text-right">Lucro</TableHead>
-                    <TableHead className="w-24 text-right">Margem</TableHead>
+                    <TableHead className="w-24 text-right">% Receita</TableHead>
                     <TableHead className="w-28 text-right">Acumulado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredProducts.map((p, idx) => (
-                    <TableRow key={`${p.sku ?? p.product_id ?? p.name}-${idx}`}>
-                      <TableCell className="text-muted-foreground">
-                        {idx + 1}
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {p.sku ?? p.product_id ?? "—"}
-                          {p.cost_source === "estimated" && (
-                            <span className="ml-2 italic">custo estimado</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={classBadgeVariant(p.abc_class)}>
-                          {p.abc_class}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {p.qty_sold.toLocaleString("pt-BR")}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(p.revenue)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatCurrency(p.cost_total)}
-                      </TableCell>
-                      <TableCell
-                        className={
-                          "text-right " +
-                          (p.profit >= 0 ? "text-green-700" : "text-red-700")
-                        }
-                      >
-                        {formatCurrency(p.profit)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPct(p.margin_pct)}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {formatPct(p.cumulative_revenue_pct)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredProducts.map((p, idx) => {
+                    const revPct =
+                      summary.total_revenue > 0
+                        ? p.revenue / summary.total_revenue
+                        : 0;
+                    return (
+                      <TableRow key={`${p.sku ?? p.product_id ?? p.name}-${idx}`}>
+                        <TableCell className="text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{p.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {p.sku ?? p.product_id ?? "—"}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={classBadgeVariant(p.abc_class)}>
+                            {p.abc_class}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {p.qty_sold.toLocaleString("pt-BR")}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatCurrency(p.revenue)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatPct(revPct)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatPct(p.cumulative_revenue_pct)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {filteredProducts.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={7}
                         className="py-8 text-center text-sm text-muted-foreground"
                       >
                         Sem produtos nesta classe.
