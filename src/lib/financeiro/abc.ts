@@ -124,6 +124,44 @@ function toItems(row: CrmVendaRow): ItemRow[] {
 }
 
 /**
+ * Deriva o "produto pai" de um item de pedido. A curva ABC agrupa por
+ * pai — não faz sentido listar 5 variantes de cor da mesma camiseta
+ * separadamente quando o usuário quer entender quais produtos puxam
+ * receita.
+ *
+ * Prioridade:
+ *   1. item.reference — VNDA preenche com a referência do produto pai
+ *      (não da variante). Se vier, é a fonte mais confiável.
+ *   2. item.sku com sufixo de variante removido — SKUs VNDA seguem o
+ *      formato "256392392-3" onde "-3" indica a variante. Strip do
+ *      último "-NNNN" recupera o pai.
+ *   3. item.name normalizado — fallback quando não há código.
+ */
+function aggregationKey(item: ItemRow): {
+  key: string;
+  displayCode: string | null;
+  productId: string | null;
+} {
+  const sku = (item.sku ?? "").trim();
+  const ref = (item.reference ?? "").trim();
+  const name = (item.name ?? "").trim();
+
+  // Strip do sufixo "-NNNNN" (1-5 dígitos) — pega o último "-N".
+  let parentFromSku = sku;
+  if (sku) {
+    const m = sku.match(/^(.+)-(\d{1,5})$/);
+    if (m) parentFromSku = m[1];
+  }
+
+  // Prioridade: reference > parent-from-sku > sku as-is > name fallback.
+  const key = (ref || parentFromSku || (name ? `n_${name}` : "n_unknown")).toLowerCase();
+  const displayCode = ref || parentFromSku || sku || null;
+  const productId = ref || parentFromSku || null;
+
+  return { key, displayCode, productId };
+}
+
+/**
  * Single-pass ABC + profitability over crm_vendas rows.
  *
  *   - Per-product aggregation keyed by SKU (falls back to product_id
@@ -175,14 +213,17 @@ export function computeAbcAndProfitability(
       const qty = Math.max(1, Number(item.quantity ?? 1));
       const lineRevenue = Number(item.total ?? (item.price ?? 0) * qty);
       const skuKey = (item.sku ?? "").trim().toLowerCase();
-      const productKey =
-        skuKey ||
-        (item.reference ?? "").trim().toLowerCase() ||
-        `n_${item.name ?? "unknown"}`;
+      const { key: parentKey, displayCode, productId } = aggregationKey(item);
 
-      // Custo: tracked via product_costs, ou fallback pra
-      // product_cost_pct sobre lineRevenue (cmv proporcional).
-      const trackedCost = skuKey ? costsBySku.get(skuKey) : undefined;
+      // Custo: tenta variante (sku exato), depois pai (parentKey),
+      // senão fallback pra product_cost_pct sobre lineRevenue.
+      // Tenants podem cadastrar custo no nível do pai ou da variante.
+      let trackedCost: number | undefined;
+      if (skuKey && costsBySku.has(skuKey)) {
+        trackedCost = costsBySku.get(skuKey);
+      } else if (parentKey && costsBySku.has(parentKey)) {
+        trackedCost = costsBySku.get(parentKey);
+      }
       let costUnit: number;
       let costSource: "tracked" | "estimated";
       if (trackedCost != null) {
@@ -198,16 +239,18 @@ export function computeAbcAndProfitability(
       orderItemsRevenue += lineRevenue;
       orderItemsCost += lineCost;
 
-      const existing = productMap.get(productKey);
+      const existing = productMap.get(parentKey);
       if (existing) {
         existing.qty_sold += qty;
         existing.revenue += lineRevenue;
         existing.cost_total += lineCost;
-        if (costSource === "tracked") existing.cost_source = "tracked";
+        // Pai vira "estimated" se QUALQUER variante caiu no fallback —
+        // assim o usuário sabe que o número não é 100% rastreado.
+        if (costSource === "estimated") existing.cost_source = "estimated";
       } else {
-        productMap.set(productKey, {
-          sku: item.sku ?? null,
-          product_id: item.reference ?? null,
+        productMap.set(parentKey, {
+          sku: displayCode,
+          product_id: productId,
           name: item.name ?? "(sem nome)",
           qty_sold: qty,
           revenue: lineRevenue,
