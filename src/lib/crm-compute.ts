@@ -1,8 +1,14 @@
 import { generateRfmReport, generateMonthlyCohort } from "@/lib/crm-rfm";
 import type { CrmVendaRow, RfmCustomer, PreferenceCount } from "@/lib/crm-rfm";
+import { computeAbcAndProfitability } from "@/lib/crm-abc";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PAGE_SIZE = 1000; // Supabase default max rows per request
+
+/** Window the ABC curve is computed over. Matches Frente B's
+ *  bestseller_lookback_days default — "real bestseller" and "ABC class
+ *  A" should agree on what counts as "recent enough". */
+const ABC_PERIOD_DAYS = 90;
 
 /**
  * Recomputes the RFM snapshot for a workspace.
@@ -21,10 +27,12 @@ export async function recomputeRfmSnapshot(
     const { data, error } = await client
       .from("crm_vendas")
       .select(
-        // `items` is the jsonb that carries variant_name + attribute1/2/3 +
-        // sku per line — needed by the RFM aggregator for preferredColors
-        // and for the SKU→category enrichment pass below.
-        "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items"
+        // Columns split across two consumers:
+        //   - RFM aggregator uses cliente/email/.../items
+        //   - ABC compute also needs payment_method, installments,
+        //     shipping_price, discount_price, source_order_id pra
+        //     calcular lucratividade por order
+        "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id"
       )
       .eq("workspace_id", workspaceId)
       .range(from, from + PAGE_SIZE - 1);
@@ -58,6 +66,17 @@ export async function recomputeRfmSnapshot(
   // signals — category lookup belongs at the integration layer
   // because shelf_products is workspace-specific catalog data.
   await enrichCustomerCategories(client, workspaceId, report.customers, allRows);
+
+  // ABC curve + per-order profitability. Computed over the same dataset
+  // we just loaded (saves a round-trip), filtered to the last
+  // ABC_PERIOD_DAYS so "ABC A" reflects current revenue drivers, not
+  // a 5-year-old hit. Best-effort — never fail RFM if ABC fails.
+  await recomputeAbcSnapshot(client, workspaceId, allRows).catch((err) => {
+    console.error(
+      `[crm-compute] ABC recompute failed for workspace ${workspaceId}:`,
+      (err as Error).message
+    );
+  });
 
   // Compute monthly cohort
   const cohort = generateMonthlyCohort(allRows);
@@ -173,5 +192,86 @@ async function enrichCustomerCategories(
       .slice(0, 5)
       .map(([value, count]) => ({ value, count }));
     customer.preferredCategories = top;
+  }
+}
+
+/**
+ * Loads workspace cost data + ABC settings, runs the Pareto
+ * classification + per-order profitability over the last
+ * ABC_PERIOD_DAYS of crm_vendas, and upserts the result into
+ * crm_abc_snapshots.
+ *
+ * Failures here don't break the parent recompute — RFM is the primary
+ * use case and ABC is a secondary report that can recover on the next
+ * run.
+ */
+async function recomputeAbcSnapshot(
+  client: SupabaseClient,
+  workspaceId: string,
+  allRows: CrmVendaRow[]
+): Promise<void> {
+  // Filter rows to the ABC window. data_compra is ISO-ish; lexicographic
+  // compare works for "YYYY-MM-DD..." strings.
+  const cutoff = new Date(Date.now() - ABC_PERIOD_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString();
+  const recentRows = allRows.filter(
+    (r) => r.data_compra && r.data_compra >= cutoff
+  );
+
+  // Load product costs (workspace-scoped).
+  const costsBySku = new Map<string, number>();
+  try {
+    const { data } = await client
+      .from("product_costs")
+      .select("sku, cost")
+      .eq("workspace_id", workspaceId);
+    for (const row of (data ?? []) as Array<{ sku: string; cost: number }>) {
+      const k = row.sku.trim().toLowerCase();
+      if (k) costsBySku.set(k, Number(row.cost));
+    }
+  } catch (err) {
+    console.warn(
+      `[crm-compute] product_costs load failed for ${workspaceId}:`,
+      (err as Error).message
+    );
+  }
+
+  // Load default margin from email_template_settings. Falls back to
+  // 0.5 (50%) if unset or the table doesn't exist yet.
+  let defaultMarginPct = 0.5;
+  try {
+    const { data } = await client
+      .from("email_template_settings")
+      .select("default_margin_pct")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (data && typeof (data as { default_margin_pct?: number }).default_margin_pct === "number") {
+      defaultMarginPct = (data as { default_margin_pct: number }).default_margin_pct;
+    }
+  } catch {
+    /* keep default */
+  }
+
+  const result = computeAbcAndProfitability(recentRows, costsBySku, {
+    defaultMarginPct,
+  });
+
+  const { error } = await client
+    .from("crm_abc_snapshots")
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        period_days: ABC_PERIOD_DAYS,
+        products: result.products,
+        orders: result.orders,
+        summary: result.summary,
+        row_count: recentRows.length,
+        computed_at: new Date().toISOString(),
+      },
+      { onConflict: "workspace_id" }
+    );
+
+  if (error) {
+    throw new Error(`ABC snapshot upsert error: ${error.message}`);
   }
 }

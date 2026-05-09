@@ -43,6 +43,10 @@ const DEFAULTS: Omit<EmailTemplateSettings, "workspace_id"> = {
   momentum_window_hours: 48,
   bestseller_revenue_weight: 0.25,
   crm_validation_enabled: true,
+  // Fallback margin pra estimar custo quando product_costs não tem o
+  // SKU. 0.5 = 50% margem (típico vestuário BR). product_costs sempre
+  // ganha quando disponível.
+  default_margin_pct: 0.5,
 };
 
 export function getDefaults(workspace_id: string): EmailTemplateSettings {
