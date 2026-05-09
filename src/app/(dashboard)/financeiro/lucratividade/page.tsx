@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   Calculator,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -59,9 +61,12 @@ type Summary = {
   period_end: string | null;
 };
 
-type AbcResponse = {
+type OrdersResponse = {
   summary: Summary | null;
   orders?: OrderRow[];
+  orders_total?: number;
+  orders_offset?: number;
+  orders_limit?: number;
   period_days?: number;
   row_count?: number;
   computedAt: string | null;
@@ -69,6 +74,8 @@ type AbcResponse = {
 };
 
 const PERIOD_OPTIONS = [7, 14, 30, 60, 90] as const;
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+type StatusFilter = "all" | "profit" | "loss" | "breakeven";
 
 function formatPct(frac: number): string {
   return `${(frac * 100).toFixed(1)}%`;
@@ -92,43 +99,54 @@ function formatDateTime(iso: string | null): string {
 
 export default function LucratividadePage() {
   const { workspace } = useWorkspace();
-  const [data, setData] = React.useState<AbcResponse | null>(null);
+  const [data, setData] = React.useState<OrdersResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [recomputing, setRecomputing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [orderFilter, setOrderFilter] = React.useState<
-    "all" | "profit" | "loss" | "breakeven"
-  >("all");
+  const [orderFilter, setOrderFilter] = React.useState<StatusFilter>("all");
   const [periodDays, setPeriodDays] = React.useState<number>(30);
   const [pageSize, setPageSize] = React.useState<number>(100);
+  const [offset, setOffset] = React.useState<number>(0);
 
-  const load = React.useCallback(async () => {
-    if (!workspace?.id) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/financeiro/abc?view=full&product_limit=1`, {
-        headers: { "x-workspace-id": workspace.id },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `HTTP ${res.status}`);
+  const load = React.useCallback(
+    async (off: number, size: number, status: StatusFilter) => {
+      if (!workspace?.id) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const url = new URL(`/api/financeiro/abc`, window.location.origin);
+        url.searchParams.set("view", "orders");
+        url.searchParams.set("orders_offset", String(off));
+        url.searchParams.set("orders_limit", String(size));
+        if (status !== "all") url.searchParams.set("orders_status", status);
+
+        const res = await fetch(url.pathname + url.search, {
+          headers: { "x-workspace-id": workspace.id },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const json = (await res.json()) as OrdersResponse;
+        setData(json);
+        if (
+          json.period_days &&
+          PERIOD_OPTIONS.includes(json.period_days as 7 | 14 | 30 | 60 | 90)
+        ) {
+          setPeriodDays(json.period_days);
+        }
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setLoading(false);
       }
-      const json = (await res.json()) as AbcResponse;
-      setData(json);
-      if (json.period_days && PERIOD_OPTIONS.includes(json.period_days as 7 | 14 | 30 | 60 | 90)) {
-        setPeriodDays(json.period_days);
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [workspace?.id]);
+    },
+    [workspace?.id]
+  );
 
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    void load(offset, pageSize, orderFilter);
+  }, [load, offset, pageSize, orderFilter]);
 
   const recompute = async (days: number) => {
     if (!workspace?.id) return;
@@ -147,7 +165,8 @@ export default function LucratividadePage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
-      await load();
+      setOffset(0);
+      await load(0, pageSize, orderFilter);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -164,26 +183,17 @@ export default function LucratividadePage() {
 
   const summary = data?.summary;
   const orders = data?.orders ?? [];
-
-  const sortedFilteredOrders = React.useMemo(() => {
-    // Pedidos mais recentes primeiro. Se data_compra for null, vai pro
-    // final.
-    const sorted = [...orders].sort((a, b) => {
-      const aTs = a.data_compra ? Date.parse(a.data_compra) : 0;
-      const bTs = b.data_compra ? Date.parse(b.data_compra) : 0;
-      return bTs - aTs;
-    });
-    if (orderFilter === "all") return sorted;
-    return sorted.filter((o) => o.status === orderFilter);
-  }, [orders, orderFilter]);
-
-  const visibleOrders = sortedFilteredOrders.slice(0, pageSize);
+  const total = data?.orders_total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.floor(offset / pageSize) + 1;
 
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Lucratividade por pedido</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Lucratividade por pedido
+          </h1>
           <p className="text-sm text-muted-foreground">
             P&L pedido a pedido — receita menos CMV, impostos, despesas e frete
             absorvido
@@ -258,9 +268,6 @@ export default function LucratividadePage() {
         <Card>
           <CardContent className="space-y-2 p-6 text-sm text-muted-foreground">
             <p>{data.message}</p>
-            <p>
-              Use <strong>Recalcular</strong> acima pra gerar a primeira versão.
-            </p>
           </CardContent>
         </Card>
       )}
@@ -308,40 +315,55 @@ export default function LucratividadePage() {
             <div className="flex flex-wrap items-center gap-2">
               <FilterChip
                 active={orderFilter === "all"}
-                onClick={() => setOrderFilter("all")}
+                onClick={() => {
+                  setOffset(0);
+                  setOrderFilter("all");
+                }}
               >
                 Todos
               </FilterChip>
               <FilterChip
                 active={orderFilter === "loss"}
-                onClick={() => setOrderFilter("loss")}
+                onClick={() => {
+                  setOffset(0);
+                  setOrderFilter("loss");
+                }}
               >
                 Prejuízo ({summary.loss_orders})
               </FilterChip>
               <FilterChip
                 active={orderFilter === "breakeven"}
-                onClick={() => setOrderFilter("breakeven")}
+                onClick={() => {
+                  setOffset(0);
+                  setOrderFilter("breakeven");
+                }}
               >
                 Empate ({summary.breakeven_orders})
               </FilterChip>
               <FilterChip
                 active={orderFilter === "profit"}
-                onClick={() => setOrderFilter("profit")}
+                onClick={() => {
+                  setOffset(0);
+                  setOrderFilter("profit");
+                }}
               >
                 Lucro ({summary.profitable_orders})
               </FilterChip>
             </div>
             <Select
               value={String(pageSize)}
-              onValueChange={(v) => setPageSize(parseInt(v, 10))}
+              onValueChange={(v) => {
+                setOffset(0);
+                setPageSize(parseInt(v, 10));
+              }}
             >
               <SelectTrigger className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[50, 100, 200, 500].map((n) => (
+                {PAGE_SIZE_OPTIONS.map((n) => (
                   <SelectItem key={n} value={String(n)}>
-                    Mostrar {n}
+                    {n} por página
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -366,8 +388,8 @@ export default function LucratividadePage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {visibleOrders.map((o, idx) => (
-                    <TableRow key={`${o.order_id ?? idx}`}>
+                  {orders.map((o, idx) => (
+                    <TableRow key={`${o.order_id ?? idx}-${offset + idx}`}>
                       <TableCell className="font-mono text-xs">
                         {o.numero_pedido ?? o.order_id ?? "—"}
                       </TableCell>
@@ -423,7 +445,7 @@ export default function LucratividadePage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {visibleOrders.length === 0 && (
+                  {orders.length === 0 && (
                     <TableRow>
                       <TableCell
                         colSpan={10}
@@ -435,10 +457,30 @@ export default function LucratividadePage() {
                   )}
                 </TableBody>
               </Table>
-              {sortedFilteredOrders.length > visibleOrders.length && (
-                <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-                  Mostrando {visibleOrders.length} de{" "}
-                  {sortedFilteredOrders.length} pedidos.
+              {total > 0 && (
+                <div className="flex items-center justify-between border-t px-4 py-2 text-xs text-muted-foreground">
+                  <span>
+                    {total.toLocaleString("pt-BR")} pedidos · página{" "}
+                    {currentPage} de {totalPages}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={offset <= 0 || loading}
+                      onClick={() => setOffset(Math.max(0, offset - pageSize))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={offset + pageSize >= total || loading}
+                      onClick={() => setOffset(offset + pageSize)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>

@@ -22,7 +22,7 @@ import {
 } from "@/lib/financeiro/recompute";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const PAGE_SIZE = 1000;
 
