@@ -2,7 +2,6 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useWorkspace } from "@/lib/workspace-context";
-import { useAuth } from "@/lib/auth-context";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -116,9 +115,7 @@ function familyOf(layoutId: string | null): string {
 
 export default function DraftsPage() {
   const { workspace } = useWorkspace();
-  const { user } = useAuth();
   const workspaceId = workspace?.id ?? "";
-  const currentUserId = user?.id ?? null;
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
@@ -296,7 +293,6 @@ export default function DraftsPage() {
             {drafts
               .filter((d) => d.approval_state === "pending_approval")
               .map((d) => {
-                const isAuthor = !!currentUserId && d.submitted_by === currentUserId;
                 return (
                   <div
                     key={d.id}
@@ -336,12 +332,8 @@ export default function DraftsPage() {
                     <Button
                       size="sm"
                       className="h-7 text-xs gap-1.5"
-                      disabled={busyId === d.id || isAuthor}
-                      title={
-                        isAuthor
-                          ? "Quem submeteu não pode aprovar o próprio rascunho"
-                          : "Aprovar e disparar"
-                      }
+                      disabled={busyId === d.id}
+                      title="Aprovar e disparar"
                       onClick={() => approve(d.id)}
                     >
                       <CheckCircle2 className="w-3 h-3" />

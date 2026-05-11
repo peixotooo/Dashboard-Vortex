@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
-import { useAuth } from "@/lib/auth-context";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import { CampaignDetailsDialog } from "@/components/crm/campaign-details-dialog";
 import {
@@ -165,8 +164,6 @@ const SEGMENT_LABELS: Record<string, string> = {
 
 export default function WhatsAppPage() {
   const { workspace } = useWorkspace();
-  const { user } = useAuth();
-  const currentUserId = user?.id ?? null;
   const [activeTab, setActiveTab] = useState("campaigns");
 
   // Config state
@@ -228,6 +225,11 @@ export default function WhatsAppPage() {
   });
   const [scheduledTime, setScheduledTime] = useState("09:00");
   const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
+
+  // Rascunho com aprovação obriga agendamento — força o toggle ao ligar.
+  useEffect(() => {
+    if (requiresApproval) setScheduleEnabled(true);
+  }, [requiresApproval]);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -1080,7 +1082,7 @@ export default function WhatsAppPage() {
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-relaxed">
                         {requiresApproval
-                          ? "Nada vai pra Meta agora. A campanha fica Aguardando aprovação na lista — outro membro do time precisa aprovar pra o envio acontecer."
+                          ? "Nada vai pra Meta agora. A campanha fica Aguardando aprovação na lista até alguém do time aprovar — aí dispara na data + hora marcadas acima (obrigatórias nesse modo)."
                           : "Envio direto: a campanha entra na fila e o cron dispara conforme o agendamento acima."}
                       </p>
                     </div>
@@ -1095,7 +1097,7 @@ export default function WhatsAppPage() {
                       <Button
                         className="flex-1"
                         onClick={handleCreateCampaign}
-                        disabled={creating}
+                        disabled={creating || (requiresApproval && !scheduleEnabled)}
                       >
                         {creating ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -1200,8 +1202,6 @@ export default function WhatsAppPage() {
                       </div>
 
                       {c.status === "pending_approval" && (() => {
-                        const isAuthor =
-                          !!currentUserId && c.submitted_by === currentUserId;
                         const busy = approvalBusyId === c.id;
                         return (
                           <div className="mt-3 pt-3 border-t border-amber-500/30 flex items-center gap-3 flex-wrap">
@@ -1224,12 +1224,8 @@ export default function WhatsAppPage() {
                               <Button
                                 size="sm"
                                 className="h-7 text-xs gap-1.5"
-                                disabled={busy || isAuthor}
-                                title={
-                                  isAuthor
-                                    ? "Quem submeteu não pode aprovar a própria campanha"
-                                    : "Aprovar e disparar"
-                                }
+                                disabled={busy}
+                                title="Aprovar e disparar"
                                 onClick={() => approveCampaign(c.id)}
                               >
                                 {busy ? (

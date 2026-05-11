@@ -39,15 +39,6 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (draft.submitted_by && draft.submitted_by === userId) {
-      return NextResponse.json(
-        {
-          error:
-            "Quem submeteu pra aprovação não pode aprovar o próprio rascunho. Peça pra outro membro do time.",
-        },
-        { status: 403 }
-      );
-    }
     const payload = draft.dispatch_payload as DispatchPayload | null;
     if (!payload || !Array.isArray(payload.list_ids) || payload.list_ids.length === 0) {
       return NextResponse.json(

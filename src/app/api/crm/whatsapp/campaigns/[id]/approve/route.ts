@@ -40,7 +40,7 @@ export async function POST(
 
     const { data: campaign } = await admin
       .from("wa_campaigns")
-      .select("id, status, scheduled_at, submitted_by")
+      .select("id, status, scheduled_at")
       .eq("id", id)
       .eq("workspace_id", workspaceId)
       .single();
@@ -52,15 +52,6 @@ export async function POST(
       return NextResponse.json(
         { error: "Essa campanha não está pendente de aprovação." },
         { status: 400 }
-      );
-    }
-    if (campaign.submitted_by && campaign.submitted_by === user.id) {
-      return NextResponse.json(
-        {
-          error:
-            "Quem submeteu pra aprovação não pode aprovar a própria campanha. Peça pra outro membro do time.",
-        },
-        { status: 403 }
       );
     }
 

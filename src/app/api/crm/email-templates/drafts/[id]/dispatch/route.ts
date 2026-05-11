@@ -47,6 +47,15 @@ export async function POST(
 
     // --- Rascunho agendado com aprovação ---
     if (body.requires_approval) {
+      if (!body.scheduled_to) {
+        return NextResponse.json(
+          {
+            error:
+              "Pra enviar como rascunho com aprovação, preencha data e hora de envio.",
+          },
+          { status: 400 }
+        );
+      }
       const payload: DispatchPayload = {
         list_ids: body.list_ids,
         scheduled_to: body.scheduled_to,

@@ -59,6 +59,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
+    // Rascunho com aprovação exige data + hora de envio definidos.
+    if (requires_approval && !scheduled_at) {
+      return NextResponse.json(
+        {
+          error:
+            "Pra enviar como rascunho com aprovação, preencha data e hora de envio.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Determine initial status based on scheduling + approval flag.
     // pending_approval: o cron whatsapp-sender só lê queued/sending/scheduled-due,
     // então campanhas pendentes ficam paradas até alguém aprovar.

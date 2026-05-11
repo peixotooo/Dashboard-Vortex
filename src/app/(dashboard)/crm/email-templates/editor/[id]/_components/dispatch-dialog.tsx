@@ -73,6 +73,12 @@ export function DispatchDialog({
   // tela de drafts) antes do disparo de fato ir pra Locaweb.
   const [requiresApproval, setRequiresApproval] = useState(false);
 
+  // Quando o modo aprovação é ativado, força o agendamento (data + hora
+  // obrigatórios pra rascunho com aprovação).
+  useEffect(() => {
+    if (requiresApproval) setScheduleEnabled(true);
+  }, [requiresApproval]);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
@@ -346,7 +352,11 @@ export function DispatchDialog({
   const stepSchedule: WizardStep = {
     id: "schedule",
     label: "Agendar",
-    canProceed: true,
+    // Quando o modo aprovação está ligado, exigimos data + hora.
+    canProceed: !requiresApproval || scheduleEnabled,
+    nextHint: requiresApproval && !scheduleEnabled
+      ? "Modo rascunho com aprovação exige data e hora de envio."
+      : undefined,
     content: (
       <>
         {DraftInfo}
@@ -425,7 +435,7 @@ export function DispatchDialog({
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {requiresApproval
-              ? "Nada vai pra Locaweb agora. A campanha fica em Pendentes na lista de drafts. Outro membro do time precisa aprovar pra o envio acontecer."
+              ? "Nada vai pra Locaweb agora. A campanha fica em Pendentes na lista de drafts até alguém do time aprovar — aí dispara na data + hora marcadas acima (obrigatórias nesse modo)."
               : "Envio direto: a Locaweb recebe a campanha e dispara conforme o agendamento acima."}
           </p>
         </div>
@@ -484,9 +494,9 @@ export function DispatchDialog({
             label="Quando"
             value={
               scheduleEnabled
-                ? `${scheduledDate} às ${scheduledTime}`
-                : requiresApproval
-                ? "Após aprovação (sem agendamento)"
+                ? `${scheduledDate} às ${scheduledTime}${
+                    requiresApproval ? " (após aprovação)" : ""
+                  }`
                 : "Agora (assim que confirmar)"
             }
           />
