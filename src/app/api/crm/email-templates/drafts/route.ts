@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
     const sb = createAdminClient();
     const { data, error } = await sb
       .from("email_template_drafts")
-      .select("id, name, layout_id, meta, updated_at, created_at")
+      .select(
+        "id, name, layout_id, meta, updated_at, created_at, approval_state, scheduled_for, submitted_by, submitted_at, approved_by, approved_at, rejected_by, rejected_at, rejection_reason"
+      )
       .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false })
       .limit(50);

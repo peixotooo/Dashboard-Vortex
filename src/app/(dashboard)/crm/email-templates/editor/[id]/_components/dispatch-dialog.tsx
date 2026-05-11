@@ -19,6 +19,7 @@ import {
   Inbox,
   Mail,
   ListChecks,
+  ShieldCheck,
 } from "lucide-react";
 import { TestSendCard } from "../../../components/test-send-card";
 import { BalanceCard } from "../../../components/balance-card";
@@ -67,12 +68,17 @@ export function DispatchDialog({
     return d.toISOString().slice(0, 10);
   });
   const [scheduledTime, setScheduledTime] = useState("09:00");
+  // Modo rascunho-com-aprovação: a campanha fica salva como
+  // pending_approval. Outro membro do time precisa aprovar (botão na
+  // tela de drafts) antes do disparo de fato ir pra Locaweb.
+  const [requiresApproval, setRequiresApproval] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
-    locaweb_message_id: string;
+    locaweb_message_id?: string;
     scheduled?: string | null;
+    pendingApproval?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -83,6 +89,7 @@ export function DispatchDialog({
     setLists(null);
     setSelectedListIds(new Set());
     setScheduleEnabled(false);
+    setRequiresApproval(false);
     setError(null);
     setSuccess(null);
     setSubmitting(false);
@@ -155,6 +162,7 @@ export function DispatchDialog({
             scheduled_to: scheduleEnabled
               ? `${scheduledDate}T${scheduledTime}:00-03:00`
               : undefined,
+            requires_approval: requiresApproval,
           }),
         }
       );
@@ -163,6 +171,7 @@ export function DispatchDialog({
       setSuccess({
         locaweb_message_id: d.locaweb_message_id,
         scheduled: d.scheduled_to,
+        pendingApproval: d.status === "pending_approval",
       });
     } catch (err) {
       setError((err as Error).message);
@@ -389,6 +398,37 @@ export function DispatchDialog({
             </p>
           )}
         </div>
+
+        <div className="space-y-2 border rounded-md p-4">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Salvar como rascunho (precisa aprovação)
+            </Label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={requiresApproval}
+              onClick={() => setRequiresApproval((v) => !v)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                requiresApproval
+                  ? "bg-foreground border-foreground"
+                  : "bg-card border-border"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                  requiresApproval ? "translate-x-5" : "translate-x-[2px]"
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            {requiresApproval
+              ? "Nada vai pra Locaweb agora. A campanha fica em Pendentes na lista de drafts. Outro membro do time precisa aprovar pra o envio acontecer."
+              : "Envio direto: a Locaweb recebe a campanha e dispara conforme o agendamento acima."}
+          </p>
+        </div>
       </>
     ),
   };
@@ -445,7 +485,24 @@ export function DispatchDialog({
             value={
               scheduleEnabled
                 ? `${scheduledDate} às ${scheduledTime}`
+                : requiresApproval
+                ? "Após aprovação (sem agendamento)"
                 : "Agora (assim que confirmar)"
+            }
+          />
+          <SummaryRow
+            label="Aprovação"
+            value={
+              requiresApproval ? (
+                <span className="text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  Precisa aprovação de outro membro
+                </span>
+              ) : (
+                <span className="text-emerald-700 dark:text-emerald-300">
+                  Envio direto
+                </span>
+              )
             }
           />
           <SummaryRow
@@ -490,17 +547,28 @@ export function DispatchDialog({
               <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="text-xs">
                 <div className="font-medium text-emerald-700 dark:text-emerald-300">
-                  {success.scheduled
+                  {success.pendingApproval
+                    ? "Rascunho enviado pra aprovação"
+                    : success.scheduled
                     ? `Campanha agendada para ${success.scheduled}`
                     : "Campanha enviada à Locaweb"}
                 </div>
-                <div className="text-muted-foreground mt-0.5">
-                  ID Locaweb:{" "}
-                  <span className="font-mono">{success.locaweb_message_id}</span>
-                </div>
-                <div className="text-muted-foreground mt-1">
-                  Stats começam a aparecer aqui em algumas horas.
-                </div>
+                {success.pendingApproval ? (
+                  <div className="text-muted-foreground mt-1">
+                    Outro membro do time precisa aprovar nos seus drafts pra o
+                    envio sair. Nada foi pra Locaweb ainda.
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-muted-foreground mt-0.5">
+                      ID Locaweb:{" "}
+                      <span className="font-mono">{success.locaweb_message_id}</span>
+                    </div>
+                    <div className="text-muted-foreground mt-1">
+                      Stats começam a aparecer aqui em algumas horas.
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <div className="flex justify-end">
@@ -519,12 +587,16 @@ export function DispatchDialog({
             onFinish={submit}
             isSubmitting={submitting}
             finishLabel={
-              scheduleEnabled
+              requiresApproval
+                ? "Enviar pra aprovação"
+                : scheduleEnabled
                 ? `Agendar ${scheduledDate} ${scheduledTime}`
                 : "Disparar agora"
             }
             finishIcon={
-              scheduleEnabled ? (
+              requiresApproval ? (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              ) : scheduleEnabled ? (
                 <Calendar className="w-3.5 h-3.5" />
               ) : (
                 <Send className="w-3.5 h-3.5" />

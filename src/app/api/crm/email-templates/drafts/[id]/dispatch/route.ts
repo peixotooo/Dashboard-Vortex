@@ -4,36 +4,27 @@
 // (no editor instrumentation), creates the message via Locaweb's API, and
 // records the resulting message_id in email_template_dispatches so the
 // stats-sync cron can roll up open/click/bounce data later.
+//
+// "Rascunho agendado com aprovação": quando o body traz
+// `requires_approval=true`, NÃO chamamos a Locaweb — apenas salvamos o
+// dispatch_payload e o scheduled_for no próprio draft com
+// approval_state='pending_approval'. O envio real só acontece depois que
+// outro usuário aprovar (via .../approve).
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage } from "@/lib/locaweb/email-marketing";
-import { renderDraft } from "@/lib/email-templates/editor/render";
-import { renderTreeDraft } from "@/lib/email-templates/tree/render";
-import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
-import { randomUUID } from "crypto";
-import type { Draft } from "@/lib/email-templates/editor/schema";
-import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
+import { dispatchDraft, type DispatchPayload } from "@/lib/email-templates/dispatch-core";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-interface Body {
+interface Body extends Partial<DispatchPayload> {
   list_ids: string[];
-  /** Optional ISO date YYYY-MM-DD (Locaweb supports daily granularity). */
+  /** Optional ISO date YYYY-MM-DD or full ISO datetime (BRT). */
   scheduled_to?: string;
-  /** Override the draft's name → campaign name. Default: draft.name. */
-  campaign_name?: string;
-  /** Override sender email. Default: workspace's default. */
-  sender_email?: string;
-  /** Override sender name. Default: workspace's default. */
-  sender_name?: string;
-  /** Optional reference to the source suggestion (for stats reconciliation). */
-  suggestion_id?: string;
-  /** Optional UTM term (RFM segment). Default: undefined. */
-  utm_term?: string;
+  /** Se true, salva como rascunho pendente de aprovação em vez de enviar. */
+  requires_approval?: boolean;
 }
 
 export async function POST(
@@ -41,7 +32,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { workspaceId } = await getWorkspaceContext(req);
+    const { workspaceId, userId } = await getWorkspaceContext(req);
     const { id } = await params;
     const body = (await req.json()) as Body;
 
@@ -54,174 +45,71 @@ export async function POST(
 
     const sb = createAdminClient();
 
-    const { data: draftRow, error: draftErr } = await sb
-      .from("email_template_drafts")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("id", id)
-      .maybeSingle();
-    if (draftErr) {
-      return NextResponse.json({ error: draftErr.message }, { status: 500 });
-    }
-    if (!draftRow) {
-      return NextResponse.json({ error: "Draft não encontrado." }, { status: 404 });
-    }
-
-    type DraftRow = Draft & { meta: Draft["meta"] & { engine?: string } };
-    const draft = draftRow as DraftRow;
-
-    // Render to clean HTML (no editor click-handler script).
-    let html: string;
-    try {
-      if (draft.meta?.engine === "tree") {
-        const tree: TreeDraft = {
-          id: draft.id,
-          workspace_id: draft.workspace_id,
-          layout_id: draft.layout_id,
-          name: draft.name,
-          meta: {
-            subject: draft.meta.subject,
-            preview: draft.meta.preview,
-            mode: draft.meta.mode,
-          },
-          sections: draft.blocks as unknown as SectionNode[],
-          created_at: draft.created_at,
-          updated_at: draft.updated_at,
-        };
-        html = await renderTreeDraft(tree);
-      } else {
-        html = renderDraft(draft);
-      }
-    } catch (err) {
-      return NextResponse.json(
-        { error: `Falha ao renderizar HTML: ${(err as Error).message}` },
-        { status: 500 }
-      );
-    }
-
-    let creds;
-    try {
-      creds = await getReadyCreds(workspaceId);
-    } catch (err) {
-      return NextResponse.json(
-        { error: (err as Error).message },
-        { status: 400 }
-      );
-    }
-
-    // Universal UTM tracking — every link to a Bulking host gets the same
-    // utm_source/medium/campaign/id/term so click attribution lands in GA4
-    // under one well-known set of dimensions.
-    const dispatchId = randomUUID();
-    const campaignSlug = buildCampaignSlug({
-      kind: body.suggestion_id ? "suggestion" : "draft",
-      source_id: draft.id,
-    });
-    html = sanitizeEmailHtml(
-      applyUtmTracking(html, {
-        campaign: campaignSlug,
-        term: body.utm_term,
-        id: dispatchId,
-      })
-    );
-
-    const subject = draft.meta?.subject || draft.name || "Bulking";
-    const campaignName =
-      body.campaign_name ?? `tpl_${draft.id.slice(0, 8)}_${draft.name.slice(0, 50)}`;
-
-    // Locaweb leaves messages in "Rascunho" status when scheduled_to is
-    // missing — they then need manual approval in the panel. We always
-    // set scheduled_to (today BRT for "send now", future date for the
-    // schedule toggle) so dispatched campaigns actually fire without
-    // human intervention.
-    const todayBrt = (() => {
-      const d = new Date();
-      d.setUTCHours(d.getUTCHours() - 3);
-      return d.toISOString().slice(0, 10);
-    })();
-    const effectiveScheduledTo = body.scheduled_to ?? todayBrt;
-
-    let messageRef;
-    try {
-      messageRef = await createMessage(creds.creds, {
-        name: campaignName,
-        subject,
-        sender: body.sender_email ?? creds.sender_email,
-        sender_name: body.sender_name ?? creds.sender_name,
-        domain_id: creds.domain_id,
-        html_body: html,
+    // --- Rascunho agendado com aprovação ---
+    if (body.requires_approval) {
+      const payload: DispatchPayload = {
         list_ids: body.list_ids,
-        scheduled_to: effectiveScheduledTo,
+        scheduled_to: body.scheduled_to,
+        campaign_name: body.campaign_name,
+        sender_email: body.sender_email,
+        sender_name: body.sender_name,
+        suggestion_id: body.suggestion_id,
+        utm_term: body.utm_term,
+      };
+      const { error: upErr } = await sb
+        .from("email_template_drafts")
+        .update({
+          approval_state: "pending_approval",
+          scheduled_for: body.scheduled_to
+            ? new Date(
+                /T/.test(body.scheduled_to)
+                  ? body.scheduled_to
+                  : `${body.scheduled_to}T00:00:00-03:00`
+              ).toISOString()
+            : null,
+          dispatch_payload: payload,
+          submitted_by: userId,
+          submitted_at: new Date().toISOString(),
+          // Limpa estado anterior de rejeição/aprovação se reenviar.
+          approved_by: null,
+          approved_at: null,
+          rejected_by: null,
+          rejected_at: null,
+          rejection_reason: null,
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", id);
+      if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+      return NextResponse.json({
+        ok: true,
+        status: "pending_approval",
+        scheduled_to: body.scheduled_to ?? null,
       });
-    } catch (err) {
-      const e = err as { status?: number; message?: string };
-      console.error("[dispatch] Locaweb createMessage failed:", e);
-      return NextResponse.json(
-        {
-          error: `Locaweb rejeitou o envio: ${e.message ?? "erro desconhecido"}`,
-          status: e.status,
-        },
-        { status: 502 }
-      );
     }
 
-    // Locaweb returns a Location header pointing at the message; extract the
-    // id (last path segment) when the body doesn't carry it.
-    const messageId =
-      messageRef.id ??
-      (typeof messageRef._location === "string"
-        ? messageRef._location.split("/").filter(Boolean).pop() ?? null
-        : null);
-    if (!messageId) {
+    // --- Envio direto (fluxo legado) ---
+    const result = await dispatchDraft(sb, workspaceId, id, {
+      list_ids: body.list_ids,
+      scheduled_to: body.scheduled_to,
+      campaign_name: body.campaign_name,
+      sender_email: body.sender_email,
+      sender_name: body.sender_name,
+      suggestion_id: body.suggestion_id,
+      utm_term: body.utm_term,
+    });
+    if (!result.ok) {
       return NextResponse.json(
-        { error: "Locaweb não retornou um message_id." },
-        { status: 502 }
+        { error: result.error, status: result.status, warn: result.warn },
+        { status: result.statusCode }
       );
     }
-
-    const initialStatus = body.scheduled_to ? "scheduled" : "queued";
-    const { data: dispatchRow, error: insErr } = await sb
-      .from("email_template_dispatches")
-      .insert({
-        id: dispatchId,
-        workspace_id: workspaceId,
-        draft_id: draft.id,
-        suggestion_id: body.suggestion_id ?? null,
-        locaweb_message_id: messageId,
-        locaweb_list_ids: body.list_ids,
-        scheduled_to: body.scheduled_to
-          ? new Date(
-              // Bare YYYY-MM-DD → midnight BRT; full ISO datetime → as-is.
-              /T/.test(body.scheduled_to)
-                ? body.scheduled_to
-                : `${body.scheduled_to}T00:00:00-03:00`
-            ).toISOString()
-          : null,
-        status: initialStatus,
-        stats: { utm_campaign: campaignSlug, utm_id: dispatchId, utm_term: body.utm_term ?? null },
-      })
-      .select()
-      .single();
-    if (insErr) {
-      console.error("[dispatch] dispatch row insert failed:", insErr);
-      // Locaweb already accepted the campaign; surface the issue but don't
-      // pretend the dispatch failed.
-      return NextResponse.json(
-        {
-          ok: true,
-          locaweb_message_id: messageId,
-          status: initialStatus,
-          warn: `Email enviado pra Locaweb mas falhou ao registrar localmente: ${insErr.message}`,
-        }
-      );
-    }
-
     return NextResponse.json({
       ok: true,
-      dispatch_id: dispatchRow.id,
-      locaweb_message_id: messageId,
-      status: initialStatus,
-      scheduled_to: body.scheduled_to ?? null,
+      dispatch_id: result.dispatch_id,
+      locaweb_message_id: result.locaweb_message_id,
+      status: result.status,
+      scheduled_to: result.scheduled_to,
+      warn: result.warn,
     });
   } catch (err) {
     return handleAuthError(err);

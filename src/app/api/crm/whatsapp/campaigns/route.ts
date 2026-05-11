@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       .select("*, wa_templates(name, language)")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
     return NextResponse.json({ campaigns: campaigns || [] });
   } catch (error) {
@@ -53,13 +53,15 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays, requires_approval } = body;
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Determine initial status based on scheduling
+    // Determine initial status based on scheduling + approval flag.
+    // pending_approval: o cron whatsapp-sender só lê queued/sending/scheduled-due,
+    // então campanhas pendentes ficam paradas até alguém aprovar.
     let initialStatus = "queued";
     let scheduledAtValue: string | null = null;
     if (scheduled_at) {
@@ -68,6 +70,9 @@ export async function POST(request: NextRequest) {
         initialStatus = "scheduled";
         scheduledAtValue = scheduledDate.toISOString();
       }
+    }
+    if (requires_approval) {
+      initialStatus = "pending_approval";
     }
 
     // --- Compliance filtering ---
@@ -108,6 +113,12 @@ export async function POST(request: NextRequest) {
         message_cost_usd: message_cost_usd || 0.0625,
         exchange_rate: exchange_rate || 5.50,
         ...(scheduledAtValue ? { scheduled_at: scheduledAtValue } : {}),
+        ...(requires_approval
+          ? {
+              submitted_by: user.id,
+              submitted_at: new Date().toISOString(),
+            }
+          : {}),
       })
       .select()
       .single();

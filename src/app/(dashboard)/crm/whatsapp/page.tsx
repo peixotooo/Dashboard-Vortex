@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useAuth } from "@/lib/auth-context";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import { CampaignDetailsDialog } from "@/components/crm/campaign-details-dialog";
 import {
@@ -50,6 +51,8 @@ import {
   Layers,
   Phone,
   X,
+  ShieldCheck,
+  ShieldX,
 } from "lucide-react";
 
 // --- Types ---
@@ -85,6 +88,9 @@ interface WaCampaign {
   attribution_window_days?: number;
   message_cost_usd?: number;
   exchange_rate?: number;
+  submitted_by?: string | null;
+  submitted_at?: string | null;
+  rejection_reason?: string | null;
 }
 
 interface PerformanceData {
@@ -159,6 +165,8 @@ const SEGMENT_LABELS: Record<string, string> = {
 
 export default function WhatsAppPage() {
   const { workspace } = useWorkspace();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? null;
   const [activeTab, setActiveTab] = useState("campaigns");
 
   // Config state
@@ -208,6 +216,18 @@ export default function WhatsAppPage() {
   const [templateFilter, setTemplateFilter] = useState<"all" | "APPROVED" | "PENDING" | "REJECTED">("all");
   const [previewTemplate, setPreviewTemplate] = useState<WaTemplate | null>(null);
   const [detailsCampaignId, setDetailsCampaignId] = useState<string | null>(null);
+
+  // Modo "rascunho com aprovação" — campanha fica em pending_approval
+  // até outro membro do time aprovar.
+  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [scheduledTime, setScheduledTime] = useState("09:00");
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -437,6 +457,10 @@ export default function WhatsAppPage() {
         return;
       }
 
+      const scheduledAt = scheduleEnabled
+        ? new Date(`${scheduledDate}T${scheduledTime}:00-03:00`).toISOString()
+        : undefined;
+
       // Create campaign
       const res = await fetch("/api/crm/whatsapp/campaigns", {
         method: "POST",
@@ -448,16 +472,26 @@ export default function WhatsAppPage() {
           variableValues,
           contacts,
           cooldownDays,
+          scheduled_at: scheduledAt,
+          requires_approval: requiresApproval,
         }),
       });
       const data = await res.json();
 
       if (data.campaign) {
-        // Send immediately
-        await fetch(`/api/crm/whatsapp/campaigns/${data.campaign.id}/send`, {
-          method: "POST",
-          headers: wsHeaders(),
-        });
+        // Se está em pending_approval, não chama /send — o cron pega
+        // depois que outro membro aprovar. Se está em scheduled,
+        // também não chama /send — o cron pega na data. Caso contrário
+        // (queued), chama /send pra acelerar o disparo.
+        if (
+          data.campaign.status !== "pending_approval" &&
+          data.campaign.status !== "scheduled"
+        ) {
+          await fetch(`/api/crm/whatsapp/campaigns/${data.campaign.id}/send`, {
+            method: "POST",
+            headers: wsHeaders(),
+          });
+        }
         setShowCreate(false);
         resetCreateForm();
         fetchCampaigns();
@@ -468,12 +502,55 @@ export default function WhatsAppPage() {
     setCreating(false);
   }
 
+  async function approveCampaign(id: string) {
+    setApprovalBusyId(id);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/crm/whatsapp/campaigns/${id}/approve`, {
+        method: "POST",
+        headers: wsHeaders(),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErrorMsg(d.error ?? "Falha ao aprovar campanha.");
+        return;
+      }
+      await fetchCampaigns();
+    } finally {
+      setApprovalBusyId(null);
+    }
+  }
+
+  async function rejectCampaign(id: string) {
+    const reason = window.prompt("Motivo da rejeição (opcional):") ?? "";
+    if (reason === null) return;
+    setApprovalBusyId(id);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/crm/whatsapp/campaigns/${id}/reject`, {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify({ reason }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErrorMsg(d.error ?? "Falha ao rejeitar campanha.");
+        return;
+      }
+      await fetchCampaigns();
+    } finally {
+      setApprovalBusyId(null);
+    }
+  }
+
   function resetCreateForm() {
     setCreateStep(1);
     setCampaignName("");
     setSelectedTemplate(null);
     setSelectedSegment("");
     setVariableValues({});
+    setRequiresApproval(false);
+    setScheduleEnabled(false);
   }
 
   async function handleAddExclusion() {
@@ -556,6 +633,7 @@ export default function WhatsAppPage() {
   const statusBadge = (status: string) => {
     const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
       draft: { variant: "outline", label: "Rascunho" },
+      pending_approval: { variant: "outline", label: "Aguardando aprovação" },
       queued: { variant: "secondary", label: "Na fila" },
       scheduled: { variant: "secondary", label: "Agendada" },
       sending: { variant: "default", label: "Enviando" },
@@ -930,6 +1008,83 @@ export default function WhatsAppPage() {
                       </p>
                     </div>
 
+                    {/* Agendamento */}
+                    <div className="space-y-2 border rounded-md p-4">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5" />
+                          Agendar para data específica
+                        </Label>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={scheduleEnabled}
+                          onClick={() => setScheduleEnabled((v) => !v)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                            scheduleEnabled
+                              ? "bg-foreground border-foreground"
+                              : "bg-card border-border"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                              scheduleEnabled ? "translate-x-5" : "translate-x-[2px]"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      {scheduleEnabled && (
+                        <div className="flex gap-2 pt-1">
+                          <Input
+                            type="date"
+                            value={scheduledDate}
+                            onChange={(e) => setScheduledDate(e.target.value)}
+                            className="h-9 text-xs flex-1"
+                            min={new Date().toISOString().slice(0, 10)}
+                          />
+                          <Input
+                            type="time"
+                            value={scheduledTime}
+                            onChange={(e) => setScheduledTime(e.target.value)}
+                            className="h-9 text-xs w-28"
+                            step={300}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Modo rascunho com aprovação */}
+                    <div className="space-y-2 border rounded-md p-4">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          Salvar como rascunho (precisa aprovação)
+                        </Label>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={requiresApproval}
+                          onClick={() => setRequiresApproval((v) => !v)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                            requiresApproval
+                              ? "bg-foreground border-foreground"
+                              : "bg-card border-border"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                              requiresApproval ? "translate-x-5" : "translate-x-[2px]"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {requiresApproval
+                          ? "Nada vai pra Meta agora. A campanha fica Aguardando aprovação na lista — outro membro do time precisa aprovar pra o envio acontecer."
+                          : "Envio direto: a campanha entra na fila e o cron dispara conforme o agendamento acima."}
+                      </p>
+                    </div>
+
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
@@ -944,10 +1099,18 @@ export default function WhatsAppPage() {
                       >
                         {creating ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : requiresApproval ? (
+                          <ShieldCheck className="h-4 w-4 mr-2" />
+                        ) : scheduleEnabled ? (
+                          <Clock className="h-4 w-4 mr-2" />
                         ) : (
                           <Send className="h-4 w-4 mr-2" />
                         )}
-                        Enviar Campanha
+                        {requiresApproval
+                          ? "Enviar pra aprovação"
+                          : scheduleEnabled
+                          ? `Agendar ${scheduledDate} ${scheduledTime}`
+                          : "Enviar Campanha"}
                       </Button>
                     </div>
                   </div>
@@ -1035,6 +1198,70 @@ export default function WhatsAppPage() {
                           </Button>
                         </div>
                       </div>
+
+                      {c.status === "pending_approval" && (() => {
+                        const isAuthor =
+                          !!currentUserId && c.submitted_by === currentUserId;
+                        const busy = approvalBusyId === c.id;
+                        return (
+                          <div className="mt-3 pt-3 border-t border-amber-500/30 flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              Aguardando aprovação
+                              {c.submitted_at && (
+                                <span className="text-muted-foreground">
+                                  · submetido{" "}
+                                  {new Date(c.submitted_at).toLocaleString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs gap-1.5"
+                                disabled={busy || isAuthor}
+                                title={
+                                  isAuthor
+                                    ? "Quem submeteu não pode aprovar a própria campanha"
+                                    : "Aprovar e disparar"
+                                }
+                                onClick={() => approveCampaign(c.id)}
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                )}
+                                Aprovar
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs gap-1.5 text-destructive hover:text-destructive"
+                                disabled={busy}
+                                onClick={() => rejectCampaign(c.id)}
+                              >
+                                <ShieldX className="h-3 w-3" />
+                                Rejeitar
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {c.status === "cancelled" && c.rejection_reason && (
+                        <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+                          <span className="font-medium text-red-500">
+                            Motivo da rejeição:
+                          </span>{" "}
+                          {c.rejection_reason}
+                        </div>
+                      )}
 
                       {/* Performance / Attribution */}
                       {perf && (

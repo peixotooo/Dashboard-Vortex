@@ -2,10 +2,23 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useAuth } from "@/lib/auth-context";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Trash2, Copy as CopyIcon, Pencil, FolderOpen, Sparkles } from "lucide-react";
+import {
+  Loader2,
+  Trash2,
+  Copy as CopyIcon,
+  Pencil,
+  FolderOpen,
+  Sparkles,
+  ShieldCheck,
+  ShieldX,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { SectionNav } from "../_components/section-nav";
 import { AIComposeDialog } from "../_components/ai-compose-dialog";
 
@@ -77,6 +90,11 @@ interface DraftRow {
   meta: { subject: string; preview: string; mode: "light" | "dark" };
   updated_at: string;
   created_at: string;
+  approval_state?: "pending_approval" | "approved" | "rejected" | null;
+  scheduled_for?: string | null;
+  submitted_by?: string | null;
+  submitted_at?: string | null;
+  rejection_reason?: string | null;
 }
 
 function formatRel(iso: string): string {
@@ -98,10 +116,13 @@ function familyOf(layoutId: string | null): string {
 
 export default function DraftsPage() {
   const { workspace } = useWorkspace();
+  const { user } = useAuth();
   const workspaceId = workspace?.id ?? "";
+  const currentUserId = user?.id ?? null;
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -158,6 +179,50 @@ export default function DraftsPage() {
     }
   };
 
+  const approve = async (id: string) => {
+    setApprovalError(null);
+    setBusyId(id);
+    try {
+      const r = await fetch(`/api/crm/email-templates/drafts/${id}/approve`, {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setApprovalError(d.error ?? "Falha ao aprovar.");
+        return;
+      }
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const reject = async (id: string) => {
+    const reason = window.prompt("Motivo da rejeição (opcional):") ?? "";
+    if (reason === null) return;
+    setApprovalError(null);
+    setBusyId(id);
+    try {
+      const r = await fetch(`/api/crm/email-templates/drafts/${id}/reject`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ reason }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setApprovalError(d.error ?? "Falha ao rejeitar.");
+        return;
+      }
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const rename = async (id: string, currentName: string) => {
     const next = window.prompt("Renomear:", currentName);
     if (!next || next.trim() === "" || next === currentName) return;
@@ -205,6 +270,100 @@ export default function DraftsPage() {
         workspaceId={workspaceId}
       />
 
+      {approvalError && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="flex-1">{approvalError}</div>
+          <button
+            onClick={() => setApprovalError(null)}
+            className="text-red-400 hover:text-red-300"
+          >
+            <span className="sr-only">Fechar</span>&times;
+          </button>
+        </div>
+      )}
+
+      {drafts && drafts.some((d) => d.approval_state === "pending_approval") && (
+        <Card className="p-4 space-y-3 border-amber-300/40 bg-amber-50/30 dark:bg-amber-950/10">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <ShieldCheck className="w-4 h-4 text-amber-600" />
+            Pendentes de aprovação
+            <Badge variant="outline" className="text-[10px]">
+              {drafts.filter((d) => d.approval_state === "pending_approval").length}
+            </Badge>
+          </div>
+          <div className="space-y-2">
+            {drafts
+              .filter((d) => d.approval_state === "pending_approval")
+              .map((d) => {
+                const isAuthor = !!currentUserId && d.submitted_by === currentUserId;
+                return (
+                  <div
+                    key={d.id}
+                    className="flex items-center gap-3 p-2.5 border rounded bg-background"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{d.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
+                        <Clock className="w-3 h-3" />
+                        Submetido {formatRel(d.submitted_at ?? d.updated_at)}
+                        {d.scheduled_for && (
+                          <>
+                            <span>·</span>
+                            <span>
+                              Agendado pra{" "}
+                              {new Date(d.scheduled_for).toLocaleString("pt-BR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                    >
+                      <Link href={`/crm/email-templates/editor/${d.id}`}>
+                        Ver
+                      </Link>
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs gap-1.5"
+                      disabled={busyId === d.id || isAuthor}
+                      title={
+                        isAuthor
+                          ? "Quem submeteu não pode aprovar o próprio rascunho"
+                          : "Aprovar e disparar"
+                      }
+                      onClick={() => approve(d.id)}
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Aprovar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5 text-destructive hover:text-destructive"
+                      disabled={busyId === d.id}
+                      onClick={() => reject(d.id)}
+                    >
+                      <ShieldX className="w-3 h-3" />
+                      Rejeitar
+                    </Button>
+                  </div>
+                );
+              })}
+          </div>
+        </Card>
+      )}
+
       {drafts === null ? (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
@@ -248,10 +407,29 @@ export default function DraftsPage() {
                       {d.meta.mode}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
                     <span className="font-mono">{family}</span>
                     <span>·</span>
                     <span>editado {formatRel(d.updated_at)}</span>
+                    {d.approval_state === "pending_approval" && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 border-amber-500/40 text-amber-500"
+                      >
+                        <ShieldCheck className="w-3 h-3" />
+                        Aguardando aprovação
+                      </Badge>
+                    )}
+                    {d.approval_state === "rejected" && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 border-red-500/40 text-red-500"
+                        title={d.rejection_reason ?? undefined}
+                      >
+                        <ShieldX className="w-3 h-3" />
+                        Rejeitado
+                      </Badge>
+                    )}
                   </div>
                 <div className="flex items-center gap-1 pt-1">
                   <Button asChild size="sm" className="flex-1 h-8 gap-1.5 text-xs">
