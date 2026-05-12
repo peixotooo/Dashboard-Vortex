@@ -15,6 +15,9 @@ export interface IportoSettings {
   webhook_secret: string | null;
   default_sender_email: string | null;
   default_sender_name: string | null;
+  /** Home URL da marca (compartilhado com Locaweb — mesmo workspace,
+   *  mesmo brand). Editar aqui ou na tela Locaweb grava no mesmo campo. */
+  home_url: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -38,7 +41,7 @@ export async function getIportoSettings(workspace_id: string): Promise<IportoSet
   const { data } = await sb
     .from("workspace_email_marketing")
     .select(
-      "workspace_id, enabled, provider, iporto_base_url, iporto_token, iporto_webhook_secret, iporto_default_sender_email, iporto_default_sender_name, default_sender_email, default_sender_name, created_at, updated_at"
+      "workspace_id, enabled, provider, iporto_base_url, iporto_token, iporto_webhook_secret, iporto_default_sender_email, iporto_default_sender_name, default_sender_email, default_sender_name, home_url, created_at, updated_at"
     )
     .eq("workspace_id", workspace_id)
     .maybeSingle();
@@ -52,6 +55,7 @@ export async function getIportoSettings(workspace_id: string): Promise<IportoSet
       webhook_secret: env.webhook_secret,
       default_sender_email: null,
       default_sender_name: null,
+      home_url: null,
     };
   }
   type Row = {
@@ -65,6 +69,7 @@ export async function getIportoSettings(workspace_id: string): Promise<IportoSet
     iporto_default_sender_name: string | null;
     default_sender_email: string | null;
     default_sender_name: string | null;
+    home_url: string | null;
     created_at?: string;
     updated_at?: string;
   };
@@ -83,6 +88,7 @@ export async function getIportoSettings(workspace_id: string): Promise<IportoSet
     // iPORTO — caso contrário Gmail flagga o mismatch como spam.
     default_sender_email: r.iporto_default_sender_email ?? r.default_sender_email,
     default_sender_name: r.iporto_default_sender_name ?? r.default_sender_name,
+    home_url: r.home_url ?? null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -119,6 +125,7 @@ export interface UpdateIportoSettingsInput {
   webhook_secret?: string;
   default_sender_email?: string;
   default_sender_name?: string;
+  home_url?: string;
 }
 
 export async function upsertIportoSettings(
@@ -137,6 +144,8 @@ export async function upsertIportoSettings(
     update.iporto_default_sender_email = patch.default_sender_email?.trim() || null;
   if (patch.default_sender_name !== undefined)
     update.iporto_default_sender_name = patch.default_sender_name?.trim() || null;
+  if (patch.home_url !== undefined)
+    update.home_url = patch.home_url?.trim() || null;
 
   await sb
     .from("workspace_email_marketing")

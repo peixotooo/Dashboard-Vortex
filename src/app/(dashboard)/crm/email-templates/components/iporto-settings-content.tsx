@@ -28,6 +28,7 @@ interface IportoSettings {
   webhook_secret_set: boolean;
   default_sender_email: string | null;
   default_sender_name: string | null;
+  home_url: string | null;
 }
 
 export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) {
@@ -39,6 +40,7 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
   const [showSecret, setShowSecret] = useState(false);
   const [senderEmail, setSenderEmail] = useState("");
   const [senderName, setSenderName] = useState("");
+  const [homeUrl, setHomeUrl] = useState("");
   const [tokenAlreadySet, setTokenAlreadySet] = useState(false);
   const [secretAlreadySet, setSecretAlreadySet] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -59,6 +61,7 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
         setBaseUrl(d.base_url);
         setSenderEmail(d.default_sender_email ?? "");
         setSenderName(d.default_sender_name ?? "");
+        setHomeUrl(d.home_url ?? "");
         setTokenAlreadySet(!!d.token_set);
         setSecretAlreadySet(!!d.webhook_secret_set);
       })
@@ -100,6 +103,7 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
       if (webhookSecret) body.webhook_secret = webhookSecret;
       if (senderEmail) body.default_sender_email = senderEmail;
       if (senderName) body.default_sender_name = senderName;
+      if (homeUrl) body.home_url = homeUrl;
       const r = await fetch("/api/crm/email-templates/iporto/settings", {
         method: "PUT",
         headers: {
@@ -171,6 +175,20 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
             placeholder="Bulking"
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Home da marca (URL)</Label>
+        <Input
+          value={homeUrl}
+          onChange={(e) => setHomeUrl(e.target.value)}
+          placeholder="https://www.bulking.com.br"
+          type="url"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          Usado pra envelopar imagens &quot;soltas&quot; (logo, hero) com link clicável.
+          Se vazio, derivamos do domínio do remetente. Compartilhado com a Locaweb.
+        </p>
       </div>
 
       <div className="space-y-2">

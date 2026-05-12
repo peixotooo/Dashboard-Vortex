@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
+import { getWorkspaceHomeUrl } from "@/lib/email-providers";
 
 interface SuggestionRow {
   id: string;
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
 
     // Stamp UTMs on the rendered_html as we serve it. Stored HTML stays
     // canonical; tracking rules can change without rewriting rows.
+    const homeUrl = await getWorkspaceHomeUrl(workspaceId);
     const suggestions = ((data ?? []) as SuggestionRow[]).map((s) => {
       if (typeof s.rendered_html !== "string") return s;
       const campaign = buildCampaignSlug({
@@ -44,7 +46,7 @@ export async function GET(req: NextRequest) {
       return {
         ...s,
         rendered_html: sanitizeEmailHtml(
-          applyUtmTracking(wrapUnlinkedImages(s.rendered_html), {
+          applyUtmTracking(wrapUnlinkedImages(s.rendered_html, homeUrl), {
             campaign,
             id: s.id,
           })

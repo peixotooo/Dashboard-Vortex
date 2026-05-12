@@ -35,6 +35,7 @@ interface Settings {
   default_sender_name: string | null;
   default_domain_id: string | null;
   list_ids: Record<string, string>;
+  home_url: string | null;
 }
 
 interface Sender {
@@ -56,6 +57,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
   const [senderEmail, setSenderEmail] = useState("");
   const [senderName, setSenderName] = useState("");
   const [domainId, setDomainId] = useState("");
+  const [homeUrl, setHomeUrl] = useState("");
   const [senders, setSenders] = useState<Sender[]>([]);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [discoverError, setDiscoverError] = useState<{
@@ -82,6 +84,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
         setSenderEmail(d.default_sender_email ?? "");
         setSenderName(d.default_sender_name ?? "");
         setDomainId(d.default_domain_id ?? "");
+        setHomeUrl(d.home_url ?? "");
       });
     fetch("/api/crm/email-templates/locaweb/discover", {
       headers: { "x-workspace-id": workspaceId },
@@ -145,6 +148,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
         default_sender_email: senderEmail || null,
         default_sender_name: senderName || null,
         default_domain_id: domainId || null,
+        home_url: homeUrl || null,
       };
       if (token) body.token = token;
 
@@ -381,6 +385,20 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
             </>
           )}
         </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Home da marca (URL)</Label>
+        <Input
+          value={homeUrl}
+          onChange={(e) => setHomeUrl(e.target.value)}
+          placeholder="https://www.bulking.com.br"
+          type="url"
+        />
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          Usado pra envelopar imagens "soltas" (logo, hero) com link clicável.
+          Se vazio, derivamos do domínio do remetente. Compartilhado com iPORTO.
+        </p>
       </div>
 
       {error && (

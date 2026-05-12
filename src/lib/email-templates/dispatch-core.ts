@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
-import { getActiveProvider } from "@/lib/email-providers";
+import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
 import {
@@ -131,9 +131,11 @@ export async function dispatchDraft(
   });
   // Pipeline: wrapUnlinkedImages → applyUtmTracking → sanitize.
   // Wrap antes pra que os <a> novos (logo + imagens decorativas) já
-  // sejam taggeados com UTMs pelo applyUtmTracking.
+  // sejam taggeados com UTMs pelo applyUtmTracking. home_url vem das
+  // settings do workspace ou é derivado do domínio do sender.
+  const homeUrl = await getWorkspaceHomeUrl(workspaceId);
   html = sanitizeEmailHtml(
-    applyUtmTracking(wrapUnlinkedImages(html), {
+    applyUtmTracking(wrapUnlinkedImages(html, homeUrl), {
       campaign: campaignSlug,
       term: payload.utm_term,
       id: dispatchId,

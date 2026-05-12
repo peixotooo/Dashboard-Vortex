@@ -13,7 +13,7 @@ import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { createDelivery, extractMessageId } from "@/lib/iporto/email-marketing";
-import { getActiveProvider } from "@/lib/email-providers";
+import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
@@ -113,8 +113,9 @@ export async function POST(
     const dispatchId = randomUUID();
     const campaignSlug =
       buildCampaignSlug({ kind: "draft", source_id: draft.id }) + "-test";
+    const homeUrl = await getWorkspaceHomeUrl(workspaceId);
     html = sanitizeEmailHtml(
-      applyUtmTracking(wrapUnlinkedImages(html), {
+      applyUtmTracking(wrapUnlinkedImages(html, homeUrl), {
         campaign: campaignSlug,
         id: dispatchId,
       })

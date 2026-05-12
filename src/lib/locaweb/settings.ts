@@ -17,6 +17,9 @@ export interface LocawebSettings {
   default_sender_name: string | null;
   default_domain_id: string | null;
   list_ids: Record<string, string>;
+  /** Home URL da marca — usado pra envelopar imagens "soltas"
+   *  (logo, hero) com link clicável. Compartilhado com iPORTO. */
+  home_url: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -60,6 +63,7 @@ export async function getLocawebSettings(workspace_id: string): Promise<LocawebS
       default_sender_name: env.default_sender_name,
       default_domain_id: env.default_domain_id,
       list_ids: {},
+      home_url: null,
     };
   }
   type Row = {
@@ -72,6 +76,7 @@ export async function getLocawebSettings(workspace_id: string): Promise<LocawebS
     default_sender_name: string | null;
     default_domain_id: string | null;
     list_ids: Record<string, string> | null;
+    home_url: string | null;
     created_at?: string;
     updated_at?: string;
   };
@@ -86,6 +91,7 @@ export async function getLocawebSettings(workspace_id: string): Promise<LocawebS
     default_sender_name: r.default_sender_name ?? env.default_sender_name,
     default_domain_id: r.default_domain_id ?? env.default_domain_id,
     list_ids: r.list_ids ?? {},
+    home_url: r.home_url ?? null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -132,6 +138,7 @@ export interface UpdateSettingsInput {
   default_sender_name?: string;
   default_domain_id?: string;
   list_ids?: Record<string, string>;
+  home_url?: string;
 }
 
 export async function upsertLocawebSettings(
@@ -156,6 +163,8 @@ export async function upsertLocawebSettings(
   if (patch.default_domain_id !== undefined)
     update.default_domain_id = patch.default_domain_id?.toString().trim() || null;
   if (patch.list_ids !== undefined) update.list_ids = patch.list_ids;
+  if (patch.home_url !== undefined)
+    update.home_url = patch.home_url?.trim() || null;
 
   await sb
     .from("workspace_email_marketing")

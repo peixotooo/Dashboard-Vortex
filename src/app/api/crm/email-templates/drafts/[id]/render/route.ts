@@ -14,6 +14,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
+import { getWorkspaceHomeUrl } from "@/lib/email-providers";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
 
@@ -68,7 +69,8 @@ export async function GET(
     // bails out for the thumbnail render in /drafts/page.tsx where UTMs
     // would just clutter the link inspector.
     if (!skipTracking) {
-      html = applyUtmTracking(wrapUnlinkedImages(html), {
+      const homeUrl = await getWorkspaceHomeUrl(workspaceId);
+      html = applyUtmTracking(wrapUnlinkedImages(html, homeUrl), {
         campaign: buildCampaignSlug({ kind: "draft", source_id: draft.id }),
         id: draft.id,
       });

@@ -19,7 +19,7 @@ import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { createDelivery, extractMessageId } from "@/lib/iporto/email-marketing";
-import { getActiveProvider } from "@/lib/email-providers";
+import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
@@ -103,8 +103,9 @@ export async function POST(
         slot: s.slot,
         source_id: s.id,
       }) + "-test";
+    const homeUrl = await getWorkspaceHomeUrl(workspaceId);
     const html = sanitizeEmailHtml(
-      applyUtmTracking(wrapUnlinkedImages(s.rendered_html), {
+      applyUtmTracking(wrapUnlinkedImages(s.rendered_html, homeUrl), {
         campaign: campaignSlug,
         id: dispatchId,
       })
