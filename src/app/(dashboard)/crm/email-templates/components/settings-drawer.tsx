@@ -22,11 +22,16 @@ import {
 } from "@/components/ui/select";
 import type { EmailTemplateSettings } from "@/lib/email-templates/types";
 import { LocawebSettingsContent } from "./locaweb-settings-content";
+import { IportoSettingsContent } from "./iporto-settings-content";
+
+type EmailProvider = "locaweb" | "iporto";
 
 export function SettingsDrawer({ workspaceId }: { workspaceId: string }) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<EmailTemplateSettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [provider, setProvider] = useState<EmailProvider>("locaweb");
+  const [savingProvider, setSavingProvider] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -35,7 +40,33 @@ export function SettingsDrawer({ workspaceId }: { workspaceId: string }) {
     })
       .then((r) => r.json())
       .then(setSettings);
+    fetch("/api/crm/email-templates/provider", {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d: { provider?: EmailProvider }) => {
+        if (d?.provider === "iporto" || d?.provider === "locaweb") {
+          setProvider(d.provider);
+        }
+      });
   }, [open, workspaceId]);
+
+  async function changeProvider(next: EmailProvider) {
+    setSavingProvider(true);
+    try {
+      const r = await fetch("/api/crm/email-templates/provider", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ provider: next }),
+      });
+      if (r.ok) setProvider(next);
+    } finally {
+      setSavingProvider(false);
+    }
+  }
 
   async function save() {
     if (!settings) return;
@@ -191,8 +222,45 @@ export function SettingsDrawer({ workspaceId }: { workspaceId: string }) {
               )}
             </TabsContent>
 
-            <TabsContent value="locaweb" className="pt-4">
-              <LocawebSettingsContent workspaceId={workspaceId} />
+            <TabsContent value="locaweb" className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>Provider ativo</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={provider === "locaweb" ? "default" : "outline"}
+                    onClick={() => changeProvider("locaweb")}
+                    disabled={savingProvider}
+                    className="flex-1"
+                  >
+                    Locaweb
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={provider === "iporto" ? "default" : "outline"}
+                    onClick={() => changeProvider("iporto")}
+                    disabled={savingProvider}
+                    className="flex-1"
+                  >
+                    iPORTO
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  O dispatch de e-mail vai usar este provider. Locaweb faz fan-out
+                  via list_ids; iPORTO envia 1 request por destinatário (cap 500
+                  por disparo síncrono).
+                </p>
+              </div>
+
+              <div className="border-t pt-4">
+                {provider === "iporto" ? (
+                  <IportoSettingsContent workspaceId={workspaceId} />
+                ) : (
+                  <LocawebSettingsContent workspaceId={workspaceId} />
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         </div>
