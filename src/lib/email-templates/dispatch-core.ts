@@ -10,7 +10,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
-import { createDelivery } from "@/lib/iporto/email-marketing";
 import { getActiveProvider } from "@/lib/email-providers";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
@@ -333,79 +332,19 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
     };
   }
 
-  // Limite defensivo: iPORTO é 1-request por destinatário e a Vercel
-  // tem timeout. Acima desse limite, o caller deve quebrar em lotes.
-  const HARD_CAP = 500;
-  if (payload.recipients.length > HARD_CAP) {
-    return {
-      ok: false,
-      error: `Lista de destinatários (${payload.recipients.length}) excede o limite atual do dispatch iPORTO síncrono (${HARD_CAP}). Quebre em lotes ou use Locaweb.`,
-      statusCode: 400,
-    };
-  }
-
+  // Sanity-check das credenciais antes de enfileirar — falhar cedo se
+  // o workspace não configurou nada.
   let creds;
   try {
     creds = await getIportoReadyCreds(workspaceId);
   } catch (err) {
     return { ok: false, error: (err as Error).message, statusCode: 400 };
   }
-
   const senderEmail = payload.sender_email ?? creds.sender_email;
   const senderName = payload.sender_name ?? creds.sender_name;
 
-  // Envia em paralelo limitado pra não derrubar a iPORTO. ~10 requests
-  // simultâneas é um sweet spot conservador.
-  const CONCURRENCY = 10;
-  const messageIds: string[] = [];
-  let sent = 0;
-  let failed = 0;
-  const errors: string[] = [];
-
-  const renderForRecipient = (r: DispatchRecipient): string => {
-    if (!r.vars) return html;
-    let out = html;
-    for (const [k, v] of Object.entries(r.vars)) {
-      out = out.replaceAll(`{{${k}}}`, String(v));
-    }
-    return out;
-  };
-
-  for (let i = 0; i < payload.recipients.length; i += CONCURRENCY) {
-    const batch = payload.recipients.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map((r) =>
-        createDelivery(creds.creds, {
-          subject,
-          from: senderEmail,
-          from_name: senderName,
-          address_to: r.email,
-          html_body: renderForRecipient(r),
-          headers: {
-            envio_id: dispatchId,
-            campaign: campaignSlug,
-          },
-          tags: [`dispatch:${dispatchId}`, `campaign:${campaignSlug}`],
-          tracking_settings: { track_open: "yes", track_link: "yes" },
-        })
-      )
-    );
-    for (const res of results) {
-      if (res.status === "fulfilled") {
-        const mid = res.value.message_id ?? res.value.request_id;
-        if (mid) messageIds.push(mid);
-        sent++;
-      } else {
-        failed++;
-        if (errors.length < 5) {
-          const e = res.reason as { message?: string };
-          errors.push(e?.message ?? "erro desconhecido");
-        }
-      }
-    }
-  }
-
-  const initialStatus: "queued" | "scheduled" = "queued";
+  // Cria o dispatch row em status='queued' carregando o template HTML/
+  // assunto/remetente — o cron usa isso pra renderizar por destinatário.
   const { data: dispatchRow, error: insErr } = await sb
     .from("email_template_dispatches")
     .insert({
@@ -416,59 +355,71 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
       provider: "iporto",
       locaweb_message_id: null,
       locaweb_list_ids: [],
-      iporto_message_ids: messageIds,
+      iporto_message_ids: [],
       recipients_total: payload.recipients.length,
-      recipients_sent: sent,
-      recipients_failed: failed,
+      recipients_sent: 0,
+      recipients_failed: 0,
       scheduled_to: null,
-      status: failed === payload.recipients.length ? "failed" : initialStatus,
+      status: "queued",
+      html_body: html,
+      subject,
+      from_email: senderEmail,
+      from_name: senderName,
       stats: {
         utm_campaign: campaignSlug,
         utm_id: dispatchId,
         utm_term: payload.utm_term ?? null,
-        errors_sample: errors,
       },
     })
     .select()
     .single();
 
   if (insErr) {
-    console.error("[dispatch] dispatch row insert failed:", insErr);
     return {
-      ok: true,
-      dispatch_id: null,
-      locaweb_message_id: messageIds[0] ?? "",
-      provider: "iporto",
-      status: initialStatus,
-      scheduled_to: null,
-      recipients_total: payload.recipients.length,
-      recipients_sent: sent,
-      recipients_failed: failed,
-      warn: `Envios iPORTO completos (${sent}/${payload.recipients.length}) mas falhou ao registrar localmente: ${insErr.message}`,
+      ok: false,
+      error: `Falha ao criar dispatch: ${insErr.message}`,
+      statusCode: 500,
     };
   }
 
-  if (failed === payload.recipients.length) {
-    return {
-      ok: false,
-      error: `Todos os ${payload.recipients.length} envios iPORTO falharam. Primeiro erro: ${errors[0] ?? "desconhecido"}`,
-      statusCode: 502,
-    };
+  // Insere envios em chunks de 1000 (cap do payload do Supabase).
+  const CHUNK = 1000;
+  const envios = payload.recipients.map((r) => ({
+    dispatch_id: dispatchId,
+    workspace_id: workspaceId,
+    email: r.email,
+    name: r.name ?? null,
+    vars: r.vars ?? {},
+  }));
+  for (let i = 0; i < envios.length; i += CHUNK) {
+    const slice = envios.slice(i, i + CHUNK);
+    const { error } = await sb
+      .from("email_template_iporto_envios")
+      .insert(slice);
+    if (error) {
+      // Marca o dispatch como failed pra não ficar "queued" pra sempre.
+      await sb
+        .from("email_template_dispatches")
+        .update({ status: "failed" })
+        .eq("id", dispatchId);
+      return {
+        ok: false,
+        error: `Falha ao enfileirar envios (chunk ${i}-${i + slice.length}): ${error.message}`,
+        statusCode: 500,
+      };
+    }
   }
 
   return {
     ok: true,
     dispatch_id: dispatchRow.id,
-    locaweb_message_id: messageIds[0] ?? "",
+    locaweb_message_id: "",
     provider: "iporto",
-    status: initialStatus,
+    status: "queued",
     scheduled_to: null,
     recipients_total: payload.recipients.length,
-    recipients_sent: sent,
-    recipients_failed: failed,
-    warn:
-      failed > 0
-        ? `${failed} de ${payload.recipients.length} destinatários falharam.`
-        : undefined,
+    recipients_sent: 0,
+    recipients_failed: 0,
+    warn: `${payload.recipients.length} envios enfileirados. Cron iporto-dispatcher processa ~1000/min.`,
   };
 }

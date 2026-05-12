@@ -5,9 +5,11 @@
 //
 // Diferente da Locaweb (que não tem webhook e exige polling), aqui
 // agregamos os eventos no campo stats do email_template_dispatches
-// — incrementando contadores delivered/opened/clicked/bounced.
+// — incrementando contadores delivered/opened/clicked/bounced. Também
+// atualizamos o envio individual em email_template_iporto_envios
+// quando achamos o iporto_message_id (envios via cron-dispatcher).
 //
-// IdempotÊncia: cada (message_id, tipo) só conta uma vez. O campo
+// Idempotência: cada (message_id, tipo) só conta uma vez. O campo
 // stats.event_log armazena os pares (message_id, tipo) processados.
 //
 // Auth: o iPORTO permite configurar um secret no painel; verificamos
@@ -32,6 +34,17 @@ interface IportoEvent {
   [k: string]: unknown;
 }
 
+interface DispatchStats {
+  delivered?: number;
+  opens?: number;
+  clicks?: number;
+  bounces?: number;
+  complaints?: number;
+  unsubscribes?: number;
+  event_log?: string[];
+  [k: string]: unknown;
+}
+
 const STATUS_INC: Record<string, keyof DispatchStats> = {
   delivered: "delivered",
   opened: "opens",
@@ -46,15 +59,36 @@ const STATUS_INC: Record<string, keyof DispatchStats> = {
   unsubscribe: "unsubscribes",
 };
 
-interface DispatchStats {
-  delivered?: number;
-  opens?: number;
-  clicks?: number;
-  bounces?: number;
-  complaints?: number;
-  unsubscribes?: number;
-  event_log?: string[];
-  [k: string]: unknown;
+const ENVIO_TERMINAL_EVENTS: Record<string, "sent" | "failed"> = {
+  delivered: "sent",
+  bounced: "failed",
+  complained: "failed",
+};
+
+type Admin = ReturnType<typeof createAdminClient>;
+
+async function verifySecret(
+  admin: Admin,
+  workspaceId: string,
+  req: NextRequest
+): Promise<{ ok: true } | { ok: false; res: NextResponse }> {
+  const { data: settings } = await admin
+    .from("workspace_email_marketing")
+    .select("iporto_webhook_secret")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  const expectedSecret = (settings as { iporto_webhook_secret?: string } | null)
+    ?.iporto_webhook_secret;
+  if (!expectedSecret) return { ok: true };
+  const headerSecret = req.headers.get("x-webhook-secret");
+  const querySecret = req.nextUrl.searchParams.get("secret");
+  if (headerSecret === expectedSecret || querySecret === expectedSecret) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    res: NextResponse.json({ error: "invalid webhook secret" }, { status: 401 }),
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -68,50 +102,70 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient();
 
-    // Localiza o dispatch pelo iporto_message_ids (array). PostgreSQL
-    // permite contains-on-array via .contains.
-    const { data: dispatches } = await admin
-      .from("email_template_dispatches")
-      .select(
-        "id, workspace_id, stats, iporto_message_ids"
-      )
-      .contains("iporto_message_ids", [messageId])
-      .limit(1);
+    // 1. Localiza envio individual pelo iporto_message_id (caminho do
+    // cron-dispatcher).
+    const { data: envio } = await admin
+      .from("email_template_iporto_envios")
+      .select("id, dispatch_id, workspace_id, status")
+      .eq("iporto_message_id", messageId)
+      .maybeSingle();
 
-    const dispatch = dispatches?.[0] as
-      | {
-          id: string;
-          workspace_id: string;
-          stats: DispatchStats | null;
-          iporto_message_ids: string[] | null;
-        }
-      | undefined;
+    let dispatchId: string;
+    let workspaceId: string;
+
+    if (envio) {
+      const e = envio as {
+        id: number;
+        dispatch_id: string;
+        workspace_id: string;
+        status: string;
+      };
+      dispatchId = e.dispatch_id;
+      workspaceId = e.workspace_id;
+
+      // Atualiza status terminal do envio (delivered=sent, bounced=failed).
+      const envioStatus = ENVIO_TERMINAL_EVENTS[eventType];
+      if (envioStatus && e.status !== envioStatus) {
+        await admin
+          .from("email_template_iporto_envios")
+          .update({
+            status: envioStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", e.id);
+      }
+    } else {
+      // 2. Fallback pro dispatch antigo (síncrono) que armazenava todos
+      // os message_ids no array iporto_message_ids do próprio dispatch.
+      const { data: dispatches } = await admin
+        .from("email_template_dispatches")
+        .select("id, workspace_id")
+        .contains("iporto_message_ids", [messageId])
+        .limit(1);
+      const fallback = dispatches?.[0] as
+        | { id: string; workspace_id: string }
+        | undefined;
+      if (!fallback) {
+        return NextResponse.json({ ok: true, ignored: "envio not found" });
+      }
+      dispatchId = fallback.id;
+      workspaceId = fallback.workspace_id;
+    }
+
+    const auth = await verifySecret(admin, workspaceId, req);
+    if (!auth.ok) return auth.res;
+
+    // 3. Agrega no stats do dispatch (idempotente via event_log).
+    const { data: dispatch } = await admin
+      .from("email_template_dispatches")
+      .select("id, stats")
+      .eq("id", dispatchId)
+      .maybeSingle();
     if (!dispatch) {
-      // 200 mesmo assim — iPORTO pode reenviar e não queremos retry storm.
       return NextResponse.json({ ok: true, ignored: "dispatch not found" });
     }
-
-    // Auth via secret do workspace.
-    const { data: settings } = await admin
-      .from("workspace_email_marketing")
-      .select("iporto_webhook_secret")
-      .eq("workspace_id", dispatch.workspace_id)
-      .maybeSingle();
-    const expectedSecret = (settings as { iporto_webhook_secret?: string } | null)
-      ?.iporto_webhook_secret;
-    if (expectedSecret) {
-      const headerSecret = req.headers.get("x-webhook-secret");
-      const querySecret = req.nextUrl.searchParams.get("secret");
-      if (headerSecret !== expectedSecret && querySecret !== expectedSecret) {
-        return NextResponse.json(
-          { error: "invalid webhook secret" },
-          { status: 401 }
-        );
-      }
-    }
-
-    // IdempotÊncia via stats.event_log
-    const stats: DispatchStats = (dispatch.stats ?? {}) as DispatchStats;
+    const stats: DispatchStats = ((dispatch as { stats?: DispatchStats }).stats ??
+      {}) as DispatchStats;
     const eventKey = `${messageId}:${eventType}`;
     const log = Array.isArray(stats.event_log) ? [...stats.event_log] : [];
     if (log.includes(eventKey)) {
@@ -134,7 +188,7 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
         last_synced_at: new Date().toISOString(),
       })
-      .eq("id", dispatch.id);
+      .eq("id", dispatchId);
 
     return NextResponse.json({ ok: true, counter: counterKey ?? null });
   } catch (err) {
