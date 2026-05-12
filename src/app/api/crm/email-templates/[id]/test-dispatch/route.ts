@@ -17,6 +17,9 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
+import { getIportoReadyCreds } from "@/lib/iporto/settings";
+import { createDelivery } from "@/lib/iporto/email-marketing";
+import { getActiveProvider } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
@@ -92,6 +95,75 @@ export async function POST(
       );
     }
 
+    const dispatchId = randomUUID();
+    const campaignSlug =
+      buildCampaignSlug({
+        kind: "suggestion",
+        date: s.generated_for_date,
+        slot: s.slot,
+        source_id: s.id,
+      }) + "-test";
+    const html = sanitizeEmailHtml(
+      applyUtmTracking(s.rendered_html, {
+        campaign: campaignSlug,
+        id: dispatchId,
+      })
+    );
+    const subject =
+      `[TESTE] ${s.copy?.subject || s.product_snapshot?.name || "Bulking"}`;
+
+    // Ramifica pelo provider ativo do workspace (test send precisa usar
+    // o mesmo canal do real, senão o usuário valida no provider errado).
+    const { provider } = await getActiveProvider(workspaceId);
+
+    if (provider === "iporto") {
+      let iCreds;
+      try {
+        iCreds = await getIportoReadyCreds(workspaceId);
+      } catch (err) {
+        return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+      }
+      const messageIds: string[] = [];
+      const errors: string[] = [];
+      const results = await Promise.allSettled(
+        emails.map((email) =>
+          createDelivery(iCreds.creds, {
+            subject,
+            from: iCreds.sender_email,
+            from_name: iCreds.sender_name,
+            address_to: email,
+            html_body: html,
+            headers: { envio_id: dispatchId, test: "true" },
+            tags: [`test:${dispatchId}`],
+            tracking_settings: { track_open: "yes", track_link: "yes" },
+          })
+        )
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          const mid = r.value.message_id ?? r.value.request_id;
+          if (mid) messageIds.push(mid);
+        } else {
+          const e = r.reason as { message?: string };
+          errors.push(e?.message ?? "erro desconhecido");
+        }
+      }
+      if (messageIds.length === 0) {
+        return NextResponse.json(
+          { error: `iPORTO rejeitou o teste: ${errors[0] ?? "erro desconhecido"}` },
+          { status: 502 }
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        provider: "iporto",
+        iporto_message_ids: messageIds,
+        sent_to: emails,
+        failed: errors.length,
+      });
+    }
+
+    // Locaweb (default)
     let creds;
     try {
       creds = await getReadyCreds(workspaceId);
@@ -99,11 +171,6 @@ export async function POST(
       return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
 
-    const dispatchId = randomUUID();
-
-    // Reuse a stable test list per recipient instead of creating a fresh
-    // one each preview. If multiple emails were passed, we materialize
-    // each one's list and union the ids — keeps Locaweb tidy.
     let listIds: Array<string | number>;
     let testListNames: string[];
     try {
@@ -119,30 +186,11 @@ export async function POST(
       );
     }
 
-    // Stamp UTMs with a `-test` suffix so any clicks during preview don't
-    // poison real-campaign attribution in GA4.
-    const campaignSlug =
-      buildCampaignSlug({
-        kind: "suggestion",
-        date: s.generated_for_date,
-        slot: s.slot,
-        source_id: s.id,
-      }) + "-test";
-    const html = sanitizeEmailHtml(
-      applyUtmTracking(s.rendered_html, {
-        campaign: campaignSlug,
-        id: dispatchId,
-      })
-    );
-
     const todayBrt = (() => {
       const d = new Date();
       d.setUTCHours(d.getUTCHours() - 3);
       return d.toISOString().slice(0, 10);
     })();
-
-    const subject =
-      `[TESTE] ${s.copy?.subject || s.product_snapshot?.name || "Bulking"}`;
     const short = dispatchId.replace(/-/g, "").slice(0, 8);
     const campaignName = `test_${s.slot}_${s.generated_for_date}_${short}`;
 
@@ -175,6 +223,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
+      provider: "locaweb",
       locaweb_message_id: messageId,
       sent_to: emails,
       list_ids: listIds.map(String),

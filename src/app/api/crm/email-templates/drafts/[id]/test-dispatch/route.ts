@@ -11,6 +11,9 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
+import { getIportoReadyCreds } from "@/lib/iporto/settings";
+import { createDelivery } from "@/lib/iporto/email-marketing";
+import { getActiveProvider } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
@@ -107,14 +110,73 @@ export async function POST(
       );
     }
 
+    const dispatchId = randomUUID();
+    const campaignSlug =
+      buildCampaignSlug({ kind: "draft", source_id: draft.id }) + "-test";
+    html = sanitizeEmailHtml(
+      applyUtmTracking(html, { campaign: campaignSlug, id: dispatchId })
+    );
+    const subject = `[TESTE] ${draft.meta?.subject || draft.name || "Bulking"}`;
+
+    // Ramifica pelo provider — o test send precisa usar o mesmo provider
+    // ativo do workspace, senão o usuário testa Locaweb e dispara iPORTO
+    // (ou vice-versa) e nunca compara o que vai chegar de verdade.
+    const { provider } = await getActiveProvider(workspaceId);
+
+    if (provider === "iporto") {
+      let iCreds;
+      try {
+        iCreds = await getIportoReadyCreds(workspaceId);
+      } catch (err) {
+        return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+      }
+      const messageIds: string[] = [];
+      const errors: string[] = [];
+      const results = await Promise.allSettled(
+        emails.map((email) =>
+          createDelivery(iCreds.creds, {
+            subject,
+            from: iCreds.sender_email,
+            from_name: iCreds.sender_name,
+            address_to: email,
+            html_body: html,
+            headers: { envio_id: dispatchId, test: "true" },
+            tags: [`test:${dispatchId}`],
+            tracking_settings: { track_open: "yes", track_link: "yes" },
+          })
+        )
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          const mid = r.value.message_id ?? r.value.request_id;
+          if (mid) messageIds.push(mid);
+        } else {
+          const e = r.reason as { message?: string };
+          errors.push(e?.message ?? "erro desconhecido");
+        }
+      }
+      if (messageIds.length === 0) {
+        return NextResponse.json(
+          { error: `iPORTO rejeitou o teste: ${errors[0] ?? "erro desconhecido"}` },
+          { status: 502 }
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        provider: "iporto",
+        iporto_message_ids: messageIds,
+        sent_to: emails,
+        failed: errors.length,
+      });
+    }
+
+    // Locaweb (default)
     let creds;
     try {
       creds = await getReadyCreds(workspaceId);
     } catch (err) {
       return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
-
-    const dispatchId = randomUUID();
     const short = dispatchId.replace(/-/g, "").slice(0, 8);
 
     let listIds: Array<string | number>;
@@ -132,24 +194,11 @@ export async function POST(
       );
     }
 
-    // -test suffix in the campaign slug so any clicks during preview don't
-    // mix into real-campaign attribution in GA4.
-    const campaignSlug =
-      buildCampaignSlug({ kind: "draft", source_id: draft.id }) + "-test";
-    html = sanitizeEmailHtml(
-      applyUtmTracking(html, {
-        campaign: campaignSlug,
-        id: dispatchId,
-      })
-    );
-
     const todayBrt = (() => {
       const d = new Date();
       d.setUTCHours(d.getUTCHours() - 3);
       return d.toISOString().slice(0, 10);
     })();
-
-    const subject = `[TESTE] ${draft.meta?.subject || draft.name || "Bulking"}`;
     const campaignName = `test_draft_${draft.id.slice(0, 8)}_${short}`;
 
     let messageRef;
@@ -181,6 +230,7 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
+      provider: "locaweb",
       locaweb_message_id: messageId,
       sent_to: emails,
       list_ids: listIds.map(String),
