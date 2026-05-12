@@ -102,11 +102,19 @@ export interface CreateDeliveryInput {
 
 export interface DeliveryRef {
   /** iPORTO devolve um identificador da mensagem enfileirada — usamos
-   *  pra correlacionar webhooks. Nomes variam entre tenants. */
+   *  pra correlacionar webhooks. Confirmado em prod (2026-05): o campo
+   *  real é `data.message_tracking_code`. SDD documentava
+   *  message_id/request_id; mantemos eles como fallback. */
   message_id?: string;
   request_id?: string;
   id?: string;
-  data?: { message_id?: string; request_id?: string; id?: string };
+  message_tracking_code?: string;
+  data?: {
+    message_id?: string;
+    request_id?: string;
+    id?: string;
+    message_tracking_code?: string;
+  };
   status?: string;
   [k: string]: unknown;
 }
@@ -126,16 +134,20 @@ export async function createDelivery(
 }
 
 /** Procura o identificador da mensagem em todos os campos conhecidos.
- *  iPORTO retorna shapes diferentes dependendo do tenant/versão. */
+ *  iPORTO v3 (prod): retorna { data: { message_tracking_code: "..." } }.
+ *  Aceita as variantes mais antigas (message_id/request_id) como fallback
+ *  caso a API mude. */
 export function extractMessageId(ref: DeliveryRef | undefined | null): string | null {
   if (!ref || typeof ref !== "object") return null;
   return (
-    ref.message_id ??
-    ref.request_id ??
-    ref.id ??
+    ref.data?.message_tracking_code ??
+    ref.message_tracking_code ??
     ref.data?.message_id ??
+    ref.message_id ??
     ref.data?.request_id ??
+    ref.request_id ??
     ref.data?.id ??
+    ref.id ??
     null
   );
 }
