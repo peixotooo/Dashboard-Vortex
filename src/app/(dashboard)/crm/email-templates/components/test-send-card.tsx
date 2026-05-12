@@ -104,9 +104,9 @@ export function TestSendCard({
       </div>
 
       {sentTo && (
-        <div className="flex items-start gap-2 text-[11px] p-2.5 border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 rounded">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="text-emerald-700 dark:text-emerald-300">
+        <div className="flex items-start gap-2 text-[11px] p-2.5 border border-emerald-300 bg-emerald-100 dark:bg-emerald-950 dark:border-emerald-700 rounded">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-300 shrink-0 mt-0.5" />
+          <div className="text-emerald-900 dark:text-emerald-100">
             Teste enviado para <span className="font-mono">{sentTo}</span>. Pode
             levar até alguns minutos pra chegar.
           </div>

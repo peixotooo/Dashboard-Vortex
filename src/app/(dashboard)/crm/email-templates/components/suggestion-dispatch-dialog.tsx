@@ -575,10 +575,10 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
 
         {success ? (
           <div className="space-y-4">
-            <div className="flex items-start gap-3 p-3 border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 rounded-md">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3 p-3 border border-emerald-300 bg-emerald-100 dark:bg-emerald-950 dark:border-emerald-700 rounded-md">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 dark:text-emerald-300 shrink-0 mt-0.5" />
               <div className="text-xs">
-                <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                <div className="font-medium text-emerald-900 dark:text-emerald-100">
                   {success.scheduled
                     ? `Campanha agendada para ${success.scheduled}`
                     : "Campanha enviada à Locaweb"}
