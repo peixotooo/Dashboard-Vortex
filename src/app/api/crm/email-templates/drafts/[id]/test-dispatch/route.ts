@@ -131,7 +131,7 @@ export async function POST(
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }
       const messageIds: string[] = [];
-      let sentNoId = 0;
+      const responses: Array<{ email: string; body: unknown }> = [];
       const errors: string[] = [];
       const results = await Promise.allSettled(
         emails.map((email) =>
@@ -155,30 +155,31 @@ export async function POST(
             `[draft test-dispatch iporto] ${email} → response:`,
             JSON.stringify(r.value).slice(0, 500)
           );
+          responses.push({ email, body: r.value });
           const mid = extractMessageId(r.value);
-          if (mid) {
-            messageIds.push(mid);
-          } else {
-            // 2xx sem id reconhecível — iPORTO aceitou mas não retornou
-            // identificador. Conta como sent (entrega aconteceu) mas
-            // perde o tracking de webhook.
-            sentNoId++;
-          }
+          if (mid) messageIds.push(mid);
         } else {
-          const e = r.reason as { message?: string; status?: number };
+          const e = r.reason as { message?: string };
           const msg = e?.message ?? "erro desconhecido";
-          console.error(
-            `[draft test-dispatch iporto] ${email} → erro:`,
-            msg
-          );
+          console.error(`[draft test-dispatch iporto] ${email} → erro:`, msg);
           errors.push(msg);
         }
       }
-      if (messageIds.length === 0 && sentNoId === 0) {
+      // Sem message_id E sem erro = iPORTO aceitou silenciosamente
+      // mas não enfileirou. Suspeitos: suppression list, domínio não
+      // verificado, quota estourada. Surface como falha clara.
+      if (messageIds.length === 0) {
+        if (errors.length > 0) {
+          return NextResponse.json(
+            { error: `iPORTO rejeitou o teste: ${errors[0]}`, details: errors },
+            { status: 502 }
+          );
+        }
         return NextResponse.json(
           {
-            error: `iPORTO rejeitou o teste: ${errors[0] ?? "sem detalhe — verifique logs do servidor"}`,
-            details: errors,
+            error:
+              "iPORTO respondeu 200 OK mas sem message_id. Provavelmente: domínio do remetente não verificado, e-mail na lista de supressão (marcou spam antes?), ou quota estourada. Resposta crua abaixo.",
+            iporto_responses: responses,
           },
           { status: 502 }
         );
@@ -187,8 +188,8 @@ export async function POST(
         ok: true,
         provider: "iporto",
         iporto_message_ids: messageIds,
+        iporto_responses: responses,
         sent_to: emails,
-        sent_without_tracking: sentNoId,
         failed: errors.length,
         errors: errors.length > 0 ? errors : undefined,
       });
