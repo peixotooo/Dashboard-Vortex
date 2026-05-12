@@ -12,7 +12,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
 import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
-import { createDelivery } from "@/lib/iporto/email-marketing";
+import { createDelivery, extractMessageId } from "@/lib/iporto/email-marketing";
 import { getActiveProvider } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { renderDraft } from "@/lib/email-templates/editor/render";
@@ -131,6 +131,7 @@ export async function POST(
         return NextResponse.json({ error: (err as Error).message }, { status: 400 });
       }
       const messageIds: string[] = [];
+      let sentNoId = 0;
       const errors: string[] = [];
       const results = await Promise.allSettled(
         emails.map((email) =>
@@ -146,18 +147,39 @@ export async function POST(
           })
         )
       );
-      for (const r of results) {
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const email = emails[i];
         if (r.status === "fulfilled") {
-          const mid = r.value.message_id ?? r.value.request_id;
-          if (mid) messageIds.push(mid);
+          console.log(
+            `[draft test-dispatch iporto] ${email} → response:`,
+            JSON.stringify(r.value).slice(0, 500)
+          );
+          const mid = extractMessageId(r.value);
+          if (mid) {
+            messageIds.push(mid);
+          } else {
+            // 2xx sem id reconhecível — iPORTO aceitou mas não retornou
+            // identificador. Conta como sent (entrega aconteceu) mas
+            // perde o tracking de webhook.
+            sentNoId++;
+          }
         } else {
-          const e = r.reason as { message?: string };
-          errors.push(e?.message ?? "erro desconhecido");
+          const e = r.reason as { message?: string; status?: number };
+          const msg = e?.message ?? "erro desconhecido";
+          console.error(
+            `[draft test-dispatch iporto] ${email} → erro:`,
+            msg
+          );
+          errors.push(msg);
         }
       }
-      if (messageIds.length === 0) {
+      if (messageIds.length === 0 && sentNoId === 0) {
         return NextResponse.json(
-          { error: `iPORTO rejeitou o teste: ${errors[0] ?? "erro desconhecido"}` },
+          {
+            error: `iPORTO rejeitou o teste: ${errors[0] ?? "sem detalhe — verifique logs do servidor"}`,
+            details: errors,
+          },
           { status: 502 }
         );
       }
@@ -166,7 +188,9 @@ export async function POST(
         provider: "iporto",
         iporto_message_ids: messageIds,
         sent_to: emails,
+        sent_without_tracking: sentNoId,
         failed: errors.length,
+        errors: errors.length > 0 ? errors : undefined,
       });
     }
 

@@ -47,16 +47,26 @@ async function request<T>(
     }
   }
   if (!res.ok) {
+    const bodyPreview =
+      typeof parsed === "object" && parsed !== null
+        ? JSON.stringify(parsed).slice(0, 500)
+        : String(parsed ?? "(empty body)").slice(0, 500);
+    console.error(
+      `[iPORTO ${method}] ${url} → HTTP ${res.status}\nBody: ${bodyPreview}`
+    );
     const err: IportoError = {
       status: res.status,
       body: parsed,
-      message: `iPORTO ${method} ${path} → ${res.status} ${
-        typeof parsed === "object" && parsed !== null
-          ? JSON.stringify(parsed).slice(0, 240)
-          : String(parsed).slice(0, 240)
-      }`,
+      message: `iPORTO ${method} ${path} → ${res.status}: ${bodyPreview}`,
     };
     throw err;
+  }
+  // Log respostas 2xx vazias/inesperadas pra debug. iPORTO normalmente
+  // devolve { message_id } ou { request_id } no 202 Accepted.
+  if (!parsed || typeof parsed !== "object") {
+    console.warn(
+      `[iPORTO ${method}] ${url} → ${res.status} sem body parseável`
+    );
   }
   return (parsed ?? {}) as T;
 }
@@ -92,10 +102,11 @@ export interface CreateDeliveryInput {
 
 export interface DeliveryRef {
   /** iPORTO devolve um identificador da mensagem enfileirada — usamos
-   *  pra correlacionar webhooks. Nomes variam entre tenants: usamos
-   *  message_id primeiro, request_id como fallback. */
+   *  pra correlacionar webhooks. Nomes variam entre tenants. */
   message_id?: string;
   request_id?: string;
+  id?: string;
+  data?: { message_id?: string; request_id?: string; id?: string };
   status?: string;
   [k: string]: unknown;
 }
@@ -111,6 +122,21 @@ export async function createDelivery(
     "POST",
     "/delivery/smtp/queue/api/delivery",
     input
+  );
+}
+
+/** Procura o identificador da mensagem em todos os campos conhecidos.
+ *  iPORTO retorna shapes diferentes dependendo do tenant/versão. */
+export function extractMessageId(ref: DeliveryRef | undefined | null): string | null {
+  if (!ref || typeof ref !== "object") return null;
+  return (
+    ref.message_id ??
+    ref.request_id ??
+    ref.id ??
+    ref.data?.message_id ??
+    ref.data?.request_id ??
+    ref.data?.id ??
+    null
   );
 }
 

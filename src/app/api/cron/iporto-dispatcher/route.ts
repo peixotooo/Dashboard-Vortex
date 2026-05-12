@@ -21,7 +21,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { createDelivery, type IportoError } from "@/lib/iporto/email-marketing";
+import {
+  createDelivery,
+  extractMessageId,
+  type IportoError,
+} from "@/lib/iporto/email-marketing";
 import { getIportoSettings } from "@/lib/iporto/settings";
 
 export const runtime = "nodejs";
@@ -310,7 +314,7 @@ async function processOne(
       tags: [`dispatch:${envio.dispatch_id}`, `envio:${envio.id}`],
       tracking_settings: { track_open: "yes", track_link: "yes" },
     });
-    const messageId = result.message_id ?? result.request_id ?? null;
+    const messageId = extractMessageId(result);
     await admin
       .from("email_template_iporto_envios")
       .update({
