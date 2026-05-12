@@ -13,7 +13,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
-import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
 import type { Draft, BlockNode, DraftMeta } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
 
@@ -68,7 +68,7 @@ export async function GET(
     // bails out for the thumbnail render in /drafts/page.tsx where UTMs
     // would just clutter the link inspector.
     if (!skipTracking) {
-      html = applyUtmTracking(html, {
+      html = applyUtmTracking(wrapUnlinkedImages(html), {
         campaign: buildCampaignSlug({ kind: "draft", source_id: draft.id }),
         id: draft.id,
       });

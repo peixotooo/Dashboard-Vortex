@@ -21,7 +21,7 @@ import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { createDelivery, extractMessageId } from "@/lib/iporto/email-marketing";
 import { getActiveProvider } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
-import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -104,7 +104,7 @@ export async function POST(
         source_id: s.id,
       }) + "-test";
     const html = sanitizeEmailHtml(
-      applyUtmTracking(s.rendered_html, {
+      applyUtmTracking(wrapUnlinkedImages(s.rendered_html), {
         campaign: campaignSlug,
         id: dispatchId,
       })

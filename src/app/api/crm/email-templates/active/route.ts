@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
-import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
 
 interface SuggestionRow {
   id: string;
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       return {
         ...s,
         rendered_html: sanitizeEmailHtml(
-          applyUtmTracking(s.rendered_html, {
+          applyUtmTracking(wrapUnlinkedImages(s.rendered_html), {
             campaign,
             id: s.id,
           })

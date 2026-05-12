@@ -17,6 +17,7 @@ import {
   applyUtmTracking,
   buildCampaignSlug,
   sanitizeEmailHtml,
+  wrapUnlinkedImages,
 } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 import type { Draft } from "@/lib/email-templates/editor/schema";
@@ -128,8 +129,11 @@ export async function dispatchDraft(
     kind: payload.suggestion_id ? "suggestion" : "draft",
     source_id: draft.id,
   });
+  // Pipeline: wrapUnlinkedImages → applyUtmTracking → sanitize.
+  // Wrap antes pra que os <a> novos (logo + imagens decorativas) já
+  // sejam taggeados com UTMs pelo applyUtmTracking.
   html = sanitizeEmailHtml(
-    applyUtmTracking(html, {
+    applyUtmTracking(wrapUnlinkedImages(html), {
       campaign: campaignSlug,
       term: payload.utm_term,
       id: dispatchId,

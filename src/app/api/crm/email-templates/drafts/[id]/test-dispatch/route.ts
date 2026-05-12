@@ -17,7 +17,7 @@ import { getActiveProvider } from "@/lib/email-providers";
 import { ensureTestList } from "@/lib/email-templates/test-list";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
-import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml } from "@/lib/email-templates/tracking";
+import { applyUtmTracking, buildCampaignSlug, sanitizeEmailHtml, wrapUnlinkedImages } from "@/lib/email-templates/tracking";
 import { randomUUID } from "crypto";
 import type { Draft } from "@/lib/email-templates/editor/schema";
 import type { TreeDraft, SectionNode } from "@/lib/email-templates/tree/schema";
@@ -114,7 +114,10 @@ export async function POST(
     const campaignSlug =
       buildCampaignSlug({ kind: "draft", source_id: draft.id }) + "-test";
     html = sanitizeEmailHtml(
-      applyUtmTracking(html, { campaign: campaignSlug, id: dispatchId })
+      applyUtmTracking(wrapUnlinkedImages(html), {
+        campaign: campaignSlug,
+        id: dispatchId,
+      })
     );
     const subject = `[TESTE] ${draft.meta?.subject || draft.name || "Bulking"}`;
 

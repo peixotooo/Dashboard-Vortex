@@ -30,6 +30,12 @@ const DEFAULT_TRACKED_HOSTS = [
   "loja.bulking.com.br",
 ];
 
+/** Home da marca pra onde imagens "soltas" (logo, decorativas) vão.
+ *  Multi-tenant: futuramente vem de workspaces.home_url. Por enquanto
+ *  default Bulking — quando outro workspace usar e-mail marketing,
+ *  passar `home_url` na call de wrapUnlinkedImages. */
+const DEFAULT_HOME_URL = "https://www.bulking.com.br";
+
 export interface UtmContext {
   /** Fixed campaign identifier — propagated to GA4's sessionCampaignName. */
   campaign: string;
@@ -79,11 +85,15 @@ function appendUtm(rawUrl: string, ctx: UtmContext, contentOverride?: string): s
     if (!u.searchParams.has("utm_medium")) u.searchParams.set("utm_medium", FIXED_MEDIUM);
     if (!u.searchParams.has("utm_campaign"))
       u.searchParams.set("utm_campaign", ctx.campaign);
-    if (ctx.term && !u.searchParams.has("utm_term"))
-      u.searchParams.set("utm_term", ctx.term);
-    if (contentOverride && !u.searchParams.has("utm_content"))
+    if (contentOverride && !u.searchParams.has("utm_content")) {
       u.searchParams.set("utm_content", contentOverride);
-    if (ctx.id && !u.searchParams.has("utm_id")) u.searchParams.set("utm_id", ctx.id);
+    }
+    if (ctx.term && !u.searchParams.has("utm_term")) {
+      u.searchParams.set("utm_term", ctx.term);
+    }
+    if (ctx.id && !u.searchParams.has("utm_id")) {
+      u.searchParams.set("utm_id", ctx.id);
+    }
     return u.toString();
   } catch {
     return rawUrl;
@@ -111,6 +121,39 @@ export function applyUtmTracking(html: string, ctx: UtmContext): string {
       const next = appendUtm(url, ctx, contentOverride);
       return `<a${prefix} href=${quote}${next}${quote}${suffix}>`;
     }
+  );
+}
+
+/**
+ * Wrappea qualquer <img> que NÃO está dentro de <a>...</a> com um link
+ * pra home da marca. Garante que toda imagem do e-mail é clicável.
+ *
+ * Regra de UX: toda imagem deve ter link.
+ *   - Logo → home do site (workspace.home_url, futuramente)
+ *   - Hero/decorativas sem contexto → home
+ *   - Imagens de produto: layouts já envolvem em <a href="${product.url}">,
+ *     então o mask + wrap ignora.
+ *
+ * Como aplicar este antes do applyUtmTracking: os <a> novos pegam UTMs
+ * pelo mesmo pipeline.
+ */
+export function wrapUnlinkedImages(html: string, homeUrl?: string): string {
+  if (!html) return html;
+  const home = homeUrl ?? DEFAULT_HOME_URL;
+  // Sentinela legível pra debug; nada de byte invisível.
+  const masked: string[] = [];
+  const masker = html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (m) => {
+    const i = masked.push(m) - 1;
+    return `__VORTEX_A_MASK_${i}__`;
+  });
+  const wrapped = masker.replace(
+    /<img\b[^>]*\/?>/gi,
+    (img) =>
+      `<a href="${home}" target="_blank" style="text-decoration:none;border:0;display:inline-block;">${img}</a>`
+  );
+  return wrapped.replace(
+    /__VORTEX_A_MASK_(\d+)__/g,
+    (_m, idx: string) => masked[Number(idx)]
   );
 }
 
@@ -171,31 +214,43 @@ function unwrapAspectRatioImages(html: string): string {
   // doesn't reflow for clients that honor it.
   return html.replace(
     /<div\s+style="[^"]*padding-top:[^"]+"[^>]*>\s*(<img\b[^>]*?)\s*\/?>\s*<\/div>/gi,
-    (_full, imgPrefix: string) => {
-      const widthMatch = imgPrefix.match(/\swidth=["']?(\d+)["']?/i);
-      const w = widthMatch ? widthMatch[1] : "600";
-      const cleanedAttrs = imgPrefix.replace(/\sstyle="[^"]*"/i, "");
-      return `${cleanedAttrs} style="display:block;width:100%;max-width:${w}px;height:auto;margin:0 auto;background:#F7F7F7;" />`;
+    (_m, imgOpen: string) => {
+      // Drop any inline styles that anchor the image absolutely or fill its
+      // wrapper — the natural image has nothing to anchor against now.
+      const cleaned = imgOpen
+        .replace(/style="[^"]*"/i, (s) => {
+          const stripped = s
+            .replace(/position\s*:\s*absolute\s*;?/gi, "")
+            .replace(/top\s*:\s*\d+(?:px|%)\s*;?/gi, "")
+            .replace(/left\s*:\s*\d+(?:px|%)\s*;?/gi, "")
+            .replace(/width\s*:\s*100%\s*;?/gi, "")
+            .replace(/height\s*:\s*100%\s*;?/gi, "")
+            .replace(/object-fit\s*:\s*[a-z-]+\s*;?/gi, "");
+          return stripped.replace(/style="\s*"/i, "");
+        })
+        .trim();
+      return `${cleaned} style="display:block;width:100%;max-width:600px;height:auto;" />`;
     }
   );
 }
 
 /**
- * Slug builder for utm_campaign. Normalizes a free-form context (suggestion
- * date+slot, draft id, AI compose context) into a stable, GA4-friendly token.
+ * Compose a campaign slug. Used by both the daily-suggestion path and the
+ * draft/AI-compose path so they share a naming convention in GA4.
  */
-export function buildCampaignSlug(input: {
-  kind: "suggestion" | "draft" | "ai" | "reactivated";
-  /** ISO date the email was generated for. */
-  date?: string;
-  /** Slot 1/2/3 for cron suggestions. */
-  slot?: number;
-  /** Internal id (draft uuid, suggestion uuid). */
-  source_id?: string;
+export function buildCampaignSlug(opts: {
+  kind: "suggestion" | "draft" | "ai-compose";
+  date?: string; // YYYY-MM-DD, only suggestion uses it
+  slot?: number; // 1 | 2 | 3, suggestion only
+  source_id: string; // suggestion id, draft id, or compose id
 }): string {
-  const parts: string[] = [input.kind];
-  if (input.date) parts.push(input.date);
-  if (input.slot != null) parts.push(`slot${input.slot}`);
-  if (input.source_id) parts.push(input.source_id.slice(0, 8));
-  return parts.join("-").toLowerCase();
+  const short = opts.source_id.replace(/-/g, "").slice(0, 8);
+  switch (opts.kind) {
+    case "suggestion":
+      return `suggestion-${opts.date}-slot${opts.slot}-${short}`;
+    case "draft":
+      return `draft-${short}`;
+    case "ai-compose":
+      return `ai-compose-${short}`;
+  }
 }
