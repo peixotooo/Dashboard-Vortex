@@ -143,7 +143,13 @@ export async function POST(
             html_body: html,
             headers: { envio_id: dispatchId, test: "true" },
             tags: [`test:${dispatchId}`],
-            tracking_settings: { track_open: "yes", track_link: "yes" },
+            // track_link OFF: iPORTO embrulha cada link com track-s1.*
+            // E injeta utm_source=iPORTO/utm_medium=smtp por cima das
+            // nossas UTMs (applyUtmTracking). Resultado: dois utm_source
+            // na URL final → o próprio track server rejeita com
+            // "Parâmetros inválidos". Mantemos as UTMs do Vortex que
+            // já apontam pro GA4 corretamente.
+            tracking_settings: { track_open: "yes", track_link: "no" },
           })
         )
       );

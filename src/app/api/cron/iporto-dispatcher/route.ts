@@ -312,7 +312,9 @@ async function processOne(
         dispatch_id: envio.dispatch_id,
       },
       tags: [`dispatch:${envio.dispatch_id}`, `envio:${envio.id}`],
-      tracking_settings: { track_open: "yes", track_link: "yes" },
+      // track_link OFF — iPORTO duplicava utm_source quebrando o
+      // redirect. Nossas UTMs (applyUtmTracking) já levam pro GA4.
+      tracking_settings: { track_open: "yes", track_link: "no" },
     });
     const messageId = extractMessageId(result);
     await admin

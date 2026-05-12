@@ -136,7 +136,10 @@ export async function POST(
             html_body: html,
             headers: { envio_id: dispatchId, test: "true" },
             tags: [`test:${dispatchId}`],
-            tracking_settings: { track_open: "yes", track_link: "yes" },
+            // track_link OFF — iPORTO injeta utm_source=iPORTO/utm_medium=smtp
+            // por cima das nossas UTMs, gerando duplicidade que o próprio
+            // track server rejeita. Nossas UTMs vão direto pro GA4.
+            tracking_settings: { track_open: "yes", track_link: "no" },
           })
         )
       );
