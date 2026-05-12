@@ -37,6 +37,8 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
   const [showToken, setShowToken] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
+  const [senderEmail, setSenderEmail] = useState("");
+  const [senderName, setSenderName] = useState("");
   const [tokenAlreadySet, setTokenAlreadySet] = useState(false);
   const [secretAlreadySet, setSecretAlreadySet] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -55,6 +57,8 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
       .then((d: IportoSettings) => {
         setSettings(d);
         setBaseUrl(d.base_url);
+        setSenderEmail(d.default_sender_email ?? "");
+        setSenderName(d.default_sender_name ?? "");
         setTokenAlreadySet(!!d.token_set);
         setSecretAlreadySet(!!d.webhook_secret_set);
       })
@@ -94,6 +98,8 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
       const body: Record<string, string> = { base_url: baseUrl };
       if (token) body.token = token;
       if (webhookSecret) body.webhook_secret = webhookSecret;
+      if (senderEmail) body.default_sender_email = senderEmail;
+      if (senderName) body.default_sender_name = senderName;
       const r = await fetch("/api/crm/email-templates/iporto/settings", {
         method: "PUT",
         headers: {
@@ -142,6 +148,29 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
           onChange={(e) => setBaseUrl(e.target.value)}
           placeholder="https://api.iporto.com.br/api/panel/application"
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label>Remetente (from email)</Label>
+          <Input
+            value={senderEmail}
+            onChange={(e) => setSenderEmail(e.target.value)}
+            placeholder="no-reply@bulking.com.br"
+            type="email"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Tem que ser um endereço de domínio autorizado no painel iPORTO. Se vazio, usa o sender da Locaweb (não recomendado).
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label>Nome do remetente</Label>
+          <Input
+            value={senderName}
+            onChange={(e) => setSenderName(e.target.value)}
+            placeholder="Bulking"
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
