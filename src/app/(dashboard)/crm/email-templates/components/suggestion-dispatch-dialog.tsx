@@ -554,6 +554,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
         <BalanceCard
           workspaceId={workspaceId}
           estimatedRecipients={audienceCount}
+          provider={provider}
         />
       </>
     ),

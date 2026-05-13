@@ -1,8 +1,9 @@
 "use client";
 
 // BalanceCard — shows Locaweb sending credits next to the estimated send
-// size. Used by both dispatch dialogs (suggestion + draft) so users see
-// "you have X credits, this send needs Y" before firing.
+// size. Used pelos dispatch dialogs quando o provider ativo é Locaweb.
+// Pra iPORTO, retorna null (iPORTO tem billing próprio e ainda não
+// expomos a API de balance dele).
 
 import { useEffect, useState } from "react";
 import { Wallet, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
@@ -20,12 +21,16 @@ interface Props {
   /** Estimated number of recipients for this send. The card colors green
    *  when remaining covers it, red otherwise. */
   estimatedRecipients: number;
+  /** Provider ativo do workspace. Se "iporto", o card não renderiza —
+   *  saldo Locaweb não importa quando o envio sai pelo iPORTO. */
+  provider?: "locaweb" | "iporto";
 }
 
-export function BalanceCard({ workspaceId, estimatedRecipients }: Props) {
+export function BalanceCard({ workspaceId, estimatedRecipients, provider }: Props) {
   const [state, setState] = useState<BalanceState | null>(null);
 
   useEffect(() => {
+    if (provider === "iporto") return;
     let cancelled = false;
     fetch("/api/crm/email-templates/locaweb/balance", {
       headers: { "x-workspace-id": workspaceId },
@@ -47,7 +52,10 @@ export function BalanceCard({ workspaceId, estimatedRecipients }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, provider]);
+
+  // iPORTO não usa saldo Locaweb.
+  if (provider === "iporto") return null;
 
   if (state === null) {
     return (

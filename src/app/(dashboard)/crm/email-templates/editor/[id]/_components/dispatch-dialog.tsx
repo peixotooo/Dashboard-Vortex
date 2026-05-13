@@ -57,6 +57,19 @@ export function DispatchDialog({
   const [stepIndex, setStepIndex] = useState(0);
   const [reviewed, setReviewed] = useState(false);
   const [testSentTo, setTestSentTo] = useState<string | null>(null);
+  const [provider, setProvider] = useState<"locaweb" | "iporto">("locaweb");
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    fetch("/api/crm/email-templates/provider", {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d: { provider?: "locaweb" | "iporto" }) => {
+        setProvider(d?.provider === "iporto" ? "iporto" : "locaweb");
+      })
+      .catch(() => setProvider("locaweb"));
+  }, [workspaceId]);
 
   const [lists, setLists] = useState<LocawebList[] | null>(null);
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
@@ -344,6 +357,7 @@ export function DispatchDialog({
         <BalanceCard
           workspaceId={workspaceId}
           estimatedRecipients={totalContacts}
+          provider={provider}
         />
       </>
     ),

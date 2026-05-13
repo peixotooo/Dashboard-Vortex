@@ -29,9 +29,24 @@ export function BalanceBanner() {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
   const [state, setState] = useState<BalanceState | null>(null);
+  const [provider, setProvider] = useState<"locaweb" | "iporto" | null>(null);
 
+  // Descobrir provider primeiro — saldo Locaweb só interessa se Locaweb
+  // for o canal ativo. iPORTO tem billing próprio (ainda não exposto).
   useEffect(() => {
     if (!workspaceId) return;
+    fetch("/api/crm/email-templates/provider", {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d: { provider?: "locaweb" | "iporto" }) => {
+        setProvider(d?.provider === "iporto" ? "iporto" : "locaweb");
+      })
+      .catch(() => setProvider("locaweb"));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId || provider !== "locaweb") return;
     let cancelled = false;
     fetch("/api/crm/email-templates/locaweb/balance", {
       headers: { "x-workspace-id": workspaceId },
@@ -57,9 +72,12 @@ export function BalanceBanner() {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, provider]);
 
-  if (!workspaceId || state === null) {
+  // iPORTO: não exibe banner (não há saldo Locaweb relevante).
+  if (provider === "iporto") return null;
+
+  if (!workspaceId || provider === null || state === null) {
     return (
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground border rounded-md px-3 py-2 bg-muted/20">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
