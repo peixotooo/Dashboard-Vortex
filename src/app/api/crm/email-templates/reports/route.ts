@@ -1,16 +1,13 @@
 // src/app/api/crm/email-templates/reports/route.ts
 //
-// Lists every dispatch the workspace has fired, joined with the latest
-// stats snapshot from email_template_dispatches.stats. Used by the
-// Reports dashboard.
+// Lista todos os dispatches do workspace nos últimos N dias com stats
+// + provider + recipients counts + nomes das listas (audiência) pra
+// alimentar a tela /reports.
 //
-// Defensive backfill: prior versions of the stats-sync cron *replaced*
-// `stats` with Locaweb's overview, wiping the utm_campaign / utm_term /
-// target_segment metadata we seed at dispatch time. Old rows still suffer
-// from that. To make the reports table show meaningful labels regardless,
-// we look up the linked suggestion (or draft) for each dispatch and
-// reconstruct the missing fields on the fly when they aren't present in
-// stats.
+// Backfill defensivo: stats-sync antigo às vezes sobrescrevia o campo
+// stats com a overview da Locaweb, perdendo utm_campaign/utm_term/
+// target_segment. Reconstruímos esses campos olhando suggestion/draft
+// quando faltam.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
@@ -24,8 +21,14 @@ interface DispatchRow {
   workspace_id: string;
   draft_id: string | null;
   suggestion_id: string | null;
-  locaweb_message_id: string;
-  locaweb_list_ids: string[];
+  provider: string | null;
+  locaweb_message_id: string | null;
+  locaweb_list_ids: string[] | null;
+  iporto_message_ids: string[] | null;
+  recipients_total: number | null;
+  recipients_sent: number | null;
+  recipients_failed: number | null;
+  subject: string | null;
   scheduled_to: string | null;
   status: string;
   stats: Record<string, unknown> | null;
@@ -37,7 +40,20 @@ interface SuggestionLite {
   id: string;
   slot: number;
   generated_for_date: string;
+  copy?: { subject?: string } | null;
   target_segment_payload?: { display_label?: string } | null;
+}
+
+interface DraftLite {
+  id: string;
+  name: string;
+  meta?: { subject?: string } | null;
+}
+
+interface AudienceLite {
+  locaweb_list_id: string | null;
+  name: string;
+  total_count: number | null;
 }
 
 export async function GET(req: NextRequest) {
@@ -53,7 +69,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await sb
       .from("email_template_dispatches")
       .select(
-        "id, workspace_id, draft_id, suggestion_id, locaweb_message_id, locaweb_list_ids, scheduled_to, status, stats, last_synced_at, created_at"
+        "id, workspace_id, draft_id, suggestion_id, provider, locaweb_message_id, locaweb_list_ids, iporto_message_ids, recipients_total, recipients_sent, recipients_failed, subject, scheduled_to, status, stats, last_synced_at, created_at"
       )
       .eq("workspace_id", workspaceId)
       .gte("created_at", since)
@@ -63,8 +79,7 @@ export async function GET(req: NextRequest) {
 
     const dispatches = (data ?? []) as DispatchRow[];
 
-    // Pull every linked suggestion in a single query so we can backfill
-    // missing utm_campaign / target_segment when stats was wiped.
+    // Pull linked suggestions + drafts pra reconstruir subject/utm/segment.
     const suggestionIds = Array.from(
       new Set(
         dispatches
@@ -72,14 +87,46 @@ export async function GET(req: NextRequest) {
           .filter((x): x is string => typeof x === "string")
       )
     );
+    const draftIds = Array.from(
+      new Set(
+        dispatches
+          .map((d) => d.draft_id)
+          .filter((x): x is string => typeof x === "string")
+      )
+    );
+
     const suggestions = new Map<string, SuggestionLite>();
     if (suggestionIds.length > 0) {
       const { data: sugRows } = await sb
         .from("email_template_suggestions")
-        .select("id, slot, generated_for_date, target_segment_payload")
+        .select("id, slot, generated_for_date, copy, target_segment_payload")
         .in("id", suggestionIds);
       for (const s of (sugRows ?? []) as SuggestionLite[]) {
         suggestions.set(s.id, s);
+      }
+    }
+
+    const drafts = new Map<string, DraftLite>();
+    if (draftIds.length > 0) {
+      const { data: dRows } = await sb
+        .from("email_template_drafts")
+        .select("id, name, meta")
+        .in("id", draftIds);
+      for (const d of (dRows ?? []) as DraftLite[]) {
+        drafts.set(d.id, d);
+      }
+    }
+
+    // Pull todas as audiências do workspace pra mapear list_id → nome.
+    // Single query — cheap.
+    const audienceByListId = new Map<string, AudienceLite>();
+    const { data: audRows } = await sb
+      .from("email_template_audiences")
+      .select("locaweb_list_id, name, total_count")
+      .eq("workspace_id", workspaceId);
+    for (const a of (audRows ?? []) as AudienceLite[]) {
+      if (a.locaweb_list_id) {
+        audienceByListId.set(String(a.locaweb_list_id), a);
       }
     }
 
@@ -88,8 +135,9 @@ export async function GET(req: NextRequest) {
       let utm_campaign = stats.utm_campaign as string | undefined;
       let utm_term = stats.utm_term as string | undefined;
       let target_segment = stats.target_segment as string | undefined;
+      let subject = d.subject ?? (stats.subject as string | undefined);
 
-      if ((!utm_campaign || !target_segment) && d.suggestion_id) {
+      if (d.suggestion_id) {
         const s = suggestions.get(d.suggestion_id);
         if (s) {
           if (!utm_campaign) {
@@ -106,14 +154,49 @@ export async function GET(req: NextRequest) {
           if (!utm_term) {
             utm_term = s.target_segment_payload?.display_label ?? undefined;
           }
+          if (!subject) {
+            subject = s.copy?.subject ?? undefined;
+          }
         }
       }
-      if (!utm_campaign && d.draft_id) {
-        utm_campaign = buildCampaignSlug({ kind: "draft", source_id: d.draft_id });
+      if (d.draft_id) {
+        const dr = drafts.get(d.draft_id);
+        if (dr) {
+          if (!utm_campaign) {
+            utm_campaign = buildCampaignSlug({ kind: "draft", source_id: dr.id });
+          }
+          if (!subject) {
+            subject = dr.meta?.subject ?? dr.name ?? undefined;
+          }
+        }
       }
 
+      // Nomes das listas usadas (pra UI mostrar "Lista X · Y contatos").
+      const audienceLists = (d.locaweb_list_ids ?? []).map((lid) => {
+        const a = audienceByListId.get(String(lid));
+        return {
+          list_id: String(lid),
+          name: a?.name ?? `Lista ${lid}`,
+          count: a?.total_count ?? null,
+        };
+      });
+
       return {
-        ...d,
+        id: d.id,
+        provider: d.provider ?? "locaweb",
+        subject: subject ?? null,
+        status: d.status,
+        scheduled_to: d.scheduled_to,
+        created_at: d.created_at,
+        last_synced_at: d.last_synced_at,
+        recipients_total: d.recipients_total ?? null,
+        recipients_sent: d.recipients_sent ?? null,
+        recipients_failed: d.recipients_failed ?? null,
+        locaweb_message_id: d.locaweb_message_id,
+        locaweb_list_ids: d.locaweb_list_ids ?? [],
+        audience_lists: audienceLists,
+        suggestion_id: d.suggestion_id,
+        draft_id: d.draft_id,
         stats: {
           ...stats,
           utm_campaign: utm_campaign ?? null,

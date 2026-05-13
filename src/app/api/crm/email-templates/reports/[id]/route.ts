@@ -1,9 +1,12 @@
 // src/app/api/crm/email-templates/reports/[id]/route.ts
 //
-// Per-dispatch deep stats: pulls overview + bounces + clicks + opens fresh
-// from Locaweb (so the user always sees current data even between cron
-// ticks), and attributes revenue via GA4 using the dispatch's utm_campaign
-// + utm_id stored in email_template_dispatches.stats.
+// Stats deep do dispatch. Ramifica pelo provider:
+//   - Locaweb: pull overview/bounces/clicks/opens fresh da API deles
+//   - iPORTO: usa o que está em dispatches.stats (alimentado pelo webhook)
+//     + agrega a tabela email_template_iporto_envios por status pra dar
+//     o funil per-recipient
+//
+// Em ambos os casos: GA4 revenue attribution pelo utm_campaign + utm_id.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
@@ -24,10 +27,24 @@ export const maxDuration = 60;
 interface DispatchRow {
   id: string;
   workspace_id: string;
-  locaweb_message_id: string;
+  provider: string | null;
+  locaweb_message_id: string | null;
+  locaweb_list_ids: string[] | null;
+  iporto_message_ids: string[] | null;
+  recipients_total: number | null;
+  recipients_sent: number | null;
+  recipients_failed: number | null;
+  subject: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  html_body: string | null;
+  scheduled_to: string | null;
   status: string;
-  stats: Record<string, unknown>;
+  stats: Record<string, unknown> | null;
+  last_synced_at: string | null;
   created_at: string;
+  draft_id: string | null;
+  suggestion_id: string | null;
 }
 
 export async function GET(
@@ -48,31 +65,62 @@ export async function GET(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
     const dispatch = data as DispatchRow;
+    const provider = dispatch.provider ?? "locaweb";
 
-    const settings = await getLocawebSettings(workspaceId);
+    // Provider-specific stats
     let locaweb: Record<string, unknown> = {};
-    if (settings.account_id && settings.token) {
-      const creds = {
-        base_url: settings.base_url,
-        account_id: settings.account_id,
-        token: settings.token,
+    let iporto: Record<string, unknown> = {};
+    if (provider === "locaweb" && dispatch.locaweb_message_id) {
+      const settings = await getLocawebSettings(workspaceId);
+      if (settings.account_id && settings.token) {
+        const creds = {
+          base_url: settings.base_url,
+          account_id: settings.account_id,
+          token: settings.token,
+        };
+        const mid = dispatch.locaweb_message_id;
+        const [msg, overview, bounces, clicks, opens] = await Promise.all([
+          getMessage(creds, mid).catch((err) => ({
+            _error: (err as Error).message,
+          })),
+          getMessageOverview(creds, mid).catch(() => ({})),
+          getMessageBounces(creds, mid).catch(() => []),
+          getMessageClicks(creds, mid).catch(() => []),
+          getMessageUniqOpenings(creds, mid).catch(() => []),
+        ]);
+        locaweb = { message: msg, overview, bounces, clicks, opens };
+      }
+    } else if (provider === "iporto") {
+      // Agrega envios por status pro funil per-recipient.
+      const { data: statusRows } = await sb
+        .from("email_template_iporto_envios")
+        .select("status")
+        .eq("dispatch_id", id);
+      const counts = {
+        pending: 0,
+        processing: 0,
+        sent: 0,
+        failed: 0,
+      } as Record<string, number>;
+      for (const r of (statusRows ?? []) as Array<{ status: string }>) {
+        counts[r.status] = (counts[r.status] ?? 0) + 1;
+      }
+      iporto = {
+        envio_counts: counts,
+        // Últimos 50 eventos do stats.event_log pra timeline (formato:
+        // "<message_id>:<event_type>"). O webhook anexa cada novo evento.
+        event_log: Array.isArray(
+          (dispatch.stats as { event_log?: unknown })?.event_log
+        )
+          ? ((dispatch.stats as { event_log: string[] }).event_log ?? []).slice(-50)
+          : [],
+        last_event_at:
+          ((dispatch.stats as { last_event_at?: string })?.last_event_at as string) ??
+          null,
       };
-      const [msg, overview, bounces, clicks, opens] = await Promise.all([
-        getMessage(creds, dispatch.locaweb_message_id).catch((err) => ({
-          _error: (err as Error).message,
-        })),
-        getMessageOverview(creds, dispatch.locaweb_message_id).catch(() => ({})),
-        getMessageBounces(creds, dispatch.locaweb_message_id).catch(() => []),
-        getMessageClicks(creds, dispatch.locaweb_message_id).catch(() => []),
-        getMessageUniqOpenings(creds, dispatch.locaweb_message_id).catch(() => []),
-      ]);
-      locaweb = { message: msg, overview, bounces, clicks, opens };
     }
 
-    // GA4 revenue attribution. campaign + id are stamped on every UTM via
-    // tracking.ts — we filter sessions by sessionCampaignName matching the
-    // dispatch's utm_campaign over a 30-day window starting from dispatch
-    // creation.
+    // GA4 revenue attribution
     const utmCampaign =
       typeof dispatch.stats?.utm_campaign === "string"
         ? (dispatch.stats.utm_campaign as string)
@@ -118,7 +166,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ dispatch, locaweb, ga4 });
+    return NextResponse.json({ dispatch, locaweb, iporto, ga4 });
   } catch (err) {
     return handleAuthError(err);
   }

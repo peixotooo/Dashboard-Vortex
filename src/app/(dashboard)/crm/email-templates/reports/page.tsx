@@ -1,10 +1,9 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useWorkspace } from "@/lib/workspace-context";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Loader2,
   Mail,
@@ -14,19 +13,28 @@ import {
   TrendingUp,
   Calendar,
   RefreshCw,
+  ChevronRight,
 } from "lucide-react";
 import { SectionNav } from "../_components/section-nav";
 
 interface DispatchRow {
   id: string;
-  draft_id: string | null;
-  suggestion_id: string | null;
-  locaweb_message_id: string;
-  locaweb_list_ids: string[];
-  scheduled_to: string | null;
+  provider: "locaweb" | "iporto" | string;
+  subject: string | null;
   status: string;
+  scheduled_to: string | null;
+  created_at: string;
+  last_synced_at: string | null;
+  recipients_total: number | null;
+  recipients_sent: number | null;
+  recipients_failed: number | null;
+  locaweb_message_id: string | null;
+  locaweb_list_ids: string[];
+  audience_lists: Array<{ list_id: string; name: string; count: number | null }>;
+  suggestion_id: string | null;
+  draft_id: string | null;
   stats: Record<string, unknown> & {
-    utm_campaign?: string;
+    utm_campaign?: string | null;
     utm_term?: string | null;
     target_segment?: string | null;
     delivered?: number;
@@ -35,29 +43,6 @@ interface DispatchRow {
     clicks?: number;
     bounces?: number;
     total?: number;
-  };
-  last_synced_at: string | null;
-  created_at: string;
-}
-
-interface DispatchDetail {
-  dispatch: DispatchRow;
-  locaweb: {
-    message?: { status?: string; [k: string]: unknown };
-    overview?: Record<string, unknown>;
-    bounces?: unknown[];
-    clicks?: unknown[];
-    opens?: unknown[];
-  };
-  ga4?: {
-    campaign?: string;
-    sessions?: number;
-    users?: number;
-    engagement_rate?: number;
-    revenue?: number;
-    transactions?: number;
-    items?: number;
-    error?: string;
   };
 }
 
@@ -72,6 +57,8 @@ function fmtDate(iso: string): string {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
+    draft: "bg-muted text-muted-foreground",
+    pending_approval: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
     queued: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
     scheduled: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
     sending: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
@@ -86,12 +73,26 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ProviderBadge({ provider }: { provider: string }) {
+  const isIporto = provider === "iporto";
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-widest ${
+        isIporto
+          ? "bg-violet-500/15 text-violet-700 dark:text-violet-300"
+          : "bg-sky-500/15 text-sky-700 dark:text-sky-300"
+      }`}
+    >
+      {isIporto ? "iPORTO" : "Locaweb"}
+    </span>
+  );
+}
+
 export default function ReportsPage() {
+  const router = useRouter();
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
   const [dispatches, setDispatches] = useState<DispatchRow[] | null>(null);
-  const [detail, setDetail] = useState<DispatchDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -108,27 +109,12 @@ export default function ReportsPage() {
     load();
   }, [load]);
 
-  const openDetail = async (id: string) => {
-    setDetailLoading(true);
-    setDetail(null);
-    try {
-      const r = await fetch(`/api/crm/email-templates/reports/${id}`, {
-        headers: { "x-workspace-id": workspaceId },
-      });
-      const d = await r.json();
-      setDetail(d);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      // Workspace-scoped manual sync: pulls overview/status from Locaweb for
-      // every dispatch in the workspace, merges into stats, and updates the
-      // row. After it returns we re-fetch the list so KPIs reflect the
-      // freshly-synced numbers.
+      // Workspace-scoped manual sync: puxa overview/status freshes da
+      // Locaweb pra cada dispatch (iPORTO atualiza via webhook, então sync
+      // só vale pra rows locaweb). Re-fetch da lista após o sync.
       await fetch("/api/crm/email-templates/reports/sync", {
         method: "POST",
         headers: { "x-workspace-id": workspaceId },
@@ -143,11 +129,11 @@ export default function ReportsPage() {
     return <div className="p-6 text-muted-foreground">Selecione um workspace.</div>;
   }
 
-  // Aggregate KPIs across all dispatches
+  // KPIs agregados — soma delivered/opens/clicks/bounces de todos os rows.
   const totals = (dispatches ?? []).reduce(
     (acc, d) => {
       const s = d.stats ?? {};
-      acc.sent += Number(s.delivered ?? s.total ?? 0);
+      acc.sent += Number(s.delivered ?? s.total ?? d.recipients_sent ?? 0);
       acc.opens += Number(s.uniq_opens ?? s.opens ?? 0);
       acc.clicks += Number(s.clicks ?? 0);
       acc.bounces += Number(s.bounces ?? 0);
@@ -165,8 +151,8 @@ export default function ReportsPage() {
           <div>
             <h1 className="text-2xl font-bold">Relatórios</h1>
             <p className="text-muted-foreground text-sm">
-              Stats de cada campanha disparada via Locaweb + atribuição de receita
-              via GA4 (UTM <span className="font-mono">utm_campaign</span> universal).
+              Stats de cada campanha disparada (Locaweb · iPORTO) + atribuição de
+              receita via GA4 (UTM <span className="font-mono">utm_campaign</span>).
             </p>
           </div>
           <Button
@@ -212,100 +198,103 @@ export default function ReportsPage() {
 
       {/* Lista de dispatches */}
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 border-b">
-            <tr className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              <th className="text-left px-3 py-2">Quando</th>
-              <th className="text-left px-3 py-2">Campanha (UTM)</th>
-              <th className="text-left px-3 py-2">Segmento</th>
-              <th className="text-right px-3 py-2">Entregues</th>
-              <th className="text-right px-3 py-2">Open %</th>
-              <th className="text-right px-3 py-2">CTR %</th>
-              <th className="text-right px-3 py-2">Bounce %</th>
-              <th className="text-left px-3 py-2">Status</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {dispatches === null && (
-              <tr>
-                <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                  Carregando...
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 border-b">
+              <tr className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                <th className="text-left px-3 py-2">Quando</th>
+                <th className="text-left px-3 py-2">Provedor</th>
+                <th className="text-left px-3 py-2">Assunto / UTM</th>
+                <th className="text-left px-3 py-2">Audiência</th>
+                <th className="text-right px-3 py-2">Destinatários</th>
+                <th className="text-right px-3 py-2">Entregues</th>
+                <th className="text-right px-3 py-2">Open %</th>
+                <th className="text-right px-3 py-2">CTR %</th>
+                <th className="text-left px-3 py-2">Status</th>
+                <th className="px-3 py-2"></th>
               </tr>
-            )}
-            {dispatches?.length === 0 && (
-              <tr>
-                <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                  Nenhuma campanha disparada ainda. Use o botão "Disparar" em
-                  qualquer sugestão ou draft pra começar.
-                </td>
-              </tr>
-            )}
-            {dispatches?.map((d) => {
-              const sent = Number(d.stats?.delivered ?? d.stats?.total ?? 0);
-              const opens = Number(d.stats?.uniq_opens ?? d.stats?.opens ?? 0);
-              const clicks = Number(d.stats?.clicks ?? 0);
-              const bounces = Number(d.stats?.bounces ?? 0);
-              return (
-                <tr
-                  key={d.id}
-                  className="border-b hover:bg-muted/30 cursor-pointer"
-                  onClick={() => openDetail(d.id)}
-                >
-                  <td className="px-3 py-2 text-[11px] text-muted-foreground whitespace-nowrap">
-                    <Calendar className="w-3 h-3 inline mr-1" />
-                    {fmtDate(d.created_at)}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-[11px] truncate max-w-[260px]">
-                    {d.stats?.utm_campaign ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-[11px] text-muted-foreground">
-                    {(d.stats?.utm_term as string) ??
-                      (d.stats?.target_segment as string) ??
-                      "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{sent || "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {pct(opens, sent)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {pct(clicks, sent)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {pct(bounces, sent)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={d.status} />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <Button size="sm" variant="ghost" className="h-7 text-xs">
-                      Detalhes
-                    </Button>
+            </thead>
+            <tbody>
+              {dispatches === null && (
+                <tr>
+                  <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                    Carregando...
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              )}
+              {dispatches?.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="p-8 text-center text-muted-foreground">
+                    Nenhuma campanha disparada ainda. Use o botão "Disparar" em
+                    qualquer sugestão ou draft pra começar.
+                  </td>
+                </tr>
+              )}
+              {dispatches?.map((d) => {
+                const sent = Number(
+                  d.stats?.delivered ?? d.stats?.total ?? d.recipients_sent ?? 0
+                );
+                const opens = Number(d.stats?.uniq_opens ?? d.stats?.opens ?? 0);
+                const clicks = Number(d.stats?.clicks ?? 0);
+                const recipientsTotal = d.recipients_total ?? null;
+                const audienceLabel =
+                  d.audience_lists.length > 0
+                    ? d.audience_lists.map((a) => a.name).join(" + ")
+                    : (d.stats?.target_segment as string) ??
+                      (d.stats?.utm_term as string) ??
+                      "—";
+                return (
+                  <tr
+                    key={d.id}
+                    className="border-b hover:bg-muted/30 cursor-pointer"
+                    onClick={() => router.push(`/crm/email-templates/reports/${d.id}`)}
+                  >
+                    <td className="px-3 py-2 text-[11px] text-muted-foreground whitespace-nowrap">
+                      <Calendar className="w-3 h-3 inline mr-1" />
+                      {fmtDate(d.created_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <ProviderBadge provider={d.provider} />
+                    </td>
+                    <td className="px-3 py-2 max-w-[280px]">
+                      <div className="truncate font-medium text-[12px]">
+                        {d.subject ?? "—"}
+                      </div>
+                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                        {d.stats?.utm_campaign ?? "—"}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-muted-foreground max-w-[180px] truncate">
+                      {audienceLabel}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[11px]">
+                      {recipientsTotal !== null
+                        ? recipientsTotal.toLocaleString("pt-BR")
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {sent ? sent.toLocaleString("pt-BR") : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {pct(opens, sent || (recipientsTotal ?? 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {pct(clicks, sent || (recipientsTotal ?? 0))}
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={d.status} />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <ChevronRight className="w-4 h-4 text-muted-foreground inline" />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Card>
-
-      {/* Detail drawer */}
-      <Sheet
-        open={detail !== null || detailLoading}
-        onOpenChange={(o) => !o && setDetail(null)}
-      >
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetTitle className="text-base">Detalhes da campanha</SheetTitle>
-          {detailLoading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-6">
-              <Loader2 className="w-4 h-4 animate-spin" /> Buscando stats live...
-            </div>
-          )}
-          {detail && <DetailView detail={detail} />}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
@@ -330,124 +319,5 @@ function Kpi({
       <div className="text-2xl font-bold tabular-nums">{value.toLocaleString("pt-BR")}</div>
       {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
     </Card>
-  );
-}
-
-function DetailView({ detail }: { detail: DispatchDetail }) {
-  const d = detail.dispatch;
-  const overview = (detail.locaweb?.overview ?? {}) as Record<string, unknown>;
-  const ga4 = detail.ga4 ?? {};
-  const sent = Number(overview?.delivered ?? overview?.total ?? d.stats?.delivered ?? d.stats?.total ?? 0);
-  const opens = Number(overview?.uniq_opens ?? overview?.opens ?? d.stats?.uniq_opens ?? d.stats?.opens ?? 0);
-  const clicks = Number(overview?.clicks ?? d.stats?.clicks ?? 0);
-  const bounces = Number(overview?.bounces ?? d.stats?.bounces ?? 0);
-
-  return (
-    <div className="space-y-5 mt-4">
-      <div className="space-y-1">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-          UTM Campaign
-        </div>
-        <div className="font-mono text-sm break-all">
-          {(d.stats?.utm_campaign as string) ?? "—"}
-        </div>
-        <div className="text-[10px] text-muted-foreground">
-          Locaweb message id: <span className="font-mono">{d.locaweb_message_id}</span> ·
-          status <StatusBadge status={d.status} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-4 gap-2">
-        <Kpi icon={<Mail className="w-3.5 h-3.5" />} label="Entregues" value={sent} />
-        <Kpi
-          icon={<Eye className="w-3.5 h-3.5" />}
-          label="Aberturas"
-          value={opens}
-          sub={pct(opens, sent)}
-        />
-        <Kpi
-          icon={<MousePointerClick className="w-3.5 h-3.5" />}
-          label="Cliques"
-          value={clicks}
-          sub={pct(clicks, sent)}
-        />
-        <Kpi
-          icon={<AlertOctagon className="w-3.5 h-3.5" />}
-          label="Bounces"
-          value={bounces}
-          sub={pct(bounces, sent)}
-        />
-      </div>
-
-      {/* GA4 attribution */}
-      <div className="space-y-2">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-          Atribuição GA4 (sessões com utm_campaign correspondente)
-        </div>
-        {ga4?.error ? (
-          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
-            {ga4.error}
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            <Kpi icon={<TrendingUp className="w-3.5 h-3.5" />} label="Sessões" value={ga4.sessions ?? 0} />
-            <Kpi
-              icon={<TrendingUp className="w-3.5 h-3.5" />}
-              label="Pedidos"
-              value={ga4.transactions ?? 0}
-            />
-            <Kpi
-              icon={<TrendingUp className="w-3.5 h-3.5" />}
-              label="Receita"
-              value={Math.round(ga4.revenue ?? 0)}
-              sub={`R$ ${(ga4.revenue ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`}
-            />
-          </div>
-        )}
-        <p className="text-[10px] text-muted-foreground leading-relaxed">
-          GA4 captura sessões com {`utm_source=bulking-vortex utm_medium=email`} +
-          a campaign acima. Atribuição "last-non-direct" do GA4 — se o cliente
-          clicou no email e fechou a compra em outra sessão direta, GA4 ainda
-          credita aqui dentro de 30 dias.
-        </p>
-      </div>
-
-      {/* Lista de listas Locaweb */}
-      <div className="space-y-1">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-          Listas Locaweb
-        </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {d.locaweb_list_ids.map((id) => (
-            <Badge key={id} variant="outline" className="text-[10px] font-mono">
-              {id}
-            </Badge>
-          ))}
-        </div>
-      </div>
-
-      {/* Top links clicados */}
-      {Array.isArray(detail.locaweb?.clicks) && detail.locaweb.clicks.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Links clicados ({detail.locaweb.clicks.length})
-          </div>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {detail.locaweb.clicks.slice(0, 20).map((c, i) => {
-              const click = c as Record<string, unknown>;
-              return (
-                <div
-                  key={i}
-                  className="text-[11px] font-mono truncate text-muted-foreground"
-                  title={String(click.url ?? click.link ?? "")}
-                >
-                  {String(click.url ?? click.link ?? click.email ?? JSON.stringify(c).slice(0, 80))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
