@@ -161,14 +161,31 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     onClose();
   };
 
-  // Salva a sugestão como rascunho carregando os edits da copy. O draft
-  // resultante vai pra Rascunhos e pode ser editado/aprovado/disparado
-  // de lá.
-  const saveAsDraft = async () => {
+  // Salva tudo (copy editada + audiência + agenda) como rascunho pendente
+  // de aprovação. Fluxo em 2 passos:
+  //   1. POST /to-draft com copy_override → cria o draft com a copy nova
+  //   2. POST /drafts/[draft_id]/dispatch com requires_approval=true e o
+  //      payload completo (list_ids + scheduled_to) → draft fica em
+  //      approval_state='pending_approval' aguardando outro usuário
+  //      aprovar. Quando aprovar, o /approve dispara com o payload salvo.
+  const saveAsDraftWithApproval = async () => {
+    if (selectedListIds.size === 0 && !useSegment) {
+      setSaveDraftError("Escolha ao menos uma lista ou ative o segmento sugerido.");
+      return;
+    }
+    // requires_approval exige scheduled_to no /drafts/dispatch endpoint
+    if (!scheduleEnabled) {
+      setSaveDraftError(
+        "Ative o agendamento (etapa anterior) — rascunho pra aprovação precisa ter data/hora de envio."
+      );
+      return;
+    }
+
     setSavingDraft(true);
     setSaveDraftError(null);
     try {
-      const r = await fetch(
+      // 1. Cria o draft a partir da sugestão com a copy editada
+      const r1 = await fetch(
         `/api/crm/email-templates/${suggestion.id}/to-draft`,
         {
           method: "POST",
@@ -186,15 +203,37 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           }),
         }
       );
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "Falha ao salvar rascunho.");
-      // Navega pra página de rascunhos abrindo o draft recém-criado.
-      const draftId = d?.draft?.id;
-      if (draftId) {
-        window.location.href = `/crm/email-templates/editor/${draftId}`;
-      } else {
-        window.location.href = `/crm/email-templates/drafts`;
-      }
+      const d1 = await r1.json();
+      if (!r1.ok) throw new Error(d1.error ?? "Falha ao criar rascunho.");
+      const draftId = d1?.draft?.id;
+      if (!draftId) throw new Error("Rascunho criado sem id.");
+
+      // 2. Salva audiência + agenda no draft com requires_approval
+      const r2 = await fetch(
+        `/api/crm/email-templates/drafts/${draftId}/dispatch`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspaceId,
+          },
+          body: JSON.stringify({
+            list_ids: Array.from(selectedListIds),
+            use_segment: useSegment,
+            scheduled_to: `${scheduledDate}T${scheduledTime}:00-03:00`,
+            suggestion_id: suggestion.id,
+            utm_term: (suggestion.target_segment_payload as {
+              display_label?: string;
+            })?.display_label,
+            requires_approval: true,
+          }),
+        }
+      );
+      const d2 = await r2.json();
+      if (!r2.ok) throw new Error(d2.error ?? "Falha ao agendar rascunho.");
+
+      // Redireciona pra página de rascunhos onde ficará "Pendente de aprovação"
+      window.location.href = `/crm/email-templates/drafts`;
     } catch (err) {
       setSaveDraftError((err as Error).message);
     } finally {
@@ -279,21 +318,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const stepReview: WizardStep = {
     id: "review",
     label: "Conteúdo",
-    // Se o usuário editou, força salvar como rascunho — o rendered_html
-    // da sugestão é pré-gerado pelo cron, então não dá pra disparar com
-    // edits diretamente daqui.
-    canProceed: !isDirty,
+    // Edita inline. Se editou, "Próximo" continua ok — os edits só
+    // viram efeito real quando o usuário escolher "Salvar como rascunho"
+    // no último step (a sugestão original tem rendered_html pré-gerado,
+    // então edits direto na sugestão não pegam).
+    canProceed: true,
     nextHint: isDirty
-      ? "Você editou — salve como rascunho pra aplicar"
+      ? "Edits viram rascunho ao final do wizard"
       : undefined,
-    extraAction: {
-      label: savingDraft ? "Salvando..." : "Salvar como rascunho",
-      onClick: saveAsDraft,
-      icon: <FileText className="w-3.5 h-3.5" />,
-      variant: isDirty ? "default" : "outline",
-      disabled: savingDraft || submitting,
-      loading: savingDraft,
-    },
     content: (
       <>
         {SuggestionInfo}
@@ -362,14 +394,10 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
         </div>
         {isDirty && (
           <div className="text-[11px] p-2.5 rounded border border-amber-300 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-100">
-            Você editou o conteúdo. Pra aplicar os ajustes, clique em{" "}
-            <strong>Salvar como rascunho</strong> — o draft vai pra Rascunhos
-            onde você pode revisar, aprovar e disparar.
-          </div>
-        )}
-        {saveDraftError && (
-          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
-            {saveDraftError}
+            Você editou o conteúdo. Pra aplicar, complete os próximos
+            passos e finalize com <strong>Salvar como rascunho</strong> no
+            último passo — o draft fica pendente de aprovação com tudo
+            (produto, audiência e horário) já configurado.
           </div>
         )}
       </>
@@ -567,6 +595,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     id: "confirm",
     label: "Revisar",
     canProceed: selectedListIds.size > 0 || useSegment,
+    extraAction: {
+      label: savingDraft ? "Salvando..." : "Salvar como rascunho",
+      onClick: saveAsDraftWithApproval,
+      icon: <FileText className="w-3.5 h-3.5" />,
+      variant: "outline",
+      disabled: savingDraft || submitting,
+      loading: savingDraft,
+    },
     content: (
       <>
         <div className="space-y-3 border rounded-md p-4">
@@ -650,6 +686,18 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             {error}
           </div>
         )}
+        {saveDraftError && (
+          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
+            {saveDraftError}
+          </div>
+        )}
+        <div className="text-[11px] text-muted-foreground p-2.5 rounded border bg-muted/30">
+          <strong>Disparar:</strong> envia agora (ou no horário agendado).
+          <br />
+          <strong>Salvar como rascunho:</strong> fica em /rascunhos com tudo
+          pronto, aguardando outro usuário aprovar — só dispara depois da
+          aprovação. Exige agendamento ativo.
+        </div>
       </>
     ),
   };
