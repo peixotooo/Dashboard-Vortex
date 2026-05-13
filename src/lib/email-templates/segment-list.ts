@@ -57,22 +57,23 @@ export interface MaterializedSegmentList {
   count: number;
 }
 
+export interface ResolvedSegmentRecipient {
+  email: string;
+  name?: string | null;
+}
+
 /**
- * Reads the workspace's RFM snapshot, filters customers by the slot's
- * target classes, finds-or-creates the cluster's Locaweb list, and
- * runs an async bulk-import. List names are stable per-slot so
- * re-dispatching to the same cluster reuses the existing list and
- * Locaweb dedups contacts on import.
+ * Provider-agnostic: resolve os e-mails do cluster RFM associado ao
+ * slot da sugestão. Usado pelo iPORTO (que precisa de recipients[] no
+ * dispatch) e internamente pela materializeSegmentList (Locaweb).
  *
- * Throws if the snapshot is missing, the cluster has zero matching
- * customers, or the import errors out / times out (60s default).
+ * Throws se snapshot ausente ou cluster vazio.
  */
-export async function materializeSegmentList(args: {
+export async function resolveSegmentRecipients(args: {
   workspace_id: string;
   slot: Slot;
-  creds: LocawebCreds;
-}): Promise<MaterializedSegmentList> {
-  const { workspace_id, slot, creds } = args;
+}): Promise<{ recipients: ResolvedSegmentRecipient[]; cluster_label: string }> {
+  const { workspace_id, slot } = args;
   const targetClasses = new Set(RFM_BY_SLOT[slot]);
   if (targetClasses.size === 0) {
     throw new Error(`Slot ${slot} não tem rfm_classes mapeadas.`);
@@ -92,11 +93,8 @@ export async function materializeSegmentList(args: {
     ? (snapshot!.customers as RfmCustomer[])
     : [];
 
-  // Filter + dedup by lowercase email. The RFM snapshot occasionally
-  // carries duplicate rows when the same customer matches multiple
-  // normalized phones.
   const seen = new Set<string>();
-  const matched: Array<{ email: string; name?: string | null }> = [];
+  const matched: ResolvedSegmentRecipient[] = [];
   for (const c of customers) {
     if (!targetClasses.has(c.segment)) continue;
     if (!isValidEmail(c.email)) continue;
@@ -111,6 +109,30 @@ export async function materializeSegmentList(args: {
       `O segmento sugerido (slot ${slot}) está vazio no snapshot RFM atual. Rode um sync de pedidos antes de disparar.`
     );
   }
+
+  return { recipients: matched, cluster_label: SLOT_LABELS[slot] };
+}
+
+/**
+ * Reads the workspace's RFM snapshot, filters customers by the slot's
+ * target classes, finds-or-creates the cluster's Locaweb list, and
+ * runs an async bulk-import. List names are stable per-slot so
+ * re-dispatching to the same cluster reuses the existing list and
+ * Locaweb dedups contacts on import.
+ *
+ * Throws if the snapshot is missing, the cluster has zero matching
+ * customers, or the import errors out / times out (60s default).
+ */
+export async function materializeSegmentList(args: {
+  workspace_id: string;
+  slot: Slot;
+  creds: LocawebCreds;
+}): Promise<MaterializedSegmentList> {
+  const { workspace_id, slot, creds } = args;
+  const { recipients: matched } = await resolveSegmentRecipients({
+    workspace_id,
+    slot,
+  });
 
   // Find-or-create per-slot list.
   const listName = buildListName(slot);

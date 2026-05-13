@@ -75,6 +75,10 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const [selectedListIds, setSelectedListIds] = useState<Set<string>>(new Set());
   const [useSegment, setUseSegment] = useState(false);
 
+  // Provider ativo do workspace — define se a etapa de audiência usa
+  // lista da Locaweb (fan-out lá) ou resolve cluster RFM pro iPORTO.
+  const [provider, setProvider] = useState<"locaweb" | "iporto">("locaweb");
+
   // Step 4: schedule
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState(() =>
@@ -112,9 +116,32 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     setSubmitting(false);
   }, [suggestion]);
 
-  // Lazy-load Locaweb lists when we hit the audience step.
+  // Carrega provider ativo logo quando o dialog abre.
   useEffect(() => {
     if (!suggestion) return;
+    fetch("/api/crm/email-templates/provider", {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((d: { provider?: "locaweb" | "iporto" }) => {
+        if (d?.provider === "iporto") {
+          setProvider("iporto");
+          // iPORTO não tem conceito de listas — auto-marcamos o cluster
+          // RFM da sugestão como audiência (o usuário pode desmarcar e
+          // forçar erro se quiser cancelar).
+          setUseSegment(true);
+        } else {
+          setProvider("locaweb");
+        }
+      })
+      .catch(() => setProvider("locaweb"));
+  }, [suggestion, workspaceId]);
+
+  // Lazy-load listas Locaweb só quando o provider for Locaweb e o
+  // usuário chegar na etapa de audiência.
+  useEffect(() => {
+    if (!suggestion) return;
+    if (provider !== "locaweb") return;
     if (stepIndex < 2 || lists !== null) return;
     fetch("/api/crm/email-templates/locaweb/lists", {
       headers: { "x-workspace-id": workspaceId },
@@ -135,7 +162,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
         setError(`Falha ao carregar listas: ${(err as Error).message}`);
         setLists([]);
       });
-  }, [suggestion, workspaceId, stepIndex, lists]);
+  }, [suggestion, workspaceId, stepIndex, lists, provider]);
 
   if (!suggestion) return null;
 
@@ -257,8 +284,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     (useSegment && segmentSize ? segmentSize : 0);
 
   const submit = async () => {
-    if (selectedListIds.size === 0 && !useSegment) {
+    // iPORTO sempre via use_segment (cluster RFM da sugestão). Locaweb
+    // precisa de list_ids ou use_segment.
+    if (provider === "locaweb" && selectedListIds.size === 0 && !useSegment) {
       setError("Escolha ao menos uma lista ou ative o segmento sugerido.");
+      return;
+    }
+    if (provider === "iporto" && !useSegment) {
+      setError("iPORTO precisa do segmento RFM ativado (etapa Audiência).");
       return;
     }
     setSubmitting(true);
@@ -273,7 +306,8 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             "x-workspace-id": workspaceId,
           },
           body: JSON.stringify({
-            list_ids: Array.from(selectedListIds),
+            list_ids:
+              provider === "locaweb" ? Array.from(selectedListIds) : undefined,
             use_segment: useSegment,
             scheduled_to: scheduleEnabled
               ? `${scheduledDate}T${scheduledTime}:00-03:00`
@@ -287,7 +321,9 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Falha ao disparar.");
       setSuccess({
-        locaweb_message_id: d.locaweb_message_id,
+        // Compat com o success card existente — pra iPORTO, devolvemos
+        // o dispatch_id no campo locaweb_message_id (mesma card UI).
+        locaweb_message_id: d.locaweb_message_id ?? d.dispatch_id ?? "",
         scheduled: d.scheduled_to,
         materialized_segment: d.materialized_segment ?? null,
       });
@@ -425,11 +461,16 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const stepAudience: WizardStep = {
     id: "audience",
     label: "Audiência",
-    canProceed: selectedListIds.size > 0 || useSegment,
+    canProceed:
+      provider === "iporto"
+        ? useSegment
+        : selectedListIds.size > 0 || useSegment,
     nextHint:
-      selectedListIds.size === 0 && !useSegment
-        ? "Selecione ao menos uma lista ou ative o segmento sugerido"
-        : undefined,
+      provider === "iporto" && !useSegment
+        ? "iPORTO precisa do segmento RFM ativado"
+        : selectedListIds.size === 0 && !useSegment
+          ? "Selecione ao menos uma lista ou ative o segmento sugerido"
+          : undefined,
     content: (
       <>
         {SuggestionInfo}
@@ -474,53 +515,65 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             </div>
           </button>
 
-          <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
-            Listas Locaweb
-          </Label>
-          {lists === null ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
+          {provider === "iporto" && (
+            <div className="text-[11px] text-muted-foreground p-2.5 rounded border bg-muted/30">
+              Provider ativo: <strong>iPORTO</strong>. iPORTO não usa listas
+              — envia 1 request por destinatário. A audiência vem do cluster
+              RFM da sugestão (acima).
             </div>
-          ) : lists.length === 0 ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              Nenhuma lista. Use o segmento sugerido acima ou crie uma no CRM.
-            </div>
-          ) : (
-            <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
-              {lists.map((l) => {
-                const idStr = String(l.id);
-                const sel = selectedListIds.has(idStr);
-                return (
-                  <button
-                    key={idStr}
-                    type="button"
-                    onClick={() => toggleList(idStr)}
-                    className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 ${
-                      sel ? "bg-foreground/5" : ""
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                        sel
-                          ? "bg-foreground border-foreground text-background"
-                          : "border-border"
-                      }`}
-                    >
-                      {sel && <CheckCircle2 className="w-3 h-3" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium truncate">{l.name}</div>
-                      {l.contacts_count != null && (
-                        <div className="text-[10px] text-muted-foreground">
-                          {l.contacts_count.toLocaleString("pt-BR")} contatos
+          )}
+
+          {provider === "locaweb" && (
+            <>
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
+                Listas Locaweb
+              </Label>
+              {lists === null ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
+                </div>
+              ) : lists.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Nenhuma lista. Use o segmento sugerido acima ou crie uma no CRM.
+                </div>
+              ) : (
+                <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
+                  {lists.map((l) => {
+                    const idStr = String(l.id);
+                    const sel = selectedListIds.has(idStr);
+                    return (
+                      <button
+                        key={idStr}
+                        type="button"
+                        onClick={() => toggleList(idStr)}
+                        className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 ${
+                          sel ? "bg-foreground/5" : ""
+                        }`}
+                      >
+                        <div
+                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                            sel
+                              ? "bg-foreground border-foreground text-background"
+                              : "border-border"
+                          }`}
+                        >
+                          {sel && <CheckCircle2 className="w-3 h-3" />}
                         </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium truncate">{l.name}</div>
+                          {l.contacts_count != null && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {l.contacts_count.toLocaleString("pt-BR")} contatos
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -721,10 +774,12 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
                 <div className="font-medium text-emerald-900 dark:text-emerald-100">
                   {success.scheduled
                     ? `Campanha agendada para ${success.scheduled}`
-                    : "Campanha enviada à Locaweb"}
+                    : provider === "iporto"
+                      ? "Enviada à fila iPORTO — cron-dispatcher entrega"
+                      : "Campanha enviada à Locaweb"}
                 </div>
                 <div className="text-muted-foreground mt-0.5">
-                  ID Locaweb:{" "}
+                  {provider === "iporto" ? "Dispatch id" : "ID Locaweb"}:{" "}
                   <span className="font-mono">{success.locaweb_message_id}</span>
                 </div>
                 {success.materialized_segment && (

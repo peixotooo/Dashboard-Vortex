@@ -1055,7 +1055,20 @@ export default function CrmPage() {
                 const source = selectedEmails.size > 0 ? selectedCustomers : filteredCustomers;
                 const contacts = source.map((c) => ({ name: c.name, email: c.email }));
                 setEmailListContacts(contacts);
-                setEmailListSuggestedName(undefined);
+                // Nome derivado dos filtros ativos pra evitar listas
+                // genéricas tipo "CRM · 2026-05-13". Se nada ativo, cai
+                // pro default (data) dentro do dialog.
+                const filterParts = activeFilters
+                  .map((f) => f.label)
+                  .filter(Boolean);
+                if (filterParts.length > 0) {
+                  const today = new Date().toISOString().slice(0, 10);
+                  setEmailListSuggestedName(
+                    `CRM · ${today} · ${filterParts.join(" · ")}`.slice(0, 120)
+                  );
+                } else {
+                  setEmailListSuggestedName(undefined);
+                }
                 setEmailListDialogOpen(true);
               }}
             >
