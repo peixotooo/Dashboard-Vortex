@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Send,
@@ -28,6 +29,7 @@ import {
   Eye,
   Mail,
   ListChecks,
+  FileText,
 } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
 import { TestSendCard } from "./test-send-card";
@@ -55,8 +57,15 @@ const SLOT_LABEL: Record<number, string> = {
 export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
 
-  // Step 1: review (just an explicit "li, está ok" toggle)
-  const [reviewed, setReviewed] = useState(false);
+  // Step 1: conteúdo (subject/headline/lead/CTA editáveis inline). Se
+  // editar, "Próximo" trava — pra dispatch com edits o usuário precisa
+  // salvar como rascunho (cria draft com a copy nova) e disparar de lá.
+  const [subjectEdit, setSubjectEdit] = useState("");
+  const [headlineEdit, setHeadlineEdit] = useState("");
+  const [leadEdit, setLeadEdit] = useState("");
+  const [ctaTextEdit, setCtaTextEdit] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [saveDraftError, setSaveDraftError] = useState<string | null>(null);
 
   // Step 2: test
   const [testSentTo, setTestSentTo] = useState<string | null>(null);
@@ -85,7 +94,12 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   useEffect(() => {
     if (!suggestion) return;
     setStepIndex(0);
-    setReviewed(false);
+    setSubjectEdit(suggestion.copy?.subject ?? "");
+    setHeadlineEdit(suggestion.copy?.headline ?? "");
+    setLeadEdit(suggestion.copy?.lead ?? "");
+    setCtaTextEdit(suggestion.copy?.cta_text ?? "");
+    setSavingDraft(false);
+    setSaveDraftError(null);
     setTestSentTo(null);
     setLists(null);
     setSelectedListIds(new Set());
@@ -132,14 +146,60 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     (suggestion.target_segment_payload as { estimated_size?: number })
       ?.estimated_size ?? null;
 
-  const subject = suggestion.copy?.subject ?? "(sem subject)";
-  const headline = suggestion.copy?.headline ?? "";
-  const lead = suggestion.copy?.lead ?? "";
-  const ctaText = suggestion.copy?.cta_text ?? "";
+  const originalSubject = suggestion.copy?.subject ?? "";
+  const originalHeadline = suggestion.copy?.headline ?? "";
+  const originalLead = suggestion.copy?.lead ?? "";
+  const originalCta = suggestion.copy?.cta_text ?? "";
+  const isDirty =
+    subjectEdit.trim() !== originalSubject.trim() ||
+    headlineEdit.trim() !== originalHeadline.trim() ||
+    leadEdit.trim() !== originalLead.trim() ||
+    ctaTextEdit.trim() !== originalCta.trim();
 
   const close = () => {
     if (submitting) return;
     onClose();
+  };
+
+  // Salva a sugestão como rascunho carregando os edits da copy. O draft
+  // resultante vai pra Rascunhos e pode ser editado/aprovado/disparado
+  // de lá.
+  const saveAsDraft = async () => {
+    setSavingDraft(true);
+    setSaveDraftError(null);
+    try {
+      const r = await fetch(
+        `/api/crm/email-templates/${suggestion.id}/to-draft`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspaceId,
+          },
+          body: JSON.stringify({
+            copy_override: {
+              subject: subjectEdit,
+              headline: headlineEdit,
+              lead: leadEdit,
+              cta_text: ctaTextEdit,
+            },
+          }),
+        }
+      );
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "Falha ao salvar rascunho.");
+      // Navega pra página de rascunhos abrindo o draft recém-criado.
+      const draftId = d?.draft?.id;
+      if (draftId) {
+        window.location.href = `/crm/email-templates/editor/${draftId}`;
+      } else {
+        window.location.href = `/crm/email-templates/drafts`;
+      }
+    } catch (err) {
+      setSaveDraftError((err as Error).message);
+    } finally {
+      setSavingDraft(false);
+    }
   };
 
   const toggleList = (id: string) => {
@@ -219,68 +279,99 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const stepReview: WizardStep = {
     id: "review",
     label: "Conteúdo",
-    canProceed: reviewed,
-    nextHint: !reviewed ? "Marque o checkbox pra continuar" : undefined,
+    // Se o usuário editou, força salvar como rascunho — o rendered_html
+    // da sugestão é pré-gerado pelo cron, então não dá pra disparar com
+    // edits diretamente daqui.
+    canProceed: !isDirty,
+    nextHint: isDirty
+      ? "Você editou — salve como rascunho pra aplicar"
+      : undefined,
+    extraAction: {
+      label: savingDraft ? "Salvando..." : "Salvar como rascunho",
+      onClick: saveAsDraft,
+      icon: <FileText className="w-3.5 h-3.5" />,
+      variant: isDirty ? "default" : "outline",
+      disabled: savingDraft || submitting,
+      loading: savingDraft,
+    },
     content: (
       <>
         {SuggestionInfo}
         <div className="space-y-3 border rounded-md p-4">
           <div className="space-y-1">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <label
+              htmlFor="sug-subject"
+              className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"
+            >
               <Mail className="w-3 h-3" />
               Subject (linha de assunto)
-            </div>
-            <div className="text-sm font-medium">{subject}</div>
+            </label>
+            <Input
+              id="sug-subject"
+              value={subjectEdit}
+              onChange={(e) => setSubjectEdit(e.target.value)}
+              className="text-sm font-medium"
+              placeholder="Linha de assunto do e-mail"
+            />
           </div>
-          {headline && (
-            <div className="space-y-1 border-t pt-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Headline
-              </div>
-              <div className="text-sm">{headline}</div>
-            </div>
-          )}
-          {lead && (
-            <div className="space-y-1 border-t pt-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Texto principal (preview)
-              </div>
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                {lead}
-              </div>
-            </div>
-          )}
-          {ctaText && (
-            <div className="space-y-1 border-t pt-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Botão de ação
-              </div>
-              <div className="text-xs font-mono">{ctaText}</div>
-            </div>
-          )}
+          <div className="space-y-1 border-t pt-3">
+            <label
+              htmlFor="sug-headline"
+              className="text-[10px] uppercase tracking-widest text-muted-foreground"
+            >
+              Headline
+            </label>
+            <Input
+              id="sug-headline"
+              value={headlineEdit}
+              onChange={(e) => setHeadlineEdit(e.target.value)}
+              className="text-sm"
+              placeholder="Título principal"
+            />
+          </div>
+          <div className="space-y-1 border-t pt-3">
+            <label
+              htmlFor="sug-lead"
+              className="text-[10px] uppercase tracking-widest text-muted-foreground"
+            >
+              Texto principal (preview)
+            </label>
+            <Textarea
+              id="sug-lead"
+              value={leadEdit}
+              onChange={(e) => setLeadEdit(e.target.value)}
+              className="text-xs leading-relaxed min-h-[70px]"
+              placeholder="Texto do corpo do e-mail"
+            />
+          </div>
+          <div className="space-y-1 border-t pt-3">
+            <label
+              htmlFor="sug-cta"
+              className="text-[10px] uppercase tracking-widest text-muted-foreground"
+            >
+              Botão de ação
+            </label>
+            <Input
+              id="sug-cta"
+              value={ctaTextEdit}
+              onChange={(e) => setCtaTextEdit(e.target.value)}
+              className="text-xs font-mono"
+              placeholder="Aproveitar agora"
+            />
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setReviewed((v) => !v)}
-          className={`w-full flex items-center gap-2 p-3 text-left rounded-md border transition-colors ${
-            reviewed
-              ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-900/10 dark:border-emerald-800"
-              : "border-border hover:bg-muted/30"
-          }`}
-        >
-          <div
-            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-              reviewed
-                ? "bg-emerald-600 border-emerald-600 text-white"
-                : "border-border"
-            }`}
-          >
-            {reviewed && <CheckCircle2 className="w-3 h-3" />}
+        {isDirty && (
+          <div className="text-[11px] p-2.5 rounded border border-amber-300 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-100">
+            Você editou o conteúdo. Pra aplicar os ajustes, clique em{" "}
+            <strong>Salvar como rascunho</strong> — o draft vai pra Rascunhos
+            onde você pode revisar, aprovar e disparar.
           </div>
-          <span className="text-xs">
-            Li o subject e o conteúdo principal e está tudo correto.
-          </span>
-        </button>
+        )}
+        {saveDraftError && (
+          <div className="text-xs text-destructive p-2 border border-destructive/30 rounded bg-destructive/5">
+            {saveDraftError}
+          </div>
+        )}
       </>
     ),
   };
@@ -483,7 +574,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             <ListChecks className="w-3 h-3" />
             Resumo do disparo
           </div>
-          <SummaryRow label="Subject" value={subject} mono />
+          <SummaryRow label="Subject" value={subjectEdit || originalSubject} mono />
           <SummaryRow
             label="Produto"
             value={suggestion.product_snapshot.name}

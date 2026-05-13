@@ -11,6 +11,17 @@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Check, Loader2, Send } from "lucide-react";
 
+export interface WizardExtraAction {
+  label: string;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  /** Variant visual do botão. "outline" por default. */
+  variant?: "default" | "outline" | "ghost" | "secondary";
+  disabled?: boolean;
+  /** Se true, mostra spinner no lugar do ícone. */
+  loading?: boolean;
+}
+
 export interface WizardStep {
   /** Stable id (e.g. "review", "test", "audience"). */
   id: string;
@@ -24,6 +35,8 @@ export interface WizardStep {
   nextLabel?: string;
   /** Optional helper text shown next to the next button. */
   nextHint?: string;
+  /** Botão extra no footer (e.g. "Salvar como rascunho" no step Conteúdo). */
+  extraAction?: WizardExtraAction;
 }
 
 interface Props {
@@ -130,6 +143,22 @@ export function DispatchWizardShell({
           </Button>
         </div>
         <div className="flex items-center gap-2">
+          {step.extraAction && (
+            <Button
+              variant={step.extraAction.variant ?? "outline"}
+              size="sm"
+              onClick={step.extraAction.onClick}
+              disabled={step.extraAction.disabled || step.extraAction.loading}
+              className="gap-1.5"
+            >
+              {step.extraAction.loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                step.extraAction.icon
+              )}
+              {step.extraAction.label}
+            </Button>
+          )}
           {step.nextHint && !isLast && (
             <span className="text-[10px] text-muted-foreground">
               {step.nextHint}

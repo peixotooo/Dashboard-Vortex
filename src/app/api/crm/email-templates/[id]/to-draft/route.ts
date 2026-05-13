@@ -46,6 +46,20 @@ function abs(u: string | null): string {
   return u.startsWith("//") ? `https:${u}` : u;
 }
 
+interface ToDraftBody {
+  /** Overrides do conteúdo da sugestão (subject/headline/lead/CTA).
+   *  Usado pela tela "Disparar sugestão" quando o usuário edita inline
+   *  e clica "Salvar como rascunho". Campos não informados caem pro
+   *  valor original da sugestão. */
+  copy_override?: Partial<{
+    subject: string;
+    headline: string;
+    lead: string;
+    cta_text: string;
+    cta_url: string;
+  }>;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -53,6 +67,7 @@ export async function POST(
   try {
     const { workspaceId } = await getWorkspaceContext(req);
     const { id } = await params;
+    const body = (await req.json().catch(() => ({}))) as ToDraftBody;
     const sb = createAdminClient();
 
     // Use select(*) so this keeps working whether or not migration-069
@@ -105,6 +120,16 @@ export async function POST(
           }
         : undefined;
 
+    // Aplica copy_override do body por cima da copy original — campos
+    // vazios mantêm o original.
+    const mergedCopy = {
+      subject: body.copy_override?.subject?.trim() || s.copy.subject,
+      headline: body.copy_override?.headline?.trim() || s.copy.headline,
+      lead: body.copy_override?.lead?.trim() || s.copy.lead,
+      cta_text: body.copy_override?.cta_text?.trim() || s.copy.cta_text,
+      cta_url: body.copy_override?.cta_url?.trim() || s.copy.cta_url,
+    };
+
     const tree = buildTreeDraftFromSuggestion({
       workspace_id: workspaceId,
       // Use the layout the cron actually rendered with (post migration-069).
@@ -113,7 +138,7 @@ export async function POST(
       slot: s.slot as Slot,
       primary: s.product_snapshot,
       related,
-      copy: s.copy,
+      copy: mergedCopy,
       coupon,
     });
 
