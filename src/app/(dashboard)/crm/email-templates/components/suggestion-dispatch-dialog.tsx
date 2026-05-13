@@ -695,8 +695,9 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           <strong>Disparar:</strong> envia agora (ou no horário agendado).
           <br />
           <strong>Salvar como rascunho:</strong> fica em /rascunhos com tudo
-          pronto, aguardando outro usuário aprovar — só dispara depois da
-          aprovação. Exige agendamento ativo.
+          pronto (produto + audiência + horário), aguardando aprovação.
+          Aprovador pode ser você mesmo ou outro usuário — só dispara
+          depois do clique em &quot;Aprovar&quot;. Exige agendamento ativo.
         </div>
       </>
     ),

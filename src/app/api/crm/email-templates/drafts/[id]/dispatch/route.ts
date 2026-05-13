@@ -8,8 +8,9 @@
 // "Rascunho agendado com aprovação": quando o body traz
 // `requires_approval=true`, NÃO chamamos a Locaweb — apenas salvamos o
 // dispatch_payload e o scheduled_for no próprio draft com
-// approval_state='pending_approval'. O envio real só acontece depois que
-// outro usuário aprovar (via .../approve).
+// approval_state='pending_approval'. O envio real só acontece quando
+// alguém clicar em "Aprovar" em /drafts (via .../approve). O aprovador
+// pode ser o mesmo usuário que submeteu — não exige second-pair.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";

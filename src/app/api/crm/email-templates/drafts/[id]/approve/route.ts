@@ -2,7 +2,9 @@
 //
 // Aprova um draft em pending_approval e dispara o envio pra Locaweb usando
 // o dispatch_payload + scheduled_for que foram salvos no momento da
-// submissão. Não permite que o mesmo usuário que submeteu também aprove.
+// submissão. Mesmo usuário que submeteu pode aprovar (decisão do produto —
+// usuários revisam o próprio trabalho quando querem o gate sem precisar
+// de uma segunda pessoa).
 
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
