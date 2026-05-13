@@ -173,6 +173,29 @@ export async function materializeSegmentList(args: {
     timeout_ms: 50_000,
   });
 
+  // Persiste a audiência localmente (Locaweb não expõe GET de contatos,
+  // o iPORTO precisa dessa cópia pra resolver list_ids → recipients[]).
+  // Best-effort: falha não derruba o dispatch — só loga.
+  try {
+    const sb = createAdminClient();
+    const { upsertAudience } = await import("./audiences");
+    const persisted = await upsertAudience(sb, {
+      workspace_id,
+      locaweb_list_id: String(list_id),
+      name: listName,
+      contacts: matched,
+      source: "segment",
+    });
+    if ("error" in persisted) {
+      console.error(
+        "[segment-list] upsertAudience returned error:",
+        persisted.error
+      );
+    }
+  } catch (err) {
+    console.error("[segment-list] upsertAudience threw:", err);
+  }
+
   // Locaweb's `created_count` skips contacts that already existed in
   // the global pool but were re-bound to the list — so we report the
   // matched count as the "actual" target audience.

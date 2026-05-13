@@ -154,9 +154,9 @@ export async function POST(
     // contatos da lista (404), então mantemos uma cópia em
     // email_template_audiences pra que o dispatch via iPORTO consiga
     // resolver list_ids → recipients[].
+    let audienceWarning: string | null = null;
     try {
       const sb = createAdminClient();
-      // Busca o nome da lista na Locaweb pra denormalizar.
       let listName = `Lista ${id}`;
       try {
         const lists = await listLists(creds.creds);
@@ -165,18 +165,27 @@ export async function POST(
       } catch {
         /* sem o nome, segue com fallback */
       }
-      await upsertAudience(sb, {
+      const result = await upsertAudience(sb, {
         workspace_id: workspaceId,
         locaweb_list_id: String(id),
         name: listName,
         contacts,
         source: "crm",
       });
+      if ("error" in result) {
+        audienceWarning = result.error;
+        console.error(
+          "[bulk-import] upsertAudience returned error:",
+          result.error
+        );
+      } else {
+        console.log(
+          `[bulk-import] audience saved locally: ${contacts.length} contacts for list ${id}`
+        );
+      }
     } catch (err) {
-      // Não falha o disparo do import se o storage local falhar — só
-      // loga. Pior caso: usuário precisa re-criar a lista pra iPORTO
-      // funcionar.
-      console.error("[bulk-import] upsertAudience falhou:", err);
+      audienceWarning = (err as Error).message;
+      console.error("[bulk-import] upsertAudience threw:", err);
     }
 
     return NextResponse.json({
@@ -184,6 +193,7 @@ export async function POST(
       import_id: String(importRef.id),
       total: contacts.length,
       csv_path: objectPath,
+      audience_warning: audienceWarning,
     });
   } catch (err) {
     return handleAuthError(err);
