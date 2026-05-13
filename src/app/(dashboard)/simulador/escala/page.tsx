@@ -135,17 +135,17 @@ export default function EscalaPage() {
         const datePreset = "last_30d";
         const accountIds = accountId === "all" ? accounts.map((a) => a.id) : [accountId];
 
-        const vndaHeaders: Record<string, string> = { "x-workspace-id": workspace!.id };
+        const wsHeaders: Record<string, string> = { "x-workspace-id": workspace!.id };
 
         const [insightsResults, ga4Res, vndaRes, finRes] = await Promise.all([
           Promise.all(
             accountIds.map((id) =>
-              fetch(`/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`, { signal: controller.signal }).then((r) => r.json())
+              fetch(`/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`, { headers: wsHeaders, signal: controller.signal }).then((r) => r.json())
             )
           ),
-          fetch(`/api/ga4/insights?date_preset=${datePreset}`, { signal: controller.signal }),
-          fetch(`/api/vnda/insights?date_preset=${datePreset}`, { headers: vndaHeaders, signal: controller.signal }),
-          fetch("/api/financial-settings", { headers: vndaHeaders, signal: controller.signal }),
+          fetch(`/api/ga4/insights?date_preset=${datePreset}`, { headers: wsHeaders, signal: controller.signal }),
+          fetch(`/api/vnda/insights?date_preset=${datePreset}`, { headers: wsHeaders, signal: controller.signal }),
+          fetch("/api/financial-settings", { headers: wsHeaders, signal: controller.signal }),
         ]);
 
         const ga4Data = await ga4Res.json();

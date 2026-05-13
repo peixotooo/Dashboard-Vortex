@@ -140,20 +140,23 @@ export default function SimuladorPage() {
             ? accounts.map((a) => a.id)
             : [accountId];
 
-        const vndaHeaders: Record<string, string> = {};
-        if (workspace?.id) vndaHeaders["x-workspace-id"] = workspace.id;
+        const wsHeaders: Record<string, string> = {};
+        if (workspace?.id) wsHeaders["x-workspace-id"] = workspace.id;
 
         const [insightsResults, ga4Res, vndaRes] = await Promise.all([
           Promise.all(
             accountIds.map((id) =>
               fetch(
-                `/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`
+                `/api/insights?object_id=${id}&level=account&date_preset=${datePreset}`,
+                { headers: wsHeaders }
               ).then((r) => r.json())
             )
           ),
-          fetch(`/api/ga4/insights?date_preset=${datePreset}`),
+          fetch(`/api/ga4/insights?date_preset=${datePreset}`, {
+            headers: wsHeaders,
+          }),
           fetch(`/api/vnda/insights?date_preset=${datePreset}`, {
-            headers: vndaHeaders,
+            headers: wsHeaders,
           }),
         ]);
 
