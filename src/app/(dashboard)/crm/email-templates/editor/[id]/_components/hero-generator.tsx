@@ -15,8 +15,9 @@ interface Props {
   layoutId?: string;
   /** Current image URL — used to seed the product picker if matchable. */
   currentSrc?: string;
-  /** Called with the generated hero URL on success. */
-  onGenerated: (url: string, alt: string) => void;
+  /** Called with the generated hero URL on success. productUrl é a URL
+   *  do produto selecionado pra que a imagem hero clique pra ele. */
+  onGenerated: (url: string, alt: string, productUrl?: string) => void;
 }
 
 const DEFAULT_LAYOUT_ID = "classic";
@@ -175,7 +176,7 @@ export function HeroGeneratorDialog({
       if (!r.ok || !d.hero_url) {
         throw new Error(d.error ?? "Geração falhou. Tente novamente em alguns minutos.");
       }
-      onGenerated(d.hero_url, picked.name);
+      onGenerated(d.hero_url, picked.name, picked.url);
       handleClose();
     } catch (err) {
       setError((err as Error).message);

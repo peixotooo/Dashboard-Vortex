@@ -351,12 +351,13 @@ export default function EmailEditorPage({ params }: PageProps) {
 
   const [heroGenOpen, setHeroGenOpen] = useState(false);
   const [dispatchOpen, setDispatchOpen] = useState(false);
-  const onHeroGenerated = (url: string, alt: string) => {
+  const onHeroGenerated = (url: string, alt: string, productUrl?: string) => {
     if (!treeSections) return;
     // Substitui o primeiro <image> do template (hero) em vez de appendar
     // uma nova no final — assim a IA realmente troca o header gerado e
-    // não fica um duplicado escondido lá embaixo.
-    const next = replaceFirstImage(treeSections, url, alt);
+    // não fica um duplicado escondido lá embaixo. href = URL do produto
+    // do picker pra que o clique na hero leve direto pra ele.
+    const next = replaceFirstImage(treeSections, url, alt, productUrl);
     setBlocks(next as unknown as BlockNode[]);
   };
 

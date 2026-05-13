@@ -104,10 +104,14 @@ export function duplicateLeaf(sections: SectionNode[], id: string): SectionNode[
 // ---------- Append a leaf at the document tail (default for palette inserts) ----------
 
 /**
- * Substitui o `src`/`alt` do PRIMEIRO leaf de tipo "image" encontrado
- * (DFS por seções → leaves diretos e dentro de rows/columns). Usado pelo
- * gerador de header com IA pra trocar a imagem hero in-place em vez de
- * appendar uma nova no fim do template.
+ * Substitui o `src`/`alt`/`href` do PRIMEIRO leaf de tipo "image"
+ * encontrado (DFS por seções → leaves diretos e dentro de rows/columns).
+ * Usado pelo gerador de header com IA pra trocar a imagem hero in-place
+ * em vez de appendar uma nova no fim do template.
+ *
+ * `href` opcional: quando o caller tem a URL do produto associado, a
+ * imagem hero passa a clicar pra ela. Se omitido, preserva o href
+ * existente do leaf (caso já tivesse um).
  *
  * Se nenhum image leaf existe, cai pra appendLeafToLastSection com um
  * leaf novo (comportamento legacy).
@@ -115,16 +119,21 @@ export function duplicateLeaf(sections: SectionNode[], id: string): SectionNode[
 export function replaceFirstImage(
   sections: SectionNode[],
   src: string,
-  alt: string
+  alt: string,
+  href?: string
 ): SectionNode[] {
   let replaced = false;
+  const mut = (leaf: LeafNode): LeafNode => {
+    if (leaf.type !== "image") return leaf;
+    return { ...leaf, src, alt, href: href ?? leaf.href };
+  };
   const next = sections.map((sec) => ({
     ...sec,
     children: sec.children.map((child) => {
       if (replaced) return child;
       if (child.type === "image") {
         replaced = true;
-        return { ...child, src, alt };
+        return mut(child);
       }
       if (child.type === "row") {
         return {
@@ -135,7 +144,7 @@ export function replaceFirstImage(
               if (replaced) return leaf;
               if (leaf.type === "image") {
                 replaced = true;
-                return { ...leaf, src, alt };
+                return mut(leaf);
               }
               return leaf;
             }),
@@ -152,6 +161,7 @@ export function replaceFirstImage(
     type: "image",
     src,
     alt,
+    href,
     ratio: "3:4",
   };
   return appendLeafToLastSection(sections, newLeaf);

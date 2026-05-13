@@ -452,21 +452,28 @@ function LeafRenderer({
     case "product-card":
       return (
         <Section {...tagAttr(node.id, editorMode)} style={{ textAlign: node.align ?? "center", padding: "8px 0 16px" }}>
-          <Img
-            src={node.product.image_url}
-            alt={node.product.name}
-            width="180"
-            height="225"
-            style={{ width: "100%", maxWidth: "180px", height: "225px", objectFit: "cover", display: "block", margin: "0 auto 12px" }}
-          />
-          <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.body, fontWeight: 500, fontSize: "14px", color: c.text }}>
-            {node.product.name}
-          </Text>
-          {node.show_price !== false && (
-            <Text style={{ margin: "0 0 8px 0", fontFamily: FONTS.head, fontWeight: 500, fontSize: "16px", color: c.text }}>
-              R$ {node.product.price.toFixed(2)}
+          {/* Card inteiro (imagem + nome + preço) clicável → produto.
+              Botão "Ver produto" mantido pra usuários que escaneiam o CTA. */}
+          <Link
+            href={node.product.url}
+            style={{ textDecoration: "none", color: c.text, display: "block" }}
+          >
+            <Img
+              src={node.product.image_url}
+              alt={node.product.name}
+              width="180"
+              height="225"
+              style={{ width: "100%", maxWidth: "180px", height: "225px", objectFit: "cover", display: "block", margin: "0 auto 12px" }}
+            />
+            <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.body, fontWeight: 500, fontSize: "14px", color: c.text }}>
+              {node.product.name}
             </Text>
-          )}
+            {node.show_price !== false && (
+              <Text style={{ margin: "0 0 8px 0", fontFamily: FONTS.head, fontWeight: 500, fontSize: "16px", color: c.text }}>
+                R$ {node.product.price.toFixed(2)}
+              </Text>
+            )}
+          </Link>
           {node.show_button !== false && (
             <Link
               href={node.product.url}
@@ -505,24 +512,30 @@ function LeafRenderer({
                     key={p.vnda_id + idx}
                     style={{ width: `${Math.floor(100 / cols)}%`, padding: "0 8px 24px", verticalAlign: "top" }}
                   >
-                    {node.numbered && (
-                      <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.head, fontStyle: "italic", fontSize: "20px", color: c.textFaint }}>
-                        {String(number).padStart(2, "0")}
+                    {/* Célula inteira clica pro produto (imagem + nome + preço). */}
+                    <Link
+                      href={p.url}
+                      style={{ textDecoration: "none", color: c.text, display: "block" }}
+                    >
+                      {node.numbered && (
+                        <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.head, fontStyle: "italic", fontSize: "20px", color: c.textFaint }}>
+                          {String(number).padStart(2, "0")}
+                        </Text>
+                      )}
+                      <Img
+                        src={p.image_url}
+                        alt={p.name}
+                        width="180"
+                        height="225"
+                        style={{ width: "100%", height: "auto", objectFit: "cover", display: "block", marginBottom: "10px" }}
+                      />
+                      <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.body, fontWeight: 500, fontSize: "13px", color: c.text, lineHeight: 1.4 }}>
+                        {p.name}
                       </Text>
-                    )}
-                    <Img
-                      src={p.image_url}
-                      alt={p.name}
-                      width="180"
-                      height="225"
-                      style={{ width: "100%", height: "auto", objectFit: "cover", display: "block", marginBottom: "10px" }}
-                    />
-                    <Text style={{ margin: "0 0 4px 0", fontFamily: FONTS.body, fontWeight: 500, fontSize: "13px", color: c.text, lineHeight: 1.4 }}>
-                      {p.name}
-                    </Text>
-                    <Text style={{ margin: 0, fontFamily: FONTS.head, fontWeight: 500, fontSize: "14px", color: c.text }}>
-                      R$ {p.price.toFixed(2)}
-                    </Text>
+                      <Text style={{ margin: 0, fontFamily: FONTS.head, fontWeight: 500, fontSize: "14px", color: c.text }}>
+                        R$ {p.price.toFixed(2)}
+                      </Text>
+                    </Link>
                   </Column>
                 );
               })}
