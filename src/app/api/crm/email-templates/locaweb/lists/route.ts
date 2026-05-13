@@ -17,6 +17,7 @@ import {
   addContactsToList,
   type ContactInput,
 } from "@/lib/locaweb/email-marketing";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -33,7 +34,36 @@ export async function GET(req: NextRequest) {
       account_id: s.account_id,
       token: s.token,
     });
-    return NextResponse.json({ lists });
+    // Enriquece com a contagem local — Locaweb's contacts_count fica
+    // defasado durante minutos após bulk-import (assíncrono lá). Nossa
+    // tabela email_template_audiences tem o total exato no momento da
+    // criação. Quando existir local, prefere essa.
+    try {
+      const sb = createAdminClient();
+      const { data: audiences } = await sb
+        .from("email_template_audiences")
+        .select("locaweb_list_id, total_count")
+        .eq("workspace_id", workspaceId);
+      const localCount = new Map<string, number>();
+      for (const a of (audiences ?? []) as Array<{
+        locaweb_list_id: string | null;
+        total_count: number | null;
+      }>) {
+        if (a.locaweb_list_id)
+          localCount.set(String(a.locaweb_list_id), Number(a.total_count ?? 0));
+      }
+      const enriched = lists.map((l) => {
+        const local = localCount.get(String(l.id));
+        if (local != null && local > 0) {
+          return { ...l, contacts_count: local };
+        }
+        return l;
+      });
+      return NextResponse.json({ lists: enriched });
+    } catch {
+      // Se enriquecimento falhar, devolve os dados crus da Locaweb.
+      return NextResponse.json({ lists });
+    }
   } catch (err) {
     const e = err as { status?: number; message?: string };
     if (e.status) {
