@@ -21,6 +21,25 @@ export interface IportoError {
   message: string;
 }
 
+/** Escapa todo caractere não-ASCII (>= U+0080) pra \uXXXX no JSON.
+ *  iPORTO estava lendo o payload como Latin-1 e exibindo "?" no lugar
+ *  de ç/ã/é. Forçar ASCII-only no body remove a ambiguidade — JSON com
+ *  escapes Unicode é interpretado igual por qualquer parser,
+ *  independente do charset assumido pelo server. */
+function stringifyAsciiSafe(body: unknown): string {
+  const json = JSON.stringify(body);
+  let out = "";
+  for (let i = 0; i < json.length; i++) {
+    const code = json.charCodeAt(i);
+    if (code < 0x80) {
+      out += json[i];
+    } else {
+      out += "\\u" + code.toString(16).padStart(4, "0");
+    }
+  }
+  return out;
+}
+
 async function request<T>(
   creds: IportoCreds,
   method: "GET" | "POST" | "PUT" | "DELETE",
@@ -32,10 +51,12 @@ async function request<T>(
     method,
     headers: {
       Authorization: `Bearer ${creds.token.trim()}`,
-      "Content-Type": "application/json",
+      // charset=utf-8 explícito + body com Unicode escapes garante que
+      // acentos não chegam corrompidos no painel iPORTO.
+      "Content-Type": "application/json; charset=utf-8",
       Accept: "application/json",
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? stringifyAsciiSafe(body) : undefined,
   });
   const text = await res.text();
   let parsed: unknown = null;
