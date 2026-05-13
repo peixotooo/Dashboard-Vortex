@@ -26,12 +26,40 @@ export const maxDuration = 15;
 interface IportoEvent {
   message_id?: string;
   request_id?: string;
+  message_tracking_code?: string;
+  tracking_code?: string;
+  id?: string;
+  // Algumas instalações encapsulam em `data` (igual o POST de delivery).
+  data?: {
+    message_id?: string;
+    request_id?: string;
+    message_tracking_code?: string;
+    tracking_code?: string;
+    id?: string;
+  };
   event?: string;
   type?: string;
+  status?: string;
   timestamp?: string;
   email?: string;
   bounce_type?: string;
   [k: string]: unknown;
+}
+
+function extractWebhookMessageId(body: IportoEvent): string | null {
+  return (
+    body.message_tracking_code ??
+    body.tracking_code ??
+    body.message_id ??
+    body.request_id ??
+    body.id ??
+    body.data?.message_tracking_code ??
+    body.data?.tracking_code ??
+    body.data?.message_id ??
+    body.data?.request_id ??
+    body.data?.id ??
+    null
+  );
 }
 
 interface DispatchStats {
@@ -94,10 +122,26 @@ async function verifySecret(
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as IportoEvent;
-    const messageId = body.message_id ?? body.request_id;
-    const eventType = (body.event ?? body.type ?? "").toLowerCase();
+    // Log do payload bruto pros primeiros dias em prod — assim conseguimos
+    // ver o formato real do webhook iPORTO se algum campo mudar.
+    console.log(
+      "[webhook/iporto] payload:",
+      JSON.stringify(body).slice(0, 800)
+    );
+    const messageId = extractWebhookMessageId(body);
+    const eventType = (body.event ?? body.type ?? body.status ?? "").toLowerCase();
     if (!messageId || !eventType) {
-      return NextResponse.json({ ok: true, ignored: "missing fields" });
+      console.warn(
+        "[webhook/iporto] ignored — missing fields. messageId=",
+        messageId,
+        "eventType=",
+        eventType
+      );
+      return NextResponse.json({
+        ok: true,
+        ignored: "missing fields",
+        debug: { has_message_id: !!messageId, has_event_type: !!eventType },
+      });
     }
 
     const admin = createAdminClient();
@@ -146,7 +190,17 @@ export async function POST(req: NextRequest) {
         | { id: string; workspace_id: string }
         | undefined;
       if (!fallback) {
-        return NextResponse.json({ ok: true, ignored: "envio not found" });
+        console.warn(
+          "[webhook/iporto] envio not found for messageId=",
+          messageId,
+          "event=",
+          eventType
+        );
+        return NextResponse.json({
+          ok: true,
+          ignored: "envio not found",
+          message_id: messageId,
+        });
       }
       dispatchId = fallback.id;
       workspaceId = fallback.workspace_id;
@@ -190,6 +244,9 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", dispatchId);
 
+    console.log(
+      `[webhook/iporto] +1 ${counterKey ?? eventType} dispatch=${dispatchId}`
+    );
     return NextResponse.json({ ok: true, counter: counterKey ?? null });
   } catch (err) {
     console.error("[webhook/iporto] error:", err);

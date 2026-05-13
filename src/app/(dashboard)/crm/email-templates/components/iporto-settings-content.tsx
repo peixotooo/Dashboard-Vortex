@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface IportoSettings {
@@ -237,10 +239,11 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
             {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </Button>
         </div>
+        <WebhookUrlBlock />
         <p className="text-xs text-muted-foreground">
-          Configure o mesmo valor no painel do iPORTO em &quot;Webhooks&quot;.
-          Webhook URL:{" "}
-          <code className="rounded bg-muted px-1">/api/webhooks/iporto</code>
+          Configure no painel do iPORTO em &quot;Webhooks&quot; — cole a URL
+          completa acima. Se preencher um secret aqui, configure o mesmo
+          valor no painel também.
         </p>
       </div>
 
@@ -285,6 +288,46 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
           Salvo em {savedAt.toLocaleTimeString("pt-BR")}
         </p>
       )}
+    </div>
+  );
+}
+
+function WebhookUrlBlock() {
+  const [copied, setCopied] = useState(false);
+  const [url, setUrl] = useState("/api/webhooks/iporto");
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setUrl(`${window.location.origin}/api/webhooks/iporto`);
+    }
+  }, []);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore — clipboard pode falhar em http
+    }
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <code className="flex-1 rounded bg-muted px-2 py-1 text-[11px] font-mono break-all">
+        {url}
+      </code>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={copy}
+        className="h-7 px-2 gap-1.5 text-[11px]"
+      >
+        {copied ? (
+          <Check className="w-3.5 h-3.5 text-emerald-600" />
+        ) : (
+          <Copy className="w-3.5 h-3.5" />
+        )}
+        {copied ? "Copiado" : "Copiar"}
+      </Button>
     </div>
   );
 }
