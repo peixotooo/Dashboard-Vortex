@@ -198,53 +198,43 @@ function LeafRenderer({
       );
     }
     case "image": {
+      // Outlook/Gmail ignoram position:absolute em styles inline, mas
+      // RESPEITAM padding-top:% — o que deixa um vazio gigante acima da
+      // imagem quando usávamos o aspect-ratio hack. Agora rendemos como
+      // <img> simples com width/height numéricos pra preservar o ratio
+      // sem hack (clientes escalam pro container).
       const ratio = node.ratio ?? "3:4";
-      const ratios: Record<string, string> = { "3:4": "133.33%", "4:5": "125%", "1:1": "100%", "16:9": "56.25%", free: "0" };
-      const padTop = ratios[ratio];
-      if (ratio === "free") {
-        return (
-          <Img
-            {...tagAttr(node.id, editorMode)}
-            src={node.src}
-            alt={node.alt}
-            style={{ display: "block", width: "100%", maxWidth: "100%", height: "auto" }}
-          />
-        );
-      }
-      const inner = (
-        <div
+      const ratios: Record<string, number> = {
+        "3:4": 4 / 3,
+        "4:5": 5 / 4,
+        "1:1": 1,
+        "16:9": 9 / 16,
+      };
+      const baseW = 600;
+      const baseH = ratio === "free" ? undefined : Math.round(baseW * (ratios[ratio] ?? 1));
+      const img = (
+        <Img
+          src={node.src}
+          alt={node.alt}
+          width={baseW}
+          height={baseH}
           style={{
-            position: "relative",
+            display: "block",
             width: "100%",
-            paddingTop: padTop,
+            maxWidth: `${baseW}px`,
+            height: "auto",
             background: c.surfaceAlt,
-            overflow: "hidden",
           }}
-        >
-          <Img
-            src={node.src}
-            alt={node.alt}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "center",
-              display: "block",
-            }}
-          />
-        </div>
+        />
       );
       return (
         <div {...tagAttr(node.id, editorMode)}>
           {node.href ? (
             <Link href={node.href} style={{ textDecoration: "none" }}>
-              {inner}
+              {img}
             </Link>
           ) : (
-            inner
+            img
           )}
         </div>
       );

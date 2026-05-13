@@ -67,6 +67,7 @@ import {
   removeLeaf as removeTreeLeafFn,
   duplicateLeaf as duplicateTreeLeafFn,
   appendLeafToLastSection,
+  replaceFirstImage,
   reorderLeaves as reorderTreeLeavesFn,
   applyProductToTree,
 } from "@/lib/email-templates/tree/mutations";
@@ -352,14 +353,11 @@ export default function EmailEditorPage({ params }: PageProps) {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const onHeroGenerated = (url: string, alt: string) => {
     if (!treeSections) return;
-    const leaf = defaultLeaf("image");
-    if (leaf.type === "image") {
-      leaf.src = url;
-      leaf.alt = alt;
-    }
-    const next = appendLeafToLastSection(treeSections, leaf);
+    // Substitui o primeiro <image> do template (hero) em vez de appendar
+    // uma nova no final — assim a IA realmente troca o header gerado e
+    // não fica um duplicado escondido lá embaixo.
+    const next = replaceFirstImage(treeSections, url, alt);
     setBlocks(next as unknown as BlockNode[]);
-    setSelectedId(leaf.id);
   };
 
   const pickTreeProduct = (p: PickedProduct) => {
@@ -465,7 +463,13 @@ export default function EmailEditorPage({ params }: PageProps) {
           </Button>
           <Button
             size="sm"
-            onClick={() => setDispatchOpen(true)}
+            onClick={async () => {
+              // Auto-save antes de abrir o dispatch: o test-dispatch e o
+              // dispatch real leem do DB, então edits não persistidos
+              // (Subject/Preview no popover) sairiam com o valor antigo.
+              await save();
+              setDispatchOpen(true);
+            }}
             disabled={saving}
             className="gap-1.5"
           >

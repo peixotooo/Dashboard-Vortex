@@ -162,7 +162,7 @@ export function TreeStructure({ sections, selectedId, onSelect, onDuplicate, onR
   return (
     <div className="space-y-2">
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">
-        {flat.length} blocos · arraste pra reordenar dentro da mesma seção
+        {flat.length} blocos · arraste pra reordenar entre seções (colunas reordenam só internamente)
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={flat.map((f) => f.leaf.id)} strategy={verticalListSortingStrategy}>
