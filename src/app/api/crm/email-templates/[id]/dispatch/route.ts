@@ -10,7 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage, getListContacts } from "@/lib/locaweb/email-marketing";
+import { createMessage } from "@/lib/locaweb/email-marketing";
+import { getAudienceByLocawebListId } from "@/lib/email-templates/audiences";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import {
   getActiveProvider,
@@ -329,22 +330,20 @@ async function dispatchSuggestionViaIporto(
   }
 
   if (listIds.length > 0) {
-    // Precisa de creds Locaweb pra fetch — as listas vivem lá mesmo
-    // quando o dispatch sai via iPORTO. Erro claro se não configurado.
-    let locawebCreds;
-    try {
-      locawebCreds = await getReadyCreds(workspaceId);
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: `Listas dependem das credenciais Locaweb (mesmo enviando via iPORTO). ${(err as Error).message}`,
-        },
-        { status: 400 }
-      );
-    }
+    // Lê audiência do storage local (Locaweb não expõe GET de contatos).
+    // Listas criadas antes da migration-078 não vão ter cópia local —
+    // erro claro nesse caso.
     for (const lid of listIds) {
       try {
-        const contacts = await getListContacts(locawebCreds.creds, lid);
+        const contacts = await getAudienceByLocawebListId(sb, workspaceId, String(lid));
+        if (contacts.length === 0) {
+          return NextResponse.json(
+            {
+              error: `Lista ${lid} não tem cópia local da audiência. Recrie a lista no CRM pra registrar os contatos no Vortex.`,
+            },
+            { status: 400 }
+          );
+        }
         for (const c of contacts) {
           if (!recipientsMap.has(c.email)) {
             recipientsMap.set(c.email, c);
@@ -355,7 +354,7 @@ async function dispatchSuggestionViaIporto(
           {
             error: `Falha ao buscar contatos da lista ${lid}: ${(err as Error).message}`,
           },
-          { status: 502 }
+          { status: 500 }
         );
       }
     }

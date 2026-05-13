@@ -10,8 +10,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createContactImport } from "@/lib/locaweb/email-marketing";
+import { createContactImport, listLists } from "@/lib/locaweb/email-marketing";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { upsertAudience } from "@/lib/email-templates/audiences";
 import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
@@ -147,6 +148,35 @@ export async function POST(
         { error: `Locaweb rejeitou a importação: ${(err as Error).message}` },
         { status: 502 }
       );
+    }
+
+    // Persiste a audiência localmente — Locaweb não expõe GET de
+    // contatos da lista (404), então mantemos uma cópia em
+    // email_template_audiences pra que o dispatch via iPORTO consiga
+    // resolver list_ids → recipients[].
+    try {
+      const sb = createAdminClient();
+      // Busca o nome da lista na Locaweb pra denormalizar.
+      let listName = `Lista ${id}`;
+      try {
+        const lists = await listLists(creds.creds);
+        const match = lists.find((l) => String(l.id) === String(id));
+        if (match?.name) listName = match.name;
+      } catch {
+        /* sem o nome, segue com fallback */
+      }
+      await upsertAudience(sb, {
+        workspace_id: workspaceId,
+        locaweb_list_id: String(id),
+        name: listName,
+        contacts,
+        source: "crm",
+      });
+    } catch (err) {
+      // Não falha o disparo do import se o storage local falhar — só
+      // loga. Pior caso: usuário precisa re-criar a lista pra iPORTO
+      // funcionar.
+      console.error("[bulk-import] upsertAudience falhou:", err);
     }
 
     return NextResponse.json({

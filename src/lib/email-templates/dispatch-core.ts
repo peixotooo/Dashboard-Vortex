@@ -8,7 +8,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage, getListContacts } from "@/lib/locaweb/email-marketing";
+import { createMessage } from "@/lib/locaweb/email-marketing";
+import { getAudienceByLocawebListId } from "@/lib/email-templates/audiences";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
 import { renderDraft } from "@/lib/email-templates/editor/render";
@@ -346,19 +347,25 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
     }
   }
   if (payload.list_ids && payload.list_ids.length > 0) {
-    let locawebCreds;
-    try {
-      locawebCreds = await getReadyCreds(workspaceId);
-    } catch (err) {
-      return {
-        ok: false,
-        error: `Listas dependem das credenciais Locaweb (storage da audiência), mesmo com envio via iPORTO. ${(err as Error).message}`,
-        statusCode: 400,
-      };
-    }
+    // Lê a audiência do nosso storage local (email_template_audiences).
+    // Locaweb não expõe GET de contatos da lista — então persistimos
+    // uma cópia local no momento do bulk-import. Listas criadas ANTES
+    // dessa migração não terão registro aqui; nesse caso a iPORTO falha
+    // claramente pedindo recriação da lista.
     for (const lid of payload.list_ids) {
       try {
-        const contacts = await getListContacts(locawebCreds.creds, lid);
+        const contacts = await getAudienceByLocawebListId(
+          sb,
+          workspaceId,
+          String(lid)
+        );
+        if (contacts.length === 0) {
+          return {
+            ok: false,
+            error: `Lista ${lid} não tem cópia local da audiência. Recrie a lista no CRM pra registrar os contatos no Vortex (Locaweb não permite ler contatos de volta).`,
+            statusCode: 400,
+          };
+        }
         for (const c of contacts) {
           if (!recipientsMap.has(c.email)) {
             recipientsMap.set(c.email, {
@@ -371,7 +378,7 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
         return {
           ok: false,
           error: `Falha ao buscar contatos da lista ${lid}: ${(err as Error).message}`,
-          statusCode: 502,
+          statusCode: 500,
         };
       }
     }
