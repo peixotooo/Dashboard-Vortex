@@ -118,6 +118,7 @@ export default function EscalaPage() {
   const [finSettings, setFinSettings] = useState<FinancialSettings>(FIN_DEFAULTS);
   const abortRef = useRef<AbortController | null>(null);
   const [simInvest, setSimInvest] = useState(3200);
+  const [simInvestTouched, setSimInvestTouched] = useState(false);
   const [cpsDecay, setCpsDecay] = useState(15);   // % inflacao CPS ao dobrar invest
   const [convDecay, setConvDecay] = useState(10);  // % queda TX Conv ao dobrar invest
 
@@ -370,9 +371,26 @@ export default function EscalaPage() {
     const cpsExp = Math.log2(1 + cpsDecay / 100);
     const convExp = Math.log2(1 + convDecay / 100);
 
+    // Faixa dinamica: ancora no investimento real (avgInvestDia) e expande
+    // pra cima/baixo. Se nao tem dado, usa 1k-6k como antes.
+    const roundTo = (v: number, step: number) => Math.round(v / step) * step;
+    let investMin: number;
+    let investMax: number;
+    let investStep: number;
+    if (avgInvestDia > 0) {
+      // Quanto maior o invest, maior o step (mantem ~50-60 pontos no chart)
+      investStep = avgInvestDia >= 5000 ? 500 : avgInvestDia >= 2000 ? 200 : 100;
+      investMin = Math.max(investStep, roundTo(avgInvestDia * 0.3, investStep));
+      investMax = roundTo(Math.max(avgInvestDia * 2.5, avgInvestDia + 10 * investStep), investStep);
+    } else {
+      investMin = 1000;
+      investMax = 6000;
+      investStep = 100;
+    }
+
     const simData: Array<{ invest: number; sessoes: number; pedidos: number; receitaDia: number; cpsAdj: number; txConvAdj: number; ebitda: number; ebitdaPct: number; receitaMes: number }> = [];
     if (avgCps > 0 && avgTxConv > 0 && avgTicket > 0) {
-      for (let invest = 1000; invest <= 6000; invest += 100) {
+      for (let invest = investMin; invest <= investMax; invest += investStep) {
         const ratio = avgInvestDia > 0 ? invest / avgInvestDia : 1;
         const cpsAdj = ratio > 1 ? avgCps * Math.pow(ratio, cpsExp) : avgCps;
         const txConvAdj = ratio > 1 ? avgTxConv * Math.pow(ratio, -convExp) : avgTxConv;
@@ -436,8 +454,23 @@ export default function EscalaPage() {
       pontoOtimo,
       progPE,
       progMeta,
+      investMin,
+      investMax,
+      investStep,
     };
   }, [trendData, finSettings, cpsDecay, convDecay]);
+
+  // Quando avgInvestDia carrega/muda, alinha o slider com o invest real
+  // (a menos que o usuario ja tenha mexido no slider manualmente).
+  useEffect(() => {
+    if (simInvestTouched) return;
+    if (calc.avgInvestDia <= 0) return;
+    const target = Math.max(
+      calc.investMin,
+      Math.min(calc.investMax, Math.round(calc.avgInvestDia / calc.investStep) * calc.investStep),
+    );
+    setSimInvest(target);
+  }, [calc.avgInvestDia, calc.investMin, calc.investMax, calc.investStep, simInvestTouched]);
 
   // Slider simulation (CPS-based com decaimento)
   const simAtual = useMemo(() => {
@@ -841,16 +874,16 @@ export default function EscalaPage() {
                 </p>
                 <input
                   type="range"
-                  min={1000}
-                  max={6000}
-                  step={100}
-                  value={simInvest}
-                  onChange={(e) => setSimInvest(Number(e.target.value))}
+                  min={calc.investMin}
+                  max={calc.investMax}
+                  step={calc.investStep}
+                  value={Math.max(calc.investMin, Math.min(calc.investMax, simInvest))}
+                  onChange={(e) => { setSimInvest(Number(e.target.value)); setSimInvestTouched(true); }}
                   className="w-full accent-purple-500 cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                  <span>R$ 1.000</span>
-                  <span>R$ 6.000</span>
+                  <span>{fmtInt(calc.investMin)}</span>
+                  <span>{fmtInt(calc.investMax)}</span>
                 </div>
               </div>
 
@@ -976,7 +1009,7 @@ export default function EscalaPage() {
                     <ReferenceLine yAxisId="ebitda" y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "left" }} />
                     <ReferenceLine yAxisId="ebitda" y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} />
                     {calc.avgInvestDia > 0 && (
-                      <ReferenceLine x={Math.round(calc.avgInvestDia / 100) * 100} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: "ATUAL", fill: "#f59e0b", fontSize: 10, position: "top" }} />
+                      <ReferenceLine x={Math.round(calc.avgInvestDia / calc.investStep) * calc.investStep} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: "ATUAL", fill: "#f59e0b", fontSize: 10, position: "top" }} />
                     )}
                     {calc.pontoOtimo && (
                       <ReferenceLine x={calc.pontoOtimo.invest} stroke="#22c55e" strokeDasharray="4 4" label={{ value: "OTIMO", fill: "#22c55e", fontSize: 10, position: "top" }} />
