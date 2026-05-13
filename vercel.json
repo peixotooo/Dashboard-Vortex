@@ -63,6 +63,14 @@
     {
       "path": "/api/cron/iporto-dispatcher",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/iporto-dispatcher-2",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/iporto-dispatcher-3",
+      "schedule": "* * * * *"
     }
   ]
 }
