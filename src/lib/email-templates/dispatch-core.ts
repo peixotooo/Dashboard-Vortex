@@ -8,7 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage } from "@/lib/locaweb/email-marketing";
+import { createMessage, getListContacts } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
 import { renderDraft } from "@/lib/email-templates/editor/render";
@@ -329,11 +329,59 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
     campaignSlug,
   } = args;
 
-  if (!payload.recipients || payload.recipients.length === 0) {
+  // Resolve a audiência iPORTO a partir de 2 fontes (unidas + dedup):
+  //  - payload.recipients[] explícito (override direto)
+  //  - payload.list_ids — Locaweb funciona como "audience storage" mesmo
+  //    quando o envio sai via iPORTO; fetch dos contatos da lista lá
+  // Caso o caller não tenha passado nem um nem outro, falha cedo.
+  const recipientsMap = new Map<string, DispatchRecipient>();
+  if (payload.recipients && payload.recipients.length > 0) {
+    for (const r of payload.recipients) {
+      const email =
+        typeof r.email === "string" ? r.email.trim().toLowerCase() : "";
+      if (!email) continue;
+      if (!recipientsMap.has(email)) {
+        recipientsMap.set(email, { ...r, email });
+      }
+    }
+  }
+  if (payload.list_ids && payload.list_ids.length > 0) {
+    let locawebCreds;
+    try {
+      locawebCreds = await getReadyCreds(workspaceId);
+    } catch (err) {
+      return {
+        ok: false,
+        error: `Listas dependem das credenciais Locaweb (storage da audiência), mesmo com envio via iPORTO. ${(err as Error).message}`,
+        statusCode: 400,
+      };
+    }
+    for (const lid of payload.list_ids) {
+      try {
+        const contacts = await getListContacts(locawebCreds.creds, lid);
+        for (const c of contacts) {
+          if (!recipientsMap.has(c.email)) {
+            recipientsMap.set(c.email, {
+              email: c.email,
+              name: c.name ?? undefined,
+            });
+          }
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          error: `Falha ao buscar contatos da lista ${lid}: ${(err as Error).message}`,
+          statusCode: 502,
+        };
+      }
+    }
+  }
+  const recipients = [...recipientsMap.values()];
+  if (recipients.length === 0) {
     return {
       ok: false,
       error:
-        "iPORTO precisa de uma lista de destinatários no payload (recipients[]).",
+        "iPORTO precisa de audiência — passe list_ids (vindos do CRM) ou recipients[] no payload.",
       statusCode: 400,
     };
   }
@@ -362,7 +410,7 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
       locaweb_message_id: null,
       locaweb_list_ids: [],
       iporto_message_ids: [],
-      recipients_total: payload.recipients.length,
+      recipients_total: recipients.length,
       recipients_sent: 0,
       recipients_failed: 0,
       scheduled_to: null,
@@ -390,7 +438,7 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
 
   // Insere envios em chunks de 1000 (cap do payload do Supabase).
   const CHUNK = 1000;
-  const envios = payload.recipients.map((r) => ({
+  const envios = recipients.map((r) => ({
     dispatch_id: dispatchId,
     workspace_id: workspaceId,
     email: r.email,
@@ -423,9 +471,9 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
     provider: "iporto",
     status: "queued",
     scheduled_to: null,
-    recipients_total: payload.recipients.length,
+    recipients_total: recipients.length,
     recipients_sent: 0,
     recipients_failed: 0,
-    warn: `${payload.recipients.length} envios enfileirados. Cron iporto-dispatcher processa ~1000/min.`,
+    warn: `${recipients.length} envios enfileirados. Cron iporto-dispatcher processa ~1000/min.`,
   };
 }
