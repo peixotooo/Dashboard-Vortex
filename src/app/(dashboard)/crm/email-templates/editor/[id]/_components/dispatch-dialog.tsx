@@ -124,7 +124,7 @@ export function DispatchDialog({
       .then((d) => {
         if (d.reason === "not_configured") {
           setError(
-            "Locaweb ainda não configurada. Vá em Configurações > Email Marketing antes de disparar."
+            "E-mail marketing ainda não configurado. Vá em Configurações > Email Marketing antes de disparar."
           );
           setLists([]);
         } else if (d.error) {
@@ -307,7 +307,7 @@ export function DispatchDialog({
         {DraftInfo}
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-widest text-muted-foreground">
-            Listas Locaweb
+            Listas (criadas no CRM)
           </Label>
           {lists === null ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
@@ -316,7 +316,7 @@ export function DispatchDialog({
           ) : lists.length === 0 ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
               <AlertTriangle className="w-3.5 h-3.5" />
-              Nenhuma lista. Crie uma no painel da Locaweb ou na página de CRM.
+              Nenhuma lista. Crie uma na página de CRM.
             </div>
           ) : (
             <div className="border rounded-md max-h-56 overflow-y-auto divide-y">
@@ -449,8 +449,10 @@ export function DispatchDialog({
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {requiresApproval
-              ? "Nada vai pra Locaweb agora. A campanha fica em Pendentes na lista de drafts até alguém do time aprovar — aí dispara na data + hora marcadas acima (obrigatórias nesse modo)."
-              : "Envio direto: a Locaweb recebe a campanha e dispara conforme o agendamento acima."}
+              ? "Nada é disparado agora. A campanha fica em Pendentes na lista de drafts até alguém do time aprovar — aí dispara na data + hora marcadas acima (obrigatórias nesse modo)."
+              : provider === "iporto"
+                ? "Envio direto: enfileira na iPORTO e o cron drena conforme o agendamento."
+                : "Envio direto: a Locaweb recebe a campanha e dispara conforme o agendamento acima."}
           </p>
         </div>
       </>
@@ -575,21 +577,27 @@ export function DispatchDialog({
                     ? "Rascunho enviado pra aprovação"
                     : success.scheduled
                     ? `Campanha agendada para ${success.scheduled}`
-                    : "Campanha enviada à Locaweb"}
+                    : provider === "iporto"
+                      ? "Enviada à fila iPORTO — cron-dispatcher entrega"
+                      : "Campanha enviada à Locaweb"}
                 </div>
                 {success.pendingApproval ? (
                   <div className="text-muted-foreground mt-1">
                     Outro membro do time precisa aprovar nos seus drafts pra o
-                    envio sair. Nada foi pra Locaweb ainda.
+                    envio sair. Nada foi disparado ainda.
                   </div>
                 ) : (
                   <>
                     <div className="text-muted-foreground mt-0.5">
-                      ID Locaweb:{" "}
-                      <span className="font-mono">{success.locaweb_message_id}</span>
+                      {provider === "iporto" ? "Dispatch id" : "ID Locaweb"}:{" "}
+                      <span className="font-mono">
+                        {success.locaweb_message_id || "—"}
+                      </span>
                     </div>
                     <div className="text-muted-foreground mt-1">
-                      Stats começam a aparecer aqui em algumas horas.
+                      {provider === "iporto"
+                        ? "Drenagem em ~3k envios/min via 3 lanes paralelas. Acompanhe em Relatórios."
+                        : "Stats começam a aparecer aqui em algumas horas."}
                     </div>
                   </>
                 )}
