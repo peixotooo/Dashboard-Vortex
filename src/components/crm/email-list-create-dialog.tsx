@@ -221,7 +221,7 @@ export function EmailListCreateDialog({
       }
       if (status.status === "error") {
         setError(
-          `Locaweb reportou erro ao processar a importação (status: ${status.raw_status}).`
+          `Erro ao processar a importação (status: ${status.raw_status}).`
         );
         setPhase("idle");
         return;
@@ -251,11 +251,12 @@ export function EmailListCreateDialog({
       <DialogContent className="max-w-lg">
         <DialogTitle className="flex items-center gap-2">
           <Mail className="w-4 h-4" />
-          Criar lista de email (Locaweb)
+          Criar lista de email
         </DialogTitle>
         <DialogDescription className="text-xs">
           A lista é importada de forma assíncrona via CSV. 7k contatos
-          finalizam em torno de 10 segundos.
+          finalizam em torno de 10 segundos. Disponível pra disparo em
+          qualquer provider (Locaweb ou iPORTO).
         </DialogDescription>
 
         {phase === "done" && result ? (
@@ -331,13 +332,13 @@ export function EmailListCreateDialog({
                 maxLength={120}
               />
               <p className="text-[10px] text-muted-foreground">
-                Esse nome aparece no painel da Locaweb e na seleção de listas
+                Esse nome aparece na seleção de listas
                 ao disparar.
               </p>
             </div>
 
             {phase === "creating" && (
-              <PhaseRow label="Criando lista na Locaweb..." />
+              <PhaseRow label="Criando lista..." />
             )}
             {phase === "uploading" && (
               <PhaseRow label="Subindo CSV e enfileirando importação..." />
@@ -347,7 +348,7 @@ export function EmailListCreateDialog({
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-muted-foreground flex items-center gap-1.5">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Locaweb processando ({importStatus?.raw_status ?? "..."})
+                    Processando ({importStatus?.raw_status ?? "..."})
                   </span>
                   <span className="font-mono tabular-nums">
                     {importStatus?.total_lines
@@ -364,7 +365,7 @@ export function EmailListCreateDialog({
                 {importStatus?.errors_count != null && importStatus.errors_count > 0 && (
                   <div className="text-[10px] text-amber-700 dark:text-amber-300">
                     {importStatus.errors_count.toLocaleString("pt-BR")} erro(s)
-                    reportados pela Locaweb (linhas inválidas).
+                    reportados (linhas inválidas).
                   </div>
                 )}
               </div>

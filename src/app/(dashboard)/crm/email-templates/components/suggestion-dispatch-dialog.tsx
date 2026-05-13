@@ -116,7 +116,9 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     setSubmitting(false);
   }, [suggestion]);
 
-  // Carrega provider ativo logo quando o dialog abre.
+  // Carrega provider ativo logo quando o dialog abre — usado só pra
+  // adaptar texto da success card. Audiência (listas + segmento) é
+  // provider-agnostic.
   useEffect(() => {
     if (!suggestion) return;
     fetch("/api/crm/email-templates/provider", {
@@ -124,24 +126,17 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     })
       .then((r) => r.json())
       .then((d: { provider?: "locaweb" | "iporto" }) => {
-        if (d?.provider === "iporto") {
-          setProvider("iporto");
-          // iPORTO não tem conceito de listas — auto-marcamos o cluster
-          // RFM da sugestão como audiência (o usuário pode desmarcar e
-          // forçar erro se quiser cancelar).
-          setUseSegment(true);
-        } else {
-          setProvider("locaweb");
-        }
+        setProvider(d?.provider === "iporto" ? "iporto" : "locaweb");
       })
       .catch(() => setProvider("locaweb"));
   }, [suggestion, workspaceId]);
 
-  // Lazy-load listas Locaweb só quando o provider for Locaweb e o
-  // usuário chegar na etapa de audiência.
+  // Lazy-load listas pra escolha de audiência. As listas vivem na
+  // Locaweb mesmo quando o provider de envio é iPORTO — a Locaweb é
+  // usada como "audience storage" pelos dois fluxos (CRM grava lá; o
+  // backend de dispatch resolve list_ids → recipients[] quando iPORTO).
   useEffect(() => {
     if (!suggestion) return;
-    if (provider !== "locaweb") return;
     if (stepIndex < 2 || lists !== null) return;
     fetch("/api/crm/email-templates/locaweb/lists", {
       headers: { "x-workspace-id": workspaceId },
@@ -149,7 +144,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
       .then((r) => r.json())
       .then((d) => {
         if (d.reason === "not_configured") {
-          setError("Locaweb ainda não configurada — abre o drawer 'Locaweb' no header.");
+          setError("Audiência ainda não configurada — verifique credenciais nas Configurações.");
           setLists([]);
         } else if (d.error) {
           setError(d.error);
@@ -162,7 +157,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
         setError(`Falha ao carregar listas: ${(err as Error).message}`);
         setLists([]);
       });
-  }, [suggestion, workspaceId, stepIndex, lists, provider]);
+  }, [suggestion, workspaceId, stepIndex, lists]);
 
   if (!suggestion) return null;
 
@@ -284,14 +279,8 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     (useSegment && segmentSize ? segmentSize : 0);
 
   const submit = async () => {
-    // iPORTO sempre via use_segment (cluster RFM da sugestão). Locaweb
-    // precisa de list_ids ou use_segment.
-    if (provider === "locaweb" && selectedListIds.size === 0 && !useSegment) {
+    if (selectedListIds.size === 0 && !useSegment) {
       setError("Escolha ao menos uma lista ou ative o segmento sugerido.");
-      return;
-    }
-    if (provider === "iporto" && !useSegment) {
-      setError("iPORTO precisa do segmento RFM ativado (etapa Audiência).");
       return;
     }
     setSubmitting(true);
@@ -306,8 +295,10 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             "x-workspace-id": workspaceId,
           },
           body: JSON.stringify({
-            list_ids:
-              provider === "locaweb" ? Array.from(selectedListIds) : undefined,
+            // Funciona pra ambos providers: Locaweb usa direto via
+            // createMessage(list_ids); iPORTO resolve em recipients[]
+            // server-side via getListContacts.
+            list_ids: Array.from(selectedListIds),
             use_segment: useSegment,
             scheduled_to: scheduleEnabled
               ? `${scheduledDate}T${scheduledTime}:00-03:00`
@@ -461,16 +452,11 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const stepAudience: WizardStep = {
     id: "audience",
     label: "Audiência",
-    canProceed:
-      provider === "iporto"
-        ? useSegment
-        : selectedListIds.size > 0 || useSegment,
+    canProceed: selectedListIds.size > 0 || useSegment,
     nextHint:
-      provider === "iporto" && !useSegment
-        ? "iPORTO precisa do segmento RFM ativado"
-        : selectedListIds.size === 0 && !useSegment
-          ? "Selecione ao menos uma lista ou ative o segmento sugerido"
-          : undefined,
+      selectedListIds.size === 0 && !useSegment
+        ? "Selecione ao menos uma lista ou ative o segmento sugerido"
+        : undefined,
     content: (
       <>
         {SuggestionInfo}
@@ -515,65 +501,53 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             </div>
           </button>
 
-          {provider === "iporto" && (
-            <div className="text-[11px] text-muted-foreground p-2.5 rounded border bg-muted/30">
-              Provider ativo: <strong>iPORTO</strong>. iPORTO não usa listas
-              — envia 1 request por destinatário. A audiência vem do cluster
-              RFM da sugestão (acima).
+          <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
+            Listas (criadas no CRM)
+          </Label>
+          {lists === null ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
             </div>
-          )}
-
-          {provider === "locaweb" && (
-            <>
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
-                Listas Locaweb
-              </Label>
-              {lists === null ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
-                </div>
-              ) : lists.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Nenhuma lista. Use o segmento sugerido acima ou crie uma no CRM.
-                </div>
-              ) : (
-                <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
-                  {lists.map((l) => {
-                    const idStr = String(l.id);
-                    const sel = selectedListIds.has(idStr);
-                    return (
-                      <button
-                        key={idStr}
-                        type="button"
-                        onClick={() => toggleList(idStr)}
-                        className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 ${
-                          sel ? "bg-foreground/5" : ""
-                        }`}
-                      >
-                        <div
-                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                            sel
-                              ? "bg-foreground border-foreground text-background"
-                              : "border-border"
-                          }`}
-                        >
-                          {sel && <CheckCircle2 className="w-3 h-3" />}
+          ) : lists.length === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 border rounded">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Nenhuma lista. Use o segmento sugerido acima ou crie uma no CRM.
+            </div>
+          ) : (
+            <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
+              {lists.map((l) => {
+                const idStr = String(l.id);
+                const sel = selectedListIds.has(idStr);
+                return (
+                  <button
+                    key={idStr}
+                    type="button"
+                    onClick={() => toggleList(idStr)}
+                    className={`w-full flex items-center gap-2 p-2.5 text-left hover:bg-muted/40 ${
+                      sel ? "bg-foreground/5" : ""
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                        sel
+                          ? "bg-foreground border-foreground text-background"
+                          : "border-border"
+                      }`}
+                    >
+                      {sel && <CheckCircle2 className="w-3 h-3" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium truncate">{l.name}</div>
+                      {l.contacts_count != null && (
+                        <div className="text-[10px] text-muted-foreground">
+                          {l.contacts_count.toLocaleString("pt-BR")} contatos
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-medium truncate">{l.name}</div>
-                          {l.contacts_count != null && (
-                            <div className="text-[10px] text-muted-foreground">
-                              {l.contacts_count.toLocaleString("pt-BR")} contatos
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 

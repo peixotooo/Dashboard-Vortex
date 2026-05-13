@@ -249,6 +249,42 @@ export async function removeContactsFromList(
   );
 }
 
+/**
+ * Lista todos os contatos de uma lista Locaweb. Pagina via page/per_page
+ * (convenção típica do EM v1). Usado pelo dispatch iPORTO pra resolver
+ * uma "lista da Locaweb" (criada pelo CRM) em recipients[].
+ *
+ * Locaweb's response shape varies — `{ items: [...] }` é o mais comum;
+ * unwrapItems aceita também array direto. Cap defensivo em 500 páginas
+ * pra não fazer loop infinito caso o tail nunca venha vazio.
+ */
+export async function getListContacts(
+  creds: LocawebCreds,
+  listId: string | number,
+  perPage = 200
+): Promise<Array<{ email: string; name?: string | null }>> {
+  const all: Array<{ email: string; name?: string | null }> = [];
+  let page = 1;
+  while (page <= 500) {
+    const data = await request<unknown>(
+      creds,
+      "GET",
+      `/lists/${listId}/contacts?page=${page}&per_page=${perPage}`
+    );
+    const items = unwrapItems<{ email?: string; name?: string | null }>(data);
+    if (items.length === 0) break;
+    for (const it of items) {
+      const email =
+        typeof it.email === "string" ? it.email.trim().toLowerCase() : "";
+      if (!email) continue;
+      all.push({ email, name: it.name ?? null });
+    }
+    if (items.length < perPage) break;
+    page++;
+  }
+  return all;
+}
+
 // ---------- Async bulk contact import ----------
 //
 // Locaweb's POST /contact_imports binds the imported contacts directly

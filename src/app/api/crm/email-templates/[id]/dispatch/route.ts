@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage } from "@/lib/locaweb/email-marketing";
+import { createMessage, getListContacts } from "@/lib/locaweb/email-marketing";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import {
   getActiveProvider,
@@ -56,21 +56,18 @@ export async function POST(
     const sb = createAdminClient();
     const { provider } = await getActiveProvider(workspaceId);
 
-    if (provider === "locaweb" && manualListIds.length === 0 && !body.use_segment) {
-      return NextResponse.json(
-        { error: "Selecione ao menos uma lista da Locaweb ou use o segmento sugerido." },
-        { status: 400 }
-      );
-    }
+    // Validação de audiência (independe do provider, agora). list_ids vêm
+    // do CRM (criadas via "Lista de email") e funcionam pra ambos providers:
+    // Locaweb usa direto, iPORTO resolve em recipients[] via getListContacts.
     if (
-      provider === "iporto" &&
+      manualListIds.length === 0 &&
       !body.use_segment &&
       (!body.recipients || body.recipients.length === 0)
     ) {
       return NextResponse.json(
         {
           error:
-            "iPORTO precisa de use_segment=true (resolve via RFM) ou recipients[] no payload.",
+            "Escolha ao menos uma lista, ative o segmento sugerido (RFM) ou passe recipients[] no payload.",
         },
         { status: 400 }
       );
@@ -310,36 +307,87 @@ async function dispatchSuggestionViaIporto(
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  // 2. Resolver lista de destinatários
-  let recipients: Array<{ email: string; name?: string | null }>;
+  // 2. Resolver lista de destinatários. 3 fontes possíveis, na ordem:
+  //   a) body.recipients[] explícito (override mais direto)
+  //   b) body.list_ids — fetch dos contatos das listas Locaweb (servem de
+  //      "saved audience" provider-agnostic; CRM grava elas via "Lista
+  //      de email"). Une e dedupe por email.
+  //   c) body.use_segment — cluster RFM do slot
+  const recipientsMap = new Map<string, { email: string; name?: string | null }>();
   let clusterLabel: string | undefined;
+  const listIds = Array.isArray(body.list_ids) ? body.list_ids : [];
+
   if (body.recipients && body.recipients.length > 0) {
-    recipients = body.recipients.filter(
-      (r) => typeof r.email === "string" && r.email.trim().length > 0
-    );
-    if (recipients.length === 0) {
+    for (const r of body.recipients) {
+      const email =
+        typeof r.email === "string" ? r.email.trim().toLowerCase() : "";
+      if (!email) continue;
+      if (!recipientsMap.has(email)) {
+        recipientsMap.set(email, { email, name: r.name ?? null });
+      }
+    }
+  }
+
+  if (listIds.length > 0) {
+    // Precisa de creds Locaweb pra fetch — as listas vivem lá mesmo
+    // quando o dispatch sai via iPORTO. Erro claro se não configurado.
+    let locawebCreds;
+    try {
+      locawebCreds = await getReadyCreds(workspaceId);
+    } catch (err) {
       return NextResponse.json(
-        { error: "Nenhum recipient válido no payload." },
+        {
+          error: `Listas dependem das credenciais Locaweb (mesmo enviando via iPORTO). ${(err as Error).message}`,
+        },
         { status: 400 }
       );
     }
-  } else if (body.use_segment) {
+    for (const lid of listIds) {
+      try {
+        const contacts = await getListContacts(locawebCreds.creds, lid);
+        for (const c of contacts) {
+          if (!recipientsMap.has(c.email)) {
+            recipientsMap.set(c.email, c);
+          }
+        }
+      } catch (err) {
+        return NextResponse.json(
+          {
+            error: `Falha ao buscar contatos da lista ${lid}: ${(err as Error).message}`,
+          },
+          { status: 502 }
+        );
+      }
+    }
+  }
+
+  if (body.use_segment) {
     try {
       const seg = await resolveSegmentRecipients({
         workspace_id: workspaceId,
         slot: s.slot as Slot,
       });
-      recipients = seg.recipients;
       clusterLabel = seg.cluster_label;
+      for (const r of seg.recipients) {
+        if (!recipientsMap.has(r.email)) {
+          recipientsMap.set(r.email, r);
+        }
+      }
     } catch (err) {
-      return NextResponse.json(
-        { error: (err as Error).message },
-        { status: 502 }
-      );
+      // Só falha se for a única fonte; se já temos lists/recipients, segue.
+      if (recipientsMap.size === 0) {
+        return NextResponse.json(
+          { error: (err as Error).message },
+          { status: 502 }
+        );
+      }
     }
-  } else {
+  }
+
+  const recipients = [...recipientsMap.values()];
+  if (recipients.length === 0) {
     return NextResponse.json(
-      { error: "Sem audiência — use_segment ou recipients[] obrigatório." },
+      { error: "Nenhum destinatário resolvido das fontes informadas." },
       { status: 400 }
     );
   }
