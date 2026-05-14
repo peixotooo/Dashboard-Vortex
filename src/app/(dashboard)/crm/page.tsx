@@ -913,22 +913,7 @@ export default function CrmPage() {
       - financialSettings.other_expenses_pct - financialSettings.invest_pct;
   }, [financialSettings]);
 
-  const totalAdSpend = useMemo(() => {
-    if (!adSpend) return null;
-    return Object.values(adSpend).reduce((s, v) => s + v, 0);
-  }, [adSpend]);
-
-  const cacMedio = useMemo(() => {
-    if (totalAdSpend === null || !metricsData || metricsData.newClients === 0) return null;
-    return totalAdSpend / metricsData.newClients;
-  }, [totalAdSpend, metricsData]);
-
-  const ltv = useMemo(() => {
-    if (!metricsData) return 0;
-    return metricsData.arpu * (mcPct / 100);
-  }, [metricsData, mcPct]);
-
-  // Monthly data with CAC computed
+  // Monthly data with CAC computed (per-month: spend do mês / novos do mês)
   const monthlyWithCac = useMemo(() => {
     return monthlyData.map((m) => {
       const spend = adSpend?.[m.monthKey] ?? null;
@@ -936,6 +921,34 @@ export default function CrmPage() {
       return { ...m, adSpend: spend, cac };
     });
   }, [monthlyData, adSpend]);
+
+  // Period totals — derived from monthlyWithCac (visible period only).
+  // CRÍTICO: usar isso para CAC/Clientes Novos pra evitar inconsistência
+  // com o snapshot.metrics, que pode ter newClients lifetime (todo histórico).
+  const periodTotals = useMemo(() => {
+    const newClients = monthlyWithCac.reduce((s, m) => s + m.newClients, 0);
+    const totalSpend = monthlyWithCac.reduce((s, m) => s + (m.adSpend ?? 0), 0);
+    const totalRevenue = monthlyWithCac.reduce((s, m) => s + m.totalRevenue, 0);
+    const cohortLifetimeRevenue = monthlyWithCac.reduce((s, m) => s + (m.cohortLifetimeRevenue ?? 0), 0);
+    const hasSpendData = monthlyWithCac.some((m) => m.adSpend !== null);
+    const cac = hasSpendData && newClients > 0 ? totalSpend / newClients : null;
+    const ltvCohort = newClients > 0 ? cohortLifetimeRevenue / newClients : 0;
+    return { newClients, totalSpend, totalRevenue, cohortLifetimeRevenue, cac, ltvCohort };
+  }, [monthlyWithCac]);
+
+  const cacMedio = periodTotals.cac;
+  const totalAdSpend = periodTotals.totalSpend > 0 ? periodTotals.totalSpend : null;
+
+  // LTV ARPU-based (mantém pra retrocompatibilidade da UI antiga)
+  const ltv = useMemo(() => {
+    if (!metricsData) return 0;
+    return metricsData.arpu * (mcPct / 100);
+  }, [metricsData, mcPct]);
+
+  // LTV cohort com margem aplicada (mais correto pra comparar com CAC)
+  const ltvCohortMargin = useMemo(() => {
+    return periodTotals.ltvCohort * (mcPct / 100);
+  }, [periodTotals.ltvCohort, mcPct]);
 
   return (
     <div className="space-y-6 p-6">
@@ -1140,25 +1153,31 @@ export default function CrmPage() {
 
           {/* KPI Row 2 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Card className="p-5 text-center">
+            <Card className="p-5 text-center" title="LTV das safras do período (receita lifetime ÷ clientes novos) ÷ CAC do período. Saudável > 3x.">
               <div className="flex items-center justify-center gap-3">
                 <div>
-                  <p className="text-xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : (metricsData!.arpu / cacMedio).toFixed(2)}</p>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">ARPU / CAC</p>
+                  <p className="text-xl font-bold text-foreground">
+                    {metricsLoading || cacMedio === null ? "—" : (periodTotals.ltvCohort / cacMedio).toFixed(2) + "x"}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">LTV bruto / CAC</p>
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : (ltv / cacMedio).toFixed(2)}</p>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">LTV / CAC</p>
+                  <p className="text-xl font-bold text-foreground" style={{ color: cacMedio !== null && ltvCohortMargin / cacMedio >= 3 ? "#16a34a" : cacMedio !== null && ltvCohortMargin / cacMedio >= 1 ? "#f59e0b" : "#ef4444" }}>
+                    {metricsLoading || cacMedio === null ? "—" : (ltvCohortMargin / cacMedio).toFixed(2) + "x"}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">Margem / CAC</p>
                 </div>
               </div>
             </Card>
-            <Card className="p-5 text-center">
+            <Card className="p-5 text-center" title="CAC médio do período: spend total ÷ novos clientes do período. Mesma base do gráfico mensal.">
               <p className="text-2xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : formatCurrency(cacMedio)}</p>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">CAC Medio</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">CAC Médio</p>
+              <p className="text-[10px] text-muted-foreground mt-1">no período</p>
             </Card>
-            <Card className="p-5 text-center">
-              <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatNumber(metricsData?.newClients ?? 0)}</p>
+            <Card className="p-5 text-center" title="Clientes que fizeram primeira compra no período selecionado.">
+              <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatNumber(periodTotals.newClients)}</p>
               <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Clientes Novos</p>
+              <p className="text-[10px] text-muted-foreground mt-1">no período</p>
             </Card>
             <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-primary">{metricsLoading ? "..." : `${(metricsData?.repurchaseRate ?? 0).toFixed(2)}%`}</p>
@@ -1224,6 +1243,117 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
           </div>
+
+          {/* Cohort Retention — LTV acumulado por safra ao longo do tempo */}
+          <ChartCard
+            title="LTV Acumulado por Safra (Cohort Curve)"
+            subtitle="Cada linha = uma safra. X = meses desde a aquisição. Y = receita média por cliente acumulada. Safras antigas (azul-escuro) já maturaram; recentes (ciano) ainda têm potencial."
+            loading={metricsLoading}
+            isEmpty={monthlyWithCac.length === 0 || monthlyWithCac.every(m => !m.retentionCurve?.length)}
+            height={380}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart>
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                <XAxis
+                  type="number"
+                  dataKey="monthOffset"
+                  tick={{ fill: chart.axis, fontSize: 11 }}
+                  label={{ value: "Meses desde a aquisição", position: "insideBottom", offset: -5, fill: chart.axis, fontSize: 11 }}
+                  allowDecimals={false}
+                  domain={[0, "dataMax"]}
+                />
+                <YAxis
+                  tick={{ fill: chart.axis, fontSize: 11 }}
+                  tickFormatter={(v) => `R$${v}`}
+                  label={{ value: "LTV acumulado", angle: -90, position: "insideLeft", fill: chart.axis, fontSize: 11 }}
+                />
+                <Tooltip
+                  contentStyle={chart.tooltipStyle}
+                  formatter={(v, name) => [v !== null && v !== undefined ? formatCurrency(Number(v)) : "—", String(name)]}
+                  labelFormatter={(label) => `M+${label}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {monthlyWithCac
+                  .filter(m => m.retentionCurve?.length)
+                  .map((m, i, arr) => {
+                    // Gradient azul-escuro (safras antigas) → ciano (recentes)
+                    const t = arr.length > 1 ? i / (arr.length - 1) : 0;
+                    const r = Math.round(30 + t * 70);
+                    const g = Math.round(64 + t * 150);
+                    const b = Math.round(175 + t * 50);
+                    const color = `rgb(${r}, ${g}, ${b})`;
+                    return (
+                      <Line
+                        key={m.monthKey}
+                        type="monotone"
+                        data={m.retentionCurve}
+                        dataKey="cumulativeLtv"
+                        name={m.month}
+                        stroke={color}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    );
+                  })}
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* Cohort Retention — % clientes ativos ao longo do tempo */}
+          <ChartCard
+            title="Retenção por Safra (% Clientes Ativos)"
+            subtitle="Cada linha = uma safra. X = meses desde a aquisição. Y = % de clientes da safra que ainda compraram naquele mês. Quanto mais devagar a queda, melhor a retenção."
+            loading={metricsLoading}
+            isEmpty={monthlyWithCac.length === 0 || monthlyWithCac.every(m => !m.retentionCurve?.length)}
+            height={380}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart>
+                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                <XAxis
+                  type="number"
+                  dataKey="monthOffset"
+                  tick={{ fill: chart.axis, fontSize: 11 }}
+                  label={{ value: "Meses desde a aquisição", position: "insideBottom", offset: -5, fill: chart.axis, fontSize: 11 }}
+                  allowDecimals={false}
+                  domain={[0, "dataMax"]}
+                />
+                <YAxis
+                  tick={{ fill: chart.axis, fontSize: 11 }}
+                  tickFormatter={(v) => `${v}%`}
+                  label={{ value: "% Ativos", angle: -90, position: "insideLeft", fill: chart.axis, fontSize: 11 }}
+                />
+                <Tooltip
+                  contentStyle={chart.tooltipStyle}
+                  formatter={(v, name) => [v !== null && v !== undefined ? `${Number(v).toFixed(1)}%` : "—", String(name)]}
+                  labelFormatter={(label) => `M+${label}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {monthlyWithCac
+                  .filter(m => m.retentionCurve?.length)
+                  .map((m, i, arr) => {
+                    const t = arr.length > 1 ? i / (arr.length - 1) : 0;
+                    const r = Math.round(30 + t * 70);
+                    const g = Math.round(64 + t * 150);
+                    const b = Math.round(175 + t * 50);
+                    const color = `rgb(${r}, ${g}, ${b})`;
+                    return (
+                      <Line
+                        key={m.monthKey}
+                        type="monotone"
+                        data={m.retentionCurve}
+                        dataKey="activePct"
+                        name={m.month}
+                        stroke={color}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    );
+                  })}
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
 
           {/* Monthly table */}
           <Card>

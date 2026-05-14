@@ -788,6 +788,15 @@ export interface MonthlyCohortRow {
   cohortAvgOrdersPerClient: number;
   cohortLtv: number;               // cohortLifetimeRevenue / newClients (bruto)
   cohortMonthsTracked: number;     // meses desde a safra (pra contextualizar LTV)
+  // Retention curve: evolução da safra mês a mês desde a aquisição
+  retentionCurve: Array<{
+    monthOffset: number;          // 0 = mês da aquisição, 1 = mês +1
+    activeClients: number;        // clientes da safra que compraram nesse mês
+    activePct: number;            // activeClients / clientes da safra
+    monthRevenue: number;         // receita do mês relativo
+    cumulativeRevenue: number;    // soma de monthRevenue até esse offset
+    cumulativeLtv: number;        // cumulativeRevenue / clientes da safra
+  }>;
 }
 
 export interface CrmMetricsSummary {
@@ -809,6 +818,14 @@ function monthsBetween(fromKey: string, toKey: string): number {
   const [fy, fm] = fromKey.split("-").map(Number);
   const [ty, tm] = toKey.split("-").map(Number);
   return (ty - fy) * 12 + (tm - fm);
+}
+
+function addMonths(monthKey: string, offset: number): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  const total = y * 12 + (m - 1) + offset;
+  const newY = Math.floor(total / 12);
+  const newM = (total % 12) + 1;
+  return `${newY}-${String(newM).padStart(2, "0")}`;
 }
 
 export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): CrmMetricsSummary {
@@ -859,6 +876,8 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
   const cohortRevenue = new Map<string, number>();
   const cohortOrders = new Map<string, number>();
   const cohortClients = new Map<string, Set<string>>();
+  // Atividade por (safra, mês corrente): pra montar retention curve
+  const cohortActivity = new Map<string, Map<string, { clients: Set<string>; revenue: number }>>();
 
   for (const monthKey of sortedMonths) {
     const orders = monthMap.get(monthKey)!;
@@ -903,6 +922,14 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
       let clientSet = cohortClients.get(cohortKey);
       if (!clientSet) { clientSet = new Set(); cohortClients.set(cohortKey, clientSet); }
       clientSet.add(order.email);
+
+      // Track activity per (cohort, current month) for retention curve
+      let activityByMonth = cohortActivity.get(cohortKey);
+      if (!activityByMonth) { activityByMonth = new Map(); cohortActivity.set(cohortKey, activityByMonth); }
+      let activity = activityByMonth.get(monthKey);
+      if (!activity) { activity = { clients: new Set(), revenue: 0 }; activityByMonth.set(monthKey, activity); }
+      activity.clients.add(order.email);
+      activity.revenue += order.valor;
     }
 
     // After processing, mark all as seen
@@ -940,6 +967,7 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
       cohortAvgOrdersPerClient: 0,
       cohortLtv: 0,
       cohortMonthsTracked: 0,
+      retentionCurve: [],
     });
   }
 
@@ -958,6 +986,31 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
       ? parseFloat((lifetimeRevenue / clientsInCohort).toFixed(2))
       : 0;
     row.cohortMonthsTracked = monthsBetween(row.monthKey, lastMonthKey) + 1;
+
+    // Retention curve: para cada mês decorrido desde a safra, qual % dos
+    // clientes da safra comprou nesse mês e quanto receita acumulou.
+    const activity = cohortActivity.get(row.monthKey);
+    const curve: MonthlyCohortRow["retentionCurve"] = [];
+    if (activity && clientsInCohort > 0) {
+      const monthsSinceCohort = monthsBetween(row.monthKey, lastMonthKey);
+      let cumulativeRevenue = 0;
+      for (let offset = 0; offset <= monthsSinceCohort; offset++) {
+        const targetMonthKey = addMonths(row.monthKey, offset);
+        const entry = activity.get(targetMonthKey);
+        const activeClients = entry?.clients.size || 0;
+        const monthRevenue = entry?.revenue || 0;
+        cumulativeRevenue += monthRevenue;
+        curve.push({
+          monthOffset: offset,
+          activeClients,
+          activePct: parseFloat(((activeClients / clientsInCohort) * 100).toFixed(2)),
+          monthRevenue: parseFloat(monthRevenue.toFixed(2)),
+          cumulativeRevenue: parseFloat(cumulativeRevenue.toFixed(2)),
+          cumulativeLtv: parseFloat((cumulativeRevenue / clientsInCohort).toFixed(2)),
+        });
+      }
+    }
+    row.retentionCurve = curve;
   }
 
   // Filter to requested period
