@@ -2430,16 +2430,46 @@
     }
 
     // --- Purchase (confirmation page) ---
-    if (window.location.pathname.indexOf("/checkout/confirmation") !== -1 ||
-        window.location.pathname.indexOf("/pedido/") !== -1) {
+    //
+    // Uses a deterministic event_id ("vtx_purchase_<orderCode>") so this
+    // browser-side event deduplicates with the server-side Purchase fired by
+    // the VNDA webhook. Meta merges the two — keeping fbp/fbc/IP/UA from the
+    // browser AND the hashed PII (email, phone, name, address, birthdate)
+    // from the webhook — without double-counting revenue.
+    var purchasePath =
+      window.location.pathname.indexOf("/checkout/confirmation") !== -1 ||
+      window.location.pathname.indexOf("/pedido/") !== -1;
+    if (purchasePath) {
+      var orderCode = extractOrderCode();
       getCartTotal(function (total) {
         if (total > 0) {
-          sendCAPI("purchase", { value: total });
+          var purchaseData = { value: total };
+          if (orderCode) {
+            purchaseData.event_id = "vtx_purchase_" + orderCode;
+            purchaseData.order_id = orderCode;
+          }
+          sendCAPI("purchase", purchaseData);
         }
       });
     }
 
     console.log("[VtxCAPI] Initialized server-side events for BK COM pixel");
+  }
+
+  // Extract the VNDA order code from the confirmation page. VNDA's canonical
+  // pattern is /pedido/<code>; some themes also render data-order-id on the
+  // confirmation container.
+  function extractOrderCode() {
+    try {
+      var m = window.location.pathname.match(/\/pedido\/([A-Za-z0-9_-]+)/);
+      if (m && m[1]) return m[1];
+      var el = document.querySelector("[data-order-code], [data-order-id]");
+      if (el) {
+        var v = el.getAttribute("data-order-code") || el.getAttribute("data-order-id");
+        if (v) return v;
+      }
+    } catch (e) { /* swallow */ }
+    return null;
   }
 
   function sendCAPI(eventType, data) {
@@ -2448,7 +2478,7 @@
     var payload = {
       key: API_KEY,
       event_type: eventType,
-      event_id: "vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10),
+      event_id: data.event_id || ("vtx_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10)),
       url: window.location.href,
       referrer: document.referrer || "",
       user_agent: navigator.userAgent,
@@ -2460,6 +2490,7 @@
       content_type: data.content_type || "product",
       value: data.value || 0,
       currency: "BRL",
+      order_id: data.order_id || "",
     };
 
     var body = JSON.stringify(payload);

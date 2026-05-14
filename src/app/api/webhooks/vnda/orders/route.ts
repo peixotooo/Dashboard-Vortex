@@ -10,6 +10,7 @@ import {
   cancelCashback,
   extractCreditUsed,
 } from "@/lib/cashback/api";
+import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
 
 export const maxDuration = 30;
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     Promise.resolve(
       admin
         .from("vnda_connections")
-        .select("workspace_id, enable_cashback")
+        .select("workspace_id, enable_cashback, store_host")
         .eq("webhook_token", token)
         .limit(1)
         .single()
@@ -56,6 +57,8 @@ export async function POST(request: NextRequest) {
   const enableCashback = Boolean(
     (connection as { enable_cashback?: boolean }).enable_cashback
   );
+  const storeHost =
+    (connection as { store_host?: string | null }).store_host ?? null;
 
   let payload: unknown;
   try {
@@ -115,6 +118,32 @@ export async function POST(request: NextRequest) {
       .from("crm_rfm_snapshots")
       .delete()
       .eq("workspace_id", workspaceId);
+
+    // Meta CAPI Purchase — isolated so a Meta outage never breaks the webhook.
+    // Gated by META_CAPI_VNDA_WORKSPACE_ID so only the BK COM workspace
+    // forwards to the configured CAPI pixel. Uses deterministic event_id so
+    // it deduplicates with the browser-side purchase event.
+    try {
+      const capiRes = await dispatchVndaPurchaseToCapi({
+        workspaceId,
+        storeHost,
+        payload,
+      });
+      if (capiRes.ok) {
+        console.log(
+          `[VNDA Webhook] CAPI Purchase forwarded for order ${orderId} (fbtrace=${capiRes.fbtrace_id || "n/a"})`
+        );
+      } else if (capiRes.reason && capiRes.reason !== "workspace_not_allowed" && capiRes.reason !== "not_configured") {
+        console.warn(
+          `[VNDA Webhook] CAPI Purchase skipped/failed for ${orderId}: ${capiRes.reason}`
+        );
+      }
+    } catch (capiErr) {
+      console.error(
+        `[VNDA Webhook] CAPI dispatch threw for order ${orderId}:`,
+        capiErr instanceof Error ? capiErr.message : capiErr
+      );
+    }
 
     // Cashback dispatch — isolated so any failure never breaks the webhook.
     if (enableCashback) {
