@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch ad spend from all sources (live — changes daily)
     const monthKeys = (monthlyData as Array<{ monthKey: string }>).map((m) => m.monthKey);
-    const adSpend = await fetchCombinedAdSpend(request, monthKeys);
+    const adSpend = await fetchCombinedAdSpend(request, supabase, workspaceId, monthKeys);
 
     return NextResponse.json({
       metrics,
@@ -102,6 +102,8 @@ export async function GET(request: NextRequest) {
  */
 async function fetchCombinedAdSpend(
   request: NextRequest,
+  supabase: ReturnType<typeof createSupabase>,
+  workspaceId: string,
   monthKeys: string[]
 ): Promise<Record<string, number> | null> {
   if (monthKeys.length === 0) return null;
@@ -114,7 +116,7 @@ async function fetchCombinedAdSpend(
 
   // Fetch from Meta and Google in parallel
   const [metaSpend, googleSpend] = await Promise.all([
-    fetchMetaMonthlySpend(request, startDate, endDate),
+    fetchMetaMonthlySpend(request, supabase, workspaceId, startDate, endDate),
     fetchGoogleMonthlySpend(startDate, endDate),
   ]);
 
@@ -138,6 +140,8 @@ async function fetchCombinedAdSpend(
 
 async function fetchMetaMonthlySpend(
   request: NextRequest,
+  supabase: ReturnType<typeof createSupabase>,
+  workspaceId: string,
   startDate: string,
   endDate: string
 ): Promise<Record<string, number> | null> {
@@ -147,21 +151,43 @@ async function fetchMetaMonthlySpend(
       return null;
     });
 
-    const result = await getInsights({
-      time_range: { since: startDate, until: endDate },
-      time_increment: "monthly",
-      fields: ["spend"],
-    }) as { insights?: Array<{ date_start?: string; spend?: string }> };
+    const { data: linkedAccounts } = await supabase
+      .from("meta_accounts")
+      .select("account_id, account_name")
+      .eq("workspace_id", workspaceId) as unknown as { data: Array<{ account_id: string; account_name: string | null }> | null };
 
-    if (!result?.insights || result.insights.length === 0) return null;
+    if (!linkedAccounts || linkedAccounts.length === 0) {
+      console.log("[CRM Cohort] No Meta accounts linked to workspace", workspaceId);
+      return null;
+    }
+
+    console.log(`[CRM Cohort] Fetching Meta spend for ${linkedAccounts.length} account(s): ${linkedAccounts.map(a => a.account_id).join(", ")}`);
 
     const spend: Record<string, number> = {};
-    for (const row of result.insights) {
-      if (row.date_start) {
-        const key = row.date_start.slice(0, 7);
-        spend[key] = (spend[key] || 0) + parseFloat(row.spend || "0");
+    for (const acc of linkedAccounts) {
+      try {
+        const result = await getInsights({
+          object_id: acc.account_id,
+          time_range: { since: startDate, until: endDate },
+          time_increment: "monthly",
+          fields: ["spend"],
+        }) as { insights?: Array<{ date_start?: string; spend?: string }> };
+
+        if (!result?.insights) continue;
+        for (const row of result.insights) {
+          if (row.date_start) {
+            const key = row.date_start.slice(0, 7);
+            spend[key] = (spend[key] || 0) + parseFloat(row.spend || "0");
+          }
+        }
+      } catch (err) {
+        console.error(`[CRM Cohort] Meta spend failed for ${acc.account_id}:`, err instanceof Error ? err.message : err);
       }
     }
+
+    const totalSpend = Object.values(spend).reduce((s, v) => s + v, 0);
+    console.log(`[CRM Cohort] Meta total spend: R$ ${totalSpend.toFixed(2)} across ${Object.keys(spend).length} months`);
+
     return Object.keys(spend).length > 0 ? spend : null;
   } catch (err) {
     console.error("[CRM Cohort] Meta spend fetch failed:", err instanceof Error ? err.message : err);
