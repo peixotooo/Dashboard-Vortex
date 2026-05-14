@@ -36,6 +36,7 @@ import {
   Line,
   AreaChart,
   Area,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -154,16 +155,19 @@ function LifecycleBadge({ stage }: { stage: LifecycleStage }) {
 // --- Chart wrapper for consistent loading/empty ---
 
 function ChartCard({
-  title, loading, isEmpty, height = 250, children, actions,
+  title, subtitle, loading, isEmpty, height = 250, children, actions,
 }: {
-  title: string; loading: boolean; isEmpty: boolean; height?: number;
+  title: string; subtitle?: string; loading: boolean; isEmpty: boolean; height?: number;
   children: React.ReactNode; actions?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">{title}</CardTitle>
+          <div>
+            <CardTitle className="text-base">{title}</CardTitle>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+          </div>
           {!loading && !isEmpty && actions}
         </div>
       </CardHeader>
@@ -1190,15 +1194,33 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="CAC" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0 || !adSpend} height={250}>
+            <ChartCard
+              title="LTV vs CAC por Safra"
+              subtitle="LTV bruto realizado (lifetime) vs CAC. Linha = margem (LTV×MC%). Safras recentes têm menos tempo pra desenvolver LTV."
+              loading={metricsLoading}
+              isEmpty={monthlyWithCac.length === 0 || !adSpend}
+              height={300}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyWithCac}>
+                <ComposedChart data={monthlyWithCac.map((m) => ({
+                  ...m,
+                  ltvMargin: m.cohortLtv * (mcPct / 100),
+                }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
                   <XAxis dataKey="month" tick={{ fill: chart.axis, fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} />
-                  <Tooltip contentStyle={chart.tooltipStyle} formatter={(v) => [formatCurrency(Number(v)), "CAC"]} />
-                  <Line type="monotone" dataKey="cac" stroke="#4ade80" strokeWidth={2} dot={{ r: 4, fill: "#4ade80" }} connectNulls />
-                </LineChart>
+                  <YAxis tick={{ fill: chart.axis, fontSize: 11 }} tickFormatter={(v) => `R$${v}`} />
+                  <Tooltip
+                    contentStyle={chart.tooltipStyle}
+                    formatter={(v, name) => [
+                      v !== null && v !== undefined ? formatCurrency(Number(v)) : "—",
+                      String(name),
+                    ]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="cohortLtv" name="LTV (lifetime)" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="cac" name="CAC" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                  <Line type="monotone" dataKey="ltvMargin" name={`Margem (${mcPct.toFixed(0)}% LTV)`} stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls />
+                </ComposedChart>
               </ResponsiveContainer>
             </ChartCard>
           </div>
@@ -1228,12 +1250,25 @@ export default function CrmPage() {
                       <th className="py-3 px-2 text-right">Antigos</th>
                       <th className="py-3 px-2 text-right">Tkt Antigos</th>
                       <th className="py-3 px-2 text-right">Receita Antigos</th>
-                      <th className="py-3 px-2 text-right">CAC</th>
+                      <th className="py-3 px-2 text-right" title="Custo de Aquisição da Safra: spend Meta do mês ÷ novos clientes do mês">CAC</th>
+                      <th className="py-3 px-2 text-right" title="LTV bruto realizado: receita acumulada (lifetime) dos clientes que entraram nessa safra ÷ qtd de clientes da safra">LTV</th>
+                      <th className="py-3 px-2 text-right" title="LTV ÷ CAC. Saudável > 3x. Lembre que safras recentes têm pouco tempo pra desenvolver LTV.">LTV:CAC</th>
+                      <th className="py-3 px-2 text-right" title="Pedidos médios por cliente da safra (lifetime)">Pedidos/Cli</th>
+                      <th className="py-3 px-2 text-right" title="Meses desde a safra — quanto mais antiga, mais maduro o LTV">Idade</th>
                       <th className="py-3 px-2 text-right">Recompra</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {monthlyWithCac.map((row) => (
+                    {monthlyWithCac.map((row) => {
+                      const ltvCacRatio = row.cac !== null && row.cac > 0
+                        ? row.cohortLtv / row.cac
+                        : null;
+                      const ratioColor = ltvCacRatio === null
+                        ? undefined
+                        : ltvCacRatio >= 3 ? "#16a34a" // verde
+                        : ltvCacRatio >= 1 ? "#f59e0b" // âmbar
+                        : "#ef4444"; // vermelho
+                      return (
                       <tr key={row.monthKey} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-3 px-2 font-medium">{row.month}</td>
                         <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.totalClients)}</td>
@@ -1247,9 +1282,18 @@ export default function CrmPage() {
                         <td className="py-3 px-2 text-right font-semibold" style={{ color: row.cac !== null ? "#ef4444" : undefined }}>
                           {row.cac !== null ? formatCurrency(row.cac) : "—"}
                         </td>
+                        <td className="py-3 px-2 text-right font-semibold" style={{ color: row.cohortLtv > 0 ? "#3b82f6" : undefined }}>
+                          {row.cohortLtv > 0 ? formatCurrency(row.cohortLtv) : "—"}
+                        </td>
+                        <td className="py-3 px-2 text-right font-semibold" style={{ color: ratioColor }}>
+                          {ltvCacRatio !== null ? `${ltvCacRatio.toFixed(2)}x` : "—"}
+                        </td>
+                        <td className="py-3 px-2 text-right">{row.cohortAvgOrdersPerClient > 0 ? row.cohortAvgOrdersPerClient.toFixed(2) : "—"}</td>
+                        <td className="py-3 px-2 text-right text-muted-foreground">{row.cohortMonthsTracked}m</td>
                         <td className="py-3 px-2 text-right">{row.repurchaseRate.toFixed(2)}%</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

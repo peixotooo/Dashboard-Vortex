@@ -780,6 +780,14 @@ export interface MonthlyCohortRow {
   totalOrders: number;
   totalRevenue: number;
   repurchaseRate: number;
+  // Cohort lifetime metrics: receita acumulada (lifetime) dos clientes
+  // que entraram NESTE mês — soma TODAS as compras deles desde a aquisição
+  // até o fim do período analisado.
+  cohortLifetimeRevenue: number;
+  cohortLifetimeOrders: number;
+  cohortAvgOrdersPerClient: number;
+  cohortLtv: number;               // cohortLifetimeRevenue / newClients (bruto)
+  cohortMonthsTracked: number;     // meses desde a safra (pra contextualizar LTV)
 }
 
 export interface CrmMetricsSummary {
@@ -796,6 +804,12 @@ const MONTH_NAMES_PT = [
   "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
+
+function monthsBetween(fromKey: string, toKey: string): number {
+  const [fy, fm] = fromKey.split("-").map(Number);
+  const [ty, tm] = toKey.split("-").map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
 
 export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): CrmMetricsSummary {
   // Sort rows by date
@@ -839,6 +853,13 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
   const cumulativePurchases = new Map<string, number>();
   let cumulativeRepeatBuyers = 0;
 
+  // Cohort lifetime tracking: email → safra de aquisição (primeiro mês)
+  const firstSeenCohort = new Map<string, string>();
+  // Agregados por safra: revenue/orders/clientes
+  const cohortRevenue = new Map<string, number>();
+  const cohortOrders = new Map<string, number>();
+  const cohortClients = new Map<string, Set<string>>();
+
   for (const monthKey of sortedMonths) {
     const orders = monthMap.get(monthKey)!;
     const [yearStr, monthStr] = monthKey.split("-");
@@ -871,7 +892,17 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
         newEmails.add(order.email);
         revenueNew += order.valor;
         ordersNew++;
+        // Register cohort: this email's acquisition month is monthKey
+        firstSeenCohort.set(order.email, monthKey);
       }
+
+      // Attribute every order to the email's acquisition cohort (lifetime)
+      const cohortKey = firstSeenCohort.get(order.email)!;
+      cohortRevenue.set(cohortKey, (cohortRevenue.get(cohortKey) || 0) + order.valor);
+      cohortOrders.set(cohortKey, (cohortOrders.get(cohortKey) || 0) + 1);
+      let clientSet = cohortClients.get(cohortKey);
+      if (!clientSet) { clientSet = new Set(); cohortClients.set(cohortKey, clientSet); }
+      clientSet.add(order.email);
     }
 
     // After processing, mark all as seen
@@ -903,7 +934,30 @@ export function generateMonthlyCohort(rows: CrmVendaRow[], months?: number): Crm
       totalOrders,
       totalRevenue: parseFloat(totalRevenue.toFixed(2)),
       repurchaseRate: parseFloat(repurchaseRate.toFixed(2)),
+      // Cohort fields — preenchidos no segundo passo abaixo
+      cohortLifetimeRevenue: 0,
+      cohortLifetimeOrders: 0,
+      cohortAvgOrdersPerClient: 0,
+      cohortLtv: 0,
+      cohortMonthsTracked: 0,
     });
+  }
+
+  // Second pass: backfill cohort lifetime metrics now that we have all data
+  const lastMonthKey = sortedMonths[sortedMonths.length - 1];
+  for (const row of monthlyData) {
+    const lifetimeRevenue = cohortRevenue.get(row.monthKey) || 0;
+    const lifetimeOrders = cohortOrders.get(row.monthKey) || 0;
+    const clientsInCohort = cohortClients.get(row.monthKey)?.size || row.newClients;
+    row.cohortLifetimeRevenue = parseFloat(lifetimeRevenue.toFixed(2));
+    row.cohortLifetimeOrders = lifetimeOrders;
+    row.cohortAvgOrdersPerClient = clientsInCohort > 0
+      ? parseFloat((lifetimeOrders / clientsInCohort).toFixed(2))
+      : 0;
+    row.cohortLtv = clientsInCohort > 0
+      ? parseFloat((lifetimeRevenue / clientsInCohort).toFixed(2))
+      : 0;
+    row.cohortMonthsTracked = monthsBetween(row.monthKey, lastMonthKey) + 1;
   }
 
   // Filter to requested period
