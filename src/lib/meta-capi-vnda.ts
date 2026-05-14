@@ -1,5 +1,6 @@
 import { isCapiConfigured, sendCapiEvent } from "@/lib/meta-capi";
 import type { VndaWebhookPayload } from "@/lib/vnda-webhook";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 // Workspace gate. The CAPI pixel/token in env vars points at the BK COM
 // pixel, so we MUST only fire Purchase events for the workspace that owns
@@ -35,6 +36,37 @@ export interface DispatchVndaPurchaseInput {
   workspaceId: string;
   storeHost?: string | null;
   payload: VndaWebhookPayload;
+}
+
+interface AttributionRow {
+  fbc: string | null;
+  fbp: string | null;
+  client_ip: string | null;
+  user_agent: string | null;
+  captured_at: string;
+}
+
+// Fetch the latest browser-side attribution snapshot for this email/workspace.
+// Returns null if none — caller proceeds without those signals.
+async function fetchAttribution(
+  workspaceId: string,
+  email: string
+): Promise<AttributionRow | null> {
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("meta_attribution")
+      .select("fbc, fbp, client_ip, user_agent, captured_at")
+      .eq("workspace_id", workspaceId)
+      .eq("email", email.trim().toLowerCase())
+      .order("captured_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as AttributionRow;
+  } catch {
+    return null;
+  }
 }
 
 export async function dispatchVndaPurchaseToCapi(
@@ -91,6 +123,11 @@ export async function dispatchVndaPurchaseToCapi(
   // back to email so we still get something hashed in this slot.
   const externalId = payload.cpf || payload.email || null;
 
+  // Browser-side signals captured at checkout-email-entry time.
+  const attribution = payload.email
+    ? await fetchAttribution(input.workspaceId, payload.email)
+    : null;
+
   const result = await sendCapiEvent({
     event_name: "Purchase",
     event_id: purchaseEventId(code),
@@ -108,6 +145,10 @@ export async function dispatchVndaPurchaseToCapi(
       country: "br",
       birthdate: payload.birthdate,
       external_id: externalId,
+      fbc: attribution?.fbc || undefined,
+      fbp: attribution?.fbp || undefined,
+      client_ip_address: attribution?.client_ip || undefined,
+      client_user_agent: attribution?.user_agent || undefined,
     },
     custom: {
       content_ids: contentIds.length ? contentIds : undefined,

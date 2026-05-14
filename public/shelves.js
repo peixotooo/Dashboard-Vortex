@@ -2453,7 +2453,96 @@
       });
     }
 
+    // Snapshot fbc/fbp/IP/UA by email when the customer types it on
+    // checkout, so the server-side Purchase can merge them in.
+    initAttributionCapture();
+
     console.log("[VtxCAPI] Initialized server-side events for BK COM pixel");
+  }
+
+  // ---------------------------------------------------------------------
+  // Meta CAPI attribution snapshot
+  //
+  // The server-side Purchase fired by the VNDA webhook has hashed PII but
+  // lacks fbc/fbp/IP/UA (those are browser-only). We snapshot them keyed by
+  // the customer's email whenever they type it on the checkout form, so the
+  // webhook can later join by email and merge them into the Purchase event.
+  // Without this, Meta's Event Match Quality caps around 6/10 on Purchase.
+  // ---------------------------------------------------------------------
+  var attributionSent = {}; // email -> 1, dedupe per session
+
+  function sendAttribution(email) {
+    if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
+    if (!email || email.indexOf("@") === -1) return;
+    var normalized = String(email).trim().toLowerCase();
+    if (attributionSent[normalized]) return;
+    var fbc = getCookie("_fbc") || "";
+    var fbp = getCookie("_fbp") || "";
+    if (!fbc && !fbp) return; // nothing useful to capture
+    attributionSent[normalized] = 1;
+
+    var payload = JSON.stringify({
+      key: API_KEY,
+      email: normalized,
+      fbc: fbc,
+      fbp: fbp,
+      consumer_id: consumerId || "",
+      user_agent: navigator.userAgent,
+    });
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(
+        API_BASE + "/api/meta-attribution",
+        new Blob([payload], { type: "application/json" })
+      );
+    } else {
+      fetch(API_BASE + "/api/meta-attribution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(function () {});
+    }
+  }
+
+  function isEmailLike(v) {
+    return v && typeof v === "string" && v.indexOf("@") > 0 && v.length > 4;
+  }
+
+  function initAttributionCapture() {
+    if (!VTX_CAPI_ENABLED) return;
+
+    // Strategy: watch every email input and every input whose value looks
+    // like an email. VNDA's checkout has the email field on step 1, but the
+    // selector varies by theme — we cast a wide net.
+    function scan() {
+      try {
+        var nodes = document.querySelectorAll(
+          'input[type="email"], input[name*="email" i], input[id*="email" i]'
+        );
+        for (var i = 0; i < nodes.length; i++) {
+          var el = nodes[i];
+          if (el._vtxAttrBound) continue;
+          el._vtxAttrBound = 1;
+          // Fire on blur (user moved on) and on change (autofill). blur covers
+          // typing flows; change covers password managers / autocomplete.
+          el.addEventListener("blur", function (e) {
+            if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
+          });
+          el.addEventListener("change", function (e) {
+            if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
+          });
+          // Try the existing value (autofilled before our handler attached).
+          if (isEmailLike(el.value)) sendAttribution(el.value);
+        }
+      } catch (e) { /* swallow */ }
+    }
+    scan();
+    // Re-scan when the SPA-like checkout swaps DOM nodes.
+    try {
+      var mo = new MutationObserver(function () { scan(); });
+      mo.observe(document.body, { childList: true, subtree: true });
+    } catch (e) { /* old browsers */ }
   }
 
   // Extract the VNDA order code from the confirmation page. VNDA's canonical
