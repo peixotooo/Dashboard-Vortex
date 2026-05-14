@@ -27,6 +27,9 @@ export const maxDuration = 60;
 
 interface Body {
   test_emails: string[];
+  /** Mesma semântica do test-dispatch de sugestões — força o subject
+   *  editado no diálogo em vez do que está salvo no draft. */
+  subject_override?: string;
 }
 
 function isValidEmail(e: string | undefined | null): e is string {
@@ -120,7 +123,12 @@ export async function POST(
         id: dispatchId,
       })
     );
-    const subject = `[TESTE] ${draft.meta?.subject || draft.name || "Bulking"}`;
+    const baseSubject =
+      (typeof body.subject_override === "string" && body.subject_override.trim()) ||
+      draft.meta?.subject ||
+      draft.name ||
+      "Bulking";
+    const subject = `[TESTE] ${baseSubject}`;
 
     // Ramifica pelo provider — o test send precisa usar o mesmo provider
     // ativo do workspace, senão o usuário testa Locaweb e dispara iPORTO

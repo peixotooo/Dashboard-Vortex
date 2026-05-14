@@ -22,6 +22,10 @@ interface TestSendCardProps {
   disabled?: boolean;
   /** Called when a test send succeeds. Parent uses this to advance UI / unlock the real-send stage. */
   onSent?: (email: string) => void;
+  /** Subject editado no diálogo. Forwarded como subject_override pro
+   *  endpoint — sem isso o teste sempre chega com o assunto antigo
+   *  porque o backend lê da sugestão/rascunho salva no banco. */
+  subjectOverride?: string;
 }
 
 export function TestSendCard({
@@ -29,6 +33,7 @@ export function TestSendCard({
   workspaceId,
   disabled,
   onSent,
+  subjectOverride,
 }: TestSendCardProps) {
   const { user } = useAuth();
   const [testEmail, setTestEmail] = useState("");
@@ -59,13 +64,17 @@ export function TestSendCard({
     setError(null);
     setErrorDetails(null);
     try {
+      const payload: Record<string, unknown> = { test_emails: [email] };
+      if (subjectOverride && subjectOverride.trim()) {
+        payload.subject_override = subjectOverride.trim();
+      }
       const r = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-workspace-id": workspaceId,
         },
-        body: JSON.stringify({ test_emails: [email] }),
+        body: JSON.stringify(payload),
       });
       const d = await r.json();
       if (!r.ok) {

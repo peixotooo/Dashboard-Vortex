@@ -172,11 +172,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const originalHeadline = suggestion.copy?.headline ?? "";
   const originalLead = suggestion.copy?.lead ?? "";
   const originalCta = suggestion.copy?.cta_text ?? "";
-  const isDirty =
-    subjectEdit.trim() !== originalSubject.trim() ||
+  // Subject vai inline no disparo (subject_override); headline/lead/CTA
+  // mexem no rendered_html, então só pegam se promover a rascunho.
+  const isBodyDirty =
     headlineEdit.trim() !== originalHeadline.trim() ||
     leadEdit.trim() !== originalLead.trim() ||
     ctaTextEdit.trim() !== originalCta.trim();
+  const isDirty =
+    subjectEdit.trim() !== originalSubject.trim() || isBodyDirty;
 
   const close = () => {
     if (submitting) return;
@@ -306,6 +309,12 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             utm_term: (suggestion.target_segment_payload as {
               display_label?: string;
             })?.display_label,
+            // Subject editado vai junto. Headline/lead/CTA continuam
+            // exigindo "Salvar como rascunho" porque já foram render.
+            subject_override:
+              subjectEdit.trim() !== originalSubject.trim()
+                ? subjectEdit.trim()
+                : undefined,
           }),
         }
       );
@@ -345,13 +354,12 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
   const stepReview: WizardStep = {
     id: "review",
     label: "Conteúdo",
-    // Edita inline. Se editou, "Próximo" continua ok — os edits só
-    // viram efeito real quando o usuário escolher "Salvar como rascunho"
-    // no último step (a sugestão original tem rendered_html pré-gerado,
-    // então edits direto na sugestão não pegam).
+    // Subject editado vai inline no disparo (subject_override pro endpoint).
+    // Headline/lead/CTA mexem em rendered_html, então só pegam se promover a
+    // rascunho — "Salvar como rascunho" no último passo.
     canProceed: true,
-    nextHint: isDirty
-      ? "Edits viram rascunho ao final do wizard"
+    nextHint: isBodyDirty
+      ? "Edits de corpo viram rascunho ao final do wizard"
       : undefined,
     content: (
       <>
@@ -419,12 +427,11 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
             />
           </div>
         </div>
-        {isDirty && (
+        {isBodyDirty && (
           <div className="text-[11px] p-2.5 rounded border border-amber-300 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-100">
-            Você editou o conteúdo. Pra aplicar, complete os próximos
-            passos e finalize com <strong>Salvar como rascunho</strong> no
-            último passo — o draft fica pendente de aprovação com tudo
-            (produto, audiência e horário) já configurado.
+            Você editou headline/texto/CTA. Subject já vai aplicado no
+            disparo, mas as outras edições só pegam se finalizar com{" "}
+            <strong>Salvar como rascunho</strong> no último passo.
           </div>
         )}
       </>
@@ -443,6 +450,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
         <TestSendCard
           endpoint={`/api/crm/email-templates/${suggestion.id}/test-dispatch`}
           workspaceId={workspaceId}
+          subjectOverride={subjectEdit}
           onSent={(email) => setTestSentTo(email)}
         />
       </>

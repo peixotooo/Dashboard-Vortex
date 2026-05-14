@@ -30,6 +30,10 @@ export const maxDuration = 60;
 interface Body {
   /** Recipient addresses for the preview. Usually the logged-in user. */
   test_emails: string[];
+  /** Subject editado no diálogo. Quando presente, usa esse em vez do que
+   *  estava salvo na sugestão — sem isso o "Enviar teste" sempre manda
+   *  com o subject antigo, dando a impressão de que a edição não pegou. */
+  subject_override?: string;
 }
 
 function isValidEmail(e: string | undefined | null): e is string {
@@ -110,8 +114,12 @@ export async function POST(
         id: dispatchId,
       })
     );
-    const subject =
-      `[TESTE] ${s.copy?.subject || s.product_snapshot?.name || "Bulking"}`;
+    const baseSubject =
+      (typeof body.subject_override === "string" && body.subject_override.trim()) ||
+      s.copy?.subject ||
+      s.product_snapshot?.name ||
+      "Bulking";
+    const subject = `[TESTE] ${baseSubject}`;
 
     // Ramifica pelo provider ativo do workspace (test send precisa usar
     // o mesmo canal do real, senão o usuário valida no provider errado).

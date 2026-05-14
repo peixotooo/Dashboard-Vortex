@@ -42,6 +42,11 @@ interface Body {
   recipients?: Array<{ email: string; name?: string | null }>;
   scheduled_to?: string;
   utm_term?: string;
+  /** Subject editado no wizard. Aplica direto no envio (Locaweb/iPORTO)
+   *  sem precisar promover a sugestão a rascunho. Headline/lead/CTA
+   *  continuam exigindo o caminho "Salvar como rascunho" porque viraram
+   *  rendered_html no momento da geração. */
+  subject_override?: string;
 }
 
 export async function POST(
@@ -168,6 +173,7 @@ export async function POST(
     const effectiveScheduledTo = body.scheduled_to ?? todayBrt;
 
     const subject =
+      (typeof body.subject_override === "string" && body.subject_override.trim()) ||
       s.copy?.subject ||
       `${s.product_snapshot?.name ?? "Bulking"} · slot ${s.slot}`;
     const campaignName = `sug_${s.slot}_${s.generated_for_date}_${s.id.slice(0, 8)}`;
@@ -409,6 +415,7 @@ async function dispatchSuggestionViaIporto(
   );
 
   const subject =
+    (typeof body.subject_override === "string" && body.subject_override.trim()) ||
     s.copy?.subject ||
     `${s.product_snapshot?.name ?? "Bulking"} · slot ${s.slot}`;
 
