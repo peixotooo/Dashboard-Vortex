@@ -154,6 +154,165 @@ function LifecycleBadge({ stage }: { stage: LifecycleStage }) {
 
 // --- Chart wrapper for consistent loading/empty ---
 
+type CohortMetric = "retention" | "ltv" | "revenue";
+
+interface CohortHeatmapRow {
+  monthKey: string;
+  month: string;
+  newClients: number;
+  retentionCurve?: Array<{
+    monthOffset: number;
+    activePct: number;
+    cumulativeLtv: number;
+    monthRevenue: number;
+  }>;
+}
+
+function CohortHeatmap({
+  data, loading, metric, onMetricChange,
+}: {
+  data: CohortHeatmapRow[];
+  loading: boolean;
+  metric: CohortMetric;
+  onMetricChange: (m: CohortMetric) => void;
+}) {
+  const valid = data.filter((r) => r.retentionCurve && r.retentionCurve.length > 0);
+  // Reverse: safras mais recentes em cima
+  const rows = [...valid].reverse();
+  const maxOffset = Math.max(0, ...valid.map((r) => r.retentionCurve!.length - 1));
+
+  // Pega valor da célula segundo a métrica selecionada
+  const getValue = (row: CohortHeatmapRow, offset: number): number | null => {
+    const entry = row.retentionCurve?.find((c) => c.monthOffset === offset);
+    if (!entry) return null;
+    if (metric === "retention") return entry.activePct;
+    if (metric === "ltv") return entry.cumulativeLtv;
+    return entry.monthRevenue;
+  };
+
+  // Computa max para escala de cor. Pra retention, ignora M+0 (sempre 100% — ruído).
+  const allValues: number[] = [];
+  for (const r of rows) {
+    for (let o = metric === "retention" ? 1 : 0; o <= maxOffset; o++) {
+      const v = getValue(r, o);
+      if (v !== null && v > 0) allValues.push(v);
+    }
+  }
+  const maxVal = allValues.length > 0 ? Math.max(...allValues) : 1;
+
+  // Gradient: transparent → cor da métrica
+  // retention=teal, ltv=indigo, revenue=amber
+  const palette: Record<CohortMetric, { r: number; g: number; b: number }> = {
+    retention: { r: 20, g: 184, b: 166 },  // teal-500
+    ltv: { r: 99, g: 102, b: 241 },         // indigo-500
+    revenue: { r: 245, g: 158, b: 11 },     // amber-500
+  };
+
+  const cellColor = (v: number | null, offset: number): string => {
+    if (v === null) return "transparent";
+    // M+0 retention sempre 100% — cor neutra
+    if (metric === "retention" && offset === 0) return "rgba(100, 116, 139, 0.15)";
+    const intensity = Math.min(1, v / maxVal);
+    const { r, g, b } = palette[metric];
+    return `rgba(${r}, ${g}, ${b}, ${0.08 + intensity * 0.75})`;
+  };
+
+  const fmt = (v: number | null): string => {
+    if (v === null) return "";
+    if (metric === "retention") return `${v.toFixed(1)}%`;
+    if (metric === "ltv") return `R$${v.toFixed(0)}`;
+    return `R$${(v / 1000).toFixed(1)}k`;
+  };
+
+  const subtitleByMetric: Record<CohortMetric, string> = {
+    retention: "% de clientes da safra que comprou no mês decorrido. M+0 é sempre 100% (mês da aquisição). Quanto mais escuro à direita, melhor a retenção.",
+    ltv: "Receita média por cliente acumulada da safra. Cresce ao longo do tempo. Compare safras: a Jun/25 tá mais escura à direita que Dez/25?",
+    revenue: "Receita TOTAL que aquela safra gerou em cada mês decorrido. Útil pra entender padrões absolutos de spending por cohort.",
+  };
+
+  const metricLabels: Record<CohortMetric, string> = {
+    retention: "% Retenção",
+    ltv: "LTV Acumulado",
+    revenue: "Receita do Mês",
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex-1">
+            <CardTitle className="text-base">Cohort Heatmap</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{subtitleByMetric[metric]}</p>
+          </div>
+          <div className="inline-flex rounded-md border border-border bg-card overflow-hidden shrink-0">
+            {(Object.keys(metricLabels) as CohortMetric[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => onMetricChange(m)}
+                className={`px-3 py-1.5 text-xs transition-colors ${
+                  metric === m
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {metricLabels[m]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-48">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm text-center py-8">Sem dados</p>
+        ) : (
+          <table className="text-xs border-separate" style={{ borderSpacing: "2px" }}>
+            <thead>
+              <tr className="text-muted-foreground">
+                <th className="py-2 px-2 text-left font-medium sticky left-0 bg-background z-10">Safra</th>
+                <th className="py-2 px-2 text-right font-medium">Clientes</th>
+                {Array.from({ length: maxOffset + 1 }, (_, i) => (
+                  <th key={i} className="py-2 px-2 text-center font-medium min-w-[60px]">
+                    M+{i}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.monthKey}>
+                  <td className="py-1.5 px-2 font-medium whitespace-nowrap sticky left-0 bg-background z-10">{row.month}</td>
+                  <td className="py-1.5 px-2 text-right text-muted-foreground">{formatNumber(row.newClients)}</td>
+                  {Array.from({ length: maxOffset + 1 }, (_, offset) => {
+                    const v = getValue(row, offset);
+                    return (
+                      <td
+                        key={offset}
+                        className="text-center px-2 py-1.5 rounded transition-colors"
+                        style={{
+                          backgroundColor: cellColor(v, offset),
+                          color: v !== null && v > maxVal * 0.55 ? "white" : undefined,
+                          fontWeight: v !== null && v > maxVal * 0.55 ? 600 : 400,
+                        }}
+                        title={v !== null ? `${row.month} → M+${offset}: ${fmt(v)}` : ""}
+                      >
+                        {fmt(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ChartCard({
   title, subtitle, loading, isEmpty, height = 250, children, actions,
 }: {
@@ -444,6 +603,7 @@ export default function CrmPage() {
   const [adSpend, setAdSpend] = useState<Record<string, number> | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
   const [metricsPeriod, setMetricsPeriod] = useState(12);
+  const [cohortMetric, setCohortMetric] = useState<"retention" | "ltv" | "revenue">("retention");
   const [financialSettings, setFinancialSettings] = useState<{
     product_cost_pct: number; tax_pct: number; frete_pct: number;
     desconto_pct: number; other_expenses_pct: number; invest_pct: number;
@@ -1249,116 +1409,13 @@ export default function CrmPage() {
             </ChartCard>
           </div>
 
-          {/* Cohort Retention — LTV acumulado por safra ao longo do tempo */}
-          <ChartCard
-            title="LTV Acumulado por Safra (Cohort Curve)"
-            subtitle="Cada linha = uma safra. X = meses desde a aquisição. Y = receita média por cliente acumulada. Safras antigas (azul-escuro) já maturaram; recentes (ciano) ainda têm potencial."
+          {/* Cohort Heatmap — uma única tabela com seletor de métrica */}
+          <CohortHeatmap
+            data={monthlyWithCac}
             loading={metricsLoading}
-            isEmpty={monthlyWithCac.length === 0 || monthlyWithCac.every(m => !m.retentionCurve?.length)}
-            height={380}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart>
-                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
-                <XAxis
-                  type="number"
-                  dataKey="monthOffset"
-                  tick={{ fill: chart.axis, fontSize: 11 }}
-                  label={{ value: "Meses desde a aquisição", position: "insideBottom", offset: -5, fill: chart.axis, fontSize: 11 }}
-                  allowDecimals={false}
-                  domain={[0, "dataMax"]}
-                />
-                <YAxis
-                  tick={{ fill: chart.axis, fontSize: 11 }}
-                  tickFormatter={(v) => `R$${v}`}
-                  label={{ value: "LTV acumulado", angle: -90, position: "insideLeft", fill: chart.axis, fontSize: 11 }}
-                />
-                <Tooltip
-                  contentStyle={chart.tooltipStyle}
-                  formatter={(v, name) => [v !== null && v !== undefined ? formatCurrency(Number(v)) : "—", String(name)]}
-                  labelFormatter={(label) => `M+${label}`}
-                />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {monthlyWithCac
-                  .filter(m => m.retentionCurve?.length)
-                  .map((m, i, arr) => {
-                    // Gradient azul-escuro (safras antigas) → ciano (recentes)
-                    const t = arr.length > 1 ? i / (arr.length - 1) : 0;
-                    const r = Math.round(30 + t * 70);
-                    const g = Math.round(64 + t * 150);
-                    const b = Math.round(175 + t * 50);
-                    const color = `rgb(${r}, ${g}, ${b})`;
-                    return (
-                      <Line
-                        key={m.monthKey}
-                        type="monotone"
-                        data={m.retentionCurve}
-                        dataKey="cumulativeLtv"
-                        name={m.month}
-                        stroke={color}
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    );
-                  })}
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          {/* Cohort Retention — % clientes ativos ao longo do tempo */}
-          <ChartCard
-            title="Retenção por Safra (% Clientes Ativos)"
-            subtitle="Cada linha = uma safra. X = meses desde a aquisição. Y = % de clientes da safra que ainda compraram naquele mês. Quanto mais devagar a queda, melhor a retenção."
-            loading={metricsLoading}
-            isEmpty={monthlyWithCac.length === 0 || monthlyWithCac.every(m => !m.retentionCurve?.length)}
-            height={380}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart>
-                <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
-                <XAxis
-                  type="number"
-                  dataKey="monthOffset"
-                  tick={{ fill: chart.axis, fontSize: 11 }}
-                  label={{ value: "Meses desde a aquisição", position: "insideBottom", offset: -5, fill: chart.axis, fontSize: 11 }}
-                  allowDecimals={false}
-                  domain={[0, "dataMax"]}
-                />
-                <YAxis
-                  tick={{ fill: chart.axis, fontSize: 11 }}
-                  tickFormatter={(v) => `${v}%`}
-                  label={{ value: "% Ativos", angle: -90, position: "insideLeft", fill: chart.axis, fontSize: 11 }}
-                />
-                <Tooltip
-                  contentStyle={chart.tooltipStyle}
-                  formatter={(v, name) => [v !== null && v !== undefined ? `${Number(v).toFixed(1)}%` : "—", String(name)]}
-                  labelFormatter={(label) => `M+${label}`}
-                />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {monthlyWithCac
-                  .filter(m => m.retentionCurve?.length)
-                  .map((m, i, arr) => {
-                    const t = arr.length > 1 ? i / (arr.length - 1) : 0;
-                    const r = Math.round(30 + t * 70);
-                    const g = Math.round(64 + t * 150);
-                    const b = Math.round(175 + t * 50);
-                    const color = `rgb(${r}, ${g}, ${b})`;
-                    return (
-                      <Line
-                        key={m.monthKey}
-                        type="monotone"
-                        data={m.retentionCurve}
-                        dataKey="activePct"
-                        name={m.month}
-                        stroke={color}
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    );
-                  })}
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartCard>
+            metric={cohortMetric}
+            onMetricChange={setCohortMetric}
+          />
 
           {/* Monthly table */}
           <Card>
