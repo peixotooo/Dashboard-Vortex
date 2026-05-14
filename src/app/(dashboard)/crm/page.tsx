@@ -600,11 +600,14 @@ export default function CrmPage() {
     [wsHeaders, fetchExportLogs]
   );
 
-  const fetchMetrics = useCallback(async () => {
+  const fetchMetrics = useCallback(async (opts?: { bypassCache?: boolean }) => {
     setMetricsLoading(true);
     try {
+      const fetchInit: RequestInit = opts?.bypassCache
+        ? { headers: wsHeaders(), cache: "reload" }
+        : { headers: wsHeaders() };
       const [cohortRes, finRes] = await Promise.all([
-        fetch(`/api/crm/cohort?months=${metricsPeriod}`, { headers: wsHeaders() }),
+        fetch(`/api/crm/cohort?months=${metricsPeriod}`, fetchInit),
         fetch("/api/financial-settings", { headers: wsHeaders() }),
       ]);
       const cohort = await cohortRes.json();
@@ -640,9 +643,11 @@ export default function CrmPage() {
         const data = await res.json().catch(() => ({}));
         console.error("[CRM] Recompute failed:", data.error);
       } else {
-        // Reload all data from the fresh snapshot
+        // Reload all data from the fresh snapshot. bypassCache: true
+        // pra ignorar Cache-Control: max-age=300 do /api/crm/cohort que
+        // de outro modo serviria o response antigo sem retentionCurve etc.
         setCustomersLoaded(false);
-        await Promise.all([fetchSummary(), fetchMetrics(), fetchExportLogs()]);
+        await Promise.all([fetchSummary(), fetchMetrics({ bypassCache: true }), fetchExportLogs()]);
       }
     } catch (err) {
       console.error("[CRM] Recompute error:", err);
@@ -665,7 +670,7 @@ export default function CrmPage() {
       if (res.ok) {
         setSyncResult(`✓ ${data.synced} pedidos sincronizados`);
         setCustomersLoaded(false);
-        await Promise.all([fetchSummary(), fetchMetrics(), fetchExportLogs()]);
+        await Promise.all([fetchSummary(), fetchMetrics({ bypassCache: true }), fetchExportLogs()]);
       } else {
         setSyncResult(`Erro: ${data.error}`);
       }
