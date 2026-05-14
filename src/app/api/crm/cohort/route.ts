@@ -42,11 +42,19 @@ export async function GET(request: NextRequest) {
       cohort_metrics: unknown; cohort_monthly: unknown; computed_at: string;
     }
 
-    const { data: snapshot } = await supabase
+    // Select only the cohort fields we need. The `customers` column on
+    // this snapshot row is ~25MB on the Bulking workspace and was causing
+    // select("*") to fail silently in the anon REST path — endpoint
+    // returned "No snapshot found" even though the snapshot is healthy.
+    const { data: snapshot, error: snapshotError } = await supabase
       .from("crm_rfm_snapshots")
-      .select("*")
+      .select("cohort_metrics, cohort_monthly, computed_at")
       .eq("workspace_id", workspaceId)
-      .single() as unknown as { data: CohortSnapshot | null };
+      .single() as unknown as { data: CohortSnapshot | null; error: { message: string } | null };
+
+    if (snapshotError) {
+      console.error("[CRM Cohort] Snapshot fetch error:", snapshotError.message);
+    }
 
     let metrics;
     let monthlyData;
