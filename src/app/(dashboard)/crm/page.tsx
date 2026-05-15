@@ -1112,9 +1112,19 @@ export default function CrmPage() {
       - financialSettings.other_expenses_pct - financialSettings.invest_pct;
   }, [financialSettings]);
 
-  // COGS como % da receita (vem do financial-settings; default 25%)
+  // COGS pleno como % da receita: todo custo variável por pedido —
+  // produto + impostos + frete + descontos + outras despesas. Mesmo
+  // racional do módulo Escala (custosVar). Não inclui invest_pct
+  // (ads), que já entra no CAC do denominador da MEL.
   const cogsPct = useMemo(() => {
-    return (financialSettings?.product_cost_pct ?? 25) / 100;
+    if (!financialSettings) return 0.45; // 25+6+6+3+5 default
+    return (
+      financialSettings.product_cost_pct +
+      financialSettings.tax_pct +
+      financialSettings.frete_pct +
+      financialSettings.desconto_pct +
+      financialSettings.other_expenses_pct
+    ) / 100;
   }, [financialSettings]);
 
   // Monthly data with CAC + MEL computed (per-month: spend do mês / novos do mês)
@@ -1438,13 +1448,13 @@ export default function CrmPage() {
               <div className="flex items-center justify-center gap-1.5 mt-2">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Eficiência de aquisição</p>
                 <InfoTip>
-                  <b>LTV bruto / CAC:</b> LTV cohort (receita lifetime ÷ clientes da safra) ÷ CAC do período. Mede só receita bruta vs custo de aquisição — não conta COGS.<br/><br/>
-                  <b>MEL (Margem de Escala Lucrativa):</b> <code>LTV ÷ (CAC + COGS)</code>.<br/>
-                  • LTV = receita lifetime da safra ÷ clientes da safra<br/>
-                  • CAC = spend Meta+Google ÷ novos clientes do período<br/>
-                  • COGS = LTV × {(cogsPct * 100).toFixed(0)}% (custo do produto, vem do <i>financial-settings</i>)<br/><br/>
-                  Cor: <span style={{color:"#16a34a"}}>≥3x</span> safra muito rentável, <span style={{color:"#22c55e"}}>≥1.5x</span> saudável, <span style={{color:"#f59e0b"}}>≥1x</span> no fio, <span style={{color:"#ef4444"}}>&lt;1x</span> queima dinheiro.<br/><br/>
-                  <b>Diferença vs EBITDA do módulo Escala:</b> MEL é por <i>cohort</i> (lifetime); EBITDA é snapshot mensal incluindo custo fixo.
+                  <b>LTV bruto / CAC:</b> LTV cohort ÷ CAC. Só receita bruta vs custo de aquisição — não conta COGS.<br/><br/>
+                  <b>MEL (Margem de Escala Lucrativa):</b> <code>LTV ÷ (CAC + COGS)</code>.<br/><br/>
+                  • <b>LTV</b> = receita lifetime da safra ÷ clientes da safra<br/>
+                  • <b>CAC</b> = spend Meta + Google Ads ÷ novos clientes do período. <i>Não inclui</i> afiliados, influencer ou agência (não temos esses custos no Vortex hoje), então o CAC real pode ser maior — MEL sai um pouco otimista.<br/>
+                  • <b>COGS pleno</b> = LTV × {(cogsPct * 100).toFixed(0)}% — soma de: produto ({financialSettings?.product_cost_pct ?? 25}%) + impostos ({financialSettings?.tax_pct ?? 6}%) + frete ({financialSettings?.frete_pct ?? 6}%) + desconto ({financialSettings?.desconto_pct ?? 3}%) + outras despesas ({financialSettings?.other_expenses_pct ?? 5}%). Mesmo racional do <i>custosVar</i> no módulo Escala.<br/><br/>
+                  Cor: <span style={{color:"#16a34a"}}>≥3x</span> muito rentável, <span style={{color:"#22c55e"}}>≥1.5x</span> saudável, <span style={{color:"#f59e0b"}}>≥1x</span> no fio, <span style={{color:"#ef4444"}}>&lt;1x</span> queima dinheiro.<br/><br/>
+                  <b>vs EBITDA Escala:</b> MEL é por <i>cohort</i> (lifetime, unit economics); EBITDA é snapshot mensal incluindo custo fixo.
                 </InfoTip>
               </div>
             </Card>
