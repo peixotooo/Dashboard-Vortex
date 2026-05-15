@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { getInsights } from "@/lib/meta-api";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 
@@ -42,18 +43,27 @@ export async function GET(request: NextRequest) {
       cohort_metrics: unknown; cohort_monthly: unknown; computed_at: string;
     }
 
-    // Select only the cohort fields we need. The `customers` column on
-    // this snapshot row is ~25MB on the Bulking workspace and was causing
-    // select("*") to fail silently in the anon REST path — endpoint
-    // returned "No snapshot found" even though the snapshot is healthy.
-    const { data: snapshot, error: snapshotError } = await supabase
+    // Use the ADMIN client to read the snapshot. The user auth check above
+    // already gates access; the workspace_id filter scopes the query.
+    // Why not anon REST? The `customers` column on this row is ~25MB and
+    // even with select() restricted to cohort fields, the anon REST path
+    // started failing intermittently — likely PostgREST internal limits
+    // computing RLS over the row. Admin client bypasses RLS, returns
+    // consistently.
+    const admin = createAdminClient();
+    const { data: snapshot, error: snapshotError } = await admin
       .from("crm_rfm_snapshots")
       .select("cohort_metrics, cohort_monthly, computed_at")
       .eq("workspace_id", workspaceId)
-      .single() as unknown as { data: CohortSnapshot | null; error: { message: string } | null };
+      .single() as unknown as { data: CohortSnapshot | null; error: { message: string; code?: string; details?: string; hint?: string } | null };
 
     if (snapshotError) {
-      console.error("[CRM Cohort] Snapshot fetch error:", snapshotError.message);
+      console.error("[CRM Cohort] Snapshot fetch error:", JSON.stringify({
+        message: snapshotError.message,
+        code: snapshotError.code,
+        details: snapshotError.details,
+        hint: snapshotError.hint,
+      }));
     }
 
     let metrics;
