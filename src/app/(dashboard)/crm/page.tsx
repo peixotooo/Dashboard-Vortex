@@ -1112,14 +1112,26 @@ export default function CrmPage() {
       - financialSettings.other_expenses_pct - financialSettings.invest_pct;
   }, [financialSettings]);
 
-  // Monthly data with CAC computed (per-month: spend do mês / novos do mês)
+  // COGS como % da receita (vem do financial-settings; default 25%)
+  const cogsPct = useMemo(() => {
+    return (financialSettings?.product_cost_pct ?? 25) / 100;
+  }, [financialSettings]);
+
+  // Monthly data with CAC + MEL computed (per-month: spend do mês / novos do mês)
   const monthlyWithCac = useMemo(() => {
     return monthlyData.map((m) => {
       const spend = adSpend?.[m.monthKey] ?? null;
       const cac = spend !== null && m.newClients > 0 ? spend / m.newClients : null;
-      return { ...m, adSpend: spend, cac };
+      // MEL por safra = LTV lifetime da safra ÷ (CAC + COGS total da safra/cliente)
+      // COGS por cliente = LTV bruto × cogsPct (% padrão de financial-settings)
+      const ltvSafra = m.newClients > 0 ? m.cohortLifetimeRevenue / m.newClients : 0;
+      const cogsPorCliente = ltvSafra * cogsPct;
+      const mel = cac !== null && cac > 0 && ltvSafra > 0
+        ? ltvSafra / (cac + cogsPorCliente)
+        : null;
+      return { ...m, adSpend: spend, cac, mel };
     });
-  }, [monthlyData, adSpend]);
+  }, [monthlyData, adSpend, cogsPct]);
 
   // Period totals — derived from monthlyWithCac (visible period only).
   // CRÍTICO: usar isso para CAC/Clientes Novos pra evitar inconsistência
@@ -1132,8 +1144,13 @@ export default function CrmPage() {
     const hasSpendData = monthlyWithCac.some((m) => m.adSpend !== null);
     const cac = hasSpendData && newClients > 0 ? totalSpend / newClients : null;
     const ltvCohort = newClients > 0 ? cohortLifetimeRevenue / newClients : 0;
-    return { newClients, totalSpend, totalRevenue, cohortLifetimeRevenue, cac, ltvCohort };
-  }, [monthlyWithCac]);
+    // MEL agregado: LTV cohort ÷ (CAC + COGS por cliente)
+    const cogsPorCliente = ltvCohort * cogsPct;
+    const mel = cac !== null && cac > 0 && ltvCohort > 0
+      ? ltvCohort / (cac + cogsPorCliente)
+      : null;
+    return { newClients, totalSpend, totalRevenue, cohortLifetimeRevenue, cac, ltvCohort, mel, cogsPorCliente };
+  }, [monthlyWithCac, cogsPct]);
 
   const cacMedio = periodTotals.cac;
   const totalAdSpend = periodTotals.totalSpend > 0 ? periodTotals.totalSpend : null;
@@ -1412,18 +1429,22 @@ export default function CrmPage() {
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">LTV bruto / CAC</p>
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-foreground" style={{ color: cacMedio !== null && ltvCohortMargin / cacMedio >= 3 ? "#16a34a" : cacMedio !== null && ltvCohortMargin / cacMedio >= 1 ? "#f59e0b" : "#ef4444" }}>
-                    {metricsLoading || cacMedio === null ? "—" : (ltvCohortMargin / cacMedio).toFixed(2) + "x"}
+                  <p className="text-xl font-bold text-foreground" style={{ color: periodTotals.mel === null ? undefined : periodTotals.mel >= 3 ? "#16a34a" : periodTotals.mel >= 1.5 ? "#22c55e" : periodTotals.mel >= 1 ? "#f59e0b" : "#ef4444" }}>
+                    {metricsLoading || periodTotals.mel === null ? "—" : periodTotals.mel.toFixed(2) + "x"}
                   </p>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">Margem / CAC</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">MEL</p>
                 </div>
               </div>
               <div className="flex items-center justify-center gap-1.5 mt-2">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Eficiência de aquisição</p>
                 <InfoTip>
-                  <b>LTV bruto/CAC:</b> LTV cohort (receita lifetime ÷ clientes da safra) ÷ CAC do período. Receita bruta vs custo.<br/><br/>
-                  <b>Margem/CAC:</b> (LTV cohort × MC%) ÷ CAC. Lucro vs custo — saudável <b>≥ 3x</b>.<br/><br/>
-                  Verde ≥3x, âmbar ≥1x, vermelho &lt;1x (queimando dinheiro).
+                  <b>LTV bruto / CAC:</b> LTV cohort (receita lifetime ÷ clientes da safra) ÷ CAC do período. Mede só receita bruta vs custo de aquisição — não conta COGS.<br/><br/>
+                  <b>MEL (Margem de Escala Lucrativa):</b> <code>LTV ÷ (CAC + COGS)</code>.<br/>
+                  • LTV = receita lifetime da safra ÷ clientes da safra<br/>
+                  • CAC = spend Meta+Google ÷ novos clientes do período<br/>
+                  • COGS = LTV × {(cogsPct * 100).toFixed(0)}% (custo do produto, vem do <i>financial-settings</i>)<br/><br/>
+                  Cor: <span style={{color:"#16a34a"}}>≥3x</span> safra muito rentável, <span style={{color:"#22c55e"}}>≥1.5x</span> saudável, <span style={{color:"#f59e0b"}}>≥1x</span> no fio, <span style={{color:"#ef4444"}}>&lt;1x</span> queima dinheiro.<br/><br/>
+                  <b>Diferença vs EBITDA do módulo Escala:</b> MEL é por <i>cohort</i> (lifetime); EBITDA é snapshot mensal incluindo custo fixo.
                 </InfoTip>
               </div>
             </Card>
@@ -1567,6 +1588,7 @@ export default function CrmPage() {
                   <b>CAC:</b> spend Meta+Google do mês ÷ Novos.<br/>
                   <b>LTV:</b> receita lifetime da safra ÷ Novos.<br/>
                   <b>LTV:CAC:</b> razão da safra (verde ≥3x).<br/>
+                  <b>MEL:</b> LTV ÷ (CAC + COGS). Margem de Escala Lucrativa — verde ≥1.5x, vermelho &lt;1x.<br/>
                   <b>Pedidos/Cli:</b> pedidos médios por cliente da safra (lifetime).<br/>
                   <b>Idade:</b> meses desde a safra. Quanto maior, mais maturo o LTV.<br/>
                   <b>Recompra:</b> % de clientes com 2+ pedidos até esse mês.
@@ -1596,6 +1618,7 @@ export default function CrmPage() {
                       <th className="py-3 px-2 text-right" title="Custo de Aquisição da Safra: spend Meta do mês ÷ novos clientes do mês">CAC</th>
                       <th className="py-3 px-2 text-right" title="LTV bruto realizado: receita acumulada (lifetime) dos clientes que entraram nessa safra ÷ qtd de clientes da safra">LTV</th>
                       <th className="py-3 px-2 text-right" title="LTV ÷ CAC. Saudável > 3x. Lembre que safras recentes têm pouco tempo pra desenvolver LTV.">LTV:CAC</th>
+                      <th className="py-3 px-2 text-right" title="MEL = LTV ÷ (CAC + COGS). Saudável >= 1.5x. Considera tanto custo de aquisição quanto custo do produto.">MEL</th>
                       <th className="py-3 px-2 text-right" title="Pedidos médios por cliente da safra (lifetime)">Pedidos/Cli</th>
                       <th className="py-3 px-2 text-right" title="Meses desde a safra — quanto mais antiga, mais maduro o LTV">Idade</th>
                       <th className="py-3 px-2 text-right">Recompra</th>
@@ -1630,6 +1653,16 @@ export default function CrmPage() {
                         </td>
                         <td className="py-3 px-2 text-right font-semibold" style={{ color: ratioColor }}>
                           {ltvCacRatio !== null ? `${ltvCacRatio.toFixed(2)}x` : "—"}
+                        </td>
+                        <td className="py-3 px-2 text-right font-semibold" style={{
+                          color: row.mel === null
+                            ? undefined
+                            : row.mel >= 3 ? "#16a34a"
+                            : row.mel >= 1.5 ? "#22c55e"
+                            : row.mel >= 1 ? "#f59e0b"
+                            : "#ef4444"
+                        }}>
+                          {row.mel !== null ? `${row.mel.toFixed(2)}x` : "—"}
                         </td>
                         <td className="py-3 px-2 text-right">{row.cohortAvgOrdersPerClient > 0 ? row.cohortAvgOrdersPerClient.toFixed(2) : "—"}</td>
                         <td className="py-3 px-2 text-right text-muted-foreground">{row.cohortMonthsTracked}m</td>
