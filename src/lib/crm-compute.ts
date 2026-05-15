@@ -4,6 +4,7 @@ import { recomputeAbcSnapshot } from "@/lib/financeiro/recompute";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PAGE_SIZE = 1000; // Supabase default max rows per request
+const MAX_RETRIES = 3;
 
 /**
  * Recomputes the RFM snapshot for a workspace.
@@ -13,42 +14,68 @@ export async function recomputeRfmSnapshot(
   client: SupabaseClient,
   workspaceId: string
 ): Promise<{ rowCount: number; customerCount: number }> {
-  // Fetch all CRM rows (paginated)
+  // Fetch all CRM rows (paginated, with retry on transient Cloudflare 522)
   const allRows: CrmVendaRow[] = [];
   let from = 0;
   let hasMore = true;
+  const COLUMNS = "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id";
 
   while (hasMore) {
-    const { data, error } = await client
-      .from("crm_vendas")
-      .select(
-        // Columns split across two consumers:
-        //   - RFM aggregator uses cliente/email/.../items
-        //   - ABC compute also needs payment_method, installments,
-        //     shipping_price, discount_price, source_order_id pra
-        //     calcular lucratividade por order
-        "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id"
-      )
-      .eq("workspace_id", workspaceId)
-      .range(from, from + PAGE_SIZE - 1);
+    let attempt = 0;
+    let pageData: CrmVendaRow[] | null = null;
+    let lastErr: string | null = null;
 
-    if (error) throw new Error(`Supabase error: ${error.message}`);
+    while (attempt < MAX_RETRIES && pageData === null) {
+      const { data, error } = await client
+        .from("crm_vendas")
+        .select(COLUMNS)
+        .eq("workspace_id", workspaceId)
+        .range(from, from + PAGE_SIZE - 1);
 
-    if (data && data.length > 0) {
-      allRows.push(...(data as CrmVendaRow[]));
+      if (!error) {
+        pageData = (data ?? []) as CrmVendaRow[];
+        break;
+      }
+
+      // Cloudflare 522 / HTML body / timeout — retry with backoff
+      const msg = error.message ?? "";
+      const isTransient = msg.includes("522") || msg.includes("Connection timed out") || msg.toLowerCase().includes("<!doctype") || msg.includes("fetch failed");
+      lastErr = msg;
+      attempt++;
+
+      if (!isTransient || attempt >= MAX_RETRIES) {
+        throw new Error(`Supabase error (page ${from}, attempt ${attempt}): ${msg.slice(0, 200)}`);
+      }
+
+      const backoff = 1000 * Math.pow(2, attempt); // 2s, 4s, 8s
+      console.warn(`[crm-compute] Page ${from} attempt ${attempt} hit transient error, retrying in ${backoff}ms: ${msg.slice(0, 80)}`);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+
+    if (pageData === null) {
+      throw new Error(`Failed to fetch page ${from} after ${MAX_RETRIES} retries. Last error: ${lastErr?.slice(0, 200)}`);
+    }
+
+    if (pageData.length > 0) {
+      allRows.push(...pageData);
       from += PAGE_SIZE;
-      hasMore = data.length === PAGE_SIZE;
+      hasMore = pageData.length === PAGE_SIZE;
     } else {
       hasMore = false;
     }
   }
 
   if (allRows.length === 0) {
-    await client
-      .from("crm_rfm_snapshots")
-      .delete()
-      .eq("workspace_id", workspaceId);
-
+    // Don't delete the existing snapshot. If we got 0 rows it's usually
+    // because of a transient Supabase issue (null body without error,
+    // network blip etc.), not because the workspace genuinely has no
+    // sales. Past behavior of deleting on 0 rows caused production-wide
+    // CRM dashboards to zero out when the recompute hit a transient
+    // empty response. Leaving the stale snapshot in place is strictly
+    // safer — users see slightly old numbers vs. all zeros.
+    console.warn(
+      `[crm-compute] No rows for workspace ${workspaceId} — keeping existing snapshot intact.`
+    );
     return { rowCount: 0, customerCount: 0 };
   }
 
