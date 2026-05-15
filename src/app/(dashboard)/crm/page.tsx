@@ -21,6 +21,9 @@ import {
   FileText,
   Plus,
   HelpCircle,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import {
   Tooltip as UITooltip,
@@ -1168,6 +1171,88 @@ export default function CrmPage() {
     return periodTotals.ltvCohort * (mcPct / 100);
   }, [periodTotals.ltvCohort, mcPct]);
 
+  // Recomendação automática (Escalar / Manter / Cortar) — regras
+  // determinísticas combinando MEL agregado + trend CAC + trend recompra.
+  // Sem LLM: rápido, transparente, replicável.
+  const melRecommendation = useMemo((): {
+    action: "escalar" | "manter" | "cortar";
+    label: string;
+    color: string;
+    summary: string;
+    reasons: string[];
+    cautions: string[];
+  } | null => {
+    if (!periodTotals.mel || monthlyWithCac.length < 4) return null;
+
+    // Split: 3 meses recentes vs 3 anteriores (precisa de >=6 meses úteis com dados)
+    const withCac = monthlyWithCac.filter((m) => m.cac !== null && m.cac > 0);
+    if (withCac.length < 4) return null;
+
+    const recent = withCac.slice(-3);
+    const older = withCac.slice(-6, -3);
+    const avg = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+
+    const recentCac = avg(recent.map((m) => m.cac!));
+    const olderCac = older.length > 0 ? avg(older.map((m) => m.cac!)) : recentCac;
+    const cacTrendPct = olderCac > 0 ? ((recentCac - olderCac) / olderCac) * 100 : 0;
+
+    const recentMelArr = recent.map((m) => m.mel).filter((v): v is number => v !== null && v > 0);
+    const recentMelAvg = recentMelArr.length > 0 ? avg(recentMelArr) : 0;
+
+    const recentRecompraAvg = avg(recent.map((m) => m.repurchaseRate));
+    const olderRecompraAvg = older.length > 0 ? avg(older.map((m) => m.repurchaseRate)) : recentRecompraAvg;
+    const recompraTrendPp = recentRecompraAvg - olderRecompraAvg;
+
+    const mel = periodTotals.mel;
+    const reasons: string[] = [];
+    const cautions: string[] = [];
+
+    let action: "escalar" | "manter" | "cortar";
+
+    if (mel >= 1.5) {
+      action = "escalar";
+      reasons.push(`MEL agregado de ${mel.toFixed(2)}x — acima do limite saudável (≥1.5x)`);
+      if (recentMelAvg >= 1.5) {
+        reasons.push(`Safras recentes (últimos 3m) com MEL médio ${recentMelAvg.toFixed(2)}x — tendência consistente`);
+      }
+
+      // Inversões que rebaixam pra manter
+      if (cacTrendPct > 30) {
+        action = "manter";
+        cautions.push(`CAC subiu ${cacTrendPct.toFixed(0)}% nos últimos 3m vs 3m anteriores — sinal de saturação de audiência. Escalar pode estourar CAC.`);
+      } else if (cacTrendPct > 15) {
+        cautions.push(`CAC subiu ${cacTrendPct.toFixed(0)}% — atenção pra não escalar agressivo demais`);
+      }
+
+      if (recompraTrendPp < -2) {
+        action = "manter";
+        cautions.push(`Taxa de recompra caiu ${Math.abs(recompraTrendPp).toFixed(1)}pp — ICP errado pode estar entrando, LTV futuro vai piorar.`);
+      }
+    } else if (mel >= 1) {
+      action = "manter";
+      reasons.push(`MEL ${mel.toFixed(2)}x — entre 1x e 1.5x, no fio`);
+      reasons.push("Atacar funil pós-compra (recompra, upsell, retenção) antes de mexer no topo");
+      if (recentMelAvg < mel) {
+        cautions.push(`MEL recente médio ${recentMelAvg.toFixed(2)}x está pior que o agregado — tendência de piora`);
+      }
+    } else {
+      action = "cortar";
+      reasons.push(`MEL ${mel.toFixed(2)}x — abaixo de 1x. Cada cliente novo está queimando dinheiro.`);
+      reasons.push("Cortar -20% no spend e investigar funil (CAC alto ou LTV baixo?)");
+      if (cacTrendPct > 0) {
+        cautions.push(`CAC ainda subindo (+${cacTrendPct.toFixed(0)}% trend) — agrava o problema`);
+      }
+    }
+
+    const labels = {
+      escalar: { label: "ESCALAR", color: "#16a34a", summary: `Aumentar invest em +10-20% por ciclo` },
+      manter: { label: "MANTER", color: "#f59e0b", summary: `Manter spend atual, focar em otimização` },
+      cortar: { label: "CORTAR", color: "#ef4444", summary: `Reduzir invest em -20% por ciclo` },
+    };
+
+    return { action, ...labels[action], reasons, cautions };
+  }, [periodTotals.mel, monthlyWithCac]);
+
   return (
     <TooltipProvider>
     <div className="space-y-6 p-6">
@@ -1487,6 +1572,69 @@ export default function CrmPage() {
               </div>
             </Card>
           </div>
+
+          {/* Recomendação automática — escalar / manter / cortar */}
+          {melRecommendation && (
+            <Card
+              className="border-l-4 overflow-hidden"
+              style={{ borderLeftColor: melRecommendation.color }}
+            >
+              <CardContent className="p-5">
+                <div className="flex items-start gap-4">
+                  <div
+                    className="rounded-full p-2.5 shrink-0"
+                    style={{ backgroundColor: `${melRecommendation.color}20`, color: melRecommendation.color }}
+                  >
+                    {melRecommendation.action === "escalar" ? <TrendingUp className="h-5 w-5" /> :
+                     melRecommendation.action === "cortar" ? <TrendingDown className="h-5 w-5" /> :
+                     <Minus className="h-5 w-5" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="text-sm font-semibold tracking-wider" style={{ color: melRecommendation.color }}>
+                        RECOMENDAÇÃO: {melRecommendation.label}
+                      </h3>
+                      <span className="text-xs text-muted-foreground">·</span>
+                      <p className="text-sm text-foreground">{melRecommendation.summary}</p>
+                      <InfoTip side="bottom">
+                        Análise automática baseada em 3 sinais:<br/><br/>
+                        <b>1. MEL agregado</b> — saudável ≥1.5x.<br/>
+                        <b>2. Trend de CAC</b> — média dos últimos 3m vs 3m anteriores. {">"}+30% indica saturação.<br/>
+                        <b>3. Trend de recompra</b> — queda &gt; 2pp indica ICP errado entrando.<br/><br/>
+                        <b>MEL ≥1.5x</b> → escalar, salvo CAC disparando ou recompra caindo (vira manter).<br/>
+                        <b>1x ≤ MEL &lt;1.5x</b> → manter + otimizar pós-compra.<br/>
+                        <b>MEL &lt;1x</b> → cortar -20%.<br/><br/>
+                        Não inclui EBITDA do módulo Escala (caixa) — cruze manualmente.
+                      </InfoTip>
+                    </div>
+                    {melRecommendation.reasons.length > 0 && (
+                      <ul className="text-xs text-muted-foreground space-y-1 mt-2">
+                        {melRecommendation.reasons.map((r, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-foreground/40 mt-0.5">•</span>
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {melRecommendation.cautions.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Atenção</p>
+                        <ul className="text-xs space-y-1">
+                          {melRecommendation.cautions.map((c, i) => (
+                            <li key={i} className="flex items-start gap-2 text-amber-600 dark:text-amber-500">
+                              <span className="mt-0.5">⚠</span>
+                              <span>{c}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
