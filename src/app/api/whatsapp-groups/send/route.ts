@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
       extension,
       delayMessage,
       scheduled_at,
+      save_as_draft,
     } = body as {
       groups: Array<{ jid: string; name?: string }>;
       messageType: WapiMessageType;
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
       extension?: string;
       delayMessage?: number;
       scheduled_at?: string;
+      save_as_draft?: boolean;
     };
 
     if (!groups || groups.length === 0) {
@@ -85,14 +87,21 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient();
     const delay = delayMessage ?? 1;
 
-    // Create dispatch record
+    // Decide o status inicial.
+    // - draft: usuário ativa manualmente depois (cron já ignora).
+    // - scheduled: data futura → cron dispara na data.
+    // - sending: envio imediato (síncrono nessa rota).
     const isScheduled =
-      scheduled_at && new Date(scheduled_at).getTime() > Date.now();
+      !save_as_draft &&
+      scheduled_at &&
+      new Date(scheduled_at).getTime() > Date.now();
+    const isDraft = !!save_as_draft;
+    const isImmediate = !isDraft && !isScheduled;
 
-    // For immediate sends, validate the W-API session is genuinely healthy
-    // BEFORE dispatching anything. If the session is broken, sends would be
-    // accepted and queued internally, then fire in a burst on reconnect.
-    if (!isScheduled) {
+    // Pra envio imediato, valida a sessão W-API antes de tudo. Pra
+    // rascunho/agendamento, pula — a saúde da sessão será verificada
+    // quando o cron rodar (ou quando o usuário ativar/o agendamento bater).
+    if (isImmediate) {
       const health = await checkInstanceHealth(config);
       if (!health.healthy) {
         return NextResponse.json(
@@ -106,6 +115,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const initialStatus = isDraft
+      ? "draft"
+      : isScheduled
+      ? "scheduled"
+      : "sending";
+
     const { data: dispatch, error: dispatchError } = await admin
       .from("wapi_group_dispatches")
       .insert({
@@ -116,9 +131,11 @@ export async function POST(request: NextRequest) {
         file_name: fileName || null,
         file_extension: extension || null,
         delay_seconds: delay,
-        status: isScheduled ? "scheduled" : "sending",
-        scheduled_at: isScheduled ? scheduled_at : null,
-        started_at: isScheduled ? null : new Date().toISOString(),
+        status: initialStatus,
+        // Pra draft, persistimos scheduled_at mesmo se já passou — usuário
+        // pode editar depois ou simplesmente ativar pra envio imediato.
+        scheduled_at: isImmediate ? null : scheduled_at || null,
+        started_at: isImmediate ? new Date().toISOString() : null,
         target_groups: groups.map((g) => ({
           jid: g.jid,
           name: g.name || null,
@@ -136,7 +153,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If scheduled, return immediately — cron will process
+    // Rascunho ou agendamento: retorna agora, cron ou ativação cuidam depois.
+    if (isDraft) {
+      return NextResponse.json({
+        dispatch_id: dispatch.id,
+        status: "draft",
+        scheduled_at: scheduled_at || null,
+        total: groups.length,
+      });
+    }
     if (isScheduled) {
       return NextResponse.json({
         dispatch_id: dispatch.id,

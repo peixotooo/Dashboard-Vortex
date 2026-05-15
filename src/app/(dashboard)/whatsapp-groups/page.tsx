@@ -38,6 +38,7 @@ import {
   Upload,
   Image as ImageLucide,
   History,
+  FileEdit,
 } from "lucide-react";
 import { FormattingToolbar } from "@/components/whatsapp/formatting-toolbar";
 import { EmojiPicker } from "@/components/whatsapp/emoji-picker";
@@ -113,6 +114,8 @@ export default function WhatsAppGroupsPage() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  // Rascunho: prepara tudo sem disparar; ativa manualmente no Histórico.
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
 
   // Gallery
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -373,6 +376,7 @@ export default function WhatsAppGroupsPage() {
           extension: fileExtension || undefined,
           delayMessage,
           scheduled_at: scheduledAt ? scheduledAt.toISOString() : undefined,
+          save_as_draft: saveAsDraft,
         }),
       });
       const data = await res.json();
@@ -1208,6 +1212,38 @@ export default function WhatsAppGroupsPage() {
                     />
                   </div>
 
+                  {/* Modo rascunho */}
+                  <div className="space-y-2 border rounded-md p-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                        <FileEdit className="h-3.5 w-3.5" />
+                        Salvar como rascunho
+                      </Label>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={saveAsDraft}
+                        onClick={() => setSaveAsDraft((v) => !v)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                          saveAsDraft
+                            ? "bg-foreground border-foreground"
+                            : "bg-card border-border"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                            saveAsDraft ? "translate-x-5" : "translate-x-[2px]"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {saveAsDraft
+                        ? "Nada vai pra W-API agora. Fica como Rascunho no Histórico com a data prevista acima (opcional). Você clica em Ativar quando quiser disparar."
+                        : "Sem rascunho: o envio sai imediato ou na data agendada."}
+                    </p>
+                  </div>
+
                   {/* Send button */}
                   <Button
                     onClick={handleSend}
@@ -1216,12 +1252,18 @@ export default function WhatsAppGroupsPage() {
                   >
                     {sending ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : saveAsDraft ? (
+                      <FileEdit className="h-4 w-4 mr-2" />
                     ) : isScheduled ? (
                       <Clock className="h-4 w-4 mr-2" />
                     ) : (
                       <Send className="h-4 w-4 mr-2" />
                     )}
-                    {isScheduled
+                    {saveAsDraft
+                      ? isScheduled
+                        ? `Salvar rascunho (${selectedGroups.size} grupo(s))`
+                        : `Salvar rascunho (${selectedGroups.size} grupo(s))`
+                      : isScheduled
                       ? `Agendar envio para ${selectedGroups.size} grupo(s)`
                       : `Enviar agora para ${selectedGroups.size} grupo(s)`}
                   </Button>
@@ -1232,7 +1274,9 @@ export default function WhatsAppGroupsPage() {
               {sendResult && (
                 <Card
                   className={
-                    sendResult.status === "scheduled"
+                    sendResult.status === "draft"
+                      ? "border-muted-foreground/30"
+                      : sendResult.status === "scheduled"
                       ? "border-blue-500/30"
                       : sendResult.failed === 0
                         ? "border-green-500/30"
@@ -1241,20 +1285,47 @@ export default function WhatsAppGroupsPage() {
                 >
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
-                      {sendResult.status === "scheduled" ? (
+                      {sendResult.status === "draft" ? (
+                        <FileEdit className="h-5 w-5 text-muted-foreground" />
+                      ) : sendResult.status === "scheduled" ? (
                         <Clock className="h-5 w-5 text-blue-500" />
                       ) : sendResult.failed === 0 ? (
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
                       ) : (
                         <AlertCircle className="h-5 w-5 text-amber-500" />
                       )}
-                      {sendResult.status === "scheduled"
+                      {sendResult.status === "draft"
+                        ? "Rascunho salvo"
+                        : sendResult.status === "scheduled"
                         ? "Envio Agendado"
                         : "Resultado do Envio"}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {sendResult.status === "scheduled" ? (
+                    {sendResult.status === "draft" ? (
+                      <div className="text-sm">
+                        <p>
+                          Rascunho salvo para {sendResult.total} grupo(s).
+                          {sendResult.scheduled_at && (
+                            <>
+                              {" "}Data prevista:{" "}
+                              <strong>
+                                {format(
+                                  new Date(sendResult.scheduled_at),
+                                  "dd/MM/yyyy 'as' HH:mm",
+                                  { locale: ptBR }
+                                )}
+                              </strong>
+                              .
+                            </>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Vá na aba <strong>Histórico</strong> e clique em
+                          Ativar quando quiser disparar.
+                        </p>
+                      </div>
+                    ) : sendResult.status === "scheduled" ? (
                       <div className="text-sm">
                         <p>
                           Mensagem agendada para{" "}
