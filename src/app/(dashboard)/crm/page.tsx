@@ -20,7 +20,14 @@ import {
   Mail,
   FileText,
   Plus,
+  HelpCircle,
 } from "lucide-react";
+import {
+  Tooltip as UITooltip,
+  TooltipContent as UITooltipContent,
+  TooltipProvider,
+  TooltipTrigger as UITooltipTrigger,
+} from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -154,6 +161,21 @@ function LifecycleBadge({ stage }: { stage: LifecycleStage }) {
 
 // --- Chart wrapper for consistent loading/empty ---
 
+function InfoTip({ children, side = "top" }: { children: React.ReactNode; side?: "top" | "right" | "bottom" | "left" }) {
+  return (
+    <UITooltip delayDuration={150}>
+      <UITooltipTrigger asChild>
+        <button type="button" className="inline-flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors" aria-label="Mais informações">
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </UITooltipTrigger>
+      <UITooltipContent side={side} className="max-w-xs text-xs leading-relaxed">
+        {children}
+      </UITooltipContent>
+    </UITooltip>
+  );
+}
+
 type CohortMetric = "retention" | "ltv" | "revenue";
 
 interface CohortHeatmapRow {
@@ -241,7 +263,15 @@ function CohortHeatmap({
       <CardHeader>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex-1">
-            <CardTitle className="text-base">Cohort Heatmap</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-base">Cohort Heatmap</CardTitle>
+              <InfoTip>
+                <b>Linhas:</b> safras (mês da 1ª compra do cliente).<br/>
+                <b>Colunas M+N:</b> meses decorridos desde a safra.<br/>
+                <b>Células:</b> valor da métrica selecionada com cor de intensidade (escuro = melhor).<br/><br/>
+                Compare safras lendo colunas: a safra de Jun/25 em M+6 vs Dez/25 em M+6 — qual reteve melhor?
+              </InfoTip>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">{subtitleByMetric[metric]}</p>
           </div>
           <div className="inline-flex rounded-md border border-border bg-card overflow-hidden shrink-0">
@@ -314,9 +344,10 @@ function CohortHeatmap({
 }
 
 function ChartCard({
-  title, subtitle, loading, isEmpty, height = 250, children, actions,
+  title, subtitle, info, loading, isEmpty, height = 250, children, actions,
 }: {
-  title: string; subtitle?: string; loading: boolean; isEmpty: boolean; height?: number;
+  title: string; subtitle?: string; info?: React.ReactNode;
+  loading: boolean; isEmpty: boolean; height?: number;
   children: React.ReactNode; actions?: React.ReactNode;
 }) {
   return (
@@ -324,7 +355,10 @@ function ChartCard({
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base">{title}</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle className="text-base">{title}</CardTitle>
+              {info && <InfoTip>{info}</InfoTip>}
+            </div>
             {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
           </div>
           {!loading && !isEmpty && actions}
@@ -1116,6 +1150,7 @@ export default function CrmPage() {
   }, [periodTotals.ltvCohort, mcPct]);
 
   return (
+    <TooltipProvider>
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
@@ -1170,10 +1205,40 @@ export default function CrmPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard title="Total Clientes" value={formatNumber(displaySummary.totalCustomers)} icon={Users} iconColor="text-purple-400" loading={loading} />
-        <KpiCard title="Ticket Medio" value={formatCurrency(displaySummary.avgTicket)} icon={DollarSign} iconColor="text-success" loading={loading} />
-        <KpiCard title="Receita Total" value={formatCurrency(displaySummary.totalRevenue)} icon={CircleDollarSign} iconColor="text-blue-400" loading={loading} />
-        <KpiCard title="Clientes Ativos" value={formatNumber(displaySummary.activeCustomers)} icon={UserCheck} iconColor="text-orange-400" loading={loading} badge="90 dias" badgeColor="#f97316" />
+        <KpiCard
+          title="Total Clientes"
+          value={formatNumber(displaySummary.totalCustomers)}
+          icon={Users}
+          iconColor="text-purple-400"
+          loading={loading}
+          info={<>Quantidade total de emails únicos que já fizeram pelo menos 1 compra (lifetime). <br/><br/><b>Fonte:</b> snapshot RFM (crm_rfm_snapshots.summary) — base de pedidos VNDA.</>}
+        />
+        <KpiCard
+          title="Ticket Medio"
+          value={formatCurrency(displaySummary.avgTicket)}
+          icon={DollarSign}
+          iconColor="text-success"
+          loading={loading}
+          info={<><b>Fórmula:</b> receita total ÷ total de pedidos (lifetime). <br/><br/>É a média por <i>pedido</i>, não por cliente. <br/><br/><b>Fonte:</b> snapshot RFM.</>}
+        />
+        <KpiCard
+          title="Receita Total"
+          value={formatCurrency(displaySummary.totalRevenue)}
+          icon={CircleDollarSign}
+          iconColor="text-blue-400"
+          loading={loading}
+          info={<>Soma de todos os <code>valor</code> de pedidos da base (lifetime). <br/><br/><b>Fonte:</b> snapshot RFM, agregado de pedidos VNDA.</>}
+        />
+        <KpiCard
+          title="Clientes Ativos"
+          value={formatNumber(displaySummary.activeCustomers)}
+          icon={UserCheck}
+          iconColor="text-orange-400"
+          loading={loading}
+          badge="90 dias"
+          badgeColor="#f97316"
+          info={<>Clientes que fizeram pelo menos 1 compra nos <b>últimos 90 dias</b>. <br/><br/>Métrica de saúde recorrente da base. Se cair, sinal de churn.</>}
+        />
       </div>
 
       {/* Tabs */}
@@ -1301,24 +1366,44 @@ export default function CrmPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-primary">{metricsLoading ? "..." : formatCurrency(metricsData?.arpu ?? 0)}</p>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Receita Media por Cliente (ARPU)</p>
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita Media por Cliente (ARPU)</p>
+                <InfoTip>
+                  <b>Fórmula:</b> receita total ÷ clientes únicos (lifetime).<br/><br/>
+                  Quanto vale um cliente médio em receita acumulada desde sempre.<br/><br/>
+                  <b>Fonte:</b> snapshot RFM completo.
+                </InfoTip>
+              </div>
             </Card>
             <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : (metricsData?.avgOrdersPerClient ?? 0).toFixed(2)}</p>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Media Pedidos por Cliente</p>
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Media Pedidos por Cliente</p>
+                <InfoTip>
+                  <b>Fórmula:</b> total de pedidos ÷ clientes únicos (lifetime).<br/><br/>
+                  &gt;1 = a base recompra. Quanto mais alto, melhor a fidelização.
+                </InfoTip>
+              </div>
             </Card>
             <Card className="p-5 text-center">
               <div className="flex items-center justify-center gap-2">
                 <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatCurrency(ltv)}</p>
                 <span className="text-xs border rounded px-1.5 py-0.5 text-muted-foreground">{mcPct}%</span>
               </div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">LTV = ARPU * MC%</p>
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">LTV = ARPU * MC%</p>
+                <InfoTip>
+                  <b>Fórmula:</b> ARPU × Margem de Contribuição.<br/><br/>
+                  MC% = 100% − (custo produto + tax + frete + desconto + outras + invest), configurada em Financial Settings.<br/><br/>
+                  É a parte do ARPU que vira lucro bruto (não confundir com margem líquida).
+                </InfoTip>
+              </div>
             </Card>
           </div>
 
           {/* KPI Row 2 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Card className="p-5 text-center" title="LTV das safras do período (receita lifetime ÷ clientes novos) ÷ CAC do período. Saudável > 3x.">
+            <Card className="p-5 text-center">
               <div className="flex items-center justify-center gap-3">
                 <div>
                   <p className="text-xl font-bold text-foreground">
@@ -1333,26 +1418,65 @@ export default function CrmPage() {
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">Margem / CAC</p>
                 </div>
               </div>
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Eficiência de aquisição</p>
+                <InfoTip>
+                  <b>LTV bruto/CAC:</b> LTV cohort (receita lifetime ÷ clientes da safra) ÷ CAC do período. Receita bruta vs custo.<br/><br/>
+                  <b>Margem/CAC:</b> (LTV cohort × MC%) ÷ CAC. Lucro vs custo — saudável <b>≥ 3x</b>.<br/><br/>
+                  Verde ≥3x, âmbar ≥1x, vermelho &lt;1x (queimando dinheiro).
+                </InfoTip>
+              </div>
             </Card>
-            <Card className="p-5 text-center" title="CAC médio do período: spend total ÷ novos clientes do período. Mesma base do gráfico mensal.">
+            <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-foreground">{metricsLoading || cacMedio === null ? "—" : formatCurrency(cacMedio)}</p>
               <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">CAC Médio</p>
-              <p className="text-[10px] text-muted-foreground mt-1">no período</p>
+              <div className="flex items-center justify-center gap-1.5 mt-1">
+                <p className="text-[10px] text-muted-foreground">no período</p>
+                <InfoTip>
+                  <b>Fórmula:</b> spend total ÷ novos clientes no período.<br/><br/>
+                  <b>Spend</b> = Meta Ads (via Graph API, todas as <code>meta_accounts</code> da workspace) + Google Ads (se configurado).<br/><br/>
+                  <b>Novos clientes</b> = primeiras compras nos meses visíveis.<br/><br/>
+                  Mesma base do gráfico mensal — bate com a média ponderada das barras.
+                </InfoTip>
+              </div>
             </Card>
-            <Card className="p-5 text-center" title="Clientes que fizeram primeira compra no período selecionado.">
+            <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-foreground">{metricsLoading ? "..." : formatNumber(periodTotals.newClients)}</p>
               <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Clientes Novos</p>
-              <p className="text-[10px] text-muted-foreground mt-1">no período</p>
+              <div className="flex items-center justify-center gap-1.5 mt-1">
+                <p className="text-[10px] text-muted-foreground">no período</p>
+                <InfoTip>
+                  Emails que fizeram <b>primeira compra</b> em algum mês do período selecionado.<br/><br/>
+                  Soma das barras verdes do gráfico &quot;Novos vs Recorrentes&quot;.<br/><br/>
+                  Não confundir com &quot;Total Clientes&quot; (lifetime).
+                </InfoTip>
+              </div>
             </Card>
             <Card className="p-5 text-center">
               <p className="text-2xl font-bold text-primary">{metricsLoading ? "..." : `${(metricsData?.repurchaseRate ?? 0).toFixed(2)}%`}</p>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mt-2">Tx. Recompra</p>
+              <div className="flex items-center justify-center gap-1.5 mt-2">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Tx. Recompra</p>
+                <InfoTip>
+                  <b>Fórmula:</b> clientes com 2+ pedidos ÷ total de clientes únicos (lifetime, cumulativo).<br/><br/>
+                  Indicador de fidelização. Subindo = base mais saudável.<br/><br/>
+                  <b>Fonte:</b> snapshot RFM.
+                </InfoTip>
+              </div>
             </Card>
           </div>
 
           {/* Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Novos vs Recorrentes" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+            <ChartCard
+              title="Novos vs Recorrentes"
+              info={<>
+                <b>Novos</b> (verde): clientes na primeira compra do mês.<br/>
+                <b>Recorrentes</b> (cinza): clientes que já haviam comprado antes.<br/><br/>
+                Mês = data de compra. Receita não entra aqui — é puramente cabeças.<br/><br/>
+                <b>Fonte:</b> snapshot RFM, agregado de pedidos VNDA por mês.
+              </>}
+              loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyWithCac}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -1366,7 +1490,15 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Qtd Pedidos" loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}>
+            <ChartCard
+              title="Qtd Pedidos"
+              info={<>
+                Total de pedidos (não clientes) por mês.<br/><br/>
+                Inclui múltiplos pedidos do mesmo cliente. Útil pra ver volume operacional vs &quot;Novos vs Recorrentes&quot; que mede cabeças.<br/><br/>
+                <b>Fonte:</b> snapshot RFM.
+              </>}
+              loading={metricsLoading} isEmpty={monthlyWithCac.length === 0} height={250}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={monthlyWithCac}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -1381,6 +1513,12 @@ export default function CrmPage() {
             <ChartCard
               title="LTV vs CAC por Safra"
               subtitle="LTV bruto realizado (lifetime) vs CAC. Linha = margem (LTV×MC%). Safras recentes têm menos tempo pra desenvolver LTV."
+              info={<>
+                <b>Barras azuis (LTV):</b> receita lifetime acumulada dos clientes da safra ÷ qtd da safra.<br/><br/>
+                <b>Barras vermelhas (CAC):</b> spend Meta+Google do mês ÷ novos clientes do mês.<br/><br/>
+                <b>Linha verde tracejada (Margem):</b> LTV × MC%. Para a safra ser rentável, precisa estar <i>acima</i> da barra vermelha.<br/><br/>
+                <b>Viés:</b> safras recentes naturalmente têm LTV menor (menos tempo de maturação). Use o cohort heatmap pra comparar safras no mesmo M+N.
+              </>}
               loading={metricsLoading}
               isEmpty={monthlyWithCac.length === 0 || !adSpend}
               height={300}
@@ -1420,7 +1558,20 @@ export default function CrmPage() {
           {/* Monthly table */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Evolucao Mensal</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-base">Evolucao Mensal</CardTitle>
+                <InfoTip>
+                  Tabela mensal com os dados que alimentam todos os gráficos.<br/><br/>
+                  <b>Tkt Total/Novos/Antigos:</b> ticket médio por pedido naquele segmento.<br/>
+                  <b>Receita Novos/Antigos:</b> soma de pedidos naquele segmento.<br/>
+                  <b>CAC:</b> spend Meta+Google do mês ÷ Novos.<br/>
+                  <b>LTV:</b> receita lifetime da safra ÷ Novos.<br/>
+                  <b>LTV:CAC:</b> razão da safra (verde ≥3x).<br/>
+                  <b>Pedidos/Cli:</b> pedidos médios por cliente da safra (lifetime).<br/>
+                  <b>Idade:</b> meses desde a safra. Quanto maior, mais maturo o LTV.<br/>
+                  <b>Recompra:</b> % de clientes com 2+ pedidos até esse mês.
+                </InfoTip>
+              </div>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               {metricsLoading ? (
@@ -1909,5 +2060,6 @@ export default function CrmPage() {
         suggestedName={emailListSuggestedName}
       />
     </div>
+    </TooltipProvider>
   );
 }

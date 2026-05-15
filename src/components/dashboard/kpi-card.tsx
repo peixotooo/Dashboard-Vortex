@@ -3,8 +3,9 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, type LucideIcon } from "lucide-react";
+import { TrendingUp, TrendingDown, HelpCircle, type LucideIcon } from "lucide-react";
 
 interface KpiCardProps {
   title: string;
@@ -15,6 +16,9 @@ interface KpiCardProps {
   loading?: boolean;
   badge?: string;
   badgeColor?: string;
+  /** Optional explanation rendered inside a HelpCircle tooltip next to the title.
+   *  Requires a TooltipProvider somewhere up the tree. */
+  info?: React.ReactNode;
 }
 
 export function KpiCard({
@@ -26,6 +30,7 @@ export function KpiCard({
   loading = false,
   badge,
   badgeColor,
+  info,
 }: KpiCardProps) {
   if (loading) {
     return (
@@ -50,6 +55,18 @@ export function KpiCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            {info && (
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button type="button" className="inline-flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground transition-colors" aria-label="Mais informações">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                  {info}
+                </TooltipContent>
+              </Tooltip>
+            )}
             {badge && (
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
