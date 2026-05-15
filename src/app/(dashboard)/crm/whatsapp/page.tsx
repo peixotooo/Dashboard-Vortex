@@ -52,6 +52,9 @@ import {
   X,
   ShieldCheck,
   ShieldX,
+  FileEdit,
+  Play,
+  Pencil,
 } from "lucide-react";
 
 // --- Types ---
@@ -217,6 +220,9 @@ export default function WhatsAppPage() {
   // Modo "rascunho com aprovação" — campanha fica em pending_approval
   // até outro membro do time aprovar.
   const [requiresApproval, setRequiresApproval] = useState(false);
+  // Modo "rascunho pessoal" — campanha fica em draft, sem ir pra Meta,
+  // até o próprio usuário clicar em Ativar.
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledDate, setScheduledDate] = useState(() => {
     const d = new Date();
@@ -225,11 +231,26 @@ export default function WhatsAppPage() {
   });
   const [scheduledTime, setScheduledTime] = useState("09:00");
   const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
+  const [activateBusyId, setActivateBusyId] = useState<string | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+
+  // Edição inline (rascunho + agendamento).
+  const [editingCampaign, setEditingCampaign] = useState<WaCampaign | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editScheduleEnabled, setEditScheduleEnabled] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   // Rascunho com aprovação obriga agendamento — força o toggle ao ligar.
   useEffect(() => {
     if (requiresApproval) setScheduleEnabled(true);
   }, [requiresApproval]);
+
+  // Os dois modos de rascunho são mutuamente exclusivos.
+  useEffect(() => {
+    if (saveAsDraft && requiresApproval) setRequiresApproval(false);
+  }, [saveAsDraft, requiresApproval]);
 
   const wsHeaders = useCallback(() => {
     return {
@@ -476,19 +497,15 @@ export default function WhatsAppPage() {
           cooldownDays,
           scheduled_at: scheduledAt,
           requires_approval: requiresApproval,
+          save_as_draft: saveAsDraft,
         }),
       });
       const data = await res.json();
 
       if (data.campaign) {
-        // Se está em pending_approval, não chama /send — o cron pega
-        // depois que outro membro aprovar. Se está em scheduled,
-        // também não chama /send — o cron pega na data. Caso contrário
-        // (queued), chama /send pra acelerar o disparo.
-        if (
-          data.campaign.status !== "pending_approval" &&
-          data.campaign.status !== "scheduled"
-        ) {
+        // Só acelera o /send pra campanhas em 'queued'. Draft,
+        // pending_approval e scheduled ficam aguardando.
+        if (data.campaign.status === "queued") {
           await fetch(`/api/crm/whatsapp/campaigns/${data.campaign.id}/send`, {
             method: "POST",
             headers: wsHeaders(),
@@ -552,7 +569,125 @@ export default function WhatsAppPage() {
     setSelectedSegment("");
     setVariableValues({});
     setRequiresApproval(false);
+    setSaveAsDraft(false);
     setScheduleEnabled(false);
+  }
+
+  function openEdit(c: WaCampaign) {
+    setEditingCampaign(c);
+    setEditName(c.name);
+    if (c.scheduled_at) {
+      const d = new Date(c.scheduled_at);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setEditDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+      setEditTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+      setEditScheduleEnabled(true);
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setEditDate(tomorrow.toISOString().slice(0, 10));
+      setEditTime("09:00");
+      setEditScheduleEnabled(false);
+    }
+  }
+
+  async function submitEdit() {
+    if (!editingCampaign) return;
+    const trimmed = editName.trim();
+    if (!trimmed) {
+      setErrorMsg("Nome não pode ser vazio.");
+      return;
+    }
+    const isDraft = editingCampaign.status === "draft";
+    let scheduledIso: string | null | undefined;
+    if (editScheduleEnabled) {
+      const when = new Date(`${editDate}T${editTime}:00-03:00`);
+      if (Number.isNaN(when.getTime())) {
+        setErrorMsg("Data/hora inválida.");
+        return;
+      }
+      if (!isDraft && when.getTime() <= Date.now()) {
+        setErrorMsg("Pra campanha agendada, a data precisa estar no futuro.");
+        return;
+      }
+      scheduledIso = when.toISOString();
+    } else if (isDraft) {
+      // rascunho sem data prevista
+      scheduledIso = null;
+    } else {
+      // não-draft não pode ficar sem data
+      setErrorMsg("Campanha agendada precisa de data prevista.");
+      return;
+    }
+    setEditBusy(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/crm/whatsapp/campaigns/${editingCampaign.id}`, {
+        method: "PATCH",
+        headers: wsHeaders(),
+        body: JSON.stringify({
+          action: "update",
+          name: trimmed,
+          scheduled_at: scheduledIso,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(data.error ?? "Falha ao salvar edição.");
+        return;
+      }
+      setEditingCampaign(null);
+      await fetchCampaigns();
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function deleteCampaign(c: WaCampaign) {
+    const label = c.status === "draft" ? "rascunho" : "campanha agendada";
+    if (!confirm(`Excluir este ${label} "${c.name}"? Esta ação é irreversível.`)) return;
+    setDeleteBusyId(c.id);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`/api/crm/whatsapp/campaigns/${c.id}`, {
+        method: "DELETE",
+        headers: wsHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(data.error ?? "Falha ao excluir.");
+        return;
+      }
+      await fetchCampaigns();
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }
+
+  async function activateDraft(id: string) {
+    setActivateBusyId(id);
+    setErrorMsg(null);
+    try {
+      const r = await fetch(`/api/crm/whatsapp/campaigns/${id}/activate`, {
+        method: "POST",
+        headers: wsHeaders(),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErrorMsg(d.error ?? "Falha ao ativar rascunho.");
+        return;
+      }
+      // Se foi pra queued (sem agendamento futuro), acelera o disparo.
+      if (d.status === "queued") {
+        await fetch(`/api/crm/whatsapp/campaigns/${id}/send`, {
+          method: "POST",
+          headers: wsHeaders(),
+        });
+      }
+      await fetchCampaigns();
+    } finally {
+      setActivateBusyId(null);
+    }
   }
 
   async function handleAddExclusion() {
@@ -1055,6 +1190,38 @@ export default function WhatsAppPage() {
                       )}
                     </div>
 
+                    {/* Modo rascunho pessoal — guarda preparado pra ativar depois */}
+                    <div className="space-y-2 border rounded-md p-4">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                          <FileEdit className="h-3.5 w-3.5" />
+                          Salvar como rascunho
+                        </Label>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={saveAsDraft}
+                          onClick={() => setSaveAsDraft((v) => !v)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                            saveAsDraft
+                              ? "bg-foreground border-foreground"
+                              : "bg-card border-border"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                              saveAsDraft ? "translate-x-5" : "translate-x-[2px]"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {saveAsDraft
+                          ? "Nada vai pra Meta agora. A campanha fica como Rascunho com a data prevista acima (opcional). Quando você clicar em Ativar na lista de campanhas, ela vai pra Agendada (se a data ainda estiver no futuro) ou pra fila de envio."
+                          : "Sem rascunho: a campanha vai direto pra fila/agenda definida acima."}
+                      </p>
+                    </div>
+
                     {/* Modo rascunho com aprovação */}
                     <div className="space-y-2 border rounded-md p-4">
                       <div className="flex items-center justify-between">
@@ -1101,6 +1268,8 @@ export default function WhatsAppPage() {
                       >
                         {creating ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : saveAsDraft ? (
+                          <FileEdit className="h-4 w-4 mr-2" />
                         ) : requiresApproval ? (
                           <ShieldCheck className="h-4 w-4 mr-2" />
                         ) : scheduleEnabled ? (
@@ -1108,7 +1277,11 @@ export default function WhatsAppPage() {
                         ) : (
                           <Send className="h-4 w-4 mr-2" />
                         )}
-                        {requiresApproval
+                        {saveAsDraft
+                          ? scheduleEnabled
+                            ? `Salvar rascunho (${scheduledDate} ${scheduledTime})`
+                            : "Salvar rascunho"
+                          : requiresApproval
                           ? "Enviar pra aprovação"
                           : scheduleEnabled
                           ? `Agendar ${scheduledDate} ${scheduledTime}`
@@ -1144,7 +1317,7 @@ export default function WhatsAppPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{c.name}</span>
                             {statusBadge(c.status)}
-                            {c.scheduled_at && c.status === "scheduled" && (
+                            {c.scheduled_at && (c.status === "scheduled" || c.status === "draft") && (
                               <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-400">
                                 <Clock className="h-3 w-3" />
                                 {new Date(c.scheduled_at).toLocaleString("pt-BR", {
@@ -1190,6 +1363,34 @@ export default function WhatsAppPage() {
                               <div className="text-xs text-muted-foreground">Falhas</div>
                             </div>
                           )}
+                          {["draft", "scheduled", "queued"].includes(c.status) && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-2 gap-1.5"
+                                onClick={() => openEdit(c)}
+                                title="Editar nome e/ou data prevista"
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Editar
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-destructive hover:text-destructive"
+                                disabled={deleteBusyId === c.id}
+                                onClick={() => deleteCampaign(c)}
+                                title="Excluir campanha (não pode ser desfeito)"
+                              >
+                                {deleteBusyId === c.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                                Excluir
+                              </Button>
+                            </>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -1200,6 +1401,51 @@ export default function WhatsAppPage() {
                           </Button>
                         </div>
                       </div>
+
+                      {c.status === "draft" && (() => {
+                        const busy = activateBusyId === c.id;
+                        const scheduledFuture =
+                          c.scheduled_at && new Date(c.scheduled_at).getTime() > Date.now();
+                        return (
+                          <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <FileEdit className="h-3.5 w-3.5" />
+                              Rascunho — nada foi enviado ainda.
+                              {c.scheduled_at && (
+                                <span>
+                                  {" "}Data prevista:{" "}
+                                  {new Date(c.scheduled_at).toLocaleString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs gap-1.5"
+                                disabled={busy}
+                                title={
+                                  scheduledFuture
+                                    ? "Ativar e deixar agendado pra data prevista"
+                                    : "Ativar e enviar agora"
+                                }
+                                onClick={() => activateDraft(c.id)}
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Play className="h-3 w-3" />
+                                )}
+                                {scheduledFuture ? "Ativar agendamento" : "Ativar e enviar"}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {c.status === "pending_approval" && (() => {
                         const busy = approvalBusyId === c.id;
@@ -1970,6 +2216,116 @@ export default function WhatsAppPage() {
         onClose={() => setDetailsCampaignId(null)}
         onChanged={() => fetchCampaigns()}
       />
+
+      {/* Edição inline de rascunho/agendamento */}
+      <Dialog
+        open={!!editingCampaign}
+        onOpenChange={(open) => {
+          if (!open) setEditingCampaign(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingCampaign?.status === "draft"
+                ? "Editar rascunho"
+                : "Editar agendamento"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                Nome
+              </Label>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Nome da campanha"
+              />
+            </div>
+
+            <div className="space-y-2 border rounded-md p-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5" />
+                  Data prevista
+                  {editingCampaign?.status !== "draft" && (
+                    <span className="normal-case text-muted-foreground/70 ml-1">
+                      (obrigatória)
+                    </span>
+                  )}
+                </Label>
+                {editingCampaign?.status === "draft" && (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={editScheduleEnabled}
+                    onClick={() => setEditScheduleEnabled((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border transition-colors ${
+                      editScheduleEnabled
+                        ? "bg-foreground border-foreground"
+                        : "bg-card border-border"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 mt-[2px] transform rounded-full bg-background transition ${
+                        editScheduleEnabled ? "translate-x-5" : "translate-x-[2px]"
+                      }`}
+                    />
+                  </button>
+                )}
+              </div>
+              {(editingCampaign?.status !== "draft" || editScheduleEnabled) && (
+                <div className="flex gap-2 pt-1">
+                  <Input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="h-9 text-xs flex-1"
+                    min={
+                      editingCampaign?.status === "draft"
+                        ? undefined
+                        : new Date().toISOString().slice(0, 10)
+                    }
+                  />
+                  <Input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="h-9 text-xs w-28"
+                    step={300}
+                  />
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {editingCampaign?.status === "draft"
+                  ? editScheduleEnabled
+                    ? "Quando você ativar, a campanha vai pra Agendada se a data ainda estiver no futuro — senão entra direto na fila."
+                    : "Sem data: ao ativar, vai direto pra fila de envio."
+                  : "Mudar essa data reagenda o envio."}
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setEditingCampaign(null)}
+                disabled={editBusy}
+              >
+                Cancelar
+              </Button>
+              <Button className="flex-1" onClick={submitEdit} disabled={editBusy}>
+                {editBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                )}
+                Salvar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

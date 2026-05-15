@@ -53,10 +53,17 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays, requires_approval } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays, requires_approval, save_as_draft } = body;
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    if (save_as_draft && requires_approval) {
+      return NextResponse.json(
+        { error: "Use 'salvar como rascunho' OU 'precisa aprovação' — não os dois." },
+        { status: 400 }
+      );
     }
 
     // Rascunho com aprovação exige data + hora de envio definidos.
@@ -71,8 +78,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine initial status based on scheduling + approval flag.
-    // pending_approval: o cron whatsapp-sender só lê queued/sending/scheduled-due,
-    // então campanhas pendentes ficam paradas até alguém aprovar.
+    // - draft: usuário guarda preparado pra ativar manualmente depois.
+    // - pending_approval: aguarda outro membro do time aprovar.
+    // - scheduled / queued: vai pro cron whatsapp-sender (que só lê
+    //   queued/sending/scheduled-due — draft e pending_approval ficam
+    //   parados naturalmente).
     let initialStatus = "queued";
     let scheduledAtValue: string | null = null;
     if (scheduled_at) {
@@ -84,6 +94,13 @@ export async function POST(request: NextRequest) {
     }
     if (requires_approval) {
       initialStatus = "pending_approval";
+    } else if (save_as_draft) {
+      initialStatus = "draft";
+      // Pra draft, persistimos scheduled_at mesmo se já passou — ele
+      // pode editar depois ou simplesmente ativar pra envio imediato.
+      if (scheduled_at && !scheduledAtValue) {
+        scheduledAtValue = new Date(scheduled_at).toISOString();
+      }
     }
 
     // --- Compliance filtering ---
