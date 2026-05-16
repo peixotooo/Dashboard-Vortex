@@ -16,6 +16,7 @@ import { eccosys } from "@/lib/eccosys/client";
 import type { EccosysEstoque } from "@/types/hub";
 import { evaluateSku, type EngineDecision, type EngineSnapshot } from "./engine";
 import { computeMargin } from "./composition";
+import { buildCategoryAvgMap, type CategoryAvgMap } from "./category-cost";
 import {
   DEFAULT_ENGINE_SETTINGS,
   type CompositionInput,
@@ -33,6 +34,7 @@ type ShelfProductRow = {
   product_id: string;
   sku: string | null;
   name: string;
+  category: string | null;
   price: number | null;
   sale_price: number | null;
   created_at: string;
@@ -115,7 +117,7 @@ async function loadShelfProducts(
 ): Promise<ShelfProductRow[]> {
   let query = client
     .from("shelf_products")
-    .select("product_id, sku, name, price, sale_price, created_at, in_stock")
+    .select("product_id, sku, name, category, price, sale_price, created_at, in_stock")
     .eq("workspace_id", workspaceId)
     .eq("active", true);
   if (filterSkus && filterSkus.length > 0) {
@@ -270,15 +272,17 @@ export async function runOrchestrator(
   const skus = shelf.map((p) => p.sku).filter((s): s is string => !!s);
 
   const stockProvided = opts.stock != null;
-  const [pricingMap, costsMap, vendasMap, campanhasProdutos, stockResult] = await Promise.all([
-    loadSkuPricing(client, workspaceId, skus),
-    loadProductCosts(client, workspaceId, skus),
-    loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
-    loadSkusEmCampanha(client, workspaceId),
-    stockProvided
-      ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
-      : loadStockFromEccosys(workspaceId),
-  ]);
+  const [pricingMap, costsMap, vendasMap, campanhasProdutos, stockResult, categoryAvg] =
+    await Promise.all([
+      loadSkuPricing(client, workspaceId, skus),
+      loadProductCosts(client, workspaceId, skus),
+      loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
+      loadSkusEmCampanha(client, workspaceId),
+      stockProvided
+        ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
+        : loadStockFromEccosys(workspaceId),
+      buildCategoryAvgMap(client, workspaceId),
+    ]);
   const stockMap = stockResult.map;
   const stockSource = stockResult.source;
 
@@ -304,10 +308,18 @@ export async function runOrchestrator(
 
     const pricingRow = pricingMap.get(p.sku);
     const trackedCost = costsMap.get(p.sku);
+    // Cascata de CMV:
+    //   1. product_costs.cost (cadastrado por SKU)
+    //   2. média de produto_costs da mesma categoria (regra do user)
+    //   3. % global do preço (last resort)
+    const catAvg =
+      p.category != null ? categoryAvg.get(p.category.toUpperCase()) : undefined;
     const fallbackCogs =
       trackedCost != null
         ? trackedCost
-        : precoDe * fin.product_cost_pct;
+        : catAvg != null
+          ? catAvg
+          : precoDe * fin.product_cost_pct;
 
     const composition: CompositionInput = {
       cogs: fallbackCogs,
