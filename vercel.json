@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/iporto-dispatcher-3",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/pricing-engine",
+      "schedule": "0 5 * * *"
     }
   ]
 }

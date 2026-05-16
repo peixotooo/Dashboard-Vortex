@@ -694,6 +694,63 @@ export async function getVndaStockByReferences(
   return result;
 }
 
+// --- Write: update product sale_price ---
+//
+// Usado pelo módulo de Pricing pra propagar markdown/markup aprovados.
+// VNDA aceita PATCH /products/{id} com sale_price (e price). Quando
+// sale_price é menor que price, o PDP renderiza "de/por" nativo.
+//
+// Para resolver o id a partir do SKU (reference), reusa o listing já
+// existente em getVndaStockByReference (fuzzy match → primeiro resultado).
+export async function updateVndaSalePriceByReference(
+  config: VndaConfig,
+  reference: string,
+  salePrice: number | null
+): Promise<{ ok: boolean; productId?: number; message: string }> {
+  const ref = reference.trim();
+  if (!ref) return { ok: false, message: "reference vazio" };
+
+  const found = await getVndaStockByReference(config, ref);
+  if (!found?.productId) {
+    return { ok: false, message: `produto VNDA não encontrado pra reference ${ref}` };
+  }
+
+  // PATCH primeiro na URL store-scoped (mais confiável que api.vnda.com.br
+  // global, mesmo pattern usado em getVndaStockByReference).
+  const urls = [
+    `https://${config.storeHost}/api/v2/products/${found.productId}`,
+    `https://api.vnda.com.br/api/v2/products/${found.productId}`,
+  ];
+
+  const body: Record<string, unknown> = {
+    // null → limpa o sale_price (volta a vender pelo preço cheio)
+    sale_price: salePrice == null ? null : Math.round(salePrice * 100) / 100,
+  };
+
+  let lastError = "";
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(url.includes("api.vnda.com.br") ? { "X-Shop-Host": config.storeHost } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        return { ok: true, productId: found.productId, message: "ok" };
+      }
+      lastError = `${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : "fetch failed";
+    }
+  }
+  return { ok: false, productId: found.productId, message: lastError || "PATCH falhou" };
+}
+
 // --- Health check ---
 
 export async function testVndaConnection(config: VndaConfig): Promise<{ ok: boolean; message: string; orderCount?: number }> {

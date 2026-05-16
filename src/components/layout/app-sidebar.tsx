@@ -46,6 +46,7 @@ import {
   Mail,
   PieChart,
   ReceiptText,
+  Banknote,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -228,6 +229,22 @@ const navGroups: NavGroup[] = [
           {
             title: "Configuracoes",
             href: "/simulador-comercial/config",
+            icon: SlidersHorizontal,
+          },
+        ],
+      },
+      {
+        title: "Pricing",
+        href: "/pricing",
+        icon: Banknote,
+        items: [
+          { title: "SKUs", href: "/pricing", icon: Package },
+          { title: "Visao geral", href: "/pricing/visao-geral", icon: Banknote },
+          { title: "Simulador elasticidade", href: "/pricing/simulador", icon: TrendingUp },
+          { title: "Campanhas / Combos", href: "/pricing/campanhas", icon: Tag },
+          {
+            title: "Configuracoes",
+            href: "/pricing/config",
             icon: SlidersHorizontal,
           },
         ],
