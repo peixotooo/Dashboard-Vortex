@@ -31,6 +31,8 @@ create index if not exists meta_attribution_captured_at_idx
 
 alter table public.meta_attribution enable row level security;
 
+drop policy if exists "Members can view their workspace's attribution"
+  on public.meta_attribution;
 create policy "Members can view their workspace's attribution"
   on public.meta_attribution for select
   using (
