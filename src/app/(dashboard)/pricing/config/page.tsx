@@ -10,6 +10,7 @@ import {
   XCircle,
   AlertTriangle,
   Send,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,14 @@ export default function PricingConfigPage() {
   const [applying, setApplying] = useState(false);
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    total: number;
+    with_total: number;
+    with_pl_only: number;
+    empty: number;
+  } | null>(null);
 
   const loadSettings = useCallback(async () => {
     if (!workspace?.id) return;
@@ -134,6 +143,36 @@ export default function PricingConfigPage() {
     if (res.ok) {
       setSelectedIds(new Set());
       await loadPending();
+    }
+  }
+
+  async function importCmvFromCsv(file?: File) {
+    if (!workspace?.id) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        res = await fetch("/api/pricing/import/cmv", {
+          method: "POST",
+          headers: { "x-workspace-id": workspace.id },
+          body: fd,
+        });
+      } else {
+        // Tenta ler de /public (arquivo já no servidor)
+        res = await fetch("/api/pricing/import/cmv", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
+          body: JSON.stringify({ source: "public", filename: "SENSE - BULKING - BD.csv" }),
+        });
+      }
+      const json = await res.json();
+      if (res.ok) setImportResult(json);
+      else setImportResult({ ...json, imported: 0, total: 0, with_total: 0, with_pl_only: 0, empty: 0 });
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -379,7 +418,7 @@ export default function PricingConfigPage() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <Button onClick={save} disabled={saving} className="gap-2">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Salvar config
@@ -389,6 +428,61 @@ export default function PricingConfigPage() {
           Rodar engine agora
         </Button>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Importar CMV de CSV</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            CSV com colunas: Código, Produto, Categoria, Valor PL, Corte, Tecido,
+            Aviamentos, Estampa, Costura, TOTAL PRODUÇÃO. SKUs sem custo cadastrado
+            herdam a média de CMV da mesma categoria automaticamente.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => importCmvFromCsv()}
+              disabled={importing}
+              variant="outline"
+              className="gap-2"
+            >
+              {importing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Importar do servidor (/public/SENSE - BULKING - BD.csv)
+            </Button>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+              <Upload className="h-4 w-4" />
+              <span>Ou subir CSV agora</span>
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) importCmvFromCsv(f);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+          {importResult && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs">
+              <div>
+                <strong>{importResult.imported}</strong> SKUs importados de{" "}
+                {importResult.total} linhas
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {importResult.with_total} com TOTAL PRODUÇÃO ·{" "}
+                {importResult.with_pl_only} apenas com Valor PL ·{" "}
+                {importResult.empty} sem custo (vão usar média de categoria)
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

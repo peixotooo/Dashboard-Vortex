@@ -63,7 +63,7 @@ type SkuResponse = {
   composition: CompositionInput;
   composition_persisted: boolean;
   calc: CompositionOutput;
-  cost_source: "tracked" | "estimated";
+  cost_source: "tracked" | "category_avg" | "estimated";
 };
 
 const FIELDS_BRL: Array<{ key: keyof CompositionInput; label: string; hint?: string }> = [
@@ -266,13 +266,27 @@ export default function SkuPricingPage() {
         </Button>
       </div>
 
+      {data.cost_source === "category_avg" && (
+        <Card className="border-blue-300 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
+          <CardContent className="flex items-start gap-3 py-3 text-sm text-blue-900 dark:text-blue-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              CMV calculado automaticamente pela média da categoria
+              {data.product?.category ? ` "${data.product.category}"` : ""}. Vai virar
+              persistido se você clicar em "Salvar composição" — ou edite o valor
+              abaixo pra override manual.
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {data.cost_source === "estimated" && (
         <Card className="border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
           <CardContent className="flex items-start gap-3 py-3 text-sm text-amber-900 dark:text-amber-100">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              CMV estimado via fallback (product_cost_pct). Cadastre o custo real em
-              product_costs ou edite no campo CMV abaixo pra precisão maior.
+              CMV estimado via product_cost_pct global — sem outros SKUs da mesma
+              categoria pra calcular média. Cadastre o custo real ou importe o CSV
+              em /pricing/config.
             </div>
           </CardContent>
         </Card>

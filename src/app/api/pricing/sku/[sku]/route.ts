@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeComposition } from "@/lib/pricing/composition";
 import { requireAuth, requireAdmin } from "@/lib/pricing/supabase";
+import { getCategoryAvgCogs } from "@/lib/pricing/category-cost";
 
 type FinSettings = {
   product_cost_pct: number | null;
@@ -93,13 +94,28 @@ export async function GET(
     const precoCheio = Number(shelf?.price ?? 0);
     const precoPraticado = shelf?.sale_price != null ? Number(shelf.sale_price) : precoCheio;
 
-    // COGS: product_costs.cost (preferido) → fallback % do preço cheio
+    // COGS cascata:
+    //   1. product_costs.cost (cadastrado pra este SKU)
+    //   2. média de cost dos SKUs da mesma categoria
+    //   3. % global do preço (last resort)
+    const categoryAvg =
+      trackedCost == null
+        ? await getCategoryAvgCogs(auth.supabase, auth.workspaceId, shelf?.category ?? null)
+        : null;
     const fallbackCost =
       trackedCost != null
         ? trackedCost
-        : fin.product_cost_pct != null && precoCheio > 0
-          ? precoCheio * (Number(fin.product_cost_pct) / 100)
-          : 0;
+        : categoryAvg != null
+          ? categoryAvg
+          : fin.product_cost_pct != null && precoCheio > 0
+            ? precoCheio * (Number(fin.product_cost_pct) / 100)
+            : 0;
+    const costSource: "tracked" | "category_avg" | "estimated" =
+      trackedCost != null
+        ? "tracked"
+        : categoryAvg != null
+          ? "category_avg"
+          : "estimated";
 
     // Componentes editáveis — usa sku_pricing se existe, senão fallbacks
     const composition = {
@@ -136,7 +152,7 @@ export async function GET(
       composition_persisted: pricing != null,
       calc,
       last_snapshot: lastSnapshot,
-      cost_source: trackedCost != null ? "tracked" : "estimated",
+      cost_source: costSource,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
