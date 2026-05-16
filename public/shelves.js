@@ -2395,6 +2395,11 @@
   function initCAPI() {
     if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
 
+    // Run BEFORE any event dispatch so autofilled email/phone is in cookies
+    // by the time PageView/ViewContent fire — those events then carry the
+    // advanced matching params from page 1.
+    initAttributionCapture();
+
     // --- PageView ---
     sendCAPI("pageview", {});
 
@@ -2453,10 +2458,6 @@
       });
     }
 
-    // Snapshot fbc/fbp/IP/UA by email when the customer types it on
-    // checkout, so the server-side Purchase can merge them in.
-    initAttributionCapture();
-
     console.log("[VtxCAPI] Initialized server-side events for BK COM pixel");
   }
 
@@ -2471,10 +2472,34 @@
   // ---------------------------------------------------------------------
   var attributionSent = {}; // email -> 1, dedupe per session
 
+  // Persist email/phone the customer typed in any form (checkout, account,
+  // newsletter, ...) so future PageView/ViewContent/AddToCart events fired
+  // anywhere on the site can include them as advanced matching params. The
+  // /api/meta-capi endpoint hashes them server-side before sending to Meta.
+  function setStoredEmail(email) {
+    if (!email || email.indexOf("@") === -1) return;
+    setCookie("_vtx_em", encodeURIComponent(String(email).trim().toLowerCase()), 90);
+  }
+  function setStoredPhone(phone) {
+    if (!phone) return;
+    var digits = String(phone).replace(/\D+/g, "");
+    if (digits.length < 8) return; // too short to be a real phone
+    setCookie("_vtx_ph", digits, 90);
+  }
+  function getStoredEmail() {
+    var v = getCookie("_vtx_em");
+    if (!v) return "";
+    try { return decodeURIComponent(v); } catch (e) { return v; }
+  }
+  function getStoredPhone() {
+    return getCookie("_vtx_ph") || "";
+  }
+
   function sendAttribution(email) {
     if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
     if (!email || email.indexOf("@") === -1) return;
     var normalized = String(email).trim().toLowerCase();
+    setStoredEmail(normalized);
     if (attributionSent[normalized]) return;
     var fbc = getCookie("_fbc") || "";
     var fbp = getCookie("_fbp") || "";
@@ -2508,33 +2533,53 @@
   function isEmailLike(v) {
     return v && typeof v === "string" && v.indexOf("@") > 0 && v.length > 4;
   }
+  function isPhoneLike(v) {
+    if (!v || typeof v !== "string") return false;
+    var d = v.replace(/\D+/g, "");
+    return d.length >= 8 && d.length <= 15;
+  }
 
   function initAttributionCapture() {
     if (!VTX_CAPI_ENABLED) return;
 
-    // Strategy: watch every email input and every input whose value looks
-    // like an email. VNDA's checkout has the email field on step 1, but the
-    // selector varies by theme — we cast a wide net.
+    function bindEmail(el) {
+      if (el._vtxAttrBound) return;
+      el._vtxAttrBound = 1;
+      el.addEventListener("blur", function (e) {
+        if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
+      });
+      el.addEventListener("change", function (e) {
+        if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
+      });
+      if (isEmailLike(el.value)) sendAttribution(el.value);
+    }
+
+    function bindPhone(el) {
+      if (el._vtxPhoneBound) return;
+      el._vtxPhoneBound = 1;
+      el.addEventListener("blur", function (e) {
+        if (isPhoneLike(e.target.value)) setStoredPhone(e.target.value);
+      });
+      el.addEventListener("change", function (e) {
+        if (isPhoneLike(e.target.value)) setStoredPhone(e.target.value);
+      });
+      if (isPhoneLike(el.value)) setStoredPhone(el.value);
+    }
+
     function scan() {
       try {
-        var nodes = document.querySelectorAll(
+        var emailNodes = document.querySelectorAll(
           'input[type="email"], input[name*="email" i], input[id*="email" i]'
         );
-        for (var i = 0; i < nodes.length; i++) {
-          var el = nodes[i];
-          if (el._vtxAttrBound) continue;
-          el._vtxAttrBound = 1;
-          // Fire on blur (user moved on) and on change (autofill). blur covers
-          // typing flows; change covers password managers / autocomplete.
-          el.addEventListener("blur", function (e) {
-            if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
-          });
-          el.addEventListener("change", function (e) {
-            if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
-          });
-          // Try the existing value (autofilled before our handler attached).
-          if (isEmailLike(el.value)) sendAttribution(el.value);
-        }
+        for (var i = 0; i < emailNodes.length; i++) bindEmail(emailNodes[i]);
+
+        var phoneNodes = document.querySelectorAll(
+          'input[type="tel"], ' +
+          'input[name*="phone" i], input[id*="phone" i], ' +
+          'input[name*="telefone" i], input[id*="telefone" i], ' +
+          'input[name*="celular" i], input[id*="celular" i]'
+        );
+        for (var j = 0; j < phoneNodes.length; j++) bindPhone(phoneNodes[j]);
       } catch (e) { /* swallow */ }
     }
     scan();
@@ -2564,6 +2609,11 @@
   function sendCAPI(eventType, data) {
     if (!API_BASE) return;
 
+    // Persisted advanced matching params — populated whenever the customer
+    // types email/phone in any form on the site. Server hashes before send.
+    var storedEmail = getStoredEmail();
+    var storedPhone = getStoredPhone();
+
     var payload = {
       key: API_KEY,
       event_type: eventType,
@@ -2574,6 +2624,8 @@
       fbc: getCookie("_fbc") || "",
       fbp: getCookie("_fbp") || "",
       external_id: consumerId || "",
+      email: data.email || storedEmail || "",
+      phone: data.phone || storedPhone || "",
       content_ids: data.content_ids || [],
       content_name: data.content_name || "",
       content_type: data.content_type || "product",
