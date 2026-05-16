@@ -12,6 +12,8 @@
 // Chamado pelo cron diário e pelas rotas /api/pricing/engine/preview e /run.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { eccosys } from "@/lib/eccosys/client";
+import type { EccosysEstoque } from "@/types/hub";
 import { evaluateSku, type EngineDecision, type EngineSnapshot } from "./engine";
 import { computeMargin } from "./composition";
 import {
@@ -55,8 +57,10 @@ export type OrchestratorOptions = {
   dryRun?: boolean;
   // Filtra SKUs específicos. Default: todos os ativos do workspace.
   skus?: string[];
-  // Fonte do estoque por SKU. Quando omitido, considera stock_units=0 e
-  // cobertura=null (engine não toma decisões nesse caso).
+  // Override de estoque (Map<sku, units>). Quando omitido, o orchestrator
+  // tenta carregar do Eccosys em massa via eccosys.listAll('/estoques'). Se
+  // o workspace não tem Eccosys configurado, assume 0 (engine vai retornar
+  // 'hold' por falta de cobertura).
   stock?: StockMap;
   // Override de data do snapshot (default: hoje). Útil pra reprocessamento.
   snapshotDate?: string;
@@ -69,6 +73,8 @@ export type OrchestratorResult = {
   decisions: EngineDecision[];
   skipped_no_price: number;
   skipped_no_pricing_row: number;
+  stock_source: "eccosys" | "param" | "none";
+  stock_sku_count: number;
 };
 
 export async function loadEngineSettings(
@@ -178,6 +184,39 @@ async function loadVendasJanela(
   return totals;
 }
 
+// Carrega estoque por SKU do Eccosys em massa via /estoques.
+// Mesmo padrão usado pelo cron sync-stock (src/app/api/cron/sync-stock/route.ts).
+// Retorna { map, source: 'eccosys' | 'none' } — fail-soft: se Eccosys não está
+// configurado ou falha, retorna map vazio (engine retorna hold por falta de
+// cobertura, comportamento esperado).
+async function loadStockFromEccosys(
+  workspaceId: string
+): Promise<{ map: Map<string, number>; source: "eccosys" | "none" }> {
+  const map = new Map<string, number>();
+  try {
+    const all = await eccosys.listAll<EccosysEstoque>(
+      "/estoques",
+      workspaceId,
+      undefined,
+      100
+    );
+    for (const es of all) {
+      const stock =
+        typeof es.estoqueDisponivel === "number" && !Number.isNaN(es.estoqueDisponivel)
+          ? es.estoqueDisponivel
+          : 0;
+      if (es.codigo) map.set(es.codigo, stock);
+    }
+    return { map, source: "eccosys" };
+  } catch (err) {
+    console.warn(
+      `[pricing/orchestrator] eccosys stock fetch failed for ${workspaceId}:`,
+      (err as Error).message
+    );
+    return { map, source: "none" };
+  }
+}
+
 // SKUs com cupom ativo via promo_active_coupons. Considera apenas planos
 // com override_dynamic=true.
 async function loadSkusEmCampanha(
@@ -230,12 +269,18 @@ export async function runOrchestrator(
   const shelf = await loadShelfProducts(client, workspaceId, opts.skus);
   const skus = shelf.map((p) => p.sku).filter((s): s is string => !!s);
 
-  const [pricingMap, costsMap, vendasMap, campanhasProdutos] = await Promise.all([
+  const stockProvided = opts.stock != null;
+  const [pricingMap, costsMap, vendasMap, campanhasProdutos, stockResult] = await Promise.all([
     loadSkuPricing(client, workspaceId, skus),
     loadProductCosts(client, workspaceId, skus),
     loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
     loadSkusEmCampanha(client, workspaceId),
+    stockProvided
+      ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
+      : loadStockFromEccosys(workspaceId),
   ]);
+  const stockMap = stockResult.map;
+  const stockSource = stockResult.source;
 
   const today = new Date();
   const snapshotDate =
@@ -283,7 +328,7 @@ export async function runOrchestrator(
     const idade_dias = daysBetween(p.created_at, today);
     const vendas_dia_unidades =
       (vendasMap.get(p.sku) ?? 0) / Math.max(1, settings.cobertura_janela_dias);
-    const stock_units = opts.stock?.get(p.sku) ?? 0;
+    const stock_units = stockMap.get(p.sku) ?? 0;
     const cobertura_dias =
       vendas_dia_unidades > 0 && stock_units > 0
         ? Math.round(stock_units / vendas_dia_unidades)
@@ -318,6 +363,8 @@ export async function runOrchestrator(
     decisions,
     skipped_no_price,
     skipped_no_pricing_row,
+    stock_source: stockSource,
+    stock_sku_count: stockMap.size,
   };
 }
 
