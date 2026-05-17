@@ -307,9 +307,11 @@ async function loadStockFromEccosys(
     );
     for (const es of all) {
       if (!es.codigo) continue;
+      // Eccosys pode retornar negativo quando estoque comprometido > físico.
+      // Clamp em 0 — pricing trata isso como sem estoque.
       const stock =
         typeof es.estoqueDisponivel === "number" && !Number.isNaN(es.estoqueDisponivel)
-          ? es.estoqueDisponivel
+          ? Math.max(0, es.estoqueDisponivel)
           : 0;
       const base = baseSkuOf(String(es.codigo));
       map.set(base, (map.get(base) ?? 0) + stock);
