@@ -205,6 +205,61 @@ async function loadLaunchDates(
   return map;
 }
 
+// Data de criação no Hub ML / pre-cadastro — captura idade pra novos
+// produtos que ainda não entraram no relatório de coleções. Usado quando
+// sku_launch_dates não tem o SKU.
+//
+// Cascata interna por SKU base (já que hub_products usa SKU com sufixo de
+// tamanho e product_collections.created_at é por coleção inteira):
+//   1. MIN(hub_products.created_at) entre variações do SKU base
+//   2. MIN(product_collections.created_at) via collection_items.codigo
+async function loadHubAndCollectionDates(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<Map<string, Date>> {
+  const [hubRes, collRes] = await Promise.all([
+    client
+      .from("hub_products")
+      .select("sku, created_at")
+      .eq("workspace_id", workspaceId),
+    // collection_items.codigo é o SKU; product_collections.created_at é a
+    // data da coleção no pre-cadastro. JOIN via FK.
+    client
+      .from("collection_items")
+      .select("codigo, product_collections(created_at)")
+      .eq("workspace_id", workspaceId),
+  ]);
+
+  const map = new Map<string, Date>();
+  const setMin = (key: string, d: Date) => {
+    const cur = map.get(key);
+    if (!cur || d < cur) map.set(key, d);
+  };
+
+  for (const row of hubRes.data ?? []) {
+    const r = row as { sku: string | null; created_at: string };
+    if (!r.sku || !r.created_at) continue;
+    setMin(baseSkuOf(r.sku), new Date(r.created_at));
+  }
+
+  for (const row of collRes.data ?? []) {
+    const r = row as unknown as {
+      codigo: string | null;
+      product_collections: { created_at: string } | { created_at: string }[] | null;
+    };
+    if (!r.codigo) continue;
+    // Supabase pode retornar a relation como array (1..N) ou objeto único.
+    const rel = Array.isArray(r.product_collections)
+      ? r.product_collections[0]
+      : r.product_collections;
+    const created = rel?.created_at;
+    if (!created) continue;
+    setMin(baseSkuOf(r.codigo), new Date(created));
+  }
+
+  return map;
+}
+
 // Primeira data de venda por SKU base, usada como proxy de idade em catálogo
 // (shelf_products.created_at é resetado a cada sync, não confiável). Olhamos
 // uma janela ampla — vendas dos últimos 12 meses — pra capturar a primeira
@@ -328,6 +383,7 @@ export async function runOrchestrator(
     vendasMap,
     firstSaleMap,
     launchMap,
+    hubMap,
     campanhasProdutos,
     stockResult,
     categoryAvg,
@@ -337,6 +393,7 @@ export async function runOrchestrator(
     loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
     loadFirstSaleBySku(client, workspaceId),
     loadLaunchDates(client, workspaceId),
+    loadHubAndCollectionDates(client, workspaceId),
     loadSkusEmCampanha(client, workspaceId),
     stockProvided
       ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
@@ -398,12 +455,17 @@ export async function runOrchestrator(
     const desconto_pct_atual = precoDe > 0 ? Math.max(0, 1 - precoPor / precoDe) : 0;
     const margem = computeMargin(composition, precoPor);
     // Idade — cascata:
-    //   1. sku_launch_dates.launch_date (vindo do relatório de coleções)
-    //   2. Primeira venda do SKU (último 365d)
-    //   3. shelf_products.created_at (fallback)
+    //   1. sku_launch_dates.launch_date (relatório de coleções — fonte mais
+    //      confiável quando existe)
+    //   2. hub_products.created_at / product_collections.created_at (captura
+    //      automaticamente data de produtos novos cadastrados via Hub ML ou
+    //      pre-cadastro)
+    //   3. Primeira venda em crm_vendas (últimos 365d)
+    //   4. shelf_products.created_at (fallback final)
     const launch = launchMap.get(p.sku);
+    const hubDate = hubMap.get(p.sku);
     const firstSale = firstSaleMap.get(p.sku);
-    const idadeReferencia = launch ?? firstSale;
+    const idadeReferencia = launch ?? hubDate ?? firstSale;
     const idade_dias = idadeReferencia
       ? Math.max(0, Math.floor((today.getTime() - idadeReferencia.getTime()) / (1000 * 60 * 60 * 24)))
       : daysBetween(p.created_at, today);
