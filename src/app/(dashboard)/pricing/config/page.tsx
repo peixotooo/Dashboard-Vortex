@@ -473,30 +473,18 @@ export default function PricingConfigPage() {
         <Card className="border-emerald-200 dark:border-emerald-900">
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-emerald-700 dark:text-emerald-300">
-              Mark Up — recuperar margem
+              Step Up — recuperar preço
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Reduzir desconto em SKUs novos com pouco estoque e margem baixa
+              Reduzir desconto em SKUs já descontados que estão girando rápido —
+              testa se a demanda aguenta preço maior
             </p>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
             <NumberField
-              label="Idade máx. (d)"
-              value={settings.markup_idade_max}
-              onChange={(v) => setSettings((s) => ({ ...s, markup_idade_max: v }))}
-            />
-            <NumberField
               label="Cobertura máx. (d)"
               value={settings.markup_cobertura_max}
               onChange={(v) => setSettings((s) => ({ ...s, markup_cobertura_max: v }))}
-            />
-            <NumberField
-              label="Margem máx. atual (%)"
-              value={settings.markup_margem_max_pct * 100}
-              step={0.5}
-              onChange={(v) =>
-                setSettings((s) => ({ ...s, markup_margem_max_pct: v / 100 }))
-              }
             />
             <NumberField
               label="Redução por ciclo (%)"

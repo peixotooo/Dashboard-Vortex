@@ -65,14 +65,15 @@ function shouldMarkdown(s: EngineSnapshot, cfg: EngineSettings): boolean {
   );
 }
 
+// Step up (regra do user, espelhada no SDD do G4): se um produto descontado
+// está girando bem (cobertura curta), devolver parte do desconto pra testar
+// se a demanda continua. NÃO depende de idade nem de margem — qualquer SKU
+// em sale com cobertura curta é candidato. Engine só dispara markup se já
+// existe desconto a reduzir.
 function shouldMarkup(s: EngineSnapshot, cfg: EngineSettings): boolean {
   if (s.cobertura_dias == null) return false;
-  if (s.margem_pct_atual == null) return false;
-  return (
-    s.idade_dias <= cfg.markup_idade_max &&
-    s.cobertura_dias <= cfg.markup_cobertura_max &&
-    s.margem_pct_atual <= cfg.markup_margem_max_pct
-  );
+  if (s.desconto_pct_atual <= 0) return false;
+  return s.cobertura_dias <= cfg.markup_cobertura_max;
 }
 
 // Maior desconto que ainda respeita trava_margem_minima_pct, dado o preco_de
@@ -139,7 +140,7 @@ export function evaluateSku(s: EngineSnapshot, cfg: EngineSettings): EngineDecis
     return {
       ...baseDecision,
       action: "markup",
-      reason: `markup -${(reducao * 100).toFixed(1)}pp (idade ${s.idade_dias}, cobertura ${s.cobertura_dias}, margem ${((s.margem_pct_atual ?? 0) * 100).toFixed(1)}%)`,
+      reason: `step up -${(reducao * 100).toFixed(1)}pp de desconto (cobertura ${s.cobertura_dias}d sugere demanda forte, testar preço maior)`,
       desconto_pct_novo: novoDesconto,
       preco_por_novo: novoPreco,
       margem_pct_nova: margem.margem_pct,
