@@ -200,15 +200,24 @@ export default function ElasticitySimulatorPage() {
 
       {!loading && data && (
         <>
+          {/* Inputs de cenário — 3 colunas estilo G4 */}
           <Card>
-            <CardHeader>
-              <CardTitle>Cenários de preço</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Cenários de preço</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                CMV utilizado: {formatCurrency(cogs)} (composição cadastrada do SKU)
+              </p>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-4">
-                {SCENARIOS.map((s) => (
+              <div className="grid grid-cols-3 gap-3">
+                {SCENARIOS.map((s, i) => (
                   <div key={s} className="space-y-1">
-                    <Label className="text-xs capitalize">{s}</Label>
+                    <Label className="text-xs capitalize">
+                      {s}
+                      {i === 0 && (
+                        <span className="ml-1 text-muted-foreground">(praticado)</span>
+                      )}
+                    </Label>
                     <Input
                       type="number"
                       step="0.01"
@@ -219,79 +228,144 @@ export default function ElasticitySimulatorPage() {
                           [s]: Number(e.target.value),
                         }))
                       }
+                      className="text-lg font-semibold"
                     />
+                    {scenarios.atual > 0 && i > 0 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        Δ {(((scenarios[s] - scenarios.atual) / scenarios.atual) * 100).toFixed(1)}% vs atual
+                      </div>
+                    )}
                   </div>
                 ))}
-              </div>
-              <div className="mt-3 text-xs text-muted-foreground">
-                CMV utilizado: {formatCurrency(cogs)} (vem da composição cadastrada)
               </div>
             </CardContent>
           </Card>
 
+          {/* Resultado por canal — estilo G4: linhas = métricas, colunas = cenários */}
           {data.channels.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                Sem histórico de vendas suficiente pra estimar elasticidade.
-                Vendas por canal aparecem aqui depois que tiver dados.
+                Sem histórico de vendas suficiente pra estimar elasticidade. Vendas
+                por canal aparecem aqui quando o SKU tiver pelo menos 4 semanas com
+                vendas.
               </CardContent>
             </Card>
           ) : (
             byChannel.map(({ channel, results, vencedor }) => (
               <Card key={channel.channel}>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle className="flex items-center justify-between text-base">
-                    <span>Canal: {channel.channel}</span>
-                    <div className="flex gap-2 text-xs">
+                    <span className="capitalize">Canal: {channel.channel}</span>
+                    <div className="flex flex-wrap gap-2 text-xs">
                       <Badge variant="outline">
-                        η = {channel.coefficient.toFixed(2)}
+                        Elasticidade η = {channel.coefficient.toFixed(2)}
                       </Badge>
                       {channel.is_fallback && (
-                        <Badge variant="outline">fallback</Badge>
+                        <Badge variant="outline" className="text-amber-600">
+                          fallback (poucos pontos)
+                        </Badge>
                       )}
                       <Badge variant="outline">{channel.points} pontos</Badge>
                     </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-muted-foreground">
-                        <th className="p-2 text-left">Cenário</th>
-                        <th className="p-2 text-right">Preço</th>
-                        <th className="p-2 text-right">Demanda esperada</th>
-                        <th className="p-2 text-right">Lucro unitário</th>
-                        <th className="p-2 text-right">Lucro total</th>
-                        <th className="p-2 text-center">Vencedor</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {results.map((r) => (
-                        <tr
-                          key={r.scenario}
-                          className={cn(
-                            "border-t",
-                            r === vencedor && "bg-emerald-50 dark:bg-emerald-900/30"
-                          )}
-                        >
-                          <td className="p-2 capitalize">{r.scenario}</td>
-                          <td className="p-2 text-right">{formatCurrency(r.preco)}</td>
-                          <td className="p-2 text-right">{r.demanda.toFixed(1)}</td>
-                          <td className="p-2 text-right">
-                            {r.lucroUnit != null ? formatCurrency(r.lucroUnit) : "—"}
-                          </td>
-                          <td className="p-2 text-right font-medium">
-                            {r.lucroTotal != null ? formatCurrency(r.lucroTotal) : "—"}
-                          </td>
-                          <td className="p-2 text-center">
-                            {r === vencedor && (
-                              <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-600" />
-                            )}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-muted-foreground">
+                          <th className="p-2 text-left font-normal"></th>
+                          {results.map((r) => (
+                            <th
+                              key={r.scenario}
+                              className={cn(
+                                "p-2 text-center font-medium capitalize",
+                                r === vencedor && "text-emerald-700 dark:text-emerald-300"
+                              )}
+                            >
+                              {r.scenario}
+                              {r === vencedor && (
+                                <CheckCircle2 className="ml-1 inline h-3 w-3" />
+                              )}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        <tr className="border-t">
+                          <td className="p-2 text-xs text-muted-foreground">
+                            Preço (unidade)
+                          </td>
+                          {results.map((r) => (
+                            <td
+                              key={r.scenario}
+                              className={cn(
+                                "p-2 text-center font-medium",
+                                r === vencedor && "bg-emerald-50 dark:bg-emerald-950/30"
+                              )}
+                            >
+                              {formatCurrency(r.preco)}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="border-t">
+                          <td className="p-2 text-xs text-muted-foreground">
+                            Lucro unitário
+                          </td>
+                          {results.map((r) => (
+                            <td
+                              key={r.scenario}
+                              className={cn(
+                                "p-2 text-center",
+                                r === vencedor && "bg-emerald-50 dark:bg-emerald-950/30",
+                                r.lucroUnit != null && r.lucroUnit < 0 && "text-rose-600"
+                              )}
+                            >
+                              {r.lucroUnit != null ? formatCurrency(r.lucroUnit) : "—"}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="border-t">
+                          <td className="p-2 text-xs text-muted-foreground">
+                            Demanda esperada
+                          </td>
+                          {results.map((r) => (
+                            <td
+                              key={r.scenario}
+                              className={cn(
+                                "p-2 text-center",
+                                r === vencedor && "bg-emerald-50 dark:bg-emerald-950/30"
+                              )}
+                            >
+                              {r.demanda.toFixed(1)}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr className="border-t bg-muted/30">
+                          <td className="p-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Lucro total
+                          </td>
+                          {results.map((r) => (
+                            <td
+                              key={r.scenario}
+                              className={cn(
+                                "p-2 text-center text-base font-semibold",
+                                r === vencedor &&
+                                  "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                              )}
+                            >
+                              {r.lucroTotal != null ? formatCurrency(r.lucroTotal) : "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                    Vencedor <strong className="capitalize">{vencedor.scenario}</strong>:
+                    maximiza lucro total via {vencedor === results[0] ? "preservar margem alta" : "ganho de demanda compensa redução de margem"}.
+                    Preço de referência observado: {formatCurrency(channel.recent_avg_price)} · venda média histórica: {channel.recent_avg_qty.toFixed(1)}/semana.
+                  </div>
                 </CardContent>
               </Card>
             ))

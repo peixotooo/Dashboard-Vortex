@@ -1,16 +1,20 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+// Configuração do engine — apenas regras, modo, cadência, trava e import CSV.
+// Fila de aprovação foi movida pra /pricing/decisoes.
+
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Loader2,
   Save,
   Play,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Send,
   Upload,
+  ArrowRight,
+  Settings as SettingsIcon,
+  Zap,
+  Gauge,
+  Shield,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
-import { formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   DEFAULT_ENGINE_SETTINGS,
   type EngineMode,
@@ -34,23 +38,39 @@ import {
   type EngineSettings,
 } from "@/lib/pricing/types";
 
-type PendingItem = {
-  id: string;
-  sku: string;
-  snapshot_date: string;
-  idade_dias: number;
-  cobertura_dias: number | null;
-  preco_de: number;
-  preco_por: number;
-  desconto_pct: number;
-  margem_pct: number | null;
-  evento: string;
-  pilar_ativo: string;
-  status: string;
-  status_reason: string | null;
-  rule_applied: Record<string, unknown>;
-  product: { name: string; image_url: string | null } | null;
-};
+const MODES: Array<{
+  value: EngineMode;
+  label: string;
+  multiplier: string;
+  description: string;
+  best_for: string;
+  color: string;
+}> = [
+  {
+    value: "agressivo",
+    label: "Agressivo",
+    multiplier: "1.5×",
+    description: "Altos descontos incrementais, baixa redução. Markdown mais rápido.",
+    best_for: "Black Friday, queima de coleção, alta competitividade",
+    color: "border-rose-300 bg-rose-50 dark:bg-rose-950 dark:border-rose-900",
+  },
+  {
+    value: "regular",
+    label: "Regular",
+    multiplier: "1.0×",
+    description: "Descontos incrementais e decrementais médios.",
+    best_for: "Dia-a-dia e estoque controlado",
+    color: "border-blue-300 bg-blue-50 dark:bg-blue-950 dark:border-blue-900",
+  },
+  {
+    value: "conservador",
+    label: "Conservador",
+    multiplier: "0.6×",
+    description: "Decremento mínimo, inputs conservadores. Markdown lento.",
+    best_for: "Cenário de baixa oferta, produto exclusivo",
+    color: "border-emerald-300 bg-emerald-50 dark:bg-emerald-950 dark:border-emerald-900",
+  },
+];
 
 export default function PricingConfigPage() {
   const { workspace } = useWorkspace();
@@ -61,9 +81,6 @@ export default function PricingConfigPage() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [pending, setPending] = useState<PendingItem[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{
     imported: number;
@@ -79,27 +96,13 @@ export default function PricingConfigPage() {
       headers: { "x-workspace-id": workspace.id },
     });
     const json = await res.json();
-    if (res.ok) {
-      setSettings(json.settings);
-    }
+    if (res.ok) setSettings(json.settings);
     setLoaded(true);
-  }, [workspace?.id]);
-
-  const loadPending = useCallback(async () => {
-    if (!workspace?.id) return;
-    const res = await fetch("/api/pricing/engine/pending?status=pending,approved", {
-      headers: { "x-workspace-id": workspace.id },
-    });
-    const json = await res.json();
-    if (res.ok) {
-      setPending(json.items ?? []);
-    }
   }, [workspace?.id]);
 
   useEffect(() => {
     loadSettings();
-    loadPending();
-  }, [loadSettings, loadPending]);
+  }, [loadSettings]);
 
   async function save() {
     if (!workspace?.id) return;
@@ -125,24 +128,16 @@ export default function PricingConfigPage() {
         headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
         body: JSON.stringify({}),
       });
+      const json = await res.json();
       if (res.ok) {
-        await loadPending();
+        alert(
+          `Engine processou ${json.evaluated} SKUs. ${json.decisions?.filter((d: { action: string }) => d.action !== "hold").length ?? 0} decisões geradas. Revise em "Decisões".`
+        );
+      } else {
+        alert(`Erro: ${json.error}`);
       }
     } finally {
       setRunning(false);
-    }
-  }
-
-  async function approve(action: "approve" | "reject") {
-    if (!workspace?.id || selectedIds.size === 0) return;
-    const res = await fetch("/api/pricing/engine/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
-      body: JSON.stringify({ ids: Array.from(selectedIds), action }),
-    });
-    if (res.ok) {
-      setSelectedIds(new Set());
-      await loadPending();
     }
   }
 
@@ -161,7 +156,6 @@ export default function PricingConfigPage() {
           body: fd,
         });
       } else {
-        // Tenta ler de /public (arquivo já no servidor)
         res = await fetch("/api/pricing/import/cmv", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
@@ -170,37 +164,10 @@ export default function PricingConfigPage() {
       }
       const json = await res.json();
       if (res.ok) setImportResult(json);
-      else setImportResult({ ...json, imported: 0, total: 0, with_total: 0, with_pl_only: 0, empty: 0 });
     } finally {
       setImporting(false);
     }
   }
-
-  async function applyToVnda() {
-    if (!workspace?.id) return;
-    setApplying(true);
-    try {
-      const res = await fetch("/api/pricing/engine/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-workspace-id": workspace.id },
-        body: JSON.stringify({}),
-      });
-      if (res.ok) {
-        await loadPending();
-      }
-    } finally {
-      setApplying(false);
-    }
-  }
-
-  const pendingPending = useMemo(
-    () => pending.filter((p) => p.status === "pending"),
-    [pending]
-  );
-  const pendingApproved = useMemo(
-    () => pending.filter((p) => p.status === "approved"),
-    [pending]
-  );
 
   if (!loaded) {
     return (
@@ -212,130 +179,239 @@ export default function PricingConfigPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Configuração do engine</h1>
+          <h1 className="text-2xl font-semibold">Configurações</h1>
           <p className="text-sm text-muted-foreground">
-            Parâmetros de mark down / mark up, modo de operação e fila de aprovação.
+            Regras do engine, modo de operação e import de custos.
           </p>
         </div>
-        <Link href="/pricing">
-          <Button variant="ghost" size="sm">
-            Voltar para SKUs
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/pricing/decisoes">
+            <Button variant="outline" size="sm" className="gap-1">
+              Ver decisões pendentes <ArrowRight className="h-3 w-3" />
+            </Button>
+          </Link>
+        </div>
       </div>
 
+      {/* Status do engine */}
+      <Card className="border-2">
+        <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                "h-3 w-3 rounded-full",
+                settings.enabled ? "bg-emerald-500" : "bg-muted-foreground"
+              )}
+            />
+            <div>
+              <div className="text-sm font-medium">
+                Engine {settings.enabled ? "habilitado" : "desabilitado"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {settings.enabled
+                  ? `Cron diário 5h UTC · cadência ${settings.cadencia}${settings.cadencia === "semanal" ? ` (${["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][settings.cadencia_dia_semana]})` : ""}`
+                  : "Cron não vai rodar até ativar"}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={runEngineNow}
+              disabled={running}
+              variant="outline"
+              size="sm"
+              className="gap-1"
+            >
+              {running ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Play className="h-3 w-3" />
+              )}
+              Rodar agora
+            </Button>
+            <Button onClick={save} disabled={saving} size="sm" className="gap-1">
+              {saving ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Save className="h-3 w-3" />
+              )}
+              Salvar configurações
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Modo de operação — cards visuais */}
       <Card>
-        <CardHeader>
-          <CardTitle>Modo e cadência</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="h-4 w-4" /> Modo de operação
+          </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="space-y-1">
-            <Label className="text-xs">Modo</Label>
-            <Select
-              value={settings.modo}
-              onValueChange={(v) =>
-                setSettings((s) => ({ ...s, modo: v as EngineMode }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="agressivo">Agressivo (1.5×)</SelectItem>
-                <SelectItem value="regular">Regular (1.0×)</SelectItem>
-                <SelectItem value="conservador">Conservador (0.6×)</SelectItem>
-              </SelectContent>
-            </Select>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setSettings((s) => ({ ...s, modo: m.value }))}
+                className={cn(
+                  "flex flex-col items-start gap-2 rounded-lg border-2 p-3 text-left transition hover:shadow",
+                  settings.modo === m.value
+                    ? m.color
+                    : "border-border bg-background hover:border-muted-foreground/50"
+                )}
+              >
+                <div className="flex w-full items-center justify-between">
+                  <span className="font-semibold">{m.label}</span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {m.multiplier}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{m.description}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  <strong>Ideal pra:</strong> {m.best_for}
+                </p>
+              </button>
+            ))}
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Cadência</Label>
-            <Select
-              value={settings.cadencia}
-              onValueChange={(v) =>
-                setSettings((s) => ({ ...s, cadencia: v as EngineCadence }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="diaria">Diária</SelectItem>
-                <SelectItem value="semanal">Semanal</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">
-              Dia da semana {settings.cadencia === "semanal" ? "" : "(só semanal)"}
-            </Label>
-            <Select
-              value={String(settings.cadencia_dia_semana)}
-              onValueChange={(v) =>
-                setSettings((s) => ({ ...s, cadencia_dia_semana: Number(v) }))
-              }
-              disabled={settings.cadencia !== "semanal"}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[
-                  ["0", "Domingo"],
-                  ["1", "Segunda"],
-                  ["2", "Terça"],
-                  ["3", "Quarta"],
-                  ["4", "Quinta"],
-                  ["5", "Sexta"],
-                  ["6", "Sábado"],
-                ].map(([v, l]) => (
-                  <SelectItem key={v} value={v}>
-                    {l}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Janela de cobertura (dias)</Label>
-            <Input
-              type="number"
-              min={7}
-              max={90}
-              value={settings.cobertura_janela_dias}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  cobertura_janela_dias: Number(e.target.value),
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Trava de margem mínima (%)</Label>
-            <Input
-              type="number"
-              step="0.1"
-              value={(settings.trava_margem_minima_pct * 100).toFixed(1)}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  trava_margem_minima_pct: Number(e.target.value) / 100,
-                }))
-              }
-            />
-          </div>
-          <div className="flex flex-col gap-2">
+        </CardContent>
+      </Card>
+
+      {/* Cadência + Trava + Toggles */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Gauge className="h-4 w-4" /> Cadência e janela
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Frequência</Label>
+                <Select
+                  value={settings.cadencia}
+                  onValueChange={(v) =>
+                    setSettings((s) => ({ ...s, cadencia: v as EngineCadence }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="diaria">Diária</SelectItem>
+                    <SelectItem value="semanal">Semanal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label
+                  className={cn(
+                    "text-xs",
+                    settings.cadencia !== "semanal" && "text-muted-foreground"
+                  )}
+                >
+                  Dia da semana
+                </Label>
+                <Select
+                  value={String(settings.cadencia_dia_semana)}
+                  onValueChange={(v) =>
+                    setSettings((s) => ({ ...s, cadencia_dia_semana: Number(v) }))
+                  }
+                  disabled={settings.cadencia !== "semanal"}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[
+                      ["0", "Domingo"],
+                      ["1", "Segunda"],
+                      ["2", "Terça"],
+                      ["3", "Quarta"],
+                      ["4", "Quinta"],
+                      ["5", "Sexta"],
+                      ["6", "Sábado"],
+                    ].map(([v, l]) => (
+                      <SelectItem key={v} value={v}>
+                        {l}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Janela de cobertura (dias)
+                <span className="ml-1 text-muted-foreground">
+                  · média móvel de unidades vendidas
+                </span>
+              </Label>
+              <Input
+                type="number"
+                min={7}
+                max={90}
+                value={settings.cobertura_janela_dias}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    cobertura_janela_dias: Number(e.target.value),
+                  }))
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Shield className="h-4 w-4" /> Travas e segurança
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Trava de margem mínima (%)
+                <span className="ml-1 text-muted-foreground">
+                  · markdown nunca quebra essa
+                </span>
+              </Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={(settings.trava_margem_minima_pct * 100).toFixed(1)}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    trava_margem_minima_pct: Number(e.target.value) / 100,
+                  }))
+                }
+              />
+            </div>
             <div className="flex items-center justify-between rounded-md border p-2">
-              <Label className="text-xs">Habilitar engine</Label>
+              <div>
+                <Label className="text-xs">Engine habilitado</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Quando OFF, cron não roda
+                </p>
+              </div>
               <Switch
                 checked={settings.enabled}
                 onCheckedChange={(v) => setSettings((s) => ({ ...s, enabled: v }))}
               />
             </div>
             <div className="flex items-center justify-between rounded-md border p-2">
-              <Label className="text-xs">Exigir aprovação manual</Label>
+              <div>
+                <Label className="text-xs">Aprovação manual</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Decisões caem em pending pra revisão
+                </p>
+              </div>
               <Switch
                 checked={settings.require_approval}
                 onCheckedChange={(v) =>
@@ -343,119 +419,130 @@ export default function PricingConfigPage() {
                 }
               />
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Mark Down (acelerar venda)</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-5">
-          <NumberField
-            label="Idade mínima (dias)"
-            value={settings.markdown_idade_min}
-            onChange={(v) => setSettings((s) => ({ ...s, markdown_idade_min: v }))}
-          />
-          <NumberField
-            label="Cobertura mín. (dias)"
-            value={settings.markdown_cobertura_min}
-            onChange={(v) => setSettings((s) => ({ ...s, markdown_cobertura_min: v }))}
-          />
-          <NumberField
-            label="Idade + cobertura mín."
-            value={settings.markdown_soma_min}
-            onChange={(v) => setSettings((s) => ({ ...s, markdown_soma_min: v }))}
-          />
-          <NumberField
-            label="Desconto inicial (%)"
-            value={settings.markdown_desconto_inicial_pct * 100}
-            step={0.5}
-            onChange={(v) =>
-              setSettings((s) => ({ ...s, markdown_desconto_inicial_pct: v / 100 }))
-            }
-          />
-          <NumberField
-            label="Incremento por ciclo (%)"
-            value={settings.markdown_incremento_pct * 100}
-            step={0.5}
-            onChange={(v) =>
-              setSettings((s) => ({ ...s, markdown_incremento_pct: v / 100 }))
-            }
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Mark Up (recuperar margem)</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <NumberField
-            label="Idade máxima (dias)"
-            value={settings.markup_idade_max}
-            onChange={(v) => setSettings((s) => ({ ...s, markup_idade_max: v }))}
-          />
-          <NumberField
-            label="Cobertura máx. (dias)"
-            value={settings.markup_cobertura_max}
-            onChange={(v) => setSettings((s) => ({ ...s, markup_cobertura_max: v }))}
-          />
-          <NumberField
-            label="Margem máx. atual (%)"
-            value={settings.markup_margem_max_pct * 100}
-            step={0.5}
-            onChange={(v) =>
-              setSettings((s) => ({ ...s, markup_margem_max_pct: v / 100 }))
-            }
-          />
-          <NumberField
-            label="Redução por ciclo (%)"
-            value={settings.markup_reducao_pct * 100}
-            step={0.5}
-            onChange={(v) => setSettings((s) => ({ ...s, markup_reducao_pct: v / 100 }))}
-          />
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-wrap gap-3">
-        <Button onClick={save} disabled={saving} className="gap-2">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Salvar config
-        </Button>
-        <Button onClick={runEngineNow} disabled={running} variant="outline" className="gap-2">
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          Rodar engine agora
-        </Button>
+          </CardContent>
+        </Card>
       </div>
 
+      {/* Mark Down + Mark Up — agrupados */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card className="border-rose-200 dark:border-rose-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-rose-700 dark:text-rose-300">
+              Mark Down — acelerar venda
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Reduzir preço pra girar SKUs velhos / com muito estoque
+            </p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Idade mín. (d)"
+              value={settings.markdown_idade_min}
+              onChange={(v) => setSettings((s) => ({ ...s, markdown_idade_min: v }))}
+            />
+            <NumberField
+              label="Cobertura mín. (d)"
+              value={settings.markdown_cobertura_min}
+              onChange={(v) => setSettings((s) => ({ ...s, markdown_cobertura_min: v }))}
+            />
+            <NumberField
+              label="Idade + cobertura mín."
+              value={settings.markdown_soma_min}
+              onChange={(v) => setSettings((s) => ({ ...s, markdown_soma_min: v }))}
+            />
+            <div />
+            <NumberField
+              label="Desconto inicial (%)"
+              value={settings.markdown_desconto_inicial_pct * 100}
+              step={0.5}
+              onChange={(v) =>
+                setSettings((s) => ({ ...s, markdown_desconto_inicial_pct: v / 100 }))
+              }
+            />
+            <NumberField
+              label="Incremento por ciclo (%)"
+              value={settings.markdown_incremento_pct * 100}
+              step={0.5}
+              onChange={(v) =>
+                setSettings((s) => ({ ...s, markdown_incremento_pct: v / 100 }))
+              }
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-200 dark:border-emerald-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-emerald-700 dark:text-emerald-300">
+              Mark Up — recuperar margem
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Reduzir desconto em SKUs novos com pouco estoque e margem baixa
+            </p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Idade máx. (d)"
+              value={settings.markup_idade_max}
+              onChange={(v) => setSettings((s) => ({ ...s, markup_idade_max: v }))}
+            />
+            <NumberField
+              label="Cobertura máx. (d)"
+              value={settings.markup_cobertura_max}
+              onChange={(v) => setSettings((s) => ({ ...s, markup_cobertura_max: v }))}
+            />
+            <NumberField
+              label="Margem máx. atual (%)"
+              value={settings.markup_margem_max_pct * 100}
+              step={0.5}
+              onChange={(v) =>
+                setSettings((s) => ({ ...s, markup_margem_max_pct: v / 100 }))
+              }
+            />
+            <NumberField
+              label="Redução por ciclo (%)"
+              value={settings.markup_reducao_pct * 100}
+              step={0.5}
+              onChange={(v) =>
+                setSettings((s) => ({ ...s, markup_reducao_pct: v / 100 }))
+              }
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Import CSV */}
       <Card>
-        <CardHeader>
-          <CardTitle>Importar CMV de CSV</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Upload className="h-4 w-4" /> Importar CMV via CSV
+          </CardTitle>
           <p className="text-xs text-muted-foreground">
-            CSV com colunas: Código, Produto, Categoria, Valor PL, Corte, Tecido,
+            Formato BULKING: Código, Produto, Categoria, Valor PL, Corte, Tecido,
             Aviamentos, Estampa, Costura, TOTAL PRODUÇÃO. SKUs sem custo cadastrado
-            herdam a média de CMV da mesma categoria automaticamente.
+            herdam média da categoria automaticamente.
           </p>
+        </CardHeader>
+        <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={() => importCmvFromCsv()}
               disabled={importing}
               variant="outline"
+              size="sm"
               className="gap-2"
             >
               {importing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Upload className="h-4 w-4" />
+                <Upload className="h-3 w-3" />
               )}
-              Importar do servidor (/public/SENSE - BULKING - BD.csv)
+              Importar do servidor
+              <span className="text-[10px] text-muted-foreground">
+                /public/SENSE - BULKING - BD.csv
+              </span>
             </Button>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
-              <Upload className="h-4 w-4" />
-              <span>Ou subir CSV agora</span>
+              <Upload className="h-3 w-3" /> Subir CSV
               <input
                 type="file"
                 accept=".csv"
@@ -469,130 +556,11 @@ export default function PricingConfigPage() {
             </label>
           </div>
           {importResult && (
-            <div className="rounded-md border bg-muted/30 p-3 text-xs">
-              <div>
-                <strong>{importResult.imported}</strong> SKUs importados de{" "}
-                {importResult.total} linhas
-              </div>
-              <div className="mt-1 text-muted-foreground">
-                {importResult.with_total} com TOTAL PRODUÇÃO ·{" "}
-                {importResult.with_pl_only} apenas com Valor PL ·{" "}
-                {importResult.empty} sem custo (vão usar média de categoria)
-              </div>
+            <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs">
+              <strong>{importResult.imported}</strong> SKUs importados ·{" "}
+              {importResult.with_total} com TOTAL · {importResult.with_pl_only} só
+              Valor PL · {importResult.empty} sem custo (vão usar média de categoria)
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            Fila de aprovação
-            <div className="flex gap-2 text-xs">
-              <Badge variant="outline">{pendingPending.length} pendentes</Badge>
-              <Badge variant="default">{pendingApproved.length} aprovadas</Badge>
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {pending.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              Nenhuma decisão pendente. Rode o engine para gerar.
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => approve("approve")}
-                  disabled={selectedIds.size === 0}
-                  className="gap-1"
-                >
-                  <CheckCircle2 className="h-3 w-3" /> Aprovar {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => approve("reject")}
-                  disabled={selectedIds.size === 0}
-                  className="gap-1"
-                >
-                  <XCircle className="h-3 w-3" /> Rejeitar
-                </Button>
-                <div className="ml-auto" />
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={applyToVnda}
-                  disabled={applying || pendingApproved.length === 0}
-                  className="gap-1"
-                >
-                  {applying ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Send className="h-3 w-3" />
-                  )}
-                  Aplicar aprovadas na VNDA ({pendingApproved.length})
-                </Button>
-              </div>
-
-              <div className="divide-y rounded-md border">
-                {pending.map((item) => {
-                  const checked = selectedIds.has(item.id);
-                  const delta = item.preco_por - item.preco_de;
-                  return (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 p-3 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(item.id);
-                            else next.delete(item.id);
-                            return next;
-                          });
-                        }}
-                        disabled={item.status !== "pending"}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">
-                          {item.product?.name ?? item.sku}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          SKU {item.sku} · idade {item.idade_dias}d · cobertura{" "}
-                          {item.cobertura_dias ?? "—"}d
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end">
-                        <div className="text-xs text-muted-foreground line-through">
-                          {formatCurrency(item.preco_de)}
-                        </div>
-                        <div className="font-medium">{formatCurrency(item.preco_por)}</div>
-                        <div
-                          className={`text-xs ${delta < 0 ? "text-emerald-600" : "text-rose-600"}`}
-                        >
-                          {delta < 0 ? "" : "+"}
-                          {((item.desconto_pct - 0) * 100).toFixed(1)}% desc
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <EventBadge evento={item.evento} />
-                        <StatusBadge status={item.status} />
-                        {item.status_reason && (
-                          <div className="max-w-[200px] truncate text-[10px] text-muted-foreground" title={item.status_reason}>
-                            {item.status_reason}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
           )}
         </CardContent>
       </Card>
@@ -621,48 +589,5 @@ function NumberField({
         onChange={(e) => onChange(Number(e.target.value))}
       />
     </div>
-  );
-}
-
-function EventBadge({ evento }: { evento: string }) {
-  if (evento === "markdown") return <Badge className="bg-rose-100 text-rose-900 hover:bg-rose-100">Markdown</Badge>;
-  if (evento === "markup") return <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100">Markup</Badge>;
-  if (evento === "campanha") return <Badge className="bg-purple-100 text-purple-900 hover:bg-purple-100">Campanha</Badge>;
-  return <Badge variant="outline">{evento}</Badge>;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === "applied") {
-    return (
-      <Badge className="gap-1 bg-emerald-100 text-emerald-900 hover:bg-emerald-100">
-        <CheckCircle2 className="h-3 w-3" /> Aplicado
-      </Badge>
-    );
-  }
-  if (status === "approved") {
-    return (
-      <Badge className="gap-1 bg-blue-100 text-blue-900 hover:bg-blue-100">
-        <CheckCircle2 className="h-3 w-3" /> Aprovado
-      </Badge>
-    );
-  }
-  if (status === "rejected") {
-    return (
-      <Badge className="gap-1" variant="outline">
-        <XCircle className="h-3 w-3" /> Rejeitado
-      </Badge>
-    );
-  }
-  if (status === "skipped") {
-    return (
-      <Badge className="gap-1" variant="outline">
-        Skip
-      </Badge>
-    );
-  }
-  return (
-    <Badge className="gap-1 bg-amber-100 text-amber-900 hover:bg-amber-100">
-      <AlertTriangle className="h-3 w-3" /> Pendente
-    </Badge>
   );
 }
