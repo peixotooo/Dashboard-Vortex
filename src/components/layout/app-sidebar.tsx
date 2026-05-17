@@ -238,9 +238,11 @@ const navGroups: NavGroup[] = [
         href: "/pricing",
         icon: Banknote,
         items: [
-          { title: "SKUs", href: "/pricing", icon: Package },
-          { title: "Visao geral", href: "/pricing/visao-geral", icon: Banknote },
-          { title: "Simulador elasticidade", href: "/pricing/simulador", icon: TrendingUp },
+          { title: "Dashboard", href: "/pricing", icon: Banknote },
+          { title: "Decisoes", href: "/pricing/decisoes", icon: AlertTriangle },
+          { title: "SKUs", href: "/pricing/skus", icon: Package },
+          { title: "Analise", href: "/pricing/visao-geral", icon: TrendingUp },
+          { title: "Simulador elasticidade", href: "/pricing/simulador", icon: Calculator },
           { title: "Campanhas / Combos", href: "/pricing/campanhas", icon: Tag },
           {
             title: "Configuracoes",
