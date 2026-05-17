@@ -541,6 +541,11 @@ async function persistDecision(
     stock_units: snapshot.stock_units,
     vendas_dia_unidades: snapshot.vendas_dia_unidades,
     preco_de: snapshot.preco_de,
+    // preco_por_anterior = preço efetivamente praticado ANTES da decisão
+    // (sale_price atual ou preço cheio se nunca esteve em sale). Sem isso,
+    // a UI mostraria "De [cheio] → [novo]" quando o produto já estava
+    // descontado, distorcendo o delta percebido.
+    preco_por_anterior: snapshot.preco_por,
     preco_por: decision.action === "hold" ? snapshot.preco_por : decision.preco_por_novo,
     desconto_pct:
       decision.action === "hold" ? snapshot.desconto_pct_atual : decision.desconto_pct_novo,

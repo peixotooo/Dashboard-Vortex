@@ -63,8 +63,9 @@ type LastSnapshot = {
   evento: string;
   status: string;
   status_reason: string | null;
-  preco_de: number;
-  preco_por: number;
+  preco_de: number;                       // MSRP (preço cheio)
+  preco_por_anterior: number | null;      // sale_price atual antes da decisão
+  preco_por: number;                      // preço novo sugerido pelo engine
   desconto_pct: number;
   margem_pct: number | null;
   idade_dias: number;
@@ -630,11 +631,12 @@ function DecisionHero({
     modo?: string;
   };
   const trava = Number(rule?.trava_margem_minima_pct ?? 0.1);
-  const delta =
-    snapshot.preco_de > 0
-      ? (snapshot.preco_por - snapshot.preco_de) / snapshot.preco_de
-      : 0;
+  // Delta vs preço atualmente praticado (sale_price), não MSRP. Fallback p/ MSRP
+  // em snapshots antigos antes da migration 083.
+  const precoAtual = snapshot.preco_por_anterior ?? snapshot.preco_de;
+  const delta = precoAtual > 0 ? (snapshot.preco_por - precoAtual) / precoAtual : 0;
   const deltaPct = delta * 100;
+  const hasMsrpAcima = snapshot.preco_de > precoAtual * 1.01;
 
   const isPending = snapshot.status === "pending";
   const isApproved = snapshot.status === "approved";
@@ -688,11 +690,17 @@ function DecisionHero({
         </div>
 
         {!isHold && (
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span className="text-sm text-muted-foreground line-through">
-              {formatCurrency(snapshot.preco_de)}
+          <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Atual
+            </span>
+            <span className="text-base font-medium text-muted-foreground line-through">
+              {formatCurrency(precoAtual)}
             </span>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Sugerido
+            </span>
             <span className="text-3xl font-semibold tracking-tight">
               {formatCurrency(snapshot.preco_por)}
             </span>
@@ -705,6 +713,11 @@ function DecisionHero({
               {deltaPct > 0 ? "+" : ""}
               {deltaPct.toFixed(1)}%
             </span>
+            {hasMsrpAcima && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                · MSRP {formatCurrency(snapshot.preco_de)}
+              </span>
+            )}
           </div>
         )}
 

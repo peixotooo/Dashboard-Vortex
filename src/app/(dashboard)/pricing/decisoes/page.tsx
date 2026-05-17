@@ -46,8 +46,9 @@ type Decision = {
   cobertura_dias: number | null;
   stock_units: number;
   vendas_dia_unidades: number;
-  preco_de: number;
-  preco_por: number;
+  preco_de: number;            // MSRP (preço cheio na VNDA)
+  preco_por_anterior: number | null;  // preço praticado antes da decisão (sale_price atual)
+  preco_por: number;           // preço novo sugerido pela engine
   desconto_pct: number;
   margem_pct: number | null;
   evento: "markdown" | "markup" | "baseline" | "campanha" | "combo" | "manual" | "hold";
@@ -95,8 +96,11 @@ export default function DecisoesPage() {
     arr = [...arr].sort((a, b) => {
       switch (sort) {
         case "delta_desc": {
-          const da = a.preco_de > 0 ? (a.preco_de - a.preco_por) / a.preco_de : 0;
-          const db = b.preco_de > 0 ? (b.preco_de - b.preco_por) / b.preco_de : 0;
+          // Delta percentual vs preço praticado atual (sale_price), não MSRP
+          const refA = a.preco_por_anterior ?? a.preco_de;
+          const refB = b.preco_por_anterior ?? b.preco_de;
+          const da = refA > 0 ? (refA - a.preco_por) / refA : 0;
+          const db = refB > 0 ? (refB - b.preco_por) / refB : 0;
           return db - da;
         }
         case "margem_asc":
@@ -356,8 +360,13 @@ function DecisionCard({
     reducao_aplicada_pct?: number;
   };
   const trava = Number(rule?.trava_margem_minima_pct ?? 0.10);
-  const delta = d.preco_de > 0 ? (d.preco_por - d.preco_de) / d.preco_de : 0;
+  // Delta vs preço PRATICADO atual (sale_price), não MSRP.
+  // Fallback: se não tem preco_por_anterior (snapshots antigos), usa preco_de.
+  const precoAtual = d.preco_por_anterior ?? d.preco_de;
+  const delta = precoAtual > 0 ? (d.preco_por - precoAtual) / precoAtual : 0;
   const deltaPct = delta * 100;
+  // Mostra MSRP quando difere significativamente do atual (produto já em sale)
+  const hasMsrpAcima = d.preco_de > precoAtual * 1.01;
 
   // Health zone — alvo é margem nova vs trava de margem
   let zone: "green" | "yellow" | "red" = "yellow";
@@ -430,11 +439,17 @@ function DecisionCard({
           </div>
           <div className="text-xs text-muted-foreground">SKU {d.sku}</div>
 
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span className="text-sm text-muted-foreground line-through">
-              {formatCurrency(d.preco_de)}
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Atual
+            </span>
+            <span className="text-base font-medium text-muted-foreground line-through">
+              {formatCurrency(precoAtual)}
             </span>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Sugerido
+            </span>
             <span className="text-2xl font-semibold tracking-tight">
               {formatCurrency(d.preco_por)}
             </span>
@@ -447,6 +462,11 @@ function DecisionCard({
               {deltaPct > 0 ? "+" : ""}
               {deltaPct.toFixed(1)}%
             </span>
+            {hasMsrpAcima && (
+              <span className="text-[10px] text-muted-foreground">
+                · MSRP {formatCurrency(d.preco_de)}
+              </span>
+            )}
           </div>
 
           {/* Contexto */}
