@@ -17,6 +17,7 @@ import type { EccosysEstoque } from "@/types/hub";
 import { evaluateSku, type EngineDecision, type EngineSnapshot } from "./engine";
 import { computeMargin } from "./composition";
 import { buildCategoryAvgMap, type CategoryAvgMap } from "./category-cost";
+import { baseSkuOf } from "./sku-utils";
 import {
   DEFAULT_ENGINE_SETTINGS,
   type CompositionInput,
@@ -156,10 +157,9 @@ async function loadProductCosts(
   return map;
 }
 
-// Soma de unidades vendidas por SKU nos últimos N dias.
-// crm_vendas.items é um JSON array — fazemos agregação em JS porque a
-// query SQL ficaria pesada (jsonb_array_elements) e a lista costuma caber
-// em memória pro tamanho de workspace típico.
+// Soma de unidades vendidas por SKU base nos últimos N dias.
+// crm_vendas.items[].sku vem com sufixo de tamanho (-N); agregamos pelo
+// SKU pai (referência) que é o que o shelf_products usa.
 async function loadVendasJanela(
   client: SupabaseClient,
   workspaceId: string,
@@ -176,8 +176,9 @@ async function loadVendasJanela(
   for (const row of (data ?? []) as CrmVendaRow[]) {
     if (!row.items || !Array.isArray(row.items)) continue;
     for (const item of row.items) {
-      const sku = (item.sku ?? item.reference ?? "").toString().trim();
-      if (!sku) continue;
+      const raw = (item.sku ?? item.reference ?? "").toString().trim();
+      if (!raw) continue;
+      const sku = baseSkuOf(raw);
       const qty = Number(item.quantity ?? 0);
       if (!Number.isFinite(qty) || qty <= 0) continue;
       totals.set(sku, (totals.get(sku) ?? 0) + qty);
@@ -186,11 +187,40 @@ async function loadVendasJanela(
   return totals;
 }
 
-// Carrega estoque por SKU do Eccosys em massa via /estoques.
-// Mesmo padrão usado pelo cron sync-stock (src/app/api/cron/sync-stock/route.ts).
-// Retorna { map, source: 'eccosys' | 'none' } — fail-soft: se Eccosys não está
-// configurado ou falha, retorna map vazio (engine retorna hold por falta de
-// cobertura, comportamento esperado).
+// Primeira data de venda por SKU base, usada como proxy de idade em catálogo
+// (shelf_products.created_at é resetado a cada sync, não confiável). Olhamos
+// uma janela ampla — vendas dos últimos 12 meses — pra capturar a primeira
+// aparição do produto.
+async function loadFirstSaleBySku(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<Map<string, Date>> {
+  const since = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+  const { data } = await client
+    .from("crm_vendas")
+    .select("data_compra, items")
+    .eq("workspace_id", workspaceId)
+    .gte("data_compra", since)
+    .order("data_compra", { ascending: true });
+
+  const firstByBase = new Map<string, Date>();
+  for (const row of (data ?? []) as CrmVendaRow[]) {
+    if (!row.data_compra || !Array.isArray(row.items)) continue;
+    const d = new Date(row.data_compra);
+    for (const item of row.items) {
+      const raw = (item.sku ?? item.reference ?? "").toString().trim();
+      if (!raw) continue;
+      const sku = baseSkuOf(raw);
+      if (!firstByBase.has(sku)) firstByBase.set(sku, d);
+    }
+  }
+  return firstByBase;
+}
+
+// Carrega estoque por SKU base do Eccosys em massa via /estoques.
+// Eccosys retorna 1 row por variação de tamanho (codigo "256391234-1", -2, -3,
+// -4); somamos todas as variações pra obter o estoque total da referência pai
+// (que é como shelf_products.sku está organizado).
 async function loadStockFromEccosys(
   workspaceId: string
 ): Promise<{ map: Map<string, number>; source: "eccosys" | "none" }> {
@@ -203,11 +233,13 @@ async function loadStockFromEccosys(
       100
     );
     for (const es of all) {
+      if (!es.codigo) continue;
       const stock =
         typeof es.estoqueDisponivel === "number" && !Number.isNaN(es.estoqueDisponivel)
           ? es.estoqueDisponivel
           : 0;
-      if (es.codigo) map.set(es.codigo, stock);
+      const base = baseSkuOf(String(es.codigo));
+      map.set(base, (map.get(base) ?? 0) + stock);
     }
     return { map, source: "eccosys" };
   } catch (err) {
@@ -272,11 +304,12 @@ export async function runOrchestrator(
   const skus = shelf.map((p) => p.sku).filter((s): s is string => !!s);
 
   const stockProvided = opts.stock != null;
-  const [pricingMap, costsMap, vendasMap, campanhasProdutos, stockResult, categoryAvg] =
+  const [pricingMap, costsMap, vendasMap, firstSaleMap, campanhasProdutos, stockResult, categoryAvg] =
     await Promise.all([
       loadSkuPricing(client, workspaceId, skus),
       loadProductCosts(client, workspaceId, skus),
       loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
+      loadFirstSaleBySku(client, workspaceId),
       loadSkusEmCampanha(client, workspaceId),
       stockProvided
         ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
@@ -337,7 +370,13 @@ export async function runOrchestrator(
 
     const desconto_pct_atual = precoDe > 0 ? Math.max(0, 1 - precoPor / precoDe) : 0;
     const margem = computeMargin(composition, precoPor);
-    const idade_dias = daysBetween(p.created_at, today);
+    // Idade: usa primeira venda do SKU como proxy (mais confiável que
+    // shelf_products.created_at, que é resetado a cada sync). Fallback:
+    // shelf_products.created_at quando o SKU nunca vendeu.
+    const firstSale = firstSaleMap.get(p.sku);
+    const idade_dias = firstSale
+      ? Math.max(0, Math.floor((today.getTime() - firstSale.getTime()) / (1000 * 60 * 60 * 24)))
+      : daysBetween(p.created_at, today);
     const vendas_dia_unidades =
       (vendasMap.get(p.sku) ?? 0) / Math.max(1, settings.cobertura_janela_dias);
     const stock_units = stockMap.get(p.sku) ?? 0;
