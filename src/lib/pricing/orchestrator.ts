@@ -187,6 +187,24 @@ async function loadVendasJanela(
   return totals;
 }
 
+// Data de lançamento por SKU (sku_launch_dates) — fonte primária de idade
+// quando disponível. Importado de relatório de coleções periodicamente.
+async function loadLaunchDates(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<Map<string, Date>> {
+  const { data } = await client
+    .from("sku_launch_dates")
+    .select("sku, launch_date")
+    .eq("workspace_id", workspaceId);
+  const map = new Map<string, Date>();
+  for (const row of data ?? []) {
+    const r = row as { sku: string; launch_date: string };
+    if (r.sku && r.launch_date) map.set(r.sku, new Date(r.launch_date));
+  }
+  return map;
+}
+
 // Primeira data de venda por SKU base, usada como proxy de idade em catálogo
 // (shelf_products.created_at é resetado a cada sync, não confiável). Olhamos
 // uma janela ampla — vendas dos últimos 12 meses — pra capturar a primeira
@@ -304,18 +322,27 @@ export async function runOrchestrator(
   const skus = shelf.map((p) => p.sku).filter((s): s is string => !!s);
 
   const stockProvided = opts.stock != null;
-  const [pricingMap, costsMap, vendasMap, firstSaleMap, campanhasProdutos, stockResult, categoryAvg] =
-    await Promise.all([
-      loadSkuPricing(client, workspaceId, skus),
-      loadProductCosts(client, workspaceId, skus),
-      loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
-      loadFirstSaleBySku(client, workspaceId),
-      loadSkusEmCampanha(client, workspaceId),
-      stockProvided
-        ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
-        : loadStockFromEccosys(workspaceId),
-      buildCategoryAvgMap(client, workspaceId),
-    ]);
+  const [
+    pricingMap,
+    costsMap,
+    vendasMap,
+    firstSaleMap,
+    launchMap,
+    campanhasProdutos,
+    stockResult,
+    categoryAvg,
+  ] = await Promise.all([
+    loadSkuPricing(client, workspaceId, skus),
+    loadProductCosts(client, workspaceId, skus),
+    loadVendasJanela(client, workspaceId, settings.cobertura_janela_dias),
+    loadFirstSaleBySku(client, workspaceId),
+    loadLaunchDates(client, workspaceId),
+    loadSkusEmCampanha(client, workspaceId),
+    stockProvided
+      ? Promise.resolve({ map: opts.stock as StockMap, source: "param" as const })
+      : loadStockFromEccosys(workspaceId),
+    buildCategoryAvgMap(client, workspaceId),
+  ]);
   const stockMap = stockResult.map;
   const stockSource = stockResult.source;
 
@@ -370,12 +397,15 @@ export async function runOrchestrator(
 
     const desconto_pct_atual = precoDe > 0 ? Math.max(0, 1 - precoPor / precoDe) : 0;
     const margem = computeMargin(composition, precoPor);
-    // Idade: usa primeira venda do SKU como proxy (mais confiável que
-    // shelf_products.created_at, que é resetado a cada sync). Fallback:
-    // shelf_products.created_at quando o SKU nunca vendeu.
+    // Idade — cascata:
+    //   1. sku_launch_dates.launch_date (vindo do relatório de coleções)
+    //   2. Primeira venda do SKU (último 365d)
+    //   3. shelf_products.created_at (fallback)
+    const launch = launchMap.get(p.sku);
     const firstSale = firstSaleMap.get(p.sku);
-    const idade_dias = firstSale
-      ? Math.max(0, Math.floor((today.getTime() - firstSale.getTime()) / (1000 * 60 * 60 * 24)))
+    const idadeReferencia = launch ?? firstSale;
+    const idade_dias = idadeReferencia
+      ? Math.max(0, Math.floor((today.getTime() - idadeReferencia.getTime()) / (1000 * 60 * 60 * 24)))
       : daysBetween(p.created_at, today);
     const vendas_dia_unidades =
       (vendasMap.get(p.sku) ?? 0) / Math.max(1, settings.cobertura_janela_dias);
