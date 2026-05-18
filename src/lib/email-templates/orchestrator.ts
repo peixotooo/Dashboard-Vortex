@@ -6,7 +6,7 @@ import { resolveSegmentForSlot } from "./segments";
 import { pickTopHours } from "./hours";
 import { pickBestseller, pickNewarrival, pickRelatedProducts, pickSlowmoving } from "./picker";
 import { generateCopy } from "./copy";
-import { createSlowmovingCoupon } from "./coupon";
+import { prepareSlowmovingCoupon } from "./coupon";
 import { buildCountdownUrl } from "./countdown";
 import { pickLayout } from "./layouts";
 import { ensureHero } from "./hero/generate";
@@ -65,27 +65,23 @@ async function generateSlotSlowmoving(
     return { slot: 2, ok: false, reason: pick.reason };
   }
 
-  let coupon;
-  try {
-    coupon = await createSlowmovingCoupon({
-      workspace_id,
-      product: pick.product,
-      discount_percent: settings.slowmoving_discount_percent,
-      validity_hours: settings.slowmoving_coupon_validity_hours,
-    });
-    await logAudit({ workspace_id, event: "coupon_created", payload: { code: coupon.code, slot: 2 } });
-  } catch (err) {
-    await logAudit({
-      workspace_id,
-      event: "coupon_failed",
-      payload: { slot: 2, error: String((err as Error).message) },
-    });
-    return { slot: 2, ok: false, reason: "coupon_failed" };
-  }
+  // Antes: registrávamos a promoção/cupom na VNDA aqui (cron diário).
+  // Resultado: cada sugestão Slot 2 gerava promo na VNDA mesmo quando o
+  // usuário não disparava o email. Agora geramos só code+expires_at local;
+  // o dispatch endpoint chama registerSlowmovingCouponInVnda antes de enviar.
+  const prepared = prepareSlowmovingCoupon({
+    discount_percent: settings.slowmoving_discount_percent,
+    validity_hours: settings.slowmoving_coupon_validity_hours,
+  });
+  await logAudit({
+    workspace_id,
+    event: "coupon_prepared",
+    payload: { code: prepared.code, slot: 2 },
+  });
 
   const countdown_url = buildCountdownUrl({
     base_url: APP_BASE_URL,
-    expires_at: coupon.expires_at,
+    expires_at: prepared.expires_at,
   });
 
   const related = await pickRelatedProducts(
@@ -95,7 +91,15 @@ async function generateSlotSlowmoving(
   );
   return persistSuggestion({
     workspace_id, settings, date, slot: 2, product: pick.product, hours,
-    coupon: { ...coupon, countdown_url },
+    coupon: {
+      code: prepared.code,
+      // vnda_*_id ficam null até o dispatch registrar de verdade.
+      vnda_promotion_id: null,
+      vnda_coupon_id: null,
+      expires_at: prepared.expires_at,
+      discount_percent: prepared.discount_percent,
+      countdown_url,
+    },
     related_products: related,
     hook: "Estoque acabando",
   });
@@ -134,8 +138,10 @@ async function persistSuggestion(args: {
   hours: { recommended_hours: number[]; hours_score: Record<string, number> };
   coupon?: {
     code: string;
-    vnda_promotion_id: number;
-    vnda_coupon_id: number;
+    /** null quando o cupom ainda não foi registrado na VNDA (cron de geração
+     *  apenas prepara; dispatch registra). */
+    vnda_promotion_id: number | null;
+    vnda_coupon_id: number | null;
     expires_at: Date;
     discount_percent: number;
     countdown_url: string;

@@ -10,6 +10,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { dispatchDraft, type DispatchPayload } from "@/lib/email-templates/dispatch-core";
+import {
+  ensureCouponRegistered,
+  type SuggestionCouponState,
+} from "@/lib/email-templates/coupon";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -63,6 +67,43 @@ export async function POST(
       .eq("approval_state", "pending_approval");
     if (lockErr) {
       return NextResponse.json({ error: lockErr.message }, { status: 500 });
+    }
+
+    // Cupom slot 2 (lazy VNDA): se este draft veio de uma sugestão com
+    // cupom preparado mas não registrado, registra agora — só vamos chamar
+    // a VNDA quando realmente vai sair o envio.
+    if (payload.suggestion_id) {
+      const { data: sug } = await sb
+        .from("email_template_suggestions")
+        .select(
+          "id, product_snapshot, coupon_code, coupon_vnda_promotion_id, coupon_vnda_coupon_id, coupon_expires_at, coupon_discount_percent"
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("id", payload.suggestion_id)
+        .maybeSingle();
+      if (sug) {
+        const reg = await ensureCouponRegistered(
+          sb,
+          workspaceId,
+          sug as unknown as SuggestionCouponState
+        );
+        if (!reg.ok) {
+          // Reverte aprovação — sem cupom não tem como enviar.
+          await sb
+            .from("email_template_drafts")
+            .update({
+              approval_state: "pending_approval",
+              approved_by: null,
+              approved_at: null,
+            })
+            .eq("workspace_id", workspaceId)
+            .eq("id", id);
+          return NextResponse.json(
+            { error: reg.error },
+            { status: reg.statusCode }
+          );
+        }
+      }
     }
 
     const result = await dispatchDraft(sb, workspaceId, id, payload);

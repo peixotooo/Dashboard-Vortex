@@ -7,6 +7,7 @@ export type AuditEvent =
   | "skipped_no_ga4"
   | "skipped_no_vnda"
   | "copy_failed"
+  | "coupon_prepared"
   | "coupon_created"
   | "coupon_failed"
   | "render_failed"

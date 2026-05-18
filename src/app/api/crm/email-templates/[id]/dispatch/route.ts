@@ -27,8 +27,11 @@ import {
   materializeSegmentList,
   resolveSegmentRecipients,
 } from "@/lib/email-templates/segment-list";
-import type { Slot } from "@/lib/email-templates/types";
+import type { Slot, ProductSnapshot } from "@/lib/email-templates/types";
+import { ensureCouponRegistered } from "@/lib/email-templates/coupon";
 import { randomUUID } from "crypto";
+
+type ProductSnapshotMin = Partial<ProductSnapshot> & { name?: string };
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -93,8 +96,13 @@ export async function POST(
       generated_for_date: string;
       rendered_html: string;
       copy?: { subject?: string };
-      product_snapshot?: { name?: string };
+      product_snapshot?: ProductSnapshotMin;
       target_segment_payload?: { display_label?: string };
+      coupon_code: string | null;
+      coupon_vnda_promotion_id: number | null;
+      coupon_vnda_coupon_id: number | null;
+      coupon_expires_at: string | null;
+      coupon_discount_percent: number | null;
     };
     const s = sug as unknown as SugRow;
 
@@ -102,6 +110,17 @@ export async function POST(
       return NextResponse.json(
         { error: "Sugestão sem rendered_html." },
         { status: 400 }
+      );
+    }
+
+    // Cupom slot 2: o cron de geração só preparou code+expires_at local. A
+    // promoção só vai pra VNDA agora, no momento do disparo. Sugestões
+    // geradas mas não enviadas não enchem a VNDA de promos órfãs.
+    const couponRegistration = await ensureCouponRegistered(sb, workspaceId, s);
+    if (!couponRegistration.ok) {
+      return NextResponse.json(
+        { error: couponRegistration.error },
+        { status: couponRegistration.statusCode }
       );
     }
 
@@ -295,8 +314,13 @@ interface IportoSugContext {
     generated_for_date: string;
     rendered_html: string;
     copy?: { subject?: string };
-    product_snapshot?: { name?: string };
+    product_snapshot?: ProductSnapshotMin;
     target_segment_payload?: { display_label?: string };
+    coupon_code: string | null;
+    coupon_vnda_promotion_id: number | null;
+    coupon_vnda_coupon_id: number | null;
+    coupon_expires_at: string | null;
+    coupon_discount_percent: number | null;
   };
   body: Body;
 }

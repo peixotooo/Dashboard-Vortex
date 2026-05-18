@@ -16,6 +16,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { dispatchDraft, type DispatchPayload } from "@/lib/email-templates/dispatch-core";
+import {
+  ensureCouponRegistered,
+  type SuggestionCouponState,
+} from "@/lib/email-templates/coupon";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -98,6 +102,32 @@ export async function POST(
     }
 
     // --- Envio direto (fluxo legado) ---
+
+    // Cupom slot 2: se este draft veio de uma sugestão com cupom preparado
+    // mas não registrado na VNDA, registra agora. Mesma lógica do envio
+    // direto da sugestão — VNDA só vê o cupom no momento que o usuário
+    // realmente decide disparar.
+    if (body.suggestion_id) {
+      const { data: sug } = await sb
+        .from("email_template_suggestions")
+        .select(
+          "id, product_snapshot, coupon_code, coupon_vnda_promotion_id, coupon_vnda_coupon_id, coupon_expires_at, coupon_discount_percent"
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("id", body.suggestion_id)
+        .maybeSingle();
+      if (sug) {
+        const reg = await ensureCouponRegistered(
+          sb,
+          workspaceId,
+          sug as unknown as SuggestionCouponState
+        );
+        if (!reg.ok) {
+          return NextResponse.json({ error: reg.error }, { status: reg.statusCode });
+        }
+      }
+    }
+
     const result = await dispatchDraft(sb, workspaceId, id, {
       list_ids: body.list_ids,
       scheduled_to: body.scheduled_to,
