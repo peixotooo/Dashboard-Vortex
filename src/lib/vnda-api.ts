@@ -697,16 +697,30 @@ export async function getVndaStockByReferences(
 // --- Write: update product sale_price ---
 //
 // Usado pelo módulo de Pricing pra propagar markdown/markup aprovados.
-// VNDA aceita PATCH /products/{id} com sale_price (e price). Quando
-// sale_price é menor que price, o PDP renderiza "de/por" nativo.
 //
-// Para resolver o id a partir do SKU (reference), reusa o listing já
-// existente em getVndaStockByReference (fuzzy match → primeiro resultado).
+// IMPORTANTE: PATCH em /products/{id} retorna 204 mas é silenciosamente
+// ignorado pela VNDA depois do primeiro request (rate limit? lock?). O
+// caminho que funciona consistentemente é PATCH em CADA variante via
+// /products/{pid}/variants/{vid} — endpoint confirmado pela doc:
+// https://developers.vnda.com.br/api/operations/patch-api-v2-products-product_id-variants-id/
+//
+// Estratégia:
+//   1. GET produto pra extrair variantes (estrutura: [{ "<id>": {...} }, ...])
+//   2. PATCH sale_price em cada variant.id sequencialmente (com pequeno
+//      delay entre requests pra respeitar rate limit)
+//   3. Retorna sucesso quando TODAS as variantes atualizam (ok=true) ou
+//      com lista de falhas
 export async function updateVndaSalePriceByReference(
   config: VndaConfig,
   reference: string,
   salePrice: number | null
-): Promise<{ ok: boolean; productId?: number; message: string }> {
+): Promise<{
+  ok: boolean;
+  productId?: number;
+  variantsUpdated?: number;
+  variantsFailed?: number;
+  message: string;
+}> {
   const ref = reference.trim();
   if (!ref) return { ok: false, message: "reference vazio" };
 
@@ -714,41 +728,108 @@ export async function updateVndaSalePriceByReference(
   if (!found?.productId) {
     return { ok: false, message: `produto VNDA não encontrado pra reference ${ref}` };
   }
+  const productId = found.productId;
 
-  // PATCH primeiro na URL store-scoped (mais confiável que api.vnda.com.br
-  // global, mesmo pattern usado em getVndaStockByReference).
-  const urls = [
-    `https://${config.storeHost}/api/v2/products/${found.productId}`,
-    `https://api.vnda.com.br/api/v2/products/${found.productId}`,
+  // 1. GET detail pra extrair variantes
+  const detailUrls = [
+    `https://${config.storeHost}/api/v2/products/${productId}`,
+    `https://api.vnda.com.br/api/v2/products/${productId}`,
   ];
-
-  const body: Record<string, unknown> = {
-    // null → limpa o sale_price (volta a vender pelo preço cheio)
-    sale_price: salePrice == null ? null : Math.round(salePrice * 100) / 100,
-  };
-
-  let lastError = "";
-  for (const url of urls) {
+  let detail: { variants?: unknown } | null = null;
+  for (const url of detailUrls) {
     try {
       const res = await fetch(url, {
-        method: "PATCH",
         headers: {
           Authorization: `Bearer ${config.apiToken}`,
           Accept: "application/json",
-          "Content-Type": "application/json",
           ...(url.includes("api.vnda.com.br") ? { "X-Shop-Host": config.storeHost } : {}),
         },
-        body: JSON.stringify(body),
       });
       if (res.ok) {
-        return { ok: true, productId: found.productId, message: "ok" };
+        detail = (await res.json()) as { variants?: unknown };
+        break;
       }
-      lastError = `${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : "fetch failed";
+    } catch {
+      // try next
     }
   }
-  return { ok: false, productId: found.productId, message: lastError || "PATCH falhou" };
+  if (!detail) {
+    return {
+      ok: false,
+      productId,
+      message: "falha ao buscar variantes do produto",
+    };
+  }
+
+  // 2. Variantes vêm como [{ "<id>": {...} }, ...] — não array simples
+  const variantsRaw = Array.isArray(detail.variants) ? detail.variants : [];
+  const variantIds: number[] = [];
+  for (const wrap of variantsRaw) {
+    if (typeof wrap !== "object" || wrap == null) continue;
+    const keys = Object.keys(wrap);
+    if (keys.length === 0) continue;
+    const v = (wrap as Record<string, { id?: number }>)[keys[0]];
+    if (v?.id) variantIds.push(v.id);
+  }
+  if (variantIds.length === 0) {
+    return {
+      ok: false,
+      productId,
+      message: "produto sem variantes — não é possível atualizar sale_price",
+    };
+  }
+
+  // 3. PATCH em cada variante
+  const body: Record<string, unknown> = {
+    sale_price: salePrice == null ? null : Math.round(salePrice * 100) / 100,
+  };
+
+  let updated = 0;
+  const failures: string[] = [];
+  for (const vid of variantIds) {
+    const urls = [
+      `https://${config.storeHost}/api/v2/products/${productId}/variants/${vid}`,
+      `https://api.vnda.com.br/api/v2/products/${productId}/variants/${vid}`,
+    ];
+    let ok = false;
+    let lastError = "";
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${config.apiToken}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            ...(url.includes("api.vnda.com.br") ? { "X-Shop-Host": config.storeHost } : {}),
+          },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          ok = true;
+          break;
+        }
+        lastError = `${res.status}: ${(await res.text().catch(() => "")).slice(0, 100)}`;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : "fetch failed";
+      }
+    }
+    if (ok) updated += 1;
+    else failures.push(`v${vid}: ${lastError}`);
+    // Pequeno delay pra evitar throttle do VNDA
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  return {
+    ok: failures.length === 0,
+    productId,
+    variantsUpdated: updated,
+    variantsFailed: failures.length,
+    message:
+      failures.length === 0
+        ? `ok (${updated} variantes)`
+        : `${updated} ok, ${failures.length} falharam: ${failures.slice(0, 3).join("; ")}`,
+  };
 }
 
 // --- Health check ---
