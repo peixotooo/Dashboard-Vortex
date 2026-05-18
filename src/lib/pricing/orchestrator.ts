@@ -40,7 +40,25 @@ type ShelfProductRow = {
   sale_price: number | null;
   created_at: string;
   in_stock: boolean | null;
+  // shelf_products.tags é JSONB array: pode ter strings ou objetos { name, ... }
+  tags: unknown;
 };
+
+// Extrai os nomes de tag de shelf_products.tags. A coluna tem mix de:
+//   - strings: "combos", "regatas"
+//   - objetos: { name: "combos", tag_type: "promo", ... }
+function extractTagNames(tags: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!Array.isArray(tags)) return out;
+  for (const t of tags) {
+    if (typeof t === "string") out.add(t.toLowerCase());
+    else if (t && typeof t === "object") {
+      const name = (t as { name?: unknown }).name;
+      if (typeof name === "string") out.add(name.toLowerCase());
+    }
+  }
+  return out;
+}
 
 type VendaItem = {
   sku?: string;
@@ -118,7 +136,7 @@ async function loadShelfProducts(
 ): Promise<ShelfProductRow[]> {
   let query = client
     .from("shelf_products")
-    .select("product_id, sku, name, category, price, sale_price, created_at, in_stock")
+    .select("product_id, sku, name, category, price, sale_price, created_at, in_stock, tags")
     .eq("workspace_id", workspaceId)
     .eq("active", true);
   if (filterSkus && filterSkus.length > 0) {
@@ -425,6 +443,15 @@ export async function runOrchestrator(
       continue;
     }
 
+    // Detecta tags do produto. Usado pra:
+    //   1. Excluir 100% do engine (settings.engine_excluded_tags — override
+    //      manual, default vazio).
+    //   2. Marcar em_combo (settings.combo_tag — pra trava considerar combo).
+    const tagNames = extractTagNames(p.tags);
+    const excludedHit = settings.engine_excluded_tags.find((t) =>
+      tagNames.has(t.toLowerCase())
+    );
+
     const pricingRow = pricingMap.get(p.sku);
     const trackedCost = costsMap.get(p.sku);
     // Cascata de CMV:
@@ -479,6 +506,10 @@ export async function runOrchestrator(
         ? Math.round(stock_units / vendas_dia_unidades)
         : null;
 
+    const em_combo =
+      settings.combo_tag.length > 0 &&
+      tagNames.has(settings.combo_tag.toLowerCase());
+
     const snapshot: EngineSnapshot = {
       sku: p.sku,
       preco_de: precoDe,
@@ -489,11 +520,23 @@ export async function runOrchestrator(
       stock_units,
       vendas_dia_unidades,
       margem_pct_atual: precoPor > 0 ? margem.margem_pct : null,
+      em_combo,
       em_campanha: campanhasProdutos.has(p.product_id),
       composition,
     };
 
-    const decision = evaluateSku(snapshot, settings);
+    // Override manual: SKU com tag em engine_excluded_tags → engine não toca
+    const decision = excludedHit
+      ? {
+          ...evaluateSku(snapshot, settings),
+          action: "hold" as const,
+          reason: `excluído por tag "${excludedHit}" (override manual em settings)`,
+          preco_por_novo: snapshot.preco_por,
+          desconto_pct_novo: snapshot.desconto_pct_atual,
+          margem_pct_nova: snapshot.margem_pct_atual,
+          margem_brl_nova: null,
+        }
+      : evaluateSku(snapshot, settings);
     decisions.push(decision);
 
     if (!opts.dryRun) {

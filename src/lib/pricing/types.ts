@@ -74,6 +74,15 @@ export type EngineSettings = {
   markup_margem_max_pct: number;
   markup_reducao_pct: number;
   trava_margem_minima_pct: number;
+  // Tags VNDA (shelf_products.tags) que fazem o engine pular o SKU 100%.
+  // Override manual — default vazio.
+  engine_excluded_tags: string[];
+  // Tag VNDA que identifica produtos em combo. Engine simula combo no cálculo
+  // de margem (não exclui o SKU).
+  combo_tag: string;
+  // Pior cenário de desconto por unidade no combo (R$). Subtraído da receita
+  // ao validar trava de margem em SKUs com combo_tag.
+  combo_desconto_unitario_brl: number;
   require_approval: boolean;
   enabled: boolean;
 };
@@ -124,7 +133,10 @@ export const DEFAULT_ENGINE_SETTINGS: Omit<EngineSettings, "workspace_id"> = {
   markup_cobertura_max: 15,
   markup_margem_max_pct: 0.20,
   markup_reducao_pct: 0.05,
-  trava_margem_minima_pct: 0.10,
+  trava_margem_minima_pct: 0.25,
+  engine_excluded_tags: [],
+  combo_tag: "combos",
+  combo_desconto_unitario_brl: 6.37,
   require_approval: true,
   enabled: false,
 };
