@@ -374,24 +374,114 @@ export default function PricingConfigPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <Label className="text-xs">
-                Trava de margem mínima CM2 (%)
-                <span className="ml-1 text-muted-foreground">
-                  · markdown nunca quebra essa
-                </span>
-              </Label>
-              <Input
-                type="number"
-                step="0.1"
-                value={(settings.trava_margem_minima_pct * 100).toFixed(1)}
-                onChange={(e) =>
-                  setSettings((s) => ({
-                    ...s,
-                    trava_margem_minima_pct: Number(e.target.value) / 100,
-                  }))
-                }
-              />
+            <div className="rounded-md border border-dashed border-emerald-300 bg-emerald-50/40 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-xs font-medium text-emerald-900 dark:text-emerald-100">
+                  Trava CM2 escalonada por idade
+                </div>
+                <Switch
+                  checked={settings.trava_por_idade_enabled}
+                  onCheckedChange={(v) =>
+                    setSettings((s) => ({ ...s, trava_por_idade_enabled: v }))
+                  }
+                />
+              </div>
+              {settings.trava_por_idade_enabled ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">1-30d</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={(settings.trava_idade_1_30_pct * 100).toFixed(1)}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            trava_idade_1_30_pct: Number(e.target.value) / 100,
+                          }))
+                        }
+                      />
+                      <div className="text-[10px] text-muted-foreground">
+                        lançamento
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">31-90d</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={(settings.trava_idade_31_90_pct * 100).toFixed(1)}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            trava_idade_31_90_pct: Number(e.target.value) / 100,
+                          }))
+                        }
+                      />
+                      <div className="text-[10px] text-muted-foreground">
+                        regular
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">91-120d</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={(settings.trava_idade_91_120_pct * 100).toFixed(1)}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            trava_idade_91_120_pct: Number(e.target.value) / 100,
+                          }))
+                        }
+                      />
+                      <div className="text-[10px] text-muted-foreground">
+                        queima começa
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">121+d</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={(settings.trava_idade_121_plus_pct * 100).toFixed(1)}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            trava_idade_121_plus_pct: Number(e.target.value) / 100,
+                          }))
+                        }
+                      />
+                      <div className="text-[10px] text-muted-foreground">
+                        liquidar
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[10px] text-emerald-900/80 dark:text-emerald-200/80">
+                    Padrão da indústria de moda (SDD G4): margem cede conforme
+                    idade sobe pra liberar capital de giro. Meta — 90% do estoque
+                    ≤ 120 dias.
+                  </p>
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Trava flat (%) — usada quando escalonamento desligado
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={(settings.trava_margem_minima_pct * 100).toFixed(1)}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        trava_margem_minima_pct: Number(e.target.value) / 100,
+                      }))
+                    }
+                  />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 rounded-md border border-dashed border-blue-300 bg-blue-50/40 p-3 dark:border-blue-900 dark:bg-blue-950/30">
               <div className="col-span-2 text-xs font-medium text-blue-900 dark:text-blue-100">

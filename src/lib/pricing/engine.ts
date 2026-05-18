@@ -81,7 +81,19 @@ function shouldMarkup(s: EngineSnapshot, cfg: EngineSettings): boolean {
   return s.cobertura_dias <= cfg.markup_cobertura_max;
 }
 
-// Maior desconto que ainda respeita trava_margem_minima_pct (CM2).
+// Trava efetiva considerando idade do SKU. Quando trava_por_idade_enabled,
+// usa a faixa correspondente. Senão, fallback pra trava flat
+// (trava_margem_minima_pct).
+function travaEfetiva(s: EngineSnapshot, cfg: EngineSettings): number {
+  if (!cfg.trava_por_idade_enabled) return cfg.trava_margem_minima_pct;
+  const idade = s.idade_dias;
+  if (idade <= 30) return cfg.trava_idade_1_30_pct;
+  if (idade <= 90) return cfg.trava_idade_31_90_pct;
+  if (idade <= 120) return cfg.trava_idade_91_120_pct;
+  return cfg.trava_idade_121_plus_pct;
+}
+
+// Maior desconto que ainda respeita trava de margem (CM2).
 //
 // Sem combo:
 //   receita = preco_de * (1 - desc)
@@ -96,6 +108,7 @@ function shouldMarkup(s: EngineSnapshot, cfg: EngineSettings): boolean {
 //   preco_de * (1 - desc) - combo_brl >= cvar / (1 - imp - taxas - trava)
 //   → desc <= 1 - (preco_min_trava + combo_brl) / preco_de
 function maxDescontoPermitido(s: EngineSnapshot, cfg: EngineSettings): number {
+  const trava = travaEfetiva(s, cfg);
   const cvar =
     s.composition.cogs +
     s.composition.frete_unitario +
@@ -105,7 +118,7 @@ function maxDescontoPermitido(s: EngineSnapshot, cfg: EngineSettings): number {
     1 -
     s.composition.impostos_pct -
     s.composition.taxas_comissoes_pct -
-    cfg.trava_margem_minima_pct;
+    trava;
   if (fator <= 0 || s.preco_de <= 0) return 0;
   const receita_min = cvar / fator;
   const comboBrl = s.em_combo ? cfg.combo_desconto_unitario_brl : 0;
@@ -154,7 +167,7 @@ export function evaluateSku(s: EngineSnapshot, cfg: EngineSettings): EngineDecis
       pilar: "dinamico",
       idade_dias: s.idade_dias,
       cobertura_dias: s.cobertura_dias,
-      trava_margem_minima_pct: cfg.trava_margem_minima_pct,
+      trava_margem_minima_pct: travaEfetiva(s, cfg),
     },
   };
 

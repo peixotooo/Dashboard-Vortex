@@ -130,7 +130,9 @@ export default function PricingLandingPage() {
     );
   }
 
-  const meta120d = (overview?.kpis.pct_estoque_ate_120d ?? 0) >= 90;
+  const pct120d = overview?.kpis.pct_estoque_ate_120d ?? 0;
+  const meta120d = pct120d >= 90;
+  const gap120d = 90 - pct120d;
 
   return (
     <div className="flex flex-col gap-6">
@@ -155,6 +157,82 @@ export default function PricingLandingPage() {
           </Link>
         </div>
       </div>
+
+      {/* META ESTRATÉGICA — norte do módulo (SDD G4) */}
+      <Card
+        className={cn(
+          "border-2",
+          meta120d
+            ? "border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950"
+            : pct120d >= 75
+              ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950"
+              : "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950"
+        )}
+      >
+        <CardContent className="p-5">
+          <div className="flex items-end justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Target className="h-3 w-3" /> Meta estratégica · SDD G4
+              </div>
+              <div className="mt-1 text-sm font-medium">
+                Estoque com idade até 120 dias
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span
+                  className={cn(
+                    "text-5xl font-semibold tracking-tight",
+                    meta120d
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : pct120d >= 75
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-rose-700 dark:text-rose-300"
+                  )}
+                >
+                  {pct120d.toFixed(0)}%
+                </span>
+                <span className="text-base text-muted-foreground">/ meta 90%</span>
+              </div>
+              {!meta120d && gap120d > 0 && (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Faltam {gap120d.toFixed(0)}pp pra atingir a meta. Aprovar
+                  markdowns nos SKUs &gt; 120d acelera.
+                </div>
+              )}
+              {meta120d && (
+                <div className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
+                  ✓ Capital de giro saudável. Continue rodando o engine
+                  semanalmente.
+                </div>
+              )}
+            </div>
+            {/* Gauge visual: barra horizontal com marcador da meta */}
+            <div className="hidden flex-col items-end gap-1 md:flex">
+              <div className="relative h-3 w-48 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn(
+                    "absolute inset-y-0 left-0",
+                    meta120d
+                      ? "bg-emerald-500"
+                      : pct120d >= 75
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                  )}
+                  style={{ width: `${Math.min(100, pct120d)}%` }}
+                />
+                {/* Marcador da meta */}
+                <div
+                  className="absolute inset-y-0 w-0.5 bg-foreground/40"
+                  style={{ left: "90%" }}
+                />
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                ↑ posição da meta 90%
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* PAINEL DE AÇÃO — protagonista */}
       {buckets.pending > 0 ? (
