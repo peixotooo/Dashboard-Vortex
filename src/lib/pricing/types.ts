@@ -74,6 +74,14 @@ export type EngineSettings = {
   markup_margem_max_pct: number;
   markup_reducao_pct: number;
   trava_margem_minima_pct: number;
+  // Trava escalonada por idade (canônica G4, padrão da indústria de moda).
+  // Quando habilitada, engine usa a faixa correspondente à idade do SKU
+  // em vez da trava flat acima.
+  trava_por_idade_enabled: boolean;
+  trava_idade_1_30_pct: number;
+  trava_idade_31_90_pct: number;
+  trava_idade_91_120_pct: number;
+  trava_idade_121_plus_pct: number;
   // Tags VNDA (shelf_products.tags) que fazem o engine pular o SKU 100%.
   // Override manual — default vazio.
   engine_excluded_tags: string[];
@@ -134,6 +142,11 @@ export const DEFAULT_ENGINE_SETTINGS: Omit<EngineSettings, "workspace_id"> = {
   markup_margem_max_pct: 0.20,
   markup_reducao_pct: 0.05,
   trava_margem_minima_pct: 0.25,
+  trava_por_idade_enabled: true,
+  trava_idade_1_30_pct: 0.35,
+  trava_idade_31_90_pct: 0.25,
+  trava_idade_91_120_pct: 0.15,
+  trava_idade_121_plus_pct: 0.05,
   engine_excluded_tags: [],
   combo_tag: "combos",
   combo_desconto_unitario_brl: 6.37,
