@@ -376,7 +376,7 @@ export default function PricingConfigPage() {
           <CardContent className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">
-                Trava de margem mínima (%)
+                Trava de margem mínima CM2 (%)
                 <span className="ml-1 text-muted-foreground">
                   · markdown nunca quebra essa
                 </span>
@@ -392,6 +392,46 @@ export default function PricingConfigPage() {
                   }))
                 }
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3 rounded-md border border-dashed border-blue-300 bg-blue-50/40 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+              <div className="col-span-2 text-xs font-medium text-blue-900 dark:text-blue-100">
+                Promoção de combo VNDA
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Tag VNDA</Label>
+                <Input
+                  type="text"
+                  value={settings.combo_tag}
+                  onChange={(e) =>
+                    setSettings((s) => ({ ...s, combo_tag: e.target.value }))
+                  }
+                  placeholder="combos"
+                />
+                <div className="text-[10px] text-muted-foreground">
+                  Tag em shelf_products.tags
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Desconto extra/un (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={settings.combo_desconto_unitario_brl}
+                  onChange={(e) =>
+                    setSettings((s) => ({
+                      ...s,
+                      combo_desconto_unitario_brl: Number(e.target.value),
+                    }))
+                  }
+                />
+                <div className="text-[10px] text-muted-foreground">
+                  Pior caso da promo (~R$ 6,37 = 3un de Combos NP)
+                </div>
+              </div>
+              <p className="col-span-2 text-[10px] text-blue-900/80 dark:text-blue-200/80">
+                Engine simula esse desconto no cálculo de margem CM2 pra SKUs
+                com a tag. Markdown só sai se margem pós-combo ≥ trava.
+              </p>
             </div>
             <div className="flex items-center justify-between rounded-md border p-2">
               <div>

@@ -29,6 +29,11 @@ export type EngineSnapshot = {
   vendas_dia_unidades: number;
   margem_pct_atual: number | null; // fração 0..1
   em_campanha: boolean;
+  // SKU faz parte de promoção de combo VNDA (combo_tag presente em
+  // shelf_products.tags). Quando true, o engine simula o desconto extra do
+  // combo ao validar a trava de margem — evita markdown que vira prejuízo
+  // quando o cliente compra em combo.
+  em_combo: boolean;
   composition: CompositionInput;
 };
 
@@ -76,9 +81,20 @@ function shouldMarkup(s: EngineSnapshot, cfg: EngineSettings): boolean {
   return s.cobertura_dias <= cfg.markup_cobertura_max;
 }
 
-// Maior desconto que ainda respeita trava_margem_minima_pct, dado o preco_de
-// e a composição. Resolve algebricamente: trava ≤ margem_pct = 1 - (cvar/preco)
-// - impostos - taxas → desconto_max = 1 - cvar / (preco_de * (1 - impostos - taxas - trava))
+// Maior desconto que ainda respeita trava_margem_minima_pct (CM2).
+//
+// Sem combo:
+//   receita = preco_de * (1 - desc)
+//   custos = cvar + receita * (imp + taxas)
+//   cm2 = (receita - custos) / receita >= trava
+//   → preco_de * (1 - desc) >= cvar / (1 - imp - taxas - trava)
+//
+// Com combo (SKU tem combo_tag): cliente paga receita_efetiva = preco_novo -
+// combo_desconto. Custos variáveis (cogs/frete/mkt/rateio) NÃO mudam, mas
+// impostos/taxas incidem sobre receita_efetiva. Resolvendo a mesma trava em
+// cima de receita_efetiva:
+//   preco_de * (1 - desc) - combo_brl >= cvar / (1 - imp - taxas - trava)
+//   → desc <= 1 - (preco_min_trava + combo_brl) / preco_de
 function maxDescontoPermitido(s: EngineSnapshot, cfg: EngineSettings): number {
   const cvar =
     s.composition.cogs +
@@ -91,9 +107,32 @@ function maxDescontoPermitido(s: EngineSnapshot, cfg: EngineSettings): number {
     s.composition.taxas_comissoes_pct -
     cfg.trava_margem_minima_pct;
   if (fator <= 0 || s.preco_de <= 0) return 0;
-  const preco_min_trava = cvar / fator;
+  const receita_min = cvar / fator;
+  const comboBrl = s.em_combo ? cfg.combo_desconto_unitario_brl : 0;
+  const preco_min_trava = receita_min + comboBrl;
   if (preco_min_trava >= s.preco_de) return 0;
   return 1 - preco_min_trava / s.preco_de;
+}
+
+// Calcula CM2 efetiva pós-combo. Usado em decision.margem_pct_nova quando
+// em_combo=true pra refletir a margem REAL que vai sobrar.
+function computeMarginEffective(
+  s: EngineSnapshot,
+  cfg: EngineSettings,
+  preco_novo: number
+): { margem_brl: number; margem_pct: number } {
+  const comboBrl = s.em_combo ? cfg.combo_desconto_unitario_brl : 0;
+  const receita = Math.max(0, preco_novo - comboBrl);
+  if (receita <= 0) return { margem_brl: 0, margem_pct: 0 };
+  const cvar =
+    s.composition.cogs +
+    s.composition.frete_unitario +
+    s.composition.marketing_unitario +
+    s.composition.rateio_fixo;
+  const impostos = receita * s.composition.impostos_pct;
+  const taxas = receita * s.composition.taxas_comissoes_pct;
+  const margem_brl = receita - cvar - impostos - taxas;
+  return { margem_brl, margem_pct: margem_brl / receita };
 }
 
 export function evaluateSku(s: EngineSnapshot, cfg: EngineSettings): EngineDecision {
@@ -136,11 +175,12 @@ export function evaluateSku(s: EngineSnapshot, cfg: EngineSettings): EngineDecis
     const reducao = cfg.markup_reducao_pct * mult;
     const novoDesconto = Math.max(0, s.desconto_pct_atual - reducao);
     const novoPreco = s.preco_de * (1 - novoDesconto);
-    const margem = computeMargin(s.composition, novoPreco);
+    // Margem reportada considera combo efetivo (CM2 real que o cliente paga)
+    const margem = computeMarginEffective(s, cfg, novoPreco);
     return {
       ...baseDecision,
       action: "markup",
-      reason: `step up -${(reducao * 100).toFixed(1)}pp de desconto (cobertura ${s.cobertura_dias}d sugere demanda forte, testar preço maior)`,
+      reason: `step up -${(reducao * 100).toFixed(1)}pp de desconto (cobertura ${s.cobertura_dias}d sugere demanda forte, testar preço maior)${s.em_combo ? " — margem pós-combo" : ""}`,
       desconto_pct_novo: novoDesconto,
       preco_por_novo: novoPreco,
       margem_pct_nova: margem.margem_pct,
@@ -173,13 +213,14 @@ export function evaluateSku(s: EngineSnapshot, cfg: EngineSettings): EngineDecis
     }
 
     const novoPreco = s.preco_de * (1 - novoDesconto);
-    const margem = computeMargin(s.composition, novoPreco);
+    // Margem efetiva considerando combo (CM2 real pós-checkout)
+    const margem = computeMarginEffective(s, cfg, novoPreco);
     return {
       ...baseDecision,
       action: "markdown",
       reason: travaAcionada
-        ? `markdown limitado pela trava (idade ${s.idade_dias}, cobertura ${s.cobertura_dias})`
-        : `markdown +${(incremento * 100).toFixed(1)}pp (idade ${s.idade_dias}, cobertura ${s.cobertura_dias})`,
+        ? `markdown limitado pela trava (idade ${s.idade_dias}, cobertura ${s.cobertura_dias}${s.em_combo ? ", combo ativo" : ""})`
+        : `markdown +${(incremento * 100).toFixed(1)}pp (idade ${s.idade_dias}, cobertura ${s.cobertura_dias})${s.em_combo ? " — margem pós-combo" : ""}`,
       desconto_pct_novo: novoDesconto,
       preco_por_novo: novoPreco,
       margem_pct_nova: margem.margem_pct,
