@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { validateApiKey } from "@/lib/shelves/api-key";
+import { buildCorsHeaders } from "@/lib/cors";
 
 // Captures Meta CAPI browser-side signals (fbc, fbp, client IP, user agent)
 // keyed by the email the customer typed in the storefront checkout form.
@@ -11,12 +12,6 @@ import { validateApiKey } from "@/lib/shelves/api-key";
 // Public endpoint: CORS-enabled, gated by workspace API key (same keys used
 // by shelves/track/recommend). Service-role insert; RLS read-only for
 // workspace members.
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
 
 interface Body {
   key: string;
@@ -32,13 +27,15 @@ function normEmail(v: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const cors = buildCorsHeaders(request);
+
   let body: Body;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
@@ -46,7 +43,7 @@ export async function POST(request: NextRequest) {
   if (!auth) {
     return NextResponse.json(
       { error: "Invalid API key" },
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers: cors }
     );
   }
 
@@ -54,7 +51,7 @@ export async function POST(request: NextRequest) {
   if (!email || !email.includes("@")) {
     return NextResponse.json(
       { ok: false, reason: "missing_email" },
-      { headers: CORS_HEADERS }
+      { headers: cors }
     );
   }
 
@@ -63,7 +60,7 @@ export async function POST(request: NextRequest) {
   if (!body.fbc && !body.fbp) {
     return NextResponse.json(
       { ok: false, reason: "no_signals" },
-      { headers: CORS_HEADERS }
+      { headers: cors }
     );
   }
 
@@ -92,16 +89,19 @@ export async function POST(request: NextRequest) {
     console.error("[MetaAttribution] upsert failed:", error.message);
     return NextResponse.json(
       { ok: false, error: error.message },
-      { status: 500, headers: CORS_HEADERS }
+      { status: 500, headers: cors }
     );
   }
 
-  return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
+  return NextResponse.json({ ok: true }, { headers: cors });
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 204,
-    headers: { ...CORS_HEADERS, "Access-Control-Max-Age": "86400" },
+    headers: {
+      ...buildCorsHeaders(request),
+      "Access-Control-Max-Age": "86400",
+    },
   });
 }
