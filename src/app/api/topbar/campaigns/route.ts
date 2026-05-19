@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
       name: body.name,
       enabled: body.enabled ?? true,
       priority: body.priority ?? 0,
+      title: body.title || null,
       starts_at: body.starts_at || null,
       ends_at: body.ends_at || null,
       recurrence: body.recurrence || "none",

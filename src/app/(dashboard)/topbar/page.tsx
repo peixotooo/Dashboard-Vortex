@@ -64,6 +64,7 @@ interface Campaign {
   recurrence_days: number[] | null;
   recurrence_window_start: string | null;
   recurrence_window_end: string | null;
+  title: string | null;
   message: string;
   link_url: string | null;
   link_label: string | null;
@@ -142,6 +143,7 @@ function emptyCampaign(): Partial<Campaign> {
     recurrence_days: null,
     recurrence_window_start: null,
     recurrence_window_end: null,
+    title: "",
     message: "",
     link_url: "",
     link_label: "",
@@ -369,6 +371,14 @@ export default function TopbarPage() {
 
         {/* ---------- Settings tab ---------- */}
         <TabsContent value="settings" className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-xs flex items-start gap-2">
+            <Megaphone className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              Esta aba define os <b>defaults visuais</b> (cores, altura, IA).
+              Para configurar <b>título</b>, <b>texto</b>, <b>countdown</b> e
+              agendamento, vá em <b>Campanhas → Nova campanha</b>.
+            </div>
+          </div>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Estado global</CardTitle>
@@ -601,8 +611,16 @@ export default function TopbarPage() {
 
           {campaigns.length === 0 ? (
             <Card>
-              <CardContent className="py-12 text-center text-sm text-muted-foreground">
-                Nenhuma campanha ainda. Crie a primeira pra começar.
+              <CardContent className="py-12 text-center space-y-3">
+                <Megaphone className="h-10 w-10 text-muted-foreground mx-auto opacity-50" />
+                <p className="text-sm font-medium">Nenhuma campanha ainda</p>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  Cada campanha é onde você configura <b>título</b>, <b>texto</b>, <b>countdown</b>,
+                  agendamento, recorrência e variações de IA. Crie a primeira pra começar.
+                </p>
+                <Button onClick={newCampaign} className="mt-2">
+                  <Plus className="h-4 w-4 mr-2" /> Criar primeira campanha
+                </Button>
               </CardContent>
             </Card>
           ) : (
@@ -613,8 +631,8 @@ export default function TopbarPage() {
                 onClick={() => openCampaign(c)}
               >
                 <CardContent className="p-4 flex items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{c.name}</span>
                       {c.enabled ? (
                         <Badge variant="default">Ativa</Badge>
@@ -635,8 +653,9 @@ export default function TopbarPage() {
                         <Badge variant="outline">{c.recurrence}</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground mt-1 truncate">
-                      {c.message}
+                    <p className="text-sm mt-1 truncate">
+                      {c.title && <b className="mr-1">{c.title}</b>}
+                      <span className="text-muted-foreground">{c.message}</span>
                     </p>
                   </div>
                   <div className="text-xs text-muted-foreground text-right whitespace-nowrap">
@@ -688,9 +707,19 @@ export default function TopbarPage() {
                 </div>
 
                 <div>
-                  <Label>Mensagem</Label>
+                  <Label>Título (opcional, exibido em bold)</Label>
+                  <Input
+                    placeholder='Ex.: "FRETE GRÁTIS" ou "ÚLTIMAS HORAS"'
+                    value={editing.title || ""}
+                    onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label>Mensagem / texto</Label>
                   <Textarea
                     rows={2}
+                    placeholder="Texto principal que aparece ao lado do título"
                     value={editing.message || ""}
                     onChange={(e) => setEditing({ ...editing, message: e.target.value })}
                   />
@@ -726,6 +755,11 @@ export default function TopbarPage() {
                 <div className="rounded-lg border p-3">
                   <div className="text-xs text-muted-foreground mb-2">Preview</div>
                   <div style={previewStyle}>
+                    {editing.title && (
+                      <strong style={{ fontWeight: 700, letterSpacing: ".02em" }}>
+                        {editing.title}
+                      </strong>
+                    )}
                     <span>{editing.message || "Sua mensagem aparece aqui"}</span>
                     {editing.countdown_enabled && (
                       <span

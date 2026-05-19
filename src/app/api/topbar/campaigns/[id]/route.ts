@@ -74,6 +74,7 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
     "name",
     "enabled",
     "priority",
+    "title",
     "starts_at",
     "ends_at",
     "recurrence",

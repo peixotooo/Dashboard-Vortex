@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
         // Conteúdo
         campaign_id: campaign.id,
         variation_id: selectedVar?.id || null,
+        title: (campaign as { title?: string | null }).title || null,
         message: selectedVar?.message || campaign.message,
         link_url: campaign.link_url,
         link_label: selectedVar?.link_label || campaign.link_label,

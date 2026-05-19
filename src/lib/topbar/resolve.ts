@@ -12,6 +12,7 @@ export interface TopbarCampaign {
   recurrence_days: number[] | null;
   recurrence_window_start: string | null;
   recurrence_window_end: string | null;
+  title: string | null;
   message: string;
   link_url: string | null;
   link_label: string | null;

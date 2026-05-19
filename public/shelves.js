@@ -2735,6 +2735,14 @@
       var content = document.createElement("div");
       content.setAttribute("style", "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center");
 
+      if (tb.title) {
+        var titleEl = document.createElement("strong");
+        titleEl.id = "vtx-topbar-title";
+        titleEl.setAttribute("style", "font-weight:700;letter-spacing:.02em");
+        titleEl.textContent = tb.title;
+        content.appendChild(titleEl);
+      }
+
       var msg = document.createElement("span");
       msg.id = "vtx-topbar-msg";
       msg.textContent = tb.message || "";
