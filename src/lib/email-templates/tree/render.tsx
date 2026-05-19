@@ -88,6 +88,26 @@ function tagAttr(id: string, editorMode: boolean): Record<string, string> {
   return editorMode ? { "data-block-id": id } : {};
 }
 
+/** Tiptap sempre embrulha conteúdo em <p>. Quando esse HTML é injetado
+ *  dentro de <h1>/<h2>/<h3> (heading) ou <p> (text/eyebrow do react-email),
+ *  o browser/cliente de email "conserta" o HTML inválido fechando o
+ *  bloco-pai antes do <p> interno — efeito visível: o texto editado
+ *  perde a fonte/cor/tamanho do estilo pai e parece "sumir" na cor
+ *  padrão do user agent. Solução: achatamos o output do Tiptap pra
+ *  conteúdo inline (parágrafos viram <br/><br/>). */
+function inlinizeHtml(html: string): string {
+  let s = html.trim();
+  // Tira <p>...</p> mantendo o conteúdo, separa parágrafos com quebra dupla.
+  s = s.replace(/<\/p>\s*<p[^>]*>/gi, "<br/><br/>");
+  s = s.replace(/^\s*<p[^>]*>/i, "");
+  s = s.replace(/<\/p>\s*$/i, "");
+  // Mesma normalização pra <div> (Tiptap não usa, mas algum paste pode meter).
+  s = s.replace(/<\/div>\s*<div[^>]*>/gi, "<br/><br/>");
+  s = s.replace(/^\s*<div[^>]*>/i, "");
+  s = s.replace(/<\/div>\s*$/i, "");
+  return s;
+}
+
 // ---------- Leaf renderers ----------
 
 function LeafRenderer({
@@ -105,7 +125,7 @@ function LeafRenderer({
       const align = node.align ?? "center";
       const styleObj = ts(node.style, { size: 38, weight: 500, color: c.text });
       const inner = node.html ? (
-        <span dangerouslySetInnerHTML={{ __html: node.html }} />
+        <span dangerouslySetInnerHTML={{ __html: inlinizeHtml(node.html) }} />
       ) : (
         node.text
       );
@@ -129,7 +149,7 @@ function LeafRenderer({
       const align = node.align ?? "center";
       const styleObj = ts(node.style, { size: 11, weight: 500, color: c.textSecondary });
       const inner = node.html ? (
-        <span dangerouslySetInnerHTML={{ __html: node.html }} />
+        <span dangerouslySetInnerHTML={{ __html: inlinizeHtml(node.html) }} />
       ) : (
         node.text
       );
@@ -153,7 +173,7 @@ function LeafRenderer({
       const align = node.align ?? "center";
       const styleObj = ts(node.style, { size: 16, weight: 400, color: c.textMuted });
       const inner = node.html ? (
-        <span dangerouslySetInnerHTML={{ __html: node.html }} />
+        <span dangerouslySetInnerHTML={{ __html: inlinizeHtml(node.html) }} />
       ) : (
         node.text
       );
