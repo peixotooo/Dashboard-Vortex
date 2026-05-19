@@ -12,6 +12,9 @@ import {
   Clock,
   ExternalLink,
   Key,
+  Stethoscope,
+  X,
+  CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +87,29 @@ interface Campaign {
   regenerate_every_hours: number;
   last_regenerated_at: string | null;
   next_regenerate_at: string | null;
+}
+
+interface DiagnosticCampaign {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  reasons_blocked: string[];
+  matches_now: boolean;
+}
+interface GlobalCheck {
+  ok: boolean;
+  label: string;
+  detail?: string;
+}
+interface DiagnosticResult {
+  now: string;
+  page_type: string;
+  global_checks: GlobalCheck[];
+  global_ok: boolean;
+  campaigns: DiagnosticCampaign[];
+  winner_id: string | null;
+  winner_name: string | null;
 }
 
 interface Variation {
@@ -180,6 +206,9 @@ export default function TopbarPage() {
   // Campaigns
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [diagnostic, setDiagnostic] = useState<DiagnosticResult | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagPage, setDiagPage] = useState("home");
 
   // Editing
   const [editing, setEditing] = useState<Partial<Campaign> | null>(null);
@@ -334,6 +363,21 @@ export default function TopbarPage() {
       { method: "DELETE", headers: headers() }
     );
     setVariations((prev) => prev.filter((x) => x.id !== v.id));
+  }
+
+  async function runDiagnostic() {
+    if (!workspace?.id) return;
+    setDiagnosing(true);
+    try {
+      const res = await fetch(
+        `/api/topbar/diagnose?page_type=${encodeURIComponent(diagPage)}`,
+        { headers: headers() }
+      );
+      const data = await res.json();
+      setDiagnostic(data);
+    } finally {
+      setDiagnosing(false);
+    }
   }
 
   async function clearLlmVariations() {
@@ -680,6 +724,121 @@ export default function TopbarPage() {
               <Plus className="h-4 w-4 mr-2" /> Nova campanha
             </Button>
           </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Stethoscope className="h-4 w-4 text-blue-500" />
+                Diagnóstico — por que não aparece?
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Label>Simular página</Label>
+                  <Select value={diagPage} onValueChange={setDiagPage}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="home">Home</SelectItem>
+                      <SelectItem value="product">Produto</SelectItem>
+                      <SelectItem value="category">Categoria</SelectItem>
+                      <SelectItem value="cart">Carrinho</SelectItem>
+                      <SelectItem value="other">Outra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={runDiagnostic} disabled={diagnosing}>
+                  {diagnosing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Stethoscope className="h-4 w-4 mr-2" />
+                  )}
+                  Rodar diagnóstico
+                </Button>
+              </div>
+
+              {diagnostic && (
+                <div className="space-y-3 text-sm">
+                  <div className="text-xs text-muted-foreground">
+                    Avaliado em {new Date(diagnostic.now).toLocaleString("pt-BR")}{" "}
+                    para a página <b>{diagnostic.page_type}</b>.
+                  </div>
+
+                  <div className="space-y-1">
+                    {diagnostic.global_checks.map((c, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        {c.ok ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                        ) : (
+                          <X className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                        )}
+                        <div>
+                          <span className={c.ok ? "" : "font-medium text-destructive"}>
+                            {c.label}
+                          </span>
+                          {c.detail && (
+                            <p className="text-xs text-muted-foreground">{c.detail}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {diagnostic.global_ok && (
+                    <div className="border-t pt-3">
+                      {diagnostic.winner_id ? (
+                        <div className="flex items-center gap-2 text-emerald-700">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Vencedora agora: <b>{diagnostic.winner_name}</b>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-destructive">
+                          <X className="h-4 w-4" />
+                          Nenhuma campanha está casando agora.
+                        </div>
+                      )}
+                      <div className="mt-3 space-y-2">
+                        {diagnostic.campaigns.map((c) => (
+                          <div key={c.id} className="border rounded p-2">
+                            <div className="flex items-center gap-2">
+                              {c.matches_now ? (
+                                <Badge variant="default">Casa agora</Badge>
+                              ) : (
+                                <Badge variant="secondary">Bloqueada</Badge>
+                              )}
+                              <span className="font-medium">{c.name}</span>
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                P{c.priority}
+                              </span>
+                            </div>
+                            {c.reasons_blocked.length > 0 && (
+                              <ul className="text-xs text-muted-foreground list-disc ml-5 mt-1">
+                                {c.reasons_blocked.map((r, i) => (
+                                  <li key={i}>{r}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-muted-foreground border-t pt-2">
+                    Se o servidor diz que tudo casa mas a barra ainda não aparece na loja:
+                    <ul className="list-disc ml-5 mt-1 space-y-1">
+                      <li>Cache CDN: aguarde ~1 min ou force reload na loja (Cmd+Shift+R).</li>
+                      <li>
+                        Você fechou a barra antes? Ela fica escondida pelo período
+                        configurado. Console na loja:{" "}
+                        <code>{`Object.keys(localStorage).filter(k=>k.startsWith('_vtx_topbar_dismissed_')).forEach(k=>localStorage.removeItem(k))`}</code>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {campaigns.length === 0 ? (
             <Card>
