@@ -592,6 +592,15 @@ function ImageInspector({
       <Field label="Texto alternativo">
         <Input value={node.alt} onChange={(e) => onChange({ alt: e.target.value } as Partial<LeafNode>)} />
       </Field>
+      <Field label="Link ao clicar (opcional)">
+        <Input
+          value={node.href ?? ""}
+          onChange={(e) =>
+            onChange({ href: e.target.value || undefined } as Partial<LeafNode>)
+          }
+          placeholder="https://www.bulking.com.br/..."
+        />
+      </Field>
       <HeroGeneratorDialog
         open={genOpen}
         onClose={() => setGenOpen(false)}
