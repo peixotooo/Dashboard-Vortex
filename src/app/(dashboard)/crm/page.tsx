@@ -585,6 +585,9 @@ export default function CrmPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // "Inverter": quando true, mostra a base EXCETO o que os filtros pegam.
+  // Reset automático quando os filtros são todos limpos.
+  const [invertFilters, setInvertFilters] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout>(undefined);
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -913,26 +916,35 @@ export default function CrmPage() {
     }
   }, [activeTab, customersLoaded, fetchCustomers]);
 
-  // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays)
+  // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays).
+  // Quando invertFilters=true, retorna a base EXCETO o que os filtros pegariam
+  // (mas o search e filtros de range continuam sempre incluídos, sem inversão).
   const filteredCustomers = useMemo(() => {
     const q = debouncedSearch ? debouncedSearch.toLowerCase() : "";
     return customers.filter((c) => {
-      if (segmentFilter !== "all" && c.segment !== segmentFilter) return false;
-      if (dayRangeFilter !== "all" && c.preferredDayRange !== dayRangeFilter) return false;
-      if (lifecycleFilter !== "all" && c.lifecycleStage !== lifecycleFilter) return false;
-      if (hourFilter !== "all" && c.preferredHour !== hourFilter) return false;
-      if (couponFilter !== "all" && c.couponSensitivity !== couponFilter) return false;
-      if (weekdayFilter !== "all" && c.preferredWeekday !== weekdayFilter) return false;
+      // Search e ranges — sempre aplicam (não invertem).
+      if (q && !c.name.toLowerCase().includes(q) && !c.email.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (purchasedDateRange && (c.lastPurchaseDate < purchasedDateRange.from || c.firstPurchaseDate > purchasedDateRange.to)) return false;
       if (inactiveDateRange && c.lastPurchaseDate >= inactiveDateRange.from) return false;
       if (avgTicketRange.min !== null && c.avgTicket < avgTicketRange.min) return false;
       if (avgTicketRange.max !== null && c.avgTicket > avgTicketRange.max) return false;
       if (totalSpentRange.min !== null && c.totalSpent < totalSpentRange.min) return false;
       if (totalSpentRange.max !== null && c.totalSpent > totalSpentRange.max) return false;
-      if (q && !c.name.toLowerCase().includes(q) && !c.email.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
-      return true;
+
+      // Filtros de segmentação/comportamento — combinam com AND, e
+      // podem ser invertidos pelo botão "Inverter".
+      const matchesSegment = segmentFilter === "all" || c.segment === segmentFilter;
+      const matchesDay = dayRangeFilter === "all" || c.preferredDayRange === dayRangeFilter;
+      const matchesLifecycle = lifecycleFilter === "all" || c.lifecycleStage === lifecycleFilter;
+      const matchesHour = hourFilter === "all" || c.preferredHour === hourFilter;
+      const matchesCoupon = couponFilter === "all" || c.couponSensitivity === couponFilter;
+      const matchesWeekday = weekdayFilter === "all" || c.preferredWeekday === weekdayFilter;
+      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all";
+
+      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday;
+      return invertFilters && hasAnyFilter ? !matches : matches;
     });
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
 
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
@@ -1029,6 +1041,7 @@ export default function CrmPage() {
     setInactiveDateRange(null);
     setAvgTicketRange({ min: null, max: null });
     setTotalSpentRange({ min: null, max: null });
+    setInvertFilters(false);
   }, []);
 
   const handleGlobalExport = useCallback(() => {
@@ -1380,18 +1393,40 @@ export default function CrmPage() {
           {/* Filter chips (only when filters active) */}
           {activeFilters.length > 0 ? (
             <>
-              <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
+              <span className="text-xs font-medium text-muted-foreground shrink-0">
+                {invertFilters ? "Base toda EXCETO:" : "Filtros:"}
+              </span>
               {activeFilters.map((f) => (
                 <button
                   key={`${f.type}-${f.value}`}
                   onClick={f.onRemove}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
-                  style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
+                  style={{
+                    color: f.color,
+                    backgroundColor: `${f.color}15`,
+                    border: `1px solid ${f.color}30`,
+                    textDecoration: invertFilters ? "line-through" : undefined,
+                    textDecorationColor: invertFilters ? f.color : undefined,
+                  }}
                 >
                   {f.label}
                   <X className="h-3 w-3" />
                 </button>
               ))}
+              <button
+                onClick={() => setInvertFilters((v) => !v)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer ml-1 ${
+                  invertFilters
+                    ? "bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30"
+                    : "bg-muted/50 text-muted-foreground border border-border hover:text-foreground"
+                }`}
+                title={invertFilters
+                  ? "Voltar pra modo normal (mostrar quem combina com os filtros)"
+                  : "Inverter: mostrar a base EXCETO o que está filtrado"
+                }
+              >
+                ⇄ {invertFilters ? "Invertido" : "Inverter"}
+              </button>
               <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
                 Limpar filtros
               </button>
