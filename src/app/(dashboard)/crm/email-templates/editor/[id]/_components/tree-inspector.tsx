@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { LeafNode } from "@/lib/email-templates/tree/schema";
+import type { LeafNode, Mode } from "@/lib/email-templates/tree/schema";
 import { ProductPicker, type PickedProduct } from "./product-picker";
 import { WysiwygEditor } from "./wysiwyg";
 import { HeroGeneratorDialog } from "./hero-generator";
@@ -17,11 +17,71 @@ interface Props {
   /** Layout id of the draft — used by the AI hero generator to pick the
    *  layout-specific prompt in auto mode. */
   layoutId?: string;
+  /** Mode do email (light/dark) — usado pra o WYSIWYG espelhar o fundo e
+   *  a cor padrão de texto que vão aparecer no render. Sem isso, texto
+   *  branco do tema dark fica invisível no editor (fundo branco do form). */
+  mode?: Mode;
   onChange: (patch: Partial<LeafNode>) => void;
   onRemove: () => void;
   /** Picking a product on any product-aware leaf propagates to all of them
    *  via applyProductToTree at the editor page level. */
   onPickProduct: (p: PickedProduct) => void;
+}
+
+// Espelha os PALETTES e FONTS do tree/render.tsx — manter sincronizado
+// (intencionalmente duplicado pra evitar dependência de um módulo server-only
+// que importa react-email). Se mudar render.tsx, atualize aqui também.
+const PREVIEW_PALETTE = {
+  light: { bg: "#FFFFFF", text: "#000000", textMuted: "#3A3A3A", textSecondary: "#6E6E6E" },
+  dark: { bg: "#000000", text: "#FFFFFF", textMuted: "#D8D8D8", textSecondary: "#B8B8B8" },
+} as const;
+const PREVIEW_FONTS = {
+  head: "'Kanit', 'Inter', Arial, sans-serif",
+  body: "'Inter', 'Helvetica Neue', Arial, sans-serif",
+};
+
+type PreviewStyle = NonNullable<
+  React.ComponentProps<typeof WysiwygEditor>["previewStyle"]
+>;
+
+function previewStyleFor(
+  type: "heading" | "text" | "eyebrow",
+  node: LeafNode & { style?: { size?: number; color?: string; weight?: number } },
+  mode: Mode
+): PreviewStyle {
+  const pal = PREVIEW_PALETTE[mode];
+  if (type === "heading") {
+    return {
+      fontFamily: PREVIEW_FONTS.head,
+      background: pal.bg,
+      color: node.style?.color ?? pal.text,
+      fontSize: `${node.style?.size ?? 38}px`,
+      fontWeight: node.style?.weight ?? 500,
+      lineHeight: 1.1,
+      textAlign: ("align" in node && node.align) || "center",
+    };
+  }
+  if (type === "eyebrow") {
+    return {
+      fontFamily: PREVIEW_FONTS.body,
+      background: pal.bg,
+      color: node.style?.color ?? pal.textSecondary,
+      fontSize: `${node.style?.size ?? 11}px`,
+      fontWeight: node.style?.weight ?? 500,
+      textTransform: "uppercase",
+      letterSpacing: "0.32em",
+      textAlign: ("align" in node && node.align) || "center",
+    };
+  }
+  return {
+    fontFamily: PREVIEW_FONTS.body,
+    background: pal.bg,
+    color: node.style?.color ?? pal.textMuted,
+    fontSize: `${node.style?.size ?? 16}px`,
+    fontWeight: node.style?.weight ?? 400,
+    lineHeight: 1.7,
+    textAlign: ("align" in node && node.align) || "center",
+  };
 }
 
 const NODE_LABEL: Record<LeafNode["type"], string> = {
@@ -68,6 +128,7 @@ export function TreeInspector({
   node,
   workspaceId,
   layoutId,
+  mode,
   onChange,
   onRemove,
   onPickProduct,
@@ -87,7 +148,7 @@ export function TreeInspector({
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
-      {renderFields(node, workspaceId, layoutId, onChange, onPickProduct)}
+      {renderFields(node, workspaceId, layoutId, mode ?? "light", onChange, onPickProduct)}
     </div>
   );
 }
@@ -96,6 +157,7 @@ function renderFields(
   n: LeafNode,
   workspaceId: string,
   layoutId: string | undefined,
+  mode: Mode,
   onChange: (patch: Partial<LeafNode>) => void,
   onPickProduct: (p: PickedProduct) => void
 ) {
@@ -106,6 +168,7 @@ function renderFields(
           <WysiwygEditor
             value={initialHtml(n)}
             sizePresets={[24, 30, 38, 48, 56, 64, 80]}
+            previewStyle={previewStyleFor("heading", n, mode)}
             onChange={(html) =>
               onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
             }
@@ -118,6 +181,7 @@ function renderFields(
           <WysiwygEditor
             value={initialHtml(n)}
             sizePresets={[13, 14, 15, 16, 18, 20, 24]}
+            previewStyle={previewStyleFor("text", n, mode)}
             onChange={(html) =>
               onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
             }
@@ -131,6 +195,7 @@ function renderFields(
             value={initialHtml(n)}
             singleLine
             sizePresets={[10, 11, 12, 13, 14, 16]}
+            previewStyle={previewStyleFor("eyebrow", n, mode)}
             onChange={(html) =>
               onChange({ html, text: htmlToText(html) } as Partial<LeafNode>)
             }

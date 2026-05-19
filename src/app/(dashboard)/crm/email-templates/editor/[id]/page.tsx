@@ -594,6 +594,7 @@ export default function EmailEditorPage({ params }: PageProps) {
               node={selectedTreeNode}
               workspaceId={workspaceId}
               layoutId={draft.layout_id}
+              mode={meta.mode}
               onChange={(patch) => updateTreeLeaf(selectedTreeNode.id, patch)}
               onRemove={() => removeTreeLeaf(selectedTreeNode.id)}
               onPickProduct={pickTreeProduct}

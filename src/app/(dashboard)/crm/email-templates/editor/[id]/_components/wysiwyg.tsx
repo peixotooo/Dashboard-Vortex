@@ -68,6 +68,39 @@ interface Props {
   /** "px" font sizes shown in the toolbar dropdown. */
   sizePresets?: number[];
   placeholder?: string;
+  /** Estilo de preview aplicado na área de edição do Tiptap pra bater
+   *  visualmente com o render do email (mesma fonte/cor/fundo). Sem isso
+   *  o texto aparece com a fonte do dashboard e às vezes some por
+   *  contraste (texto branco da palette em fundo branco do form). */
+  previewStyle?: {
+    fontFamily?: string;
+    color?: string;
+    background?: string;
+    fontSize?: string | number;
+    fontWeight?: number;
+    textAlign?: "left" | "center" | "right";
+    textTransform?: "none" | "uppercase" | "lowercase";
+    letterSpacing?: string;
+    lineHeight?: string | number;
+  };
+}
+
+function cssDeclarations(style: Props["previewStyle"] | undefined): string {
+  if (!style) return "";
+  const decls: string[] = [];
+  if (style.fontFamily) decls.push(`font-family:${style.fontFamily}`);
+  if (style.color) decls.push(`color:${style.color}`);
+  if (style.background) decls.push(`background:${style.background}`);
+  if (style.fontSize != null) {
+    const fs = typeof style.fontSize === "number" ? `${style.fontSize}px` : style.fontSize;
+    decls.push(`font-size:${fs}`);
+  }
+  if (style.fontWeight != null) decls.push(`font-weight:${style.fontWeight}`);
+  if (style.textAlign) decls.push(`text-align:${style.textAlign}`);
+  if (style.textTransform) decls.push(`text-transform:${style.textTransform}`);
+  if (style.letterSpacing) decls.push(`letter-spacing:${style.letterSpacing}`);
+  if (style.lineHeight != null) decls.push(`line-height:${style.lineHeight}`);
+  return decls.join(";");
 }
 
 const SIZE_PRESETS_DEFAULT = [11, 13, 15, 18, 24, 38, 56];
@@ -88,7 +121,9 @@ export function WysiwygEditor({
   singleLine,
   sizePresets,
   placeholder,
+  previewStyle,
 }: Props) {
+  const styleDecls = cssDeclarations(previewStyle);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -112,6 +147,9 @@ export function WysiwygEditor({
       attributes: {
         class:
           "min-h-[60px] focus:outline-none px-3 py-2 text-sm leading-relaxed prose-sm max-w-none",
+        // Aplica fonte/cor/fundo do render do email direto no .ProseMirror
+        // pra o usuário ver o texto como vai chegar no email.
+        ...(styleDecls ? { style: styleDecls } : {}),
       },
       handleKeyDown(_view, event) {
         if (singleLine && event.key === "Enter" && !event.shiftKey) {
@@ -125,6 +163,14 @@ export function WysiwygEditor({
       onChange(editor.getHTML());
     },
   });
+
+  // Hot-update do style do ProseMirror quando previewStyle muda em runtime.
+  // Sem isso, mudar fonte/cor na inspeção só atualizaria após remount.
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom as HTMLElement;
+    dom.setAttribute("style", styleDecls);
+  }, [editor, styleDecls]);
 
   // Re-sync when the underlying value changes from outside (e.g. block swap).
   useEffect(() => {
