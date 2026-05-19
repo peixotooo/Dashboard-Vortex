@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+import { buildCorsHeaders } from "@/lib/cors";
 
 export async function POST(request: NextRequest) {
+  const CORS_HEADERS = buildCorsHeaders(request);
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -111,13 +107,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      ...buildCorsHeaders(request),
       "Access-Control-Max-Age": "86400",
     },
   });

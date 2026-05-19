@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
+import { buildCorsHeaders } from "@/lib/cors";
 import {
   EVENT_MAP,
   isCapiConfigured,
   sendCapiEvent,
   type MetaStandardEvent,
 } from "@/lib/meta-capi";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
 
 interface CAPIBody {
   key: string;
@@ -46,10 +41,12 @@ interface CAPIBody {
 }
 
 export async function POST(request: NextRequest) {
+  const cors = buildCorsHeaders(request);
+
   if (!isCapiConfigured()) {
     return NextResponse.json(
       { error: "CAPI not configured" },
-      { status: 503, headers: CORS_HEADERS }
+      { status: 503, headers: cors }
     );
   }
 
@@ -59,7 +56,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
@@ -67,7 +64,7 @@ export async function POST(request: NextRequest) {
   if (!auth) {
     return NextResponse.json(
       { error: "Invalid API key" },
-      { status: 401, headers: CORS_HEADERS }
+      { status: 401, headers: cors }
     );
   }
 
@@ -75,7 +72,7 @@ export async function POST(request: NextRequest) {
   if (!eventName) {
     return NextResponse.json(
       { error: "Unknown event_type" },
-      { status: 400, headers: CORS_HEADERS }
+      { status: 400, headers: cors }
     );
   }
 
@@ -125,21 +122,21 @@ export async function POST(request: NextRequest) {
     console.error("[CAPI] Send failed:", result.error, result.fbtrace_id);
     return NextResponse.json(
       { ok: false, error: result.error },
-      { status: 502, headers: CORS_HEADERS }
+      { status: 502, headers: cors }
     );
   }
 
   return NextResponse.json(
     { ok: true, events_received: result.events_received },
-    { headers: CORS_HEADERS }
+    { headers: cors }
   );
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 204,
     headers: {
-      ...CORS_HEADERS,
+      ...buildCorsHeaders(request),
       "Access-Control-Max-Age": "86400",
     },
   });
