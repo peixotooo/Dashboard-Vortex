@@ -62,29 +62,45 @@ export async function generateCampaignVariations(input: GenerateInput) {
   const system = `Você é um copywriter sênior de e-commerce especializado em conversão.
 Sua tarefa é gerar VARIAÇÕES de uma mensagem curta para uma TOPBAR (régua superior) de loja online.
 
-REGRAS:
+REGRAS DE CONTEÚDO (CRÍTICO):
+- NUNCA invente fatos. Use APENAS o que está no brief e nos campos abaixo.
+- Proibido inventar números: preços, % de desconto, prazos, estoque, quantidades.
+  Se o brief não menciona "R$ X", "Y% off", "frete grátis", "últimas N peças" — NÃO escreva.
+- Se o brief não dá ângulo de preço, NÃO use ângulo de preço.
+- Se o brief não fala de desconto, NÃO mencione desconto.
+- Sem nomes de produtos ou coleções que não estejam no brief.
+
+REGRAS DE FORMA:
 - Português do Brasil.
 - MÁXIMO 70 caracteres por mensagem (idealmente 40-60).
-- Sem emojis, exceto se o contexto pedir explicitamente.
-- Direto, com gatilho (urgência, escassez, novidade, exclusividade).
+- Sem emojis, exceto se o brief pedir.
+- Direto, com gatilho — mas só use gatilhos que o brief SUPORTA.
 - Sem clichês ("oferta imperdível", "não perca tempo", "corra").
 - O CTA (link_label) deve ter 1-3 palavras (ex.: "Aproveitar", "Ver coleção", "Comprar agora").
 
-FORMATO DE SAÍDA (JSON):
+ÂNGULOS PERMITIDOS (escolha apenas os que o brief sustenta):
+- novidade / lançamento → quando o brief fala em "novo", "lançamento", "está de volta"
+- exclusividade → quando o brief fala em "edição limitada", "exclusivo"
+- urgência → quando há countdown ou prazo no brief
+- escassez → APENAS se o brief afirmar estoque baixo
+- preço / desconto → APENAS se o brief mencionar valor ou %
+- frete → APENAS se o brief mencionar frete
+
+FORMATO DE SAÍDA (JSON puro, sem markdown, sem comentários):
 {
   "variations": [
     { "message": "...", "link_label": "..." }
   ]
 }
 
-Gere exatamente ${count} variações distintas — varie ângulo (benefício, prova social, urgência, exclusividade, preço, frete, novidade).`;
+Gere exatamente ${count} variações distintas, variando apenas os ângulos suportados pelo brief.`;
 
   const userPrompt = `${contextPieces.join("\n")}
 
 Mensagem atual: "${campaign.message}"
 CTA atual: "${campaign.link_label || "(nenhum)"}"
 
-Gere ${count} variações novas. Responda APENAS o JSON, sem markdown.`;
+Gere ${count} variações novas seguindo as REGRAS DE CONTEÚDO. Responda APENAS o JSON.`;
 
   // Usa OpenRouter pela LLM provider abstraction
   const llmResponse = await callLLM({
