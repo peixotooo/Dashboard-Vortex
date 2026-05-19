@@ -1355,11 +1355,10 @@ export default function CrmPage() {
           <TabsTrigger value="customers">Clientes</TabsTrigger>
         </TabsList>
 
-        {/* === Action bar — only when at least one filter is active === */}
-        {(activeFilters.length > 0 || selectedEmails.size > 0) && (
+        {/* === Action bar — sempre visível pra permitir disparo pra base toda === */}
         <div className="flex items-center gap-2 flex-wrap px-1 py-3 border-b border-border/50">
           {/* Filter chips (only when filters active) */}
-          {activeFilters.length > 0 && (
+          {activeFilters.length > 0 ? (
             <>
               <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
               {activeFilters.map((f) => (
@@ -1377,7 +1376,12 @@ export default function CrmPage() {
                 Limpar filtros
               </button>
             </>
-          )}
+          ) : selectedEmails.size === 0 ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
+              <Users className="h-3 w-3" />
+              Base toda · {formatNumber(filteredCustomers.length)} clientes
+            </span>
+          ) : null}
           {selectedEmails.size > 0 && (
             <button
               onClick={() => setSelectedEmails(new Set())}
@@ -1448,7 +1452,6 @@ export default function CrmPage() {
             </Button>
           </div>
         </div>
-        )}
 
         {/* ===== Tab 0: Metricas ===== */}
         <TabsContent value="metrics" className="space-y-6">
