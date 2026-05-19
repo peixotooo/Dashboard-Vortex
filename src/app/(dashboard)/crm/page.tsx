@@ -726,6 +726,26 @@ export default function CrmPage() {
     }
   }, [wsHeaders, customersLoaded]);
 
+  // Same as fetchCustomers, but returns the list — used by the action bar
+  // buttons that fire from the Métricas tab BEFORE the Clientes tab triggers
+  // the lazy load.
+  const ensureCustomersLoaded = useCallback(async (): Promise<RfmCustomer[]> => {
+    if (customersLoaded) return customers;
+    setCustomersLoading(true);
+    try {
+      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+      const data = await res.json();
+      const list: RfmCustomer[] = data.customers || [];
+      setCustomers(list);
+      setCustomersLoaded(true);
+      return list;
+    } catch {
+      return [];
+    } finally {
+      setCustomersLoading(false);
+    }
+  }, [wsHeaders, customersLoaded, customers]);
+
   const fetchExportLogs = useCallback(async () => {
     try {
       const res = await fetch("/api/crm/export-logs", { headers: wsHeaders() });
@@ -1379,7 +1399,7 @@ export default function CrmPage() {
           ) : selectedEmails.size === 0 ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
               <Users className="h-3 w-3" />
-              Base toda · {formatNumber(filteredCustomers.length)} clientes
+              Base toda · {formatNumber(customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)} clientes
             </span>
           ) : null}
           {selectedEmails.size > 0 && (
@@ -1406,13 +1426,20 @@ export default function CrmPage() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => {
-                const source = selectedEmails.size > 0 ? selectedCustomers : filteredCustomers;
+              disabled={customersLoading}
+              onClick={async () => {
+                // Quando vier de "Base toda" e customers ainda não foi
+                // carregado lazy, força agora — senão dispara pra lista vazia.
+                let source;
+                if (selectedEmails.size > 0) {
+                  source = selectedCustomers;
+                } else if (customersLoaded) {
+                  source = filteredCustomers;
+                } else {
+                  source = await ensureCustomersLoaded();
+                }
                 const contacts = source.map((c) => ({ name: c.name, email: c.email }));
                 setEmailListContacts(contacts);
-                // Nome derivado dos filtros ativos pra evitar listas
-                // genéricas tipo "CRM · 2026-05-13". Se nada ativo, cai
-                // pro default (data) dentro do dialog.
                 const filterParts = activeFilters
                   .map((f) => f.label)
                   .filter(Boolean);
@@ -1428,23 +1455,30 @@ export default function CrmPage() {
               }}
             >
               <Mail className="h-4 w-4" />
-              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
             </Button>
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => {
-                const contacts = selectedEmails.size > 0
-                  ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
-                  : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
+              disabled={customersLoading}
+              onClick={async () => {
+                let source;
+                if (selectedEmails.size > 0) {
+                  source = selectedCustomers;
+                } else if (customersLoaded) {
+                  source = filteredCustomers;
+                } else {
+                  source = await ensureCustomersLoaded();
+                }
+                const contacts = source.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
                 setCampaignContacts(contacts);
                 setCampaignSuggestedName(undefined);
                 setCampaignDialogOpen(true);
               }}
             >
               <MessageSquareMore className="h-4 w-4" />
-              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
             </Button>
             <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
               <Download className="h-4 w-4" />
