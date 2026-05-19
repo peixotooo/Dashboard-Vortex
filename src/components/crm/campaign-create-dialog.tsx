@@ -115,6 +115,7 @@ export function CampaignCreateDialog({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
 
   // Reset on open
   useEffect(() => {
@@ -313,10 +314,14 @@ export function CampaignCreateDialog({
     }
   }, [copyLoading, templateVars, workspaceId, campaignName, templateBody, copyPrompt]);
 
-  // Submit campaign
+  // Submit campaign — divide audiências grandes em batches pra não
+  // estourar o body limit do Vercel (4.5MB). 1ª batch cria a campanha
+  // + agendamento + variáveis; demais só anexam contatos via campaign_id.
   const handleSubmit = useCallback(async () => {
+    const BATCH_SIZE = 3000;
     setSubmitting(true);
     setSubmitError("");
+    setProgress({ done: 0, total: validContacts.length });
     try {
       const contactsPayload = validContacts.map((c) => ({
         phone: c.phone,
@@ -324,10 +329,17 @@ export function CampaignCreateDialog({
         variables: templateVars.length > 0 ? variableValues : undefined,
       }));
 
+      // 1) Primeira batch — cria a campanha
+      const firstBatch = contactsPayload.slice(0, BATCH_SIZE);
+      const restBatches: typeof contactsPayload[] = [];
+      for (let i = BATCH_SIZE; i < contactsPayload.length; i += BATCH_SIZE) {
+        restBatches.push(contactsPayload.slice(i, i + BATCH_SIZE));
+      }
+
       const body: Record<string, unknown> = {
         name: campaignName.trim(),
         templateId: selectedTemplateId,
-        contacts: contactsPayload,
+        contacts: firstBatch,
         variableValues: templateVars.length > 0 ? variableValues : {},
         segmentFilter: {},
         attribution_window_days: attributionDays,
@@ -352,6 +364,31 @@ export function CampaignCreateDialog({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Erro ${res.status}`);
+      }
+
+      const data = await res.json();
+      const campaignId = data.campaign?.id;
+      setProgress({ done: firstBatch.length, total: contactsPayload.length });
+
+      // 2) Anexa restantes em batches sequenciais
+      if (campaignId && restBatches.length > 0) {
+        let done = firstBatch.length;
+        for (const batch of restBatches) {
+          const appendRes = await fetch("/api/crm/whatsapp/campaigns", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-workspace-id": workspaceId,
+            },
+            body: JSON.stringify({ campaign_id: campaignId, contacts: batch, cooldownDays }),
+          });
+          if (!appendRes.ok) {
+            const errData = await appendRes.json().catch(() => ({}));
+            throw new Error(errData.error || `Erro anexando batch: ${appendRes.status}`);
+          }
+          done += batch.length;
+          setProgress({ done, total: contactsPayload.length });
+        }
       }
 
       setSubmitSuccess(true);
@@ -853,7 +890,9 @@ export function CampaignCreateDialog({
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Criando...
+                    {progress.total > 0
+                      ? `Enviando ${progress.done.toLocaleString("pt-BR")} / ${progress.total.toLocaleString("pt-BR")}...`
+                      : "Criando..."}
                   </>
                 ) : (
                   <>
