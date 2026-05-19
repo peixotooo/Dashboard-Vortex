@@ -96,6 +96,8 @@ export async function GET(request: NextRequest) {
         accent_color: campaign.accent_color || config.accent_color,
         font_size: config.font_size,
         height: config.height,
+        title_bold: config.title_bold !== false,
+        message_bold: config.message_bold === true,
         sticky: config.sticky,
         position: config.position,
         show_close_button: config.show_close_button,

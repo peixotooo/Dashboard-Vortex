@@ -67,6 +67,8 @@ export async function PUT(request: NextRequest) {
         accent_color: body.accent_color || "#22c55e",
         font_size: body.font_size || "14px",
         height: body.height || "40px",
+        title_bold: body.title_bold ?? true,
+        message_bold: body.message_bold ?? false,
         sticky: body.sticky ?? true,
         position: body.position || "top",
         show_close_button: body.show_close_button ?? true,

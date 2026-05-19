@@ -40,6 +40,8 @@ interface TopbarConfig {
   accent_color: string;
   font_size: string;
   height: string;
+  title_bold: boolean;
+  message_bold: boolean;
   sticky: boolean;
   position: "top" | "bottom";
   show_close_button: boolean;
@@ -102,6 +104,8 @@ const DEFAULT_CONFIG: TopbarConfig = {
   accent_color: "#22c55e",
   font_size: "14px",
   height: "40px",
+  title_bold: true,
+  message_bold: false,
   sticky: true,
   position: "top",
   show_close_button: true,
@@ -518,6 +522,33 @@ export default function TopbarPage() {
                 </div>
               )}
 
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center justify-between border rounded p-3">
+                  <div>
+                    <Label className="font-medium">Título em bold</Label>
+                    <p className="text-xs text-muted-foreground">
+                      O texto destacado antes da mensagem.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.title_bold}
+                    onCheckedChange={(v) => setConfig({ ...config, title_bold: v })}
+                  />
+                </div>
+                <div className="flex items-center justify-between border rounded p-3">
+                  <div>
+                    <Label className="font-medium">Mensagem em bold</Label>
+                    <p className="text-xs text-muted-foreground">
+                      O texto principal da campanha.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.message_bold}
+                    onCheckedChange={(v) => setConfig({ ...config, message_bold: v })}
+                  />
+                </div>
+              </div>
+
               <div>
                 <Label>Aparecer em</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
@@ -797,11 +828,13 @@ export default function TopbarPage() {
                   <div className="text-xs text-muted-foreground mb-2">Preview</div>
                   <div style={previewStyle}>
                     {editing.title && (
-                      <strong style={{ fontWeight: 700, letterSpacing: ".02em" }}>
+                      <span style={{ fontWeight: config.title_bold ? 700 : 400, letterSpacing: ".02em" }}>
                         {editing.title}
-                      </strong>
+                      </span>
                     )}
-                    <span>{editing.message || "Sua mensagem aparece aqui"}</span>
+                    <span style={{ fontWeight: config.message_bold ? 700 : 400 }}>
+                      {editing.message || "Sua mensagem aparece aqui"}
+                    </span>
                     {editing.countdown_enabled && (
                       <span
                         style={{

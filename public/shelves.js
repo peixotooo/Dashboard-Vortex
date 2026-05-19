@@ -2728,6 +2728,8 @@
         "text-align:center",
         "line-height:1.3",
         "font-family:inherit",
+        // Zera font-weight herdado do tema da loja — cada child decide o seu
+        "font-weight:400",
         "box-shadow:0 1px 3px rgba(0,0,0,.08)",
       ];
       bar.setAttribute("style", styles.join(";"));
@@ -2735,16 +2737,23 @@
       var content = document.createElement("div");
       content.setAttribute("style", "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center");
 
+      var titleBold = tb.title_bold !== false;   // default true
+      var messageBold = tb.message_bold === true; // default false
+
       if (tb.title) {
-        var titleEl = document.createElement("strong");
+        var titleEl = document.createElement("span");
         titleEl.id = "vtx-topbar-title";
-        titleEl.setAttribute("style", "font-weight:700;letter-spacing:.02em");
+        titleEl.setAttribute(
+          "style",
+          "font-weight:" + (titleBold ? 700 : 400) + ";letter-spacing:.02em"
+        );
         titleEl.textContent = tb.title;
         content.appendChild(titleEl);
       }
 
       var msg = document.createElement("span");
       msg.id = "vtx-topbar-msg";
+      msg.setAttribute("style", "font-weight:" + (messageBold ? 700 : 400));
       msg.textContent = tb.message || "";
       content.appendChild(msg);
 
