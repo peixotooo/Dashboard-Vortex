@@ -111,7 +111,7 @@ const DEFAULT_CONFIG: TopbarConfig = {
   ai_enabled: false,
   ai_context: "",
   ai_brand_voice: "",
-  ai_model: "openrouter/auto",
+  ai_model: "anthropic/claude-haiku-4.5",
   ai_variations_per_run: 3,
 };
 
@@ -591,11 +591,16 @@ export default function TopbarPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Modelo</Label>
+                  <Label>Modelo (OpenRouter)</Label>
                   <Input
                     value={config.ai_model}
                     onChange={(e) => setConfig({ ...config, ai_model: e.target.value })}
+                    placeholder="anthropic/claude-haiku-4.5"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recomendado: <code>anthropic/claude-haiku-4.5</code> (segue prompt e não alucina preço).
+                    Evite <code>openrouter/auto</code> — roteia pra modelos fracos.
+                  </p>
                 </div>
                 <div>
                   <Label>Variações por geração</Label>

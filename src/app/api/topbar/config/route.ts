@@ -76,7 +76,7 @@ export async function PUT(request: NextRequest) {
         ai_enabled: body.ai_enabled ?? false,
         ai_context: body.ai_context || null,
         ai_brand_voice: body.ai_brand_voice || null,
-        ai_model: body.ai_model || "openrouter/auto",
+        ai_model: body.ai_model || "anthropic/claude-haiku-4.5",
         ai_variations_per_run: body.ai_variations_per_run ?? 3,
         updated_at: new Date().toISOString(),
       },

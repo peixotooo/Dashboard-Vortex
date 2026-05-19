@@ -1,6 +1,53 @@
 import { callLLM } from "@/lib/agent/llm-provider";
 import { createAdminClient } from "@/lib/supabase-admin";
 
+// Emoji ranges (cobre símbolos, pictografia, "fire" 🔥, etc.)
+const EMOJI_RE =
+  /[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+
+/**
+ * Pós-filtro paranoico: a LLM pode alucinar mesmo com prompt rígido.
+ * Remove tokens que NÃO estão sustentados pelo brief.
+ */
+export function sanitizeAgainstBrief(text: string, briefLower: string): string {
+  let out = text;
+
+  // 1. Emojis: sempre fora (mesmo se brief tiver, é raro fazer sentido em topbar)
+  out = out.replace(EMOJI_RE, "");
+
+  // 2. Preços em reais — só permite se o brief mencionar "R$" ou valor explícito
+  const briefHasPrice = /r\$|\d+\s*reais?|preço|preco|valor/.test(briefLower);
+  if (!briefHasPrice) {
+    // "a partir de R$ 69,90", "por R$ 89", "R$1.299,99"
+    out = out.replace(/\s*[—–-]?\s*(?:a partir de|desde|por (?:apenas|só)?|só por|por)\s*r\$\s*\d+(?:[.,]\d+)*/gi, "");
+    out = out.replace(/\s*r\$\s*\d+(?:[.,]\d+)*/gi, "");
+    // "por 69 reais", "69,90 reais"
+    out = out.replace(/\s*\d+(?:[.,]\d+)?\s*reais?/gi, "");
+  }
+
+  // 3. Percentuais — só permite se o brief tiver "%" ou "desconto" ou "off"
+  const briefHasPercent = /%|desconto|off\b/.test(briefLower);
+  if (!briefHasPercent) {
+    out = out.replace(/\s*(?:até|de|com)?\s*\d+\s*%(?:\s*off)?/gi, "");
+  }
+
+  // 4. Frete grátis — só permite se o brief tocar
+  const briefHasFrete = /frete/.test(briefLower);
+  if (!briefHasFrete) {
+    out = out.replace(/\s*frete\s*gr[áa]tis/gi, "");
+  }
+
+  // 5. Cleanup: dupla pontuação, espaços, separadores órfãos
+  out = out
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*[—–-]\s*[.!?]?\s*$/g, "")
+    .replace(/\s*\.\s*\./g, ".")
+    .replace(/^\s*[.,;:—–-]+\s*/, "")
+    .trim();
+
+  return out;
+}
+
 export interface GenerateInput {
   workspaceId: string;
   campaignId: string;
@@ -132,13 +179,29 @@ Gere ${count} variações novas seguindo as REGRAS DE CONTEÚDO. Responda APENAS
     throw new Error(`Falha ao parsear JSON da LLM: ${(e as Error).message}\nResposta: ${raw.slice(0, 500)}`);
   }
 
-  const variations = (parsed.variations || []).filter(
-    (v): v is GeneratedVariation =>
-      typeof v?.message === "string" && v.message.trim().length > 0
-  );
+  const briefText = [
+    config.ai_context || "",
+    campaign.context_brief || "",
+    campaign.context_type || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const variations = (parsed.variations || [])
+    .filter(
+      (v): v is GeneratedVariation =>
+        typeof v?.message === "string" && v.message.trim().length > 0
+    )
+    .map((v) => ({
+      message: sanitizeAgainstBrief(v.message, briefText),
+      link_label: v.link_label ? sanitizeAgainstBrief(v.link_label, briefText) : undefined,
+    }))
+    .filter((v) => v.message.length >= 8);
 
   if (variations.length === 0) {
-    throw new Error("LLM não retornou variações válidas");
+    throw new Error(
+      "LLM gerou variações inválidas (alucinação detectada e filtrada). Tente outro modelo no config."
+    );
   }
 
   // Persiste no banco
