@@ -2793,17 +2793,54 @@
           bar.remove();
           document.documentElement.style.removeProperty("--vtx-topbar-h");
           document.body.style.removeProperty(isTop ? "padding-top" : "padding-bottom");
+          unshiftFixedHeaders();
         });
         bar.appendChild(close);
       }
 
+      // Empurra elementos fixed/sticky top:0 (header da loja) pra baixo
+      // pela altura da topbar, e marca pra desfazer no close.
+      function shiftFixedHeaders(barHeight) {
+        if (!isTop) return; // só faz sentido na variante top
+        // Varre TODOS os elementos do body (caro mas é one-shot)
+        var all = document.body.querySelectorAll("*");
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          if (el === bar || bar.contains(el)) continue;
+          var cs = getComputedStyle(el);
+          if (cs.position !== "fixed" && cs.position !== "sticky") continue;
+          // Só considera elementos efetivamente colados no top
+          var topVal = parseFloat(cs.top);
+          if (isNaN(topVal) || topVal > 8) continue;
+          // Evita re-empurrar
+          if (el.getAttribute("data-vtx-shifted")) continue;
+          el.setAttribute("data-vtx-shifted", String(topVal || 0));
+          el.style.setProperty("top", (topVal + barHeight) + "px", "important");
+        }
+      }
+
+      function unshiftFixedHeaders() {
+        var marked = document.querySelectorAll("[data-vtx-shifted]");
+        for (var i = 0; i < marked.length; i++) {
+          var el = marked[i];
+          var orig = parseFloat(el.getAttribute("data-vtx-shifted") || "0");
+          el.style.setProperty("top", orig + "px", "important");
+          el.removeAttribute("data-vtx-shifted");
+        }
+      }
+
       document.body.appendChild(bar);
 
-      requestAnimationFrame(function () {
+      function applyOffsets() {
         var h = bar.getBoundingClientRect().height || parseInt(tb.height, 10) || 40;
         document.documentElement.style.setProperty("--vtx-topbar-h", h + "px");
         document.body.style[isTop ? "paddingTop" : "paddingBottom"] = h + "px";
-      });
+        shiftFixedHeaders(h);
+      }
+      requestAnimationFrame(applyOffsets);
+      // Themes (VNDA, Shopify) costumam montar header async — reaplica.
+      setTimeout(applyOffsets, 600);
+      setTimeout(applyOffsets, 1800);
 
       trackTopbar("impression", tb.campaign_id, tb.variation_id);
 
