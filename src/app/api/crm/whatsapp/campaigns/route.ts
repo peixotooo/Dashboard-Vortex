@@ -53,7 +53,59 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
-    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays, requires_approval, save_as_draft } = body;
+    const { name, templateId, segmentFilter, variableValues, contacts, scheduled_at, attribution_window_days, message_cost_usd, exchange_rate, cooldownDays, requires_approval, save_as_draft, campaign_id } = body;
+
+    // Modo "append": cliente chama com campaign_id pra anexar mais
+    // contatos a uma campanha já criada. Usado pra dividir audiência
+    // grande em batches no cliente (Vercel body limit ~4.5MB).
+    if (campaign_id) {
+      if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
+        return NextResponse.json({ error: "Missing contacts for append" }, { status: 400 });
+      }
+      const admin = createAdminClient();
+      // Valida campanha pertence ao workspace
+      const { data: existing } = await admin
+        .from("wa_campaigns")
+        .select("id, total_messages, variable_values")
+        .eq("id", campaign_id)
+        .eq("workspace_id", workspaceId)
+        .single();
+      if (!existing) {
+        return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+      }
+      const cdDays2 = typeof cooldownDays === "number" ? cooldownDays : 7;
+      const compliance = await filterContacts(
+        workspaceId,
+        contacts as Array<{ phone: string; name?: string; variables?: Record<string, string> }>,
+        cdDays2
+      );
+      const allowed = compliance.allowed;
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < allowed.length; i += BATCH_SIZE) {
+        const batch = allowed.slice(i, i + BATCH_SIZE).map((c) => ({
+          workspace_id: workspaceId,
+          campaign_id: existing.id,
+          phone: c.phone,
+          contact_name: c.name || null,
+          variable_values: c.variables || existing.variable_values || {},
+          status: "queued",
+        }));
+        const { error: msgErr } = await admin.from("wa_messages").insert(batch);
+        if (msgErr) {
+          console.error("[WA Campaign Append] Error inserting messages batch:", msgErr.message);
+        }
+      }
+      // Update total_messages
+      await admin
+        .from("wa_campaigns")
+        .update({ total_messages: (existing.total_messages || 0) + allowed.length })
+        .eq("id", existing.id);
+      return NextResponse.json({
+        appended: allowed.length,
+        cooldownCount: compliance.cooldownCount,
+        blockedCount: compliance.blockedCount,
+      });
+    }
 
     if (!name || !templateId || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
