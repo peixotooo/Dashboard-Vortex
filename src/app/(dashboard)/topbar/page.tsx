@@ -418,21 +418,11 @@ export default function TopbarPage() {
                     onChange={(e) => setConfig({ ...config, height: e.target.value })}
                   />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <Label>Font size</Label>
                   <Input
                     value={config.font_size}
                     onChange={(e) => setConfig({ ...config, font_size: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Persistência do close (h)</Label>
-                  <Input
-                    type="number"
-                    value={config.close_persistence_hours}
-                    onChange={(e) =>
-                      setConfig({ ...config, close_persistence_hours: Number(e.target.value) })
-                    }
                   />
                 </div>
               </div>
@@ -481,6 +471,32 @@ export default function TopbarPage() {
                   />
                 </div>
               </div>
+
+              {config.show_close_button && (
+                <div className="border rounded p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Quanto tempo a topbar fica escondida depois do close (horas)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Quando o cliente fecha, esperamos esse tempo antes de mostrar de novo no mesmo navegador.
+                        Coloque <b>0</b> pra fazer reaparecer imediatamente (útil pra testar).
+                      </p>
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      className="w-24"
+                      value={config.close_persistence_hours}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          close_persistence_hours: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <Label>Aparecer em</Label>
