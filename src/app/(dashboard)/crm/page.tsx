@@ -585,6 +585,9 @@ export default function CrmPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // "Inverter": quando true, mostra a base EXCETO o que os filtros pegam.
+  // Reset automático quando os filtros são todos limpos.
+  const [invertFilters, setInvertFilters] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout>(undefined);
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -725,6 +728,26 @@ export default function CrmPage() {
       setCustomersLoading(false);
     }
   }, [wsHeaders, customersLoaded]);
+
+  // Same as fetchCustomers, but returns the list — used by the action bar
+  // buttons that fire from the Métricas tab BEFORE the Clientes tab triggers
+  // the lazy load.
+  const ensureCustomersLoaded = useCallback(async (): Promise<RfmCustomer[]> => {
+    if (customersLoaded) return customers;
+    setCustomersLoading(true);
+    try {
+      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+      const data = await res.json();
+      const list: RfmCustomer[] = data.customers || [];
+      setCustomers(list);
+      setCustomersLoaded(true);
+      return list;
+    } catch {
+      return [];
+    } finally {
+      setCustomersLoading(false);
+    }
+  }, [wsHeaders, customersLoaded, customers]);
 
   const fetchExportLogs = useCallback(async () => {
     try {
@@ -893,26 +916,35 @@ export default function CrmPage() {
     }
   }, [activeTab, customersLoaded, fetchCustomers]);
 
-  // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays)
+  // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays).
+  // Quando invertFilters=true, retorna a base EXCETO o que os filtros pegariam
+  // (mas o search e filtros de range continuam sempre incluídos, sem inversão).
   const filteredCustomers = useMemo(() => {
     const q = debouncedSearch ? debouncedSearch.toLowerCase() : "";
     return customers.filter((c) => {
-      if (segmentFilter !== "all" && c.segment !== segmentFilter) return false;
-      if (dayRangeFilter !== "all" && c.preferredDayRange !== dayRangeFilter) return false;
-      if (lifecycleFilter !== "all" && c.lifecycleStage !== lifecycleFilter) return false;
-      if (hourFilter !== "all" && c.preferredHour !== hourFilter) return false;
-      if (couponFilter !== "all" && c.couponSensitivity !== couponFilter) return false;
-      if (weekdayFilter !== "all" && c.preferredWeekday !== weekdayFilter) return false;
+      // Search e ranges — sempre aplicam (não invertem).
+      if (q && !c.name.toLowerCase().includes(q) && !c.email.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
       if (purchasedDateRange && (c.lastPurchaseDate < purchasedDateRange.from || c.firstPurchaseDate > purchasedDateRange.to)) return false;
       if (inactiveDateRange && c.lastPurchaseDate >= inactiveDateRange.from) return false;
       if (avgTicketRange.min !== null && c.avgTicket < avgTicketRange.min) return false;
       if (avgTicketRange.max !== null && c.avgTicket > avgTicketRange.max) return false;
       if (totalSpentRange.min !== null && c.totalSpent < totalSpentRange.min) return false;
       if (totalSpentRange.max !== null && c.totalSpent > totalSpentRange.max) return false;
-      if (q && !c.name.toLowerCase().includes(q) && !c.email.toLowerCase().includes(q) && !c.phone.includes(q)) return false;
-      return true;
+
+      // Filtros de segmentação/comportamento — combinam com AND, e
+      // podem ser invertidos pelo botão "Inverter".
+      const matchesSegment = segmentFilter === "all" || c.segment === segmentFilter;
+      const matchesDay = dayRangeFilter === "all" || c.preferredDayRange === dayRangeFilter;
+      const matchesLifecycle = lifecycleFilter === "all" || c.lifecycleStage === lifecycleFilter;
+      const matchesHour = hourFilter === "all" || c.preferredHour === hourFilter;
+      const matchesCoupon = couponFilter === "all" || c.couponSensitivity === couponFilter;
+      const matchesWeekday = weekdayFilter === "all" || c.preferredWeekday === weekdayFilter;
+      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all";
+
+      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday;
+      return invertFilters && hasAnyFilter ? !matches : matches;
     });
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
 
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
@@ -1009,6 +1041,7 @@ export default function CrmPage() {
     setInactiveDateRange(null);
     setAvgTicketRange({ min: null, max: null });
     setTotalSpentRange({ min: null, max: null });
+    setInvertFilters(false);
   }, []);
 
   const handleGlobalExport = useCallback(() => {
@@ -1360,18 +1393,40 @@ export default function CrmPage() {
           {/* Filter chips (only when filters active) */}
           {activeFilters.length > 0 ? (
             <>
-              <span className="text-xs font-medium text-muted-foreground shrink-0">Filtros:</span>
+              <span className="text-xs font-medium text-muted-foreground shrink-0">
+                {invertFilters ? "Base toda EXCETO:" : "Filtros:"}
+              </span>
               {activeFilters.map((f) => (
                 <button
                   key={`${f.type}-${f.value}`}
                   onClick={f.onRemove}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer"
-                  style={{ color: f.color, backgroundColor: `${f.color}15`, border: `1px solid ${f.color}30` }}
+                  style={{
+                    color: f.color,
+                    backgroundColor: `${f.color}15`,
+                    border: `1px solid ${f.color}30`,
+                    textDecoration: invertFilters ? "line-through" : undefined,
+                    textDecorationColor: invertFilters ? f.color : undefined,
+                  }}
                 >
                   {f.label}
                   <X className="h-3 w-3" />
                 </button>
               ))}
+              <button
+                onClick={() => setInvertFilters((v) => !v)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors hover:opacity-80 cursor-pointer ml-1 ${
+                  invertFilters
+                    ? "bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30"
+                    : "bg-muted/50 text-muted-foreground border border-border hover:text-foreground"
+                }`}
+                title={invertFilters
+                  ? "Voltar pra modo normal (mostrar quem combina com os filtros)"
+                  : "Inverter: mostrar a base EXCETO o que está filtrado"
+                }
+              >
+                ⇄ {invertFilters ? "Invertido" : "Inverter"}
+              </button>
               <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 ml-1 cursor-pointer">
                 Limpar filtros
               </button>
@@ -1379,7 +1434,7 @@ export default function CrmPage() {
           ) : selectedEmails.size === 0 ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
               <Users className="h-3 w-3" />
-              Base toda · {formatNumber(filteredCustomers.length)} clientes
+              Base toda · {formatNumber(customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)} clientes
             </span>
           ) : null}
           {selectedEmails.size > 0 && (
@@ -1406,13 +1461,20 @@ export default function CrmPage() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => {
-                const source = selectedEmails.size > 0 ? selectedCustomers : filteredCustomers;
+              disabled={customersLoading}
+              onClick={async () => {
+                // Quando vier de "Base toda" e customers ainda não foi
+                // carregado lazy, força agora — senão dispara pra lista vazia.
+                let source;
+                if (selectedEmails.size > 0) {
+                  source = selectedCustomers;
+                } else if (customersLoaded) {
+                  source = filteredCustomers;
+                } else {
+                  source = await ensureCustomersLoaded();
+                }
                 const contacts = source.map((c) => ({ name: c.name, email: c.email }));
                 setEmailListContacts(contacts);
-                // Nome derivado dos filtros ativos pra evitar listas
-                // genéricas tipo "CRM · 2026-05-13". Se nada ativo, cai
-                // pro default (data) dentro do dialog.
                 const filterParts = activeFilters
                   .map((f) => f.label)
                   .filter(Boolean);
@@ -1428,23 +1490,30 @@ export default function CrmPage() {
               }}
             >
               <Mail className="h-4 w-4" />
-              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
             </Button>
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => {
-                const contacts = selectedEmails.size > 0
-                  ? selectedCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }))
-                  : filteredCustomers.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
+              disabled={customersLoading}
+              onClick={async () => {
+                let source;
+                if (selectedEmails.size > 0) {
+                  source = selectedCustomers;
+                } else if (customersLoaded) {
+                  source = filteredCustomers;
+                } else {
+                  source = await ensureCustomersLoaded();
+                }
+                const contacts = source.map((c) => ({ name: c.name, email: c.email, phone: c.phone }));
                 setCampaignContacts(contacts);
                 setCampaignSuggestedName(undefined);
                 setCampaignDialogOpen(true);
               }}
             >
               <MessageSquareMore className="h-4 w-4" />
-              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : filteredCustomers.length})
+              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
             </Button>
             <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
               <Download className="h-4 w-4" />
