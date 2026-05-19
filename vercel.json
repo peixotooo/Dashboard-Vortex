@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/pricing-engine",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/topbar-regenerate",
+      "schedule": "0 * * * *"
     }
   ]
 }

@@ -153,6 +153,7 @@ const navGroups: NavGroup[] = [
           { title: "Produtos", href: "/products", icon: Boxes },
           { title: "Prateleiras", href: "/shelves", icon: LayoutGrid },
           { title: "Régua de Brinde", href: "/gift-bar", icon: Gift },
+          { title: "Topbar", href: "/topbar", icon: Megaphone },
           { title: "Etiquetas Promo", href: "/promo-tags", icon: Tag },
           { title: "Cupons Auto", href: "/coupons", icon: Tag },
         ],
