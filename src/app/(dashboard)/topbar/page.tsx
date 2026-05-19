@@ -322,6 +322,26 @@ export default function TopbarPage() {
     );
   }
 
+  async function deleteVariation(v: Variation) {
+    if (!editing?.id) return;
+    if (!confirm("Apagar essa variação?")) return;
+    await fetch(
+      `/api/topbar/campaigns/${editing.id}/variations/${v.id}`,
+      { method: "DELETE", headers: headers() }
+    );
+    setVariations((prev) => prev.filter((x) => x.id !== v.id));
+  }
+
+  async function clearLlmVariations() {
+    if (!editing?.id) return;
+    if (!confirm("Apagar todas as variações geradas por IA? (Variações humanas serão mantidas)")) return;
+    await fetch(
+      `/api/topbar/campaigns/${editing.id}/variations?source=llm`,
+      { method: "DELETE", headers: headers() }
+    );
+    setVariations((prev) => prev.filter((x) => x.generated_by !== "llm"));
+  }
+
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
     const fg = editing?.text_color || config.text_color;
@@ -1089,11 +1109,23 @@ export default function TopbarPage() {
 
                 {variations.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Variações ({variations.length})</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Variações ({variations.length})</Label>
+                      {variations.some((v) => v.generated_by === "llm") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={clearLlmVariations}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" /> Limpar variações de IA
+                        </Button>
+                      )}
+                    </div>
                     {variations.map((v) => (
                       <div
                         key={v.id}
-                        className={`border rounded p-3 cursor-pointer ${
+                        className={`border rounded p-3 cursor-pointer group ${
                           v.selected ? "border-emerald-500 bg-emerald-50/40" : ""
                         }`}
                         onClick={() => selectVariation(v)}
@@ -1103,6 +1135,17 @@ export default function TopbarPage() {
                             {v.generated_by === "llm" ? "IA" : "Humano"}
                           </Badge>
                           {v.selected && <Badge variant="default">Selecionada</Badge>}
+                          <button
+                            type="button"
+                            aria-label="Apagar variação"
+                            className="ml-auto opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded p-1 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteVariation(v);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                         <p className="text-sm">{v.message}</p>
                         {v.link_label && (

@@ -62,29 +62,32 @@ export async function generateCampaignVariations(input: GenerateInput) {
   const system = `Você é um copywriter sênior de e-commerce especializado em conversão.
 Sua tarefa é gerar VARIAÇÕES de uma mensagem curta para uma TOPBAR (régua superior) de loja online.
 
-REGRAS DE CONTEÚDO (CRÍTICO):
-- NUNCA invente fatos. Use APENAS o que está no brief e nos campos abaixo.
-- Proibido inventar números: preços, % de desconto, prazos, estoque, quantidades.
-  Se o brief não menciona "R$ X", "Y% off", "frete grátis", "últimas N peças" — NÃO escreva.
-- Se o brief não dá ângulo de preço, NÃO use ângulo de preço.
-- Se o brief não fala de desconto, NÃO mencione desconto.
-- Sem nomes de produtos ou coleções que não estejam no brief.
+FONTE DE VERDADE:
+- O ÚNICO conjunto de fatos válidos é o "BRIEF" abaixo (mais o contexto do negócio e tipo de campanha).
+- A "Mensagem atual" é referência de ESTILO apenas — pode conter números/preços/produtos inventados em gerações anteriores.
+- Se um número (preço, %, prazo, peças) aparece na Mensagem atual mas NÃO no Brief, é ALUCINAÇÃO — descarte.
+
+REGRAS DE CONTEÚDO (CRÍTICAS):
+- Proibido inventar números: preços (R$), % de desconto, prazos, estoque, quantidades, prestações.
+- Proibido inventar nomes de produtos, coleções, materiais.
+- Se o Brief não menciona "R$ X" — NÃO escreva valor.
+- Se o Brief não menciona "Y% off" — NÃO escreva desconto.
+- Se o Brief não menciona "frete grátis" — NÃO mencione frete.
+- Sem emojis, JAMAIS, mesmo que a Mensagem atual tenha. NUNCA use 🔥 💥 ⚡️ ✨ 🎉 etc.
 
 REGRAS DE FORMA:
 - Português do Brasil.
 - MÁXIMO 70 caracteres por mensagem (idealmente 40-60).
-- Sem emojis, exceto se o brief pedir.
-- Direto, com gatilho — mas só use gatilhos que o brief SUPORTA.
-- Sem clichês ("oferta imperdível", "não perca tempo", "corra").
+- Sem clichês ("oferta imperdível", "não perca tempo", "corra", "imperdível").
 - O CTA (link_label) deve ter 1-3 palavras (ex.: "Aproveitar", "Ver coleção", "Comprar agora").
 
-ÂNGULOS PERMITIDOS (escolha apenas os que o brief sustenta):
-- novidade / lançamento → quando o brief fala em "novo", "lançamento", "está de volta"
-- exclusividade → quando o brief fala em "edição limitada", "exclusivo"
-- urgência → quando há countdown ou prazo no brief
-- escassez → APENAS se o brief afirmar estoque baixo
-- preço / desconto → APENAS se o brief mencionar valor ou %
-- frete → APENAS se o brief mencionar frete
+ÂNGULOS PERMITIDOS (escolha apenas os que o Brief sustenta):
+- novidade / lançamento → quando o Brief fala em "novo", "lançamento", "está de volta"
+- exclusividade → quando o Brief fala em "edição limitada", "exclusivo"
+- urgência → APENAS se houver countdown ou prazo declarado
+- escassez → APENAS se o Brief afirmar estoque baixo
+- preço / desconto → APENAS se o Brief trouxer número
+- frete → APENAS se o Brief mencionar frete
 
 FORMATO DE SAÍDA (JSON puro, sem markdown, sem comentários):
 {
@@ -93,11 +96,12 @@ FORMATO DE SAÍDA (JSON puro, sem markdown, sem comentários):
   ]
 }
 
-Gere exatamente ${count} variações distintas, variando apenas os ângulos suportados pelo brief.`;
+Gere exatamente ${count} variações distintas, variando apenas os ângulos suportados pelo Brief.`;
 
-  const userPrompt = `${contextPieces.join("\n")}
+  const userPrompt = `BRIEF (única fonte de verdade):
+${contextPieces.join("\n") || "(brief vazio — gere variações neutras de descoberta de marca)"}
 
-Mensagem atual: "${campaign.message}"
+Mensagem atual (apenas referência de estilo, IGNORE números/produtos não presentes no Brief): "${campaign.message}"
 CTA atual: "${campaign.link_label || "(nenhum)"}"
 
 Gere ${count} variações novas seguindo as REGRAS DE CONTEÚDO. Responda APENAS o JSON.`;
