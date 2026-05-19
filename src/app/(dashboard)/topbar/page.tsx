@@ -1088,16 +1088,13 @@ export default function TopbarPage() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p className="text-muted-foreground">
-            Adicione o script junto com a tag do GTM (ou reaproveite os globals do shelves):
+            Nenhum script extra. A topbar roda dentro do <code className="bg-muted px-1 rounded">shelves.js</code> que
+            já está injetado na loja (mesma API key, mesma tag do GTM). Basta ativar uma campanha aqui.
           </p>
-          <pre className="bg-muted rounded p-3 text-xs overflow-auto">{`<script>
-  window._topbarKey = "SUA_API_KEY";
-  window._topbarBase = "https://dash.bulking.com.br";
-</script>
-<script src="https://dash.bulking.com.br/topbar.js" defer></script>`}</pre>
           <p className="text-xs text-muted-foreground">
             <ExternalLink className="h-3 w-3 inline mr-1" />
-            A API key é a mesma usada pelos shelves.
+            Quem ainda não tem o shelves.js: configurar em{" "}
+            <Link href="/shelves" className="underline">Prateleiras</Link>.
           </p>
         </CardContent>
       </Card>
