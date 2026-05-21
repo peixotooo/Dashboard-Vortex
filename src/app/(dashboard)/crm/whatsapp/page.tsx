@@ -1317,7 +1317,7 @@ export default function WhatsAppPage() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{c.name}</span>
                             {statusBadge(c.status)}
-                            {c.scheduled_at && (c.status === "scheduled" || c.status === "draft") && (
+                            {c.scheduled_at && (c.status === "scheduled" || c.status === "draft" || c.status === "pending_approval") && (
                               <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-400">
                                 <Clock className="h-3 w-3" />
                                 {new Date(c.scheduled_at).toLocaleString("pt-BR", {
@@ -1363,33 +1363,33 @@ export default function WhatsAppPage() {
                               <div className="text-xs text-muted-foreground">Falhas</div>
                             </div>
                           )}
+                          {["draft", "scheduled", "queued", "pending_approval"].includes(c.status) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="ml-2 gap-1.5"
+                              onClick={() => openEdit(c)}
+                              title="Editar nome e/ou data prevista"
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Editar
+                            </Button>
+                          )}
                           {["draft", "scheduled", "queued"].includes(c.status) && (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="ml-2 gap-1.5"
-                                onClick={() => openEdit(c)}
-                                title="Editar nome e/ou data prevista"
-                              >
-                                <Pencil className="h-3.5 w-3.5" /> Editar
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-1.5 text-destructive hover:text-destructive"
-                                disabled={deleteBusyId === c.id}
-                                onClick={() => deleteCampaign(c)}
-                                title="Excluir campanha (não pode ser desfeito)"
-                              >
-                                {deleteBusyId === c.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                                Excluir
-                              </Button>
-                            </>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5 text-destructive hover:text-destructive"
+                              disabled={deleteBusyId === c.id}
+                              onClick={() => deleteCampaign(c)}
+                              title="Excluir campanha (não pode ser desfeito)"
+                            >
+                              {deleteBusyId === c.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              Excluir
+                            </Button>
                           )}
                           <Button
                             variant="outline"
@@ -2229,6 +2229,8 @@ export default function WhatsAppPage() {
             <DialogTitle>
               {editingCampaign?.status === "draft"
                 ? "Editar rascunho"
+                : editingCampaign?.status === "pending_approval"
+                ? "Editar campanha aguardando aprovação"
                 : "Editar agendamento"}
             </DialogTitle>
           </DialogHeader>

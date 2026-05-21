@@ -83,7 +83,7 @@ export async function PATCH(
       // scheduled_at. Status final:
       //   - draft  → segue draft (scheduled_at pode ser qualquer valor ou null)
       //   - scheduled/queued → vira scheduled, scheduled_at obrigatório no futuro
-      const editableStatuses = ["draft", "scheduled", "queued"];
+      const editableStatuses = ["draft", "scheduled", "queued", "pending_approval"];
       if (!editableStatuses.includes(campaign.status)) {
         return NextResponse.json(
           { error: `Campanha com status "${campaign.status}" não pode ser editada.` },
