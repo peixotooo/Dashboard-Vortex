@@ -86,6 +86,8 @@ interface WaCampaign {
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+  template_id?: string | null;
+  variable_values?: Record<string, string> | null;
   wa_templates: { name: string; language: string } | null;
   attribution_window_days?: number;
   message_cost_usd?: number;
@@ -240,6 +242,7 @@ export default function WhatsAppPage() {
   const [editScheduleEnabled, setEditScheduleEnabled] = useState(false);
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
+  const [editVariableValues, setEditVariableValues] = useState<Record<string, string>>({});
   const [editBusy, setEditBusy] = useState(false);
 
   // Rascunho com aprovação obriga agendamento — força o toggle ao ligar.
@@ -589,6 +592,51 @@ export default function WhatsAppPage() {
       setEditTime("09:00");
       setEditScheduleEnabled(false);
     }
+    // Variáveis do template: começa com o que a campanha tem; se vazio,
+    // inicializa cada variável do template com string vazia.
+    const tpl = c.template_id ? templates.find((t) => t.id === c.template_id) : null;
+    const tplVars: string[] = [];
+    if (tpl) {
+      for (const comp of tpl.components) {
+        if (comp.text) {
+          const matches = comp.text.match(/\{\{(\d+)\}\}/g);
+          if (matches) for (const m of matches) if (!tplVars.includes(m)) tplVars.push(m);
+        }
+      }
+    }
+    const existing = c.variable_values || {};
+    const next: Record<string, string> = {};
+    for (const v of tplVars) next[v] = existing[v] ?? "";
+    setEditVariableValues(next);
+  }
+
+  function getEditingTemplate(): WaTemplate | null {
+    if (!editingCampaign?.template_id) return null;
+    return templates.find((t) => t.id === editingCampaign.template_id) || null;
+  }
+
+  function getEditTemplateVars(): string[] {
+    const tpl = getEditingTemplate();
+    if (!tpl) return [];
+    const vars: string[] = [];
+    for (const comp of tpl.components) {
+      if (comp.text) {
+        const matches = comp.text.match(/\{\{(\d+)\}\}/g);
+        if (matches) for (const m of matches) if (!vars.includes(m)) vars.push(m);
+      }
+    }
+    return vars.sort();
+  }
+
+  function getEditBodyPreview(): string {
+    const tpl = getEditingTemplate();
+    if (!tpl) return "";
+    const body = tpl.components.find((c) => c.type === "BODY");
+    let text = body?.text || "";
+    for (const [k, v] of Object.entries(editVariableValues)) {
+      text = text.replace(k, v || k);
+    }
+    return text;
   }
 
   async function submitEdit() {
@@ -629,6 +677,7 @@ export default function WhatsAppPage() {
           action: "update",
           name: trimmed,
           scheduled_at: scheduledIso,
+          variable_values: editVariableValues,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2299,7 +2348,7 @@ export default function WhatsAppPage() {
                   />
                 </div>
               )}
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+<p className="text-[11px] text-muted-foreground leading-relaxed">
                 {editingCampaign?.status === "draft"
                   ? editScheduleEnabled
                     ? "Quando você ativar, a campanha vai pra Agendada se a data ainda estiver no futuro — senão entra direto na fila."
@@ -2307,6 +2356,52 @@ export default function WhatsAppPage() {
                   : "Mudar essa data reagenda o envio."}
               </p>
             </div>
+
+            {getEditTemplateVars().length > 0 && (
+              <div className="space-y-3 border rounded-md p-4">
+                <div>
+                  <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                    Variáveis do template
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                    Use <code className="bg-muted px-1 rounded">{"{{nome}}"}</code> pra preencher com o nome do contato. As mensagens em fila vão ser atualizadas.
+                  </p>
+                </div>
+
+                {getEditTemplateVars().map((v) => (
+                  <div key={v} className="space-y-1.5">
+                    <Label className="text-xs">{v}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={editVariableValues[v] || ""}
+                        onChange={(e) =>
+                          setEditVariableValues((prev) => ({ ...prev, [v]: e.target.value }))
+                        }
+                        placeholder="Valor fixo ou {{nome}}"
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0"
+                        onClick={() =>
+                          setEditVariableValues((prev) => ({ ...prev, [v]: "{{nome}}" }))
+                        }
+                      >
+                        Nome
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="bg-muted/50 rounded p-3 text-xs">
+                  <p className="font-medium mb-1 flex items-center gap-1.5">
+                    <Eye className="h-3.5 w-3.5" /> Preview
+                  </p>
+                  <p className="whitespace-pre-wrap">{getEditBodyPreview()}</p>
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2">
               <Button
