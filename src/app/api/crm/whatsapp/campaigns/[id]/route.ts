@@ -134,6 +134,23 @@ export async function PATCH(
         }
       }
 
+      // Atualização de variáveis do template — replica nas mensagens em
+      // fila, re-resolvendo "{{nome}}" via contact_name.
+      let nextVariableValues: Record<string, string> | null = null;
+      if (Object.prototype.hasOwnProperty.call(body, "variable_values")) {
+        const raw = body.variable_values;
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const cleaned: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+            if (typeof v === "string") cleaned[k] = v;
+          }
+          nextVariableValues = cleaned;
+          updates.variable_values = cleaned;
+        } else {
+          return NextResponse.json({ error: "variable_values inválido" }, { status: 400 });
+        }
+      }
+
       if (Object.keys(updates).length === 0) {
         return NextResponse.json({ error: "Nada pra atualizar." }, { status: 400 });
       }
@@ -147,6 +164,35 @@ export async function PATCH(
         .single();
 
       if (updateErr) throw new Error(updateErr.message);
+
+      // Se as variáveis mudaram, atualiza wa_messages ainda em fila.
+      // Pra cada msg, recalcula variable_values do zero a partir do
+      // novo dict da campanha, resolvendo "{{nome}}" via contact_name.
+      if (nextVariableValues) {
+        const { data: queuedMsgs, error: msgFetchErr } = await admin
+          .from("wa_messages")
+          .select("id, contact_name")
+          .eq("campaign_id", id)
+          .eq("status", "queued");
+        if (msgFetchErr) {
+          console.error("[WA Update] Erro buscando mensagens em fila:", msgFetchErr.message);
+        } else if (queuedMsgs && queuedMsgs.length > 0) {
+          for (const m of queuedMsgs) {
+            const resolved: Record<string, string> = {};
+            for (const [k, v] of Object.entries(nextVariableValues)) {
+              resolved[k] = v === "{{nome}}" ? (m.contact_name as string | null) || "" : v;
+            }
+            const { error: upErr } = await admin
+              .from("wa_messages")
+              .update({ variable_values: resolved })
+              .eq("id", m.id);
+            if (upErr) {
+              console.error(`[WA Update] Falha em msg ${m.id}:`, upErr.message);
+            }
+          }
+        }
+      }
+
       return NextResponse.json({ campaign: updated });
     }
 
