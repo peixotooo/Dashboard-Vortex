@@ -33,8 +33,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   Users,
+  MinusCircle,
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-context";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Contact {
   email: string;
@@ -86,6 +88,12 @@ export function EmailListCreateDialog({
   } | null>(null);
   const cancelledRef = useRef(false);
 
+  // Lista de exclusão
+  const [contactLists, setContactLists] = useState<Array<{ id: string; name: string; email_count: number }>>([]);
+  const [excludeListId, setExcludeListId] = useState("");
+  const [excludeEmailSet, setExcludeEmailSet] = useState<Set<string>>(new Set());
+  const [excludeLoading, setExcludeLoading] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     setName(suggestedName ?? defaultName());
@@ -95,8 +103,50 @@ export function EmailListCreateDialog({
     setImportStatus(null);
     setTotalToImport(0);
     setPhase("idle");
+    setExcludeListId("");
+    setExcludeEmailSet(new Set());
     cancelledRef.current = false;
   }, [open, suggestedName]);
+
+  // Carrega listas pra picker de exclusão
+  useEffect(() => {
+    if (!open || !workspaceId) return;
+    fetch("/api/crm/contact-lists", { headers: { "x-workspace-id": workspaceId } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.lists)) {
+          setContactLists(
+            data.lists.map((l: { id: string; name: string; email_count: number }) => ({
+              id: l.id,
+              name: l.name,
+              email_count: l.email_count,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [open, workspaceId]);
+
+  // Resolve emails da lista de exclusão
+  useEffect(() => {
+    if (!excludeListId || !workspaceId) {
+      setExcludeEmailSet(new Set());
+      return;
+    }
+    setExcludeLoading(true);
+    fetch(`/api/crm/contact-lists/${excludeListId}`, { headers: { "x-workspace-id": workspaceId } })
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.list as { contacts?: Array<{ email?: string }> } | null;
+        const set = new Set<string>();
+        for (const c of list?.contacts || []) {
+          if (c.email) set.add(c.email.trim().toLowerCase());
+        }
+        setExcludeEmailSet(set);
+      })
+      .catch(() => setExcludeEmailSet(new Set()))
+      .finally(() => setExcludeLoading(false));
+  }, [excludeListId, workspaceId]);
 
   const validContacts = (() => {
     const seen = new Set<string>();
@@ -104,11 +154,25 @@ export function EmailListCreateDialog({
     for (const c of contacts) {
       const email = typeof c.email === "string" ? c.email.trim().toLowerCase() : "";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+      if (excludeEmailSet.has(email)) continue;
       if (seen.has(email)) continue;
       seen.add(email);
       out.push({ email, name: c.name });
     }
     return out;
+  })();
+  const excludedCount = (() => {
+    if (excludeEmailSet.size === 0) return 0;
+    const seen = new Set<string>();
+    let n = 0;
+    for (const c of contacts) {
+      const email = typeof c.email === "string" ? c.email.trim().toLowerCase() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+      if (seen.has(email)) continue;
+      seen.add(email);
+      if (excludeEmailSet.has(email)) n++;
+    }
+    return n;
   })();
 
   const submit = async () => {
@@ -311,14 +375,41 @@ export function EmailListCreateDialog({
                 <div className="font-medium">
                   {validContacts.length.toLocaleString("pt-BR")} contato
                   {validContacts.length === 1 ? "" : "s"} com email válido
+                  {excludeLoading && <Loader2 className="inline h-3 w-3 animate-spin ml-1.5" />}
                 </div>
                 {validContacts.length < contacts.length && (
                   <div className="text-[10px] text-muted-foreground">
-                    {(contacts.length - validContacts.length).toLocaleString("pt-BR")}{" "}
+                    {(contacts.length - validContacts.length - excludedCount).toLocaleString("pt-BR")}{" "}
                     sem email serão ignorados.
+                    {excludedCount > 0 && (
+                      <> · {excludedCount.toLocaleString("pt-BR")} excluído(s) pela lista.</>
+                    )}
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs flex items-center gap-1.5">
+                <MinusCircle className="h-3 w-3" /> Excluir lista (opcional)
+              </Label>
+              <Select
+                value={excludeListId || "__none__"}
+                onValueChange={(v) => setExcludeListId(v === "__none__" ? "" : v)}
+                disabled={isWorking}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Não excluir nenhuma..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Não excluir</SelectItem>
+                  {contactLists.map((l) => (
+                    <SelectItem key={l.id} value={l.id} disabled={l.email_count === 0}>
+                      {l.name} ({l.email_count} com email)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1.5">

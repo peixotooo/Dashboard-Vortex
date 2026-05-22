@@ -211,6 +211,7 @@ export default function WhatsAppPage() {
   const [audienceMode, setAudienceMode] = useState<"segment" | "list">("segment");
   const [selectedSegment, setSelectedSegment] = useState("");
   const [selectedListId, setSelectedListId] = useState("");
+  const [excludeListId, setExcludeListId] = useState("");
   const [contactLists, setContactLists] = useState<Array<{ id: string; name: string; total_count: number; phone_count: number }>>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [segments, setSegments] = useState<RfmSegment[]>([]);
@@ -535,8 +536,32 @@ export default function WhatsAppPage() {
         segmentFilter = { contact_list_id: selectedListId, contact_list_name: listData.list?.name };
       }
 
+      // Resolve exclusion list (se houver) — fetcha contatos e monta Set de phones normalizados
+      const excludeSet = new Set<string>();
+      if (excludeListId) {
+        try {
+          const exRes = await fetch(`/api/crm/contact-lists/${excludeListId}`, { headers: wsHeaders() });
+          const exData = await exRes.json();
+          if (exRes.ok) {
+            const exContacts = (exData.list?.contacts || []) as Array<{ phone?: string }>;
+            for (const c of exContacts) {
+              if (c.phone) excludeSet.add(c.phone.replace(/\D/g, ""));
+            }
+            segmentFilter.exclude_contact_list_id = excludeListId;
+            segmentFilter.exclude_contact_list_name = exData.list?.name;
+          }
+        } catch {
+          // segue o jogo sem exclusão se falhar
+        }
+      }
+
+      // Aplica exclusão antes de formatar (compara por digits only)
+      const afterExclusion = excludeSet.size > 0
+        ? rawContacts.filter((c) => !excludeSet.has(c.phone.replace(/\D/g, "")))
+        : rawContacts;
+
       // Format phone numbers and build contacts list
-      const contacts = rawContacts.map((c) => ({
+      const contacts = afterExclusion.map((c) => ({
         phone: formatPhone(c.phone),
         name: c.name || "",
         variables: Object.fromEntries(
@@ -548,7 +573,7 @@ export default function WhatsAppPage() {
       }));
 
       if (contacts.length === 0) {
-        alert("Nenhum contato com telefone encontrado nesta audiência.");
+        alert("Nenhum contato com telefone encontrado nesta audiência (após exclusão).");
         setCreating(false);
         return;
       }
@@ -642,6 +667,7 @@ export default function WhatsAppPage() {
     setAudienceMode("segment");
     setSelectedSegment("");
     setSelectedListId("");
+    setExcludeListId("");
     setVariableValues({});
     setRequiresApproval(false);
     setSaveAsDraft(false);
@@ -1189,11 +1215,40 @@ export default function WhatsAppPage() {
                               )}
                             </SelectContent>
                           </Select>
-                          <p className="text-[11px] text-muted-foreground mt-1">
+<p className="text-[11px] text-muted-foreground mt-1">
                             Listas uploadadas em <a href="/crm/listas" className="underline">/crm/listas</a>. Só contatos com telefone vão pra fila.
                           </p>
                         </>
                       )}
+                    </div>
+
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        Excluir lista (opcional)
+                      </Label>
+                      <Select
+                        value={excludeListId || "__none__"}
+                        onValueChange={(v) => setExcludeListId(v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Não excluir nenhuma..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Não excluir</SelectItem>
+                          {contactLists.map((l) => (
+                            <SelectItem
+                              key={l.id}
+                              value={l.id}
+                              disabled={l.phone_count === 0}
+                            >
+                              {l.name} ({l.phone_count} com telefone)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Os telefones dessa lista não vão receber a campanha.
+                      </p>
                     </div>
 
                     <div>

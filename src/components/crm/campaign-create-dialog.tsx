@@ -23,7 +23,10 @@ import {
   Users,
   Phone,
   Sparkles,
+  ListChecks,
+  MinusCircle,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   extractTemplateVariables,
@@ -84,6 +87,25 @@ export function CampaignCreateDialog({
   const [campaignName, setCampaignName] = useState("");
   const [contactSearch, setContactSearch] = useState("");
 
+  // Audience source override + exclusion list
+  // - "filtros": usa o prop `contacts` (filtros atuais do CRM)
+  // - "lista":   troca por uma lista personalizada
+  const [audienceSource, setAudienceSource] = useState<"filtros" | "lista">("filtros");
+  const [audienceListId, setAudienceListId] = useState<string>("");
+  const [excludeListId, setExcludeListId] = useState<string>("");
+  const [contactLists, setContactLists] = useState<Array<{
+    id: string;
+    name: string;
+    total_count: number;
+    phone_count: number;
+  }>>([]);
+  // contatos da lista de audiência selecionada (resolvidos via API)
+  const [audienceListContacts, setAudienceListContacts] = useState<Contact[]>([]);
+  const [audienceListLoading, setAudienceListLoading] = useState(false);
+  // Set de telefones (digits only) a excluir
+  const [excludePhoneSet, setExcludePhoneSet] = useState<Set<string>>(new Set());
+  const [excludeLoading, setExcludeLoading] = useState(false);
+
   // Step 2: Template
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
@@ -138,8 +160,71 @@ export function CampaignCreateDialog({
       setExchangeRate(5.50);
       setComplianceResult(null);
       setComplianceLoading(false);
+      setAudienceSource("filtros");
+      setAudienceListId("");
+      setExcludeListId("");
+      setAudienceListContacts([]);
+      setExcludePhoneSet(new Set());
     }
   }, [open, suggestedName]);
+
+  // Fetch das listas personalizadas
+  useEffect(() => {
+    if (!open || !workspaceId) return;
+    fetch("/api/crm/contact-lists", { headers: { "x-workspace-id": workspaceId } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.lists)) setContactLists(data.lists);
+      })
+      .catch(() => {});
+  }, [open, workspaceId]);
+
+  // Resolve contatos da lista de audiência selecionada
+  useEffect(() => {
+    if (audienceSource !== "lista" || !audienceListId || !workspaceId) {
+      setAudienceListContacts([]);
+      return;
+    }
+    setAudienceListLoading(true);
+    fetch(`/api/crm/contact-lists/${audienceListId}`, {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.list as { contacts?: Array<{ phone?: string; email?: string; name?: string }> } | null;
+        const mapped: Contact[] = (list?.contacts || []).map((c) => ({
+          name: c.name || "",
+          email: c.email || "",
+          phone: c.phone || "",
+        }));
+        setAudienceListContacts(mapped);
+      })
+      .catch(() => setAudienceListContacts([]))
+      .finally(() => setAudienceListLoading(false));
+  }, [audienceSource, audienceListId, workspaceId]);
+
+  // Resolve telefones a excluir
+  useEffect(() => {
+    if (!excludeListId || !workspaceId) {
+      setExcludePhoneSet(new Set());
+      return;
+    }
+    setExcludeLoading(true);
+    fetch(`/api/crm/contact-lists/${excludeListId}`, {
+      headers: { "x-workspace-id": workspaceId },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.list as { contacts?: Array<{ phone?: string }> } | null;
+        const set = new Set<string>();
+        for (const c of list?.contacts || []) {
+          if (c.phone) set.add(c.phone.replace(/\D/g, ""));
+        }
+        setExcludePhoneSet(set);
+      })
+      .catch(() => setExcludePhoneSet(new Set()))
+      .finally(() => setExcludeLoading(false));
+  }, [excludeListId, workspaceId]);
 
   // Fetch templates on step 2
   useEffect(() => {
@@ -176,12 +261,26 @@ export function CampaignCreateDialog({
     }
   }
 
-  // Computed: valid contacts (have phone)
-  const validContacts = useMemo(
-    () => contacts.filter((c) => c.phone && c.phone.trim().length > 0),
-    [contacts]
+  // Computed: contatos da audiência conforme a fonte (filtros vs lista)
+  const sourceContacts = useMemo(
+    () => (audienceSource === "lista" ? audienceListContacts : contacts),
+    [audienceSource, audienceListContacts, contacts]
   );
-  const invalidCount = contacts.length - validContacts.length;
+
+  // Valid contacts (have phone) — depois aplica a exclusion list
+  const validContacts = useMemo(() => {
+    const withPhone = sourceContacts.filter((c) => c.phone && c.phone.trim().length > 0);
+    if (excludePhoneSet.size === 0) return withPhone;
+    return withPhone.filter((c) => !excludePhoneSet.has(c.phone.replace(/\D/g, "")));
+  }, [sourceContacts, excludePhoneSet]);
+
+  const invalidCount = sourceContacts.length - validContacts.length;
+  const excludedCount = useMemo(() => {
+    if (excludePhoneSet.size === 0) return 0;
+    return sourceContacts.filter(
+      (c) => c.phone && c.phone.trim() && excludePhoneSet.has(c.phone.replace(/\D/g, ""))
+    ).length;
+  }, [sourceContacts, excludePhoneSet]);
 
   // Fetch compliance preview when dialog opens
   useEffect(() => {
@@ -212,15 +311,15 @@ export function CampaignCreateDialog({
 
   // Filtered contacts for display
   const displayContacts = useMemo(() => {
-    if (!contactSearch) return contacts;
+    if (!contactSearch) return sourceContacts;
     const q = contactSearch.toLowerCase();
-    return contacts.filter(
+    return sourceContacts.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.email.toLowerCase().includes(q) ||
         c.phone.includes(q)
     );
-  }, [contacts, contactSearch]);
+  }, [sourceContacts, contactSearch]);
 
   // Filtered templates
   const displayTemplates = useMemo(() => {
@@ -336,12 +435,24 @@ export function CampaignCreateDialog({
         restBatches.push(contactsPayload.slice(i, i + BATCH_SIZE));
       }
 
+      const segmentFilter: Record<string, unknown> = {};
+      if (audienceSource === "lista" && audienceListId) {
+        segmentFilter.contact_list_id = audienceListId;
+        const meta = contactLists.find((l) => l.id === audienceListId);
+        if (meta) segmentFilter.contact_list_name = meta.name;
+      }
+      if (excludeListId) {
+        segmentFilter.exclude_contact_list_id = excludeListId;
+        const meta = contactLists.find((l) => l.id === excludeListId);
+        if (meta) segmentFilter.exclude_contact_list_name = meta.name;
+      }
+
       const body: Record<string, unknown> = {
         name: campaignName.trim(),
         templateId: selectedTemplateId,
         contacts: firstBatch,
         variableValues: templateVars.length > 0 ? variableValues : {},
-        segmentFilter: {},
+        segmentFilter,
         attribution_window_days: attributionDays,
         message_cost_usd: messageCostUsd,
         exchange_rate: exchangeRate,
@@ -458,14 +569,104 @@ export function CampaignCreateDialog({
                 />
               </div>
 
+<div className="space-y-2 border rounded-md p-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                    <Users className="h-3.5 w-3.5" /> Fonte da audiência
+                  </label>
+                </div>
+                <div className="flex gap-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setAudienceSource("filtros")}
+                    className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                      audienceSource === "filtros"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    Filtros atuais ({contacts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAudienceSource("lista")}
+                    className={`px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
+                      audienceSource === "lista"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                  >
+                    <ListChecks className="h-3 w-3" /> Lista personalizada
+                  </button>
+                </div>
+                {audienceSource === "lista" && (
+                  <Select value={audienceListId} onValueChange={setAudienceListId}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Selecionar lista..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {contactLists.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          Nenhuma lista. Crie em /crm/listas.
+                        </div>
+                      ) : (
+                        contactLists.map((l) => (
+                          <SelectItem key={l.id} value={l.id} disabled={l.phone_count === 0}>
+                            {l.name} ({l.phone_count} com telefone / {l.total_count} total)
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                <div className="pt-2 border-t border-border/50 space-y-2">
+                  <label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                    <MinusCircle className="h-3.5 w-3.5" /> Excluir lista (opcional)
+                  </label>
+                  <Select
+                    value={excludeListId || "__none__"}
+                    onValueChange={(v) => setExcludeListId(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Não excluir nenhuma..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Não excluir</SelectItem>
+                      {contactLists.map((l) => (
+                        <SelectItem key={l.id} value={l.id} disabled={l.phone_count === 0}>
+                          {l.name} ({l.phone_count} com telefone)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {excludeListId && excludePhoneSet.size > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {excludePhoneSet.size} telefone(s) na lista de exclusão.
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium">
                     Audiencia: {validContacts.length} contatos
+                    {audienceListLoading && (
+                      <Loader2 className="inline h-3 w-3 animate-spin ml-2" />
+                    )}
                     {invalidCount > 0 && (
                       <span className="text-xs text-amber-400 ml-2">
                         ({invalidCount} sem telefone)
                       </span>
+                    )}
+                    {excludedCount > 0 && (
+                      <span className="text-xs text-amber-400 ml-2">
+                        ({excludedCount} excluído{excludedCount > 1 ? "s" : ""} pela lista)
+                      </span>
+                    )}
+                    {excludeLoading && (
+                      <Loader2 className="inline h-3 w-3 animate-spin ml-2" />
                     )}
                   </p>
                   <div className="relative w-48">
