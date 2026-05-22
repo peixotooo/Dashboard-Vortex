@@ -47,6 +47,7 @@ import {
   PieChart,
   ReceiptText,
   Banknote,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -165,6 +166,7 @@ const navGroups: NavGroup[] = [
         items: [
           { title: "CRM", href: "/crm", icon: Contact },
           { title: "Cashback", href: "/crm/cashback", icon: Coins },
+          { title: "Listas", href: "/crm/listas", icon: ListChecks },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
           { title: "Email Templates", href: "/crm/email-templates", icon: Mail },
           { title: "WhatsApp Grupos", href: "/whatsapp-groups", icon: Users },
