@@ -21,8 +21,16 @@ interface Contact {
   name?: string;
 }
 
+// Normaliza pra E.164 sem '+' (formato esperado pela WhatsApp Cloud API).
+// Brasil: 10 dígitos (fixo: DD+8) ou 11 (móvel: DD+9). Prefixa 55 nesses
+// casos. Se já começa com 55 ou tem 12+ dígitos, assume que já vem
+// internacionalizado e deixa como está.
 function normalizePhone(raw: string): string {
-  return raw.replace(/\D/g, "");
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("55") && digits.length >= 12) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
 }
 
 function isValidEmail(raw: string): boolean {

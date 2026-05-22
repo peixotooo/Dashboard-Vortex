@@ -422,8 +422,19 @@ export function CampaignCreateDialog({
     setSubmitError("");
     setProgress({ done: 0, total: validContacts.length });
     try {
+      // Garante formato E.164 sem '+' que a WhatsApp Cloud API espera.
+      // Pra contatos vindos do RFM os phones já costumam vir com 55, mas
+      // as listas personalizadas (uploads de CSV) podem vir só com DDD —
+      // prefixa 55 quando tem 10 ou 11 dígitos.
+      const formatPhone = (raw: string): string => {
+        const digits = raw.replace(/\D/g, "");
+        if (digits.startsWith("55") && digits.length >= 12) return digits;
+        if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+        return digits;
+      };
+
       const contactsPayload = validContacts.map((c) => ({
-        phone: c.phone,
+        phone: formatPhone(c.phone),
         name: c.name,
         variables: templateVars.length > 0 ? variableValues : undefined,
       }));
