@@ -45,6 +45,11 @@ interface TopbarConfig {
   height: string;
   title_bold: boolean;
   message_bold: boolean;
+  countdown_bg_color: string;
+  countdown_text_color: string;
+  countdown_font_weight: string;
+  countdown_padding: string;
+  countdown_border_radius: string;
   sticky: boolean;
   position: "top" | "bottom";
   show_close_button: boolean;
@@ -80,6 +85,15 @@ interface Campaign {
   bg_color: string | null;
   text_color: string | null;
   accent_color: string | null;
+  font_size: string | null;
+  height: string | null;
+  title_bold: boolean | null;
+  message_bold: boolean | null;
+  countdown_bg_color: string | null;
+  countdown_text_color: string | null;
+  countdown_font_weight: string | null;
+  countdown_padding: string | null;
+  countdown_border_radius: string | null;
   show_on_pages: string[] | null;
   context_type: string | null;
   context_brief: string | null;
@@ -132,6 +146,11 @@ const DEFAULT_CONFIG: TopbarConfig = {
   height: "40px",
   title_bold: true,
   message_bold: false,
+  countdown_bg_color: "rgba(255,255,255,.14)",
+  countdown_text_color: "",
+  countdown_font_weight: "600",
+  countdown_padding: "3px 10px",
+  countdown_border_radius: "999px",
   sticky: true,
   position: "top",
   show_close_button: true,
@@ -184,6 +203,15 @@ function emptyCampaign(): Partial<Campaign> {
     bg_color: null,
     text_color: null,
     accent_color: null,
+    font_size: null,
+    height: null,
+    title_bold: null,
+    message_bold: null,
+    countdown_bg_color: null,
+    countdown_text_color: null,
+    countdown_font_weight: null,
+    countdown_padding: null,
+    countdown_border_radius: null,
     show_on_pages: null,
     context_type: "launch",
     context_brief: "",
@@ -398,15 +426,37 @@ export default function TopbarPage() {
       color: fg,
       padding: "10px 14px",
       borderRadius: 8,
-      fontSize: config.font_size,
+      fontSize: editing?.font_size || config.font_size,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       gap: 12,
-      minHeight: config.height,
+      minHeight: editing?.height || config.height,
       flexWrap: "wrap",
     };
   }, [editing, config]);
+
+  // Resolução de estilo da campanha (override → global)
+  const effectiveTitleBold =
+    editing?.title_bold === null || editing?.title_bold === undefined
+      ? config.title_bold
+      : editing.title_bold;
+  const effectiveMessageBold =
+    editing?.message_bold === null || editing?.message_bold === undefined
+      ? config.message_bold
+      : editing.message_bold;
+  const effectiveCdBg =
+    editing?.countdown_bg_color || config.countdown_bg_color || "rgba(255,255,255,.14)";
+  const effectiveCdColor =
+    editing?.countdown_text_color ||
+    config.countdown_text_color ||
+    editing?.text_color ||
+    config.text_color;
+  const effectiveCdWeight =
+    editing?.countdown_font_weight || config.countdown_font_weight || "600";
+  const effectiveCdPad = editing?.countdown_padding || config.countdown_padding || "3px 10px";
+  const effectiveCdRadius =
+    editing?.countdown_border_radius || config.countdown_border_radius || "999px";
 
   return (
     <div className="p-6 space-y-6">
@@ -442,9 +492,9 @@ export default function TopbarPage() {
           <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-xs flex items-start gap-2">
             <Megaphone className="h-4 w-4 mt-0.5 shrink-0" />
             <div>
-              Esta aba define os <b>defaults visuais</b> (cores, altura, IA).
-              Para configurar <b>título</b>, <b>texto</b>, <b>countdown</b> e
-              agendamento, vá em <b>Campanhas → Nova campanha</b>.
+              Esta aba define os <b>defaults visuais</b> (cores, altura, countdown, IA).
+              Cada campanha pode <b>sobrescrever</b> qualquer um desses estilos —
+              defina overrides em <b>Campanhas → Editar → Estilo</b>.
             </div>
           </div>
           <Card>
@@ -590,6 +640,71 @@ export default function TopbarPage() {
                     checked={config.message_bold}
                     onCheckedChange={(v) => setConfig({ ...config, message_bold: v })}
                   />
+                </div>
+              </div>
+
+              <div className="border-t pt-4 space-y-3">
+                <div>
+                  <Label className="font-medium">Estilo do countdown (default)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Aplica-se a todas as campanhas com countdown. Cada campanha pode
+                    sobrescrever individualmente.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Fundo do badge</Label>
+                    <Input
+                      value={config.countdown_bg_color}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_bg_color: e.target.value })
+                      }
+                      placeholder="rgba(255,255,255,.14)"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Aceita hex, rgba, etc. Use rgba para transparência.
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Cor do texto (opcional)</Label>
+                    <Input
+                      value={config.countdown_text_color}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_text_color: e.target.value })
+                      }
+                      placeholder="herda cor do texto da topbar"
+                    />
+                  </div>
+                  <div>
+                    <Label>Font-weight</Label>
+                    <Input
+                      value={config.countdown_font_weight}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_font_weight: e.target.value })
+                      }
+                      placeholder="600"
+                    />
+                  </div>
+                  <div>
+                    <Label>Padding</Label>
+                    <Input
+                      value={config.countdown_padding}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_padding: e.target.value })
+                      }
+                      placeholder="3px 10px"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label>Border-radius</Label>
+                    <Input
+                      value={config.countdown_border_radius}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_border_radius: e.target.value })
+                      }
+                      placeholder="999px"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -987,20 +1102,21 @@ export default function TopbarPage() {
                   <div className="text-xs text-muted-foreground mb-2">Preview</div>
                   <div style={previewStyle}>
                     {editing.title && (
-                      <span style={{ fontWeight: config.title_bold ? 700 : 400, letterSpacing: ".02em" }}>
+                      <span style={{ fontWeight: effectiveTitleBold ? 700 : 400, letterSpacing: ".02em" }}>
                         {editing.title}
                       </span>
                     )}
-                    <span style={{ fontWeight: config.message_bold ? 700 : 400 }}>
+                    <span style={{ fontWeight: effectiveMessageBold ? 700 : 400 }}>
                       {editing.message || "Sua mensagem aparece aqui"}
                     </span>
                     {editing.countdown_enabled && (
                       <span
                         style={{
-                          background: "rgba(255,255,255,.15)",
-                          borderRadius: 999,
-                          padding: "3px 10px",
-                          fontWeight: 600,
+                          background: effectiveCdBg,
+                          color: effectiveCdColor,
+                          borderRadius: effectiveCdRadius,
+                          padding: effectiveCdPad,
+                          fontWeight: effectiveCdWeight,
                         }}
                       >
                         {editing.countdown_label || "Termina em"} 02:14:33
@@ -1215,8 +1331,179 @@ export default function TopbarPage() {
                         }
                       />
                     </div>
+
+                    <div className="border-t pt-4 space-y-3">
+                      <div>
+                        <Label className="font-medium">Estilo do countdown</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Sobrescrevem o estilo definido nas Configurações globais. Deixe em
+                          branco pra herdar.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <OptionalColorField
+                          label="Fundo do badge"
+                          value={editing.countdown_bg_color}
+                          placeholder={config.countdown_bg_color}
+                          onChange={(v) =>
+                            setEditing({ ...editing, countdown_bg_color: v || null })
+                          }
+                        />
+                        <OptionalColorField
+                          label="Cor do texto"
+                          value={editing.countdown_text_color}
+                          placeholder={config.countdown_text_color || editing.text_color || config.text_color}
+                          onChange={(v) =>
+                            setEditing({ ...editing, countdown_text_color: v || null })
+                          }
+                        />
+                        <div>
+                          <Label>Font-weight</Label>
+                          <Input
+                            value={editing.countdown_font_weight || ""}
+                            placeholder={config.countdown_font_weight}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                countdown_font_weight: e.target.value || null,
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label>Padding</Label>
+                          <Input
+                            value={editing.countdown_padding || ""}
+                            placeholder={config.countdown_padding}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                countdown_padding: e.target.value || null,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <Label>Border-radius</Label>
+                          <Input
+                            value={editing.countdown_border_radius || ""}
+                            placeholder={config.countdown_border_radius}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                countdown_border_radius: e.target.value || null,
+                              })
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Use <code>999px</code> para pílula, <code>4px</code> pra quadrado suave.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Estilo da campanha</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Sobrescrevem o estilo global. Deixe em branco para herdar das Configurações.
+                </p>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <OptionalColorField
+                    label="Fundo"
+                    value={editing.bg_color}
+                    placeholder={config.bg_color}
+                    onChange={(v) => setEditing({ ...editing, bg_color: v || null })}
+                  />
+                  <OptionalColorField
+                    label="Texto"
+                    value={editing.text_color}
+                    placeholder={config.text_color}
+                    onChange={(v) => setEditing({ ...editing, text_color: v || null })}
+                  />
+                  <OptionalColorField
+                    label="Destaque (CTA)"
+                    value={editing.accent_color}
+                    placeholder={config.accent_color}
+                    onChange={(v) => setEditing({ ...editing, accent_color: v || null })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Altura</Label>
+                    <Input
+                      value={editing.height || ""}
+                      placeholder={config.height}
+                      onChange={(e) =>
+                        setEditing({ ...editing, height: e.target.value || null })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Font size</Label>
+                    <Input
+                      value={editing.font_size || ""}
+                      placeholder={config.font_size}
+                      onChange={(e) =>
+                        setEditing({ ...editing, font_size: e.target.value || null })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <TristateBoldField
+                    label="Título em bold"
+                    value={editing.title_bold ?? null}
+                    globalValue={config.title_bold}
+                    onChange={(v) => setEditing({ ...editing, title_bold: v })}
+                  />
+                  <TristateBoldField
+                    label="Mensagem em bold"
+                    value={editing.message_bold ?? null}
+                    globalValue={config.message_bold}
+                    onChange={(v) => setEditing({ ...editing, message_bold: v })}
+                  />
+                </div>
+
+                <div>
+                  <Label>Aparecer em (opcional)</Label>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {PAGE_OPTIONS.map((p) => {
+                      const current = editing.show_on_pages ?? [];
+                      const active = current.includes(p.value);
+                      return (
+                        <Badge
+                          key={p.value}
+                          variant={active ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() => {
+                            const next = active
+                              ? current.filter((x) => x !== p.value)
+                              : [...current.filter((x) => x !== "all" || p.value === "all"), p.value];
+                            setEditing({
+                              ...editing,
+                              show_on_pages: next.length ? next : null,
+                            });
+                          }}
+                        >
+                          {p.label}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Vazio = herda do global ({(config.show_on_pages || []).join(", ") || "all"}).
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
@@ -1423,4 +1710,79 @@ function toLocalInput(iso: string): string {
   const d = new Date(iso);
   const off = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - off).toISOString().slice(0, 16);
+}
+
+// Color field opcional: vazio = herda do global (mostra cor do placeholder)
+function OptionalColorField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string | null | undefined;
+  placeholder?: string | null;
+  onChange: (v: string) => void;
+}) {
+  // Para o color picker (que exige hex válido), usa fallback do placeholder ou cinza
+  const pickerValue = isHex(value) ? value! : isHex(placeholder) ? placeholder! : "#888888";
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          type="color"
+          value={pickerValue}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-12 p-1 h-9"
+        />
+        <Input
+          value={value ?? ""}
+          placeholder={placeholder ? `herda ${placeholder}` : "herda global"}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function isHex(v: string | null | undefined): v is string {
+  return typeof v === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v);
+}
+
+// Bold com 3 estados: herda global | true | false
+function TristateBoldField({
+  label,
+  value,
+  globalValue,
+  onChange,
+}: {
+  label: string;
+  value: boolean | null;
+  globalValue: boolean;
+  onChange: (v: boolean | null) => void;
+}) {
+  const current = value === null ? "inherit" : value ? "bold" : "regular";
+  return (
+    <div className="border rounded p-3">
+      <Label className="font-medium">{label}</Label>
+      <Select
+        value={current}
+        onValueChange={(v) =>
+          onChange(v === "inherit" ? null : v === "bold")
+        }
+      >
+        <SelectTrigger className="mt-2">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="inherit">
+            Herdar do global ({globalValue ? "bold" : "regular"})
+          </SelectItem>
+          <SelectItem value="bold">Bold</SelectItem>
+          <SelectItem value="regular">Regular</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }

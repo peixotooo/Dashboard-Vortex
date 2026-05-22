@@ -2763,9 +2763,20 @@
       if (countdownTarget && countdownTarget > Date.now()) {
         countdownEl = document.createElement("span");
         countdownEl.id = "vtx-topbar-countdown";
+        var cdBg = tb.countdown_bg_color || "rgba(255,255,255,.14)";
+        var cdColor = tb.countdown_text_color || tb.text_color || "#ffffff";
+        var cdWeight = tb.countdown_font_weight || "600";
+        var cdPad = tb.countdown_padding || "3px 10px";
+        var cdRadius = tb.countdown_border_radius || "999px";
         countdownEl.setAttribute(
           "style",
-          "display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.14);font-weight:600;font-variant-numeric:tabular-nums"
+          "display:inline-flex;align-items:center;gap:6px" +
+            ";padding:" + cdPad +
+            ";border-radius:" + cdRadius +
+            ";background:" + cdBg +
+            ";color:" + cdColor +
+            ";font-weight:" + cdWeight +
+            ";font-variant-numeric:tabular-nums"
         );
         content.appendChild(countdownEl);
       }
