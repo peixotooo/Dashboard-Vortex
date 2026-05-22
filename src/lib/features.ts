@@ -191,6 +191,13 @@ export const FEATURES: Feature[] = [
     parent: "crm",
   },
   {
+    id: "crm.contact_lists",
+    label: "Listas",
+    description: "Listas personalizadas de contatos (CSV)",
+    routes: ["/crm/listas"],
+    parent: "crm",
+  },
+  {
     id: "crm.whatsapp",
     label: "WhatsApp",
     description: "WhatsApp 1-a-1",

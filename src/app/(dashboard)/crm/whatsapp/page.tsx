@@ -208,7 +208,10 @@ export default function WhatsAppPage() {
   const [createStep, setCreateStep] = useState(1);
   const [campaignName, setCampaignName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
+  const [audienceMode, setAudienceMode] = useState<"segment" | "list">("segment");
   const [selectedSegment, setSelectedSegment] = useState("");
+  const [selectedListId, setSelectedListId] = useState("");
+  const [contactLists, setContactLists] = useState<Array<{ id: string; name: string; total_count: number; phone_count: number }>>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [segments, setSegments] = useState<RfmSegment[]>([]);
   const [creating, setCreating] = useState(false);
@@ -324,6 +327,26 @@ export default function WhatsAppPage() {
     }
   }, [workspace?.id, wsHeaders]);
 
+  const fetchContactLists = useCallback(async () => {
+    if (!workspace?.id) return;
+    try {
+      const res = await fetch("/api/crm/contact-lists", { headers: wsHeaders() });
+      const data = await res.json();
+      if (Array.isArray(data.lists)) {
+        setContactLists(
+          data.lists.map((l: { id: string; name: string; total_count: number; phone_count: number }) => ({
+            id: l.id,
+            name: l.name,
+            total_count: l.total_count,
+            phone_count: l.phone_count,
+          }))
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }, [workspace?.id, wsHeaders]);
+
   const fetchExclusions = useCallback(async () => {
     if (!workspace?.id) return;
     setExclusionsLoading(true);
@@ -369,7 +392,24 @@ export default function WhatsAppPage() {
     fetchCampaigns();
     fetchSegments();
     fetchExclusions();
-  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions]);
+    fetchContactLists();
+  }, [fetchConfig, fetchTemplates, fetchCampaigns, fetchSegments, fetchExclusions, fetchContactLists]);
+
+  // Suporte a ?list=<id> na URL — abre o dialog de criação já com a
+  // lista personalizada selecionada como audiência.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const listId = params.get("list");
+    if (listId && contactLists.some((l) => l.id === listId)) {
+      setAudienceMode("list");
+      setSelectedListId(listId);
+      setShowCreate(true);
+      params.delete("list");
+      const url = window.location.pathname + (params.toString() ? `?${params}` : "");
+      window.history.replaceState({}, "", url);
+    }
+  }, [contactLists]);
 
   // Separate effect for monthly spend — only runs after config is loaded
   useEffect(() => {
@@ -454,19 +494,49 @@ export default function WhatsAppPage() {
   }
 
   async function handleCreateCampaign() {
-    if (!selectedTemplate || !selectedSegment || !campaignName) return;
+    if (!selectedTemplate || !campaignName) return;
+    if (audienceMode === "segment" && !selectedSegment) return;
+    if (audienceMode === "list" && !selectedListId) return;
     setCreating(true);
     try {
-      // Get customers from the selected segment
-      const rfmRes = await fetch("/api/crm/rfm", { headers: wsHeaders() });
-      const rfmData = await rfmRes.json();
-      const customers = (rfmData.customers || []).filter(
-        (c: { segment: string; phone: string }) =>
-          c.segment === selectedSegment && c.phone
-      );
+      // Resolve contacts source: RFM segment OR custom contact list
+      let rawContacts: Array<{ phone: string; name: string }> = [];
+      let segmentFilter: Record<string, unknown> = {};
+
+      if (audienceMode === "segment") {
+        const rfmRes = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+        const rfmData = await rfmRes.json();
+        const customers = (rfmData.customers || []).filter(
+          (c: { segment: string; phone: string }) =>
+            c.segment === selectedSegment && c.phone
+        );
+        rawContacts = customers.map((c: { phone: string; name: string }) => ({
+          phone: c.phone,
+          name: c.name || "",
+        }));
+        segmentFilter = { segment: selectedSegment };
+      } else {
+        const listRes = await fetch(`/api/crm/contact-lists/${selectedListId}`, {
+          headers: wsHeaders(),
+        });
+        const listData = await listRes.json();
+        if (!listRes.ok) {
+          alert(listData.error || "Falha ao ler lista.");
+          setCreating(false);
+          return;
+        }
+        const listContacts = (listData.list?.contacts || []) as Array<{
+          phone?: string;
+          name?: string;
+        }>;
+        rawContacts = listContacts
+          .filter((c) => c.phone)
+          .map((c) => ({ phone: c.phone!, name: c.name || "" }));
+        segmentFilter = { contact_list_id: selectedListId, contact_list_name: listData.list?.name };
+      }
 
       // Format phone numbers and build contacts list
-      const contacts = customers.map((c: { phone: string; name: string }) => ({
+      const contacts = rawContacts.map((c) => ({
         phone: formatPhone(c.phone),
         name: c.name || "",
         variables: Object.fromEntries(
@@ -478,7 +548,7 @@ export default function WhatsAppPage() {
       }));
 
       if (contacts.length === 0) {
-        alert("Nenhum contato com telefone encontrado neste segmento.");
+        alert("Nenhum contato com telefone encontrado nesta audiência.");
         setCreating(false);
         return;
       }
@@ -494,7 +564,7 @@ export default function WhatsAppPage() {
         body: JSON.stringify({
           name: campaignName,
           templateId: selectedTemplate.id,
-          segmentFilter: { segment: selectedSegment },
+          segmentFilter,
           variableValues,
           contacts,
           cooldownDays,
@@ -569,7 +639,9 @@ export default function WhatsAppPage() {
     setCreateStep(1);
     setCampaignName("");
     setSelectedTemplate(null);
+    setAudienceMode("segment");
     setSelectedSegment("");
+    setSelectedListId("");
     setVariableValues({});
     setRequiresApproval(false);
     setSaveAsDraft(false);
@@ -1054,20 +1126,74 @@ export default function WhatsAppPage() {
                       />
                     </div>
 
-                    <div>
-                      <Label>Segmento</Label>
-                      <Select value={selectedSegment} onValueChange={setSelectedSegment}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecionar segmento..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {segments.map((s) => (
-                            <SelectItem key={s.segment} value={s.segment}>
-                              {SEGMENT_LABELS[s.segment] || s.segment} ({s.count} clientes)
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+<div>
+                      <Label>Audiência</Label>
+                      <div className="flex gap-1 mb-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setAudienceMode("segment")}
+                          className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                            audienceMode === "segment"
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                          }`}
+                        >
+                          Segmento RFM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAudienceMode("list")}
+                          className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                            audienceMode === "list"
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                          }`}
+                        >
+                          Lista personalizada (CSV)
+                        </button>
+                      </div>
+                      {audienceMode === "segment" ? (
+                        <Select value={selectedSegment} onValueChange={setSelectedSegment}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecionar segmento..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {segments.map((s) => (
+                              <SelectItem key={s.segment} value={s.segment}>
+                                {SEGMENT_LABELS[s.segment] || s.segment} ({s.count} clientes)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <>
+                          <Select value={selectedListId} onValueChange={setSelectedListId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecionar lista..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {contactLists.length === 0 ? (
+                                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                  Nenhuma lista. Crie em /crm/listas.
+                                </div>
+                              ) : (
+                                contactLists.map((l) => (
+                                  <SelectItem
+                                    key={l.id}
+                                    value={l.id}
+                                    disabled={l.phone_count === 0}
+                                  >
+                                    {l.name} ({l.phone_count} com telefone / {l.total_count} total)
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Listas uploadadas em <a href="/crm/listas" className="underline">/crm/listas</a>. Só contatos com telefone vão pra fila.
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div>
@@ -1104,9 +1230,13 @@ export default function WhatsAppPage() {
                       </div>
                     )}
 
-                    <Button
+<Button
                       className="w-full"
-                      disabled={!campaignName || !selectedSegment || !selectedTemplate}
+                      disabled={
+                        !campaignName ||
+                        !selectedTemplate ||
+                        (audienceMode === "segment" ? !selectedSegment : !selectedListId)
+                      }
                       onClick={() => setCreateStep(getTemplateVars().length > 0 ? 2 : 3)}
                     >
                       Proximo
@@ -1168,9 +1298,13 @@ export default function WhatsAppPage() {
                           <span className="text-muted-foreground">Campanha:</span>
                           <span className="font-medium">{campaignName}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Segmento:</span>
-                          <span className="font-medium">{SEGMENT_LABELS[selectedSegment] || selectedSegment}</span>
+<div className="flex justify-between">
+                          <span className="text-muted-foreground">Audiência:</span>
+                          <span className="font-medium">
+                            {audienceMode === "segment"
+                              ? SEGMENT_LABELS[selectedSegment] || selectedSegment
+                              : contactLists.find((l) => l.id === selectedListId)?.name || "—"}
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Template:</span>
@@ -1179,7 +1313,9 @@ export default function WhatsAppPage() {
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Destinatarios:</span>
                           <span className="font-medium">
-                            {segments.find((s) => s.segment === selectedSegment)?.count || "?"} contatos
+                            {audienceMode === "segment"
+                              ? `${segments.find((s) => s.segment === selectedSegment)?.count || "?"} contatos`
+                              : `${contactLists.find((l) => l.id === selectedListId)?.phone_count || 0} contatos`}
                           </span>
                         </div>
                       </CardContent>

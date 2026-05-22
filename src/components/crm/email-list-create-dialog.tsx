@@ -46,6 +46,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   contacts: Contact[];
   suggestedName?: string;
+  onCreated?: (result: { listId: string; listName: string }) => void;
 }
 
 type Phase = "idle" | "creating" | "uploading" | "importing" | "done";
@@ -66,6 +67,7 @@ export function EmailListCreateDialog({
   onOpenChange,
   contacts,
   suggestedName,
+  onCreated,
 }: Props) {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
@@ -217,6 +219,7 @@ export function EmailListCreateDialog({
           errors: status.errors_count ?? 0,
         });
         setPhase("done");
+        onCreated?.({ listId, listName });
         return;
       }
       if (status.status === "error") {
