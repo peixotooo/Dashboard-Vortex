@@ -31,7 +31,15 @@ import {
   Mail,
   Webhook,
   Info,
+  Eye,
 } from "lucide-react";
+import {
+  SAMPLE_VARS,
+  encodeMappingValue,
+  interpolate,
+  parseMappingValue,
+  previewWhatsAppBody,
+} from "@/lib/cart-recovery/variables";
 
 const AVAILABLE_VARS = [
   "customer_name",
@@ -106,13 +114,17 @@ function emptyStep(order: number): Step {
 
 function extractTemplateVars(tpl: WaTemplate | undefined): string[] {
   if (!tpl) return [];
-  const bodyText =
-    tpl.components.find((c) => c.type === "BODY")?.text || "";
+  const bodyText = getTemplateBody(tpl);
   const matches = bodyText.match(/\{\{\s*\d+\s*\}\}/g) || [];
   const positions = matches
     .map((m) => m.replace(/[^\d]/g, ""))
     .filter((p) => p);
   return Array.from(new Set(positions)).sort();
+}
+
+function getTemplateBody(tpl: WaTemplate | undefined): string {
+  if (!tpl) return "";
+  return tpl.components.find((c) => c.type === "BODY")?.text || "";
 }
 
 export default function CartRecoveryPage() {
@@ -457,42 +469,108 @@ export default function CartRecoveryPage() {
                             <Label className="text-xs">
                               Variáveis do template
                             </Label>
-                            {tplPositions.map((pos) => (
-                              <div
-                                key={pos}
-                                className="grid grid-cols-[80px_1fr] gap-2 items-center"
-                              >
-                                <Badge variant="secondary">
-                                  {"{{"}
-                                  {pos}
-                                  {"}}"}
-                                </Badge>
-                                <Select
-                                  value={
-                                    step.whatsapp_variable_mapping[pos] || ""
-                                  }
-                                  onValueChange={(v) =>
-                                    updateStep(idx, {
-                                      whatsapp_variable_mapping: {
-                                        ...step.whatsapp_variable_mapping,
-                                        [pos]: v,
-                                      },
-                                    })
-                                  }
+                            {tplPositions.map((pos) => {
+                              const raw =
+                                step.whatsapp_variable_mapping[pos] || "";
+                              const parsed = parseMappingValue(raw);
+                              return (
+                                <div
+                                  key={pos}
+                                  className="grid grid-cols-[60px_140px_1fr] gap-2 items-center"
                                 >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione a variável" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {AVAILABLE_VARS.map((v) => (
-                                      <SelectItem key={v} value={v}>
-                                        {v}
+                                  <Badge variant="secondary">
+                                    {"{{"}
+                                    {pos}
+                                    {"}}"}
+                                  </Badge>
+                                  <Select
+                                    value={parsed.kind}
+                                    onValueChange={(kind) =>
+                                      updateStep(idx, {
+                                        whatsapp_variable_mapping: {
+                                          ...step.whatsapp_variable_mapping,
+                                          [pos]: encodeMappingValue(
+                                            kind as "var" | "text",
+                                            ""
+                                          ),
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="var">
+                                        Variável
                                       </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            ))}
+                                      <SelectItem value="text">
+                                        Texto livre
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {parsed.kind === "var" ? (
+                                    <Select
+                                      value={parsed.value}
+                                      onValueChange={(v) =>
+                                        updateStep(idx, {
+                                          whatsapp_variable_mapping: {
+                                            ...step.whatsapp_variable_mapping,
+                                            [pos]: encodeMappingValue("var", v),
+                                          },
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione a variável" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {AVAILABLE_VARS.map((v) => (
+                                          <SelectItem key={v} value={v}>
+                                            {v}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Input
+                                      value={parsed.value}
+                                      onChange={(e) =>
+                                        updateStep(idx, {
+                                          whatsapp_variable_mapping: {
+                                            ...step.whatsapp_variable_mapping,
+                                            [pos]: encodeMappingValue(
+                                              "text",
+                                              e.target.value
+                                            ),
+                                          },
+                                        })
+                                      }
+                                      placeholder="Texto fixo (ex: 10% de desconto)"
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Preview do WhatsApp */}
+                        {template && getTemplateBody(template) && (
+                          <div className="space-y-2 pt-2 border-t">
+                            <Label className="text-xs flex items-center gap-1 text-muted-foreground">
+                              <Eye className="h-3 w-3" /> Pré-visualização
+                            </Label>
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm whitespace-pre-wrap font-sans">
+                              {previewWhatsAppBody(
+                                getTemplateBody(template),
+                                step.whatsapp_variable_mapping,
+                                SAMPLE_VARS
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              Usando dados de exemplo ({SAMPLE_VARS.customer_first_name}, {SAMPLE_VARS.cart_total_formatted}, etc).
+                            </p>
                           </div>
                         )}
                       </>
@@ -543,6 +621,49 @@ export default function CartRecoveryPage() {
                         <p className="text-xs text-muted-foreground">
                           Variáveis: {AVAILABLE_VARS.map((v) => `{{${v}}}`).join(", ")}
                         </p>
+
+                        {/* Preview do Email */}
+                        {(step.email_subject || step.email_body_html) && (
+                          <div className="space-y-2 pt-2 border-t">
+                            <Label className="text-xs flex items-center gap-1 text-muted-foreground">
+                              <Eye className="h-3 w-3" /> Pré-visualização
+                            </Label>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                              <div>
+                                <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                                  Assunto
+                                </div>
+                                <div className="text-sm font-medium">
+                                  {interpolate(
+                                    step.email_subject || "",
+                                    SAMPLE_VARS
+                                  ) || (
+                                    <span className="italic text-muted-foreground">
+                                      (vazio)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] uppercase text-muted-foreground mb-1">
+                                  Corpo
+                                </div>
+                                <div
+                                  className="text-sm bg-white border rounded p-2 max-h-64 overflow-auto"
+                                  dangerouslySetInnerHTML={{
+                                    __html: interpolate(
+                                      step.email_body_html || "",
+                                      SAMPLE_VARS
+                                    ),
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              Usando dados de exemplo. Variáveis disponíveis em ambos os campos.
+                            </p>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

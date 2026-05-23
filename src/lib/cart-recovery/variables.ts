@@ -58,16 +58,76 @@ export function buildRecoveryVariables(
 // Resolve mapping posicional → { "1": "<value>", "2": "<value>" }
 // Esse formato é o que wa_messages.variable_values espera (consumido por
 // sendTemplateMessage que substitui em {{1}}, {{2}}).
+//
+// Cada slot do mapping aceita 3 formatos:
+//   "var:customer_first_name"  → resolve a variável
+//   "text:Aproveite 10%"       → texto literal
+//   "customer_first_name"      → legado (sem prefixo) = variável
 export function resolveWhatsAppVariables(
   mapping: Record<string, string>,
   vars: RecoveryVariables
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [position, varName] of Object.entries(mapping || {})) {
-    const value = (vars as unknown as Record<string, string>)[varName];
-    out[position] = value ?? "";
+  for (const [position, raw] of Object.entries(mapping || {})) {
+    out[position] = resolveMappingValue(raw, vars);
   }
   return out;
+}
+
+function resolveMappingValue(
+  raw: string,
+  vars: RecoveryVariables
+): string {
+  if (!raw) return "";
+  if (raw.startsWith("text:")) return raw.slice(5);
+  const varName = raw.startsWith("var:") ? raw.slice(4) : raw;
+  const value = (vars as unknown as Record<string, string>)[varName];
+  return value ?? "";
+}
+
+// Helpers pra UI — separa o tipo do valor do mapping.
+export type MappingKind = "var" | "text";
+
+export function parseMappingValue(raw: string): {
+  kind: MappingKind;
+  value: string;
+} {
+  if (!raw) return { kind: "var", value: "" };
+  if (raw.startsWith("text:")) return { kind: "text", value: raw.slice(5) };
+  if (raw.startsWith("var:")) return { kind: "var", value: raw.slice(4) };
+  return { kind: "var", value: raw };
+}
+
+export function encodeMappingValue(kind: MappingKind, value: string): string {
+  return `${kind}:${value}`;
+}
+
+// Valores de exemplo pra preview na UI (sem cart real).
+export const SAMPLE_VARS: RecoveryVariables = {
+  customer_name: "João Silva",
+  customer_first_name: "João",
+  customer_email: "joao@exemplo.com",
+  cart_total: "199.90",
+  cart_total_formatted: "R$ 199,90",
+  first_item_name: "Camiseta Hustle III",
+  items_count: "2",
+  recovery_url: "https://loja.com/cart/abc123",
+  coupon_code: "VOLTA10",
+  store_name: "Sua Loja",
+};
+
+// Renderiza o body de um template WhatsApp substituindo {{1}}, {{2}}...
+// pelos valores do mapping resolvidos com `vars` (use SAMPLE_VARS pra preview).
+export function previewWhatsAppBody(
+  templateBody: string,
+  mapping: Record<string, string>,
+  vars: RecoveryVariables
+): string {
+  if (!templateBody) return "";
+  const resolved = resolveWhatsAppVariables(mapping, vars);
+  return templateBody.replace(/\{\{\s*(\d+)\s*\}\}/g, (match, pos) => {
+    return resolved[pos] || match;
+  });
 }
 
 // Interpola {{var_name}} em strings (assunto e HTML do email).
