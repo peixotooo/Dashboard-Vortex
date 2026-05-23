@@ -4,6 +4,7 @@ import {
   dispatchEmail,
   dispatchWhatsApp,
 } from "@/lib/cart-recovery/dispatch";
+import { enrichCart } from "@/lib/cart-recovery/enrich";
 import type { CartRecoveryStep } from "@/lib/cart-recovery/types";
 
 export const maxDuration = 300;
@@ -26,6 +27,8 @@ interface CartRow {
   recovery_url: string | null;
   coupon_code: string | null;
   abandoned_at: string;
+  vnda_client_id: number | null;
+  enrichment_attempted_at: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -75,7 +78,7 @@ export async function GET(request: NextRequest) {
       const { data: carts } = await admin
         .from("abandoned_carts")
         .select(
-          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at"
+          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, vnda_client_id, enrichment_attempted_at"
         )
         .eq("workspace_id", workspaceId)
         .eq("status", "open")
@@ -119,8 +122,27 @@ export async function GET(request: NextRequest) {
       // 5. Para cada cart × step, dispara o que ainda falta.
       for (const cart of activeCarts) {
         const abandonedAt = new Date(cart.abandoned_at).getTime();
+
+        // Enrichment best-effort: se faltar nome/telefone e tiver client_id,
+        // busca via VNDA antes do dispatch. Marca attempted_at pra não
+        // retentar em runs futuros. Não bloqueia o dispatch — se falhar,
+        // segue com customer_name = null.
+        let enrichedName = cart.customer_name;
+        let enrichedPhone = cart.customer_phone;
+        if (
+          !cart.enrichment_attempted_at &&
+          cart.vnda_client_id &&
+          (!cart.customer_name || !cart.customer_phone)
+        ) {
+          const result = await enrichCart(admin, workspaceId, cart);
+          enrichedName = result.customer_name;
+          enrichedPhone = result.customer_phone;
+        }
+
         const cartForVars = {
           ...cart,
+          customer_name: enrichedName,
+          customer_phone: enrichedPhone,
           items: Array.isArray(cart.items) ? cart.items : [],
         };
 

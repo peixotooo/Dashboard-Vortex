@@ -32,6 +32,8 @@ import {
   Webhook,
   Info,
   Eye,
+  Sparkles,
+  AlertCircle,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -144,6 +146,10 @@ export default function CartRecoveryPage() {
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [webhookToken, setWebhookToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [applyingRecommended, setApplyingRecommended] = useState(false);
+  const [suggestedBodies, setSuggestedBodies] = useState<
+    Array<{ step_order: number; body: string }> | null
+  >(null);
 
   const fetchAll = useCallback(async () => {
     if (!workspaceId) return;
@@ -204,6 +210,30 @@ export default function CartRecoveryPage() {
     setSteps((prev) =>
       prev.map((s, i) => (i === idx ? { ...s, ...patch } : s))
     );
+  };
+
+  const applyRecommended = async () => {
+    if (!workspaceId) return;
+    const ok = window.confirm(
+      "Isso vai SUBSTITUIR os steps atuais pela régua recomendada (3 steps: 30min, 24h, 72h, WhatsApp + Email cada). O switch \"Ativa/Desativada\" não é alterado. Continuar?"
+    );
+    if (!ok) return;
+    setApplyingRecommended(true);
+    try {
+      const res = await fetch("/api/crm/cart-recovery/apply-recommended", {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Erro ao aplicar régua recomendada");
+      } else {
+        setSuggestedBodies(data.whatsapp_suggested_bodies || null);
+        await fetchAll();
+      }
+    } finally {
+      setApplyingRecommended(false);
+    }
   };
 
   const save = async () => {
@@ -368,10 +398,72 @@ export default function CartRecoveryPage() {
 
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Steps</h2>
-            <Button variant="outline" size="sm" onClick={addStep}>
-              <Plus className="h-4 w-4 mr-2" /> Adicionar step
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={applyRecommended}
+                disabled={applyingRecommended}
+              >
+                {applyingRecommended ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-2" />
+                )}
+                Usar régua recomendada
+              </Button>
+              <Button variant="outline" size="sm" onClick={addStep}>
+                <Plus className="h-4 w-4 mr-2" /> Adicionar step
+              </Button>
+            </div>
           </div>
+
+          {suggestedBodies && (
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Régua aplicada — agora crie os templates de WhatsApp
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Os emails já estão prontos. Pra ativar o WhatsApp, crie esses
+                  templates em <strong>/crm/whatsapp</strong> (categoria
+                  MARKETING ou UTILITY), aguarde aprovação da Meta, e depois
+                  selecione cada um no respectivo step abaixo.
+                </p>
+                {suggestedBodies.map((s) => (
+                  <div key={s.step_order} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">
+                        Step {s.step_order} — body sugerido
+                      </Label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(s.body);
+                        }}
+                      >
+                        <Copy className="h-3 w-3 mr-1" /> Copiar
+                      </Button>
+                    </div>
+                    <pre className="text-xs bg-white border rounded p-2 whitespace-pre-wrap font-sans">
+                      {s.body}
+                    </pre>
+                  </div>
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSuggestedBodies(null)}
+                >
+                  Fechar
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {steps.length === 0 && (
             <Card>
@@ -386,6 +478,7 @@ export default function CartRecoveryPage() {
               (t) => t.id === step.whatsapp_template_id
             );
             const tplPositions = extractTemplateVars(template);
+            const hasLink = stepHasCartUrl(step);
             return (
               <Card key={idx}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -404,6 +497,17 @@ export default function CartRecoveryPage() {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {(step.whatsapp_enabled || step.email_enabled) && !hasLink && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Sem link de retomada.</strong> No WhatsApp, mapeie
+                        uma variável como <code>recovery_url</code>. No Email,
+                        inclua <code>{"{{recovery_url}}"}</code> no assunto ou
+                        body — sem isso, o cliente não tem como voltar pro carrinho.
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <Label>Atraso (minutos)</Label>
                     <Input
@@ -795,4 +899,23 @@ function formatDelay(minutes: number): string {
   if (minutes < 60) return `${minutes}min`;
   if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
   return `${Math.round(minutes / 1440)}d`;
+}
+
+// Heurística simples: o conteúdo da mensagem deve ter o link de recuperação,
+// senão o cliente não tem como voltar pro carrinho. Aceita {{recovery_url}}
+// no email/assunto OU "var:recovery_url" em alguma posição do WhatsApp.
+function stepHasCartUrl(step: Step): boolean {
+  if (step.whatsapp_enabled) {
+    const hasWaLink = Object.values(step.whatsapp_variable_mapping || {}).some(
+      (v) => v === "recovery_url" || v === "var:recovery_url"
+    );
+    if (!hasWaLink) return false;
+  }
+  if (step.email_enabled) {
+    const hay = `${step.email_subject || ""} ${step.email_body_html || ""}`;
+    if (!hay.includes("{{recovery_url}}") && !hay.includes("{{cart_url}}")) {
+      return false;
+    }
+  }
+  return true;
 }

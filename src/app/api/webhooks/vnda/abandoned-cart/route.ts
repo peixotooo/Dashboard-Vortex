@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
                   workspace_id: workspaceId,
                   vnda_cart_token: normalized.vnda_cart_token,
                   vnda_cart_id: normalized.vnda_cart_id,
+                  vnda_client_id: normalized.vnda_client_id,
                   customer_email: normalized.customer_email,
                   customer_phone: normalized.customer_phone,
                   customer_name: normalized.customer_name,
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
           : admin.from("abandoned_carts").insert({
               workspace_id: workspaceId,
               vnda_cart_id: normalized.vnda_cart_id,
+              vnda_client_id: normalized.vnda_client_id,
               customer_email: normalized.customer_email,
               customer_phone: normalized.customer_phone,
               customer_name: normalized.customer_name,
