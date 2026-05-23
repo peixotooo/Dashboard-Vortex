@@ -168,6 +168,7 @@ const navGroups: NavGroup[] = [
           { title: "Cashback", href: "/crm/cashback", icon: Coins },
           { title: "Listas", href: "/crm/listas", icon: ListChecks },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
+          { title: "Recuperação de Carrinho", href: "/crm/cart-recovery", icon: ShoppingCart },
           { title: "Email Templates", href: "/crm/email-templates", icon: Mail },
           { title: "WhatsApp Grupos", href: "/whatsapp-groups", icon: Users },
         ],
