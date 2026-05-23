@@ -119,6 +119,29 @@ export async function POST(request: NextRequest) {
       .delete()
       .eq("workspace_id", workspaceId);
 
+    // Cart recovery: fechar carts abertos do mesmo email — cliente comprou,
+    // régua tem que parar. Match por email (case-insensitive). Isolado pra
+    // que qualquer erro aqui não derrube o webhook.
+    try {
+      const email = (payload.email || "").toLowerCase().trim();
+      if (email) {
+        await admin
+          .from("abandoned_carts")
+          .update({
+            status: "recovered",
+            recovered_at: new Date().toISOString(),
+          })
+          .eq("workspace_id", workspaceId)
+          .eq("customer_email", email)
+          .eq("status", "open");
+      }
+    } catch (cartErr) {
+      console.error(
+        `[VNDA Webhook] Cart recovery close failed for order ${orderId}:`,
+        cartErr instanceof Error ? cartErr.message : cartErr
+      );
+    }
+
     // Meta CAPI Purchase — isolated so a Meta outage never breaks the webhook.
     // Gated by META_CAPI_VNDA_WORKSPACE_ID so only the BK COM workspace
     // forwards to the configured CAPI pixel. Uses deterministic event_id so
