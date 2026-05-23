@@ -16,6 +16,7 @@ export interface VndaAbandonedCartItem {
   original_price?: number;
   total?: number;
   image_url?: string;
+  images?: Array<{ url?: string } | string>;
   url?: string;
 }
 
@@ -26,7 +27,9 @@ export interface VndaAbandonedCartPayload {
   cart_token?: string;
   code?: string;
 
-  // Cliente.
+  // Cliente. VNDA real envia first_phone/second_phone (não cellphone/phone)
+  // e *não envia nome no payload* — só client_id, que usamos pra enriquecer
+  // via GET /api/v2/clients/{id}.
   email?: string;
   first_name?: string;
   last_name?: string;
@@ -36,7 +39,11 @@ export interface VndaAbandonedCartPayload {
   cellphone?: string;
   phone_area?: string;
   cellphone_area?: string;
-  client_id?: number;
+  first_phone?: string | null;
+  first_phone_area?: string | null;
+  second_phone?: string | null;
+  second_phone_area?: string | null;
+  client_id?: number | null;
 
   // Conteúdo.
   items?: VndaAbandonedCartItem[];
@@ -50,6 +57,7 @@ export interface VndaAbandonedCartPayload {
   url?: string;
 
   coupon_code?: string;
+  coupon_codes?: string[];
 
   abandoned_at?: string;
   created_at?: string;
@@ -61,6 +69,7 @@ export interface VndaAbandonedCartPayload {
 export interface NormalizedCart {
   vnda_cart_token: string | null;
   vnda_cart_id: string | null;
+  vnda_client_id: number | null;
   customer_email: string;
   customer_phone: string | null;
   customer_name: string | null;
