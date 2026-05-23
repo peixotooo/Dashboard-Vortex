@@ -44,6 +44,7 @@ import {
   Zap,
   RefreshCw,
   Gift,
+  Download,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -175,6 +176,8 @@ export default function CartRecoveryPage() {
   const [applyingRecommended, setApplyingRecommended] = useState(false);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [refreshingTemplate, setRefreshingTemplate] = useState(false);
+  const [importingFromVnda, setImportingFromVnda] = useState(false);
+  const [importHours, setImportHours] = useState(48);
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -299,6 +302,43 @@ export default function CartRecoveryPage() {
       }
     } finally {
       setRefreshingTemplate(false);
+    }
+  };
+
+  const importFromVnda = async () => {
+    if (!workspaceId) return;
+    const ok = window.confirm(
+      `Vou puxar os carrinhos abandonados das últimas ${importHours}h direto da API VNDA e injetar na régua. Cada cart vai começar a régua do começo (step 1) assim que entrar. Continuar?`
+    );
+    if (!ok) return;
+    setImportingFromVnda(true);
+    try {
+      const res = await fetch("/api/crm/cart-recovery/import-from-vnda", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({ hours: importHours }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Erro ao importar carrinhos");
+      } else {
+        alert(
+          `Importação concluída:\n\n` +
+            `• Importados: ${data.imported}\n` +
+            `• Já existiam: ${data.skipped_existing}\n` +
+            `• Sem email: ${data.skipped_no_email}\n` +
+            `• Inválidos: ${data.skipped_invalid}\n` +
+            `• Fora da janela: ${data.skipped_outside_window || 0}\n` +
+            `• Erros: ${data.errors}\n` +
+            `• Total varredo: ${data.fetched}`
+        );
+        await fetchAll();
+      }
+    } finally {
+      setImportingFromVnda(false);
     }
   };
 
@@ -673,7 +713,60 @@ export default function CartRecoveryPage() {
         {/* ============================================ */}
         {/* CARRINHOS */}
         {/* ============================================ */}
-        <TabsContent value="carts">
+        <TabsContent value="carts" className="space-y-4">
+          {/* Import retroativo da VNDA */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Download className="h-4 w-4" />
+                Importar carrinhos da VNDA
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Puxa os carrinhos abandonados das últimas N horas direto
+                da API VNDA e injeta na régua. Útil pra começar com
+                carrinhos retroativos (sem precisar esperar webhooks novos).
+                Carrinhos já cadastrados não são duplicados.
+              </p>
+              <div className="flex items-end gap-2">
+                <div>
+                  <Label className="text-xs">Janela (horas)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={168}
+                    className="w-32"
+                    value={importHours}
+                    onChange={(e) =>
+                      setImportHours(
+                        Math.max(
+                          1,
+                          Math.min(168, Number(e.target.value) || 48)
+                        )
+                      )
+                    }
+                  />
+                </div>
+                <Button
+                  onClick={importFromVnda}
+                  disabled={importingFromVnda}
+                >
+                  {importingFromVnda ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
+                  Importar
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Máx 168h (7 dias). Carrinhos sem email não podem ser
+                importados (sem canal de contato).
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-0">
               <table className="w-full text-sm">
