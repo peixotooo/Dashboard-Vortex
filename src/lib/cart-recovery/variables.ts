@@ -14,6 +14,12 @@ export interface CartRow {
   items: NormalizedCartItem[] | null;
   recovery_url: string | null;
   coupon_code: string | null;
+  // ISO timestamp de quando o cupom de recuperação expira. Populado pelo
+  // cron quando ensureRecoveryCoupon cria um cupom. Usado pra:
+  //   - {{coupon_expires_at}} → ISO completo (alimenta a URL do
+  //     countdown PNG no email)
+  //   - {{coupon_expires_at_formatted}} → texto humano pt-BR
+  recovery_coupon_expires_at?: string | null;
 }
 
 export interface RecoveryVariables {
@@ -26,6 +32,8 @@ export interface RecoveryVariables {
   items_count: string;
   recovery_url: string;
   coupon_code: string;
+  coupon_expires_at: string;
+  coupon_expires_at_formatted: string;
   store_name: string;
 }
 
@@ -34,6 +42,24 @@ const BRL = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+// "hoje às 18h32", "amanhã às 09h05", "12/03 às 14h" — formato curto pt-BR.
+function formatExpiryHuman(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (sameDay) return `hoje às ${hh}h${mm}`;
+  if (isTomorrow) return `amanhã às ${hh}h${mm}`;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mo} às ${hh}h${mm}`;
+}
+
 export function buildRecoveryVariables(
   cart: CartRow,
   opts: { storeName?: string } = {}
@@ -41,6 +67,7 @@ export function buildRecoveryVariables(
   const items = cart.items ?? [];
   const firstName = (cart.customer_name || "").split(/\s+/)[0] || "";
   const total = cart.cart_total ?? 0;
+  const expiresIso = cart.recovery_coupon_expires_at || "";
   return {
     customer_name: cart.customer_name || "",
     customer_first_name: firstName,
@@ -51,6 +78,8 @@ export function buildRecoveryVariables(
     items_count: String(items.length),
     recovery_url: cart.recovery_url || "",
     coupon_code: cart.coupon_code || "",
+    coupon_expires_at: expiresIso,
+    coupon_expires_at_formatted: expiresIso ? formatExpiryHuman(expiresIso) : "",
     store_name: opts.storeName || "",
   };
 }
@@ -107,7 +136,11 @@ export function encodeMappingValue(kind: MappingKind, value: string): string {
   return `${kind}:${value}`;
 }
 
-// Valores de exemplo pra preview na UI (sem cart real).
+// Valores de exemplo pra preview na UI (sem cart real). Expira em 24h
+// a partir do load do módulo pra preview do countdown ficar realista.
+const SAMPLE_EXPIRES_AT = new Date(
+  Date.now() + 24 * 60 * 60 * 1000
+).toISOString();
 export const SAMPLE_VARS: RecoveryVariables = {
   customer_name: "João Silva",
   customer_first_name: "João",
@@ -117,7 +150,9 @@ export const SAMPLE_VARS: RecoveryVariables = {
   first_item_name: "Camiseta Hustle III",
   items_count: "2",
   recovery_url: "https://loja.com/cart/abc123",
-  coupon_code: "VOLTA10",
+  coupon_code: "BKNG10_ABC123",
+  coupon_expires_at: SAMPLE_EXPIRES_AT,
+  coupon_expires_at_formatted: formatExpiryHuman(SAMPLE_EXPIRES_AT),
   store_name: "Sua Loja",
 };
 
