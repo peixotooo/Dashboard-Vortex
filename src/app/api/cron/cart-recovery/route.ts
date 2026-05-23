@@ -5,6 +5,7 @@ import {
   dispatchWhatsApp,
 } from "@/lib/cart-recovery/dispatch";
 import { enrichCart } from "@/lib/cart-recovery/enrich";
+import { ensureRecoveryCoupon } from "@/lib/cart-recovery/coupons";
 import type { CartRecoveryStep } from "@/lib/cart-recovery/types";
 
 export const maxDuration = 300;
@@ -29,6 +30,7 @@ interface CartRow {
   abandoned_at: string;
   vnda_client_id: number | null;
   enrichment_attempted_at: string | null;
+  recovery_coupon_expires_at: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
       const { data: carts } = await admin
         .from("abandoned_carts")
         .select(
-          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, vnda_client_id, enrichment_attempted_at"
+          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, vnda_client_id, enrichment_attempted_at, recovery_coupon_expires_at"
         )
         .eq("workspace_id", workspaceId)
         .eq("status", "open")
@@ -149,6 +151,29 @@ export async function GET(request: NextRequest) {
         for (const step of steps) {
           const fireAt = abandonedAt + step.delay_minutes * 60 * 1000;
           if (fireAt > now.getTime()) continue;
+
+          // Geração de cupom (se o step config requer e cart ainda não tem
+          // cupom de recuperação ativo). Best-effort — falha aqui não
+          // bloqueia o dispatch, apenas a variável {{coupon_code}} fica
+          // vazia na mensagem.
+          if ((step.coupon_pct || 0) > 0) {
+            const couponResult = await ensureRecoveryCoupon(
+              admin,
+              workspaceId,
+              {
+                id: cart.id,
+                coupon_code: cartForVars.coupon_code,
+                recovery_coupon_expires_at: cart.recovery_coupon_expires_at,
+              },
+              {
+                pct: step.coupon_pct,
+                validityHours: step.coupon_validity_hours || 48,
+              }
+            );
+            if (couponResult) {
+              cartForVars.coupon_code = couponResult.code;
+            }
+          }
 
           // WhatsApp.
           if (

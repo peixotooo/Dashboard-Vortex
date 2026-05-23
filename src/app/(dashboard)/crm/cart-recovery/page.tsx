@@ -43,6 +43,7 @@ import {
   Pencil,
   Zap,
   RefreshCw,
+  Gift,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -84,6 +85,8 @@ interface Step {
   email_enabled: boolean;
   email_subject: string | null;
   email_body_html: string | null;
+  coupon_pct: number;
+  coupon_validity_hours: number;
 }
 
 interface Rule {
@@ -120,6 +123,8 @@ function emptyStep(order: number): Step {
     email_enabled: false,
     email_subject: null,
     email_body_html: null,
+    coupon_pct: 0,
+    coupon_validity_hours: 48,
   };
 }
 
@@ -830,6 +835,7 @@ function StepCard({
   if (step.email_enabled) {
     channels.push("Email");
   }
+  const hasCoupon = (step.coupon_pct || 0) > 0;
 
   return (
     <Card
@@ -857,6 +863,15 @@ function StepCard({
                 {c}
               </Badge>
             ))
+          )}
+          {hasCoupon && (
+            <Badge
+              variant="outline"
+              className="border-purple-300 bg-purple-50 text-purple-900 font-normal"
+            >
+              <Gift className="h-3 w-3 mr-1" />
+              {step.coupon_pct}% off · {step.coupon_validity_hours}h
+            </Badge>
           )}
         </div>
         {(step.whatsapp_enabled || step.email_enabled) && !hasLink && (
@@ -951,6 +966,73 @@ function StepEditor({
                 onChange({ delay_minutes: Number(e.target.value) || 0 })
               }
             />
+          </div>
+
+          {/* Cupom automático */}
+          <div className="border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <Gift className="h-4 w-4 text-purple-600" />
+                Cupom automático
+              </Label>
+              <Switch
+                checked={(step.coupon_pct || 0) > 0}
+                onCheckedChange={(v) =>
+                  onChange({ coupon_pct: v ? 10 : 0 })
+                }
+              />
+            </div>
+            {(step.coupon_pct || 0) > 0 ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Desconto (%)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={step.coupon_pct}
+                      onChange={(e) =>
+                        onChange({
+                          coupon_pct: Math.max(
+                            0,
+                            Math.min(100, Number(e.target.value) || 0)
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Validade (horas)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={step.coupon_validity_hours}
+                      onChange={(e) =>
+                        onChange({
+                          coupon_validity_hours: Math.max(
+                            1,
+                            Number(e.target.value) || 48
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Um cupom único por carrinho é criado na VNDA antes do
+                  dispatch. Use <code>{"{{coupon_code}}"}</code> no
+                  WhatsApp/Email pra inserir o código (formato:{" "}
+                  <code>BKNG{step.coupon_pct}_XXXXXX</code>).
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Step não gera cupom. Ative pra criar cupom único por
+                carrinho (X% off, válido por Y horas) automaticamente antes
+                do envio.
+              </p>
+            )}
           </div>
 
           {/* WhatsApp */}

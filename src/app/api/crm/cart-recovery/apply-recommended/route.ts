@@ -106,6 +106,8 @@ export async function POST(request: NextRequest) {
       email_enabled: s.email_enabled,
       email_subject: s.email_subject,
       email_body_html: s.email_body_html,
+      coupon_pct: s.coupon_pct,
+      coupon_validity_hours: s.coupon_validity_hours,
     }));
 
     const { error: stepsErr } = await admin

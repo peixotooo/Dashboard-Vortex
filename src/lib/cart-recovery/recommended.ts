@@ -27,6 +27,10 @@ export interface RecommendedStep {
   email_enabled: boolean;
   email_subject: string;
   email_body_html: string;
+  // 0 = sem cupom. > 0 = gera cupom único por carrinho com X% off,
+  // válido por coupon_validity_hours.
+  coupon_pct: number;
+  coupon_validity_hours: number;
 }
 
 interface EmailParams {
@@ -171,6 +175,8 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
   {
     step_order: 1,
     delay_minutes: 30,
+    coupon_pct: 0,
+    coupon_validity_hours: 48,
     whatsapp_enabled: true,
     whatsapp_suggested_body:
       "Oi {{1}}! 👋\n\nVi que você deixou alguns itens no carrinho. Quer terminar a compra agora?\n\n{{2}}\n\nSe tiver dúvida ou precisar de ajuda, é só me chamar por aqui!",
@@ -203,6 +209,8 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
   {
     step_order: 2,
     delay_minutes: 60 * 24,
+    coupon_pct: 0,
+    coupon_validity_hours: 48,
     whatsapp_enabled: true,
     whatsapp_suggested_body:
       "Oi {{1}}, passando aqui de novo 🙂\n\nOs itens que você escolheu ainda estão disponíveis, mas o estoque pode acabar.\n\nGarante o seu antes que mude: {{2}}",
@@ -226,31 +234,42 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
   },
 
   // ---------- Step 3: 72 horas ----------
-  // Última tentativa. Tom honesto, sem insistir muito.
+  // Última tentativa COM cupom 10% off por 48h. Cupom único por carrinho
+  // criado automaticamente na VNDA pelo cron antes do dispatch.
+  // O code é interpolado via {{coupon_code}} (ensureRecoveryCoupon
+  // atualiza cart.coupon_code antes do envio).
   {
     step_order: 3,
     delay_minutes: 60 * 72,
+    coupon_pct: 10,
+    coupon_validity_hours: 48,
     whatsapp_enabled: true,
     whatsapp_suggested_body:
-      "{{1}}, último aviso por aqui 🙏\n\nSe quiser garantir os itens do seu carrinho, ainda dá pra finalizar:\n\n{{2}}\n\nCaso tenha desistido, sem problema — é só ignorar.",
+      "{{1}}, separei um cupom pra você 🎁\n\n{{2}}",
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:último aviso por aqui 🙏\n\nse ainda quiser garantir os itens do carrinho, é só clicar aqui:\n\n{{recovery_url}}\n\nse mudou de ideia, sem problemas — não envio mais lembretes.",
+        "text:separei um cupom de 10% off só pra você fechar essa compra 🎁\n\ncódigo: {{coupon_code}}\n\nvale por 48h. é só usar no checkout:\n\n{{recovery_url}}",
     },
     email_enabled: true,
-    email_subject: "Última chance, {{customer_first_name}}",
+    email_subject:
+      "🎁 10% off pra você, {{customer_first_name}} (só hoje e amanhã)",
     email_body_html: buildEmailHtml({
-      preheader: "Esse é o último lembrete sobre o seu carrinho.",
-      headline: "Última chance,<br/>{{customer_first_name}}.",
-      body: `<p style="margin:0 0 14px;">Esse é o último email que vamos mandar sobre esse carrinho.</p>
-<p style="margin:0 0 14px;">Se ainda quiser garantir os itens, é só clicar abaixo. Sem clique, a gente para por aqui.</p>`,
-      ctaLabel: "Quero finalizar a compra",
+      preheader:
+        "Seu cupom de 10% off vale por 48h. Use no checkout do seu carrinho.",
+      headline: "Separei 10% off<br/>pra você, {{customer_first_name}}.",
+      body: `<p style="margin:0 0 14px;">Sei que talvez algo tenha te feito desistir do carrinho.</p>
+<p style="margin:0 0 18px;">Pra te ajudar a fechar, criei um cupom de <strong>10% off</strong> só pra você. Vale por 48h.</p>
+<p style="margin:0 0 8px;font-size:13px;color:#6E6E6E;text-transform:uppercase;letter-spacing:0.08em;">Seu cupom</p>
+<p style="margin:0 0 18px;font-family:'JetBrains Mono','Courier New',monospace;font-size:22px;letter-spacing:0.04em;padding:14px 18px;border:1px dashed #000;background:#F7F7F7;display:inline-block;">{{coupon_code}}</p>
+<p style="margin:0 0 14px;">Aplique no checkout e finalize a compra.</p>`,
+      ctaLabel: "Usar cupom e finalizar",
       ctaUrl: "{{recovery_url}}",
       footnote:
-        "Caso tenha mudado de ideia, tudo bem. Não enviamos mais lembretes deste carrinho.",
+        "Cupom único, válido por 48 horas a partir do envio deste email.",
     }),
   },
 ];
+
 
 export const RECOMMENDED_EXPIRE_AFTER_HOURS = 96; // 4 dias, cobre o último step + folga
