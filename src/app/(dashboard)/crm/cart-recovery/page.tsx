@@ -42,6 +42,7 @@ import {
   AlertCircle,
   Pencil,
   Zap,
+  RefreshCw,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -168,6 +169,7 @@ export default function CartRecoveryPage() {
   const [saving, setSaving] = useState(false);
   const [applyingRecommended, setApplyingRecommended] = useState(false);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [refreshingTemplate, setRefreshingTemplate] = useState(false);
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -264,6 +266,34 @@ export default function CartRecoveryPage() {
       }
     } finally {
       setApplyingRecommended(false);
+    }
+  };
+
+  const refreshTemplateStatus = async () => {
+    if (!workspaceId) return;
+    setRefreshingTemplate(true);
+    try {
+      const res = await fetch("/api/crm/cart-recovery/refresh-template", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || data.error || "Erro ao atualizar status");
+      } else {
+        if (data.changed) {
+          alert(
+            `Status atualizado: ${data.previous_status || "?"} → ${data.status}`
+          );
+        }
+        await fetchAll();
+      }
+    } finally {
+      setRefreshingTemplate(false);
     }
   };
 
@@ -459,36 +489,63 @@ export default function CartRecoveryPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {linkedTemplate ? (
-                <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {linkedTemplate.name}
-                    </Badge>
-                    <Badge
-                      variant={
-                        linkedTemplate.status === "APPROVED"
-                          ? "default"
-                          : "secondary"
-                      }
-                    >
-                      {linkedTemplate.status}
-                    </Badge>
-                    <Badge variant="outline">{linkedTemplate.category}</Badge>
+                <>
+                  <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Badge variant="outline" className="font-mono text-xs">
+                        {linkedTemplate.name}
+                      </Badge>
+                      <Badge
+                        variant={
+                          linkedTemplate.status === "APPROVED"
+                            ? "default"
+                            : "secondary"
+                        }
+                      >
+                        {linkedTemplate.status}
+                      </Badge>
+                      <Badge variant="outline">{linkedTemplate.category}</Badge>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={refreshTemplateStatus}
+                        disabled={refreshingTemplate}
+                        title="Consultar Meta e atualizar status"
+                      >
+                        {refreshingTemplate ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                        )}
+                        Atualizar status
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={createUtilityTemplate}
+                        disabled={creatingTemplate}
+                      >
+                        {creatingTemplate ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3 w-3 mr-1" />
+                        )}
+                        Criar novo
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={createUtilityTemplate}
-                    disabled={creatingTemplate}
-                  >
-                    {creatingTemplate ? (
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3 w-3 mr-1" />
-                    )}
-                    Criar novo
-                  </Button>
-                </div>
+                  {linkedTemplate.status !== "APPROVED" && (
+                    <p className="text-xs text-amber-700 flex items-start gap-1.5 mt-2">
+                      <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                      Template ainda não foi aprovado pela Meta. A régua não
+                      vai disparar WhatsApp até o status virar APPROVED.
+                      Aprovação costuma sair em minutos — clica em{" "}
+                      <strong>Atualizar status</strong> pra checar.
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   <p className="text-sm text-muted-foreground">
