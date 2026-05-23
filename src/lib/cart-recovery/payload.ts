@@ -22,6 +22,25 @@ export function validateAbandonedCartPayload(
   return hasEmail && hasIdent && hasItems;
 }
 
+// Versão relaxada usada no import retroativo via API VNDA.
+// A doc da VNDA marca items como "string" no GET /carts/{id} (provavelmente
+// um erro de spec) e em alguns carts vem null/string vazio. Items é
+// nice-to-have pra preview/personalização mas não bloqueia a régua — o
+// importante pra recuperar é ter contato (email) e identificador (token).
+export function validateAbandonedCartPayloadForImport(
+  body: unknown
+): body is VndaAbandonedCartPayload {
+  if (!body || typeof body !== "object") return false;
+  const obj = body as Record<string, unknown>;
+  const hasEmail = typeof obj.email === "string" && obj.email.length > 0;
+  const hasIdent =
+    (typeof obj.token === "string" && obj.token.length > 0) ||
+    (typeof obj.cart_token === "string" && obj.cart_token.length > 0) ||
+    typeof obj.id === "number" ||
+    (typeof obj.id === "string" && obj.id.length > 0);
+  return hasEmail && hasIdent;
+}
+
 function normalizeItem(it: VndaAbandonedCartItem): NormalizedCartItem {
   // VNDA real envia `images: [{url}, ...]` com dezenas de variantes — pega
   // só a primeira pra preview. `image_url` no formato simples também aceito.
