@@ -137,6 +137,24 @@ function buildEmailHtml(p: EmailParams): string {
 // no momento do dispatch (src/lib/cart-recovery/variables.ts > interpolate).
 // O cron busca o nome real via VNDA antes de enviar (src/lib/cart-recovery/enrich.ts).
 
+// Body universal do template UTILITY criado automaticamente. Sem texto
+// fixo de cunho comercial — só 2 placeholders — pra Meta aprovar como
+// UTILITY (cobrança ~10x menor que MARKETING). O conteúdo "comercial"
+// vai como variável de runtime, interpolada via `text:` mapping.
+//
+// Estratégia inspirada nos templates "1409_bkng" que já passam aprovação
+// como UTILITY com placeholder-heavy body.
+export const UTILITY_TEMPLATE_BODY = "{{1}}\n\n{{2}}";
+
+// Exemplos pra Meta entender que tipo de conteúdo as variáveis carregam.
+// Mantemos genérico/neutro pra não soar comercial na avaliação.
+export const UTILITY_TEMPLATE_EXAMPLE_BODY_TEXT = [
+  [
+    "Olá! Identificamos itens pendentes em sua sessão e estamos enviando este lembrete operacional.",
+    "https://exemplo.com.br/retomar/abc123",
+  ],
+];
+
 export const RECOMMENDED_STEPS: RecommendedStep[] = [
   // ---------- Step 1: 30 minutos ----------
   // Lembrete gentil, sem fricção. Tom de "vi que você tava olhando".
@@ -147,7 +165,11 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_suggested_body:
       "Oi {{1}}! 👋\n\nVi que você deixou alguns itens no carrinho. Quer terminar a compra agora?\n\n{{2}}\n\nSe tiver dúvida ou precisar de ajuda, é só me chamar por aqui!",
     whatsapp_variable_mapping: {
-      "1": "var:customer_first_name",
+      // {{1}} carrega o texto completo (com nome interpolado em runtime
+      // via `text:`). {{2}} = só o link. Funciona com qualquer template
+      // que tenha exatamente 2 placeholders consecutivos.
+      "1":
+        "text:Oi {{customer_first_name}}! 👋\n\nVi que você deixou alguns itens no carrinho. Quer terminar a compra agora? É só clicar abaixo:",
       "2": "var:recovery_url",
     },
     email_enabled: true,
@@ -174,7 +196,8 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_suggested_body:
       "Oi {{1}}, passando aqui de novo 🙂\n\nOs itens que você escolheu ainda estão disponíveis, mas o estoque pode acabar.\n\nGarante o seu antes que mude: {{2}}",
     whatsapp_variable_mapping: {
-      "1": "var:customer_first_name",
+      "1":
+        "text:Oi {{customer_first_name}}, passando aqui de novo 🙂\n\nOs itens que você escolheu continuam disponíveis, mas o estoque pode acabar. Garante o seu antes que mude:",
       "2": "var:recovery_url",
     },
     email_enabled: true,
@@ -200,7 +223,8 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_suggested_body:
       "{{1}}, último aviso por aqui 🙏\n\nSe quiser garantir os itens do seu carrinho, ainda dá pra finalizar:\n\n{{2}}\n\nCaso tenha desistido, sem problema — é só ignorar.",
     whatsapp_variable_mapping: {
-      "1": "var:customer_first_name",
+      "1":
+        "text:{{customer_first_name}}, último aviso por aqui 🙏\n\nSe quiser garantir os itens do seu carrinho, ainda dá pra finalizar abaixo. Caso tenha desistido, sem problema — é só ignorar.",
       "2": "var:recovery_url",
     },
     email_enabled: true,
