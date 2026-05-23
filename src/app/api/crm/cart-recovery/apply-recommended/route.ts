@@ -77,15 +77,31 @@ export async function POST(request: NextRequest) {
     // Limpa steps existentes.
     await admin.from("cart_recovery_steps").delete().eq("rule_id", rule.id);
 
-    // Insere steps recomendados (sem o whatsapp_suggested_body, que é só
-    // pra UI; o template real precisa ser criado pelo usuário na Meta).
+    // Auto-detecta o template UTILITY mais recente criado pelo nosso
+    // endpoint create-utility-template (nome começa com bkng_cart_recovery_).
+    // Cobre o caso comum de o usuário clicar "Criar template UTILITY" ANTES
+    // de aplicar a régua — sem isso o template ficaria órfão.
+    const { data: latestUtility } = await admin
+      .from("wa_templates")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .like("name", "bkng_cart_recovery_%")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const autoTemplateId = latestUtility?.id || null;
+
+    // Insere steps recomendados. Se houver template UTILITY auto-criado,
+    // linka direto; senão, fica null e o usuário linka depois manualmente
+    // ou clicando em "Criar template UTILITY automaticamente".
     const rows = RECOMMENDED_STEPS.map((s) => ({
       workspace_id: workspaceId,
       rule_id: rule.id,
       step_order: s.step_order,
       delay_minutes: s.delay_minutes,
       whatsapp_enabled: s.whatsapp_enabled,
-      whatsapp_template_id: null,
+      whatsapp_template_id: autoTemplateId,
       whatsapp_variable_mapping: s.whatsapp_variable_mapping,
       email_enabled: s.email_enabled,
       email_subject: s.email_subject,
@@ -104,6 +120,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       rule_id: rule.id,
       expire_after_hours: RECOMMENDED_EXPIRE_AFTER_HOURS,
+      auto_linked_template_id: autoTemplateId,
       whatsapp_suggested_bodies: RECOMMENDED_STEPS.map((s) => ({
         step_order: s.step_order,
         body: s.whatsapp_suggested_body,
