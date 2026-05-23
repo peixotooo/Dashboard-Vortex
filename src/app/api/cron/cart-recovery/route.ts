@@ -172,6 +172,7 @@ export async function GET(request: NextRequest) {
             );
             if (couponResult) {
               cartForVars.coupon_code = couponResult.code;
+              cartForVars.recovery_coupon_expires_at = couponResult.expiresAt;
             }
           }
 

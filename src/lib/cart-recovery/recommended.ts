@@ -234,39 +234,52 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
   },
 
   // ---------- Step 3: 72 horas ----------
-  // Última tentativa COM cupom 10% off por 48h. Cupom único por carrinho
+  // Última tentativa COM cupom 10% off por 24h. Cupom único por carrinho
   // criado automaticamente na VNDA pelo cron antes do dispatch.
-  // O code é interpolado via {{coupon_code}} (ensureRecoveryCoupon
-  // atualiza cart.coupon_code antes do envio).
+  // O email tem um countdown PNG renderizado em runtime que recalcula o
+  // tempo restante a cada abertura — força escassez visível, não só "vale
+  // 24h" estático.
   {
     step_order: 3,
     delay_minutes: 60 * 72,
     coupon_pct: 10,
-    coupon_validity_hours: 48,
+    coupon_validity_hours: 24,
     whatsapp_enabled: true,
     whatsapp_suggested_body:
       "{{1}}, separei um cupom pra você 🎁\n\n{{2}}",
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:separei um cupom de 10% off só pra você fechar essa compra 🎁\n\ncódigo: {{coupon_code}}\n\nvale por 48h. é só usar no checkout:\n\n{{recovery_url}}",
+        "text:separei um cupom de 10% off só pra você fechar essa compra 🎁\n\ncódigo: {{coupon_code}}\n\nvale só por 24h ({{coupon_expires_at_formatted}}). é só usar no checkout:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject:
-      "🎁 10% off pra você, {{customer_first_name}} (só hoje e amanhã)",
+      "🎁 10% off pra você, {{customer_first_name}} (só 24h)",
     email_body_html: buildEmailHtml({
       preheader:
-        "Seu cupom de 10% off vale por 48h. Use no checkout do seu carrinho.",
+        "Seu cupom de 10% off vale só por 24h. Use no checkout do seu carrinho.",
       headline: "Separei 10% off<br/>pra você, {{customer_first_name}}.",
       body: `<p style="margin:0 0 14px;">Sei que talvez algo tenha te feito desistir do carrinho.</p>
-<p style="margin:0 0 18px;">Pra te ajudar a fechar, criei um cupom de <strong>10% off</strong> só pra você. Vale por 48h.</p>
+<p style="margin:0 0 18px;">Pra te ajudar a fechar, criei um cupom de <strong>10% off</strong> só pra você. Vale só nas próximas 24 horas.</p>
+
+<!-- Countdown PNG — recalculado a cada abertura do email -->
+<p style="margin:0 0 18px;text-align:center;">
+  <img
+    src="https://dash.bulking.com.br/api/cart-recovery/countdown?expires={{coupon_expires_at}}"
+    width="540"
+    alt="Cupom expira em algumas horas"
+    style="display:block;width:100%;max-width:540px;height:auto;margin:0 auto;border-radius:4px;"
+  />
+</p>
+
 <p style="margin:0 0 8px;font-size:13px;color:#6E6E6E;text-transform:uppercase;letter-spacing:0.08em;">Seu cupom</p>
 <p style="margin:0 0 18px;font-family:'JetBrains Mono','Courier New',monospace;font-size:22px;letter-spacing:0.04em;padding:14px 18px;border:1px dashed #000;background:#F7F7F7;display:inline-block;">{{coupon_code}}</p>
+<p style="margin:0 0 14px;font-size:13px;color:#6E6E6E;">Não vê o contador? Seu cupom vale até <strong>{{coupon_expires_at_formatted}}</strong>.</p>
 <p style="margin:0 0 14px;">Aplique no checkout e finalize a compra.</p>`,
       ctaLabel: "Usar cupom e finalizar",
       ctaUrl: "{{recovery_url}}",
       footnote:
-        "Cupom único, válido por 48 horas a partir do envio deste email.",
+        "Cupom único, válido por 24 horas a partir do envio deste email.",
     }),
   },
 ];
