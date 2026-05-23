@@ -28,6 +28,7 @@ interface CartRow {
   recovery_url: string | null;
   coupon_code: string | null;
   abandoned_at: string;
+  recovery_started_at: string | null;
   vnda_client_id: number | null;
   enrichment_attempted_at: string | null;
   recovery_coupon_expires_at: string | null;
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
       const { data: carts } = await admin
         .from("abandoned_carts")
         .select(
-          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, vnda_client_id, enrichment_attempted_at, recovery_coupon_expires_at"
+          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, recovery_started_at, vnda_client_id, enrichment_attempted_at, recovery_coupon_expires_at"
         )
         .eq("workspace_id", workspaceId)
         .eq("status", "open")
@@ -89,10 +90,14 @@ export async function GET(request: NextRequest) {
       if (!carts || carts.length === 0) continue;
 
       // 3. Expira carts antigos (uma única update batch).
+      // Usa recovery_started_at (se presente, caso de import retroativo)
+      // ou abandoned_at (caso normal de webhook).
       const expireMs = (rule.expire_after_hours as number) * 3600 * 1000;
       const expireThreshold = new Date(now.getTime() - expireMs);
+      const cartStartTime = (c: CartRow) =>
+        new Date(c.recovery_started_at || c.abandoned_at);
       const expiredIds = carts
-        .filter((c) => new Date(c.abandoned_at) < expireThreshold)
+        .filter((c) => cartStartTime(c) < expireThreshold)
         .map((c) => c.id);
       if (expiredIds.length > 0) {
         await admin
@@ -123,7 +128,10 @@ export async function GET(request: NextRequest) {
 
       // 5. Para cada cart × step, dispara o que ainda falta.
       for (const cart of activeCarts) {
-        const abandonedAt = new Date(cart.abandoned_at).getTime();
+        // Delays calculados desde recovery_started_at (import retroativo)
+        // ou abandoned_at (webhook normal). Sem isso, carts importados de
+        // 3 dias atrás disparariam Step 1+2+3 simultaneamente.
+        const abandonedAt = cartStartTime(cart).getTime();
 
         // Enrichment best-effort: se faltar nome/telefone e tiver client_id,
         // busca via VNDA antes do dispatch. Marca attempted_at pra não
