@@ -161,15 +161,19 @@ export async function GET(request: NextRequest) {
               cart: { ...cartForVars, items: cartForVars.items as never },
               step,
             });
-            await insertMessageLog(admin, {
-              workspaceId,
-              cartId: cart.id,
-              stepId: step.id,
-              channel: "whatsapp",
-              ok: result.ok,
-              externalId: result.externalId,
-              error: result.error,
-            });
+            // template_pending = Meta ainda revisando — NÃO logamos pra
+            // poder retentar quando aprovar. Qualquer outro erro vira row.
+            if (result.error !== "template_pending") {
+              await insertMessageLog(admin, {
+                workspaceId,
+                cartId: cart.id,
+                stepId: step.id,
+                channel: "whatsapp",
+                ok: result.ok,
+                externalId: result.externalId,
+                error: result.error,
+              });
+            }
             if (result.ok) totalDispatched++;
           }
 

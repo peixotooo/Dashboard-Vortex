@@ -79,7 +79,12 @@ function resolveMappingValue(
   vars: RecoveryVariables
 ): string {
   if (!raw) return "";
-  if (raw.startsWith("text:")) return raw.slice(5);
+  // Texto livre suporta interpolação {{var_name}} também — necessário pra
+  // estratégia de template UTILITY genérico (body do template fica só
+  // "{{1}}\n\n{{2}}" pra Meta classificar como UTILITY, e o texto real
+  // — com nome do cliente, escassez, etc — vai como mapping text: com
+  // interpolação de variáveis).
+  if (raw.startsWith("text:")) return interpolate(raw.slice(5), vars);
   const varName = raw.startsWith("var:") ? raw.slice(4) : raw;
   const value = (vars as unknown as Record<string, string>)[varName];
   return value ?? "";

@@ -38,6 +38,22 @@ export async function dispatchWhatsApp(params: {
     return { ok: false, error: "no_template" };
   }
 
+  // Checa status do template ANTES de criar campaign. Se ainda está
+  // PENDING (Meta não aprovou), retorna "template_pending" — o cron
+  // não loga em cart_recovery_messages, então retenta no próximo tick
+  // (quando Meta aprovar). Evita perder mensagem em janela de aprovação.
+  const { data: tpl } = await admin
+    .from("wa_templates")
+    .select("status")
+    .eq("id", step.whatsapp_template_id)
+    .single();
+  if (!tpl) {
+    return { ok: false, error: "template_not_found" };
+  }
+  if (tpl.status !== "APPROVED") {
+    return { ok: false, error: "template_pending" };
+  }
+
   const vars = buildRecoveryVariables(cart, { storeName });
   const positionalVars = resolveWhatsAppVariables(
     step.whatsapp_variable_mapping || {},

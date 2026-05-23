@@ -10,6 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -30,10 +37,11 @@ import {
   MessageCircle,
   Mail,
   Webhook,
-  Info,
   Eye,
   Sparkles,
   AlertCircle,
+  Pencil,
+  Zap,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -104,7 +112,7 @@ const BRL = new Intl.NumberFormat("pt-BR", {
 function emptyStep(order: number): Step {
   return {
     step_order: order,
-    delay_minutes: order === 1 ? 60 : order === 2 ? 1440 : 4320,
+    delay_minutes: order === 1 ? 30 : order === 2 ? 1440 : 4320,
     whatsapp_enabled: false,
     whatsapp_template_id: null,
     whatsapp_variable_mapping: {},
@@ -129,12 +137,37 @@ function getTemplateBody(tpl: WaTemplate | undefined): string {
   return tpl.components.find((c) => c.type === "BODY")?.text || "";
 }
 
+function formatDelay(minutes: number): string {
+  if (minutes < 60) return `${minutes}min`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
+
+function stepHasCartUrl(step: Step): boolean {
+  if (step.whatsapp_enabled) {
+    const hasWaLink = Object.values(step.whatsapp_variable_mapping || {}).some(
+      (v) => v === "recovery_url" || v === "var:recovery_url" ||
+             (v.startsWith("text:") && v.includes("{{recovery_url}}"))
+    );
+    if (!hasWaLink) return false;
+  }
+  if (step.email_enabled) {
+    const hay = `${step.email_subject || ""} ${step.email_body_html || ""}`;
+    if (!hay.includes("{{recovery_url}}") && !hay.includes("{{cart_url}}")) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export default function CartRecoveryPage() {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [applyingRecommended, setApplyingRecommended] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -146,10 +179,7 @@ export default function CartRecoveryPage() {
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [webhookToken, setWebhookToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [applyingRecommended, setApplyingRecommended] = useState(false);
-  const [suggestedBodies, setSuggestedBodies] = useState<
-    Array<{ step_order: number; body: string }> | null
-  >(null);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
 
   const fetchAll = useCallback(async () => {
     if (!workspaceId) return;
@@ -174,11 +204,7 @@ export default function CartRecoveryPage() {
       setWebhookToken(ruleData.webhook_token || null);
 
       const tplData = await tplRes.json();
-      setTemplates(
-        (tplData.templates || []).filter(
-          (t: WaTemplate) => t.status === "APPROVED"
-        )
-      );
+      setTemplates(tplData.templates || []);
 
       const cartsData = await cartsRes.json();
       setCarts(cartsData.carts || []);
@@ -195,15 +221,21 @@ export default function CartRecoveryPage() {
   }, [fetchAll]);
 
   const addStep = () => {
-    setSteps((prev) => [...prev, emptyStep(prev.length + 1)]);
+    setSteps((prev) => {
+      const next = [...prev, emptyStep(prev.length + 1)];
+      setEditingIdx(next.length - 1);
+      return next;
+    });
   };
 
   const removeStep = (idx: number) => {
+    if (!window.confirm("Remover esse step?")) return;
     setSteps((prev) =>
       prev
         .filter((_, i) => i !== idx)
         .map((s, i) => ({ ...s, step_order: i + 1 }))
     );
+    setEditingIdx(null);
   };
 
   const updateStep = (idx: number, patch: Partial<Step>) => {
@@ -215,7 +247,7 @@ export default function CartRecoveryPage() {
   const applyRecommended = async () => {
     if (!workspaceId) return;
     const ok = window.confirm(
-      "Isso vai SUBSTITUIR os steps atuais pela régua recomendada (3 steps: 30min, 24h, 72h, WhatsApp + Email cada). O switch \"Ativa/Desativada\" não é alterado. Continuar?"
+      "Vamos aplicar a régua recomendada (3 steps: 30min, 24h, 72h, WhatsApp + Email cada). Os steps atuais serão substituídos. Continuar?"
     );
     if (!ok) return;
     setApplyingRecommended(true);
@@ -228,11 +260,41 @@ export default function CartRecoveryPage() {
       if (!res.ok) {
         alert(data.error || "Erro ao aplicar régua recomendada");
       } else {
-        setSuggestedBodies(data.whatsapp_suggested_bodies || null);
         await fetchAll();
       }
     } finally {
       setApplyingRecommended(false);
+    }
+  };
+
+  const createUtilityTemplate = async () => {
+    if (!workspaceId) return;
+    const ok = window.confirm(
+      "Vou criar um template UTILITY genérico na Meta (body só com placeholders) e linkar a todos os steps com WhatsApp ativo. UTILITY custa ~10x menos que MARKETING. A aprovação Meta geralmente sai em minutos. Continuar?"
+    );
+    if (!ok) return;
+    setCreatingTemplate(true);
+    try {
+      const res = await fetch(
+        "/api/crm/cart-recovery/create-utility-template",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspaceId,
+          },
+          body: JSON.stringify({ apply_to_steps: true }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Erro ao criar template UTILITY");
+      } else {
+        alert(data.message || "Template criado");
+        await fetchAll();
+      }
+    } finally {
+      setCreatingTemplate(false);
     }
   };
 
@@ -273,6 +335,18 @@ export default function CartRecoveryPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // Template UTILITY já criado pra essa régua? (heurística: algum step
+  // tem template selecionado E o template tem categoria UTILITY)
+  const linkedTemplate = (() => {
+    for (const s of steps) {
+      if (s.whatsapp_enabled && s.whatsapp_template_id) {
+        const t = templates.find((t) => t.id === s.whatsapp_template_id);
+        if (t) return t;
+      }
+    }
+    return null;
+  })();
 
   if (loading) {
     return (
@@ -318,44 +392,24 @@ export default function CartRecoveryPage() {
 
       {/* Resumo */}
       <div className="grid grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-xs text-muted-foreground">Abertos</div>
-            <div className="text-2xl font-bold mt-1">
-              {summary.open || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" /> Recuperados
-            </div>
-            <div className="text-2xl font-bold mt-1 text-green-700">
-              {summary.recovered || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Expirados
-            </div>
-            <div className="text-2xl font-bold mt-1 text-amber-700">
-              {summary.expired || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-xs text-muted-foreground flex items-center gap-1">
-              <XCircle className="h-3 w-3" /> Fechados
-            </div>
-            <div className="text-2xl font-bold mt-1">
-              {summary.closed || 0}
-            </div>
-          </CardContent>
-        </Card>
+        <SummaryCard label="Abertos" value={summary.open || 0} />
+        <SummaryCard
+          label="Recuperados"
+          value={summary.recovered || 0}
+          icon={<CheckCircle2 className="h-3 w-3" />}
+          tone="text-green-700"
+        />
+        <SummaryCard
+          label="Expirados"
+          value={summary.expired || 0}
+          icon={<Clock className="h-3 w-3" />}
+          tone="text-amber-700"
+        />
+        <SummaryCard
+          label="Fechados"
+          value={summary.closed || 0}
+          icon={<XCircle className="h-3 w-3" />}
+        />
       </div>
 
       <Tabs defaultValue="rule">
@@ -366,20 +420,19 @@ export default function CartRecoveryPage() {
         </TabsList>
 
         {/* ============================================ */}
-        {/* Régua                                        */}
+        {/* RÉGUA */}
         {/* ============================================ */}
         <TabsContent value="rule" className="space-y-4">
+          {/* Configuração geral compacta */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Configuração geral</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-[1fr_auto] gap-4 items-end">
                 <div>
-                  <Label>Expirar carrinhos após (horas)</Label>
+                  <Label className="text-xs">Expirar carrinhos após (horas)</Label>
                   <Input
                     type="number"
                     min={1}
+                    className="max-w-[140px] mt-1"
                     value={rule.expire_after_hours}
                     onChange={(e) =>
                       setRule((r) => ({
@@ -396,6 +449,72 @@ export default function CartRecoveryPage() {
             </CardContent>
           </Card>
 
+          {/* Card WhatsApp Template UTILITY */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="h-4 w-4 text-purple-600" />
+                Template UTILITY pra WhatsApp
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {linkedTemplate ? (
+                <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Badge variant="outline" className="font-mono text-xs">
+                      {linkedTemplate.name}
+                    </Badge>
+                    <Badge
+                      variant={
+                        linkedTemplate.status === "APPROVED"
+                          ? "default"
+                          : "secondary"
+                      }
+                    >
+                      {linkedTemplate.status}
+                    </Badge>
+                    <Badge variant="outline">{linkedTemplate.category}</Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={createUtilityTemplate}
+                    disabled={creatingTemplate}
+                  >
+                    {creatingTemplate ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3 w-3 mr-1" />
+                    )}
+                    Criar novo
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Eu crio pra você um template UTILITY na Meta (body só com
+                    placeholders, sem texto comercial) e linko a todos os
+                    steps automaticamente. UTILITY custa ~10x menos que
+                    MARKETING.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={createUtilityTemplate}
+                    disabled={creatingTemplate}
+                  >
+                    {creatingTemplate ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4 mr-2" />
+                    )}
+                    Criar template UTILITY automaticamente
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Steps */}
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Steps</h2>
             <div className="flex items-center gap-2">
@@ -418,367 +537,31 @@ export default function CartRecoveryPage() {
             </div>
           </div>
 
-          {suggestedBodies && (
-            <Card className="border-blue-200 bg-blue-50/50">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  Régua aplicada — agora crie os templates de WhatsApp
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Os emails já estão prontos. Pra ativar o WhatsApp, crie esses
-                  templates em <strong>/crm/whatsapp</strong> (categoria
-                  MARKETING ou UTILITY), aguarde aprovação da Meta, e depois
-                  selecione cada um no respectivo step abaixo.
-                </p>
-                {suggestedBodies.map((s) => (
-                  <div key={s.step_order} className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">
-                        Step {s.step_order} — body sugerido
-                      </Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          navigator.clipboard.writeText(s.body);
-                        }}
-                      >
-                        <Copy className="h-3 w-3 mr-1" /> Copiar
-                      </Button>
-                    </div>
-                    <pre className="text-xs bg-white border rounded p-2 whitespace-pre-wrap font-sans">
-                      {s.body}
-                    </pre>
-                  </div>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSuggestedBodies(null)}
-                >
-                  Fechar
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
           {steps.length === 0 && (
             <Card>
               <CardContent className="pt-6 text-center text-sm text-muted-foreground">
-                Nenhum step configurado. Clique em &quot;Adicionar step&quot; pra começar.
+                Nenhum step configurado. Clique em &quot;Usar régua recomendada&quot;
+                pra começar com 3 steps prontos.
               </CardContent>
             </Card>
           )}
 
-          {steps.map((step, idx) => {
-            const template = templates.find(
-              (t) => t.id === step.whatsapp_template_id
-            );
-            const tplPositions = extractTemplateVars(template);
-            const hasLink = stepHasCartUrl(step);
-            return (
-              <Card key={idx}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Badge variant="outline">Step {step.step_order}</Badge>
-                    <span className="text-sm font-normal text-muted-foreground">
-                      Dispara {formatDelay(step.delay_minutes)} após o abandono
-                    </span>
-                  </CardTitle>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeStep(idx)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {(step.whatsapp_enabled || step.email_enabled) && !hasLink && (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <strong>Sem link de retomada.</strong> No WhatsApp, mapeie
-                        uma variável como <code>recovery_url</code>. No Email,
-                        inclua <code>{"{{recovery_url}}"}</code> no assunto ou
-                        body — sem isso, o cliente não tem como voltar pro carrinho.
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <Label>Atraso (minutos)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={step.delay_minutes}
-                      onChange={(e) =>
-                        updateStep(idx, {
-                          delay_minutes: Number(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </div>
-
-                  {/* WhatsApp */}
-                  <div className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-2">
-                        <MessageCircle className="h-4 w-4 text-green-600" />
-                        WhatsApp
-                      </Label>
-                      <Switch
-                        checked={step.whatsapp_enabled}
-                        onCheckedChange={(v) =>
-                          updateStep(idx, { whatsapp_enabled: v })
-                        }
-                      />
-                    </div>
-                    {step.whatsapp_enabled && (
-                      <>
-                        <div>
-                          <Label className="text-xs">Template aprovado</Label>
-                          <Select
-                            value={step.whatsapp_template_id || ""}
-                            onValueChange={(v) =>
-                              updateStep(idx, {
-                                whatsapp_template_id: v,
-                                whatsapp_variable_mapping: {},
-                              })
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione um template" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {templates.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>
-                                  {t.name} ({t.language})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {templates.length === 0 && (
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <Info className="h-3 w-3" />
-                              Nenhum template aprovado. Configure em /crm/whatsapp.
-                            </p>
-                          )}
-                        </div>
-
-                        {tplPositions.length > 0 && (
-                          <div className="space-y-2">
-                            <Label className="text-xs">
-                              Variáveis do template
-                            </Label>
-                            {tplPositions.map((pos) => {
-                              const raw =
-                                step.whatsapp_variable_mapping[pos] || "";
-                              const parsed = parseMappingValue(raw);
-                              return (
-                                <div
-                                  key={pos}
-                                  className="grid grid-cols-[60px_140px_1fr] gap-2 items-center"
-                                >
-                                  <Badge variant="secondary">
-                                    {"{{"}
-                                    {pos}
-                                    {"}}"}
-                                  </Badge>
-                                  <Select
-                                    value={parsed.kind}
-                                    onValueChange={(kind) =>
-                                      updateStep(idx, {
-                                        whatsapp_variable_mapping: {
-                                          ...step.whatsapp_variable_mapping,
-                                          [pos]: encodeMappingValue(
-                                            kind as "var" | "text",
-                                            ""
-                                          ),
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="var">
-                                        Variável
-                                      </SelectItem>
-                                      <SelectItem value="text">
-                                        Texto livre
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                  {parsed.kind === "var" ? (
-                                    <Select
-                                      value={parsed.value}
-                                      onValueChange={(v) =>
-                                        updateStep(idx, {
-                                          whatsapp_variable_mapping: {
-                                            ...step.whatsapp_variable_mapping,
-                                            [pos]: encodeMappingValue("var", v),
-                                          },
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Selecione a variável" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {AVAILABLE_VARS.map((v) => (
-                                          <SelectItem key={v} value={v}>
-                                            {v}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  ) : (
-                                    <Input
-                                      value={parsed.value}
-                                      onChange={(e) =>
-                                        updateStep(idx, {
-                                          whatsapp_variable_mapping: {
-                                            ...step.whatsapp_variable_mapping,
-                                            [pos]: encodeMappingValue(
-                                              "text",
-                                              e.target.value
-                                            ),
-                                          },
-                                        })
-                                      }
-                                      placeholder="Texto fixo (ex: 10% de desconto)"
-                                    />
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Preview do WhatsApp */}
-                        {template && getTemplateBody(template) && (
-                          <div className="space-y-2 pt-2 border-t">
-                            <Label className="text-xs flex items-center gap-1 text-muted-foreground">
-                              <Eye className="h-3 w-3" /> Pré-visualização
-                            </Label>
-                            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm whitespace-pre-wrap font-sans">
-                              {previewWhatsAppBody(
-                                getTemplateBody(template),
-                                step.whatsapp_variable_mapping,
-                                SAMPLE_VARS
-                              )}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground">
-                              Usando dados de exemplo ({SAMPLE_VARS.customer_first_name}, {SAMPLE_VARS.cart_total_formatted}, etc).
-                            </p>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Email */}
-                  <div className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-blue-600" />
-                        Email
-                      </Label>
-                      <Switch
-                        checked={step.email_enabled}
-                        onCheckedChange={(v) =>
-                          updateStep(idx, { email_enabled: v })
-                        }
-                      />
-                    </div>
-                    {step.email_enabled && (
-                      <>
-                        <div>
-                          <Label className="text-xs">Assunto</Label>
-                          <Input
-                            value={step.email_subject || ""}
-                            onChange={(e) =>
-                              updateStep(idx, { email_subject: e.target.value })
-                            }
-                            placeholder="Ex: {{customer_first_name}}, esqueceu algo no carrinho?"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">
-                            Corpo (HTML, suporta {"{{var_name}}"})
-                          </Label>
-                          <Textarea
-                            rows={8}
-                            value={step.email_body_html || ""}
-                            onChange={(e) =>
-                              updateStep(idx, {
-                                email_body_html: e.target.value,
-                              })
-                            }
-                            placeholder={`<p>Oi {{customer_first_name}}!</p>\n<p>Vi que você deixou {{first_item_name}} no carrinho.</p>\n<p><a href="{{recovery_url}}">Voltar pro carrinho</a></p>`}
-                          />
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Variáveis: {AVAILABLE_VARS.map((v) => `{{${v}}}`).join(", ")}
-                        </p>
-
-                        {/* Preview do Email */}
-                        {(step.email_subject || step.email_body_html) && (
-                          <div className="space-y-2 pt-2 border-t">
-                            <Label className="text-xs flex items-center gap-1 text-muted-foreground">
-                              <Eye className="h-3 w-3" /> Pré-visualização
-                            </Label>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
-                              <div>
-                                <div className="text-[10px] uppercase text-muted-foreground mb-1">
-                                  Assunto
-                                </div>
-                                <div className="text-sm font-medium">
-                                  {interpolate(
-                                    step.email_subject || "",
-                                    SAMPLE_VARS
-                                  ) || (
-                                    <span className="italic text-muted-foreground">
-                                      (vazio)
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] uppercase text-muted-foreground mb-1">
-                                  Corpo
-                                </div>
-                                <div
-                                  className="text-sm bg-white border rounded p-2 max-h-64 overflow-auto"
-                                  dangerouslySetInnerHTML={{
-                                    __html: interpolate(
-                                      step.email_body_html || "",
-                                      SAMPLE_VARS
-                                    ),
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-muted-foreground">
-                              Usando dados de exemplo. Variáveis disponíveis em ambos os campos.
-                            </p>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {/* Lista compacta de steps */}
+          <div className="space-y-2">
+            {steps.map((step, idx) => (
+              <StepCard
+                key={idx}
+                step={step}
+                templates={templates}
+                onEdit={() => setEditingIdx(idx)}
+                onRemove={() => removeStep(idx)}
+              />
+            ))}
+          </div>
         </TabsContent>
 
         {/* ============================================ */}
-        {/* Webhook                                      */}
+        {/* WEBHOOK */}
         {/* ============================================ */}
         <TabsContent value="webhook">
           <Card>
@@ -792,7 +575,11 @@ export default function CartRecoveryPage() {
               {webhookUrl ? (
                 <>
                   <div className="flex gap-2">
-                    <Input value={webhookUrl} readOnly className="font-mono text-xs" />
+                    <Input
+                      value={webhookUrl}
+                      readOnly
+                      className="font-mono text-xs"
+                    />
                     <Button variant="outline" onClick={copyWebhook}>
                       {copied ? (
                         <>
@@ -806,14 +593,15 @@ export default function CartRecoveryPage() {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Configure essa URL no painel da VNDA como webhook de carrinho abandonado.
-                    Usamos o mesmo token da integração VNDA já configurada.
+                    Configure essa URL no painel da VNDA como webhook de
+                    carrinho abandonado. Usamos o mesmo token da integração
+                    VNDA já configurada.
                   </p>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Conexão VNDA ainda não tem token configurado. Vá em /crm/vnda para
-                  configurar a integração antes.
+                  Conexão VNDA ainda não tem token configurado. Vá em /crm/vnda
+                  para configurar a integração antes.
                 </p>
               )}
             </CardContent>
@@ -821,7 +609,7 @@ export default function CartRecoveryPage() {
         </TabsContent>
 
         {/* ============================================ */}
-        {/* Carrinhos                                    */}
+        {/* CARRINHOS */}
         {/* ============================================ */}
         <TabsContent value="carts">
           <Card>
@@ -839,7 +627,10 @@ export default function CartRecoveryPage() {
                 <tbody>
                   {carts.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-muted-foreground">
+                      <td
+                        colSpan={5}
+                        className="p-6 text-center text-muted-foreground"
+                      >
                         Nenhum carrinho ainda. Aguardando webhooks da VNDA.
                       </td>
                     </tr>
@@ -859,7 +650,9 @@ export default function CartRecoveryPage() {
                         {c.items && c.items[0]?.name && (
                           <div className="text-muted-foreground">
                             {c.items[0].name}
-                            {c.items.length > 1 ? ` +${c.items.length - 1}` : ""}
+                            {c.items.length > 1
+                              ? ` +${c.items.length - 1}`
+                              : ""}
                           </div>
                         )}
                       </td>
@@ -880,12 +673,66 @@ export default function CartRecoveryPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* ============================================ */}
+      {/* SHEET DE EDIÇÃO DE STEP */}
+      {/* ============================================ */}
+      <Sheet
+        open={editingIdx !== null}
+        onOpenChange={(open) => !open && setEditingIdx(null)}
+      >
+        <SheetContent
+          side="right"
+          className="!max-w-4xl sm:!max-w-4xl w-full overflow-y-auto"
+        >
+          {editingIdx !== null && steps[editingIdx] && (
+            <StepEditor
+              step={steps[editingIdx]}
+              templates={templates}
+              onChange={(patch) => updateStep(editingIdx, patch)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
 
+// ============================================================
+// SummaryCard
+// ============================================================
+function SummaryCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  icon?: React.ReactNode;
+  tone?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          {icon}
+          {label}
+        </div>
+        <div className={`text-2xl font-bold mt-1 ${tone || ""}`}>{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// StatusBadge
+// ============================================================
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  const map: Record<
+    string,
+    { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  > = {
     open: { label: "Aberto", variant: "default" },
     recovered: { label: "Recuperado", variant: "secondary" },
     expired: { label: "Expirado", variant: "outline" },
@@ -895,27 +742,400 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={info.variant}>{info.label}</Badge>;
 }
 
-function formatDelay(minutes: number): string {
-  if (minutes < 60) return `${minutes}min`;
-  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
-  return `${Math.round(minutes / 1440)}d`;
-}
+// ============================================================
+// StepCard — cartão compacto na lista, 1 linha + sumário
+// ============================================================
+function StepCard({
+  step,
+  templates,
+  onEdit,
+  onRemove,
+}: {
+  step: Step;
+  templates: WaTemplate[];
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const hasLink = stepHasCartUrl(step);
+  const template = templates.find((t) => t.id === step.whatsapp_template_id);
 
-// Heurística simples: o conteúdo da mensagem deve ter o link de recuperação,
-// senão o cliente não tem como voltar pro carrinho. Aceita {{recovery_url}}
-// no email/assunto OU "var:recovery_url" em alguma posição do WhatsApp.
-function stepHasCartUrl(step: Step): boolean {
+  // Resumo dos canais
+  const channels: string[] = [];
   if (step.whatsapp_enabled) {
-    const hasWaLink = Object.values(step.whatsapp_variable_mapping || {}).some(
-      (v) => v === "recovery_url" || v === "var:recovery_url"
+    channels.push(
+      template
+        ? `WhatsApp · ${template.name}${
+            template.status !== "APPROVED" ? ` (${template.status})` : ""
+          }`
+        : "WhatsApp (sem template)"
     );
-    if (!hasWaLink) return false;
   }
   if (step.email_enabled) {
-    const hay = `${step.email_subject || ""} ${step.email_body_html || ""}`;
-    if (!hay.includes("{{recovery_url}}") && !hay.includes("{{cart_url}}")) {
-      return false;
-    }
+    channels.push("Email");
   }
-  return true;
+
+  return (
+    <Card
+      className="cursor-pointer hover:bg-muted/30 transition-colors"
+      onClick={onEdit}
+    >
+      <CardContent className="py-4 flex items-center gap-4">
+        <Badge variant="outline" className="shrink-0">
+          Step {step.step_order}
+        </Badge>
+        <div className="text-sm font-medium shrink-0 w-20">
+          {formatDelay(step.delay_minutes)}
+        </div>
+        <div className="flex-1 flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
+          {channels.length === 0 ? (
+            <span className="italic">Nenhum canal ativo</span>
+          ) : (
+            channels.map((c, i) => (
+              <Badge key={i} variant="secondary" className="font-normal">
+                {c.startsWith("WhatsApp") ? (
+                  <MessageCircle className="h-3 w-3 mr-1 text-green-600" />
+                ) : (
+                  <Mail className="h-3 w-3 mr-1 text-blue-600" />
+                )}
+                {c}
+              </Badge>
+            ))
+          )}
+        </div>
+        {(step.whatsapp_enabled || step.email_enabled) && !hasLink && (
+          <Badge
+            variant="outline"
+            className="border-amber-300 bg-amber-50 text-amber-900"
+          >
+            <AlertCircle className="h-3 w-3 mr-1" />
+            sem link
+          </Badge>
+        )}
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Pencil className="h-3 w-3 mr-1" />
+            Editar
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// StepEditor — conteúdo do Sheet, 2 colunas (edição | preview)
+// ============================================================
+function StepEditor({
+  step,
+  templates,
+  onChange,
+}: {
+  step: Step;
+  templates: WaTemplate[];
+  onChange: (patch: Partial<Step>) => void;
+}) {
+  const template = templates.find((t) => t.id === step.whatsapp_template_id);
+  const tplPositions = extractTemplateVars(template);
+  const hasLink = stepHasCartUrl(step);
+
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="flex items-center gap-2">
+          <Badge variant="outline">Step {step.step_order}</Badge>
+          Editar
+        </SheetTitle>
+        <SheetDescription>
+          Dispara {formatDelay(step.delay_minutes)} após o abandono. Mudanças
+          só ficam salvas após clicar em &quot;Salvar&quot;.
+        </SheetDescription>
+      </SheetHeader>
+
+      {(step.whatsapp_enabled || step.email_enabled) && !hasLink && (
+        <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong>Sem link de retomada.</strong> No WhatsApp, mapeie uma
+            variável como <code>recovery_url</code> (ou use texto com{" "}
+            <code>{"{{recovery_url}}"}</code>). No Email, inclua{" "}
+            <code>{"{{recovery_url}}"}</code> no assunto ou body.
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-6 mt-6">
+        {/* ============ COLUNA ESQUERDA: edição ============ */}
+        <div className="space-y-5">
+          <div>
+            <Label className="text-xs">Atraso (minutos)</Label>
+            <Input
+              type="number"
+              min={0}
+              className="mt-1"
+              value={step.delay_minutes}
+              onChange={(e) =>
+                onChange({ delay_minutes: Number(e.target.value) || 0 })
+              }
+            />
+          </div>
+
+          {/* WhatsApp */}
+          <div className="border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-green-600" />
+                WhatsApp
+              </Label>
+              <Switch
+                checked={step.whatsapp_enabled}
+                onCheckedChange={(v) => onChange({ whatsapp_enabled: v })}
+              />
+            </div>
+            {step.whatsapp_enabled && (
+              <>
+                <div>
+                  <Label className="text-xs">Template aprovado</Label>
+                  <Select
+                    value={step.whatsapp_template_id || ""}
+                    onValueChange={(v) =>
+                      onChange({
+                        whatsapp_template_id: v,
+                        whatsapp_variable_mapping: {},
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione um template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates
+                        .filter((t) => t.status === "APPROVED")
+                        .map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name} ({t.category})
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {tplPositions.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Variáveis do template</Label>
+                    {tplPositions.map((pos) => {
+                      const raw = step.whatsapp_variable_mapping[pos] || "";
+                      const parsed = parseMappingValue(raw);
+                      return (
+                        <div
+                          key={pos}
+                          className="grid grid-cols-[40px_110px_1fr] gap-2 items-start"
+                        >
+                          <Badge variant="secondary" className="mt-1.5">
+                            {"{{"}
+                            {pos}
+                            {"}}"}
+                          </Badge>
+                          <Select
+                            value={parsed.kind}
+                            onValueChange={(kind) =>
+                              onChange({
+                                whatsapp_variable_mapping: {
+                                  ...step.whatsapp_variable_mapping,
+                                  [pos]: encodeMappingValue(
+                                    kind as "var" | "text",
+                                    ""
+                                  ),
+                                },
+                              })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="var">Variável</SelectItem>
+                              <SelectItem value="text">Texto livre</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {parsed.kind === "var" ? (
+                            <Select
+                              value={parsed.value}
+                              onValueChange={(v) =>
+                                onChange({
+                                  whatsapp_variable_mapping: {
+                                    ...step.whatsapp_variable_mapping,
+                                    [pos]: encodeMappingValue("var", v),
+                                  },
+                                })
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione a variável" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {AVAILABLE_VARS.map((v) => (
+                                  <SelectItem key={v} value={v}>
+                                    {v}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Textarea
+                              value={parsed.value}
+                              rows={3}
+                              onChange={(e) =>
+                                onChange({
+                                  whatsapp_variable_mapping: {
+                                    ...step.whatsapp_variable_mapping,
+                                    [pos]: encodeMappingValue(
+                                      "text",
+                                      e.target.value
+                                    ),
+                                  },
+                                })
+                              }
+                              placeholder="Texto livre. Suporta {{customer_first_name}}, {{recovery_url}}, etc."
+                              className="text-xs"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Email */}
+          <div className="border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-600" />
+                Email
+              </Label>
+              <Switch
+                checked={step.email_enabled}
+                onCheckedChange={(v) => onChange({ email_enabled: v })}
+              />
+            </div>
+            {step.email_enabled && (
+              <>
+                <div>
+                  <Label className="text-xs">Assunto</Label>
+                  <Input
+                    value={step.email_subject || ""}
+                    onChange={(e) => onChange({ email_subject: e.target.value })}
+                    placeholder="Ex: {{customer_first_name}}, esqueceu algo no carrinho?"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Corpo (HTML)</Label>
+                  <Textarea
+                    rows={10}
+                    className="font-mono text-xs"
+                    value={step.email_body_html || ""}
+                    onChange={(e) =>
+                      onChange({ email_body_html: e.target.value })
+                    }
+                    placeholder={`<p>Oi {{customer_first_name}}!</p>\n<p>Vi que você deixou {{first_item_name}} no carrinho.</p>\n<p><a href="{{recovery_url}}">Voltar pro carrinho</a></p>`}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Variáveis disponíveis em ambos os campos:{" "}
+                    {AVAILABLE_VARS.map((v) => `{{${v}}}`).join(", ")}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ============ COLUNA DIREITA: previews ============ */}
+        <div className="space-y-5 lg:sticky lg:top-0 lg:self-start">
+          <Label className="text-xs flex items-center gap-1 text-muted-foreground">
+            <Eye className="h-3 w-3" /> Pré-visualização (dados de exemplo:{" "}
+            {SAMPLE_VARS.customer_first_name}, {SAMPLE_VARS.cart_total_formatted})
+          </Label>
+
+          {/* Preview WhatsApp */}
+          {step.whatsapp_enabled && (
+            <div>
+              <div className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                <MessageCircle className="h-3 w-3 text-green-600" /> WhatsApp
+              </div>
+              {template && getTemplateBody(template) ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm whitespace-pre-wrap font-sans">
+                  {previewWhatsAppBody(
+                    getTemplateBody(template),
+                    step.whatsapp_variable_mapping,
+                    SAMPLE_VARS
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs italic text-muted-foreground border border-dashed rounded-lg p-4 text-center">
+                  Selecione um template aprovado pra ver o preview
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Preview Email */}
+          {step.email_enabled && (
+            <div>
+              <div className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
+                <Mail className="h-3 w-3 text-blue-600" /> Email
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg overflow-hidden">
+                <div className="p-3 border-b border-blue-200">
+                  <div className="text-[10px] uppercase text-muted-foreground">
+                    Assunto
+                  </div>
+                  <div className="text-sm font-medium mt-0.5">
+                    {interpolate(step.email_subject || "", SAMPLE_VARS) || (
+                      <span className="italic text-muted-foreground">
+                        (vazio)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="bg-white max-h-[500px] overflow-auto text-sm"
+                  dangerouslySetInnerHTML={{
+                    __html: interpolate(
+                      step.email_body_html || "",
+                      SAMPLE_VARS
+                    ) || `<div class="p-4 text-muted-foreground italic">(corpo vazio)</div>`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {!step.whatsapp_enabled && !step.email_enabled && (
+            <div className="text-xs italic text-muted-foreground border border-dashed rounded-lg p-6 text-center">
+              Ative WhatsApp ou Email pra ver o preview
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }
