@@ -200,6 +200,11 @@ export async function POST(request: NextRequest) {
           normalized.recovery_url = `https://${config.storeHost}/carrinho/${normalized.vnda_cart_token}`;
         }
 
+        // recovery_started_at = now garante que o cron começa a régua
+        // do zero pra esse cart (Step 1 daqui a delay_minutes, não
+        // imediatamente como se fosse cart antigo). abandoned_at original
+        // fica preservado pra métrica/auditoria.
+        const nowIso = new Date().toISOString();
         const { error } = await admin.from("abandoned_carts").upsert(
           {
             workspace_id: workspaceId,
@@ -214,8 +219,9 @@ export async function POST(request: NextRequest) {
             recovery_url: normalized.recovery_url,
             coupon_code: normalized.coupon_code,
             abandoned_at: normalized.abandoned_at,
+            recovery_started_at: nowIso,
             raw_payload: JSON.parse(JSON.stringify(detail)),
-            updated_at: new Date().toISOString(),
+            updated_at: nowIso,
           },
           {
             onConflict: "workspace_id,vnda_cart_token",
