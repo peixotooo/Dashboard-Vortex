@@ -89,7 +89,15 @@ export async function POST(request: NextRequest) {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("[CartRecovery UtilityTemplate] Meta create failed:", message);
+      // Loga o body enviado pra debug — Meta às vezes retorna mensagens
+      // genéricas tipo "Invalid parameter" e a única forma de descobrir
+      // o que rejeitou é olhar exatamente o que mandamos.
+      console.error(
+        "[CartRecovery UtilityTemplate] Meta create failed:",
+        message,
+        "| sent:",
+        JSON.stringify({ name, language, category, components })
+      );
       return NextResponse.json(
         { error: `Meta recusou: ${message}` },
         { status: 502 }
