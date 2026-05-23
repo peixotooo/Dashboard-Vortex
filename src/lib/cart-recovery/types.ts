@@ -102,4 +102,8 @@ export interface CartRecoveryStep {
   email_enabled: boolean;
   email_subject: string | null;
   email_body_html: string | null;
+  // 0 = step não gera cupom. > 0 = gera cupom único por carrinho com X%
+  // off no carrinho inteiro, válido por coupon_validity_hours.
+  coupon_pct: number;
+  coupon_validity_hours: number;
 }

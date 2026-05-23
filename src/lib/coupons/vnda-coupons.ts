@@ -173,6 +173,27 @@ export async function createVndaProductRule(
   });
 }
 
+/**
+ * Cria uma rule que aplica desconto no CARRINHO INTEIRO (sem amarrar a
+ * produto). Usado pra cupons de recuperação de carrinho — cliente ganha
+ * X% off em qualquer combinação de produtos.
+ */
+export async function createVndaCartRule(
+  config: VndaConfig,
+  promotionId: number,
+  args: {
+    amount: number;
+    discount_unit?: "pct" | "brl";
+  }
+): Promise<VndaRule> {
+  const amountType = args.discount_unit === "brl" ? "R$" : "%";
+  return vndaWrite<VndaRule>("POST", `discounts/${promotionId}/rules/`, config, {
+    apply_to: "cart",
+    amount_type: amountType,
+    amount: args.amount,
+  });
+}
+
 // --- Coupon code (the string customers type at checkout) ---
 
 export interface VndaCoupon {

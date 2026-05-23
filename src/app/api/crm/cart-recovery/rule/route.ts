@@ -26,6 +26,8 @@ interface StepInput {
   email_enabled: boolean;
   email_subject: string | null;
   email_body_html: string | null;
+  coupon_pct?: number;
+  coupon_validity_hours?: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -71,7 +73,7 @@ export async function GET(request: NextRequest) {
     const { data: steps } = await admin
       .from("cart_recovery_steps")
       .select(
-        "id, step_order, delay_minutes, whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping, email_enabled, email_subject, email_body_html"
+        "id, step_order, delay_minutes, whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping, email_enabled, email_subject, email_body_html, coupon_pct, coupon_validity_hours"
       )
       .eq("rule_id", rule.id)
       .order("step_order");
@@ -156,6 +158,11 @@ export async function PUT(request: NextRequest) {
       email_enabled: !!s.email_enabled,
       email_subject: s.email_subject || null,
       email_body_html: s.email_body_html || null,
+      coupon_pct: Math.max(0, Math.min(100, Number(s.coupon_pct) || 0)),
+      coupon_validity_hours: Math.max(
+        1,
+        Number(s.coupon_validity_hours) || 48
+      ),
     }));
 
     if (stepRows.length > 0) {
