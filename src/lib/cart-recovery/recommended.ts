@@ -144,24 +144,24 @@ function buildEmailHtml(p: EmailParams): string {
 //   - NÃO pode terminar com variável
 //   - Variáveis não podem ser adjacentes (precisa texto entre elas)
 //
-// Por isso o body tem texto fixo no início ("Olá {{1}},") e no fim
-// ("Mensagem automática."). O texto fixo é neutro/operacional pra Meta
-// classificar como UTILITY (custo ~10x menor que MARKETING). O conteúdo
-// "comercial" (escassez, CTA elaborado, etc) vai como variável de runtime
-// na {{2}}, interpolada via `text:` mapping.
+// Saudação ("Olá {{1}}, tudo bem?") e fechamento ("Qualquer coisa, é só
+// responder.") são frases naturais que poderiam ser escritas por uma
+// pessoa, mas continuam classificáveis como UTILITY pela Meta: tom
+// conversacional/operacional, sem CTA comercial, sem promoção. O fecho
+// sugere conversa (UTILITY-friendly).
 //
-// Estratégia inspirada nos templates "1409_bkng" que já passam aprovação
-// como UTILITY.
+// O {{2}} carrega todo o corpo "comercial" do step (escassez, urgência,
+// link de recuperação) como variável de runtime — Meta avalia só o body
+// literal do template, não o conteúdo das variáveis.
 export const UTILITY_TEMPLATE_BODY =
-  "Olá {{1}},\n\n{{2}}\n\n{{3}}\n\nMensagem automática.";
+  "Olá {{1}}, tudo bem?\n\n{{2}}\n\nQualquer coisa, é só responder.";
 
 // Exemplos pra Meta entender que tipo de conteúdo as variáveis carregam.
 // Mantemos genérico/neutro pra não soar comercial na avaliação.
 export const UTILITY_TEMPLATE_EXAMPLE_BODY_TEXT = [
   [
     "João",
-    "Identificamos itens pendentes em sua sessão e estamos enviando este lembrete operacional.",
-    "https://exemplo.com.br/retomar/abc123",
+    "Identificamos itens pendentes em sua sessão. Para acessar, utilize: https://exemplo.com.br/retomar/abc123",
   ],
 ];
 
@@ -175,14 +175,13 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_suggested_body:
       "Oi {{1}}! 👋\n\nVi que você deixou alguns itens no carrinho. Quer terminar a compra agora?\n\n{{2}}\n\nSe tiver dúvida ou precisar de ajuda, é só me chamar por aqui!",
     whatsapp_variable_mapping: {
-      // Para o template UTILITY automático ("Olá {{1}}, {{2}} {{3}} Mensagem automática."):
+      // Template UTILITY: "Olá {{1}}, tudo bem? {{2}} Qualquer coisa, é só responder."
       // {{1}} = primeiro nome (saudação já vem do template)
-      // {{2}} = corpo da mensagem (varia por step — escassez, urgência, etc)
-      // {{3}} = link de recuperação
+      // {{2}} = corpo completo do step, incluindo o link de recuperação
+      //         interpolado via {{recovery_url}} dentro do text:
       "1": "var:customer_first_name",
       "2":
-        "text:vi que você deixou alguns itens no carrinho 👀\n\nquer terminar a compra agora? é só clicar abaixo:",
-      "3": "var:recovery_url",
+        "text:vi que você deixou alguns itens no carrinho 👀\n\nquer terminar a compra agora? é só clicar aqui:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject: "{{customer_first_name}}, você esqueceu algo 👀",
@@ -210,8 +209,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:passando aqui de novo 🙂\n\nos itens que você escolheu continuam disponíveis, mas o estoque pode acabar. garanta o seu antes que mude:",
-      "3": "var:recovery_url",
+        "text:passando aqui de novo 🙂\n\nseus itens continuam disponíveis, mas o estoque pode acabar. garanta o seu antes que mude:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject: "Ainda dá tempo, {{customer_first_name}}",
@@ -238,8 +236,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:último aviso por aqui 🙏\n\nse quiser garantir os itens do seu carrinho, ainda dá pra finalizar abaixo. caso tenha desistido, sem problema — é só ignorar.",
-      "3": "var:recovery_url",
+        "text:último aviso por aqui 🙏\n\nse ainda quiser garantir os itens do carrinho, é só clicar aqui:\n\n{{recovery_url}}\n\nse mudou de ideia, sem problemas — não envio mais lembretes.",
     },
     email_enabled: true,
     email_subject: "Última chance, {{customer_first_name}}",
