@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Pra cada elegível, busca detalhes + faz upsert. Sleep entre
     //    requests pra respeitar rate limit VNDA.
-    let invalidSamples = 0; // logamos só os primeiros 3 pra não inundar log
+    const invalidSamples: Array<Record<string, unknown>> = [];
     for (const cart of elegible) {
       try {
         const detail = await vndaGet<VndaAbandonedCartPayload>(
@@ -191,25 +191,25 @@ export async function POST(request: NextRequest) {
         // mesmo assim — o importante é ter email + identificador).
         if (!validateAbandonedCartPayloadForImport(detailNormalized)) {
           stats.skipped_invalid++;
-          if (invalidSamples < 3) {
-            invalidSamples++;
-            console.warn(
-              `[CartRecovery Import] Invalid cart sample ${invalidSamples}:`,
-              JSON.stringify({
-                token: cart.token,
-                email_type: typeof detail.email,
-                email_value: detail.email,
-                token_type: typeof detail.token,
-                id_type: typeof detail.id,
-                items_type: typeof detail.items,
-                items_preview:
-                  typeof detail.items === "string"
-                    ? (detail.items as string).slice(0, 100)
-                    : Array.isArray(detail.items)
-                    ? `array(${detail.items.length})`
-                    : detail.items,
-              })
-            );
+          // Guarda primeiros 3 invalid pra retornar no response (debug).
+          if (invalidSamples.length < 3) {
+            const detailObj = detail as unknown as Record<string, unknown>;
+            invalidSamples.push({
+              list_token: cart.token,
+              list_email: cart.email,
+              detail_keys: Object.keys(detailObj),
+              detail_email: detailObj.email,
+              detail_token: detailObj.token,
+              detail_id: detailObj.id,
+              detail_code: detailObj.code,
+              detail_items_type: typeof detailObj.items,
+              detail_items_value:
+                typeof detailObj.items === "string"
+                  ? (detailObj.items as string).slice(0, 200)
+                  : Array.isArray(detailObj.items)
+                  ? `array(${(detailObj.items as unknown[]).length})`
+                  : detailObj.items,
+            });
           }
           continue;
         }
@@ -275,6 +275,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       window_hours: hours,
       ...stats,
+      sample_invalid: invalidSamples,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

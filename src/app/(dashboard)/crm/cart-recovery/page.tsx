@@ -325,6 +325,12 @@ export default function CartRecoveryPage() {
       if (!res.ok) {
         alert(data.error || "Erro ao importar carrinhos");
       } else {
+        if (data.sample_invalid?.length) {
+          console.warn(
+            "[CartRecovery Import] Amostras dos carts inválidos:",
+            data.sample_invalid
+          );
+        }
         alert(
           `Importação concluída:\n\n` +
             `• Importados: ${data.imported}\n` +
@@ -333,7 +339,10 @@ export default function CartRecoveryPage() {
             `• Inválidos: ${data.skipped_invalid}\n` +
             `• Fora da janela: ${data.skipped_outside_window || 0}\n` +
             `• Erros: ${data.errors}\n` +
-            `• Total varredo: ${data.fetched}`
+            `• Total varredo: ${data.fetched}` +
+            (data.sample_invalid?.length
+              ? `\n\nAmostras dos inválidos foram logadas no console do navegador (F12 → Console).`
+              : "")
         );
         await fetchAll();
       }
