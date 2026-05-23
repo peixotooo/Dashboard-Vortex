@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getVndaConfigForWorkspace } from "@/lib/coupons/vnda-coupons";
 import {
   normalizeCart,
-  validateAbandonedCartPayload,
+  validateAbandonedCartPayloadForImport,
 } from "@/lib/cart-recovery/payload";
 import type { VndaAbandonedCartPayload } from "@/lib/cart-recovery/types";
 
@@ -172,6 +172,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Pra cada elegível, busca detalhes + faz upsert. Sleep entre
     //    requests pra respeitar rate limit VNDA.
+    let invalidSamples = 0; // logamos só os primeiros 3 pra não inundar log
     for (const cart of elegible) {
       try {
         const detail = await vndaGet<VndaAbandonedCartPayload>(
@@ -180,16 +181,36 @@ export async function POST(request: NextRequest) {
           config.storeHost
         );
 
-        // Garante que o objeto cumpra o validate (cart_url é construído
-        // depois, então o validate não exige ele).
-        // VNDA às vezes retorna items como string JSON — parsear se for o caso.
+        // Items vem em formatos variados (Array, string JSON, null) — normaliza.
         const detailNormalized = {
           ...detail,
           items: parseItems(detail.items as unknown),
         } as VndaAbandonedCartPayload;
 
-        if (!validateAbandonedCartPayload(detailNormalized)) {
+        // Validation relaxada: aceita carts sem items (vamos disparar
+        // mesmo assim — o importante é ter email + identificador).
+        if (!validateAbandonedCartPayloadForImport(detailNormalized)) {
           stats.skipped_invalid++;
+          if (invalidSamples < 3) {
+            invalidSamples++;
+            console.warn(
+              `[CartRecovery Import] Invalid cart sample ${invalidSamples}:`,
+              JSON.stringify({
+                token: cart.token,
+                email_type: typeof detail.email,
+                email_value: detail.email,
+                token_type: typeof detail.token,
+                id_type: typeof detail.id,
+                items_type: typeof detail.items,
+                items_preview:
+                  typeof detail.items === "string"
+                    ? (detail.items as string).slice(0, 100)
+                    : Array.isArray(detail.items)
+                    ? `array(${detail.items.length})`
+                    : detail.items,
+              })
+            );
+          }
           continue;
         }
 
