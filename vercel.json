@@ -79,6 +79,10 @@
     {
       "path": "/api/cron/topbar-regenerate",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/cart-recovery",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

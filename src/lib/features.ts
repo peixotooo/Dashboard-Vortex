@@ -205,6 +205,13 @@ export const FEATURES: Feature[] = [
     parent: "crm",
   },
   {
+    id: "crm.cart_recovery",
+    label: "Recuperação de Carrinho",
+    description: "Régua automática WhatsApp + Email pra carrinhos abandonados",
+    routes: ["/crm/cart-recovery"],
+    parent: "crm",
+  },
+  {
     id: "crm.email_templates",
     label: "Email Templates",
     description: "Templates e disparos de email",
