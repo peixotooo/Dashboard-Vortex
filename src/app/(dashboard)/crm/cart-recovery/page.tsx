@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 import {
   Sheet,
   SheetContent,
@@ -45,6 +46,11 @@ import {
   RefreshCw,
   Gift,
   Download,
+  User,
+  Package,
+  ExternalLink,
+  Phone,
+  Hash,
 } from "lucide-react";
 import {
   SAMPLE_VARS,
@@ -107,6 +113,54 @@ interface CartRow {
   recovered_at: string | null;
   recovery_url: string | null;
   items: Array<{ name: string | null }> | null;
+  coupon_code: string | null;
+  recovery_coupon_expires_at: string | null;
+  recovery_started_at: string | null;
+  steps_sent: number;
+  steps_total: number;
+}
+
+interface CartItemDetail {
+  name: string | null;
+  sku: string | null;
+  quantity: number;
+  price: number | null;
+  image_url: string | null;
+}
+
+interface CartDetail extends CartRow {
+  vnda_cart_id: string | null;
+  vnda_client_id: number | null;
+  customer_phone: string | null;
+  items: CartItemDetail[] | null;
+  closed_at: string | null;
+  enrichment_attempted_at: string | null;
+}
+
+interface DetailStep {
+  id: string;
+  step_order: number;
+  delay_minutes: number;
+  whatsapp_enabled: boolean;
+  email_enabled: boolean;
+  coupon_pct: number;
+  coupon_validity_hours: number;
+}
+
+interface DetailMessage {
+  step_id: string;
+  channel: "whatsapp" | "email";
+  status: string;
+  error: string | null;
+  external_id: string | null;
+  sent_at: string;
+}
+
+interface CartDetailResponse {
+  cart: CartDetail;
+  steps: DetailStep[];
+  messages: DetailMessage[];
+  expire_after_hours: number | null;
 }
 
 const BRL = new Intl.NumberFormat("pt-BR", {
@@ -178,6 +232,8 @@ export default function CartRecoveryPage() {
   const [refreshingTemplate, setRefreshingTemplate] = useState(false);
   const [importingFromVnda, setImportingFromVnda] = useState(false);
   const [importHours, setImportHours] = useState(48);
+  const [cartDetail, setCartDetail] = useState<CartDetailResponse | null>(null);
+  const [loadingCartDetail, setLoadingCartDetail] = useState(false);
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -274,6 +330,25 @@ export default function CartRecoveryPage() {
       }
     } finally {
       setApplyingRecommended(false);
+    }
+  };
+
+  const openCartDetail = async (cartId: string) => {
+    if (!workspaceId) return;
+    setCartDetail(null);
+    setLoadingCartDetail(true);
+    try {
+      const res = await fetch(`/api/crm/cart-recovery/carts/${cartId}`, {
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCartDetail(data);
+      } else {
+        alert(data.error || "Erro ao carregar detalhe do carrinho");
+      }
+    } finally {
+      setLoadingCartDetail(false);
     }
   };
 
@@ -791,6 +866,7 @@ export default function CartRecoveryPage() {
                     <th className="p-3">Cliente</th>
                     <th className="p-3">Itens</th>
                     <th className="p-3">Valor</th>
+                    <th className="p-3">Progresso</th>
                     <th className="p-3">Abandonado em</th>
                     <th className="p-3">Status</th>
                   </tr>
@@ -799,51 +875,97 @@ export default function CartRecoveryPage() {
                   {carts.length === 0 && (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         className="p-6 text-center text-muted-foreground"
                       >
                         Nenhum carrinho ainda. Aguardando webhooks da VNDA.
                       </td>
                     </tr>
                   )}
-                  {carts.map((c) => (
-                    <tr key={c.id} className="border-b">
-                      <td className="p-3">
-                        <div className="font-medium">
-                          {c.customer_name || "—"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {c.customer_email}
-                        </div>
-                      </td>
-                      <td className="p-3 text-xs">
-                        {Array.isArray(c.items) ? c.items.length : 0} item(s)
-                        {c.items && c.items[0]?.name && (
-                          <div className="text-muted-foreground">
-                            {c.items[0].name}
-                            {c.items.length > 1
-                              ? ` +${c.items.length - 1}`
-                              : ""}
+                  {carts.map((c) => {
+                    const pct =
+                      c.steps_total > 0
+                        ? Math.round((c.steps_sent / c.steps_total) * 100)
+                        : 0;
+                    return (
+                      <tr
+                        key={c.id}
+                        className="border-b cursor-pointer hover:bg-muted/30 transition-colors"
+                        onClick={() => openCartDetail(c.id)}
+                      >
+                        <td className="p-3">
+                          <div className="font-medium">
+                            {c.customer_name || "—"}
                           </div>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {c.cart_total != null ? BRL.format(c.cart_total) : "—"}
-                      </td>
-                      <td className="p-3 text-xs">
-                        {new Date(c.abandoned_at).toLocaleString("pt-BR")}
-                      </td>
-                      <td className="p-3">
-                        <StatusBadge status={c.status} />
-                      </td>
-                    </tr>
-                  ))}
+                          <div className="text-xs text-muted-foreground">
+                            {c.customer_email}
+                          </div>
+                        </td>
+                        <td className="p-3 text-xs">
+                          {Array.isArray(c.items) ? c.items.length : 0} item(s)
+                          {c.items && c.items[0]?.name && (
+                            <div className="text-muted-foreground">
+                              {c.items[0].name}
+                              {c.items.length > 1
+                                ? ` +${c.items.length - 1}`
+                                : ""}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {c.cart_total != null
+                            ? BRL.format(c.cart_total)
+                            : "—"}
+                        </td>
+                        <td className="p-3 min-w-[140px]">
+                          <div className="flex items-center gap-2">
+                            <Progress value={pct} className="h-2 flex-1" />
+                            <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
+                              {c.steps_sent}/{c.steps_total}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-xs">
+                          {new Date(c.abandoned_at).toLocaleString("pt-BR")}
+                        </td>
+                        <td className="p-3">
+                          <StatusBadge status={c.status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* ============================================ */}
+      {/* SHEET DE DETALHE DO CARRINHO */}
+      {/* ============================================ */}
+      <Sheet
+        open={cartDetail !== null || loadingCartDetail}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCartDetail(null);
+            setLoadingCartDetail(false);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="!max-w-2xl sm:!max-w-2xl w-full overflow-y-auto"
+        >
+          {loadingCartDetail && !cartDetail ? (
+            <div className="flex items-center justify-center min-h-[200px]">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : cartDetail ? (
+            <CartDetailView detail={cartDetail} />
+          ) : null}
+        </SheetContent>
+      </Sheet>
 
       {/* ============================================ */}
       {/* SHEET DE EDIÇÃO DE STEP */}
@@ -1017,6 +1139,274 @@ function StepCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================
+// CartDetailView — conteúdo do Sheet de detalhe do carrinho
+// ============================================================
+function CartDetailView({ detail }: { detail: CartDetailResponse }) {
+  const { cart, steps, messages } = detail;
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  const startTime = cart.recovery_started_at || cart.abandoned_at;
+  const now = Date.now();
+
+  // Agrupa messages por step_id pra timeline.
+  const messagesByStep = new Map<string, DetailMessage[]>();
+  for (const m of messages) {
+    if (!messagesByStep.has(m.step_id))
+      messagesByStep.set(m.step_id, []);
+    messagesByStep.get(m.step_id)!.push(m);
+  }
+
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="flex items-center gap-2 flex-wrap">
+          <ShoppingCart className="h-5 w-5" />
+          {cart.customer_name || cart.customer_email}
+          <StatusBadge status={cart.status} />
+        </SheetTitle>
+        <SheetDescription>
+          Abandonado em {new Date(cart.abandoned_at).toLocaleString("pt-BR")}
+          {cart.recovery_started_at &&
+            cart.recovery_started_at !== cart.abandoned_at && (
+              <>
+                {" · "}
+                Régua iniciada em{" "}
+                {new Date(cart.recovery_started_at).toLocaleString("pt-BR")}
+              </>
+            )}
+        </SheetDescription>
+      </SheetHeader>
+
+      {/* Resumo do cliente */}
+      <Card className="mt-4">
+        <CardContent className="pt-6 space-y-2 text-sm">
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">
+              {cart.customer_name || (
+                <span className="italic text-muted-foreground">
+                  Nome não disponível
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Mail className="h-4 w-4" />
+            {cart.customer_email}
+          </div>
+          {cart.customer_phone && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Phone className="h-4 w-4" />
+              {cart.customer_phone}
+            </div>
+          )}
+          {cart.vnda_client_id && (
+            <div className="flex items-center gap-2 text-muted-foreground text-xs">
+              <Hash className="h-3 w-3" />
+              VNDA client_id: {cart.vnda_client_id}
+            </div>
+          )}
+          {cart.recovery_url && (
+            <a
+              href={cart.recovery_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Abrir carrinho na loja
+            </a>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Items */}
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Package className="h-4 w-4" />
+            {items.length} item(s) · {cart.cart_total != null ? BRL.format(cart.cart_total) : "—"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {items.length === 0 && (
+            <p className="text-xs italic text-muted-foreground">
+              Sem detalhes de items (cart importado da listagem VNDA, que não
+              traz items granular).
+            </p>
+          )}
+          {items.map((it, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 border rounded-md p-2"
+            >
+              {it.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={it.image_url}
+                  alt={it.name || ""}
+                  className="w-12 h-12 object-cover rounded"
+                />
+              ) : (
+                <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">
+                  {it.name || "—"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {it.sku ? `SKU ${it.sku}` : ""} · qty {it.quantity}
+                  {it.price != null ? ` · ${BRL.format(it.price)}` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Cupom de recuperação (se gerado) */}
+      {cart.coupon_code && (
+        <Card className="mt-4 border-purple-200 bg-purple-50/50">
+          <CardContent className="pt-6 flex items-center gap-3">
+            <Gift className="h-5 w-5 text-purple-700" />
+            <div className="flex-1">
+              <div className="font-mono text-sm font-medium">
+                {cart.coupon_code}
+              </div>
+              {cart.recovery_coupon_expires_at && (
+                <div className="text-xs text-muted-foreground">
+                  Expira em{" "}
+                  {new Date(
+                    cart.recovery_coupon_expires_at
+                  ).toLocaleString("pt-BR")}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Timeline dos steps */}
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="text-base">Progresso da régua</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {steps.length === 0 && (
+            <p className="text-xs italic text-muted-foreground">
+              Régua sem steps configurados.
+            </p>
+          )}
+          {steps.map((step) => {
+            const stepMessages = messagesByStep.get(step.id) || [];
+            const fireAt =
+              new Date(startTime).getTime() + step.delay_minutes * 60 * 1000;
+            const isDue = fireAt <= now;
+            const minutesUntil = Math.round((fireAt - now) / 60000);
+            const channels: string[] = [];
+            if (step.whatsapp_enabled) channels.push("WhatsApp");
+            if (step.email_enabled) channels.push("Email");
+
+            return (
+              <div
+                key={step.id}
+                className="border rounded-md p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">Step {step.step_order}</Badge>
+                    <span className="text-sm">
+                      {formatDelay(step.delay_minutes)} após início
+                    </span>
+                    {step.coupon_pct > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="border-purple-300 bg-purple-50 text-purple-900 text-[10px]"
+                      >
+                        <Gift className="h-2.5 w-2.5 mr-1" />
+                        {step.coupon_pct}% off
+                      </Badge>
+                    )}
+                  </div>
+                  {!isDue && stepMessages.length === 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      em {minutesUntil < 60
+                        ? `${minutesUntil}min`
+                        : minutesUntil < 1440
+                        ? `${Math.round(minutesUntil / 60)}h`
+                        : `${Math.round(minutesUntil / 1440)}d`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Canais */}
+                <div className="space-y-1">
+                  {channels.length === 0 && (
+                    <span className="text-xs italic text-muted-foreground">
+                      Nenhum canal ativo nesse step
+                    </span>
+                  )}
+                  {channels.map((channel) => {
+                    const channelKey =
+                      channel === "WhatsApp" ? "whatsapp" : "email";
+                    const msg = stepMessages.find(
+                      (m) => m.channel === channelKey
+                    );
+                    return (
+                      <div
+                        key={channel}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        {channel === "WhatsApp" ? (
+                          <MessageCircle className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <Mail className="h-3 w-3 text-blue-600" />
+                        )}
+                        <span className="font-medium">{channel}</span>
+                        {msg ? (
+                          msg.status === "sent" ? (
+                            <span className="text-green-700 flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              enviado{" "}
+                              {new Date(msg.sent_at).toLocaleString("pt-BR")}
+                            </span>
+                          ) : msg.status === "failed" ? (
+                            <span className="text-red-700 flex items-center gap-1">
+                              <XCircle className="h-3 w-3" />
+                              falhou
+                              {msg.error ? `: ${msg.error}` : ""}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {msg.status}
+                            </span>
+                          )
+                        ) : isDue ? (
+                          <span className="text-amber-700 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            agendado
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            pendente
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
