@@ -181,9 +181,15 @@ export async function POST(request: NextRequest) {
           config.storeHost
         );
 
-        // Items vem em formatos variados (Array, string JSON, null) — normaliza.
+        // ATENÇÃO: a API VNDA GET /carts/{token} NÃO retorna o campo
+        // `email` no detail — só na listagem. Injetamos manualmente
+        // pra que o validator passe e o normalizeCart capture o email
+        // corretamente. Mesmo tratamento pra `token` por garantia.
+        // Items vem como array (typeof object) — parseItems lida.
         const detailNormalized = {
           ...detail,
+          email: detail.email || cart.email || undefined,
+          token: detail.token || cart.token,
           items: parseItems(detail.items as unknown),
         } as VndaAbandonedCartPayload;
 
