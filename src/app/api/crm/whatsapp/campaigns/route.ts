@@ -28,10 +28,14 @@ export async function GET(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const admin = createAdminClient();
+    // Filtra campanhas geradas por automações (kind != 'campaign'), tipo
+    // cart_recovery — elas têm o próprio módulo (/crm/cart-recovery) e
+    // poluem essa lista que é pra campanhas manuais.
     const { data: campaigns } = await admin
       .from("wa_campaigns")
       .select("*, wa_templates(name, language)")
       .eq("workspace_id", workspaceId)
+      .eq("kind", "campaign")
       .order("created_at", { ascending: false })
       .limit(100);
 

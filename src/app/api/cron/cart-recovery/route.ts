@@ -206,6 +206,7 @@ export async function GET(request: NextRequest) {
                 ok: result.ok,
                 externalId: result.externalId,
                 error: result.error,
+                renderedPayload: result.renderedPayload,
               });
             }
             if (result.ok) totalDispatched++;
@@ -230,6 +231,7 @@ export async function GET(request: NextRequest) {
               ok: result.ok,
               externalId: result.externalId,
               error: result.error,
+              renderedPayload: result.renderedPayload,
             });
             if (result.ok) totalDispatched++;
           }
@@ -258,6 +260,7 @@ async function insertMessageLog(
     ok: boolean;
     externalId?: string;
     error?: string;
+    renderedPayload?: Record<string, unknown>;
   }
 ) {
   // Insere com tolerância a corrida — UNIQUE (cart_id, step_id, channel)
@@ -274,6 +277,7 @@ async function insertMessageLog(
         : "failed",
     external_id: params.externalId || null,
     error: params.error || null,
+    rendered_payload: params.renderedPayload || null,
   });
   if (error && error.code !== "23505") {
     console.error(

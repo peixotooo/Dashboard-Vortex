@@ -154,6 +154,18 @@ interface DetailMessage {
   error: string | null;
   external_id: string | null;
   sent_at: string;
+  rendered_payload: {
+    // WhatsApp
+    template_name?: string;
+    language?: string;
+    phone?: string;
+    variables?: Record<string, string>;
+    body?: string;
+    // Email
+    to?: string;
+    subject?: string;
+    body_html?: string;
+  } | null;
 }
 
 interface CartDetailResponse {
@@ -1150,6 +1162,9 @@ function CartDetailView({ detail }: { detail: CartDetailResponse }) {
   const items = Array.isArray(cart.items) ? cart.items : [];
   const startTime = cart.recovery_started_at || cart.abandoned_at;
   const now = Date.now();
+  const [expandedMessageKey, setExpandedMessageKey] = useState<string | null>(
+    null
+  );
 
   // Agrupa messages por step_id pra timeline.
   const messagesByStep = new Map<string, DetailMessage[]>();
@@ -1357,45 +1372,78 @@ function CartDetailView({ detail }: { detail: CartDetailResponse }) {
                     const msg = stepMessages.find(
                       (m) => m.channel === channelKey
                     );
+                    const messageKey = `${step.id}:${channelKey}`;
+                    const isExpanded = expandedMessageKey === messageKey;
+                    const canExpand =
+                      msg?.status === "sent" && msg.rendered_payload;
                     return (
-                      <div
-                        key={channel}
-                        className="flex items-center gap-2 text-xs"
-                      >
-                        {channel === "WhatsApp" ? (
-                          <MessageCircle className="h-3 w-3 text-green-600" />
-                        ) : (
-                          <Mail className="h-3 w-3 text-blue-600" />
-                        )}
-                        <span className="font-medium">{channel}</span>
-                        {msg ? (
-                          msg.status === "sent" ? (
-                            <span className="text-green-700 flex items-center gap-1">
-                              <CheckCircle2 className="h-3 w-3" />
-                              enviado{" "}
-                              {new Date(msg.sent_at).toLocaleString("pt-BR")}
-                            </span>
-                          ) : msg.status === "failed" ? (
-                            <span className="text-red-700 flex items-center gap-1">
-                              <XCircle className="h-3 w-3" />
-                              falhou
-                              {msg.error ? `: ${msg.error}` : ""}
+                      <div key={channel} className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={!canExpand}
+                          onClick={() =>
+                            setExpandedMessageKey(
+                              isExpanded ? null : messageKey
+                            )
+                          }
+                          className={`flex items-center gap-2 text-xs w-full text-left ${
+                            canExpand
+                              ? "cursor-pointer hover:bg-muted/40 rounded -mx-1 px-1 py-0.5"
+                              : ""
+                          }`}
+                        >
+                          {channel === "WhatsApp" ? (
+                            <MessageCircle className="h-3 w-3 text-green-600" />
+                          ) : (
+                            <Mail className="h-3 w-3 text-blue-600" />
+                          )}
+                          <span className="font-medium">{channel}</span>
+                          {msg ? (
+                            msg.status === "sent" ? (
+                              <>
+                                <span className="text-green-700 flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  enviado{" "}
+                                  {new Date(msg.sent_at).toLocaleString(
+                                    "pt-BR"
+                                  )}
+                                </span>
+                                {canExpand && (
+                                  <span className="ml-auto text-[10px] text-muted-foreground">
+                                    {isExpanded ? "ocultar" : "ver mensagem"}
+                                  </span>
+                                )}
+                              </>
+                            ) : msg.status === "failed" ? (
+                              <span className="text-red-700 flex items-center gap-1">
+                                <XCircle className="h-3 w-3" />
+                                falhou
+                                {msg.error ? `: ${msg.error}` : ""}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                {msg.status}
+                              </span>
+                            )
+                          ) : isDue ? (
+                            <span className="text-amber-700 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              agendado
                             </span>
                           ) : (
-                            <span className="text-muted-foreground">
-                              {msg.status}
+                            <span className="text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              pendente
                             </span>
-                          )
-                        ) : isDue ? (
-                          <span className="text-amber-700 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            agendado
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            pendente
-                          </span>
+                          )}
+                        </button>
+
+                        {/* Conteúdo expandido — mensagem real que o cliente recebeu */}
+                        {isExpanded && msg?.rendered_payload && (
+                          <RenderedMessagePreview
+                            channel={channelKey}
+                            payload={msg.rendered_payload}
+                          />
                         )}
                       </div>
                     );
@@ -1407,6 +1455,69 @@ function CartDetailView({ detail }: { detail: CartDetailResponse }) {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+// ============================================================
+// RenderedMessagePreview — mostra o conteúdo real que foi enviado
+// ============================================================
+function RenderedMessagePreview({
+  channel,
+  payload,
+}: {
+  channel: "whatsapp" | "email";
+  payload: NonNullable<DetailMessage["rendered_payload"]>;
+}) {
+  if (channel === "whatsapp") {
+    return (
+      <div className="ml-5 space-y-1">
+        {payload.phone && (
+          <div className="text-[10px] text-muted-foreground">
+            Pra {payload.phone}
+            {payload.template_name && (
+              <>
+                {" · template "}
+                <code className="font-mono">{payload.template_name}</code>
+              </>
+            )}
+          </div>
+        )}
+        <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm whitespace-pre-wrap font-sans">
+          {payload.body || (
+            <span className="italic text-muted-foreground">
+              (sem body renderizado)
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="ml-5 space-y-1">
+      {payload.to && (
+        <div className="text-[10px] text-muted-foreground">Pra {payload.to}</div>
+      )}
+      <div className="bg-blue-50 border border-blue-200 rounded-md overflow-hidden">
+        <div className="p-3 border-b border-blue-200">
+          <div className="text-[10px] uppercase text-muted-foreground">
+            Assunto
+          </div>
+          <div className="text-sm font-medium mt-0.5">
+            {payload.subject || (
+              <span className="italic text-muted-foreground">(vazio)</span>
+            )}
+          </div>
+        </div>
+        <div
+          className="bg-white max-h-[400px] overflow-auto text-sm"
+          dangerouslySetInnerHTML={{
+            __html:
+              payload.body_html ||
+              `<div class="p-4 text-muted-foreground italic">(corpo vazio)</div>`,
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

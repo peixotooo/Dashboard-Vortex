@@ -4,6 +4,7 @@ import type { CartRecoveryStep } from "./types";
 import {
   buildRecoveryVariables,
   interpolate,
+  previewWhatsAppBody,
   resolveWhatsAppVariables,
   type CartRow,
 } from "./variables";
@@ -12,6 +13,8 @@ export interface DispatchResult {
   ok: boolean;
   externalId?: string;
   error?: string;
+  /** Conteúdo renderizado pra persistir em cart_recovery_messages.rendered_payload */
+  renderedPayload?: Record<string, unknown>;
 }
 
 // ============================================================
@@ -54,13 +57,36 @@ export async function dispatchWhatsApp(params: {
     return { ok: false, error: "template_pending" };
   }
 
+  // Puxa também o components do template pra reconstruir o body renderizado.
+  const { data: tplFull } = await admin
+    .from("wa_templates")
+    .select("name, language, components")
+    .eq("id", step.whatsapp_template_id)
+    .single();
+
   const vars = buildRecoveryVariables(cart, { storeName });
   const positionalVars = resolveWhatsAppVariables(
     step.whatsapp_variable_mapping || {},
     vars
   );
 
-  // Cria campanha "fantasma" com 1 mensagem.
+  // Reconstrói o body que será enviado (placeholders substituídos) pra
+  // exibir na timeline do cart depois.
+  const templateBody = (() => {
+    const components = (tplFull?.components || []) as Array<{
+      type: string;
+      text?: string;
+    }>;
+    return components.find((c) => c.type === "BODY")?.text || "";
+  })();
+  const renderedBody = previewWhatsAppBody(
+    templateBody,
+    step.whatsapp_variable_mapping || {},
+    vars
+  );
+
+  // Cria campanha "fantasma" com 1 mensagem. kind='cart_recovery' faz
+  // ela sumir da lista de /crm/whatsapp.
   const campaignName = `Cart Recovery — cart ${cart.id.slice(0, 8)} — step ${step.step_order}`;
   const { data: campaign, error: campErr } = await admin
     .from("wa_campaigns")
@@ -71,6 +97,7 @@ export async function dispatchWhatsApp(params: {
       variable_values: positionalVars,
       status: "queued",
       total_messages: 1,
+      kind: "cart_recovery",
     })
     .select("id")
     .single();
@@ -98,7 +125,17 @@ export async function dispatchWhatsApp(params: {
     return { ok: false, error: msgErr?.message || "message_insert_failed" };
   }
 
-  return { ok: true, externalId: msg.id };
+  return {
+    ok: true,
+    externalId: msg.id,
+    renderedPayload: {
+      template_name: tplFull?.name || null,
+      language: tplFull?.language || null,
+      phone: cart.customer_phone,
+      variables: positionalVars,
+      body: renderedBody,
+    },
+  };
 }
 
 // ============================================================
@@ -137,5 +174,13 @@ export async function dispatchEmail(params: {
   if (!result.ok) {
     return { ok: false, error: result.error || "send_failed" };
   }
-  return { ok: true, externalId: result.messageId };
+  return {
+    ok: true,
+    externalId: result.messageId,
+    renderedPayload: {
+      to: cart.customer_email,
+      subject,
+      body_html: bodyHtml,
+    },
+  };
 }
