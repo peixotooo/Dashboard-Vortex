@@ -83,10 +83,13 @@ export async function GET(
       steps.push(...(stepsData || []));
     }
 
-    // Mensagens enviadas pra esse cart.
+    // Mensagens enviadas pra esse cart, com conteúdo renderizado pra
+    // exibir na timeline ao clicar.
     const { data: messages } = await admin
       .from("cart_recovery_messages")
-      .select("step_id, channel, status, error, external_id, sent_at")
+      .select(
+        "step_id, channel, status, error, external_id, sent_at, rendered_payload"
+      )
       .eq("cart_id", id)
       .order("sent_at");
 
