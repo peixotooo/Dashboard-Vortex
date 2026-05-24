@@ -119,21 +119,50 @@ export async function POST(request: NextRequest) {
       .delete()
       .eq("workspace_id", workspaceId);
 
-    // Cart recovery: fechar carts abertos do mesmo email — cliente comprou,
-    // régua tem que parar. Match por email (case-insensitive). Isolado pra
-    // que qualquer erro aqui não derrube o webhook.
+    // Cart recovery: fechar carts abertos do mesmo cliente — cliente
+    // comprou, régua tem que parar. Match por email OU telefone
+    // (cliente pode ter abandonado com email errado e refeito com email
+    // certo mas mesmo telefone). Isolado pra que qualquer erro aqui não
+    // derrube o webhook.
     try {
       const email = (payload.email || "").toLowerCase().trim();
-      if (email) {
-        await admin
+      // Mesma normalização usada no insert do abandoned_cart
+      // (src/lib/cart-recovery/payload.ts): só dígitos, area + número.
+      const rawPhone =
+        (payload.cellphone &&
+          `${payload.cellphone_area || ""}${payload.cellphone}`) ||
+        (payload.phone &&
+          `${payload.phone_area || ""}${payload.phone}`) ||
+        payload.shipping_address?.phone ||
+        "";
+      const phone = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
+
+      const orParts: string[] = [];
+      if (email) orParts.push(`customer_email.eq.${email}`);
+      if (phone) orParts.push(`customer_phone.eq.${phone}`);
+
+      if (orParts.length > 0) {
+        const { data: closed, error: closeErr } = await admin
           .from("abandoned_carts")
           .update({
             status: "recovered",
             recovered_at: new Date().toISOString(),
           })
           .eq("workspace_id", workspaceId)
-          .eq("customer_email", email)
-          .eq("status", "open");
+          .eq("status", "open")
+          .or(orParts.join(","))
+          .select("id, customer_email, customer_phone");
+
+        if (closeErr) {
+          console.error(
+            `[VNDA Webhook] Cart recovery close error for order ${orderId}:`,
+            closeErr.message
+          );
+        } else if (closed && closed.length > 0) {
+          console.log(
+            `[VNDA Webhook] Closed ${closed.length} cart(s) for order ${orderId} (match: email=${email || "—"}, phone=${phone || "—"})`
+          );
+        }
       }
     } catch (cartErr) {
       console.error(
