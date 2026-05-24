@@ -148,15 +148,37 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    // Erros do Supabase são objetos {code, message, details, hint} — não
+    // instâncias de Error. Capturamos tudo serializando.
+    const detail = formatError(err);
     console.error(
       `[VNDA Abandoned] Error processing cart ${cartId} for workspace ${workspaceId}:`,
-      message,
-      err
+      detail
     );
-    await logWebhook(admin, workspaceId, cartId, "error", payload, message);
-    return NextResponse.json({ ok: false, reason: "processing_error", error: message });
+    await logWebhook(admin, workspaceId, cartId, "error", payload, detail);
+    return NextResponse.json({ ok: false, reason: "processing_error", error: detail });
   }
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    const parts: string[] = [];
+    if (e.code) parts.push(`code=${e.code}`);
+    if (e.message) parts.push(String(e.message));
+    if (e.details) parts.push(`details=${e.details}`);
+    if (e.hint) parts.push(`hint=${e.hint}`);
+    if (parts.length === 0) {
+      try {
+        return JSON.stringify(err).slice(0, 500);
+      } catch {
+        return "Unserializable error";
+      }
+    }
+    return parts.join(" | ");
+  }
+  return String(err);
 }
 
 async function logWebhook(
