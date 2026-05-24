@@ -325,11 +325,20 @@ export default function CartRecoveryPage() {
       if (!res.ok) {
         alert(data.error || "Erro ao importar carrinhos");
       } else {
+        let copiedHint = "";
         if (data.sample_invalid?.length) {
+          const sampleStr = JSON.stringify(data.sample_invalid, null, 2);
           console.warn(
-            "[CartRecovery Import] Amostras dos carts inválidos:",
-            data.sample_invalid
+            "[CartRecovery Import] Amostras dos carts inválidos:\n" + sampleStr
           );
+          try {
+            await navigator.clipboard.writeText(sampleStr);
+            copiedHint =
+              "\n\n✅ Amostras dos inválidos COPIADAS pro clipboard — cola no chat com Cmd+V.";
+          } catch {
+            copiedHint =
+              "\n\nAmostras dos inválidos foram logadas no console do navegador (F12).";
+          }
         }
         alert(
           `Importação concluída:\n\n` +
@@ -340,9 +349,7 @@ export default function CartRecoveryPage() {
             `• Fora da janela: ${data.skipped_outside_window || 0}\n` +
             `• Erros: ${data.errors}\n` +
             `• Total varredo: ${data.fetched}` +
-            (data.sample_invalid?.length
-              ? `\n\nAmostras dos inválidos foram logadas no console do navegador (F12 → Console).`
-              : "")
+            copiedHint
         );
         await fetchAll();
       }
