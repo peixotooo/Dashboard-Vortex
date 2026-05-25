@@ -175,6 +175,28 @@ interface CartDetailResponse {
   expire_after_hours: number | null;
 }
 
+interface StatusAgg {
+  count: number;
+  value: number;
+}
+
+interface KpisResponse {
+  totals: {
+    open: StatusAgg;
+    recovered: StatusAgg;
+    expired: StatusAgg;
+    closed: StatusAgg;
+  };
+  by_step: Array<{ step_order: number; count: number; value: number }>;
+  coupon_breakdown: {
+    coupon_sent_used: StatusAgg;
+    coupon_sent_unused: StatusAgg;
+    no_coupon_sent: StatusAgg;
+  };
+  total_carts: number;
+  conversion_pct: number;
+}
+
 const BRL = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
@@ -246,6 +268,7 @@ export default function CartRecoveryPage() {
   const [importHours, setImportHours] = useState(48);
   const [cartDetail, setCartDetail] = useState<CartDetailResponse | null>(null);
   const [loadingCartDetail, setLoadingCartDetail] = useState(false);
+  const [kpis, setKpis] = useState<KpisResponse | null>(null);
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -264,10 +287,11 @@ export default function CartRecoveryPage() {
     setLoading(true);
     try {
       const headers = { "x-workspace-id": workspaceId };
-      const [ruleRes, tplRes, cartsRes] = await Promise.all([
+      const [ruleRes, tplRes, cartsRes, kpisRes] = await Promise.all([
         fetch("/api/crm/cart-recovery/rule", { headers }),
         fetch("/api/crm/whatsapp/templates", { headers }),
         fetch("/api/crm/cart-recovery/carts?limit=50", { headers }),
+        fetch("/api/crm/cart-recovery/kpis", { headers }),
       ]);
 
       const ruleData = await ruleRes.json();
@@ -287,6 +311,11 @@ export default function CartRecoveryPage() {
       const cartsData = await cartsRes.json();
       setCarts(cartsData.carts || []);
       setSummary(cartsData.summary || {});
+
+      if (kpisRes.ok) {
+        const kpisData = await kpisRes.json();
+        setKpis(kpisData);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -568,27 +597,9 @@ export default function CartRecoveryPage() {
         </div>
       </div>
 
-      {/* Resumo */}
-      <div className="grid grid-cols-4 gap-3">
-        <SummaryCard label="Abertos" value={summary.open || 0} />
-        <SummaryCard
-          label="Recuperados"
-          value={summary.recovered || 0}
-          icon={<CheckCircle2 className="h-3 w-3" />}
-          tone="text-green-700"
-        />
-        <SummaryCard
-          label="Expirados"
-          value={summary.expired || 0}
-          icon={<Clock className="h-3 w-3" />}
-          tone="text-amber-700"
-        />
-        <SummaryCard
-          label="Fechados"
-          value={summary.closed || 0}
-          icon={<XCircle className="h-3 w-3" />}
-        />
-      </div>
+      {/* KPIs ricos: totais + conversão por etapa + cupom */}
+      <KpisSection kpis={kpis} fallbackSummary={summary} />
+
 
       <Tabs defaultValue="rule">
         <TabsList>
@@ -1004,7 +1015,284 @@ export default function CartRecoveryPage() {
 }
 
 // ============================================================
-// SummaryCard
+// KpisSection — KPIs + insights (etapa que converte / cupom)
+// ============================================================
+function KpisSection({
+  kpis,
+  fallbackSummary,
+}: {
+  kpis: KpisResponse | null;
+  fallbackSummary: Record<string, number>;
+}) {
+  // Fallback usa o summary antigo quando KPIs ainda não chegaram
+  // (loading inicial ou erro no endpoint).
+  if (!kpis) {
+    return (
+      <div className="grid grid-cols-4 gap-3">
+        <SummaryCard label="Abertos" value={fallbackSummary.open || 0} />
+        <SummaryCard
+          label="Recuperados"
+          value={fallbackSummary.recovered || 0}
+          icon={<CheckCircle2 className="h-3 w-3" />}
+          tone="text-green-700"
+        />
+        <SummaryCard
+          label="Expirados"
+          value={fallbackSummary.expired || 0}
+          icon={<Clock className="h-3 w-3" />}
+          tone="text-amber-700"
+        />
+        <SummaryCard
+          label="Fechados"
+          value={fallbackSummary.closed || 0}
+          icon={<XCircle className="h-3 w-3" />}
+        />
+      </div>
+    );
+  }
+
+  const { totals, by_step, coupon_breakdown, conversion_pct } = kpis;
+
+  const conversionLabel = `${conversion_pct.toFixed(1)}%`;
+  const recoveredValue = totals.recovered.value;
+  const openValue = totals.open.value;
+
+  // Best-performing step pra destacar no badge.
+  const topStep =
+    by_step.length > 0
+      ? by_step.reduce((max, s) => (s.value > max.value ? s : max), by_step[0])
+      : null;
+
+  return (
+    <div className="space-y-4">
+      {/* KPIs principais — 4 cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard
+          label="Abertos"
+          primary={String(totals.open.count)}
+          secondary={BRL.format(openValue)}
+          hint="em andamento na régua"
+        />
+        <KpiCard
+          label="Recuperados"
+          primary={BRL.format(recoveredValue)}
+          secondary={`${totals.recovered.count} carrinho(s)`}
+          tone="text-green-700"
+          icon={<CheckCircle2 className="h-3 w-3" />}
+        />
+        <KpiCard
+          label="Conversão"
+          primary={conversionLabel}
+          secondary={`${totals.recovered.count}/${kpis.total_carts}`}
+          hint="recuperados / total"
+        />
+        <KpiCard
+          label="Expirados"
+          primary={String(totals.expired.count)}
+          secondary={BRL.format(totals.expired.value)}
+          tone="text-amber-700"
+          icon={<Clock className="h-3 w-3" />}
+          hint="perderam a janela"
+        />
+      </div>
+
+      {/* Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Conversão por etapa */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              Conversão por etapa
+              {topStep && topStep.step_order > 0 && (
+                <Badge variant="secondary" className="font-normal">
+                  Step {topStep.step_order} converte mais
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {by_step.length === 0 ? (
+              <p className="text-xs italic text-muted-foreground">
+                Nenhuma recuperação ainda.
+              </p>
+            ) : (
+              <StepConversionBars data={by_step} />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Cupom */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Gift className="h-4 w-4 text-purple-600" />
+              Cupom no Step 3
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CouponBreakdownBars data={coupon_breakdown} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// KpiCard — card de KPI principal
+// ============================================================
+function KpiCard({
+  label,
+  primary,
+  secondary,
+  icon,
+  tone,
+  hint,
+}: {
+  label: string;
+  primary: string;
+  secondary?: string;
+  icon?: React.ReactNode;
+  tone?: string;
+  hint?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          {icon}
+          {label}
+        </div>
+        <div className={`text-2xl font-bold mt-1 ${tone || ""}`}>{primary}</div>
+        {secondary && (
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {secondary}
+          </div>
+        )}
+        {hint && !secondary && (
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            {hint}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// StepConversionBars — barras horizontais por step
+// ============================================================
+function StepConversionBars({
+  data,
+}: {
+  data: Array<{ step_order: number; count: number; value: number }>;
+}) {
+  const maxValue = Math.max(...data.map((d) => d.value), 1);
+  const totalCount = data.reduce((sum, d) => sum + d.count, 0);
+  return (
+    <div className="space-y-2">
+      {data.map((d) => {
+        const pct = (d.value / maxValue) * 100;
+        const sharePct =
+          totalCount > 0 ? Math.round((d.count / totalCount) * 100) : 0;
+        const label =
+          d.step_order === 0 ? "Sem mensagem (orgânico)" : `Step ${d.step_order}`;
+        return (
+          <div key={d.step_order} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium">{label}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {BRL.format(d.value)} · {d.count} ({sharePct}%)
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded overflow-hidden">
+              <div
+                className="h-full bg-green-600 rounded"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// CouponBreakdownBars — usado / não usou / sem cupom
+// ============================================================
+function CouponBreakdownBars({
+  data,
+}: {
+  data: {
+    coupon_sent_used: { count: number; value: number };
+    coupon_sent_unused: { count: number; value: number };
+    no_coupon_sent: { count: number; value: number };
+  };
+}) {
+  const totalCount =
+    data.coupon_sent_used.count +
+    data.coupon_sent_unused.count +
+    data.no_coupon_sent.count;
+
+  if (totalCount === 0) {
+    return (
+      <p className="text-xs italic text-muted-foreground">
+        Nenhuma recuperação ainda.
+      </p>
+    );
+  }
+
+  const rows = [
+    {
+      label: "Cupom usado no checkout",
+      hint: "step 3 chegou e cliente aplicou o código",
+      ...data.coupon_sent_used,
+      color: "bg-purple-600",
+    },
+    {
+      label: "Cupom enviado mas não usado",
+      hint: "step 3 chegou mas cliente comprou sem aplicar",
+      ...data.coupon_sent_unused,
+      color: "bg-purple-300",
+    },
+    {
+      label: "Sem cupom enviado",
+      hint: "recuperou antes do step 3 (sem precisar de desconto)",
+      ...data.no_coupon_sent,
+      color: "bg-green-500",
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => {
+        const sharePct =
+          totalCount > 0 ? Math.round((r.count / totalCount) * 100) : 0;
+        return (
+          <div key={r.label} className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium">{r.label}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {BRL.format(r.value)} · {r.count} ({sharePct}%)
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded overflow-hidden">
+              <div
+                className={`h-full ${r.color} rounded`}
+                style={{ width: `${sharePct}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-muted-foreground">{r.hint}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// SummaryCard — fallback usado enquanto KPIs não carregam
 // ============================================================
 function SummaryCard({
   label,
