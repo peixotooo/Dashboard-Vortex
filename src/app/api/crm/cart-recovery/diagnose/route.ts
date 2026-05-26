@@ -115,7 +115,32 @@ export async function GET(request: NextRequest) {
       buckets[key].value += Number(c.cart_total) || 0;
     }
 
-    // 4) Config régua.
+    // 4) Estatísticas de valor — detecta outliers ou bug de valor.
+    const values = carts
+      .map((c) => Number(c.cart_total) || 0)
+      .sort((a, b) => b - a);
+    const mean = values.length > 0 ? totalValue / values.length : 0;
+    const median =
+      values.length > 0
+        ? values[Math.floor(values.length / 2)]
+        : 0;
+    const max = values[0] || 0;
+    const min = values[values.length - 1] || 0;
+    const valueStats = { mean, median, min, max };
+
+    // Top 10 carts mais caros (pra inspecionar outliers).
+    const topByValue = carts
+      .slice()
+      .sort((a, b) => (Number(b.cart_total) || 0) - (Number(a.cart_total) || 0))
+      .slice(0, 10)
+      .map((c) => ({
+        email: c.customer_email,
+        value: Number(c.cart_total) || 0,
+        abandoned_at: c.abandoned_at,
+        token: c.vnda_cart_token,
+      }));
+
+    // 5) Config régua.
     const { data: rule } = await admin
       .from("cart_recovery_rules")
       .select("expire_after_hours, enabled, updated_at")
@@ -156,6 +181,8 @@ export async function GET(request: NextRequest) {
         total_open_carts: totalOpen,
         total_open_value: totalValue,
       },
+      value_stats: valueStats,
+      top_10_by_value: topByValue,
       duplication_by_email: {
         emails_with_multiple_carts: topDuplicates.length,
         total_carts_envolvidos: emailsComMultiplosCarts,
