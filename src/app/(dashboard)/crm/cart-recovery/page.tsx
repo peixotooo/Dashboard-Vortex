@@ -269,6 +269,33 @@ export default function CartRecoveryPage() {
   const [cartDetail, setCartDetail] = useState<CartDetailResponse | null>(null);
   const [loadingCartDetail, setLoadingCartDetail] = useState(false);
   const [kpis, setKpis] = useState<KpisResponse | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+
+  const diagnoseOpenCarts = async () => {
+    if (!workspaceId) return;
+    setDiagnosing(true);
+    try {
+      const res = await fetch("/api/crm/cart-recovery/diagnose", {
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Erro ao diagnosticar");
+        return;
+      }
+      const str = JSON.stringify(data, null, 2);
+      console.warn("[CartRecovery Diagnose]", data);
+      try {
+        await navigator.clipboard.writeText(str);
+      } catch {}
+      const verdictText = (data.verdict || []).join("\n• ");
+      alert(
+        `Diagnóstico:\n\n• ${verdictText}\n\n✅ Detalhe completo copiado pro clipboard.`
+      );
+    } finally {
+      setDiagnosing(false);
+    }
+  };
   const [rule, setRule] = useState<Rule>({
     id: "",
     enabled: false,
@@ -598,7 +625,12 @@ export default function CartRecoveryPage() {
       </div>
 
       {/* KPIs ricos: totais + conversão por etapa + cupom */}
-      <KpisSection kpis={kpis} fallbackSummary={summary} />
+      <KpisSection
+        kpis={kpis}
+        fallbackSummary={summary}
+        onDiagnose={diagnoseOpenCarts}
+        diagnosing={diagnosing}
+      />
 
 
       <Tabs defaultValue="rule">
@@ -1020,9 +1052,13 @@ export default function CartRecoveryPage() {
 function KpisSection({
   kpis,
   fallbackSummary,
+  onDiagnose,
+  diagnosing,
 }: {
   kpis: KpisResponse | null;
   fallbackSummary: Record<string, number>;
+  onDiagnose: () => void;
+  diagnosing: boolean;
 }) {
   // Fallback usa o summary antigo quando KPIs ainda não chegaram
   // (loading inicial ou erro no endpoint).
@@ -1072,6 +1108,22 @@ function KpisSection({
           primary={String(totals.open.count)}
           secondary={BRL.format(openValue)}
           hint="em andamento na régua"
+          action={
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onDiagnose}
+              disabled={diagnosing}
+              className="h-6 px-2 text-[10px]"
+              title="Investigar duplicação"
+            >
+              {diagnosing ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                "🔍 Diagnosticar"
+              )}
+            </Button>
+          }
         />
         <KpiCard
           label="Recuperados"
@@ -1148,6 +1200,7 @@ function KpiCard({
   icon,
   tone,
   hint,
+  action,
 }: {
   label: string;
   primary: string;
@@ -1155,13 +1208,17 @@ function KpiCard({
   icon?: React.ReactNode;
   tone?: string;
   hint?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardContent className="pt-6">
-        <div className="text-xs text-muted-foreground flex items-center gap-1">
-          {icon}
-          {label}
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-xs text-muted-foreground flex items-center gap-1">
+            {icon}
+            {label}
+          </div>
+          {action}
         </div>
         <div className={`text-2xl font-bold mt-1 ${tone || ""}`}>{primary}</div>
         {secondary && (
