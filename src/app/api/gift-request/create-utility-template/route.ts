@@ -61,7 +61,9 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient();
 
     const ts = Math.floor(Date.now() / 1000);
-    const name = `bkng_gift_request_v${ts}`;
+    // Nome neutro/operacional — "gift_request" levava a Meta a classificar
+    // como MARKETING. "share_message" é mais social/utility-friendly.
+    const name = `bkng_share_message_v${ts}`;
     const language = "pt_BR";
     const category = "UTILITY";
 

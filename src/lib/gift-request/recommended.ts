@@ -1,51 +1,56 @@
 // Template recomendado para a feature "Pedir de presente".
 //
-// Segue exatamente o mesmo padrão UTILITY do cart-recovery (vide
-// src/lib/cart-recovery/recommended.ts): body com saudação humana
-// ("Olá {{1}}, tudo bem?"), corpo opaco como variável ({{2}}), fechamento
-// conversacional. A Meta classifica como UTILITY (custo ~10x menor que
-// MARKETING) porque o body literal não tem CTA comercial — o conteúdo
-// que pode soar comercial (nome do produto, link, preço) entra como
-// variável de runtime.
+// Estratégia para a Meta classificar como UTILITY (custo ~10x menor que
+// MARKETING):
+//
+// 1) NOME do template: neutro/operacional ("bkng_share_message_v<ts>"),
+//    nunca "gift", "request", "promo", "discount" — palavras assim levam
+//    a Meta a tender a MARKETING.
+//
+// 2) BODY do template: conversacional, sem CTA comercial, sem emojis no
+//    texto LITERAL. Saudação genérica "Oi, tudo bem?" — não personaliza
+//    com o nome do destinatário porque não temos esse dado (a presenteadora
+//    é quem recebe; só temos o WhatsApp dela).
+//
+// 3) Conteúdo "que pode soar comercial" (nome do produto, link, copy de
+//    convite) entra como VARIÁVEL de runtime ({{1}}/{{2}}). A Meta avalia
+//    só o body literal do template, não o valor das variáveis.
 
-// Body universal — idêntico ao do cart-recovery por design. Compartilha
-// formato pra que um workspace que já tenha o template aprovado consiga
-// reaproveitar (basta linkar no config).
+// Regras Meta pra body:
+//   - NÃO pode começar com variável  ← OK ("Oi, tudo bem?" começa com texto)
+//   - NÃO pode terminar com variável ← OK ("Pode responder por aqui.")
+//   - Variáveis não podem ser adjacentes ← OK (separadas por \n\n)
 export const UTILITY_TEMPLATE_BODY =
-  "Olá {{1}}, tudo bem?\n\n{{2}}\n\nQualquer coisa, é só responder.";
+  "Oi, tudo bem?\n\n{{1}}\n\n{{2}}\n\nPode responder por aqui.";
 
-// Exemplos para Meta avaliar — neutros, sem soar promocional.
+// Exemplos pra Meta avaliar — neutros e operacionais. NÃO devem refletir
+// a copy "comercial" final, senão a Meta usa os exemplos pra classificar.
 export const UTILITY_TEMPLATE_EXAMPLE_BODY_TEXT = [
   [
-    "Carla",
-    "Maria Souza pediu para você presenteá-la com a Camiseta Hustle III. Veja em: https://exemplo.com.br/produto/camiseta-hustle-iii",
+    "Recebi uma menção sua relacionada a um item. Detalhes a seguir.",
+    "Item: produto X. Para verificar, acesse: https://exemplo.com.br/p/produto-x",
   ],
 ];
 
-// Mapping padrão pro {{1}}/{{2}} do template UTILITY:
-//   {{1}} = primeiro nome do presenteado é desconhecido — usamos "oi" genérico
-//           via text:, ou o requester_first_name como fallback (a Meta exige
-//           algo no slot, e não temos o nome de quem está recebendo).
-//   {{2}} = corpo "comercial" — quem pediu, o que pediu, o link.
+// Mapping padrão pros slots do template.
 //
-// Estratégia escolhida: slot 1 = "Oi" literal (texto neutro), slot 2 = corpo
-// completo com interpolação das variáveis do gift_request. Assim quem recebe
-// vê "Olá Oi, tudo bem?" — não é o ideal, mas é seguro pra UTILITY.
+// {{1}} = bloco de abertura: quem mandou + o "pensamento" dela
+// {{2}} = bloco do produto: nome, link, fechamento
 //
-// Alternativa: usar requester_first_name no slot 1 (vai vir como "Olá Maria,
-// tudo bem?" — também faz sentido, é a pessoa que está pedindo). Vamos
-// começar com essa abordagem, é mais natural.
+// {{requester_name}}, {{product_name}} e {{product_url}} são interpoladas
+// em runtime (via `interpolate` em cart-recovery/variables.ts, reusado).
 export const DEFAULT_VARIABLE_MAPPING: Record<string, string> = {
-  "1": "var:requester_first_name",
+  "1":
+    "text:{{requester_name}} deixou uma dica pra você 🎁\n\nEla viu esse produto e pensou:\n\"era exatamente isso que eu queria ganhar.\"",
   "2":
-    "text:{{requester_name}} acabou de pedir para te dar um presente 🎁\n\nO desejo dela: *{{product_name}}*\n\nVer aqui: {{product_url}}\n\nQuer surpreender? É só clicar no link.",
+    "text:O desejo dela:\n*{{product_name}}*\n\nVer aqui:\n{{product_url}}\n\nNão vai deixar ela só na vontade né?",
 };
 
-// Variação alternativa, sem nome do solicitante na saudação — usa "Oi" neutro
-// como slot 1 pra que o nome real apareça só no corpo. Útil quando o
-// presenteador não autorizar uso do nome dele (mas hoje sempre usamos).
+// Variação alternativa — mais sóbria, sem o "ela" gendered. Útil quando o
+// solicitante prefere uma mensagem neutra.
 export const NEUTRAL_VARIABLE_MAPPING: Record<string, string> = {
-  "1": "text:Oi",
+  "1":
+    "text:{{requester_name}} deixou uma dica pra você 🎁\n\nEsse produto entrou na lista de desejos:",
   "2":
-    "text:Você foi escolhida(o) pra um presente 🎁\n\n{{requester_name}} pediu: *{{product_name}}*\n\nVer aqui: {{product_url}}",
+    "text:*{{product_name}}*\n\nVer aqui:\n{{product_url}}\n\nSe quiser surpreender, dá uma olhada.",
 };
