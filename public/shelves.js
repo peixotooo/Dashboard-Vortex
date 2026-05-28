@@ -2903,28 +2903,45 @@
 
   function initGiftRequest() {
     var pageType = detectPageType();
-    if (pageType !== "product") return;
+    console.log("[GiftRequest] init — pageType:", pageType);
+    if (pageType !== "product") {
+      console.log("[GiftRequest] skipped: not a product page");
+      return;
+    }
 
     var productId = extractProductId();
     if (!productId) {
-      // PDP detected but no product yet — retry once after the DOM settles
+      console.log("[GiftRequest] no product id yet, retrying in 1.2s");
       setTimeout(function () {
         if (!extractProductId()) return;
         initGiftRequest();
       }, 1200);
       return;
     }
+    console.log("[GiftRequest] productId:", productId);
 
     var url = API_BASE + "/api/gift-request/public-config?key=" +
       encodeURIComponent(API_KEY) + "&page_type=" + encodeURIComponent(pageType);
 
     fetch(url, { credentials: "omit" })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        console.log("[GiftRequest] /public-config status:", r.status);
+        return r.ok ? r.json() : null;
+      })
       .then(function (data) {
-        if (!data || !data.gift_request) return;
+        console.log("[GiftRequest] config response:", data);
+        if (!data || !data.gift_request) {
+          console.warn(
+            "[GiftRequest] not rendering. reason:",
+            (data && data.reason) || "config null or disabled"
+          );
+          return;
+        }
         renderGiftRequest(data.gift_request, productId);
       })
-      .catch(function () {});
+      .catch(function (err) {
+        console.error("[GiftRequest] fetch error:", err);
+      });
   }
 
   var GR_ICONS = {
@@ -3003,15 +3020,22 @@
   }
 
   function renderGiftRequest(cfg, productId) {
-    // Não duplica
-    if (document.getElementById("vtx-gift-request-button")) return;
+    if (document.getElementById("vtx-gift-request-button")) {
+      console.log("[GiftRequest] button already rendered, skipping");
+      return;
+    }
 
     var anchor = findGiftRequestAnchor(cfg.pdp_anchor_selector);
     if (!anchor) {
-      // Tenta de novo quando o tema terminar de renderizar
+      console.warn(
+        "[GiftRequest] no anchor found on PDP. Tried:",
+        cfg.pdp_anchor_selector || "(default CTAs)",
+        "— retrying in 800ms"
+      );
       setTimeout(function () { renderGiftRequest(cfg, productId); }, 800);
       return;
     }
+    console.log("[GiftRequest] anchor found:", anchor.ref.tagName + "." + anchor.ref.className, "mode:", anchor.mode);
 
     injectGiftRequestStyles();
 
