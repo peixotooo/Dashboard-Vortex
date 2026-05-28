@@ -2956,23 +2956,52 @@
       var custom = document.querySelector(anchorSelector);
       if (custom) return { ref: custom, mode: "after" };
     }
-    // 2. Right after the buy/add-to-cart CTA — most natural place on the PDP
+
+    // 2. Se promo-tags já renderizou a linha custom (#vtx-promo-tag-row),
+    //    usa ela — mesma estratégia que kits/promo-tags usam. Faz o botão
+    //    aparecer logo abaixo dos selos promocionais.
+    var promoRow = document.getElementById("vtx-promo-tag-row");
+    if (promoRow) return { ref: promoRow, mode: "after" };
+
+    // 3. CTA de compra. Lista expandida pra cobrir os seletores que o
+    //    cart-recovery / promo-tags já usam — temas VNDA variam bastante.
     var ctaSelectors = [
       ".product-form .buy-button",
+      ".buy-button-container",
       "#buy-button",
       ".buy-button",
       ".btn-buy",
+      "button.buy-btn",
       ".btn-add-to-cart",
+      ".add-to-cart",
+      ".add-to-cart-button",
       ".product-buy",
+      ".product-buy-area",
+      ".product-actions",
+      "[data-cart-add]",
+      "[data-product-buy]",
       "button[type=submit][data-buy]",
+      "form.product-form .submit",
       "form.product-form button[type=submit]"
     ];
     for (var i = 0; i < ctaSelectors.length; i++) {
       var el = document.querySelector(ctaSelectors[i]);
       if (el) return { ref: el, mode: "after" };
     }
-    // 3. Fallback: append to the main product section
-    var section = document.querySelector(".product-section, .main-product, #product-form, main");
+
+    // 4. Tenta cair perto do preço (estratégia de fallback usada por
+    //    promo-tags). findPriceAnchor existe no escopo do shelves.js.
+    try {
+      if (typeof findPriceAnchor === "function") {
+        var price = findPriceAnchor();
+        if (price) return { ref: price, mode: "after" };
+      }
+    } catch (e) {}
+
+    // 5. Última cartada: append no container principal do produto
+    var section = document.querySelector(
+      ".product-section, .main-product, .main-product-container, #product-form, main"
+    );
     if (section) return { ref: section, mode: "append" };
     return null;
   }
