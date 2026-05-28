@@ -19,8 +19,10 @@
 //    de leitura vêm do body do template, não das variáveis.
 
 // Body do template: as quebras estão aqui. UTILITY-friendly.
+// Fechamento "Abraços." é despedida natural — fecha a mensagem sem convidar
+// resposta (a feature não é pra virar conversa entre amigos).
 export const UTILITY_TEMPLATE_BODY =
-  "Oi, tudo bem?\n\n{{1}}\n\n{{2}}\n\nPode responder por aqui.";
+  "Oi, tudo bem?\n\n{{1}}\n\n{{2}}\n\nAbraços.";
 
 // Exemplos para Meta avaliar — neutros e SEM \n nas variáveis (o exemplo
 // também é validado pelas mesmas regras).
