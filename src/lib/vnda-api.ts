@@ -23,6 +23,20 @@ export interface VndaOrder {
   received_at: string | null;
   canceled_at: string | null;
   items: VndaOrderItem[];
+  // Customer + address — campos opcionais retornados pelo endpoint
+  // /api/v2/orders e usados pra backfill de estado em crm_vendas
+  // (scripts/backfill-state-from-vnda.ts).
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  state?: string;
+  city?: string;
+  shipping_address?: {
+    state?: string;
+    city?: string;
+    zip?: string;
+    neighborhood?: string;
+  };
 }
 
 export interface VndaOrderItem {
