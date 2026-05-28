@@ -321,6 +321,25 @@ export default function GiftRequestPage() {
     }));
   }
 
+  async function retryRequest(id: string) {
+    if (!workspace?.id) return;
+    if (!confirm("Reenfileirar esse pedido pra envio?")) return;
+    try {
+      const res = await fetch(`/api/gift-request/retry/${id}`, {
+        method: "POST",
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao retentar");
+      await runDiagnose();
+      alert(
+        "Pedido reenfileirado. O próximo tick do cron (5min) tenta enviar de novo."
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao retentar");
+    }
+  }
+
   async function runDiagnose() {
     if (!workspace?.id) return;
     setDiagnosing(true);
@@ -561,8 +580,19 @@ export default function GiftRequestPage() {
                                 )}
                               </div>
                               {r.error_message && (
-                                <div className="text-red-600 mt-1">
-                                  ⚠ {r.error_message}
+                                <div className="text-red-600 mt-1 flex items-start justify-between gap-2">
+                                  <div className="flex-1 break-all">
+                                    ⚠ {r.error_message}
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="shrink-0 h-7 text-[10px]"
+                                    onClick={() => retryRequest(r.id)}
+                                  >
+                                    <RefreshCw className="w-3 h-3 mr-1" />
+                                    Tentar de novo
+                                  </Button>
                                 </div>
                               )}
                               {(r.wa_sent_at ||
