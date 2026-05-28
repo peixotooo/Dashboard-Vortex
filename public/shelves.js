@@ -2896,6 +2896,351 @@
       .catch(function () {});
   }
 
+  // =====================================================================
+  // --- Gift Request (Pedir de Presente) -- botão na PDP que dispara
+  // WhatsApp (template de utilidade) pra pessoa que vai presentear.
+  // =====================================================================
+
+  function initGiftRequest() {
+    var pageType = detectPageType();
+    if (pageType !== "product") return;
+
+    var productId = extractProductId();
+    if (!productId) {
+      // PDP detected but no product yet — retry once after the DOM settles
+      setTimeout(function () {
+        if (!extractProductId()) return;
+        initGiftRequest();
+      }, 1200);
+      return;
+    }
+
+    var url = API_BASE + "/api/gift-request/public-config?key=" +
+      encodeURIComponent(API_KEY) + "&page_type=" + encodeURIComponent(pageType);
+
+    fetch(url, { credentials: "omit" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.gift_request) return;
+        renderGiftRequest(data.gift_request, productId);
+      })
+      .catch(function () {});
+  }
+
+  var GR_ICONS = {
+    gift: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:8px"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:8px"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></svg>',
+    sparkles: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:8px"><path d="M12 3l1.9 5.7L19.6 10.6 13.9 12.5 12 18.2l-1.9-5.7L4.4 10.6 10.1 8.7z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>'
+  };
+
+  function findGiftRequestAnchor(anchorSelector) {
+    // 1. Custom selector from config takes precedence
+    if (anchorSelector) {
+      var custom = document.querySelector(anchorSelector);
+      if (custom) return { ref: custom, mode: "after" };
+    }
+    // 2. Right after the buy/add-to-cart CTA — most natural place on the PDP
+    var ctaSelectors = [
+      ".product-form .buy-button",
+      "#buy-button",
+      ".buy-button",
+      ".btn-buy",
+      ".btn-add-to-cart",
+      ".product-buy",
+      "button[type=submit][data-buy]",
+      "form.product-form button[type=submit]"
+    ];
+    for (var i = 0; i < ctaSelectors.length; i++) {
+      var el = document.querySelector(ctaSelectors[i]);
+      if (el) return { ref: el, mode: "after" };
+    }
+    // 3. Fallback: append to the main product section
+    var section = document.querySelector(".product-section, .main-product, #product-form, main");
+    if (section) return { ref: section, mode: "append" };
+    return null;
+  }
+
+  function extractCurrentProductMeta() {
+    var name = "";
+    var image = "";
+    var price = null;
+    var url = window.location.href;
+
+    var nameEl = document.querySelector('meta[property="og:title"]') ||
+      document.querySelector('meta[name="title"]');
+    if (nameEl) name = nameEl.getAttribute("content") || "";
+    if (!name) {
+      var h1 = document.querySelector(".product-section h1, .main-product h1, h1.product-title, h1");
+      if (h1) name = (h1.textContent || "").trim();
+    }
+
+    var imgEl = document.querySelector('meta[property="og:image"]');
+    if (imgEl) image = imgEl.getAttribute("content") || "";
+    if (!image) {
+      var img = document.querySelector(".product-section img, .main-product img, .product-image img");
+      if (img) image = img.getAttribute("src") || "";
+    }
+
+    // Tenta múltiplas formas — meta tag estruturada, depois texto visível
+    var priceMeta = document.querySelector('meta[property="product:price:amount"]') ||
+      document.querySelector('meta[property="og:price:amount"]');
+    if (priceMeta) {
+      var p = parseFloat(priceMeta.getAttribute("content") || "");
+      if (!isNaN(p) && p > 0) price = p;
+    }
+    if (price === null) {
+      // parseBRL existe no escopo do shelves.js (definido pelo gift-bar)
+      try {
+        var priceEl = document.querySelector(".product-price .sale, .product-price .price, .product-section .price, [data-product-price]");
+        if (priceEl) {
+          var v = parseBRL(priceEl.textContent || priceEl.getAttribute("data-product-price") || "");
+          if (v > 0) price = v;
+        }
+      } catch (e) {}
+    }
+
+    return { name: name, image: image, price: price, url: url };
+  }
+
+  function renderGiftRequest(cfg, productId) {
+    // Não duplica
+    if (document.getElementById("vtx-gift-request-button")) return;
+
+    var anchor = findGiftRequestAnchor(cfg.pdp_anchor_selector);
+    if (!anchor) {
+      // Tenta de novo quando o tema terminar de renderizar
+      setTimeout(function () { renderGiftRequest(cfg, productId); }, 800);
+      return;
+    }
+
+    injectGiftRequestStyles();
+
+    var iconHtml = GR_ICONS[cfg.button_icon] || GR_ICONS.gift;
+    var btn = document.createElement("button");
+    btn.id = "vtx-gift-request-button";
+    btn.type = "button";
+    btn.className = "vtx-gr-button";
+    btn.setAttribute(
+      "style",
+      "background:" + cfg.button_bg_color + ";color:" + cfg.button_text_color +
+      ";border-radius:" + cfg.button_border_radius + ";"
+    );
+    btn.innerHTML = iconHtml + "<span>" + escapeHtml(cfg.button_label) + "</span>";
+
+    if (anchor.mode === "after" && anchor.ref.parentNode) {
+      anchor.ref.parentNode.insertBefore(btn, anchor.ref.nextSibling);
+    } else {
+      anchor.ref.appendChild(btn);
+    }
+
+    btn.addEventListener("click", function () {
+      openGiftRequestModal(cfg, productId);
+    });
+  }
+
+  function injectGiftRequestStyles() {
+    if (document.getElementById("vtx-gr-styles")) return;
+    var css =
+      ".vtx-gr-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;padding:12px 18px;font:600 14px 'Inter',system-ui,sans-serif;letter-spacing:.02em;text-transform:uppercase;border:0;cursor:pointer;transition:transform .15s,opacity .15s}" +
+      ".vtx-gr-button:hover{opacity:.92;transform:translateY(-1px)}" +
+      ".vtx-gr-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .2s;font-family:'Inter',system-ui,sans-serif}" +
+      ".vtx-gr-overlay.open{opacity:1}" +
+      ".vtx-gr-modal{background:#fff;border-radius:8px;width:100%;max-width:420px;padding:24px;box-shadow:0 18px 60px rgba(0,0,0,.25);transform:translateY(8px);transition:transform .2s;color:#111;max-height:calc(100vh - 32px);overflow-y:auto}" +
+      ".vtx-gr-overlay.open .vtx-gr-modal{transform:translateY(0)}" +
+      ".vtx-gr-modal h3{margin:0 0 6px;font-size:18px;font-weight:700;color:#111}" +
+      ".vtx-gr-modal p.vtx-gr-sub{margin:0 0 18px;font-size:13px;color:#666;line-height:1.45}" +
+      ".vtx-gr-field{display:block;margin-bottom:14px}" +
+      ".vtx-gr-field label{display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px}" +
+      ".vtx-gr-field input,.vtx-gr-field textarea{width:100%;box-sizing:border-box;padding:10px 12px;font:14px 'Inter',system-ui,sans-serif;border:1px solid #d0d0d0;border-radius:6px;background:#fff;color:#111}" +
+      ".vtx-gr-field textarea{min-height:70px;resize:vertical}" +
+      ".vtx-gr-field input:focus,.vtx-gr-field textarea:focus{outline:none;border-color:#111;box-shadow:0 0 0 2px rgba(0,0,0,.08)}" +
+      ".vtx-gr-cta{display:block;width:100%;padding:13px 16px;font:600 14px 'Inter',system-ui,sans-serif;background:#111;color:#fff;border:0;border-radius:6px;cursor:pointer;text-transform:uppercase;letter-spacing:.02em}" +
+      ".vtx-gr-cta:disabled{opacity:.55;cursor:default}" +
+      ".vtx-gr-cta:hover:not(:disabled){opacity:.92}" +
+      ".vtx-gr-close{position:absolute;top:10px;right:14px;background:none;border:0;font-size:22px;color:#999;cursor:pointer;line-height:1;padding:4px 8px}" +
+      ".vtx-gr-error{margin:0 0 12px;padding:8px 10px;background:#fff1f0;color:#b40015;border-radius:5px;font-size:12px;border:1px solid #ffd5d2}" +
+      ".vtx-gr-success{text-align:center;padding:20px 8px}" +
+      ".vtx-gr-success h3{font-size:20px;margin-bottom:8px;color:#0a7a2d}" +
+      ".vtx-gr-success p{margin:0 0 18px;font-size:13px;color:#444;line-height:1.5}" +
+      ".vtx-gr-product{display:flex;align-items:center;gap:10px;padding:10px;background:#fafafa;border-radius:6px;margin-bottom:18px}" +
+      ".vtx-gr-product img{width:48px;height:48px;border-radius:4px;object-fit:cover;flex-shrink:0;background:#eee}" +
+      ".vtx-gr-product .name{font-size:13px;font-weight:600;color:#111;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}";
+    var style = document.createElement("style");
+    style.id = "vtx-gr-styles";
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  function openGiftRequestModal(cfg, productId) {
+    var existing = document.getElementById("vtx-gr-overlay");
+    if (existing) existing.remove();
+
+    var meta = extractCurrentProductMeta();
+
+    var overlay = document.createElement("div");
+    overlay.id = "vtx-gr-overlay";
+    overlay.className = "vtx-gr-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+
+    var phoneFieldHtml = cfg.collect_requester_phone
+      ? '<label class="vtx-gr-field"><span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">Seu WhatsApp (opcional)</span><input type="tel" name="requester_phone" placeholder="(11) 99999-8888" autocomplete="tel" /></label>'
+      : "";
+
+    var productCard = "";
+    if (meta.name) {
+      productCard =
+        '<div class="vtx-gr-product">' +
+          (meta.image ? '<img src="' + escapeHtml(cleanUrl(meta.image)) + '" alt="">' : '') +
+          '<div class="name">' + escapeHtml(meta.name) + '</div>' +
+        '</div>';
+    }
+
+    overlay.innerHTML =
+      '<div class="vtx-gr-modal" style="position:relative">' +
+        '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
+        '<h3>' + escapeHtml(cfg.modal_title) + '</h3>' +
+        '<p class="vtx-gr-sub">' + escapeHtml(cfg.modal_subtitle) + '</p>' +
+        productCard +
+        '<div class="vtx-gr-error" style="display:none"></div>' +
+        '<form class="vtx-gr-form" novalidate>' +
+          '<label class="vtx-gr-field">' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_name_label) + '</span>' +
+            '<input type="text" name="requester_name" required autocomplete="name" />' +
+          '</label>' +
+          '<label class="vtx-gr-field">' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_phone_label) + '</span>' +
+            '<input type="tel" name="recipient_phone" required placeholder="(11) 99999-8888" />' +
+          '</label>' +
+          phoneFieldHtml +
+          '<label class="vtx-gr-field">' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_message_label) + '</span>' +
+            '<textarea name="personal_message" maxlength="500" placeholder="Ex.: Tô amando este e adoraria de presente ✨"></textarea>' +
+          '</label>' +
+          '<button type="submit" class="vtx-gr-cta">' + escapeHtml(cfg.modal_cta_label) + '</button>' +
+        '</form>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function () { overlay.classList.add("open"); });
+    document.body.style.overflow = "hidden";
+
+    function close() {
+      overlay.classList.remove("open");
+      document.body.style.overflow = "";
+      setTimeout(function () { overlay.remove(); }, 200);
+    }
+
+    overlay.querySelector(".vtx-gr-close").addEventListener("click", close);
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) close();
+    });
+    document.addEventListener("keydown", function escHandler(e) {
+      if (e.key === "Escape") { close(); document.removeEventListener("keydown", escHandler); }
+    });
+
+    var form = overlay.querySelector(".vtx-gr-form");
+    var errorEl = overlay.querySelector(".vtx-gr-error");
+    var cta = overlay.querySelector(".vtx-gr-cta");
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      errorEl.style.display = "none";
+
+      var requesterName = (form.requester_name.value || "").trim();
+      var recipientPhone = (form.recipient_phone.value || "").trim();
+      var requesterPhone = form.requester_phone ? (form.requester_phone.value || "").trim() : "";
+      var personalMessage = (form.personal_message.value || "").trim();
+
+      if (!requesterName) {
+        errorEl.textContent = "Preencha seu nome";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!recipientPhone || recipientPhone.replace(/\D/g, "").length < 8) {
+        errorEl.textContent = "Informe um WhatsApp válido";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      cta.disabled = true;
+      cta.textContent = "Enviando…";
+
+      var payload = {
+        key: API_KEY,
+        requester_name: requesterName,
+        requester_phone: requesterPhone || null,
+        recipient_phone: recipientPhone,
+        product_id: productId,
+        product_name: meta.name,
+        product_url: meta.url,
+        product_image_url: meta.image,
+        product_price: meta.price,
+        personal_message: personalMessage,
+        page_url: window.location.href,
+        session_id: sessionId,
+        consumer_id: consumerId
+      };
+
+      fetch(API_BASE + "/api/gift-request/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "omit"
+      })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+        })
+        .then(function (res) {
+          if (!res.ok) {
+            var msg = "Não foi possível enviar. Tente novamente.";
+            if (res.body && res.body.error === "rate_limited_ip") {
+              msg = "Muitos pedidos a partir desse dispositivo. Tente mais tarde.";
+            } else if (res.body && res.body.error === "rate_limited_recipient") {
+              msg = "Essa pessoa já recebeu vários pedidos hoje. Tente amanhã.";
+            } else if (res.body && res.body.error === "recipient_phone invalid") {
+              msg = "WhatsApp inválido. Use o formato (11) 99999-8888.";
+            }
+            errorEl.textContent = msg;
+            errorEl.style.display = "block";
+            cta.disabled = false;
+            cta.textContent = cfg.modal_cta_label;
+            return;
+          }
+
+          // Sucesso — substitui o conteúdo do modal
+          var modal = overlay.querySelector(".vtx-gr-modal");
+          modal.innerHTML =
+            '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
+            '<div class="vtx-gr-success">' +
+              '<div style="font-size:42px;line-height:1;margin-bottom:8px">🎁</div>' +
+              '<h3>' + escapeHtml(cfg.modal_success_title) + '</h3>' +
+              '<p>' + escapeHtml(cfg.modal_success_message) + '</p>' +
+              '<button type="button" class="vtx-gr-cta" data-close>Fechar</button>' +
+            '</div>';
+          modal.querySelector(".vtx-gr-close").addEventListener("click", close);
+          modal.querySelector("[data-close]").addEventListener("click", close);
+
+          // GA4 event
+          try {
+            if (window.dataLayer) {
+              window.dataLayer.push({
+                event: "gift_request_submitted",
+                product_id: productId,
+                product_name: meta.name
+              });
+            }
+          } catch (e) {}
+        })
+        .catch(function () {
+          errorEl.textContent = "Não foi possível enviar agora. Verifique sua conexão.";
+          errorEl.style.display = "block";
+          cta.disabled = false;
+          cta.textContent = cfg.modal_cta_label;
+        });
+    });
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
@@ -2904,6 +3249,7 @@
       initPromoTags();
       initCAPI();
       initTopbar();
+      initGiftRequest();
     });
   } else {
     init();
@@ -2911,5 +3257,6 @@
     initPromoTags();
     initCAPI();
     initTopbar();
+    initGiftRequest();
   }
 })();
