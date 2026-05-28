@@ -63,7 +63,13 @@ export async function GET(request: NextRequest) {
       .eq("active", true),
     admin
       .from("gift_requests")
-      .select("id, status, created_at, recipient_phone, error_message")
+      .select(
+        `id, status, created_at, recipient_phone, error_message, wa_message_id,
+         wa_messages:wa_message_id (
+           status, sent_at, delivered_at, read_at, error_message,
+           meta_message_id, variable_values
+         )`
+      )
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(10),
@@ -72,7 +78,26 @@ export async function GET(request: NextRequest) {
   const config = cfgRes.data;
   const waConfig = waCfgRes.data;
   const apiKeys = apiKeyRes.data || [];
-  const recentRequests = recentReqRes.data || [];
+  const rawRequests = recentReqRes.data || [];
+
+  // Achata o JOIN com wa_messages: status real do envio vem de lá,
+  // gift_requests.status pode estar desatualizado se trigger não rodou.
+  const recentRequests = rawRequests.map((r) => {
+    const wm = Array.isArray(r.wa_messages) ? r.wa_messages[0] : r.wa_messages;
+    return {
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      recipient_phone: r.recipient_phone,
+      error_message: r.error_message || wm?.error_message || null,
+      wa_status: wm?.status || null,
+      wa_meta_message_id: wm?.meta_message_id || null,
+      wa_sent_at: wm?.sent_at || null,
+      wa_delivered_at: wm?.delivered_at || null,
+      wa_read_at: wm?.read_at || null,
+      wa_variables: wm?.variable_values || null,
+    };
+  });
 
   // Template
   let template: {
