@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 
-export const maxDuration = 15;
+// Snapshot do Bulking já é ~26MB e cresce com a base. 15s não dava
+// margem pra (query + serialização + transferência). 60s é o teto
+// do plano Pro do Vercel pra Node serverless.
+export const maxDuration = 60;
 
 const EMPTY_RESPONSE = {
   customers: [],
