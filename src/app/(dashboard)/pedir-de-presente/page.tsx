@@ -14,6 +14,7 @@ import {
   Sparkles,
   AlertCircle,
   TrendingUp,
+  Stethoscope,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -180,6 +181,21 @@ export default function GiftRequestPage() {
   const [error, setError] = useState<string | null>(null);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [rechecking, setRechecking] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnose, setDiagnose] = useState<{
+    all_ok: boolean;
+    checks: Array<{ ok: boolean; label: string; detail?: string }>;
+    config_summary: Record<string, unknown> | null;
+    template_summary: Record<string, unknown> | null;
+    api_key_sample: { id: string; name: string; key_preview: string } | null;
+    recent_requests: Array<{
+      id: string;
+      status: string;
+      created_at: string;
+      recipient_phone: string;
+      error_message: string | null;
+    }>;
+  } | null>(null);
 
   const headers = useCallback(
     () => ({
@@ -299,6 +315,24 @@ export default function GiftRequestPage() {
     }));
   }
 
+  async function runDiagnose() {
+    if (!workspace?.id) return;
+    setDiagnosing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/gift-request/diagnose", {
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao diagnosticar");
+      setDiagnose(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao diagnosticar");
+    } finally {
+      setDiagnosing(false);
+    }
+  }
+
   async function recheckTemplate() {
     if (!workspace?.id || !config.wa_template_id) return;
     setRechecking(true);
@@ -405,6 +439,132 @@ export default function GiftRequestPage() {
 
         {/* ============================== SETTINGS ============================== */}
         <TabsContent value="settings" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Stethoscope className="w-4 h-4" /> Diagnóstico
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={runDiagnose}
+                  disabled={diagnosing}
+                >
+                  {diagnosing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                  )}
+                  Diagnosticar
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!diagnose ? (
+                <p className="text-sm text-muted-foreground">
+                  Clica em "Diagnosticar" pra ver porque o botão pode não estar
+                  aparecendo na PDP (config, template, credenciais, API key).
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <div
+                    className={`text-sm font-medium ${
+                      diagnose.all_ok ? "text-emerald-700" : "text-red-700"
+                    }`}
+                  >
+                    {diagnose.all_ok
+                      ? "✓ Tudo OK — botão deve aparecer na PDP."
+                      : "✗ Alguns problemas encontrados:"}
+                  </div>
+                  <ul className="space-y-2">
+                    {diagnose.checks.map((c, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 text-sm"
+                      >
+                        {c.ok ? (
+                          <CheckCircle2 className="w-4 h-4 mt-0.5 text-emerald-600 shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 mt-0.5 text-red-600 shrink-0" />
+                        )}
+                        <div>
+                          <div className={c.ok ? "" : "font-medium"}>
+                            {c.label}
+                          </div>
+                          {c.detail && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {c.detail}
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {diagnose.api_key_sample && (
+                    <div className="text-xs text-muted-foreground border-t pt-2 mt-2">
+                      API key: <code>{diagnose.api_key_sample.key_preview}</code>{" "}
+                      ({diagnose.api_key_sample.name})
+                    </div>
+                  )}
+
+                  {diagnose.recent_requests.length > 0 && (
+                    <div className="border-t pt-3 mt-3">
+                      <div className="text-xs font-semibold text-muted-foreground mb-2">
+                        Últimos 10 pedidos
+                      </div>
+                      <div className="space-y-1">
+                        {diagnose.recent_requests.map((r) => (
+                          <div
+                            key={r.id}
+                            className="text-xs flex items-center gap-2 font-mono"
+                          >
+                            <span className="text-muted-foreground">
+                              {new Date(r.created_at).toLocaleString("pt-BR", {
+                                dateStyle: "short",
+                                timeStyle: "short",
+                              })}
+                            </span>
+                            <Badge
+                              variant={
+                                r.status === "failed"
+                                  ? "destructive"
+                                  : r.status === "read" || r.status === "delivered"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {r.status}
+                            </Badge>
+                            <span>{r.recipient_phone}</span>
+                            {r.error_message && (
+                              <span className="text-red-600">
+                                {r.error_message}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <details className="text-xs text-muted-foreground mt-2">
+                    <summary className="cursor-pointer">Debug do navegador</summary>
+                    <p className="mt-2">
+                      Se diagnóstico passou e ainda não aparece: abra o DevTools
+                      (F12) na PDP da loja, aba Console, e procure por linhas
+                      começando com{" "}
+                      <code className="font-mono">[GiftRequest]</code>. Elas
+                      mostram pageType, productId, status da chamada ao
+                      /public-config e se a âncora foi encontrada.
+                    </p>
+                  </details>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
