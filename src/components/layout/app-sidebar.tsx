@@ -44,7 +44,6 @@ import {
   ShieldAlert,
   Coins,
   Mail,
-  Map,
   PieChart,
   ReceiptText,
   Banknote,
@@ -168,7 +167,6 @@ const navGroups: NavGroup[] = [
         items: [
           { title: "CRM", href: "/crm", icon: Contact },
           { title: "Cashback", href: "/crm/cashback", icon: Coins },
-          { title: "Estados", href: "/crm/estados", icon: Map },
           { title: "Listas", href: "/crm/listas", icon: ListChecks },
           { title: "WhatsApp", href: "/crm/whatsapp", icon: MessageCircle },
           { title: "Recuperação de Carrinho", href: "/crm/cart-recovery", icon: ShoppingCart },

@@ -73,6 +73,7 @@ import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog";
+import { StateTilemap, STATE_NAMES, type UF } from "@/components/crm/state-tilemap";
 import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Constants ---
@@ -600,6 +601,12 @@ export default function CrmPage() {
   const [hourFilter, setHourFilter] = useState<HourPref | "all">("all");
   const [couponFilter, setCouponFilter] = useState<CouponSensitivity | "all">("all");
   const [weekdayFilter, setWeekdayFilter] = useState<Weekday | "all">("all");
+  // Filtro composto por UF do último pedido (multi-select). customerStates
+  // é o lookup email → UF carregado em paralelo com customers (snapshot
+  // ainda não carrega state — vide /api/crm/customer-states).
+  const [stateFilter, setStateFilter] = useState<Set<UF>>(new Set());
+  const [customerStates, setCustomerStates] = useState<Record<string, string>>({});
+  const [stateTilemapOpen, setStateTilemapOpen] = useState(false);
   const [purchasedDateRange, setPurchasedDateRange] = useState<{ from: string; to: string } | null>(null);
   const [inactiveDateRange, setInactiveDateRange] = useState<{ from: string; to: string } | null>(null);
   const [avgTicketRange, setAvgTicketRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
@@ -718,9 +725,18 @@ export default function CrmPage() {
     if (customersLoaded) return;
     setCustomersLoading(true);
     try {
-      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
-      const data = await res.json();
+      // Em paralelo: snapshot completo + lookup email→UF (separado pq o
+      // snapshot ainda não carrega state).
+      const [resCustomers, resStates] = await Promise.all([
+        fetch("/api/crm/rfm", { headers: wsHeaders() }),
+        fetch("/api/crm/customer-states", { headers: wsHeaders() }),
+      ]);
+      const data = await resCustomers.json();
       setCustomers(data.customers || []);
+      if (resStates.ok) {
+        const sd = await resStates.json();
+        setCustomerStates(sd.map || {});
+      }
       setCustomersLoaded(true);
     } catch {
       // Keep empty state
@@ -939,12 +955,17 @@ export default function CrmPage() {
       const matchesHour = hourFilter === "all" || c.preferredHour === hourFilter;
       const matchesCoupon = couponFilter === "all" || c.couponSensitivity === couponFilter;
       const matchesWeekday = weekdayFilter === "all" || c.preferredWeekday === weekdayFilter;
-      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all";
+      // UF do último pedido — prefere c.state (snapshot novo), cai pro
+      // customerStates lookup (snapshots antigos). Cliente sem estado
+      // conhecido é excluído quando há filtro ativo.
+      const uf = (c.state ?? customerStates[c.email] ?? "") as UF;
+      const matchesState = stateFilter.size === 0 || stateFilter.has(uf);
+      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all" || stateFilter.size > 0;
 
-      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday;
+      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday && matchesState;
       return invertFilters && hasAnyFilter ? !matches : matches;
     });
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, customerStates, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
 
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
@@ -2216,6 +2237,80 @@ export default function CrmPage() {
               <option value="sab">Sabado</option>
               <option value="dom">Domingo</option>
             </select>
+
+            {/* --- Estado(s): popover com tilemap clicável --- */}
+            <Popover open={stateTilemapOpen} onOpenChange={setStateTilemapOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`h-10 ${stateFilter.size > 0 ? "border-primary bg-primary/5" : ""}`}
+                >
+                  Estado{stateFilter.size > 0 ? `s (${stateFilter.size})` : ""}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[400px]" align="start">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">Filtrar por UF</div>
+                      <p className="text-xs text-muted-foreground">
+                        Clique pra adicionar/remover. Compõe com os outros filtros (AND).
+                      </p>
+                    </div>
+                    {stateFilter.size > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setStateFilter(new Set())}
+                      >
+                        Limpar
+                      </Button>
+                    )}
+                  </div>
+                  <StateTilemap
+                    counts={(() => {
+                      // Contagem de clientes por UF da base atual — prefere
+                      // c.state se já estiver no snapshot.
+                      const c: Record<string, number> = {};
+                      for (const cust of customers) {
+                        const uf = cust.state ?? customerStates[cust.email];
+                        if (uf) c[uf] = (c[uf] ?? 0) + 1;
+                      }
+                      return c;
+                    })()}
+                    selected={stateFilter}
+                    onToggle={(uf) => {
+                      setStateFilter((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(uf)) next.delete(uf);
+                        else next.add(uf);
+                        return next;
+                      });
+                    }}
+                  />
+                  {stateFilter.size > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-2 border-t">
+                      {[...stateFilter].map((uf) => (
+                        <button
+                          key={uf}
+                          type="button"
+                          onClick={() => setStateFilter((prev) => {
+                            const next = new Set(prev);
+                            next.delete(uf);
+                            return next;
+                          })}
+                          className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30"
+                          title={`Remover ${STATE_NAMES[uf]}`}
+                        >
+                          {uf} ×
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
 
             {/* --- Advanced filters: date range + numeric range --- */}
             <DateRangeFilterPopover
