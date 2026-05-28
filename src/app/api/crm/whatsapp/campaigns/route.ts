@@ -182,6 +182,23 @@ export async function POST(request: NextRequest) {
     const filteredContacts = complianceResult.allowed;
     const admin = createAdminClient();
 
+    // Denormaliza nome/idioma do template no momento da criação — assim
+    // sobrevive a deleções/renomeações no wa_templates (template_id tem
+    // ON DELETE SET NULL).
+    let templateName: string | null = null;
+    let templateLanguage: string | null = null;
+    {
+      const { data: tpl } = await admin
+        .from("wa_templates")
+        .select("name, language")
+        .eq("id", templateId)
+        .maybeSingle();
+      if (tpl) {
+        templateName = tpl.name;
+        templateLanguage = tpl.language;
+      }
+    }
+
     // Create campaign
     const { data: campaign, error: campErr } = await admin
       .from("wa_campaigns")
@@ -189,6 +206,8 @@ export async function POST(request: NextRequest) {
         workspace_id: workspaceId,
         name,
         template_id: templateId,
+        template_name: templateName,
+        template_language: templateLanguage,
         segment_filter: segmentFilter || {},
         variable_values: variableValues || {},
         status: initialStatus,
