@@ -348,7 +348,15 @@ export default function GiftRequestPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao criar template");
       await loadAll();
-      alert(data.message || "Template criado.");
+      const tplName = data.template?.name || "(sem nome)";
+      const tplStatus = data.template?.status || "PENDING";
+      alert(
+        `Template criado e linkado:\n\n• Nome: ${tplName}\n• Status: ${tplStatus}\n\n${
+          tplStatus === "APPROVED"
+            ? "Aprovado! Já pode ativar o switch acima."
+            : "A Meta costuma aprovar em alguns minutos. Use o botão 'Atualizar status' pra checar."
+        }`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao criar template");
     } finally {
@@ -537,19 +545,19 @@ export default function GiftRequestPage() {
                 </div>
               )}
 
-              {approvedTemplates.length === 0 && !selectedTemplate ? (
+              {templates.length === 0 && !selectedTemplate ? (
                 <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 mt-0.5" />
                   <div>
-                    Nenhum template aprovado encontrado ainda. Use o botão acima,
-                    ou{" "}
+                    Nenhum template encontrado ainda. Use o botão acima pra
+                    criar um automaticamente, ou{" "}
                     <a
                       href="/crm/whatsapp"
                       className="underline font-medium"
                     >
                       sincronize
                     </a>{" "}
-                    templates aprovados manualmente na Meta.
+                    os templates aprovados na Meta.
                   </div>
                 </div>
               ) : (
@@ -566,16 +574,39 @@ export default function GiftRequestPage() {
                         <SelectValue placeholder="Selecione um template" />
                       </SelectTrigger>
                       <SelectContent>
-                        {approvedTemplates.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name} ({t.language}) ·{" "}
-                            <span className="text-muted-foreground">
-                              {t.category}
-                            </span>
-                          </SelectItem>
-                        ))}
+                        {templates.map((t) => {
+                          const statusColor =
+                            t.status === "APPROVED"
+                              ? "text-emerald-700"
+                              : t.status === "REJECTED"
+                              ? "text-red-700"
+                              : "text-amber-700";
+                          return (
+                            <SelectItem key={t.id} value={t.id}>
+                              <span className="flex items-center gap-2">
+                                <span>{t.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({t.language})
+                                </span>
+                                <span
+                                  className={`text-[10px] uppercase font-semibold ${statusColor}`}
+                                >
+                                  {t.status}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      O botão na PDP só dispara quando o template estiver{" "}
+                      <span className="font-semibold text-emerald-700">
+                        APPROVED
+                      </span>
+                      . Pode salvar com PENDING — assim que a Meta aprovar,
+                      começa a enviar automaticamente.
+                    </p>
                   </div>
 
                   {selectedTemplate && (
