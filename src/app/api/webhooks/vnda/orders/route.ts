@@ -11,7 +11,7 @@ import {
   extractCreditUsed,
 } from "@/lib/cashback/api";
 import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
-import { syncCustomerToGenderList } from "@/lib/gender/list-sync";
+import { syncCustomerToAutoSegmentLists } from "@/lib/segments/sync";
 
 export const maxDuration = 30;
 
@@ -114,10 +114,9 @@ export async function POST(request: NextRequest) {
     console.log(`[VNDA Webhook] Order ${orderId} created for workspace ${workspaceId}`);
     await logWebhook(admin, workspaceId, orderId, "success", null, null);
 
-    // Gender inference + auto-segmented list update.
+    // Auto-segment lists update (gender, state, etc.).
     // Isolado: qualquer falha aqui é só log, nunca quebra o webhook.
-    // Reutiliza phone normalization da linha de cart-recovery abaixo
-    // recomputando inline (cart-recovery faz o mesmo).
+    // Reutiliza phone normalization que cart-recovery faz logo abaixo.
     try {
       const fullName = [payload.first_name, payload.last_name]
         .filter((s) => typeof s === "string" && s.trim().length > 0)
@@ -130,21 +129,23 @@ export async function POST(request: NextRequest) {
         payload.shipping_address?.phone ||
         "";
       const phone = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
-      const syncRes = await syncCustomerToGenderList(admin, workspaceId, {
+      const state = payload.shipping_address?.state || payload.state || null;
+      const syncResults = await syncCustomerToAutoSegmentLists(admin, workspaceId, {
         name: fullName || null,
         email: payload.email || null,
         phone: phone || null,
+        state,
       });
-      if (syncRes.status === "appended") {
+      const appendedCount = syncResults.filter((r) => r.appended).length;
+      if (appendedCount > 0) {
         console.log(
-          `[VNDA Webhook] Gender list updated for order ${orderId}: ` +
-          `+1 ${syncRes.inferredGender} (${syncRes.confidence})`
+          `[VNDA Webhook] Order ${orderId} appended to ${appendedCount} auto-segment list(s)`
         );
       }
-    } catch (genderErr) {
+    } catch (segErr) {
       console.error(
-        `[VNDA Webhook] Gender sync failed for order ${orderId}:`,
-        genderErr instanceof Error ? genderErr.message : genderErr
+        `[VNDA Webhook] Auto-segment sync failed for order ${orderId}:`,
+        segErr instanceof Error ? segErr.message : segErr
       );
     }
 
