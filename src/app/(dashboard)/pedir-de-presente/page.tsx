@@ -179,6 +179,7 @@ export default function GiftRequestPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   const headers = useCallback(
     () => ({
@@ -229,9 +230,10 @@ export default function GiftRequestPage() {
     [templates]
   );
 
+  // Pode estar em PENDING — por isso busca em `templates` (todos), não só nos aprovados.
   const selectedTemplate = useMemo(
-    () => approvedTemplates.find((t) => t.id === config.wa_template_id) || null,
-    [approvedTemplates, config.wa_template_id]
+    () => templates.find((t) => t.id === config.wa_template_id) || null,
+    [templates, config.wa_template_id]
   );
 
   const templateBody = useMemo(() => {
@@ -295,6 +297,36 @@ export default function GiftRequestPage() {
         ? { ...NEUTRAL_VARIABLE_MAPPING }
         : { ...DEFAULT_VARIABLE_MAPPING },
     }));
+  }
+
+  async function recheckTemplate() {
+    if (!workspace?.id || !config.wa_template_id) return;
+    setRechecking(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/gift-request/recheck-template", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ template_id: config.wa_template_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao consultar Meta");
+      await loadAll();
+      const status = data.template?.status;
+      if (status === "APPROVED") {
+        alert("Aprovado pela Meta — pronto pra ativar.");
+      } else if (status === "REJECTED") {
+        alert(
+          "A Meta rejeitou esse template. Veja em /crm/whatsapp pra detalhes ou crie um novo."
+        );
+      } else {
+        alert(`Status atual na Meta: ${status || "desconhecido"}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao consultar Meta");
+    } finally {
+      setRechecking(false);
+    }
   }
 
   async function createUtilityTemplate() {
@@ -436,7 +468,76 @@ export default function GiftRequestPage() {
                 </Button>
               </div>
 
-              {approvedTemplates.length === 0 ? (
+              {selectedTemplate && selectedTemplate.status !== "APPROVED" && (
+                <div
+                  className={`rounded border p-3 text-sm flex items-start justify-between gap-3 ${
+                    selectedTemplate.status === "REJECTED"
+                      ? "border-red-200 bg-red-50 text-red-900"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    {selectedTemplate.status === "REJECTED" ? (
+                      <XCircle className="w-4 h-4 mt-0.5" />
+                    ) : (
+                      <Clock className="w-4 h-4 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-medium">
+                        Template <code className="font-mono">{selectedTemplate.name}</code> ·{" "}
+                        <span className="uppercase">{selectedTemplate.status}</span>
+                      </div>
+                      <p className="text-xs opacity-80 mt-0.5">
+                        {selectedTemplate.status === "PENDING" &&
+                          "Aguardando aprovação da Meta. Costuma sair em alguns minutos. Clique pra consultar o status atual."}
+                        {selectedTemplate.status === "REJECTED" &&
+                          "A Meta rejeitou o template. Crie um novo (botão acima) ou ajuste manualmente em /crm/whatsapp."}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={recheckTemplate}
+                    disabled={rechecking}
+                    className="shrink-0 bg-white"
+                  >
+                    {rechecking ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                    )}
+                    Atualizar status
+                  </Button>
+                </div>
+              )}
+
+              {selectedTemplate && selectedTemplate.status === "APPROVED" && (
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <div>
+                      Template <code className="font-mono">{selectedTemplate.name}</code>{" "}
+                      aprovado pela Meta.
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={recheckTemplate}
+                    disabled={rechecking}
+                    className="shrink-0"
+                  >
+                    {rechecking ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {approvedTemplates.length === 0 && !selectedTemplate ? (
                 <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 mt-0.5" />
                   <div>
