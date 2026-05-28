@@ -11,6 +11,7 @@ import {
   extractCreditUsed,
 } from "@/lib/cashback/api";
 import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
+import { syncCustomerToGenderList } from "@/lib/gender/list-sync";
 
 export const maxDuration = 30;
 
@@ -112,6 +113,40 @@ export async function POST(request: NextRequest) {
 
     console.log(`[VNDA Webhook] Order ${orderId} created for workspace ${workspaceId}`);
     await logWebhook(admin, workspaceId, orderId, "success", null, null);
+
+    // Gender inference + auto-segmented list update.
+    // Isolado: qualquer falha aqui é só log, nunca quebra o webhook.
+    // Reutiliza phone normalization da linha de cart-recovery abaixo
+    // recomputando inline (cart-recovery faz o mesmo).
+    try {
+      const fullName = [payload.first_name, payload.last_name]
+        .filter((s) => typeof s === "string" && s.trim().length > 0)
+        .join(" ");
+      const rawPhone =
+        (payload.cellphone &&
+          `${payload.cellphone_area || ""}${payload.cellphone}`) ||
+        (payload.phone &&
+          `${payload.phone_area || ""}${payload.phone}`) ||
+        payload.shipping_address?.phone ||
+        "";
+      const phone = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
+      const syncRes = await syncCustomerToGenderList(admin, workspaceId, {
+        name: fullName || null,
+        email: payload.email || null,
+        phone: phone || null,
+      });
+      if (syncRes.status === "appended") {
+        console.log(
+          `[VNDA Webhook] Gender list updated for order ${orderId}: ` +
+          `+1 ${syncRes.inferredGender} (${syncRes.confidence})`
+        );
+      }
+    } catch (genderErr) {
+      console.error(
+        `[VNDA Webhook] Gender sync failed for order ${orderId}:`,
+        genderErr instanceof Error ? genderErr.message : genderErr
+      );
+    }
 
     // Invalidate snapshot so CRM shows fresh data on next load
     await admin
