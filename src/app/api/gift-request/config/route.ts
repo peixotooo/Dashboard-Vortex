@@ -55,6 +55,29 @@ export async function PUT(request: NextRequest) {
   const body = await request.json();
   const admin = createAdminClient();
 
+  // Meta rejeita variáveis com \n, \t ou >4 espaços consecutivos.
+  // Bloqueia salvamento pra evitar disparos falhos depois.
+  const mapping = (body.wa_variable_mapping || {}) as Record<string, string>;
+  const violations: string[] = [];
+  for (const [pos, raw] of Object.entries(mapping)) {
+    if (typeof raw !== "string") continue;
+    // O valor real após resolveMappingValue interpola {{var_name}}, mas a
+    // string crua já é o que vai virar texto literal pro slot. Se ela tem
+    // \n/\t/4+espaços, vai falhar na Meta.
+    if (/\n|\t/.test(raw)) violations.push(`{{${pos}}}: contém quebra de linha ou tab`);
+    if (/ {5,}/.test(raw)) violations.push(`{{${pos}}}: contém mais de 4 espaços consecutivos`);
+  }
+  if (violations.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Mapping inválido: a Meta não aceita quebras de linha, tab ou >4 espaços dentro das variáveis. " +
+          violations.join("; "),
+      },
+      { status: 400 }
+    );
+  }
+
   const { data, error } = await admin
     .from("gift_request_configs")
     .upsert(
