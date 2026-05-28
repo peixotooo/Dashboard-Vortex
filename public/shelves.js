@@ -3096,8 +3096,8 @@
     if (document.getElementById("vtx-gr-styles")) return;
     var SYS_FONT = "-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,system-ui,sans-serif";
     var css =
-      // Botão na PDP
-      ".vtx-gr-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;padding:14px 20px;font:600 13px " + SYS_FONT + ";letter-spacing:.04em;text-transform:uppercase;border:0;cursor:pointer;transition:transform .15s ease,opacity .15s ease,box-shadow .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.05)}" +
+      // Botão na PDP — margem vertical garante respiro de outros elementos (tamanhos, preço, etc)
+      ".vtx-gr-button{display:flex;align-items:center;justify-content:center;width:100%;margin:18px 0 20px;padding:14px 20px;font:600 13px " + SYS_FONT + ";letter-spacing:.04em;text-transform:uppercase;border:0;cursor:pointer;transition:transform .15s ease,opacity .15s ease,box-shadow .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.05)}" +
       ".vtx-gr-button:hover{opacity:.92;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}" +
       // Overlay
       ".vtx-gr-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .25s ease;font-family:" + SYS_FONT + ";backdrop-filter:blur(2px)}" +
@@ -3136,6 +3136,7 @@
       ".vtx-gr-success p{margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.55}" +
       // Mobile
       "@media (max-width:480px){" +
+        ".vtx-gr-button{margin:22px 0 24px}" +
         ".vtx-gr-modal{padding:28px 22px 24px;border-radius:16px;max-height:calc(100vh - 16px)}" +
         ".vtx-gr-modal h3{font-size:20px}" +
         ".vtx-gr-overlay{padding:8px;align-items:flex-end}" +
@@ -3209,6 +3210,37 @@
     document.body.appendChild(overlay);
     requestAnimationFrame(function () { overlay.classList.add("open"); });
     document.body.style.overflow = "hidden";
+
+    // Máscara BR de telefone: aplica nos dois campos de phone do modal.
+    // Formato (DD) 99999-9999 ou (DD) 9999-9999 quando não tem o 9 inicial.
+    function maskBRPhone(raw) {
+      var d = (raw || "").replace(/\D/g, "").slice(0, 11);
+      if (d.length === 0) return "";
+      if (d.length <= 2) return "(" + d;
+      if (d.length <= 6) return "(" + d.substring(0, 2) + ") " + d.substring(2);
+      if (d.length <= 10)
+        return "(" + d.substring(0, 2) + ") " + d.substring(2, 6) + "-" + d.substring(6);
+      return "(" + d.substring(0, 2) + ") " + d.substring(2, 7) + "-" + d.substring(7, 11);
+    }
+    function attachPhoneMask(input) {
+      if (!input) return;
+      input.addEventListener("input", function () {
+        var prevLen = input.value.length;
+        var caret = input.selectionStart;
+        var masked = maskBRPhone(input.value);
+        input.value = masked;
+        // tenta manter o cursor numa posição razoável
+        if (caret != null && document.activeElement === input) {
+          var delta = masked.length - prevLen;
+          var newPos = Math.max(0, caret + delta);
+          try { input.setSelectionRange(newPos, newPos); } catch (e) {}
+        }
+      });
+      // formata também se vier algo pré-preenchido (autofill)
+      if (input.value) input.value = maskBRPhone(input.value);
+    }
+    attachPhoneMask(overlay.querySelector('input[name="requester_phone"]'));
+    attachPhoneMask(overlay.querySelector('input[name="recipient_phone"]'));
 
     function close() {
       overlay.classList.remove("open");
