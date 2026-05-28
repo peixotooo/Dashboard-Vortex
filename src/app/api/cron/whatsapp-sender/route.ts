@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
 
       // --- Send in parallel micro-batches ---
       const sentResults: { id: string; messageId: string }[] = [];
-      const failedIds: string[] = [];
+      const failedResults: { id: string; error: string }[] = [];
 
       for (let i = 0; i < toSend.length; i += PARALLEL) {
         const chunk = toSend.slice(i, i + PARALLEL);
@@ -177,7 +177,16 @@ export async function GET(request: NextRequest) {
             sentResults.push({ id: r.value.id, messageId: r.value.messageId });
           } else {
             const id = r.status === "fulfilled" ? r.value.id : chunk[j]?.id;
-            if (id) failedIds.push(id);
+            // Captura erro real (mensagem da Meta) em vez de string genérica.
+            // O `error` do sendTemplateMessage já vem com HTTP status + body
+            // truncado em 200 chars — suficiente pra debug sem explodir o DB.
+            const err =
+              r.status === "fulfilled"
+                ? r.value.error || "send_failed"
+                : r.reason instanceof Error
+                ? r.reason.message
+                : "send_rejected";
+            if (id) failedResults.push({ id, error: err });
           }
         }
 
@@ -195,12 +204,22 @@ export async function GET(request: NextRequest) {
           .in("id", blockedIds);
       }
 
-      // Failed: 1 query
-      if (failedIds.length > 0) {
-        await admin
-          .from("wa_messages")
-          .update({ status: "failed", error_message: "send_error" })
-          .in("id", failedIds);
+      // Failed: grouped by error message (1 query per distinct error)
+      if (failedResults.length > 0) {
+        const groupedByError: Record<string, string[]> = {};
+        for (const f of failedResults) {
+          (groupedByError[f.error] ??= []).push(f.id);
+        }
+        for (const [err, ids] of Object.entries(groupedByError)) {
+          await admin
+            .from("wa_messages")
+            .update({ status: "failed", error_message: err.slice(0, 500) })
+            .in("id", ids);
+        }
+        console.error(
+          `[WA Sender] ${failedResults.length} message(s) failed in campaign ${campaign.id}:`,
+          failedResults.slice(0, 5).map((f) => f.error)
+        );
       }
 
       // Sent: batch update status+sent_at (1 query) + meta_message_id in parallel chunks
@@ -228,7 +247,7 @@ export async function GET(request: NextRequest) {
       }
 
       const batchSent = sentResults.length;
-      const batchFailed = blockedIds.length + failedIds.length;
+      const batchFailed = blockedIds.length + failedResults.length;
       totalProcessed += batchSent + batchFailed;
 
       console.log(
