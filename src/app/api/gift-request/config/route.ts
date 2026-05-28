@@ -1,0 +1,97 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
+
+function createSupabase(request: NextRequest) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {},
+      },
+    }
+  );
+}
+
+async function authorize(request: NextRequest) {
+  const supabase = createSupabase(request);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated", status: 401 as const };
+
+  const workspaceId = request.headers.get("x-workspace-id") || "";
+  if (!workspaceId)
+    return { error: "Workspace not specified", status: 400 as const };
+
+  return { user, workspaceId };
+}
+
+export async function GET(request: NextRequest) {
+  const auth = await authorize(request);
+  if ("error" in auth)
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("gift_request_configs")
+    .select("*")
+    .eq("workspace_id", auth.workspaceId)
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ config: data || null });
+}
+
+export async function PUT(request: NextRequest) {
+  const auth = await authorize(request);
+  if ("error" in auth)
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const body = await request.json();
+  const admin = createAdminClient();
+
+  const { data, error } = await admin
+    .from("gift_request_configs")
+    .upsert(
+      {
+        workspace_id: auth.workspaceId,
+        enabled: body.enabled ?? false,
+        wa_template_id: body.wa_template_id || null,
+        wa_variable_mapping: body.wa_variable_mapping || {},
+        button_label: body.button_label || "Pedir de presente",
+        button_bg_color: body.button_bg_color || "#000000",
+        button_text_color: body.button_text_color || "#ffffff",
+        button_border_radius: body.button_border_radius || "4px",
+        button_icon: body.button_icon || "gift",
+        modal_title: body.modal_title || "Pedir de presente",
+        modal_subtitle:
+          body.modal_subtitle ||
+          "Avise alguém especial que você quer ganhar este produto",
+        modal_name_label: body.modal_name_label || "Seu nome",
+        modal_phone_label: body.modal_phone_label || "WhatsApp da pessoa",
+        modal_message_label: body.modal_message_label || "Mensagem (opcional)",
+        modal_cta_label: body.modal_cta_label || "Enviar pedido",
+        modal_success_title: body.modal_success_title || "Pedido enviado!",
+        modal_success_message:
+          body.modal_success_message ||
+          "Aguarde — assim que a pessoa responder, você fica sabendo.",
+        collect_requester_phone: body.collect_requester_phone ?? false,
+        pdp_anchor_selector: body.pdp_anchor_selector || null,
+        hide_on_pages: Array.isArray(body.hide_on_pages)
+          ? body.hide_on_pages
+          : ["cart", "checkout", "home", "category"],
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "workspace_id" }
+    )
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ config: data });
+}
