@@ -39,14 +39,26 @@ export async function GET(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const admin = createAdminClient();
-    const { data, error } = await admin
-      .rpc("crm_customer_state_latest", { p_workspace_id: workspaceId });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Mapa serializado como objeto pra economizar bytes vs array de {email, state}.
+    // PostgREST do Supabase cappa resposta em ~1000 linhas (db-max-rows).
+    // Pra workspaces grandes (Bulking tem ~30k clientes com state) precisamos
+    // paginar em chunks de 1000. Range fica no Range header via .range().
+    const PAGE = 1000;
     const map: Record<string, string> = {};
-    for (const r of (data as Row[]) ?? []) {
-      if (r.email && r.state) map[r.email] = r.state.toUpperCase();
+    let from = 0;
+    while (true) {
+      const { data, error } = await admin
+        .rpc("crm_customer_state_latest", { p_workspace_id: workspaceId })
+        .range(from, from + PAGE - 1);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const rows = (data as Row[]) ?? [];
+      for (const r of rows) {
+        if (r.email && r.state) map[r.email] = r.state.toUpperCase();
+      }
+      if (rows.length < PAGE) break;
+      from += PAGE;
+      // hard cap defensivo — 100k linhas é mais que qualquer workspace plausível
+      if (from > 100_000) break;
     }
     return NextResponse.json({ map }, { headers: { "Cache-Control": "private, max-age=300" } });
   } catch (e) {
