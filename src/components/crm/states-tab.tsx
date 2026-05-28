@@ -57,22 +57,37 @@ export function StatesTabContent({
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
 
-  // Agrega por UF a partir da base atual (snapshot + lookup).
+  // Agrega por UF. Caminho principal: usa customers (tem revenue);
+  // fallback: usa customerStates direto (só count, sem revenue) —
+  // útil quando o snapshot pesado (/api/crm/rfm) falha mas o lookup
+  // leve (/api/crm/customer-states) carregou.
   const aggregateByUF = useMemo(() => {
     const agg: Record<string, { count: number; revenue: number }> = {};
     let unknown = 0;
-    for (const c of customers) {
-      const uf = c.state ?? customerStates[c.email];
-      if (uf) {
+    if (customers.length > 0) {
+      for (const c of customers) {
+        const uf = c.state ?? customerStates[c.email];
+        if (uf) {
+          if (!agg[uf]) agg[uf] = { count: 0, revenue: 0 };
+          agg[uf].count += 1;
+          agg[uf].revenue += c.totalSpent ?? 0;
+        } else {
+          unknown += 1;
+        }
+      }
+    } else {
+      // Fallback puro pelo mapa de lookup: cada email com state vira +1
+      // no UF correspondente. Revenue fica 0 — aviso no side panel.
+      for (const uf of Object.values(customerStates)) {
+        if (!uf) { unknown += 1; continue; }
         if (!agg[uf]) agg[uf] = { count: 0, revenue: 0 };
         agg[uf].count += 1;
-        agg[uf].revenue += c.totalSpent ?? 0;
-      } else {
-        unknown += 1;
       }
     }
     return { agg, unknown };
   }, [customers, customerStates]);
+
+  const revenueAvailable = customers.length > 0;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -223,8 +238,13 @@ export function StatesTabContent({
                       <DollarSign className="h-3 w-3" /> Receita
                     </div>
                     <div className="text-lg font-semibold mt-1">
-                      {formatBRL(focusData?.revenue ?? 0)}
+                      {revenueAvailable ? formatBRL(focusData?.revenue ?? 0) : "—"}
                     </div>
+                    {!revenueAvailable && (
+                      <p className="text-[10px] text-amber-400 mt-1">
+                        Snapshot indisponível; só contagem.
+                      </p>
+                    )}
                   </div>
                 </div>
 

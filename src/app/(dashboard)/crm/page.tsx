@@ -727,22 +727,38 @@ export default function CrmPage() {
   const fetchCustomers = useCallback(async () => {
     if (customersLoaded) return;
     setCustomersLoading(true);
-    try {
-      // Em paralelo: snapshot completo + lookup email→UF (separado pq o
-      // snapshot ainda não carrega state).
-      const [resCustomers, resStates] = await Promise.all([
-        fetch("/api/crm/rfm", { headers: wsHeaders() }),
-        fetch("/api/crm/customer-states", { headers: wsHeaders() }),
-      ]);
-      const data = await resCustomers.json();
-      setCustomers(data.customers || []);
-      if (resStates.ok) {
-        const sd = await resStates.json();
-        setCustomerStates(sd.map || {});
+
+    // Snapshot completo + lookup email→UF rodam em paralelo, MAS
+    // independentes: se o snapshot (26MB) der timeout, ainda assim
+    // o customer-states (pequeno) preenche o mapa de UF e a aba
+    // Estados continua funcional.
+    const customersTask = (async () => {
+      try {
+        const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.customers) && data.customers.length > 0) {
+          setCustomers(data.customers);
+        }
+      } catch (e) {
+        console.warn("[CRM] customers fetch failed:", e);
       }
+    })();
+
+    const statesTask = (async () => {
+      try {
+        const res = await fetch("/api/crm/customer-states", { headers: wsHeaders() });
+        if (!res.ok) return;
+        const sd = await res.json();
+        setCustomerStates(sd.map || {});
+      } catch (e) {
+        console.warn("[CRM] customer-states fetch failed:", e);
+      }
+    })();
+
+    try {
+      await Promise.allSettled([customersTask, statesTask]);
       setCustomersLoaded(true);
-    } catch {
-      // Keep empty state
     } finally {
       setCustomersLoading(false);
     }
