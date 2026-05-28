@@ -453,10 +453,11 @@ export default function GiftRequestPage() {
                       Criar template UTILITY automaticamente
                     </div>
                     <p className="text-xs text-emerald-800/80 mt-0.5">
-                      Envia o template "Olá {"{{1}}"}, tudo bem? {"{{2}}"}..." pra
-                      aprovação na Meta e já linka aqui com o mapping
-                      recomendado. Mesmo formato usado no Cart Recovery —
-                      custo ~10x menor que MARKETING.
+                      Cria <code className="font-mono">bkng_share_message_v…</code>{" "}
+                      com body neutro ("Oi, tudo bem? {"{{1}}"} {"{{2}}"}...")
+                      e já linka aqui com o mapping recomendado. Se a Meta
+                      reclassificar pra MARKETING depois, é só clicar de novo
+                      pra criar uma nova versão.
                     </p>
                   </div>
                 </div>
