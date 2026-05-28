@@ -18,6 +18,8 @@ import {
   Users,
   ExternalLink,
   Download,
+  Settings as SettingsIcon,
+  LayoutDashboard,
 } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,7 +174,7 @@ function fmtPercent(n: number): string {
 
 export default function GiftRequestPage() {
   const { workspace } = useWorkspace();
-  const [tab, setTab] = useState("settings");
+  const [tab, setTab] = useState("dashboard");
 
   const [config, setConfig] = useState<GiftRequestConfig>(DEFAULT_CONFIG);
   const [templates, setTemplates] = useState<WaTemplate[]>([]);
@@ -286,9 +288,25 @@ export default function GiftRequestPage() {
     }
   }, [workspace?.id, headers, statusFilter]);
 
+  const loadLeads = useCallback(async () => {
+    if (!workspace?.id) return;
+    try {
+      const res = await fetch("/api/gift-request/leads-insights", {
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (res.ok) setLeads(data);
+    } catch (e) {
+      console.error("leads load:", e);
+    }
+  }, [workspace?.id, headers]);
+
   useEffect(() => {
-    if (workspace?.id) loadAll();
-  }, [workspace?.id, loadAll]);
+    if (workspace?.id) {
+      loadAll();
+      loadLeads();
+    }
+  }, [workspace?.id, loadAll, loadLeads]);
 
   const approvedTemplates = useMemo(
     () => templates.filter((t) => t.status === "APPROVED"),
@@ -383,18 +401,6 @@ export default function GiftRequestPage() {
     }
   }
 
-  const loadLeads = useCallback(async () => {
-    if (!workspace?.id) return;
-    try {
-      const res = await fetch("/api/gift-request/leads-insights", {
-        headers: headers(),
-      });
-      const data = await res.json();
-      if (res.ok) setLeads(data);
-    } catch (e) {
-      console.error("leads load:", e);
-    }
-  }, [workspace?.id, headers]);
 
   async function syncLeadsToCrm() {
     if (!workspace?.id) return;
@@ -528,24 +534,24 @@ export default function GiftRequestPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="settings">Configuração</TabsTrigger>
-          <TabsTrigger value="requests">
-            Solicitações
-            {requests.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {requests.length}
-              </Badge>
-            )}
+          <TabsTrigger value="dashboard" className="gap-1.5">
+            <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
           </TabsTrigger>
           <TabsTrigger
             value="leads"
+            className="gap-1.5"
             onClick={() => {
               if (!leads) loadLeads();
             }}
           >
-            Leads CRM
+            <Users className="w-3.5 h-3.5" /> Leads CRM
           </TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger
+            value="settings"
+            className="gap-1.5 ml-auto text-muted-foreground data-[state=active]:text-foreground"
+          >
+            <SettingsIcon className="w-3.5 h-3.5" /> Configurações
+          </TabsTrigger>
         </TabsList>
 
         {/* ============================== SETTINGS ============================== */}
@@ -1303,43 +1309,158 @@ export default function GiftRequestPage() {
           </div>
         </TabsContent>
 
-        {/* ============================== REQUESTS ============================== */}
-        <TabsContent value="requests" className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Select
-              value={statusFilter || "all"}
-              onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Todos os status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {Object.entries(STATUS_META).map(([k, m]) => (
-                  <SelectItem key={k} value={k}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadAll}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-            </Button>
+        {/* ============================== DASHBOARD ============================== */}
+        <TabsContent value="dashboard" className="space-y-5">
+          {/* KPIs principais */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Solicitações (90d)
+                </div>
+                <div className="text-3xl font-bold mt-1">
+                  {stats?.total ?? "—"}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Lidas
+                </div>
+                <div className="text-3xl font-bold mt-1">
+                  {stats?.read ?? "—"}
+                </div>
+                {stats && stats.total > 0 && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {fmtPercent(stats.read_rate)} de leitura
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Convertidas
+                </div>
+                <div className="text-3xl font-bold mt-1">
+                  {stats?.converted ?? "—"}
+                </div>
+                {stats && stats.total > 0 && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {fmtPercent(stats.conversion_rate)} de conversão
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Falhas
+                </div>
+                <div className="text-3xl font-bold mt-1">
+                  {stats?.by_status?.failed ?? "—"}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Leads únicos
+                </div>
+                <div className="text-3xl font-bold mt-1">
+                  {leads?.total_leads ?? "—"}
+                </div>
+                {leads?.total_leads ? (
+                  <button
+                    onClick={() => setTab("leads")}
+                    className="text-xs text-blue-600 underline mt-0.5"
+                  >
+                    ver leads
+                  </button>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Status breakdown horizontal */}
+          {stats && stats.total > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="text-muted-foreground uppercase tracking-wider">
+                    Status:
+                  </span>
+                  {Object.entries(STATUS_META).map(([k, m]) => {
+                    const count = stats.by_status?.[k] || 0;
+                    if (count === 0) return null;
+                    const Icon = m.Icon;
+                    return (
+                      <span
+                        key={k}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${m.color}`}
+                      >
+                        <Icon className="w-3 h-3" />
+                        {count} {m.label.toLowerCase()}
+                      </span>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Header da tabela */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold">Solicitações</h2>
+              <p className="text-xs text-muted-foreground">
+                Cada pedido feito a partir da PDP da loja
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={statusFilter || "all"}
+                onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}
+              >
+                <SelectTrigger className="w-[180px] h-9">
+                  <SelectValue placeholder="Todos os status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os status</SelectItem>
+                  {Object.entries(STATUS_META).map(([k, m]) => (
+                    <SelectItem key={k} value={k}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadAll}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
           </div>
 
           {requests.length === 0 ? (
             <Card>
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                Nenhuma solicitação ainda.
+              <CardContent className="py-14 text-center">
+                <Gift className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <div className="text-sm font-medium text-slate-700">
+                  Nenhuma solicitação ainda
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                  Quando alguém clicar em "Pedir de presente" na PDP da sua
+                  loja, aparece aqui em tempo real.
+                </p>
               </CardContent>
             </Card>
           ) : (
@@ -1724,95 +1845,6 @@ export default function GiftRequestPage() {
           )}
         </TabsContent>
 
-        {/* ============================== ANALYTICS ============================== */}
-        <TabsContent value="analytics" className="space-y-4">
-          {!stats ? (
-            <Card>
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                <Loader2 className="w-5 h-5 animate-spin mx-auto" />
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">
-                      Solicitações (90d)
-                    </div>
-                    <div className="text-2xl font-bold mt-1">{stats.total}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Lidas</div>
-                    <div className="text-2xl font-bold mt-1">
-                      {stats.read}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        ({fmtPercent(stats.read_rate)})
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">
-                      Convertidas
-                    </div>
-                    <div className="text-2xl font-bold mt-1">
-                      {stats.converted}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        ({fmtPercent(stats.conversion_rate)})
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Falharam</div>
-                    <div className="text-2xl font-bold mt-1 text-red-700">
-                      {stats.by_status.failed || 0}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Top produtos pedidos</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {stats.top_products.length === 0 ? (
-                    <div className="p-6 text-sm text-muted-foreground text-center">
-                      Sem dados ainda.
-                    </div>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase text-slate-600">
-                        <tr>
-                          <th className="text-left p-3">Produto</th>
-                          <th className="text-right p-3">Pedidos</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stats.top_products.map((p) => (
-                          <tr key={p.product_id} className="border-t">
-                            <td className="p-3 font-mono text-xs">
-                              {p.product_id}
-                            </td>
-                            <td className="p-3 text-right font-medium">
-                              {p.count}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </TabsContent>
       </Tabs>
     </div>
   );
