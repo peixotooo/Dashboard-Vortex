@@ -194,6 +194,12 @@ export default function GiftRequestPage() {
       created_at: string;
       recipient_phone: string;
       error_message: string | null;
+      wa_status: string | null;
+      wa_meta_message_id: string | null;
+      wa_sent_at: string | null;
+      wa_delivered_at: string | null;
+      wa_read_at: string | null;
+      wa_variables: Record<string, string> | null;
     }>;
   } | null>(null);
 
@@ -514,37 +520,81 @@ export default function GiftRequestPage() {
                       <div className="text-xs font-semibold text-muted-foreground mb-2">
                         Últimos 10 pedidos
                       </div>
-                      <div className="space-y-1">
-                        {diagnose.recent_requests.map((r) => (
-                          <div
-                            key={r.id}
-                            className="text-xs flex items-center gap-2 font-mono"
-                          >
-                            <span className="text-muted-foreground">
-                              {new Date(r.created_at).toLocaleString("pt-BR", {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })}
-                            </span>
-                            <Badge
-                              variant={
-                                r.status === "failed"
-                                  ? "destructive"
-                                  : r.status === "read" || r.status === "delivered"
-                                  ? "default"
-                                  : "secondary"
-                              }
+                      <div className="space-y-2">
+                        {diagnose.recent_requests.map((r) => {
+                          const realStatus = r.wa_status || r.status;
+                          return (
+                            <div
+                              key={r.id}
+                              className="text-xs border rounded p-2 bg-slate-50"
                             >
-                              {r.status}
-                            </Badge>
-                            <span>{r.recipient_phone}</span>
-                            {r.error_message && (
-                              <span className="text-red-600">
-                                {r.error_message}
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                              <div className="flex items-center gap-2 font-mono">
+                                <span className="text-muted-foreground">
+                                  {new Date(r.created_at).toLocaleString(
+                                    "pt-BR",
+                                    {
+                                      dateStyle: "short",
+                                      timeStyle: "short",
+                                    }
+                                  )}
+                                </span>
+                                <Badge
+                                  variant={
+                                    realStatus === "failed"
+                                      ? "destructive"
+                                      : realStatus === "read" ||
+                                        realStatus === "delivered"
+                                      ? "default"
+                                      : "secondary"
+                                  }
+                                >
+                                  {realStatus}
+                                </Badge>
+                                <span>{r.recipient_phone}</span>
+                                {r.wa_meta_message_id && (
+                                  <span
+                                    className="text-muted-foreground truncate"
+                                    title={r.wa_meta_message_id}
+                                  >
+                                    msg:{r.wa_meta_message_id.slice(0, 12)}…
+                                  </span>
+                                )}
+                              </div>
+                              {r.error_message && (
+                                <div className="text-red-600 mt-1">
+                                  ⚠ {r.error_message}
+                                </div>
+                              )}
+                              {(r.wa_sent_at ||
+                                r.wa_delivered_at ||
+                                r.wa_read_at) && (
+                                <div className="text-muted-foreground mt-1 flex gap-3">
+                                  {r.wa_sent_at && (
+                                    <span>sent: {fmtDateTime(r.wa_sent_at)}</span>
+                                  )}
+                                  {r.wa_delivered_at && (
+                                    <span>
+                                      delivered: {fmtDateTime(r.wa_delivered_at)}
+                                    </span>
+                                  )}
+                                  {r.wa_read_at && (
+                                    <span>read: {fmtDateTime(r.wa_read_at)}</span>
+                                  )}
+                                </div>
+                              )}
+                              {r.wa_variables && (
+                                <details className="mt-1">
+                                  <summary className="cursor-pointer text-muted-foreground">
+                                    variáveis enviadas
+                                  </summary>
+                                  <pre className="text-[10px] mt-1 p-2 bg-white border rounded whitespace-pre-wrap">
+                                    {JSON.stringify(r.wa_variables, null, 2)}
+                                  </pre>
+                                </details>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
