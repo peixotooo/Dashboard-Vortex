@@ -14,6 +14,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Eye,
+  MapPin,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -46,6 +48,10 @@ import {
 } from "@/lib/crm/csv-contacts";
 import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog";
 
+type AutoSegment =
+  | { type: "gender"; gender: "female" | "male"; min_confidence: "high" | "medium" }
+  | { type: "state"; state: string };
+
 interface ContactList {
   id: string;
   name: string;
@@ -54,9 +60,24 @@ interface ContactList {
   phone_count: number;
   email_count: number;
   locaweb_list_id: string | null;
+  auto_segment: AutoSegment | null;
   created_at: string;
   updated_at: string;
 }
+
+const BR_STATES: Array<{ uf: string; name: string }> = [
+  { uf: "AC", name: "Acre" }, { uf: "AL", name: "Alagoas" }, { uf: "AP", name: "Amapá" },
+  { uf: "AM", name: "Amazonas" }, { uf: "BA", name: "Bahia" }, { uf: "CE", name: "Ceará" },
+  { uf: "DF", name: "Distrito Federal" }, { uf: "ES", name: "Espírito Santo" },
+  { uf: "GO", name: "Goiás" }, { uf: "MA", name: "Maranhão" }, { uf: "MT", name: "Mato Grosso" },
+  { uf: "MS", name: "Mato Grosso do Sul" }, { uf: "MG", name: "Minas Gerais" },
+  { uf: "PA", name: "Pará" }, { uf: "PB", name: "Paraíba" }, { uf: "PR", name: "Paraná" },
+  { uf: "PE", name: "Pernambuco" }, { uf: "PI", name: "Piauí" }, { uf: "RJ", name: "Rio de Janeiro" },
+  { uf: "RN", name: "Rio Grande do Norte" }, { uf: "RS", name: "Rio Grande do Sul" },
+  { uf: "RO", name: "Rondônia" }, { uf: "RR", name: "Roraima" },
+  { uf: "SC", name: "Santa Catarina" }, { uf: "SP", name: "São Paulo" },
+  { uf: "SE", name: "Sergipe" }, { uf: "TO", name: "Tocantins" },
+];
 
 interface DetailList extends ContactList {
   contacts: ParsedContact[];
@@ -78,6 +99,7 @@ export default function ContactListsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [stateDialogOpen, setStateDialogOpen] = useState(false);
   const [detailList, setDetailList] = useState<DetailList | null>(null);
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
 
@@ -172,9 +194,14 @@ export default function ContactListsPage() {
             Suba um CSV pra criar listas personalizadas. Use no disparo de WhatsApp e Email.
           </p>
         </div>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Nova lista (CSV)
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setStateDialogOpen(true)} title="Cria uma lista auto-alimentada por UF do pedido">
+            <MapPin className="h-4 w-4 mr-2" /> Lista por estado
+          </Button>
+          <Button onClick={() => setUploadOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Nova lista (CSV)
+          </Button>
+        </div>
       </div>
 
       {errorMsg && (
@@ -222,6 +249,11 @@ export default function ContactListsPage() {
                         <CheckCircle2 className="h-3 w-3 mr-1" /> No Locaweb
                       </Badge>
                     )}
+                    {l.auto_segment && (
+                      <Badge variant="outline" className="border-amber-500/30 text-amber-400" title="Lista alimentada automaticamente a cada pedido confirmado">
+                        <RefreshCw className="h-3 w-3 mr-1" /> Auto
+                      </Badge>
+                    )}
                   </div>
                   {l.description && (
                     <p className="text-xs text-muted-foreground mt-1">{l.description}</p>
@@ -264,6 +296,13 @@ export default function ContactListsPage() {
       <UploadDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
+        wsHeaders={wsHeaders}
+        onCreated={fetchLists}
+      />
+
+      <StateListDialog
+        open={stateDialogOpen}
+        onOpenChange={setStateDialogOpen}
         wsHeaders={wsHeaders}
         onCreated={fetchLists}
       />
@@ -619,6 +658,138 @@ function UploadDialog({
               </Button>
             </div>
           )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =================================================================
+// Dialog: criar lista auto-segmentada por UF do pedido
+// =================================================================
+
+function StateListDialog({
+  open,
+  onOpenChange,
+  wsHeaders,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  wsHeaders: () => HeadersInit;
+  onCreated: () => void;
+}) {
+  const [uf, setUf] = useState<string>("SP");
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    name: string;
+    created: boolean;
+    appended: number;
+    duplicate: number;
+    scanned: number;
+  } | null>(null);
+
+  function close() {
+    if (busy) return;
+    setErrorMsg(null);
+    setLastResult(null);
+    onOpenChange(false);
+  }
+
+  async function materialize() {
+    setBusy(true);
+    setErrorMsg(null);
+    setLastResult(null);
+    try {
+      const res = await fetch("/api/crm/segments/state/materialize", {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify({ state: uf }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro");
+      setLastResult({
+        name: data.list.name,
+        created: data.list.created,
+        appended: data.seed.appended,
+        duplicate: data.seed.duplicate,
+        scanned: data.seed.scanned,
+      });
+      onCreated();
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Erro de rede");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) close(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Lista por estado</DialogTitle>
+          <DialogDescription>
+            Cria uma lista alimentada automaticamente a cada pedido confirmado
+            cujo endereço de entrega está na UF escolhida. A lista cresce sozinha
+            via webhook — sem precisar re-upload.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="uf-select">Estado</Label>
+            <Select value={uf} onValueChange={setUf}>
+              <SelectTrigger id="uf-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {BR_STATES.map((s) => (
+                  <SelectItem key={s.uf} value={s.uf}>
+                    {s.name} ({s.uf})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              No clique abaixo a gente cria a lista e popula com todos os clientes
+              que já tiveram pedido com esse estado em <code>crm_vendas</code>.
+            </p>
+          </div>
+
+          {errorMsg && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {lastResult && (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300 space-y-1">
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="h-4 w-4" />
+                {lastResult.created ? "Lista criada" : "Lista atualizada"}
+              </div>
+              <p className="text-xs">
+                {lastResult.name} — {lastResult.appended} novos + {lastResult.duplicate} já presentes
+                (escaneado {lastResult.scanned} pedidos).
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={close} disabled={busy}>
+              Fechar
+            </Button>
+            <Button onClick={materialize} disabled={busy}>
+              {busy ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <MapPin className="h-4 w-4 mr-2" />
+              )}
+              Criar / atualizar lista
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

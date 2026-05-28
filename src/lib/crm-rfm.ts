@@ -94,6 +94,10 @@ export interface RfmCustomer {
   preferredCategories?: PreferenceCount[];
   mostBoughtSku?: string | null;
   topProductIds?: string[];
+  /** UF do último pedido (BR sigla). Snapshots antigos retornam null —
+   *  o /crm faz fallback via /api/crm/customer-states até o próximo
+   *  recompute popular esse campo. */
+  state?: string | null;
 }
 
 export interface RfmSegmentSummary {
@@ -198,6 +202,9 @@ interface AggregatedCustomer {
   colorCounts: Map<string, number>;
   skuCounts: Map<string, number>;
   productIdCounts: Map<string, number>;
+  /** UF do pedido mais recente (BR sigla maiúscula) — atualizado sempre
+   *  que purchaseTs supera o lastPurchaseTs atual. */
+  state: string | null;
 }
 
 interface ItemRow {
@@ -374,12 +381,20 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
 
     const items = (Array.isArray(row.items) ? row.items : []) as ItemRow[];
 
+    const rowState = (row.state && row.state.trim()) ? row.state.trim().toUpperCase() : null;
+
     const existing = map.get(email);
     if (existing) {
       existing.totalPurchases += 1;
       existing.totalSpent += valor;
       if (row.cliente && row.cliente.trim()) existing.name = row.cliente.trim();
       if (row.telefone && row.telefone.trim()) existing.phone = row.telefone.trim();
+      // state segue o pedido mais recente — sobrescreve só se este for newer.
+      if (purchaseTs > 0 && purchaseTs >= existing.lastPurchaseTs && rowState) {
+        existing.state = rowState;
+      } else if (!existing.state && rowState) {
+        existing.state = rowState;
+      }
       if (purchaseTs > 0 && purchaseTs < existing.firstPurchaseTs) existing.firstPurchaseTs = purchaseTs;
       if (purchaseTs > 0 && purchaseTs > existing.lastPurchaseTs) existing.lastPurchaseTs = purchaseTs;
       if (hasCoupon) {
@@ -436,6 +451,7 @@ function aggregateByCustomer(rows: CrmVendaRow[]): AggregatedCustomer[] {
         colorCounts,
         skuCounts,
         productIdCounts,
+        state: rowState,
       });
     }
   }
@@ -647,6 +663,7 @@ export function generateRfmReport(rows: CrmVendaRow[]): CrmRfmResponse {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([k]) => k),
+      state: c.state,
     };
   });
 

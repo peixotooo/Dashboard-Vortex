@@ -73,6 +73,8 @@ import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog";
+import { STATE_NAMES, type UF } from "@/components/crm/state-tilemap";
+import { StatesTabContent } from "@/components/crm/states-tab";
 import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Constants ---
@@ -600,6 +602,11 @@ export default function CrmPage() {
   const [hourFilter, setHourFilter] = useState<HourPref | "all">("all");
   const [couponFilter, setCouponFilter] = useState<CouponSensitivity | "all">("all");
   const [weekdayFilter, setWeekdayFilter] = useState<Weekday | "all">("all");
+  // Filtro composto por UF do último pedido (multi-select). customerStates
+  // é o lookup email → UF carregado em paralelo com customers (snapshot
+  // ainda não carrega state — vide /api/crm/customer-states).
+  const [stateFilter, setStateFilter] = useState<Set<UF>>(new Set());
+  const [customerStates, setCustomerStates] = useState<Record<string, string>>({});
   const [purchasedDateRange, setPurchasedDateRange] = useState<{ from: string; to: string } | null>(null);
   const [inactiveDateRange, setInactiveDateRange] = useState<{ from: string; to: string } | null>(null);
   const [avgTicketRange, setAvgTicketRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
@@ -718,9 +725,18 @@ export default function CrmPage() {
     if (customersLoaded) return;
     setCustomersLoading(true);
     try {
-      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
-      const data = await res.json();
+      // Em paralelo: snapshot completo + lookup email→UF (separado pq o
+      // snapshot ainda não carrega state).
+      const [resCustomers, resStates] = await Promise.all([
+        fetch("/api/crm/rfm", { headers: wsHeaders() }),
+        fetch("/api/crm/customer-states", { headers: wsHeaders() }),
+      ]);
+      const data = await resCustomers.json();
       setCustomers(data.customers || []);
+      if (resStates.ok) {
+        const sd = await resStates.json();
+        setCustomerStates(sd.map || {});
+      }
       setCustomersLoaded(true);
     } catch {
       // Keep empty state
@@ -909,9 +925,11 @@ export default function CrmPage() {
     fetchExportLogs();
   }, [fetchSummary, fetchMetrics, fetchExportLogs]);
 
-  // Stage 2: lazy-load customers when Clientes tab is activated
+  // Stage 2: lazy-load customers + state lookup quando Clientes ou Estados
+  // for ativado — Estados tab também precisa de customers/customerStates
+  // pra montar o tilemap com contagens reais.
   useEffect(() => {
-    if (activeTab === "customers" && !customersLoaded) {
+    if ((activeTab === "customers" || activeTab === "states") && !customersLoaded) {
       fetchCustomers();
     }
   }, [activeTab, customersLoaded, fetchCustomers]);
@@ -939,12 +957,17 @@ export default function CrmPage() {
       const matchesHour = hourFilter === "all" || c.preferredHour === hourFilter;
       const matchesCoupon = couponFilter === "all" || c.couponSensitivity === couponFilter;
       const matchesWeekday = weekdayFilter === "all" || c.preferredWeekday === weekdayFilter;
-      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all";
+      // UF do último pedido — prefere c.state (snapshot novo), cai pro
+      // customerStates lookup (snapshots antigos). Cliente sem estado
+      // conhecido é excluído quando há filtro ativo.
+      const uf = (c.state ?? customerStates[c.email] ?? "") as UF;
+      const matchesState = stateFilter.size === 0 || stateFilter.has(uf);
+      const hasAnyFilter = segmentFilter !== "all" || dayRangeFilter !== "all" || lifecycleFilter !== "all" || hourFilter !== "all" || couponFilter !== "all" || weekdayFilter !== "all" || stateFilter.size > 0;
 
-      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday;
+      const matches = matchesSegment && matchesDay && matchesLifecycle && matchesHour && matchesCoupon && matchesWeekday && matchesState;
       return invertFilters && hasAnyFilter ? !matches : matches;
     });
-  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
+  }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, customerStates, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
 
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
@@ -1385,6 +1408,14 @@ export default function CrmPage() {
           <TabsTrigger value="overview">Visao Geral</TabsTrigger>
           <TabsTrigger value="segments">Segmentos RFM</TabsTrigger>
           <TabsTrigger value="behavior">Comportamento</TabsTrigger>
+          <TabsTrigger value="states">
+            Estados
+            {stateFilter.size > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500/30 text-amber-300 text-[10px] font-medium">
+                {stateFilter.size}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="customers">Clientes</TabsTrigger>
         </TabsList>
 
@@ -2152,6 +2183,32 @@ export default function CrmPage() {
           </>)}
         </TabsContent>
 
+        {/* ===== Tab Estados: tilemap clicável + side panel ===== */}
+        <TabsContent value="states" className="space-y-4">
+          {activeTab === "states" && (customersLoading && !customersLoaded ? (
+            <div className="flex flex-col items-center justify-center h-64 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Carregando estados...</p>
+            </div>
+          ) : (
+            <StatesTabContent
+              customers={customers}
+              customerStates={customerStates}
+              stateFilter={stateFilter}
+              onToggle={(uf) => {
+                setStateFilter((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(uf)) next.delete(uf);
+                  else next.add(uf);
+                  return next;
+                });
+              }}
+              onClear={() => setStateFilter(new Set())}
+              onGoToCustomers={() => setActiveTab("customers")}
+            />
+          ))}
+        </TabsContent>
+
         {/* ===== Tab 4: Customers ===== */}
         <TabsContent value="customers" className="space-y-4">
           {activeTab === "customers" && (customersLoading && !customersLoaded ? (
@@ -2216,6 +2273,37 @@ export default function CrmPage() {
               <option value="sab">Sabado</option>
               <option value="dom">Domingo</option>
             </select>
+
+            {/* Filtro de UF mora na aba Estados — quando ativo, os chips
+                aparecem aqui também pra deixar claro que a listagem está
+                sendo narrowed. */}
+            {stateFilter.size > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-xs text-muted-foreground">Estados:</span>
+                {[...stateFilter].map((uf) => (
+                  <button
+                    key={uf}
+                    type="button"
+                    onClick={() => setStateFilter((prev) => {
+                      const next = new Set(prev);
+                      next.delete(uf);
+                      return next;
+                    })}
+                    className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30"
+                    title={`Remover ${STATE_NAMES[uf]}`}
+                  >
+                    {uf} ×
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("states")}
+                  className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent"
+                >
+                  Editar →
+                </button>
+              </div>
+            )}
 
             {/* --- Advanced filters: date range + numeric range --- */}
             <DateRangeFilterPopover

@@ -18,7 +18,7 @@ export async function recomputeRfmSnapshot(
   const allRows: CrmVendaRow[] = [];
   let from = 0;
   let hasMore = true;
-  const COLUMNS = "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id";
+  const COLUMNS = "cliente, email, telefone, valor, data_compra, cupom, numero_pedido, compras_anteriores, items, payment_method, installments, shipping_price, discount_price, source_order_id, state";
 
   while (hasMore) {
     let attempt = 0;

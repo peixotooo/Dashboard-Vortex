@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     const admin = createAdminClient();
     const { data: lists, error } = await admin
       .from("crm_contact_lists")
-      .select("id, name, description, total_count, phone_count, email_count, locaweb_list_id, created_at, updated_at")
+      .select("id, name, description, total_count, phone_count, email_count, locaweb_list_id, auto_segment, created_at, updated_at")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
 
