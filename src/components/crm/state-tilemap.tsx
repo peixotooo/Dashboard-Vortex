@@ -1,25 +1,50 @@
 "use client";
 
-// Tilemap clicável dos 27 UFs brasileiros pra usar como filtro
-// composto no /crm. Posicionamento aproximado por geografia (norte
-// em cima, sul embaixo). Cada tile = UF + contagem; clique alterna
-// no Set de UFs selecionadas (multi-select).
+// Mapa do Brasil clicável. Imagem PNG (/brazil-map.png) renderiza
+// como background semi-transparente; tiles dos 27 UFs ficam por
+// cima nos centroides geográficos aproximados. Multi-select.
 
 export type UF =
   | "AC" | "AL" | "AP" | "AM" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA"
   | "MT" | "MS" | "MG" | "PA" | "PB" | "PR" | "PE" | "PI" | "RJ" | "RN"
   | "RS" | "RO" | "RR" | "SC" | "SP" | "SE" | "TO";
 
-const POSITIONS: Record<UF, [number, number]> = {
-  RR: [1, 4], AP: [1, 6],
-  AM: [2, 3], PA: [2, 5], MA: [2, 6], CE: [2, 7], RN: [2, 8],
-  AC: [3, 2], TO: [3, 5], PI: [3, 6], PB: [3, 7], PE: [3, 8],
-  RO: [4, 2], MT: [4, 4], BA: [4, 6], AL: [4, 8],
-  GO: [5, 4], DF: [5, 5], MG: [5, 6], ES: [5, 7], SE: [5, 8],
-  MS: [6, 4], SP: [6, 6], RJ: [6, 7],
-  PR: [7, 5],
-  SC: [8, 5],
-  RS: [9, 5],
+// Centroides aproximados em coordenadas relativas (0..1) sobre o PNG
+// quadrado de /public/brazil-map.png. Calibração visual — pode
+// precisar de ajuste fino se algum tile parecer fora do contorno.
+const CENTROIDS: Record<UF, [number, number]> = {
+  // Norte
+  RR: [0.40, 0.10],
+  AP: [0.56, 0.13],
+  AM: [0.25, 0.26],
+  PA: [0.50, 0.25],
+  AC: [0.13, 0.36],
+  RO: [0.27, 0.40],
+  TO: [0.55, 0.35],
+  // Nordeste
+  MA: [0.62, 0.25],
+  PI: [0.65, 0.32],
+  CE: [0.72, 0.25],
+  RN: [0.82, 0.27],
+  PB: [0.84, 0.30],
+  PE: [0.80, 0.33],
+  AL: [0.82, 0.36],
+  SE: [0.78, 0.39],
+  BA: [0.68, 0.42],
+  // Centro-Oeste
+  MT: [0.40, 0.42],
+  MS: [0.43, 0.58],
+  GO: [0.54, 0.50],
+  DF: [0.58, 0.47],
+  // Sudeste
+  MG: [0.62, 0.54],
+  ES: [0.74, 0.55],
+  RJ: [0.68, 0.62],
+  SP: [0.56, 0.62],
+  // Sul
+  PR: [0.50, 0.69],
+  SC: [0.52, 0.75],
+  RS: [0.44, 0.82],
 };
 
 export const STATE_NAMES: Record<UF, string> = {
@@ -32,24 +57,24 @@ export const STATE_NAMES: Record<UF, string> = {
   SE: "Sergipe", TO: "Tocantins",
 };
 
-export const ALL_UFS = Object.keys(POSITIONS) as UF[];
+export const ALL_UFS = Object.keys(CENTROIDS) as UF[];
 
 function colorIntensity(count: number, maxCount: number, selected: boolean): string {
-  if (selected) return "bg-amber-500/70 border-amber-300 text-amber-50";
-  if (count === 0 || maxCount === 0) return "bg-muted/30 border-muted/50 text-muted-foreground";
+  if (selected) return "bg-amber-500 border-amber-300 text-amber-50 shadow-lg shadow-amber-500/40";
+  if (count === 0 || maxCount === 0) return "bg-slate-700/80 border-slate-600 text-slate-300";
   const ratio = Math.log(1 + count) / Math.log(1 + maxCount);
-  if (ratio < 0.2) return "bg-sky-900/30 border-sky-800/60";
-  if (ratio < 0.4) return "bg-sky-800/40 border-sky-700/60";
-  if (ratio < 0.6) return "bg-sky-700/50 border-sky-600/60";
-  if (ratio < 0.8) return "bg-sky-600/60 border-sky-500/60";
-  return "bg-sky-500/70 border-sky-400/80";
+  if (ratio < 0.2) return "bg-sky-900 border-sky-700 text-sky-100";
+  if (ratio < 0.4) return "bg-sky-800 border-sky-600 text-sky-100";
+  if (ratio < 0.6) return "bg-sky-700 border-sky-500 text-white";
+  if (ratio < 0.8) return "bg-sky-600 border-sky-400 text-white";
+  return "bg-sky-500 border-sky-300 text-white";
 }
 
 export function StateTilemap({
   counts,
   selected,
   onToggle,
-  maxWidth = 360,
+  maxWidth = 520,
 }: {
   /** Mapa UF → quantidade (clientes na visão atual). */
   counts: Record<string, number>;
@@ -66,35 +91,58 @@ export function StateTilemap({
   }
   return (
     <div
-      className="grid gap-1"
+      className="relative mx-auto"
       style={{
-        gridTemplateRows: "repeat(9, minmax(0, 1fr))",
-        gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
-        aspectRatio: "8 / 9",
+        width: "100%",
         maxWidth,
-        margin: "0 auto",
+        aspectRatio: "1 / 1",
       }}
     >
+      {/* Background: silhueta do Brasil semi-transparente. Em tema
+          dark a imagem PNG é preta — invert pra clarear. Em light fica
+          como está (silhueta escura sobre fundo claro). */}
+      <div
+        className="absolute inset-0 pointer-events-none dark:invert"
+        style={{
+          backgroundImage: "url(/brazil-map.png)",
+          backgroundSize: "contain",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+          opacity: 0.18,
+        }}
+      />
+
+      {/* Tiles dos UFs posicionados nos centroides */}
       {ALL_UFS.map((uf) => {
-        const [row, col] = POSITIONS[uf];
+        const [x, y] = CENTROIDS[uf];
         const count = counts[uf] ?? 0;
         const isSelected = selected.has(uf);
+        const ratio = max > 0 ? Math.log(1 + count) / Math.log(1 + max) : 0;
+        // Tamanho escala suavemente: 30 → 46px conforme contagem.
+        const size = isSelected ? 46 : 30 + Math.round(ratio * 14);
         return (
           <button
             key={uf}
             type="button"
             onClick={() => onToggle(uf)}
-            style={{ gridRow: row, gridColumn: col }}
+            style={{
+              position: "absolute",
+              left: `${x * 100}%`,
+              top: `${y * 100}%`,
+              width: size,
+              height: size,
+              transform: "translate(-50%, -50%)",
+            }}
             className={`
-              rounded border transition-all flex flex-col items-center justify-center p-0.5
+              rounded-full border-2 transition-all flex flex-col items-center justify-center leading-none
               ${colorIntensity(count, max, isSelected)}
-              ${isSelected ? "ring-2 ring-amber-300 scale-105" : "hover:scale-105 hover:ring-1 hover:ring-sky-300"}
+              ${isSelected ? "ring-2 ring-amber-300 scale-110 z-20" : "hover:scale-125 hover:z-10 z-0"}
             `}
             title={`${STATE_NAMES[uf]} — ${count.toLocaleString("pt-BR")} clientes`}
           >
-            <span className="text-[10px] font-semibold leading-none">{uf}</span>
+            <span className="text-[10px] font-bold leading-none">{uf}</span>
             {count > 0 && (
-              <span className="text-[8px] leading-none mt-0.5 opacity-80">
+              <span className="text-[8px] opacity-90 leading-none mt-0.5">
                 {count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count}
               </span>
             )}
