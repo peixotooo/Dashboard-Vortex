@@ -68,6 +68,7 @@ import type {
   MonthlyCohortRow,
 } from "@/lib/crm-rfm";
 import { SEGMENT_META, LIFECYCLE_META, COUPON_META, WEEKDAY_META } from "@/lib/crm-rfm";
+import { deriveSummary, deriveSegments, deriveDistributions, deriveBehavioral } from "@/lib/crm-derive";
 import { CrmAgentPanel } from "@/components/crm/crm-agent-panel";
 import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
@@ -631,10 +632,12 @@ export default function CrmPage() {
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
 
   const [customers, setCustomers] = useState<RfmCustomer[]>([]);
-  const [segments, setSegments] = useState<RfmSegmentSummary[]>([]);
-  const [summary, setSummary] = useState(emptySummary);
-  const [distributions, setDistributions] = useState(emptyDistributions);
-  const [behavioral, setBehavioral] = useState(emptyBehavioral);
+  // Snapshot pré-computado (vem do /api/crm/rfm). Quando há filtro
+  // ativo, as visualizações abaixo usam derivedX no lugar.
+  const [snapshotSegments, setSnapshotSegments] = useState<RfmSegmentSummary[]>([]);
+  const [snapshotSummary, setSnapshotSummary] = useState(emptySummary);
+  const [snapshotDistributions, setSnapshotDistributions] = useState(emptyDistributions);
+  const [snapshotBehavioral, setSnapshotBehavioral] = useState(emptyBehavioral);
 
   // Metrics tab
   interface MetricsData {
@@ -697,19 +700,19 @@ export default function CrmPage() {
           // Snapshot ready — re-fetch summary
           const res2 = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
           const data2 = await res2.json();
-          setSegments(data2.segments || []);
-          setSummary(data2.summary || emptySummary);
-          setDistributions(data2.distributions || emptyDistributions);
-          setBehavioral(data2.behavioralDistributions || emptyBehavioral);
+          setSnapshotSegments(data2.segments || []);
+          setSnapshotSummary(data2.summary || emptySummary);
+          setSnapshotDistributions(data2.distributions || emptyDistributions);
+          setSnapshotBehavioral(data2.behavioralDistributions || emptyBehavioral);
         }
         setComputing(false);
         return;
       }
 
-      setSegments(data.segments || []);
-      setSummary(data.summary || emptySummary);
-      setDistributions(data.distributions || emptyDistributions);
-      setBehavioral(data.behavioralDistributions || emptyBehavioral);
+      setSnapshotSegments(data.segments || []);
+      setSnapshotSummary(data.summary || emptySummary);
+      setSnapshotDistributions(data.distributions || emptyDistributions);
+      setSnapshotBehavioral(data.behavioralDistributions || emptyBehavioral);
     } catch {
       // Keep empty state
     } finally {
@@ -968,6 +971,43 @@ export default function CrmPage() {
       return invertFilters && hasAnyFilter ? !matches : matches;
     });
   }, [customers, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, customerStates, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, invertFilters]);
+
+  // Versões re-derivadas das visualizações a partir do filtrado. Quando
+  // não há filtro ativo ou os customers ainda não carregaram, mantém o
+  // snapshot pré-computado (mais rápido). Quando filtro ativa, as tabs
+  // Métricas / Visão Geral / Segmentos RFM / Comportamento passam a
+  // refletir só o subconjunto filtrado — composição estado + segmento +
+  // lifecycle + cupom etc. funciona globalmente.
+  const hasAnyFilterActive =
+    segmentFilter !== "all" || dayRangeFilter !== "all" ||
+    lifecycleFilter !== "all" || hourFilter !== "all" ||
+    couponFilter !== "all" || weekdayFilter !== "all" ||
+    stateFilter.size > 0 ||
+    purchasedDateRange !== null || inactiveDateRange !== null ||
+    avgTicketRange.min !== null || avgTicketRange.max !== null ||
+    totalSpentRange.min !== null || totalSpentRange.max !== null ||
+    debouncedSearch.length > 0;
+
+  const useFilteredViews = customersLoaded && hasAnyFilterActive;
+
+  // Renomeados pros nomes simples — toda a render usa estes (não precisa
+  // tocar nas dezenas de refs nos gráficos).
+  const summary = useMemo(
+    () => useFilteredViews ? deriveSummary(filteredCustomers) : snapshotSummary,
+    [useFilteredViews, filteredCustomers, snapshotSummary]
+  );
+  const segments = useMemo(
+    () => useFilteredViews ? deriveSegments(filteredCustomers) : snapshotSegments,
+    [useFilteredViews, filteredCustomers, snapshotSegments]
+  );
+  const distributions = useMemo(
+    () => useFilteredViews ? deriveDistributions(filteredCustomers) : snapshotDistributions,
+    [useFilteredViews, filteredCustomers, snapshotDistributions]
+  );
+  const behavioral = useMemo(
+    () => useFilteredViews ? deriveBehavioral(filteredCustomers) : snapshotBehavioral,
+    [useFilteredViews, filteredCustomers, snapshotBehavioral]
+  );
 
 
   const handleRowSelect = useCallback((row: Record<string, unknown>) => {
@@ -1400,6 +1440,61 @@ export default function CrmPage() {
           info={<>Clientes que fizeram pelo menos 1 compra nos <b>últimos 90 dias</b>. <br/><br/>Métrica de saúde recorrente da base. Se cair, sinal de churn.</>}
         />
       </div>
+
+      {/* Banner global: avisa que tudo abaixo está filtrado quando
+          algum filtro/estado/range/search está ativo. */}
+      {useFilteredViews && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-amber-300">
+            <span className="font-medium">Filtro ativo</span>
+            <span className="text-amber-300/80">
+              · Vendo <b>{filteredCustomers.length.toLocaleString("pt-BR")}</b> de {customers.length.toLocaleString("pt-BR")} clientes em todas as tabs.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {stateFilter.size > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-200">
+                Estados: {[...stateFilter].join(", ")}
+              </span>
+            )}
+            {segmentFilter !== "all" && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-200">
+                Segmento: {SEGMENT_META[segmentFilter as RfmSegment]?.label}
+              </span>
+            )}
+            {lifecycleFilter !== "all" && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-200">
+                Ciclo: {LIFECYCLE_META[lifecycleFilter as LifecycleStage]?.label}
+              </span>
+            )}
+            {couponFilter !== "all" && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-200">
+                Cupom: {COUPON_META[couponFilter as CouponSensitivity]?.label}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSegmentFilter("all");
+                setDayRangeFilter("all");
+                setLifecycleFilter("all");
+                setHourFilter("all");
+                setCouponFilter("all");
+                setWeekdayFilter("all");
+                setStateFilter(new Set());
+                setPurchasedDateRange(null);
+                setInactiveDateRange(null);
+                setAvgTicketRange({ min: null, max: null });
+                setTotalSpentRange({ min: null, max: null });
+                setSearchQuery("");
+              }}
+              className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent text-foreground"
+            >
+              Limpar tudo
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
