@@ -47,6 +47,10 @@ interface CampaignDetail {
   attribution_window_days?: number | null;
   message_cost_usd?: number | null;
   exchange_rate?: number | null;
+  // Snapshot do template no momento da criação — preservado mesmo se
+  // o template_id for nulado (deletado/renomeado na Meta).
+  template_name?: string | null;
+  template_language?: string | null;
   wa_templates: {
     id: string;
     meta_id: string | null;
@@ -648,10 +652,50 @@ export function CampaignDetailsDialog({
                     )}
                 </div>
               </section>
-            ) : (
-              <div className="text-sm text-muted-foreground italic">
-                Template removido ou indisponivel.
-              </div>
+) : (
+              <section>
+                <h3 className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+                  Template e Mensagem
+                </h3>
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                  {campaign.template_name ? (
+                    <>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{campaign.template_name}</span>
+                        {campaign.template_language && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {campaign.template_language}
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-400 gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Template removido
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        O template usado nesta campanha não está mais disponível (apagado da Meta ou re-sincronizado). O nome acima é o snapshot salvo na criação.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      Template removido ou indisponível (sem snapshot — campanha criada antes do registro de template_name).
+                    </p>
+                  )}
+                  {campaign.variable_values && Object.keys(campaign.variable_values).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-amber-500/20">
+                      <div className="text-xs text-muted-foreground mb-1">Variáveis usadas:</div>
+                      <div className="space-y-1">
+                        {Object.entries(campaign.variable_values).map(([k, v]) => (
+                          <div key={k} className="text-xs grid grid-cols-[auto_1fr] gap-2">
+                            <span className="font-mono text-muted-foreground">{k}</span>
+                            <span className="truncate">{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             )}
 
             {/* Reschedule inline form */}
