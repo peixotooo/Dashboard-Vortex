@@ -73,7 +73,8 @@ import type { CrmFilters } from "@/components/crm/crm-agent-panel";
 import { CampaignCreateDialog } from "@/components/crm/campaign-create-dialog";
 import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
 import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog";
-import { StateTilemap, STATE_NAMES, type UF } from "@/components/crm/state-tilemap";
+import { STATE_NAMES, type UF } from "@/components/crm/state-tilemap";
+import { StatesTabContent } from "@/components/crm/states-tab";
 import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Constants ---
@@ -606,7 +607,6 @@ export default function CrmPage() {
   // ainda não carrega state — vide /api/crm/customer-states).
   const [stateFilter, setStateFilter] = useState<Set<UF>>(new Set());
   const [customerStates, setCustomerStates] = useState<Record<string, string>>({});
-  const [stateTilemapOpen, setStateTilemapOpen] = useState(false);
   const [purchasedDateRange, setPurchasedDateRange] = useState<{ from: string; to: string } | null>(null);
   const [inactiveDateRange, setInactiveDateRange] = useState<{ from: string; to: string } | null>(null);
   const [avgTicketRange, setAvgTicketRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
@@ -925,9 +925,11 @@ export default function CrmPage() {
     fetchExportLogs();
   }, [fetchSummary, fetchMetrics, fetchExportLogs]);
 
-  // Stage 2: lazy-load customers when Clientes tab is activated
+  // Stage 2: lazy-load customers + state lookup quando Clientes ou Estados
+  // for ativado — Estados tab também precisa de customers/customerStates
+  // pra montar o tilemap com contagens reais.
   useEffect(() => {
-    if (activeTab === "customers" && !customersLoaded) {
+    if ((activeTab === "customers" || activeTab === "states") && !customersLoaded) {
       fetchCustomers();
     }
   }, [activeTab, customersLoaded, fetchCustomers]);
@@ -1406,6 +1408,14 @@ export default function CrmPage() {
           <TabsTrigger value="overview">Visao Geral</TabsTrigger>
           <TabsTrigger value="segments">Segmentos RFM</TabsTrigger>
           <TabsTrigger value="behavior">Comportamento</TabsTrigger>
+          <TabsTrigger value="states">
+            Estados
+            {stateFilter.size > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500/30 text-amber-300 text-[10px] font-medium">
+                {stateFilter.size}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="customers">Clientes</TabsTrigger>
         </TabsList>
 
@@ -2173,6 +2183,32 @@ export default function CrmPage() {
           </>)}
         </TabsContent>
 
+        {/* ===== Tab Estados: tilemap clicável + side panel ===== */}
+        <TabsContent value="states" className="space-y-4">
+          {activeTab === "states" && (customersLoading && !customersLoaded ? (
+            <div className="flex flex-col items-center justify-center h-64 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Carregando estados...</p>
+            </div>
+          ) : (
+            <StatesTabContent
+              customers={customers}
+              customerStates={customerStates}
+              stateFilter={stateFilter}
+              onToggle={(uf) => {
+                setStateFilter((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(uf)) next.delete(uf);
+                  else next.add(uf);
+                  return next;
+                });
+              }}
+              onClear={() => setStateFilter(new Set())}
+              onGoToCustomers={() => setActiveTab("customers")}
+            />
+          ))}
+        </TabsContent>
+
         {/* ===== Tab 4: Customers ===== */}
         <TabsContent value="customers" className="space-y-4">
           {activeTab === "customers" && (customersLoading && !customersLoaded ? (
@@ -2238,79 +2274,36 @@ export default function CrmPage() {
               <option value="dom">Domingo</option>
             </select>
 
-            {/* --- Estado(s): popover com tilemap clicável --- */}
-            <Popover open={stateTilemapOpen} onOpenChange={setStateTilemapOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`h-10 ${stateFilter.size > 0 ? "border-primary bg-primary/5" : ""}`}
+            {/* Filtro de UF mora na aba Estados — quando ativo, os chips
+                aparecem aqui também pra deixar claro que a listagem está
+                sendo narrowed. */}
+            {stateFilter.size > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-xs text-muted-foreground">Estados:</span>
+                {[...stateFilter].map((uf) => (
+                  <button
+                    key={uf}
+                    type="button"
+                    onClick={() => setStateFilter((prev) => {
+                      const next = new Set(prev);
+                      next.delete(uf);
+                      return next;
+                    })}
+                    className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30"
+                    title={`Remover ${STATE_NAMES[uf]}`}
+                  >
+                    {uf} ×
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("states")}
+                  className="text-xs px-2 py-0.5 rounded border border-border hover:bg-accent"
                 >
-                  Estado{stateFilter.size > 0 ? `s (${stateFilter.size})` : ""}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[400px]" align="start">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium">Filtrar por UF</div>
-                      <p className="text-xs text-muted-foreground">
-                        Clique pra adicionar/remover. Compõe com os outros filtros (AND).
-                      </p>
-                    </div>
-                    {stateFilter.size > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setStateFilter(new Set())}
-                      >
-                        Limpar
-                      </Button>
-                    )}
-                  </div>
-                  <StateTilemap
-                    counts={(() => {
-                      // Contagem de clientes por UF da base atual — prefere
-                      // c.state se já estiver no snapshot.
-                      const c: Record<string, number> = {};
-                      for (const cust of customers) {
-                        const uf = cust.state ?? customerStates[cust.email];
-                        if (uf) c[uf] = (c[uf] ?? 0) + 1;
-                      }
-                      return c;
-                    })()}
-                    selected={stateFilter}
-                    onToggle={(uf) => {
-                      setStateFilter((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(uf)) next.delete(uf);
-                        else next.add(uf);
-                        return next;
-                      });
-                    }}
-                  />
-                  {stateFilter.size > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-2 border-t">
-                      {[...stateFilter].map((uf) => (
-                        <button
-                          key={uf}
-                          type="button"
-                          onClick={() => setStateFilter((prev) => {
-                            const next = new Set(prev);
-                            next.delete(uf);
-                            return next;
-                          })}
-                          className="text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30"
-                          title={`Remover ${STATE_NAMES[uf]}`}
-                        >
-                          {uf} ×
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+                  Editar →
+                </button>
+              </div>
+            )}
 
             {/* --- Advanced filters: date range + numeric range --- */}
             <DateRangeFilterPopover
