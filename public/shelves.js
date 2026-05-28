@@ -2951,20 +2951,15 @@
   };
 
   function findGiftRequestAnchor(anchorSelector) {
-    // 1. Custom selector from config takes precedence
+    // 1. Custom selector from config takes precedence (mantém after)
     if (anchorSelector) {
       var custom = document.querySelector(anchorSelector);
       if (custom) return { ref: custom, mode: "after" };
     }
 
-    // 2. Se promo-tags já renderizou a linha custom (#vtx-promo-tag-row),
-    //    usa ela — mesma estratégia que kits/promo-tags usam. Faz o botão
-    //    aparecer logo abaixo dos selos promocionais.
-    var promoRow = document.getElementById("vtx-promo-tag-row");
-    if (promoRow) return { ref: promoRow, mode: "after" };
-
-    // 3. CTA de compra. Lista expandida pra cobrir os seletores que o
-    //    cart-recovery / promo-tags já usam — temas VNDA variam bastante.
+    // 2. Posiciona ANTES do CTA de compra — o botão fica logo acima do
+    //    "Comprar", mais visível e perto do preço, sem empurrar o CTA pra
+    //    baixo da dobra. Lista expandida cobre vários temas VNDA.
     var ctaSelectors = [
       ".product-form .buy-button",
       ".buy-button-container",
@@ -2986,10 +2981,10 @@
     ];
     for (var i = 0; i < ctaSelectors.length; i++) {
       var el = document.querySelector(ctaSelectors[i]);
-      if (el) return { ref: el, mode: "after" };
+      if (el) return { ref: el, mode: "before" };
     }
 
-    // 4. Tenta cair perto do preço (estratégia de fallback usada por
+    // 3. Tenta cair perto do preço (estratégia de fallback usada por
     //    promo-tags). findPriceAnchor existe no escopo do shelves.js.
     try {
       if (typeof findPriceAnchor === "function") {
@@ -2997,6 +2992,10 @@
         if (price) return { ref: price, mode: "after" };
       }
     } catch (e) {}
+
+    // 4. Se promo-tags renderizou a linha custom, cai depois dela
+    var promoRow = document.getElementById("vtx-promo-tag-row");
+    if (promoRow) return { ref: promoRow, mode: "after" };
 
     // 5. Última cartada: append no container principal do produto
     var section = document.querySelector(
@@ -3080,7 +3079,9 @@
     );
     btn.innerHTML = iconHtml + "<span>" + escapeHtml(cfg.button_label) + "</span>";
 
-    if (anchor.mode === "after" && anchor.ref.parentNode) {
+    if (anchor.mode === "before" && anchor.ref.parentNode) {
+      anchor.ref.parentNode.insertBefore(btn, anchor.ref);
+    } else if (anchor.mode === "after" && anchor.ref.parentNode) {
       anchor.ref.parentNode.insertBefore(btn, anchor.ref.nextSibling);
     } else {
       anchor.ref.appendChild(btn);
@@ -3093,31 +3094,52 @@
 
   function injectGiftRequestStyles() {
     if (document.getElementById("vtx-gr-styles")) return;
+    var SYS_FONT = "-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,system-ui,sans-serif";
     var css =
-      ".vtx-gr-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;padding:12px 18px;font:600 14px 'Inter',system-ui,sans-serif;letter-spacing:.02em;text-transform:uppercase;border:0;cursor:pointer;transition:transform .15s,opacity .15s}" +
-      ".vtx-gr-button:hover{opacity:.92;transform:translateY(-1px)}" +
-      ".vtx-gr-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .2s;font-family:'Inter',system-ui,sans-serif}" +
+      // Botão na PDP
+      ".vtx-gr-button{display:flex;align-items:center;justify-content:center;width:100%;margin-top:12px;padding:14px 20px;font:600 13px " + SYS_FONT + ";letter-spacing:.04em;text-transform:uppercase;border:0;cursor:pointer;transition:transform .15s ease,opacity .15s ease,box-shadow .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.05)}" +
+      ".vtx-gr-button:hover{opacity:.92;transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}" +
+      // Overlay
+      ".vtx-gr-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity .25s ease;font-family:" + SYS_FONT + ";backdrop-filter:blur(2px)}" +
       ".vtx-gr-overlay.open{opacity:1}" +
-      ".vtx-gr-modal{background:#fff;border-radius:8px;width:100%;max-width:420px;padding:24px;box-shadow:0 18px 60px rgba(0,0,0,.25);transform:translateY(8px);transition:transform .2s;color:#111;max-height:calc(100vh - 32px);overflow-y:auto}" +
-      ".vtx-gr-overlay.open .vtx-gr-modal{transform:translateY(0)}" +
-      ".vtx-gr-modal h3{margin:0 0 6px;font-size:18px;font-weight:700;color:#111}" +
-      ".vtx-gr-modal p.vtx-gr-sub{margin:0 0 18px;font-size:13px;color:#666;line-height:1.45}" +
-      ".vtx-gr-field{display:block;margin-bottom:14px}" +
-      ".vtx-gr-field label{display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px}" +
-      ".vtx-gr-field input,.vtx-gr-field textarea{width:100%;box-sizing:border-box;padding:10px 12px;font:14px 'Inter',system-ui,sans-serif;border:1px solid #d0d0d0;border-radius:6px;background:#fff;color:#111}" +
-      ".vtx-gr-field textarea{min-height:70px;resize:vertical}" +
-      ".vtx-gr-field input:focus,.vtx-gr-field textarea:focus{outline:none;border-color:#111;box-shadow:0 0 0 2px rgba(0,0,0,.08)}" +
-      ".vtx-gr-cta{display:block;width:100%;padding:13px 16px;font:600 14px 'Inter',system-ui,sans-serif;background:#111;color:#fff;border:0;border-radius:6px;cursor:pointer;text-transform:uppercase;letter-spacing:.02em}" +
-      ".vtx-gr-cta:disabled{opacity:.55;cursor:default}" +
-      ".vtx-gr-cta:hover:not(:disabled){opacity:.92}" +
-      ".vtx-gr-close{position:absolute;top:10px;right:14px;background:none;border:0;font-size:22px;color:#999;cursor:pointer;line-height:1;padding:4px 8px}" +
-      ".vtx-gr-error{margin:0 0 12px;padding:8px 10px;background:#fff1f0;color:#b40015;border-radius:5px;font-size:12px;border:1px solid #ffd5d2}" +
-      ".vtx-gr-success{text-align:center;padding:20px 8px}" +
-      ".vtx-gr-success h3{font-size:20px;margin-bottom:8px;color:#0a7a2d}" +
-      ".vtx-gr-success p{margin:0 0 18px;font-size:13px;color:#444;line-height:1.5}" +
-      ".vtx-gr-product{display:flex;align-items:center;gap:10px;padding:10px;background:#fafafa;border-radius:6px;margin-bottom:18px}" +
-      ".vtx-gr-product img{width:48px;height:48px;border-radius:4px;object-fit:cover;flex-shrink:0;background:#eee}" +
-      ".vtx-gr-product .name{font-size:13px;font-weight:600;color:#111;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}";
+      // Modal
+      ".vtx-gr-modal{background:#fff;border-radius:18px;width:100%;max-width:460px;padding:36px 32px 32px;box-shadow:0 28px 80px rgba(15,23,42,.22),0 8px 24px rgba(15,23,42,.08);transform:translateY(12px) scale(.985);transition:transform .25s cubic-bezier(.2,.8,.2,1);color:#0f172a;max-height:calc(100vh - 32px);overflow-y:auto}" +
+      ".vtx-gr-overlay.open .vtx-gr-modal{transform:translateY(0) scale(1)}" +
+      // Tipografia
+      ".vtx-gr-modal h3{margin:0 0 8px;font-size:22px;font-weight:700;letter-spacing:-.01em;color:#0f172a;line-height:1.2}" +
+      ".vtx-gr-modal p.vtx-gr-sub{margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.5}" +
+      // Product card
+      ".vtx-gr-product{display:flex;align-items:center;gap:14px;padding:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:24px}" +
+      ".vtx-gr-product img{width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#eef2f7}" +
+      ".vtx-gr-product .name{font-size:14px;font-weight:600;color:#0f172a;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}" +
+      // Campos
+      ".vtx-gr-field{display:block;margin-bottom:18px}" +
+      ".vtx-gr-field-label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:8px;letter-spacing:.01em}" +
+      ".vtx-gr-field input,.vtx-gr-field textarea{width:100%;box-sizing:border-box;padding:13px 14px;font:15px " + SYS_FONT + ";border:1.5px solid #e2e8f0;border-radius:10px;background:#fff;color:#0f172a;transition:border-color .15s ease,box-shadow .15s ease;-webkit-appearance:none;appearance:none}" +
+      ".vtx-gr-field textarea{min-height:84px;resize:vertical;line-height:1.5}" +
+      ".vtx-gr-field input::placeholder,.vtx-gr-field textarea::placeholder{color:#94a3b8}" +
+      ".vtx-gr-field input:focus,.vtx-gr-field textarea:focus{outline:none;border-color:#0f172a;box-shadow:0 0 0 4px rgba(15,23,42,.08)}" +
+      // CTA
+      ".vtx-gr-cta{display:block;width:100%;margin-top:8px;padding:15px 20px;font:600 15px " + SYS_FONT + ";background:#0f172a;color:#fff;border:0;border-radius:12px;cursor:pointer;letter-spacing:-.01em;transition:transform .15s ease,opacity .15s ease,box-shadow .15s ease}" +
+      ".vtx-gr-cta:disabled{opacity:.5;cursor:default}" +
+      ".vtx-gr-cta:hover:not(:disabled){opacity:.92;transform:translateY(-1px);box-shadow:0 6px 20px rgba(15,23,42,.2)}" +
+      // Botão fechar
+      ".vtx-gr-close{position:absolute;top:16px;right:16px;background:#f1f5f9;border:0;width:32px;height:32px;border-radius:50%;font-size:20px;color:#64748b;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;transition:background .15s ease,color .15s ease}" +
+      ".vtx-gr-close:hover{background:#e2e8f0;color:#0f172a}" +
+      // Erro
+      ".vtx-gr-error{margin:0 0 16px;padding:12px 14px;background:#fef2f2;color:#991b1b;border-radius:10px;font-size:13px;border:1px solid #fecaca;line-height:1.45}" +
+      // Sucesso
+      ".vtx-gr-success{text-align:center;padding:16px 4px 4px}" +
+      ".vtx-gr-success-icon{font-size:48px;line-height:1;margin-bottom:16px}" +
+      ".vtx-gr-success h3{font-size:22px;margin-bottom:10px;color:#0f172a}" +
+      ".vtx-gr-success p{margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.55}" +
+      // Mobile
+      "@media (max-width:480px){" +
+        ".vtx-gr-modal{padding:28px 22px 24px;border-radius:16px;max-height:calc(100vh - 16px)}" +
+        ".vtx-gr-modal h3{font-size:20px}" +
+        ".vtx-gr-overlay{padding:8px;align-items:flex-end}" +
+        ".vtx-gr-modal{max-width:100%}" +
+      "}";
     var style = document.createElement("style");
     style.id = "vtx-gr-styles";
     style.textContent = css;
@@ -3136,10 +3158,6 @@
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
 
-    var phoneFieldHtml = cfg.collect_requester_phone
-      ? '<label class="vtx-gr-field"><span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">Seu WhatsApp (opcional)</span><input type="tel" name="requester_phone" placeholder="(11) 99999-8888" autocomplete="tel" /></label>'
-      : "";
-
     var productCard = "";
     if (meta.name) {
       productCard =
@@ -3149,6 +3167,8 @@
         '</div>';
     }
 
+    // requester_phone agora é SEMPRE obrigatório — sem isso a loja não tem
+    // como avisar o solicitante quando a pessoa abre o link.
     overlay.innerHTML =
       '<div class="vtx-gr-modal" style="position:relative">' +
         '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
@@ -3158,16 +3178,19 @@
         '<div class="vtx-gr-error" style="display:none"></div>' +
         '<form class="vtx-gr-form" novalidate>' +
           '<label class="vtx-gr-field">' +
-            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_name_label) + '</span>' +
-            '<input type="text" name="requester_name" required autocomplete="name" />' +
+            '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_name_label) + '</span>' +
+            '<input type="text" name="requester_name" required autocomplete="name" autocapitalize="words" />' +
           '</label>' +
           '<label class="vtx-gr-field">' +
-            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_phone_label) + '</span>' +
-            '<input type="tel" name="recipient_phone" required placeholder="(11) 99999-8888" />' +
+            '<span class="vtx-gr-field-label">Seu WhatsApp</span>' +
+            '<input type="tel" inputmode="tel" name="requester_phone" required placeholder="(11) 99999-8888" autocomplete="tel" />' +
           '</label>' +
-          phoneFieldHtml +
           '<label class="vtx-gr-field">' +
-            '<span style="display:block;font-size:12px;font-weight:600;color:#333;margin-bottom:6px">' + escapeHtml(cfg.modal_message_label) + '</span>' +
+            '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_phone_label) + '</span>' +
+            '<input type="tel" inputmode="tel" name="recipient_phone" required placeholder="(11) 99999-8888" />' +
+          '</label>' +
+          '<label class="vtx-gr-field">' +
+            '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_message_label) + '</span>' +
             '<textarea name="personal_message" maxlength="500" placeholder="Ex.: Tô amando este e adoraria de presente ✨"></textarea>' +
           '</label>' +
           '<button type="submit" class="vtx-gr-cta">' + escapeHtml(cfg.modal_cta_label) + '</button>' +
@@ -3201,17 +3224,27 @@
       errorEl.style.display = "none";
 
       var requesterName = (form.requester_name.value || "").trim();
+      var requesterPhone = (form.requester_phone.value || "").trim();
       var recipientPhone = (form.recipient_phone.value || "").trim();
-      var requesterPhone = form.requester_phone ? (form.requester_phone.value || "").trim() : "";
       var personalMessage = (form.personal_message.value || "").trim();
 
       if (!requesterName) {
-        errorEl.textContent = "Preencha seu nome";
+        errorEl.textContent = "Preencha seu nome.";
         errorEl.style.display = "block";
         return;
       }
-      if (!recipientPhone || recipientPhone.replace(/\D/g, "").length < 8) {
-        errorEl.textContent = "Informe um WhatsApp válido";
+      if (!requesterPhone || requesterPhone.replace(/\D/g, "").length < 10) {
+        errorEl.textContent = "Informe seu WhatsApp com DDD.";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (!recipientPhone || recipientPhone.replace(/\D/g, "").length < 10) {
+        errorEl.textContent = "Informe o WhatsApp de quem vai presentear, com DDD.";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (recipientPhone.replace(/\D/g, "") === requesterPhone.replace(/\D/g, "")) {
+        errorEl.textContent = "Os WhatsApps devem ser diferentes.";
         errorEl.style.display = "block";
         return;
       }
@@ -3222,7 +3255,7 @@
       var payload = {
         key: API_KEY,
         requester_name: requesterName,
-        requester_phone: requesterPhone || null,
+        requester_phone: requesterPhone,
         recipient_phone: recipientPhone,
         product_id: productId,
         product_name: meta.name,
@@ -3266,7 +3299,7 @@
           modal.innerHTML =
             '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
             '<div class="vtx-gr-success">' +
-              '<div style="font-size:42px;line-height:1;margin-bottom:8px">🎁</div>' +
+              '<div class="vtx-gr-success-icon">🎁</div>' +
               '<h3>' + escapeHtml(cfg.modal_success_title) + '</h3>' +
               '<p>' + escapeHtml(cfg.modal_success_message) + '</p>' +
               '<button type="button" class="vtx-gr-cta" data-close>Fechar</button>' +
