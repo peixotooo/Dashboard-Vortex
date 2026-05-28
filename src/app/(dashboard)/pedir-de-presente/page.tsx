@@ -15,7 +15,11 @@ import {
   AlertCircle,
   TrendingUp,
   Stethoscope,
+  Users,
+  ExternalLink,
+  Download,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -182,6 +186,45 @@ export default function GiftRequestPage() {
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [rechecking, setRechecking] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [syncingLeads, setSyncingLeads] = useState(false);
+  const [leads, setLeads] = useState<{
+    total_leads: number;
+    total_requests: number;
+    leads: Array<{
+      requester_name: string;
+      requester_phone: string;
+      first_request_at: string;
+      last_request_at: string;
+      request_count: number;
+      converted_count: number;
+      total_desired_value: number;
+      products: Array<{
+        id: string;
+        name: string | null;
+        url: string | null;
+        image_url: string | null;
+        price: number | null;
+        requested_at: string;
+        status: string;
+      }>;
+    }>;
+    top_products: Array<{
+      product_id: string;
+      product_name: string | null;
+      product_url: string | null;
+      product_image_url: string | null;
+      product_price: number | null;
+      request_count: number;
+      unique_requesters: number;
+    }>;
+    crm_list: {
+      id: string;
+      name: string;
+      total_count: number;
+      phone_count: number;
+      updated_at: string;
+    } | null;
+  } | null>(null);
   const [diagnose, setDiagnose] = useState<{
     all_ok: boolean;
     checks: Array<{ ok: boolean; label: string; detail?: string }>;
@@ -340,6 +383,41 @@ export default function GiftRequestPage() {
     }
   }
 
+  const loadLeads = useCallback(async () => {
+    if (!workspace?.id) return;
+    try {
+      const res = await fetch("/api/gift-request/leads-insights", {
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (res.ok) setLeads(data);
+    } catch (e) {
+      console.error("leads load:", e);
+    }
+  }, [workspace?.id, headers]);
+
+  async function syncLeadsToCrm() {
+    if (!workspace?.id) return;
+    setSyncingLeads(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/gift-request/sync-leads", {
+        method: "POST",
+        headers: headers(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao sincronizar");
+      await loadLeads();
+      alert(
+        `Sincronização concluída — ${data.added} contato(s) capturado(s) na lista CRM "Pedidos de presente".`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao sincronizar");
+    } finally {
+      setSyncingLeads(false);
+    }
+  }
+
   async function runDiagnose() {
     if (!workspace?.id) return;
     setDiagnosing(true);
@@ -458,6 +536,14 @@ export default function GiftRequestPage() {
                 {requests.length}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="leads"
+            onClick={() => {
+              if (!leads) loadLeads();
+            }}
+          >
+            Leads CRM
           </TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
@@ -1356,6 +1442,281 @@ export default function GiftRequestPage() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ============================== LEADS CRM ============================== */}
+        <TabsContent value="leads" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Users className="w-4 h-4" /> Solicitantes capturados como leads
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={syncLeadsToCrm}
+                    disabled={syncingLeads}
+                  >
+                    {syncingLeads ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-1" />
+                    )}
+                    Sincronizar retroativos
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={loadLeads}
+                    disabled={!workspace?.id}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Cada solicitante vira contato na lista CRM{" "}
+                <strong>"Pedidos de presente"</strong> automaticamente, com
+                nome, WhatsApp e o produto que desejou. Use pra criar
+                campanhas WhatsApp/Email direcionadas — quem pediu sabe
+                exatamente o que quer.
+              </p>
+
+              {leads?.crm_list ? (
+                <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <div>
+                      Lista CRM{" "}
+                      <code className="font-mono">"{leads.crm_list.name}"</code>{" "}
+                      tem <strong>{leads.crm_list.total_count}</strong>{" "}
+                      contato(s).
+                    </div>
+                  </div>
+                  <Link
+                    href="/crm/listas"
+                    className="text-xs underline font-medium flex items-center gap-1"
+                  >
+                    Ver lista <ExternalLink className="w-3 h-3" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 mb-4">
+                  Lista CRM ainda não criada — vai ser gerada automaticamente
+                  no primeiro pedido com WhatsApp, ou clique em{" "}
+                  <strong>"Sincronizar retroativos"</strong> pra capturar os
+                  já existentes.
+                </div>
+              )}
+
+              {!leads ? (
+                <div className="py-10 text-center">
+                  <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                </div>
+              ) : leads.leads.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  Nenhum lead capturado ainda.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">
+                          Leads únicos
+                        </div>
+                        <div className="text-2xl font-bold mt-1">
+                          {leads.total_leads}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">
+                          Solicitações totais
+                        </div>
+                        <div className="text-2xl font-bold mt-1">
+                          {leads.total_requests}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">
+                          Pedidos por lead (média)
+                        </div>
+                        <div className="text-2xl font-bold mt-1">
+                          {leads.total_leads
+                            ? (leads.total_requests / leads.total_leads).toFixed(
+                                1
+                              )
+                            : "0"}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="border-t pt-3">
+                    <h4 className="text-sm font-semibold mb-3">
+                      Quem mais pediu
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-xs uppercase text-slate-600">
+                          <tr>
+                            <th className="text-left p-2">Nome</th>
+                            <th className="text-left p-2">WhatsApp</th>
+                            <th className="text-left p-2">Pedidos</th>
+                            <th className="text-left p-2">
+                              Valor desejado
+                            </th>
+                            <th className="text-left p-2">Primeira vez</th>
+                            <th className="text-left p-2">Produtos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leads.leads.map((l) => (
+                            <tr
+                              key={l.requester_phone}
+                              className="border-t hover:bg-slate-50"
+                            >
+                              <td className="p-2 font-medium">
+                                {l.requester_name}
+                              </td>
+                              <td className="p-2 font-mono text-xs">
+                                {l.requester_phone}
+                              </td>
+                              <td className="p-2">
+                                <Badge variant="secondary">
+                                  {l.request_count}
+                                </Badge>
+                              </td>
+                              <td className="p-2 text-xs">
+                                {l.total_desired_value
+                                  ? `R$ ${l.total_desired_value.toFixed(2)}`
+                                  : "—"}
+                              </td>
+                              <td className="p-2 text-xs text-muted-foreground">
+                                {new Date(
+                                  l.first_request_at
+                                ).toLocaleDateString("pt-BR")}
+                              </td>
+                              <td className="p-2">
+                                <details className="text-xs">
+                                  <summary className="cursor-pointer text-slate-600">
+                                    {l.products.length} produto(s)
+                                  </summary>
+                                  <ul className="mt-1 space-y-1">
+                                    {l.products.slice(0, 5).map((p, i) => (
+                                      <li
+                                        key={i}
+                                        className="flex items-center gap-2 text-[11px]"
+                                      >
+                                        {p.image_url && (
+                                          <img
+                                            src={p.image_url}
+                                            alt=""
+                                            className="w-6 h-6 rounded object-cover"
+                                          />
+                                        )}
+                                        <span className="truncate max-w-[200px]">
+                                          {p.name || p.id}
+                                        </span>
+                                        {p.url && (
+                                          <a
+                                            href={p.url}
+                                            target="_blank"
+                                            rel="noopener"
+                                            className="text-blue-600 underline"
+                                          >
+                                            ↗
+                                          </a>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {leads && leads.top_products.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" /> Top produtos mais
+                  desejados
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-600">
+                    <tr>
+                      <th className="text-left p-2">Produto</th>
+                      <th className="text-right p-2">Pedidos</th>
+                      <th className="text-right p-2">Pessoas únicas</th>
+                      <th className="text-right p-2">Preço</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leads.top_products.map((p) => (
+                      <tr key={p.product_id} className="border-t">
+                        <td className="p-2">
+                          <div className="flex items-center gap-2">
+                            {p.product_image_url && (
+                              <img
+                                src={p.product_image_url}
+                                alt=""
+                                className="w-8 h-8 rounded object-cover"
+                              />
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium truncate max-w-[260px]">
+                                {p.product_name || p.product_id}
+                              </div>
+                              {p.product_url && (
+                                <a
+                                  href={p.product_url}
+                                  target="_blank"
+                                  rel="noopener"
+                                  className="text-[10px] text-blue-600 underline"
+                                >
+                                  abrir
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-2 text-right font-medium">
+                          {p.request_count}
+                        </td>
+                        <td className="p-2 text-right text-muted-foreground">
+                          {p.unique_requesters}
+                        </td>
+                        <td className="p-2 text-right text-xs">
+                          {p.product_price
+                            ? `R$ ${p.product_price.toFixed(2)}`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </CardContent>

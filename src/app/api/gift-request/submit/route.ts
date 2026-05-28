@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { dispatchGiftRequest } from "@/lib/gift-request/dispatch";
+import { upsertGiftRequestLead } from "@/lib/gift-request/crm-lead";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -224,6 +225,28 @@ export async function POST(request: NextRequest) {
       wa_message_id: dispatchResult.messageId,
     })
     .eq("id", gr.id);
+
+  // Captura o solicitante como lead na lista CRM "Pedidos de presente"
+  // (dedup por phone normalizado). Best-effort — uma falha aqui não
+  // bloqueia o envio do WhatsApp, só loga.
+  if (requesterPhone) {
+    try {
+      const leadResult = await upsertGiftRequestLead({
+        admin,
+        workspaceId: auth.workspaceId,
+        name: requesterName,
+        phone: requesterPhone,
+      });
+      if (!leadResult.ok) {
+        console.error(
+          "[GiftRequest Submit] CRM lead capture failed:",
+          leadResult.error
+        );
+      }
+    } catch (err) {
+      console.error("[GiftRequest Submit] CRM lead capture threw:", err);
+    }
+  }
 
   return NextResponse.json(
     { ok: true, id: gr.id },
