@@ -157,6 +157,24 @@ export function StatesTabContent({
 
   const focusData = focus ? aggregateByUF.agg[focus] : null;
 
+  // Soma da seleção atual — clientes e receita de TODOS os UFs no filtro.
+  // Quando >= 2 UFs selecionados, o side panel mostra esses totais em
+  // vez do detalhe do focus.
+  const selectionTotals = useMemo(() => {
+    let count = 0;
+    let revenue = 0;
+    for (const uf of stateFilter) {
+      const a = aggregateByUF.agg[uf];
+      if (a) {
+        count += a.count;
+        revenue += a.revenue;
+      }
+    }
+    return { count, revenue };
+  }, [stateFilter, aggregateByUF]);
+
+  const isMulti = stateFilter.size >= 2;
+
   return (
     <div className="space-y-4">
       {/* Header com contadores + ação rápida */}
@@ -164,14 +182,26 @@ export function StatesTabContent({
         <div>
           <p className="text-sm text-muted-foreground">
             Clique num estado pra <span className="text-foreground font-medium">filtrar tudo</span> (RFM, comportamento, listagem de clientes) por aquela UF.
-            Multi-select — clica de novo pra remover.
+            Multi-select — clica de novo pra remover. Estados vão <span className="text-foreground font-medium">somando</span>.
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {formatInt(totalKnown)} clientes com estado identificado
-            {aggregateByUF.unknown > 0 && (
-              <span className="text-amber-400"> · {formatInt(aggregateByUF.unknown)} sem estado (CSV antigo)</span>
-            )}
-          </p>
+          {stateFilter.size > 0 ? (
+            <p className="text-sm mt-1">
+              <span className="text-amber-300 font-semibold">
+                Seleção: {formatInt(selectionTotals.count)} clientes
+              </span>
+              {revenueAvailable && (
+                <span className="text-amber-300/80"> · {formatBRL(selectionTotals.revenue)}</span>
+              )}
+              <span className="text-muted-foreground"> ({[...stateFilter].join(", ")})</span>
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1">
+              {formatInt(totalKnown)} clientes com estado identificado
+              {aggregateByUF.unknown > 0 && (
+                <span className="text-amber-400"> · {formatInt(aggregateByUF.unknown)} sem estado (CSV antigo)</span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {stateFilter.size > 0 && (
@@ -207,12 +237,65 @@ export function StatesTabContent({
         {/* Side panel */}
         <Card>
           <CardContent className="p-6">
-            {!focus ? (
+            {!focus && !isMulti ? (
               <div className="text-center text-sm text-muted-foreground py-12">
                 <p>Clique num estado pra ver detalhes.</p>
-                <p className="text-xs mt-2">Os outros filtros do CRM (segmento, lifecycle, cupom, etc.) continuam ativos — você compõe com o estado.</p>
+                <p className="text-xs mt-2">Cada estado adicional <span className="text-amber-400 font-medium">soma</span> na base filtrada. Os outros filtros do CRM (segmento, lifecycle, cupom, etc.) continuam ativos.</p>
               </div>
-            ) : (
+            ) : isMulti ? (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xl font-bold">Seleção ({stateFilter.size} UFs)</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {[...stateFilter].join(" + ")}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border bg-amber-500/10 border-amber-500/30 p-3">
+                    <div className="text-xs text-amber-300/80 flex items-center gap-1">
+                      <Users className="h-3 w-3" /> Clientes (soma)
+                    </div>
+                    <div className="text-2xl font-bold mt-1 text-amber-200">
+                      {formatInt(selectionTotals.count)}
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-amber-500/10 border-amber-500/30 p-3">
+                    <div className="text-xs text-amber-300/80 flex items-center gap-1">
+                      <DollarSign className="h-3 w-3" /> Receita (soma)
+                    </div>
+                    <div className="text-lg font-semibold mt-1 text-amber-200">
+                      {revenueAvailable ? formatBRL(selectionTotals.revenue) : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">Por UF</div>
+                  {[...stateFilter].map((uf) => {
+                    const a = aggregateByUF.agg[uf];
+                    return (
+                      <div key={uf} className="flex items-center justify-between text-xs">
+                        <span className="font-medium">{STATE_NAMES[uf]} ({uf})</span>
+                        <span className="text-muted-foreground">
+                          {formatInt(a?.count ?? 0)}
+                          {revenueAvailable && a && ` · ${formatBRL(a.revenue)}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t pt-3">
+                  <Button size="sm" className="w-full" onClick={onGoToCustomers}>
+                    Ver {formatInt(selectionTotals.count)} clientes filtrados →
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                    Pra criar lista pra campanha, clique num UF individualmente.
+                  </p>
+                </div>
+              </div>
+            ) : focus ? (
               <div className="space-y-4">
                 <div>
                   <h3 className="text-xl font-bold">{STATE_NAMES[focus]}</h3>
@@ -313,7 +396,7 @@ export function StatesTabContent({
                   )}
                 </div>
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>
