@@ -78,6 +78,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Detecta se o mapping atual envia {{personal_message}} pra Meta. Se
+  // NÃO envia, o front esconde o campo do modal — não faz sentido pedir
+  // uma mensagem que vai pro lixo.
+  const mapping = (config.wa_variable_mapping || {}) as Record<string, string>;
+  const acceptsPersonalMessage = Object.values(mapping).some(
+    (v) => typeof v === "string" && v.includes("personal_message")
+  );
+
   return NextResponse.json(
     {
       gift_request: {
@@ -100,6 +108,7 @@ export async function GET(request: NextRequest) {
           config.modal_success_message ||
           "Aguarde — assim que a pessoa responder, você fica sabendo.",
         collect_requester_phone: !!config.collect_requester_phone,
+        accepts_personal_message: acceptsPersonalMessage,
         pdp_anchor_selector: config.pdp_anchor_selector || null,
       },
     },

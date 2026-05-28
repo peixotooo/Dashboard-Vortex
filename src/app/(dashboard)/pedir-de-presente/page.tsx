@@ -884,6 +884,14 @@ export default function GiftRequestPage() {
                               </Button>
                             </div>
                           </div>
+                          <div className="rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700 leading-relaxed">
+                            <strong>Regra da Meta:</strong> textos fixos das
+                            variáveis não podem conter quebra de linha (
+                            <code className="font-mono">\n</code>), tab ou mais
+                            de 4 espaços. Use travessões (—) ou pontuação. As
+                            quebras de leitura entre os slots vêm do body do
+                            template (acima).
+                          </div>
                           {Array.from({ length: templateSlotCount }).map(
                             (_, i) => {
                               const pos = String(i + 1);
@@ -892,33 +900,39 @@ export default function GiftRequestPage() {
                               return (
                                 <div
                                   key={pos}
-                                  className="grid grid-cols-[60px_140px_1fr] gap-2 items-center"
+                                  className="border rounded-md p-3 bg-white space-y-2"
                                 >
-                                  <div className="text-xs font-mono text-slate-500">
-                                    {"{{"}
-                                    {pos}
-                                    {"}}"}
-                                  </div>
-                                  <Select
-                                    value={parsed.kind}
-                                    onValueChange={(kind) =>
-                                      setMappingSlot(
-                                        pos,
-                                        encodeMappingValue(
-                                          kind as "var" | "text",
-                                          parsed.value
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-xs font-mono text-slate-500 w-12">
+                                      {"{{"}
+                                      {pos}
+                                      {"}}"}
+                                    </div>
+                                    <Select
+                                      value={parsed.kind}
+                                      onValueChange={(kind) =>
+                                        setMappingSlot(
+                                          pos,
+                                          encodeMappingValue(
+                                            kind as "var" | "text",
+                                            parsed.value
+                                          )
                                         )
-                                      )
-                                    }
-                                  >
-                                    <SelectTrigger className="h-8 text-xs">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="var">Variável</SelectItem>
-                                      <SelectItem value="text">Texto fixo</SelectItem>
-                                    </SelectContent>
-                                  </Select>
+                                      }
+                                    >
+                                      <SelectTrigger className="h-8 text-xs w-[140px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="var">
+                                          Variável
+                                        </SelectItem>
+                                        <SelectItem value="text">
+                                          Texto fixo
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                   {parsed.kind === "var" ? (
                                     <Select
                                       value={parsed.value}
@@ -941,17 +955,32 @@ export default function GiftRequestPage() {
                                       </SelectContent>
                                     </Select>
                                   ) : (
-                                    <Input
-                                      className="h-8 text-xs"
-                                      value={parsed.value}
-                                      onChange={(e) =>
-                                        setMappingSlot(
-                                          pos,
-                                          encodeMappingValue("text", e.target.value)
-                                        )
-                                      }
-                                      placeholder="Texto literal (suporta {{var_name}})"
-                                    />
+                                    <>
+                                      <Textarea
+                                        className="text-xs font-mono"
+                                        rows={3}
+                                        value={parsed.value}
+                                        onChange={(e) =>
+                                          setMappingSlot(
+                                            pos,
+                                            encodeMappingValue(
+                                              "text",
+                                              // sanitiza: troca \n por espaço pra
+                                              // evitar salvamento inválido. user
+                                              // ainda pode digitar — a UI converte
+                                              e.target.value.replace(/[\n\t]/g, " ")
+                                            )
+                                          )
+                                        }
+                                        placeholder="Texto literal (suporta {{var_name}})"
+                                      />
+                                      {/\n|\t/.test(parsed.value) && (
+                                        <p className="text-[10px] text-red-700">
+                                          ⚠ Quebras de linha serão convertidas em
+                                          espaço.
+                                        </p>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               );

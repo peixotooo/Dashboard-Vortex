@@ -3170,6 +3170,17 @@
 
     // requester_phone agora é SEMPRE obrigatório — sem isso a loja não tem
     // como avisar o solicitante quando a pessoa abre o link.
+    //
+    // O campo "mensagem opcional" SÓ aparece se o template aceita
+    // {{personal_message}} no mapping — senão o user escreve algo que não
+    // vai ser enviado (frustração).
+    var personalMessageField = cfg.accepts_personal_message
+      ? '<label class="vtx-gr-field">' +
+          '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_message_label) + '</span>' +
+          '<textarea name="personal_message" maxlength="500" placeholder="Ex.: Tá na minha listinha 😉"></textarea>' +
+        '</label>'
+      : "";
+
     overlay.innerHTML =
       '<div class="vtx-gr-modal" style="position:relative">' +
         '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
@@ -3190,10 +3201,7 @@
             '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_phone_label) + '</span>' +
             '<input type="tel" inputmode="tel" name="recipient_phone" required placeholder="(11) 99999-8888" />' +
           '</label>' +
-          '<label class="vtx-gr-field">' +
-            '<span class="vtx-gr-field-label">' + escapeHtml(cfg.modal_message_label) + '</span>' +
-            '<textarea name="personal_message" maxlength="500" placeholder="Ex.: Tô amando este e adoraria de presente ✨"></textarea>' +
-          '</label>' +
+          personalMessageField +
           '<button type="submit" class="vtx-gr-cta">' + escapeHtml(cfg.modal_cta_label) + '</button>' +
         '</form>' +
       '</div>';
@@ -3227,7 +3235,9 @@
       var requesterName = (form.requester_name.value || "").trim();
       var requesterPhone = (form.requester_phone.value || "").trim();
       var recipientPhone = (form.recipient_phone.value || "").trim();
-      var personalMessage = (form.personal_message.value || "").trim();
+      var personalMessage = form.personal_message
+        ? (form.personal_message.value || "").trim()
+        : "";
 
       if (!requesterName) {
         errorEl.textContent = "Preencha seu nome.";
