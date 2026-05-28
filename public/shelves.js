@@ -3126,11 +3126,12 @@
       // Botão fechar
       ".vtx-gr-close{position:absolute;top:16px;right:16px;background:#f1f5f9;border:0;width:32px;height:32px;border-radius:50%;font-size:20px;color:#64748b;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;transition:background .15s ease,color .15s ease}" +
       ".vtx-gr-close:hover{background:#e2e8f0;color:#0f172a}" +
-      // Erro
-      ".vtx-gr-error{margin:0 0 16px;padding:12px 14px;background:#fef2f2;color:#991b1b;border-radius:10px;font-size:13px;border:1px solid #fecaca;line-height:1.45}" +
-      // Sucesso
-      ".vtx-gr-success{text-align:center;padding:16px 4px 4px}" +
-      ".vtx-gr-success-icon{font-size:48px;line-height:1;margin-bottom:16px}" +
+      // Erro — monocromático, slate em vez de vermelho
+      ".vtx-gr-error{margin:0 0 16px;padding:12px 14px;background:#f1f5f9;color:#0f172a;border-radius:10px;font-size:13px;line-height:1.45;border-left:3px solid #0f172a}" +
+      // Sucesso — sem cor, ícone SVG preto traço fino
+      ".vtx-gr-success{text-align:center;padding:8px 4px 4px}" +
+      ".vtx-gr-success-icon{display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:#f1f5f9;color:#0f172a;margin-bottom:18px}" +
+      ".vtx-gr-success-icon svg{width:36px;height:36px}" +
       ".vtx-gr-success h3{font-size:22px;margin-bottom:10px;color:#0f172a}" +
       ".vtx-gr-success p{margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.55}" +
       // Mobile
@@ -3294,12 +3295,20 @@
             return;
           }
 
-          // Sucesso — substitui o conteúdo do modal
+          // Sucesso — substitui o conteúdo do modal. Ícone SVG (presente)
+          // monocromático em vez do emoji 🎁.
+          var giftSvg =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+              '<rect x="3" y="8" width="18" height="4" rx="1"/>' +
+              '<path d="M12 8v13"/>' +
+              '<path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/>' +
+              '<path d="M7.5 8a2.5 2.5 0 0 1 0-5 4.8 8 0 0 1 4.5 5 4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/>' +
+            '</svg>';
           var modal = overlay.querySelector(".vtx-gr-modal");
           modal.innerHTML =
             '<button type="button" class="vtx-gr-close" aria-label="Fechar">&times;</button>' +
             '<div class="vtx-gr-success">' +
-              '<div class="vtx-gr-success-icon">🎁</div>' +
+              '<div class="vtx-gr-success-icon">' + giftSvg + '</div>' +
               '<h3>' + escapeHtml(cfg.modal_success_title) + '</h3>' +
               '<p>' + escapeHtml(cfg.modal_success_message) + '</p>' +
               '<button type="button" class="vtx-gr-cta" data-close>Fechar</button>' +
