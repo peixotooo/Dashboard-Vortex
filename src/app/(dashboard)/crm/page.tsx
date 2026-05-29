@@ -1054,6 +1054,19 @@ export default function CrmPage() {
 
   const activeFilters = useMemo<ActiveFilter[]>(() => {
     const filters: ActiveFilter[] = [];
+    for (const uf of stateFilter) {
+      filters.push({
+        type: "state",
+        value: uf,
+        label: `Estado: ${uf}`,
+        color: "#f59e0b",
+        onRemove: () => setStateFilter((prev) => {
+          const next = new Set(prev);
+          next.delete(uf);
+          return next;
+        }),
+      });
+    }
     if (segmentFilter !== "all") {
       const meta = SEGMENT_META[segmentFilter];
       filters.push({ type: "segment", value: segmentFilter, label: meta.label, color: meta.color, onRemove: () => setSegmentFilter("all") });
@@ -1099,7 +1112,7 @@ export default function CrmPage() {
       filters.push({ type: "totalSpent", value: `${totalSpentRange.min ?? ""}-${totalSpentRange.max ?? ""}`, label: `Total: ${parts.join(" - ")}`, color: "#06b6d4", onRemove: () => setTotalSpentRange({ min: null, max: null }) });
     }
     return filters;
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
+  }, [stateFilter, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
 
   // Auto-load customers when any filter is applied
   useEffect(() => {
@@ -1116,6 +1129,7 @@ export default function CrmPage() {
     setHourFilter("all");
     setCouponFilter("all");
     setWeekdayFilter("all");
+    setStateFilter(new Set());
     setPurchasedDateRange(null);
     setInactiveDateRange(null);
     setAvgTicketRange({ min: null, max: null });
@@ -1132,6 +1146,11 @@ export default function CrmPage() {
     if (hourFilter !== "all") { parts.push(HOUR_LABELS[hourFilter]); filters.turno = hourFilter; }
     if (couponFilter !== "all") { parts.push(COUPON_META[couponFilter].label); filters.cupom = couponFilter; }
     if (weekdayFilter !== "all") { parts.push(WEEKDAY_META[weekdayFilter].label); filters.dia_semana = weekdayFilter; }
+    if (stateFilter.size > 0) {
+      const states = [...stateFilter];
+      parts.push(`estados-${states.join("-")}`);
+      filters.estados = states.join(",");
+    }
     if (purchasedDateRange) { parts.push(`comprou-${purchasedDateRange.from}-${purchasedDateRange.to}`); filters.comprou_periodo = `${purchasedDateRange.from}_${purchasedDateRange.to}`; }
     if (inactiveDateRange) { parts.push(`inativo-${inactiveDateRange.from}-${inactiveDateRange.to}`); filters.inativo_periodo = `${inactiveDateRange.from}_${inactiveDateRange.to}`; }
     if (avgTicketRange.min !== null || avgTicketRange.max !== null) { parts.push(`ticket-${avgTicketRange.min ?? 0}-${avgTicketRange.max ?? "max"}`); filters.ticket_medio = `${avgTicketRange.min ?? ""}-${avgTicketRange.max ?? ""}`; }
@@ -1142,7 +1161,7 @@ export default function CrmPage() {
       : "todos";
     exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
     logExport("hypersegmentation", filters, filteredCustomers.length);
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, filteredCustomers, logExport]);
+  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, filteredCustomers, logExport]);
 
   // KPI values — recalculate from filtered list when filters are active
   const hasActiveFilters = activeFilters.length > 0 || debouncedSearch.length > 0;
