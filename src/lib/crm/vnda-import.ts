@@ -129,6 +129,7 @@ export type VndaCrmImportOptions = {
   includeClients?: boolean;
   syncContactList?: boolean;
   onlyMissingCustomers?: boolean;
+  skipOrders?: boolean;
   contactListName?: string;
   orderPageSize?: number;
   clientPageSize?: number;
@@ -634,6 +635,7 @@ export async function runVndaCrmImport(
   const includeClients = options.includeClients ?? true;
   const dryRun = options.dryRun ?? false;
   const onlyMissingCustomers = options.onlyMissingCustomers ?? false;
+  const skipOrders = options.skipOrders ?? false;
   const orderPageSize = options.orderPageSize ?? DEFAULT_ORDER_PAGE_SIZE;
   const clientPageSize = options.clientPageSize ?? DEFAULT_CLIENT_PAGE_SIZE;
 
@@ -647,14 +649,19 @@ export async function runVndaCrmImport(
     ? await fetchVndaClients(config, { clientPageSize, maxClientPages: options.maxClientPages, onProgress: options.onProgress })
     : null;
 
-  const orders = await fetchVndaOrders(config, {
-    startDate,
-    endDate,
-    status,
-    orderPageSize,
-    maxOrderPages: options.maxOrderPages,
-    onProgress: options.onProgress,
-  });
+  const orders = skipOrders
+    ? []
+    : await fetchVndaOrders(config, {
+        startDate,
+        endDate,
+        status,
+        orderPageSize,
+        maxOrderPages: options.maxOrderPages,
+        onProgress: options.onProgress,
+      });
+  if (skipOrders) {
+    log(options.onProgress, "[VNDA Import] order import skipped");
+  }
 
   const rows = orders.map((order) => mapOrderToCrmRow(order, options.workspaceId));
   const orderEmails = new Set<string>();

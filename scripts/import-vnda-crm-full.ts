@@ -11,6 +11,7 @@
  *   npx tsx scripts/import-vnda-crm-full.ts --workspace=<uuid>
  *   npx tsx scripts/import-vnda-crm-full.ts --workspace=<uuid> --apply
  *   npx tsx scripts/import-vnda-crm-full.ts --workspace=<uuid> --apply --only-missing-customers
+ *   npx tsx scripts/import-vnda-crm-full.ts --workspace=<uuid> --apply --clients-only --sync-contact-list
  *   npx tsx scripts/import-vnda-crm-full.ts --workspace=<uuid> --apply --sync-contact-list
  */
 
@@ -29,6 +30,7 @@ type Args = {
   includeClients: boolean;
   syncContactList: boolean;
   onlyMissingCustomers: boolean;
+  clientsOnly: boolean;
   contactListName?: string;
   maxOrderPages?: number;
   maxClientPages?: number;
@@ -40,6 +42,7 @@ function readArgs(): Args {
     includeClients: true,
     syncContactList: false,
     onlyMissingCustomers: false,
+    clientsOnly: false,
   };
 
   for (const arg of process.argv.slice(2)) {
@@ -48,6 +51,7 @@ function readArgs(): Args {
     else if (arg === "--no-clients") args.includeClients = false;
     else if (arg === "--sync-contact-list") args.syncContactList = true;
     else if (arg === "--only-missing-customers") args.onlyMissingCustomers = true;
+    else if (arg === "--clients-only") args.clientsOnly = true;
     else if (arg.startsWith("--workspace=")) args.workspaceId = arg.slice("--workspace=".length);
     else if (arg.startsWith("--start=")) args.startDate = arg.slice("--start=".length);
     else if (arg.startsWith("--end=")) args.endDate = arg.slice("--end=".length);
@@ -86,10 +90,18 @@ async function main() {
     throw new Error(`Workspace nao encontrado: ${workspaceError?.message ?? args.workspaceId}`);
   }
 
+  if (args.clientsOnly) {
+    args.includeClients = true;
+  }
+
   console.log(`Workspace: ${workspace.name} (${workspace.id})`);
-  console.log(args.apply ? "Modo: APPLY (vai escrever em crm_vendas)" : "Modo: DRY-RUN (nao escreve nada)");
+  const applyTarget = args.clientsOnly ? "vai atualizar lista de contatos" : "vai escrever em crm_vendas";
+  console.log(args.apply ? `Modo: APPLY (${applyTarget})` : "Modo: DRY-RUN (nao escreve nada)");
   if (args.onlyMissingCustomers) {
     console.log("Escopo: somente emails que ainda nao existem em crm_vendas");
+  }
+  if (args.clientsOnly) {
+    console.log("Escopo: somente base de clientes/lista de contatos; pedidos serao ignorados");
   }
 
   const result = await runVndaCrmImport(admin, {
@@ -101,6 +113,7 @@ async function main() {
     includeClients: args.includeClients,
     syncContactList: args.syncContactList,
     onlyMissingCustomers: args.onlyMissingCustomers,
+    skipOrders: args.clientsOnly,
     contactListName: args.contactListName,
     maxOrderPages: args.maxOrderPages,
     maxClientPages: args.maxClientPages,
