@@ -228,7 +228,7 @@ export function StatesTabContent({
               maxWidth={520}
             />
             <p className="text-[11px] text-muted-foreground mt-4 text-center">
-              Layout aproximado por geografia (norte em cima, sul embaixo). Cor mais escura = mais clientes.
+              Layout aproximado por geografia (norte em cima, sul embaixo). Cores quentes e brilho maior = mais clientes.
               Tile selecionado fica amarelo.
             </p>
           </CardContent>

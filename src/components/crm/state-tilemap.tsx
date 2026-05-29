@@ -63,11 +63,12 @@ function colorIntensity(count: number, maxCount: number, selected: boolean): str
   if (selected) return "bg-amber-500 border-amber-300 text-amber-50 shadow-lg shadow-amber-500/40";
   if (count === 0 || maxCount === 0) return "bg-slate-700/80 border-slate-600 text-slate-300";
   const ratio = Math.log(1 + count) / Math.log(1 + maxCount);
-  if (ratio < 0.2) return "bg-sky-900 border-sky-700 text-sky-100";
-  if (ratio < 0.4) return "bg-sky-800 border-sky-600 text-sky-100";
-  if (ratio < 0.6) return "bg-sky-700 border-sky-500 text-white";
-  if (ratio < 0.8) return "bg-sky-600 border-sky-400 text-white";
-  return "bg-sky-500 border-sky-300 text-white";
+  if (ratio < 0.2) return "bg-slate-800 border-slate-500 text-slate-100";
+  if (ratio < 0.4) return "bg-cyan-800 border-cyan-500 text-cyan-50";
+  if (ratio < 0.6) return "bg-emerald-700 border-emerald-400 text-white";
+  if (ratio < 0.78) return "bg-lime-500 border-lime-200 text-slate-950 shadow-md shadow-lime-500/25";
+  if (ratio < 0.92) return "bg-amber-500 border-amber-200 text-slate-950 shadow-lg shadow-amber-500/40";
+  return "bg-orange-500 border-orange-200 text-white shadow-xl shadow-orange-500/50";
 }
 
 export function StateTilemap({
