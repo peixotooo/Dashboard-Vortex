@@ -919,11 +919,16 @@ export default function CrmPage() {
       const res = await fetch("/api/crm/vnda-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...wsHeaders() },
-        body: JSON.stringify({ startDate: "2020-01-01" }),
+        body: JSON.stringify({ startDate: "2010-01-01", includeClients: false }),
       });
       const data = await res.json();
       if (res.ok) {
-        setSyncResult(`✓ ${data.synced} pedidos sincronizados`);
+        const newCustomers = data.orders?.newCustomerEmails ?? 0;
+        const skipped =
+          (data.orders?.skippedExistingSourceOrder ?? 0) +
+          (data.orders?.skippedExistingOrderCode ?? 0) +
+          (data.orders?.skippedExistingFingerprint ?? 0);
+        setSyncResult(`✓ ${data.synced} pedidos sincronizados · ${newCustomers} clientes novos · ${skipped} pedidos já existiam`);
         setCustomersLoaded(false);
         await Promise.all([fetchSummary(), fetchMetrics({ bypassCache: true }), fetchExportLogs()]);
       } else {
@@ -1402,7 +1407,7 @@ export default function CrmPage() {
             className="gap-1.5 text-xs"
             onClick={handleVndaSync}
             disabled={syncing || computing || loading}
-            title="Importar todos os pedidos VNDA e corrigir contagem de clientes"
+            title="Importar historico de pedidos VNDA e medir cobertura da base de clientes"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Sincronizando..." : "Sincronizar VNDA"}
