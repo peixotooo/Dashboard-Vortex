@@ -165,6 +165,26 @@ interface PreparedRun {
   };
 }
 
+interface WhatsAppRunSummary {
+  campaignCount: number;
+  totalMessages: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  costBrl: number;
+  statuses: Record<string, number>;
+  campaigns: Array<{
+    id: string;
+    name: string;
+    status: string;
+    totalMessages: number;
+    sent: number;
+    costBrl: number;
+    createdAt: string;
+  }>;
+}
+
 interface RunReport {
   id: string;
   playbookName: string;
@@ -203,6 +223,10 @@ interface RunReport {
     liftConversion: number;
     incrementalRevenue: number;
     incrementalContribution: number;
+    trackedChannelCost: number;
+  };
+  channels?: {
+    whatsapp?: WhatsAppRunSummary;
   };
   links: {
     whatsapp: string;
@@ -233,6 +257,28 @@ function actionIcon(kind: PlaybookAction["kind"]) {
   if (kind === "list") return <ListChecks className="h-3.5 w-3.5" />;
   if (kind === "cashback") return <Coins className="h-3.5 w-3.5" />;
   return <BarChart3 className="h-3.5 w-3.5" />;
+}
+
+const WA_STATUS_LABELS: Record<string, string> = {
+  draft: "rascunho",
+  pending: "pendente",
+  scheduled: "agendada",
+  sending: "enviando",
+  completed: "concluida",
+  failed: "falhou",
+  canceled: "cancelada",
+  cancelled: "cancelada",
+  paused: "pausada",
+};
+
+function waStatusLabel(status: string) {
+  return WA_STATUS_LABELS[status.toLowerCase()] || status;
+}
+
+function waStatusSummary(statuses: Record<string, number> | undefined) {
+  const entries = Object.entries(statuses || {}).filter(([, count]) => count > 0);
+  if (entries.length === 0) return "sem campanha";
+  return entries.map(([status, count]) => `${NUMBER(count)} ${waStatusLabel(status)}`).join(" · ");
 }
 
 function MetricCard({
@@ -605,8 +651,13 @@ export default function RetentionPlaybooksPage() {
               </Card>
             ) : (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {runs.map((run) => (
-                  <Card key={run.id}>
+                {runs.map((run) => {
+                  const whatsapp = run.channels?.whatsapp;
+                  const whatsappCampaigns = whatsapp?.campaigns ?? [];
+                  const hasWhatsapp = (whatsapp?.campaignCount ?? 0) > 0;
+
+                  return (
+                    <Card key={run.id}>
                     <CardHeader className="pb-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
@@ -655,7 +706,7 @@ export default function RetentionPlaybooksPage() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 text-sm md:grid-cols-3">
+                      <div className="grid gap-3 text-sm md:grid-cols-4">
                         <div>
                           <p className="text-xs text-muted-foreground">Receita trat.</p>
                           <p className="font-semibold">{BRL(run.metrics.treatment.revenue)}</p>
@@ -665,15 +716,78 @@ export default function RetentionPlaybooksPage() {
                           <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Contribuicao inc.</p>
+                          <p className="text-xs text-muted-foreground">Custo canal</p>
+                          <p className="font-semibold">{BRL(run.metrics.trackedChannelCost ?? 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Contribuicao liquida</p>
                           <p className="font-semibold text-primary">
                             {BRL(run.metrics.incrementalContribution)}
                           </p>
                         </div>
                       </div>
+
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold">WhatsApp vinculado</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {waStatusSummary(whatsapp?.statuses)}
+                            </p>
+                          </div>
+                          <Badge variant={hasWhatsapp ? "secondary" : "outline"}>
+                            {hasWhatsapp
+                              ? `${NUMBER(whatsapp?.campaignCount ?? 0)} campanhas`
+                              : "sem campanha"}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Disparadas</p>
+                            <p className="font-semibold">{NUMBER(whatsapp?.sent ?? 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Lidas</p>
+                            <p className="font-semibold">{NUMBER(whatsapp?.read ?? 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Falhas</p>
+                            <p className="font-semibold">{NUMBER(whatsapp?.failed ?? 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Custo WA</p>
+                            <p className="font-semibold">{BRL(whatsapp?.costBrl ?? 0)}</p>
+                          </div>
+                        </div>
+
+                        {whatsappCampaigns.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {whatsappCampaigns.map((campaign) => (
+                              <div
+                                key={campaign.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background px-3 py-2 text-xs"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-foreground">{campaign.name}</p>
+                                  <p className="text-muted-foreground">
+                                    {new Date(campaign.createdAt).toLocaleDateString("pt-BR")} ·{" "}
+                                    {waStatusLabel(campaign.status)}
+                                  </p>
+                                </div>
+                                <div className="text-right text-muted-foreground">
+                                  <p>{NUMBER(campaign.sent)} envios</p>
+                                  <p>{BRL(campaign.costBrl)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </section>

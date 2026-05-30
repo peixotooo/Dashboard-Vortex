@@ -31,6 +31,29 @@ interface CashbackRow {
   expira_em: string | null;
 }
 
+interface WaCampaignRow {
+  id: string;
+  name: string;
+  status: string;
+  total_messages: number | string | null;
+  sent_count: number | string | null;
+  delivered_count: number | string | null;
+  read_count: number | string | null;
+  failed_count: number | string | null;
+  message_cost_usd: number | string | null;
+  exchange_rate: number | string | null;
+  created_at: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  segment_filter: {
+    playbook_run_id?: string;
+    playbook_id?: string;
+    playbook_name?: string;
+    contact_list_id?: string;
+  } | null;
+}
+
 interface Contact {
   email?: string;
   phone?: string;
@@ -459,6 +482,83 @@ async function fetchSalesSince(
   return rows;
 }
 
+async function fetchWaCampaignsSince(
+  admin: AdminClient,
+  workspaceId: string,
+  since: string,
+  runIds: Set<string>
+): Promise<WaCampaignRow[]> {
+  const rows: WaCampaignRow[] = [];
+  for (let from = 0; from < 10000; from += PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("wa_campaigns")
+      .select(
+        "id, name, status, total_messages, sent_count, delivered_count, read_count, failed_count, message_cost_usd, exchange_rate, created_at, scheduled_at, started_at, completed_at, segment_filter"
+      )
+      .eq("workspace_id", workspaceId)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = ((data || []) as WaCampaignRow[]).filter((campaign) => {
+      const runId = campaign.segment_filter?.playbook_run_id;
+      return runId ? runIds.has(runId) : false;
+    });
+    rows.push(...page);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
+  const rows = campaigns.filter((campaign) => campaign.segment_filter?.playbook_run_id === runId);
+  const totals = rows.reduce(
+    (acc, campaign) => {
+      const sent = toNumber(campaign.sent_count);
+      const total = toNumber(campaign.total_messages);
+      const delivered = toNumber(campaign.delivered_count);
+      const read = toNumber(campaign.read_count);
+      const failed = toNumber(campaign.failed_count);
+      const costBrl = sent * toNumber(campaign.message_cost_usd, 0.0625) * toNumber(campaign.exchange_rate, 5.5);
+      acc.totalMessages += total;
+      acc.sent += sent;
+      acc.delivered += delivered;
+      acc.read += read;
+      acc.failed += failed;
+      acc.costBrl += costBrl;
+      acc.statuses[campaign.status] = (acc.statuses[campaign.status] || 0) + 1;
+      return acc;
+    },
+    {
+      totalMessages: 0,
+      sent: 0,
+      delivered: 0,
+      read: 0,
+      failed: 0,
+      costBrl: 0,
+      statuses: {} as Record<string, number>,
+    }
+  );
+
+  return {
+    campaignCount: rows.length,
+    ...totals,
+    campaigns: rows.slice(0, 5).map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      totalMessages: toNumber(campaign.total_messages),
+      sent: toNumber(campaign.sent_count),
+      costBrl:
+        toNumber(campaign.sent_count) *
+        toNumber(campaign.message_cost_usd, 0.0625) *
+        toNumber(campaign.exchange_rate, 5.5),
+      createdAt: campaign.created_at,
+    })),
+  };
+}
+
 async function contributionMarginPct(admin: AdminClient, workspaceId: string): Promise<number> {
   const { data } = await admin
     .from("workspace_financial_settings")
@@ -615,8 +715,12 @@ export async function GET(request: NextRequest) {
     const since = groups
       .map(([, group]) => group.treatment!.created_at)
       .sort()[0];
-    const sales = await fetchSalesSince(auth!.admin, auth!.workspaceId, since);
-    const marginPct = await contributionMarginPct(auth!.admin, auth!.workspaceId);
+    const runIds = new Set(groups.map(([runId]) => runId));
+    const [sales, marginPct, waCampaigns] = await Promise.all([
+      fetchSalesSince(auth!.admin, auth!.workspaceId, since),
+      contributionMarginPct(auth!.admin, auth!.workspaceId),
+      fetchWaCampaignsSince(auth!.admin, auth!.workspaceId, since, runIds),
+    ]);
 
     const runs = groups.map(([runId, group]) => {
       const treatment = group.treatment!;
@@ -632,6 +736,9 @@ export async function GET(request: NextRequest) {
       const liftRevenuePerContact =
         treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
+      const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
+      const incrementalContribution =
+        incrementalRevenue * (marginPct / 100) - whatsapp.costBrl;
 
       return {
         id: runId,
@@ -659,7 +766,11 @@ export async function GET(request: NextRequest) {
           holdout: holdoutMetrics,
           liftConversion,
           incrementalRevenue,
-          incrementalContribution: incrementalRevenue * (marginPct / 100),
+          incrementalContribution,
+          trackedChannelCost: whatsapp.costBrl,
+        },
+        channels: {
+          whatsapp,
         },
         links: {
           whatsapp: withParams("/crm/whatsapp", {
