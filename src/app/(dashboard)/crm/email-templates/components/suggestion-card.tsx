@@ -18,10 +18,14 @@ export function SuggestionCard({
   suggestion,
   onChanged,
   workspaceId,
+  initialListId,
+  initialAudienceLabel,
 }: {
   suggestion: EmailSuggestion;
   onChanged: () => void;
   workspaceId: string;
+  initialListId?: string;
+  initialAudienceLabel?: string;
 }) {
   const [copying, setCopying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -152,6 +156,8 @@ export function SuggestionCard({
       <SuggestionDispatchDialog
         suggestion={dispatchOpen ? suggestion : null}
         workspaceId={workspaceId}
+        initialListId={initialListId}
+        initialAudienceLabel={initialAudienceLabel}
         onClose={() => {
           setDispatchOpen(false);
           onChanged();

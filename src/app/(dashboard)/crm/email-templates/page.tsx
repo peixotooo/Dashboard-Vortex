@@ -8,8 +8,15 @@ import { SettingsDrawer } from "./components/settings-drawer";
 import { SectionNav } from "./_components/section-nav";
 import { AIComposeDialog } from "./_components/ai-compose-dialog";
 import { Button } from "@/components/ui/button";
-import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
+import { Sparkles, RefreshCw, Loader2, ListChecks, X } from "lucide-react";
 import type { EmailSuggestion } from "@/lib/email-templates/types";
+
+interface RetentionEmailContext {
+  listId: string;
+  audience: string;
+  playbook: string;
+  run: string;
+}
 
 export default function EmailTemplatesPage() {
   const { workspace, userRole } = useWorkspace();
@@ -21,6 +28,19 @@ export default function EmailTemplatesPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [retentionContext, setRetentionContext] = useState<RetentionEmailContext | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const listId = params.get("list");
+    if (!listId) return;
+    setRetentionContext({
+      listId,
+      audience: params.get("audience") || "Lista de tratamento",
+      playbook: params.get("playbook") || "Playbook de retencao",
+      run: params.get("run") || "",
+    });
+  }, []);
 
   const reload = useCallback(async () => {
     if (!workspaceId) return;
@@ -73,6 +93,11 @@ export default function EmailTemplatesPage() {
     }
   };
 
+  const clearRetentionContext = () => {
+    setRetentionContext(null);
+    window.history.replaceState(null, "", "/crm/email-templates");
+  };
+
   if (!workspaceId) {
     return (
       <div className="p-6 max-w-5xl mx-auto">
@@ -108,6 +133,24 @@ export default function EmailTemplatesPage() {
         onClose={() => setAiOpen(false)}
         workspaceId={workspaceId}
       />
+      {retentionContext && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 p-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{retentionContext.playbook}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                Audiência: {retentionContext.audience}
+                {retentionContext.run ? ` · Run ${retentionContext.run.slice(0, 8)}` : ""}
+              </p>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={clearRetentionContext}>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Remover
+          </Button>
+        </div>
+      )}
       <Tabs defaultValue="today">
         <TabsList>
           <TabsTrigger value="today">Hoje</TabsTrigger>
@@ -174,6 +217,8 @@ export default function EmailTemplatesPage() {
               suggestion={s}
               onChanged={reload}
               workspaceId={workspaceId}
+              initialListId={retentionContext?.listId}
+              initialAudienceLabel={retentionContext?.audience}
             />
           ))}
         </TabsContent>

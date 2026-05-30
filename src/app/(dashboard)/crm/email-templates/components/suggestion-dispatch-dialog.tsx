@@ -45,6 +45,8 @@ interface LocawebList {
 interface Props {
   suggestion: EmailSuggestion | null;
   workspaceId: string;
+  initialListId?: string;
+  initialAudienceLabel?: string;
   onClose: () => void;
 }
 
@@ -54,7 +56,13 @@ const SLOT_LABEL: Record<number, string> = {
   3: "Novidade",
 };
 
-export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: Props) {
+export function SuggestionDispatchDialog({
+  suggestion,
+  workspaceId,
+  initialListId,
+  initialAudienceLabel,
+  onClose,
+}: Props) {
   const [stepIndex, setStepIndex] = useState(0);
 
   // Step 1: conteúdo (subject/headline/lead/CTA editáveis inline). Se
@@ -106,7 +114,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     setSaveDraftError(null);
     setTestSentTo(null);
     setLists(null);
-    setSelectedListIds(new Set());
+    setSelectedListIds(initialListId ? new Set([initialListId]) : new Set());
     setUseSegment(false);
     setScheduleEnabled(false);
     setScheduledDate(new Date().toISOString().slice(0, 10));
@@ -114,7 +122,7 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
     setError(null);
     setSuccess(null);
     setSubmitting(false);
-  }, [suggestion]);
+  }, [suggestion, initialListId]);
 
   // Carrega provider ativo logo quando o dialog abre — usado só pra
   // adaptar texto da success card. Audiência (listas + segmento) é
@@ -512,6 +520,14 @@ export function SuggestionDispatchDialog({ suggestion, workspaceId, onClose }: P
           <Label className="text-xs uppercase tracking-widest text-muted-foreground pt-2 block">
             Listas (criadas no CRM)
           </Label>
+          {initialListId && (
+            <div className="rounded-md border bg-muted/30 p-2.5 text-xs">
+              <div className="font-medium">Lista da execucao</div>
+              <div className="mt-0.5 text-muted-foreground">
+                {initialAudienceLabel || initialListId}
+              </div>
+            </div>
+          )}
           {lists === null ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...

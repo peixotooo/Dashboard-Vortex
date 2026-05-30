@@ -353,6 +353,19 @@ function runNeedsCoupon(playbookName: string) {
   return /cupom|segunda|recorrentes|dormantes|winback/i.test(playbookName);
 }
 
+function emailTemplatesHref(run: RunReport) {
+  const listId = run.channels?.email?.locawebListId || run.treatmentList.locawebListId;
+  if (!listId) return "/crm/email-templates";
+
+  const params = new URLSearchParams({
+    list: listId,
+    audience: run.treatmentList.name,
+    run: run.id,
+    playbook: run.playbookName,
+  });
+  return `/crm/email-templates?${params.toString()}`;
+}
+
 function getRunNextAction(run: RunReport) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
@@ -393,7 +406,7 @@ function getRunNextAction(run: RunReport) {
   if (emailReady && !emailSent) {
     return {
       label: "Criar email",
-      href: "/crm/email-templates",
+      href: emailTemplatesHref(run),
       hint: "A lista ja esta pronta para ser usada no disparo.",
       icon: <Mail className="h-3.5 w-3.5" />,
     };
