@@ -84,6 +84,7 @@ interface ContactListRow {
   total_count: number;
   phone_count: number;
   email_count: number;
+  locaweb_list_id: string | null;
   created_at: string;
   auto_segment: {
     type?: string;
@@ -399,7 +400,7 @@ async function createList(params: {
       created_by: params.userId,
       auto_segment: params.autoSegment,
     })
-    .select("id, name, description, total_count, phone_count, email_count, created_at, auto_segment")
+    .select("id, name, description, total_count, phone_count, email_count, locaweb_list_id, created_at, auto_segment")
     .single();
 
   if (error) throw error;
@@ -556,6 +557,15 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
         toNumber(campaign.exchange_rate, 5.5),
       createdAt: campaign.created_at,
     })),
+  };
+}
+
+function summarizeEmailChannel(list: ContactListRow) {
+  return {
+    listReady: Boolean(list.locaweb_list_id),
+    locawebListId: list.locaweb_list_id,
+    emailContacts: list.email_count,
+    sourceListId: list.id,
   };
 }
 
@@ -737,6 +747,7 @@ export async function GET(request: NextRequest) {
         treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
+      const email = summarizeEmailChannel(treatment);
       const incrementalContribution =
         incrementalRevenue * (marginPct / 100) - whatsapp.costBrl;
 
@@ -751,6 +762,7 @@ export async function GET(request: NextRequest) {
           totalCount: treatment.total_count,
           phoneCount: treatment.phone_count,
           emailCount: treatment.email_count,
+          locawebListId: treatment.locaweb_list_id,
         },
         holdoutList: holdout
           ? {
@@ -759,6 +771,7 @@ export async function GET(request: NextRequest) {
               totalCount: holdout.total_count,
               phoneCount: holdout.phone_count,
               emailCount: holdout.email_count,
+              locawebListId: holdout.locaweb_list_id,
             }
           : null,
         metrics: {
@@ -771,6 +784,7 @@ export async function GET(request: NextRequest) {
         },
         channels: {
           whatsapp,
+          email,
         },
         links: {
           whatsapp: withParams("/crm/whatsapp", {

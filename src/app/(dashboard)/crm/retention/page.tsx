@@ -6,6 +6,7 @@ import {
   AlertCircle,
   ArrowUpRight,
   BarChart3,
+  CheckCircle2,
   Coins,
   ListChecks,
   Loader2,
@@ -149,6 +150,7 @@ interface PreparedRun {
     total_count: number;
     phone_count: number;
     email_count: number;
+    locaweb_list_id?: string | null;
   };
   holdoutList: {
     id: string;
@@ -156,6 +158,7 @@ interface PreparedRun {
     total_count: number;
     phone_count: number;
     email_count: number;
+    locaweb_list_id?: string | null;
   } | null;
   links: {
     whatsapp: string;
@@ -185,6 +188,13 @@ interface WhatsAppRunSummary {
   }>;
 }
 
+interface EmailRunSummary {
+  listReady: boolean;
+  locawebListId: string | null;
+  emailContacts: number;
+  sourceListId: string;
+}
+
 interface RunReport {
   id: string;
   playbookName: string;
@@ -195,6 +205,7 @@ interface RunReport {
     totalCount: number;
     phoneCount: number;
     emailCount: number;
+    locawebListId: string | null;
   };
   holdoutList: {
     id: string;
@@ -202,6 +213,7 @@ interface RunReport {
     totalCount: number;
     phoneCount: number;
     emailCount: number;
+    locawebListId: string | null;
   } | null;
   metrics: {
     treatment: {
@@ -227,6 +239,7 @@ interface RunReport {
   };
   channels?: {
     whatsapp?: WhatsAppRunSummary;
+    email?: EmailRunSummary;
   };
   links: {
     whatsapp: string;
@@ -279,6 +292,130 @@ function waStatusSummary(statuses: Record<string, number> | undefined) {
   const entries = Object.entries(statuses || {}).filter(([, count]) => count > 0);
   if (entries.length === 0) return "sem campanha";
   return entries.map(([status, count]) => `${NUMBER(count)} ${waStatusLabel(status)}`).join(" · ");
+}
+
+type ExecutionStepState = "ready" | "todo" | "optional";
+
+const EXECUTION_STATE_LABELS: Record<ExecutionStepState, string> = {
+  ready: "pronto",
+  todo: "fazer",
+  optional: "opcional",
+};
+
+function ExecutionStep({
+  icon,
+  label,
+  state,
+  hint,
+  href,
+  actionLabel,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  state: ExecutionStepState;
+  hint: string;
+  href?: string;
+  actionLabel?: string;
+}) {
+  return (
+    <div className="flex min-h-[132px] flex-col justify-between rounded-md border bg-background p-3">
+      <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="text-muted-foreground">{icon}</span>
+            {label}
+          </div>
+          <Badge variant={state === "ready" ? "secondary" : "outline"}>
+            {EXECUTION_STATE_LABELS[state]}
+          </Badge>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">{hint}</p>
+      </div>
+      {href && actionLabel && (
+        <Button asChild size="sm" variant={state === "todo" ? "default" : "outline"} className="mt-3 w-full">
+          <Link href={href}>{actionLabel}</Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function RunExecutionChecklist({ run }: { run: RunReport }) {
+  const whatsapp = run.channels?.whatsapp;
+  const email = run.channels?.email;
+  const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
+  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
+  const emailReady = Boolean(email?.listReady);
+  const needsCoupon = /cupom|segunda|recorrentes|dormantes|winback/i.test(run.playbookName);
+
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">Esteira da execucao</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Lista, canais e holdout precisam ficar ligados ao mesmo run.
+          </p>
+        </div>
+        <Badge variant={whatsappReady && hasHoldout ? "secondary" : "outline"}>
+          {whatsappReady && hasHoldout ? "medindo" : "preparando"}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-5">
+        <ExecutionStep
+          icon={<ListChecks className="h-3.5 w-3.5" />}
+          label="Audiencia"
+          state="ready"
+          hint={`${NUMBER(run.treatmentList.totalCount)} tratamento · ${NUMBER(run.holdoutList?.totalCount ?? 0)} holdout`}
+          href={run.links.lists}
+          actionLabel="Abrir lista"
+        />
+        <ExecutionStep
+          icon={<MessageCircle className="h-3.5 w-3.5" />}
+          label="WhatsApp"
+          state={whatsappReady ? "ready" : "todo"}
+          hint={
+            whatsappReady
+              ? `${NUMBER(whatsapp?.sent ?? 0)} envios vinculados`
+              : `${NUMBER(run.treatmentList.phoneCount)} contatos com telefone`
+          }
+          href={run.links.whatsapp}
+          actionLabel={whatsappReady ? "Abrir" : "Criar"}
+        />
+        <ExecutionStep
+          icon={<Mail className="h-3.5 w-3.5" />}
+          label="Email"
+          state={emailReady ? "ready" : "todo"}
+          hint={
+            emailReady
+              ? `Lista Locaweb pronta`
+              : `${NUMBER(email?.emailContacts ?? run.treatmentList.emailCount)} contatos com email`
+          }
+          href={emailReady ? run.links.lists : run.links.email}
+          actionLabel={emailReady ? "Abrir" : "Promover"}
+        />
+        <ExecutionStep
+          icon={<Tag className="h-3.5 w-3.5" />}
+          label="Cupom"
+          state={needsCoupon ? "todo" : "optional"}
+          hint={needsCoupon ? "Oferta precisa de plano VNDA" : "Sem desconto novo como padrao"}
+          href={run.links.coupons}
+          actionLabel={needsCoupon ? "Criar" : "Avaliar"}
+        />
+        <ExecutionStep
+          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+          label="Medicao"
+          state={hasHoldout ? "ready" : "todo"}
+          hint={
+            hasHoldout
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo`
+              : "Sem grupo de controle"
+          }
+        />
+      </div>
+    </div>
+  );
 }
 
 function MetricCard({
@@ -637,7 +774,7 @@ export default function RetentionPlaybooksPage() {
               <div>
                 <h2 className="text-lg font-semibold">Execucoes recentes</h2>
                 <p className="text-sm text-muted-foreground">
-                  Comparativo tratamento vs holdout desde a criacao da lista.
+                  Canais preparados, holdout e resultado incremental por run.
                 </p>
               </div>
               <Badge variant="outline">{NUMBER(runs.length)} runs</Badge>
@@ -666,27 +803,11 @@ export default function RetentionPlaybooksPage() {
                             {new Date(run.createdAt).toLocaleDateString("pt-BR")} · {run.id.slice(0, 8)}
                           </p>
                         </div>
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={run.links.whatsapp}>
-                            <MessageCircle className="mr-2 h-3.5 w-3.5" />
-                            WhatsApp
-                          </Link>
-                        </Button>
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={run.links.email}>
-                            <Mail className="mr-2 h-3.5 w-3.5" />
-                            Email
-                          </Link>
-                        </Button>
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={run.links.coupons}>
-                            <Tag className="mr-2 h-3.5 w-3.5" />
-                            Cupom
-                          </Link>
-                        </Button>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                      <RunExecutionChecklist run={run} />
+
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                         <div>
                           <p className="text-xs text-muted-foreground">Tratamento</p>
