@@ -37,6 +37,81 @@ function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function formatDateKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function formatDateLabel(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-");
+  return `${day}/${month}`;
+}
+
+function getAttributionStart(campaign: {
+  started_at: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}) {
+  const started = validDate(campaign.started_at);
+  if (started) return { date: started, source: "started_at" };
+
+  const created = validDate(campaign.created_at);
+  if (created) return { date: created, source: "created_at" };
+
+  const completed = validDate(campaign.completed_at);
+  if (completed) return { date: completed, source: "completed_at" };
+
+  return { date: null, source: null };
+}
+
+function buildBehaviorSeries(
+  startedAt: Date,
+  windowEnd: Date,
+  daily: Map<string, { conversions: number; revenue: number }>,
+  totalCostBrl: number
+) {
+  const startKey = formatDateKey(startedAt);
+  const endKey = formatDateKey(windowEnd);
+  const cursor = new Date(`${startKey}T12:00:00.000Z`);
+  const end = new Date(`${endKey}T12:00:00.000Z`);
+  const points: Array<{
+    date: string;
+    label: string;
+    conversions: number;
+    revenue: number;
+    cumulative_conversions: number;
+    cumulative_revenue: number;
+    cumulative_roas: number;
+  }> = [];
+
+  let cumulativeConversions = 0;
+  let cumulativeRevenue = 0;
+  while (cursor <= end) {
+    const key = cursor.toISOString().slice(0, 10);
+    const day = daily.get(key) || { conversions: 0, revenue: 0 };
+    cumulativeConversions += day.conversions;
+    cumulativeRevenue += day.revenue;
+    points.push({
+      date: key,
+      label: formatDateLabel(key),
+      conversions: day.conversions,
+      revenue: round2(day.revenue),
+      cumulative_conversions: cumulativeConversions,
+      cumulative_revenue: round2(cumulativeRevenue),
+      cumulative_roas: totalCostBrl > 0 ? round2(cumulativeRevenue / totalCostBrl) : 0,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return points;
+}
+
 async function fetchPaged<T>(buildQuery: () => any): Promise<T[]> {
   const out: T[] = [];
   for (let offset = 0; offset < 500000; offset += 1000) {
@@ -84,10 +159,8 @@ export async function GET(
     const totalCostBrl = round2(totalCostUsd * rate);
 
     // Campanhas antigas podem ter sido concluídas sem preencher started_at.
-    const startedAt =
-      validDate(campaign.started_at) ||
-      validDate(campaign.created_at) ||
-      validDate(campaign.completed_at);
+    const attributionStart = getAttributionStart(campaign);
+    const startedAt = attributionStart.date;
 
     if (!startedAt) {
       return NextResponse.json({
@@ -101,6 +174,10 @@ export async function GET(
         window_active: false,
         window_ends_at: null,
         sent_count: sentCount,
+        matched_phones: 0,
+        attribution_start: null,
+        attribution_start_source: null,
+        behavior: [],
       });
     }
 
@@ -129,6 +206,10 @@ export async function GET(
         window_active: windowActive,
         window_ends_at: windowEnd.toISOString(),
         sent_count: sentCount,
+        matched_phones: 0,
+        attribution_start: startedAt.toISOString(),
+        attribution_start_source: attributionStart.source,
+        behavior: buildBehaviorSeries(startedAt, windowEnd, new Map(), totalCostBrl),
       });
     }
 
@@ -148,10 +229,18 @@ export async function GET(
     // 4. Match sales to campaign phones
     let conversions = 0;
     let attributedRevenue = 0;
+    const daily = new Map<string, { conversions: number; revenue: number }>();
 
     for (const sale of sales) {
       const normalized = normalizePhone(sale.telefone);
       if (normalized && phoneSet.has(normalized)) {
+        const saleDate = validDate(sale.data_compra);
+        if (!saleDate) continue;
+        const key = formatDateKey(saleDate);
+        const day = daily.get(key) || { conversions: 0, revenue: 0 };
+        day.conversions += 1;
+        day.revenue += Number(sale.valor) || 0;
+        daily.set(key, day);
         conversions++;
         attributedRevenue += Number(sale.valor) || 0;
       }
@@ -175,6 +264,9 @@ export async function GET(
       window_ends_at: windowEnd.toISOString(),
       sent_count: sentCount,
       matched_phones: phoneSet.size,
+      attribution_start: startedAt.toISOString(),
+      attribution_start_source: attributionStart.source,
+      behavior: buildBehaviorSeries(startedAt, windowEnd, daily, totalCostBrl),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

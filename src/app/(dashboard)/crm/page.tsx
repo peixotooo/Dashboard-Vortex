@@ -58,6 +58,13 @@ import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber } from "@/lib/utils";
@@ -690,6 +697,31 @@ export default function CrmPage() {
     revenue_per_sent: number;
   }
 
+  interface WaPerformanceDetail {
+    conversions: number;
+    attributed_revenue: number;
+    total_cost_brl: number;
+    real_cost_brl?: number;
+    roi_pct: number;
+    roas: number;
+    window_days: number;
+    window_active: boolean;
+    window_ends_at: string | null;
+    sent_count: number;
+    matched_phones: number;
+    attribution_start: string | null;
+    attribution_start_source: string | null;
+    behavior: Array<{
+      date: string;
+      label: string;
+      conversions: number;
+      revenue: number;
+      cumulative_conversions: number;
+      cumulative_revenue: number;
+      cumulative_roas: number;
+    }>;
+  }
+
   const [metricsData, setMetricsData] = useState<MetricsData | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyCohortRow[]>([]);
   const [adSpend, setAdSpend] = useState<Record<string, number> | null>(null);
@@ -708,6 +740,10 @@ export default function CrmPage() {
   const [waPerfError, setWaPerfError] = useState<string | null>(null);
   const [waPerfDays, setWaPerfDays] = useState(90);
   const [waPerfSort, setWaPerfSort] = useState<"revenue" | "roas" | "conversions" | "revenue_per_sent" | "cost">("revenue");
+  const [selectedWaPerfRow, setSelectedWaPerfRow] = useState<WaPerformanceRow | null>(null);
+  const [waPerfDetail, setWaPerfDetail] = useState<WaPerformanceDetail | null>(null);
+  const [waPerfDetailLoading, setWaPerfDetailLoading] = useState(false);
+  const [waPerfDetailError, setWaPerfDetailError] = useState<string | null>(null);
 
   // Snapshot recompute
   const [computing, setComputing] = useState(false);
@@ -754,6 +790,33 @@ export default function CrmPage() {
       setWaPerfLoading(false);
     }
   }, [workspace?.id, waPerfDays, wsHeaders]);
+
+  const openWaPerformanceDetail = useCallback(async (row: WaPerformanceRow) => {
+    if (!workspace?.id) return;
+    setSelectedWaPerfRow(row);
+    setWaPerfDetail(null);
+    setWaPerfDetailError(null);
+    setWaPerfDetailLoading(true);
+    try {
+      const res = await fetch(`/api/crm/whatsapp/campaigns/${row.campaign.id}/performance`, {
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao carregar detalhes da campanha.");
+      setWaPerfDetail(data);
+    } catch (error) {
+      setWaPerfDetailError(error instanceof Error ? error.message : "Falha ao carregar detalhes da campanha.");
+    } finally {
+      setWaPerfDetailLoading(false);
+    }
+  }, [workspace?.id, wsHeaders]);
+
+  const closeWaPerformanceDetail = useCallback(() => {
+    setSelectedWaPerfRow(null);
+    setWaPerfDetail(null);
+    setWaPerfDetailError(null);
+    setWaPerfDetailLoading(false);
+  }, []);
 
   // Stage 1: summary only (mount) — ~5KB instead of 10-35MB
   const fetchSummary = useCallback(async () => {
@@ -2339,7 +2402,7 @@ export default function CrmPage() {
                 <div>
                   <CardTitle className="text-base">Ranking de campanhas</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Receita = soma de pedidos do CRM cujo telefone recebeu a campanha dentro da janela.
+                    Receita = soma de pedidos do CRM cujo telefone recebeu a campanha dentro da janela. Clique em uma linha para ver detalhes.
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -2378,7 +2441,19 @@ export default function CrmPage() {
                         row.performance.roas >= 3 ? "text-green-600" :
                         row.performance.roas >= 1 ? "text-amber-600" : "text-red-600";
                       return (
-                        <tr key={row.campaign.id} className="border-b border-border/50 hover:bg-muted/20">
+                        <tr
+                          key={row.campaign.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openWaPerformanceDetail(row)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openWaPerformanceDetail(row);
+                            }
+                          }}
+                          className="border-b border-border/50 hover:bg-muted/20 cursor-pointer focus-visible:outline-none focus-visible:bg-muted/30"
+                        >
                           <td className="py-3 px-2">
                             <p className="font-medium text-foreground">{row.campaign.name}</p>
                             <p className="text-xs text-muted-foreground">
@@ -2882,6 +2957,159 @@ export default function CrmPage() {
         contacts={emailListContacts}
         suggestedName={emailListSuggestedName}
       />
+
+      <Dialog open={!!selectedWaPerfRow} onOpenChange={(open) => { if (!open) closeWaPerformanceDetail(); }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="pr-8 truncate">
+              {selectedWaPerfRow?.campaign.name || "Performance da campanha"}
+            </DialogTitle>
+            <DialogDescription>
+              Comportamento de receita e conversoes dentro da janela de atribuicao da campanha.
+            </DialogDescription>
+          </DialogHeader>
+
+          {waPerfDetailLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : waPerfDetailError ? (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
+              {waPerfDetailError}
+            </div>
+          ) : selectedWaPerfRow && waPerfDetail ? (
+            <div className="space-y-5">
+              {(() => {
+                const cost = selectedWaPerfRow.performance.real_cost_brl ?? waPerfDetail.total_cost_brl ?? 0;
+                const roas = cost > 0 ? waPerfDetail.attributed_revenue / cost : 0;
+                const revenuePerSent = waPerfDetail.sent_count > 0
+                  ? waPerfDetail.attributed_revenue / waPerfDetail.sent_count
+                  : 0;
+                const attributionStart = waPerfDetail.attribution_start
+                  ? new Date(waPerfDetail.attribution_start).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                  : "Sem data";
+                const attributionEnd = waPerfDetail.window_ends_at
+                  ? new Date(waPerfDetail.window_ends_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                  : "Sem data";
+                const sourceLabel =
+                  waPerfDetail.attribution_start_source === "started_at" ? "inicio real" :
+                  waPerfDetail.attribution_start_source === "created_at" ? "data de criacao" :
+                  waPerfDetail.attribution_start_source === "completed_at" ? "data de conclusao" :
+                  "sem referencia";
+                return (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                      <div className="rounded-md border border-border p-4">
+                        <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita</p>
+                        <p className="text-xl font-bold text-primary mt-1">{formatCurrency(waPerfDetail.attributed_revenue)}</p>
+                      </div>
+                      <div className="rounded-md border border-border p-4">
+                        <p className="text-xs uppercase tracking-widest text-muted-foreground">ROAS</p>
+                        <p className="text-xl font-bold text-foreground mt-1">{roas.toFixed(2)}x</p>
+                      </div>
+                      <div className="rounded-md border border-border p-4">
+                        <p className="text-xs uppercase tracking-widest text-muted-foreground">Vendas</p>
+                        <p className="text-xl font-bold text-foreground mt-1">{formatNumber(waPerfDetail.conversions)}</p>
+                      </div>
+                      <div className="rounded-md border border-border p-4">
+                        <p className="text-xs uppercase tracking-widest text-muted-foreground">Custo</p>
+                        <p className="text-xl font-bold text-foreground mt-1">{formatCurrency(cost)}</p>
+                      </div>
+                      <div className="rounded-md border border-border p-4">
+                        <p className="text-xs uppercase tracking-widest text-muted-foreground">R$/envio</p>
+                        <p className="text-xl font-bold text-foreground mt-1">{formatCurrency(revenuePerSent)}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Template</p>
+                        <p className="font-medium">{selectedWaPerfRow.campaign.wa_templates?.name || "Sem vinculo"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Status</p>
+                        <p className="font-medium">{selectedWaPerfRow.campaign.status}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Envios cruzados</p>
+                        <p className="font-medium">{formatNumber(waPerfDetail.matched_phones)} telefones</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Custo usado</p>
+                        <p className="font-medium">{selectedWaPerfRow.performance.cost_source === "meta_api" ? "Meta API" : "Estimado"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Inicio da atribuicao</p>
+                        <p className="font-medium">{attributionStart}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Fim da janela</p>
+                        <p className="font-medium">{attributionEnd}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Base da data</p>
+                        <p className="font-medium">{sourceLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Janela</p>
+                        <p className="font-medium">{waPerfDetail.window_days} dias{waPerfDetail.window_active ? " · ativa" : ""}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border border-border p-4">
+                      <div className="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                          <h3 className="font-semibold">Comportamento no periodo</h3>
+                          <p className="text-xs text-muted-foreground">Barras mostram receita diaria; linhas mostram receita acumulada e vendas por dia.</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {waPerfDetail.behavior.length} dia{waPerfDetail.behavior.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      {waPerfDetail.behavior.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-10">Sem dados diarios para esta campanha.</p>
+                      ) : (
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={waPerfDetail.behavior}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                              <XAxis dataKey="label" tick={{ fill: chart.axis, fontSize: 11 }} />
+                              <YAxis
+                                yAxisId="currency"
+                                tick={{ fill: chart.axis, fontSize: 11 }}
+                                tickFormatter={(value) => `R$${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`}
+                              />
+                              <YAxis
+                                yAxisId="count"
+                                orientation="right"
+                                tick={{ fill: chart.axis, fontSize: 11 }}
+                                allowDecimals={false}
+                              />
+                              <Tooltip
+                                contentStyle={chart.tooltipStyle}
+                                formatter={(value, name) => {
+                                  const numeric = Number(value) || 0;
+                                  const label = String(name);
+                                  if (label.includes("Receita")) return [formatCurrency(numeric), label];
+                                  return [formatNumber(numeric), label];
+                                }}
+                              />
+                              <Legend wrapperStyle={{ fontSize: 12 }} />
+                              <Bar yAxisId="currency" dataKey="revenue" name="Receita diaria" fill={chart.series[0]} radius={[4, 4, 0, 0]} />
+                              <Line yAxisId="currency" type="monotone" dataKey="cumulative_revenue" name="Receita acumulada" stroke={chart.series[1]} strokeWidth={2.5} dot={{ r: 3 }} />
+                              <Line yAxisId="count" type="monotone" dataKey="conversions" name="Vendas/dia" stroke={chart.series[3] || chart.series[2]} strokeWidth={2} dot={{ r: 3 }} />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
     </TooltipProvider>
   );
