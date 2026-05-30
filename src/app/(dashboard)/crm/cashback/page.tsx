@@ -28,13 +28,11 @@ import {
   RefreshCcw,
   Loader2,
   AlertTriangle,
-  CheckCircle2,
   Send,
   Users,
   Settings2,
   TrendingUp,
   Wallet,
-  Clock,
   Repeat,
 } from "lucide-react";
 
@@ -226,68 +224,75 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
     ratios: {},
   };
 
-  const cohortKpis: Array<{ icon: React.ReactNode; label: string; value: string; hint?: string }> = [
+  const generatedUsedCount = Math.max(0, usage.counts.usadoCount - (usage.counts.usedOutsideCohort ?? 0));
+  const generatedUsedValue = Math.max(0, usage.totals.usado - (usage.totals.usedOutsideCohort ?? 0));
+  const depositedCount = cohort.counts.depositadoCount ?? 0;
+  const generatedReturnRate = depositedCount > 0 ? generatedUsedCount / depositedCount : 0;
+
+  const overviewCards: Array<{
+    icon: React.ReactNode;
+    label: string;
+    value: string;
+    hint: string;
+    extra?: string;
+    className?: string;
+  }> = [
+    {
+      icon: <TrendingUp className="h-4 w-4 text-fuchsia-500" />,
+      label: "Usado em compras",
+      value: BRL(usage.totals.usado),
+      hint: `${usage.counts.usadoCount} compras usaram cashback`,
+      extra: `Desconto total nos pedidos: ${BRL(usage.totals.creditUsed ?? 0)}`,
+      className: "border-fuchsia-200 bg-fuchsia-50/60",
+    },
+    {
+      icon: <Repeat className="h-4 w-4 text-cyan-500" />,
+      label: "Ainda disponível",
+      value: BRL(cohort.totals.ativoNow ?? 0),
+      hint: "cashbacks gerados no período ainda ativos",
+    },
     {
       icon: <Coins className="h-4 w-4 text-amber-400" />,
-      label: "Emitido",
+      label: "Gerado",
+      value: BRL(cohort.totals.emitido ?? 0),
+      hint: `${cohort.counts.pedidoCount ?? 0} pedidos deram cashback`,
+    },
+    {
+      icon: <Wallet className="h-4 w-4 text-emerald-400" />,
+      label: "Liberado",
+      value: BRL(cohort.totals.depositado ?? 0),
+      hint: `${depositedCount} cashbacks já depositados`,
+    },
+  ];
+
+  const generatedFlow: Array<{ label: string; value: string; hint: string }> = [
+    {
+      label: "Gerado",
       value: BRL(cohort.totals.emitido ?? 0),
       hint: `${cohort.counts.pedidoCount ?? 0} pedidos`,
     },
     {
-      icon: <Wallet className="h-4 w-4 text-emerald-400" />,
-      label: "Depositado",
+      label: "Liberado",
       value: BRL(cohort.totals.depositado ?? 0),
-      hint: `${cohort.counts.depositadoCount ?? 0} depósitos`,
+      hint: `${depositedCount} depósitos`,
     },
     {
-      icon: <TrendingUp className="h-4 w-4 text-fuchsia-400" />,
-      label: "Usado da coorte",
-      value: BRL(cohort.totals.usado),
-      hint: `${cohort.counts.usadoCount} de ${cohort.counts.depositadoCount ?? 0} depósitos`,
-    },
-    {
-      icon: <Clock className="h-4 w-4 text-zinc-400" />,
-      label: "Expirado",
-      value: BRL(cohort.totals.expirado ?? 0),
-      hint: `breakage ${PCT(cohort.ratios.breakageRate ?? 0)}`,
-    },
-    {
-      icon: <Repeat className="h-4 w-4 text-cyan-400" />,
-      label: "Saldo ativo agora",
-      value: BRL(cohort.totals.ativoNow ?? 0),
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-violet-400" />,
-      label: "Conversão da coorte",
-      value: PCT(cohort.ratios.conversionRate ?? 0),
-      hint: `pedido original médio ${BRL(cohort.ratios.avgUsedTicket ?? 0)}`,
+      label: "Voltou em compra",
+      value: BRL(generatedUsedValue),
+      hint: `${generatedUsedCount} usos · ${PCT(generatedReturnRate)}`,
     },
   ];
 
-  const usageKpis: Array<{ icon: React.ReactNode; label: string; value: string; hint?: string }> = [
+  const usageSplit: Array<{ label: string; value: string; hint: string }> = [
     {
-      icon: <TrendingUp className="h-4 w-4 text-fuchsia-400" />,
-      label: "Cashback usado",
-      value: BRL(usage.totals.usado),
-      hint: `${usage.counts.usadoCount} usos pela data de uso`,
+      label: "Gerado e usado no período",
+      value: BRL(generatedUsedValue),
+      hint: `${generatedUsedCount} usos`,
     },
     {
-      icon: <Wallet className="h-4 w-4 text-emerald-400" />,
-      label: "Crédito VNDA",
-      value: BRL(usage.totals.creditUsed ?? 0),
-      hint: `${usage.counts.eventsWithCreditUsed ?? 0} pedidos com desconto capturado`,
-    },
-    {
-      icon: <CheckCircle2 className="h-4 w-4 text-violet-400" />,
-      label: "Média por uso",
-      value: BRL(usage.ratios.avgCashbackUsed ?? 0),
-      hint: `crédito VNDA médio ${BRL(usage.ratios.avgCreditUsed ?? 0)}`,
-    },
-    {
-      icon: <Clock className="h-4 w-4 text-cyan-400" />,
-      label: "Emitidos antes da janela",
-      value: String(usage.counts.usedOutsideCohort ?? 0),
-      hint: BRL(usage.totals.usedOutsideCohort ?? 0),
+      label: "Gerado antes e usado agora",
+      value: BRL(usage.totals.usedOutsideCohort ?? 0),
+      hint: `${usage.counts.usedOutsideCohort ?? 0} usos`,
     },
   ];
 
@@ -315,12 +320,11 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
 
       <div className="space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">Coorte de emissão</h2>
-          <p className="text-xs text-muted-foreground">Cashbacks gerados dentro da janela selecionada.</p>
+          <h2 className="text-sm font-semibold">Resumo do período</h2>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          {cohortKpis.map((k) => (
-            <Card key={k.label}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {overviewCards.map((k) => (
+            <Card key={k.label} className={k.className}>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   {k.icon} {k.label}
@@ -328,7 +332,8 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold">{k.value}</div>
-                {k.hint && <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>}
+                <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>
+                {k.extra && <p className="mt-2 text-xs font-medium text-fuchsia-700">{k.extra}</p>}
               </CardContent>
             </Card>
           ))}
@@ -337,23 +342,51 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
 
       <div className="space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">Conversões por data de uso</h2>
-          <p className="text-xs text-muted-foreground">Cashbacks que viraram uso dentro da janela selecionada.</p>
+          <h2 className="text-sm font-semibold">De onde veio o uso</h2>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
-          {usageKpis.map((k) => (
-            <Card key={k.label}>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  {k.icon} {k.label}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-xl font-bold">{k.value}</div>
-                {k.hint && <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>}
-              </CardContent>
-            </Card>
-          ))}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Cashbacks gerados neste período
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {generatedFlow.map((step, index) => (
+                  <div key={step.label} className="rounded-md border bg-background p-3">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      {index + 1}. {step.label}
+                    </div>
+                    <div className="mt-2 text-lg font-bold">{step.value}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{step.hint}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Dos cashbacks liberados nesse período, {generatedUsedCount} já voltaram em compra.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Explicação do total usado
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {usageSplit.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-medium">{item.label}</div>
+                    <div className="text-xs text-muted-foreground">{item.hint}</div>
+                  </div>
+                  <div className="text-right text-base font-bold">{item.value}</div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
