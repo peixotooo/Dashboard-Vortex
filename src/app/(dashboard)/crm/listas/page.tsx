@@ -138,7 +138,7 @@ export default function ContactListsPage() {
     fetchLists();
   }, [fetchLists]);
 
-  async function openDetail(id: string) {
+  async function openDetail(id: string, opts?: { openEmail?: boolean }) {
     try {
       const res = await fetch(`/api/crm/contact-lists/${id}`, {
         headers: { "x-workspace-id": workspaceId },
@@ -146,6 +146,7 @@ export default function ContactListsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro");
       setDetailList(data.list);
+      if (opts?.openEmail) openEmailDialog(data.list);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Erro de rede");
     }
@@ -181,6 +182,25 @@ export default function ContactListsPage() {
     setEmailListName(l.name);
     setEmailDialogOpen(true);
   }
+
+  const handledQueryRef = useRef(false);
+  useEffect(() => {
+    if (!workspaceId || handledQueryRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const emailListId = params.get("email");
+    const listId = emailListId || params.get("list");
+    if (!listId) return;
+
+    handledQueryRef.current = true;
+    openDetail(listId, { openEmail: Boolean(emailListId) });
+    params.delete("email");
+    params.delete("list");
+    const url = window.location.pathname + (params.toString() ? `?${params}` : "");
+    window.history.replaceState({}, "", url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
 
   return (
     <div className="space-y-6 max-w-6xl">

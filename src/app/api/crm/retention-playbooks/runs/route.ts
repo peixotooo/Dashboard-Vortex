@@ -82,6 +82,11 @@ const PLAYBOOK_LABELS: Record<string, string> = {
   "high-ltv-dormant": "Dormantes de alto LTV",
 };
 
+function withParams(path: string, params: Record<string, string>): string {
+  const qs = new URLSearchParams(params);
+  return `${path}?${qs.toString()}`;
+}
+
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
   if (typeof value === "string") {
@@ -552,10 +557,17 @@ export async function POST(request: NextRequest) {
         treatmentList,
         holdoutList,
         links: {
-          whatsapp: `/crm/whatsapp?list=${treatmentList.id}`,
-          lists: `/crm/listas`,
-          email: `/crm/email-templates`,
-          coupons: `/coupons`,
+          whatsapp: withParams("/crm/whatsapp", {
+            list: treatmentList.id,
+            name: `Playbook ${playbookName} ${dateLabel}`,
+          }),
+          lists: withParams("/crm/listas", { list: treatmentList.id }),
+          email: withParams("/crm/listas", { email: treatmentList.id }),
+          coupons: withParams("/coupons", {
+            playbook: playbookId,
+            run: runId,
+            name: `Cupom ${playbookName} ${dateLabel}`,
+          }),
         },
       },
     });
@@ -650,8 +662,17 @@ export async function GET(request: NextRequest) {
           incrementalContribution: incrementalRevenue * (marginPct / 100),
         },
         links: {
-          whatsapp: `/crm/whatsapp?list=${treatment.id}`,
-          lists: `/crm/listas`,
+          whatsapp: withParams("/crm/whatsapp", {
+            list: treatment.id,
+            name: `Playbook ${treatment.auto_segment?.playbook_name || "Retencao"}`,
+          }),
+          lists: withParams("/crm/listas", { list: treatment.id }),
+          email: withParams("/crm/listas", { email: treatment.id }),
+          coupons: withParams("/coupons", {
+            playbook: String(treatment.auto_segment?.playbook_id || ""),
+            run: runId,
+            name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
+          }),
         },
       };
     });

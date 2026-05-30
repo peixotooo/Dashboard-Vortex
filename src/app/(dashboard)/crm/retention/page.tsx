@@ -207,6 +207,8 @@ interface RunReport {
   links: {
     whatsapp: string;
     lists: string;
+    email: string;
+    coupons: string;
   };
 }
 
@@ -617,6 +619,18 @@ export default function RetentionPlaybooksPage() {
                           <Link href={run.links.whatsapp}>
                             <MessageCircle className="mr-2 h-3.5 w-3.5" />
                             WhatsApp
+                          </Link>
+                        </Button>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={run.links.email}>
+                            <Mail className="mr-2 h-3.5 w-3.5" />
+                            Email
+                          </Link>
+                        </Button>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={run.links.coupons}>
+                            <Tag className="mr-2 h-3.5 w-3.5" />
+                            Cupom
                           </Link>
                         </Button>
                       </div>

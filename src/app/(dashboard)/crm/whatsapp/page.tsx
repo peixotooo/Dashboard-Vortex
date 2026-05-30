@@ -403,11 +403,14 @@ export default function WhatsAppPage() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const listId = params.get("list");
+    const presetName = params.get("name");
     if (listId && contactLists.some((l) => l.id === listId)) {
       setAudienceMode("list");
       setSelectedListId(listId);
+      if (presetName) setCampaignName(presetName);
       setShowCreate(true);
       params.delete("list");
+      params.delete("name");
       const url = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", url);
     }
@@ -535,7 +538,22 @@ export default function WhatsAppPage() {
         rawContacts = listContacts
           .filter((c) => c.phone)
           .map((c) => ({ phone: c.phone!, name: c.name || "", variables: c.variables || {} }));
+        const autoSegment = listData.list?.auto_segment as {
+          type?: string;
+          run_id?: string;
+          playbook_id?: string;
+          playbook_name?: string;
+          role?: string;
+          holdout_pct?: number;
+        } | null;
         segmentFilter = { contact_list_id: selectedListId, contact_list_name: listData.list?.name };
+        if (autoSegment?.type === "retention_playbook") {
+          segmentFilter.playbook_run_id = autoSegment.run_id;
+          segmentFilter.playbook_id = autoSegment.playbook_id;
+          segmentFilter.playbook_name = autoSegment.playbook_name;
+          segmentFilter.playbook_audience_role = autoSegment.role;
+          segmentFilter.holdout_pct = autoSegment.holdout_pct;
+        }
       }
 
       // Resolve exclusion list (se houver) — fetcha contatos e monta Set de phones normalizados

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -164,6 +164,7 @@ export default function CouponsPage() {
   const [verifyResults, setVerifyResults] = useState<Record<string, VndaVerify>>({});
   const [banditStats, setBanditStats] = useState<BanditStats | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const handledQueryRef = useRef(false);
 
   const headers = useCallback(
     () => ({ "Content-Type": "application/json", "x-workspace-id": workspace?.id || "" }),
@@ -237,6 +238,39 @@ export default function CouponsPage() {
   }
 
   useEffect(() => { reload(); }, [reload]);
+
+  useEffect(() => {
+    if (!workspace?.id || handledQueryRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const playbook = params.get("playbook");
+    const run = params.get("run");
+    const name = params.get("name");
+    if (!playbook && !run && !name) return;
+
+    handledQueryRef.current = true;
+    setTab("plans");
+    setEditing({
+      ...EMPTY_PLAN,
+      name: name || "Cupom playbook CRM",
+      mode: "one_shot",
+      target: "low_cvr_high_views",
+      discount_unit: "pct",
+      discount_min_pct: 10,
+      discount_max_pct: 15,
+      duration_hours: 72,
+      max_active_products: 3,
+      require_manual_approval: true,
+      badge_template: "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
+    });
+
+    params.delete("playbook");
+    params.delete("run");
+    params.delete("name");
+    const url = window.location.pathname + (params.toString() ? `?${params}` : "");
+    window.history.replaceState({}, "", url);
+  }, [workspace?.id]);
 
   async function savePlan() {
     if (!editing || !editing.name) return;
