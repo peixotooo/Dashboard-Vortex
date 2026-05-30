@@ -345,6 +345,64 @@ function compactStatusSummary(
   return entries.map(([status, count]) => `${NUMBER(count)} ${labels[status] || status}`).join(" · ");
 }
 
+function runNeedsCoupon(playbookName: string) {
+  return /cupom|segunda|recorrentes|dormantes|winback/i.test(playbookName);
+}
+
+function getRunNextAction(run: RunReport) {
+  const whatsapp = run.channels?.whatsapp;
+  const email = run.channels?.email;
+  const coupons = run.channels?.coupons;
+  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
+  const emailReady = Boolean(email?.listReady);
+  const emailSent = (email?.dispatchCount ?? 0) > 0;
+  const needsCoupon = runNeedsCoupon(run.playbookName);
+  const couponReady = (coupons?.planCount ?? 0) > 0;
+
+  if (needsCoupon && !couponReady) {
+    return {
+      label: "Criar cupom VNDA",
+      href: run.links.coupons,
+      hint: "Primeiro prepare a oferta que vai entrar na mensagem.",
+      icon: <Tag className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (!whatsappReady && run.treatmentList.phoneCount > 0) {
+    return {
+      label: "Criar WhatsApp",
+      href: run.links.whatsapp,
+      hint: "Use a lista de tratamento ja ligada ao holdout.",
+      icon: <MessageCircle className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (!emailReady && run.treatmentList.emailCount > 0) {
+    return {
+      label: "Promover lista",
+      href: run.links.email,
+      hint: "Crie a lista Locaweb antes do disparo de email.",
+      icon: <Mail className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (emailReady && !emailSent) {
+    return {
+      label: "Criar email",
+      href: "/crm/email-templates",
+      hint: "A lista ja esta pronta para ser usada no disparo.",
+      icon: <Mail className="h-3.5 w-3.5" />,
+    };
+  }
+
+  return {
+    label: "Acompanhar resultado",
+    href: "/crm/retention",
+    hint: "Canais principais preparados; acompanhe lift, receita e contribuicao.",
+    icon: <BarChart3 className="h-3.5 w-3.5" />,
+  };
+}
+
 type ExecutionStepState = "ready" | "todo" | "optional";
 
 const EXECUTION_STATE_LABELS: Record<ExecutionStepState, string> = {
@@ -398,8 +456,9 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
   const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
   const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
-  const needsCoupon = /cupom|segunda|recorrentes|dormantes|winback/i.test(run.playbookName);
+  const needsCoupon = runNeedsCoupon(run.playbookName);
   const couponReady = (coupons?.planCount ?? 0) > 0;
+  const nextAction = getRunNextAction(run);
 
   return (
     <div className="rounded-md border bg-muted/20 p-3">
@@ -410,10 +469,20 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
             Lista, canais e holdout precisam ficar ligados ao mesmo run.
           </p>
         </div>
-        <Badge variant={whatsappReady && hasHoldout ? "secondary" : "outline"}>
-          {whatsappReady && hasHoldout ? "medindo" : "preparando"}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={whatsappReady && hasHoldout ? "secondary" : "outline"}>
+            {whatsappReady && hasHoldout ? "medindo" : "preparando"}
+          </Badge>
+          <Button asChild size="sm">
+            <Link href={nextAction.href}>
+              {nextAction.icon}
+              <span className="ml-1.5">{nextAction.label}</span>
+              <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">Proximo clique: {nextAction.hint}</p>
 
       <div className="mt-3 grid gap-2 md:grid-cols-5">
         <ExecutionStep
