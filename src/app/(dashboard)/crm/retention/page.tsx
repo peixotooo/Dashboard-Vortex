@@ -215,6 +215,7 @@ interface CouponRunSummary {
   couponCount: number;
   attributedRevenue: number;
   attributedUnits: number;
+  attributedDiscount: number;
   statuses: Record<string, number>;
   coupons: Array<{
     id: string;
@@ -223,6 +224,7 @@ interface CouponRunSummary {
     discountPct: number;
     attributedRevenue: number;
     attributedUnits: number;
+    attributedDiscount: number;
     expiresAt: string;
   }>;
 }
@@ -268,6 +270,8 @@ interface RunReport {
     incrementalRevenue: number;
     incrementalContribution: number;
     trackedChannelCost: number;
+    trackedOfferCost?: number;
+    trackedTotalCost?: number;
   };
   channels?: {
     whatsapp?: WhatsAppRunSummary;
@@ -626,6 +630,15 @@ export default function RetentionPlaybooksPage() {
   }, [load]);
 
   const topPlaybook = useMemo(() => data?.playbooks?.[0] ?? null, [data]);
+  const nextRunAction = useMemo(() => {
+    for (const run of runs) {
+      const action = getRunNextAction(run);
+      if (action.label !== "Acompanhar resultado") {
+        return { run, action };
+      }
+    }
+    return null;
+  }, [runs]);
 
   async function preparePlaybook(playbook: RetentionPlaybook) {
     if (!workspaceId) return;
@@ -736,6 +749,43 @@ export default function RetentionPlaybooksPage() {
               </CardContent>
             </Card>
           )}
+
+          <Card className="border-primary/20 bg-primary/5">
+            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <div>
+                <p className="text-sm font-semibold">Proximo clique recomendado</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {nextRunAction
+                    ? `${nextRunAction.run.playbookName}: ${nextRunAction.action.hint}`
+                    : topPlaybook
+                      ? `${topPlaybook.name}: preparar tratamento, holdout e links de execucao.`
+                      : "Sem playbook acionavel neste momento."}
+                </p>
+              </div>
+              {nextRunAction ? (
+                <Button asChild size="sm">
+                  <Link href={nextRunAction.action.href}>
+                    {nextRunAction.action.icon}
+                    <span className="ml-1.5">{nextRunAction.action.label}</span>
+                    <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              ) : topPlaybook ? (
+                <Button
+                  size="sm"
+                  onClick={() => preparePlaybook(topPlaybook)}
+                  disabled={preparingId !== null || topPlaybook.audience.customers === 0}
+                >
+                  {preparingId === topPlaybook.id ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ListChecks className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  Preparar execucao
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard
@@ -971,8 +1021,10 @@ export default function RetentionPlaybooksPage() {
                           <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Custo canal</p>
-                          <p className="font-semibold">{BRL(run.metrics.trackedChannelCost ?? 0)}</p>
+                          <p className="text-xs text-muted-foreground">Custo canal/oferta</p>
+                          <p className="font-semibold">
+                            {BRL(run.metrics.trackedTotalCost ?? run.metrics.trackedChannelCost ?? 0)}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Contribuicao liquida</p>
@@ -1087,7 +1139,7 @@ export default function RetentionPlaybooksPage() {
                                 : "sem plano"}
                             </Badge>
                           </div>
-                          <div className="mt-3 grid grid-cols-3 gap-3">
+                          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
                             <div>
                               <p className="text-xs text-muted-foreground">Cupons</p>
                               <p className="font-semibold">{NUMBER(coupons?.couponCount ?? 0)}</p>
@@ -1099,6 +1151,10 @@ export default function RetentionPlaybooksPage() {
                             <div>
                               <p className="text-xs text-muted-foreground">Receita</p>
                               <p className="font-semibold">{BRL(coupons?.attributedRevenue ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Incentivo</p>
+                              <p className="font-semibold">{BRL(coupons?.attributedDiscount ?? 0)}</p>
                             </div>
                           </div>
                         </div>

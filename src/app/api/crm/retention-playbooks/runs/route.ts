@@ -766,16 +766,28 @@ function summarizeCoupons(
       .map((audit) => audit.plan_id as string)
   );
   const rows = coupons.filter((coupon) => coupon.plan_id && planIds.has(coupon.plan_id));
+  const couponDiscountAmount = (coupon: ActiveCouponRow) => {
+    const attributedRevenue = toNumber(coupon.attributed_revenue);
+    const discountPct = Math.min(95, Math.max(0, toNumber(coupon.discount_pct)));
+    const discountRate = discountPct / 100;
+    return discountRate > 0
+      ? attributedRevenue * (discountRate / Math.max(0.01, 1 - discountRate))
+      : 0;
+  };
   const totals = rows.reduce(
     (acc, coupon) => {
-      acc.attributedRevenue += toNumber(coupon.attributed_revenue);
+      const attributedRevenue = toNumber(coupon.attributed_revenue);
+
+      acc.attributedRevenue += attributedRevenue;
       acc.attributedUnits += toNumber(coupon.attributed_units);
+      acc.attributedDiscount += couponDiscountAmount(coupon);
       acc.statuses[coupon.status] = (acc.statuses[coupon.status] || 0) + 1;
       return acc;
     },
     {
       attributedRevenue: 0,
       attributedUnits: 0,
+      attributedDiscount: 0,
       statuses: {} as Record<string, number>,
     }
   );
@@ -791,6 +803,7 @@ function summarizeCoupons(
       discountPct: toNumber(coupon.discount_pct),
       attributedRevenue: toNumber(coupon.attributed_revenue),
       attributedUnits: toNumber(coupon.attributed_units),
+      attributedDiscount: couponDiscountAmount(coupon),
       expiresAt: coupon.expires_at,
     })),
   };
@@ -993,8 +1006,10 @@ export async function GET(request: NextRequest) {
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
       const email = summarizeEmailDispatches(treatment, emailDispatches);
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
+      const trackedOfferCost = coupons.attributedDiscount;
+      const trackedTotalCost = whatsapp.costBrl + trackedOfferCost;
       const incrementalContribution =
-        incrementalRevenue * (marginPct / 100) - whatsapp.costBrl;
+        incrementalRevenue * (marginPct / 100) - trackedTotalCost;
 
       return {
         id: runId,
@@ -1026,6 +1041,8 @@ export async function GET(request: NextRequest) {
           incrementalRevenue,
           incrementalContribution,
           trackedChannelCost: whatsapp.costBrl,
+          trackedOfferCost,
+          trackedTotalCost,
         },
         channels: {
           whatsapp,
