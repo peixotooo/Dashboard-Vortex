@@ -77,6 +77,13 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+interface RetentionEmailContext {
+  listId: string;
+  audience: string;
+  playbook: string;
+  run: string;
+}
+
 const LOGO_TOKEN = "__logo__";
 
 export default function EmailEditorPage({ params }: PageProps) {
@@ -94,8 +101,21 @@ export default function EmailEditorPage({ params }: PageProps) {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [copied, setCopied] = useState(false);
+  const [retentionContext, setRetentionContext] = useState<RetentionEmailContext | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const listId = query.get("list");
+    if (!listId) return;
+    setRetentionContext({
+      listId,
+      audience: query.get("audience") || "Lista de tratamento",
+      playbook: query.get("playbook") || "Playbook de retencao",
+      run: query.get("run") || "",
+    });
+  }, []);
 
   // Load draft
   useEffect(() => {
@@ -688,6 +708,8 @@ export default function EmailEditorPage({ params }: PageProps) {
         draftName={draft.name}
         draftSubject={meta.subject}
         draftPreview={meta.preview}
+        initialListId={retentionContext?.listId}
+        initialAudienceLabel={retentionContext?.audience}
       />
     </div>
   );

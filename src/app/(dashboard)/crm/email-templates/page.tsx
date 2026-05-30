@@ -132,6 +132,7 @@ export default function EmailTemplatesPage() {
         open={aiOpen}
         onClose={() => setAiOpen(false)}
         workspaceId={workspaceId}
+        retentionContext={retentionContext}
       />
       {retentionContext && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/40 p-3">

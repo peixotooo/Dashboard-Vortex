@@ -33,6 +33,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   workspaceId: string;
+  retentionContext?: {
+    listId: string;
+    audience: string;
+    playbook: string;
+    run: string;
+  } | null;
 }
 
 /** Bulking-aligned context chips. Streetwear/fitness apparel, "Respect the
@@ -95,7 +101,7 @@ const TONES: Array<{ id: "urgent" | "premium" | "playful" | "minimal"; label: st
   { id: "minimal", label: "Minimal" },
 ];
 
-export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
+export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }: Props) {
   type Tone = "urgent" | "premium" | "playful" | "minimal";
   const [context, setContext] = useState("");
   const [tone, setTone] = useState<Tone | null>(null);
@@ -115,6 +121,19 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
   // Montar email button.
   const [step, setStep] = useState(1);
   const TOTAL_STEPS = 6;
+
+  useEffect(() => {
+    if (!open || !retentionContext) return;
+    setContext(
+      [
+        `Playbook de retencao: ${retentionContext.playbook}.`,
+        `Audiencia: ${retentionContext.audience}.`,
+        "Escrever email para ativar recompra com tom Bulking, direto e sem parecer campanha generica.",
+        "Manter foco em margem e nao oferecer desconto extra se o playbook nao exigir.",
+      ].join(" ")
+    );
+    setTone("minimal");
+  }, [open, retentionContext]);
 
   // Load layouts when dialog opens
   useEffect(() => {
@@ -225,7 +244,13 @@ export function AIComposeDialog({ open, onClose, workspaceId }: Props) {
       if (!r.ok || !d.draft?.id) {
         throw new Error(d.error ?? "Falha ao montar o email.");
       }
-      window.location.href = `/crm/email-templates/editor/${d.draft.id}`;
+      const params = new URLSearchParams();
+      if (retentionContext?.listId) params.set("list", retentionContext.listId);
+      if (retentionContext?.audience) params.set("audience", retentionContext.audience);
+      if (retentionContext?.playbook) params.set("playbook", retentionContext.playbook);
+      if (retentionContext?.run) params.set("run", retentionContext.run);
+      const qs = params.toString();
+      window.location.href = `/crm/email-templates/editor/${d.draft.id}${qs ? `?${qs}` : ""}`;
     } catch (err) {
       setError((err as Error).message);
       setLoading(false);

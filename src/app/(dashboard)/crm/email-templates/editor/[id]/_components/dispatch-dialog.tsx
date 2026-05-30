@@ -43,6 +43,8 @@ interface Props {
   draftSubject?: string;
   /** Preview text (hidden text shown in inbox listings). */
   draftPreview?: string;
+  initialListId?: string;
+  initialAudienceLabel?: string;
 }
 
 export function DispatchDialog({
@@ -53,6 +55,8 @@ export function DispatchDialog({
   draftName,
   draftSubject,
   draftPreview,
+  initialListId,
+  initialAudienceLabel,
 }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [reviewed, setReviewed] = useState(false);
@@ -106,13 +110,13 @@ export function DispatchDialog({
     setReviewed(false);
     setTestSentTo(null);
     setLists(null);
-    setSelectedListIds(new Set());
+    setSelectedListIds(initialListId ? new Set([initialListId]) : new Set());
     setScheduleEnabled(false);
     setRequiresApproval(false);
     setError(null);
     setSuccess(null);
     setSubmitting(false);
-  }, [open]);
+  }, [open, initialListId]);
 
   // Lazy-load lists when we hit the audience step.
   useEffect(() => {
@@ -309,6 +313,14 @@ export function DispatchDialog({
           <Label className="text-xs uppercase tracking-widest text-muted-foreground">
             Listas (criadas no CRM)
           </Label>
+          {initialListId && (
+            <div className="rounded-md border bg-muted/30 p-2.5 text-xs">
+              <div className="font-medium">Lista da execucao</div>
+              <div className="mt-0.5 text-muted-foreground">
+                {initialAudienceLabel || initialListId}
+              </div>
+            </div>
+          )}
           {lists === null ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
