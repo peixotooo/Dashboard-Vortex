@@ -502,7 +502,7 @@ export default function WhatsAppPage() {
     setCreating(true);
     try {
       // Resolve contacts source: RFM segment OR custom contact list
-      let rawContacts: Array<{ phone: string; name: string }> = [];
+      let rawContacts: Array<{ phone: string; name: string; variables?: Record<string, string> }> = [];
       let segmentFilter: Record<string, unknown> = {};
 
       if (audienceMode === "segment") {
@@ -530,10 +530,11 @@ export default function WhatsAppPage() {
         const listContacts = (listData.list?.contacts || []) as Array<{
           phone?: string;
           name?: string;
+          variables?: Record<string, string>;
         }>;
         rawContacts = listContacts
           .filter((c) => c.phone)
-          .map((c) => ({ phone: c.phone!, name: c.name || "" }));
+          .map((c) => ({ phone: c.phone!, name: c.name || "", variables: c.variables || {} }));
         segmentFilter = { contact_list_id: selectedListId, contact_list_name: listData.list?.name };
       }
 
@@ -568,7 +569,7 @@ export default function WhatsAppPage() {
         variables: Object.fromEntries(
           Object.entries(variableValues).map(([k, v]) => [
             k,
-            v === "{{nome}}" ? c.name || "" : v,
+            resolveContactVariable(v, c),
           ])
         ),
       }));
@@ -883,6 +884,16 @@ export default function WhatsAppPage() {
     const clean = phone.replace(/\D/g, "");
     if (clean.startsWith("55")) return clean;
     return `55${clean}`;
+  }
+
+  function resolveContactVariable(
+    value: string,
+    contact: { name?: string; variables?: Record<string, string> }
+  ): string {
+    if (value === "{{nome}}") return contact.name || "";
+    const match = value.match(/^\{\{([a-zA-Z0-9_]+)\}\}$/);
+    if (!match) return value;
+    return contact.variables?.[match[1]] ?? value;
   }
 
   // --- Extract variables from selected template ---
