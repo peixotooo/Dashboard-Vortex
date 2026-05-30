@@ -720,6 +720,44 @@ export default function CrmPage() {
       cumulative_revenue: number;
       cumulative_roas: number;
     }>;
+    creative?: {
+      campaign_name: string;
+      template_name_snapshot: string | null;
+      template_language_snapshot: string | null;
+      template: {
+        id: string;
+        meta_id: string | null;
+        name: string;
+        language: string;
+        category: string | null;
+        status: string | null;
+        synced_at: string | null;
+        components: Array<{
+          type: string;
+          text?: string;
+          format?: string;
+          buttons?: Array<{ type?: string; text?: string; url?: string; phone_number?: string }>;
+        }>;
+      } | null;
+      preview: {
+        header: string | null;
+        header_format: string | null;
+        body: string;
+        footer: string | null;
+        buttons: Array<{ text: string; url?: string; type?: string }>;
+      } | null;
+      variables: {
+        campaign: Record<string, string>;
+        sample: Record<string, string>;
+        preview_source: "sample_message" | "campaign";
+      };
+      sample_message: {
+        contact_name: string | null;
+        status: string | null;
+        sent_at: string | null;
+        created_at: string | null;
+      } | null;
+    };
   }
 
   const [metricsData, setMetricsData] = useState<MetricsData | null>(null);
@@ -2996,6 +3034,23 @@ export default function CrmPage() {
                   waPerfDetail.attribution_start_source === "created_at" ? "data de criacao" :
                   waPerfDetail.attribution_start_source === "completed_at" ? "data de conclusao" :
                   "sem referencia";
+                const creative = waPerfDetail.creative;
+                const template = creative?.template;
+                const preview = creative?.preview;
+                const variableEntries = Object.entries(
+                  creative?.variables.preview_source === "sample_message"
+                    ? creative.variables.sample
+                    : creative?.variables.campaign || {}
+                );
+                const templateSyncedAt = template?.synced_at
+                  ? new Date(template.synced_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                  : null;
+                const sampleLabel = creative?.sample_message
+                  ? [
+                      creative.sample_message.contact_name,
+                      creative.sample_message.status,
+                    ].filter(Boolean).join(" · ")
+                  : null;
                 return (
                   <>
                     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -3021,11 +3076,112 @@ export default function CrmPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Template</p>
-                        <p className="font-medium">{selectedWaPerfRow.campaign.wa_templates?.name || "Sem vinculo"}</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr] gap-4">
+                      <div className="rounded-md border border-border p-4 space-y-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-widest text-muted-foreground">Template utilizado</p>
+                          <div className="flex items-center gap-2 flex-wrap mt-2">
+                            <span className="font-semibold">
+                              {template?.name || creative?.template_name_snapshot || selectedWaPerfRow.campaign.wa_templates?.name || "Template sem vinculo"}
+                            </span>
+                            {(template?.language || creative?.template_language_snapshot) && (
+                              <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                                {template?.language || creative?.template_language_snapshot}
+                              </span>
+                            )}
+                            {template?.category && (
+                              <span className="rounded border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs text-purple-500">
+                                {template.category}
+                              </span>
+                            )}
+                            {template?.status && (
+                              <span className="rounded border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+                                {template.status}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">ID Meta</p>
+                            <p className="font-mono text-xs break-all">{template?.meta_id || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Ultima sincronia</p>
+                            <p className="font-medium">{templateSyncedAt || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Fonte do preview</p>
+                            <p className="font-medium">
+                              {creative?.variables.preview_source === "sample_message" ? "Mensagem de amostra" : "Variaveis da campanha"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Amostra</p>
+                            <p className="font-medium">{sampleLabel || "—"}</p>
+                          </div>
+                        </div>
+                        {!template && (
+                          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600">
+                            O vinculo com o template nao esta disponivel. Quando existir snapshot, mostramos o nome/idioma salvo na campanha.
+                          </div>
+                        )}
                       </div>
+
+                      <div className="rounded-md border border-border p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs uppercase tracking-widest text-muted-foreground">Mensagem</p>
+                          {preview?.header_format && preview.header_format !== "TEXT" && (
+                            <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                              Header {preview.header_format}
+                            </span>
+                          )}
+                        </div>
+                        {preview ? (
+                          <div className="rounded-md border border-border bg-background p-3 space-y-2">
+                            {preview.header && (
+                              <div className="font-semibold text-sm whitespace-pre-wrap">{preview.header}</div>
+                            )}
+                            <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                              {preview.body || "(template sem corpo de mensagem)"}
+                            </div>
+                            {preview.footer && (
+                              <div className="border-t border-border pt-2 text-xs text-muted-foreground whitespace-pre-wrap">
+                                {preview.footer}
+                              </div>
+                            )}
+                            {preview.buttons.length > 0 && (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {preview.buttons.map((button, index) => (
+                                  <span key={`${button.text}-${index}`} className="rounded border border-border px-2 py-1 text-xs">
+                                    {button.text || button.type || "Botao"}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
+                            Mensagem indisponivel porque o template nao foi encontrado.
+                          </p>
+                        )}
+                        {variableEntries.length > 0 && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-2">Variaveis usadas no preview</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {variableEntries.map(([key, value]) => (
+                                <div key={key} className="flex items-center justify-between gap-2 rounded bg-muted/40 px-2 py-1 text-xs">
+                                  <span className="font-mono text-muted-foreground">{key}</span>
+                                  <span className="truncate">{value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                       <div>
                         <p className="text-xs text-muted-foreground">Status</p>
                         <p className="font-medium">{selectedWaPerfRow.campaign.status}</p>

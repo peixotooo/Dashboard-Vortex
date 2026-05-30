@@ -19,6 +19,43 @@ function createSupabase(request: NextRequest) {
 
 const MESSAGE_STATUSES = ["sent", "delivered", "read", "converted"];
 
+type TemplateComponent = {
+  type: string;
+  text?: string;
+  format?: string;
+  buttons?: Array<{ type?: string; text?: string; url?: string; phone_number?: string }>;
+};
+
+type WaTemplateDetail = {
+  id: string;
+  meta_id: string | null;
+  name: string;
+  language: string;
+  category: string | null;
+  status: string | null;
+  components: TemplateComponent[];
+  synced_at: string | null;
+};
+
+type CampaignWithTemplate = {
+  id: string;
+  name: string;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+  sent_count: number | null;
+  total_messages: number | null;
+  attribution_window_days: number | null;
+  message_cost_usd: number | null;
+  exchange_rate: number | null;
+  status: string | null;
+  template_id: string | null;
+  template_name: string | null;
+  template_language: string | null;
+  variable_values: Record<string, unknown> | null;
+  wa_templates: WaTemplateDetail | WaTemplateDetail[] | null;
+};
+
 function normalizePhone(phone: string | null | undefined): string {
   const digits = String(phone || "").replace(/\D/g, "");
   if (!digits) return "";
@@ -49,7 +86,7 @@ function formatDateKey(date: Date): string {
 }
 
 function formatDateLabel(dateKey: string): string {
-  const [year, month, day] = dateKey.split("-");
+  const [, month, day] = dateKey.split("-");
   return `${day}/${month}`;
 }
 
@@ -112,6 +149,102 @@ function buildBehaviorSeries(
   return points;
 }
 
+function asRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, val]) => [key, val == null ? "" : String(val)])
+  );
+}
+
+function normalizeTemplate(template: CampaignWithTemplate["wa_templates"]): WaTemplateDetail | null {
+  if (Array.isArray(template)) return template[0] || null;
+  return template || null;
+}
+
+function fillTemplateVars(text: string | undefined, variables: Record<string, string>): string {
+  if (!text) return "";
+  return text.replace(/{{\s*(\d+)\s*}}/g, (match, index: string) => {
+    return variables[`{{${index}}}`] ?? variables[index] ?? match;
+  });
+}
+
+function renderTemplatePreview(
+  components: TemplateComponent[],
+  variables: Record<string, string>
+): {
+  header: string | null;
+  header_format: string | null;
+  body: string;
+  footer: string | null;
+  buttons: Array<{ text: string; url?: string; type?: string }>;
+} {
+  const header = components.find((component) => component.type === "HEADER");
+  const body = components.find((component) => component.type === "BODY");
+  const footer = components.find((component) => component.type === "FOOTER");
+  const buttons = components.find((component) => component.type === "BUTTONS");
+
+  return {
+    header: header?.text ? fillTemplateVars(header.text, variables) : null,
+    header_format: header?.format || null,
+    body: body?.text ? fillTemplateVars(body.text, variables) : "",
+    footer: footer?.text ? fillTemplateVars(footer.text, variables) : null,
+    buttons: (buttons?.buttons || []).map((button) => ({
+      text: fillTemplateVars(button.text || "", variables),
+      url: button.url ? fillTemplateVars(button.url, variables) : undefined,
+      type: button.type,
+    })),
+  };
+}
+
+function buildCreative(
+  campaign: CampaignWithTemplate,
+  sampleMessage: {
+    variable_values: Record<string, unknown> | null;
+    contact_name: string | null;
+    status: string | null;
+    sent_at: string | null;
+    created_at: string | null;
+  } | null
+) {
+  const template = normalizeTemplate(campaign.wa_templates);
+  const campaignVariables = asRecord(campaign.variable_values);
+  const sampleVariables = asRecord(sampleMessage?.variable_values);
+  const previewVariables = Object.keys(sampleVariables).length > 0 ? sampleVariables : campaignVariables;
+  const components = Array.isArray(template?.components) ? template.components : [];
+
+  return {
+    campaign_name: campaign.name,
+    template_name_snapshot: campaign.template_name,
+    template_language_snapshot: campaign.template_language,
+    template: template
+      ? {
+          id: template.id,
+          meta_id: template.meta_id,
+          name: template.name,
+          language: template.language,
+          category: template.category,
+          status: template.status,
+          synced_at: template.synced_at,
+          components,
+        }
+      : null,
+    preview: template ? renderTemplatePreview(components, previewVariables) : null,
+    variables: {
+      campaign: campaignVariables,
+      sample: sampleVariables,
+      preview_source: Object.keys(sampleVariables).length > 0 ? "sample_message" : "campaign",
+    },
+    sample_message: sampleMessage
+      ? {
+          contact_name: sampleMessage.contact_name,
+          status: sampleMessage.status,
+          sent_at: sampleMessage.sent_at,
+          created_at: sampleMessage.created_at,
+        }
+      : null,
+  };
+}
+
 async function fetchPaged<T>(buildQuery: () => any): Promise<T[]> {
   const out: T[] = [];
   for (let offset = 0; offset < 500000; offset += 1000) {
@@ -142,7 +275,7 @@ export async function GET(
     // 1. Fetch campaign
     const { data: campaign } = await admin
       .from("wa_campaigns")
-      .select("id, started_at, completed_at, created_at, sent_count, total_messages, attribution_window_days, message_cost_usd, exchange_rate, status")
+      .select("id, name, started_at, completed_at, created_at, sent_count, total_messages, attribution_window_days, message_cost_usd, exchange_rate, status, template_id, template_name, template_language, variable_values, wa_templates(id, meta_id, name, language, category, status, components, synced_at)")
       .eq("id", id)
       .eq("workspace_id", workspaceId)
       .single();
@@ -150,6 +283,28 @@ export async function GET(
     if (!campaign) {
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
+
+    const typedCampaign = campaign as unknown as CampaignWithTemplate;
+
+    const { data: sampleMessage } = await admin
+      .from("wa_messages")
+      .select("variable_values, contact_name, status, sent_at, created_at")
+      .eq("campaign_id", id)
+      .eq("workspace_id", workspaceId)
+      .order("sent_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const creative = buildCreative(
+      typedCampaign,
+      (sampleMessage || null) as {
+        variable_values: Record<string, unknown> | null;
+        contact_name: string | null;
+        status: string | null;
+        sent_at: string | null;
+        created_at: string | null;
+      } | null
+    );
 
     const windowDays = campaign.attribution_window_days || 3;
     const costUsd = campaign.message_cost_usd || 0.0625;
@@ -178,6 +333,7 @@ export async function GET(
         attribution_start: null,
         attribution_start_source: null,
         behavior: [],
+        creative,
       });
     }
 
@@ -210,6 +366,7 @@ export async function GET(
         attribution_start: startedAt.toISOString(),
         attribution_start_source: attributionStart.source,
         behavior: buildBehaviorSeries(startedAt, windowEnd, new Map(), totalCostBrl),
+        creative,
       });
     }
 
@@ -267,6 +424,7 @@ export async function GET(
       attribution_start: startedAt.toISOString(),
       attribution_start_source: attributionStart.source,
       behavior: buildBehaviorSeries(startedAt, windowEnd, daily, totalCostBrl),
+      creative,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
