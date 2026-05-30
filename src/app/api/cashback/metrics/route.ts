@@ -19,6 +19,30 @@ function windowStart(days: number): string {
   return d.toISOString();
 }
 
+async function fetchPagedRows(
+  admin: NonNullable<Awaited<ReturnType<typeof authRoute>>["auth"]>["admin"],
+  workspaceId: string,
+  since: string
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; from < 100000; from += pageSize) {
+    const { data, error } = await admin
+      .from("cashback_transactions")
+      .select("status, valor_cashback, valor_pedido, confirmado_em, depositado_em, usado_em, estornado_em")
+      .eq("workspace_id", workspaceId)
+      .gte("confirmado_em", since)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    rows.push(...((data as Row[] | null) || []));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 export async function GET(request: NextRequest) {
   const { auth, error } = await authRoute(request);
   if (error) return error;
@@ -26,15 +50,13 @@ export async function GET(request: NextRequest) {
   const windowDays = Math.min(365, Math.max(1, Number(request.nextUrl.searchParams.get("days") || 30)));
   const since = windowStart(windowDays);
 
-  const { data: rows, error: dbErr } = await auth!.admin
-    .from("cashback_transactions")
-    .select("status, valor_cashback, valor_pedido, confirmado_em, depositado_em, usado_em, estornado_em")
-    .eq("workspace_id", auth!.workspaceId)
-    .gte("confirmado_em", since);
-
-  if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
-
-  const transactions = (rows as Row[]) || [];
+  let transactions: Row[];
+  try {
+    transactions = await fetchPagedRows(auth!.admin, auth!.workspaceId, since);
+  } catch (dbErr) {
+    const message = dbErr instanceof Error ? dbErr.message : "Erro ao carregar métricas";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
   let emitido = 0;
   let depositado = 0;

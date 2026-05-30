@@ -51,6 +51,10 @@ export interface VndaWebhookPayload {
   payment_method?: string;
   subtotal: number;
   discount_price: number;
+  credits_discount?: number | string | null;
+  credits_token?: string | null;
+  rebate_discount?: number | string | null;
+  rebate_token?: string | null;
   total: number;
   taxes: number;
   updated_at?: string;

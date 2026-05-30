@@ -220,15 +220,57 @@ export function extractCreditUsed(payload: VndaWebhookPayload): number {
     credit_used?: number;
     credits_used?: number;
     wallet_used?: number;
-    extra?: { credit_used?: number };
+    credit_discount?: number;
+    credits_discount?: number | string | null;
+    rebate_discount?: number | string | null;
+    cashback_discount?: number;
+    cashback_used?: number;
+    store_credit_used?: number;
+    store_credits_used?: number;
+    extra?: {
+      credit_used?: number;
+      credits_used?: number;
+      wallet_used?: number;
+      credits_discount?: number | string | null;
+      rebate_discount?: number | string | null;
+    };
   };
-  return (
-    maybe.credit_used ??
-    maybe.credits_used ??
-    maybe.wallet_used ??
-    maybe.extra?.credit_used ??
-    0
-  );
+
+  const toNumber = (value: unknown): number => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+    if (typeof value === "string") {
+      const normalized = value.trim().replace(",", ".");
+      if (!normalized) return 0;
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  const candidates = [
+    maybe.credit_used,
+    maybe.credits_used,
+    maybe.wallet_used,
+    maybe.credit_discount,
+    maybe.credits_discount,
+    maybe.rebate_discount,
+    maybe.cashback_discount,
+    maybe.cashback_used,
+    maybe.store_credit_used,
+    maybe.store_credits_used,
+    maybe.extra?.credit_used,
+    maybe.extra?.credits_used,
+    maybe.extra?.wallet_used,
+    maybe.extra?.credits_discount,
+    maybe.extra?.rebate_discount,
+  ];
+
+  for (const value of candidates) {
+    const numeric = toNumber(value);
+    if (numeric > 0) return numeric;
+  }
+
+  return 0;
 }
 
 export function isEligibleOrderStatus(status: string | undefined | null): boolean {
@@ -397,12 +439,16 @@ export async function markAsUsedFromOrder(
   if (creditUsed <= 0) return { marked: false, creditUsed: 0 };
 
   const admin = options?.admin ?? createAdminClient();
+  const orderDate =
+    payload.confirmed_at || payload.received_at || payload.updated_at || new Date().toISOString();
   const { data: active } = await admin
     .from("cashback_transactions")
     .select("id, status")
     .eq("workspace_id", workspaceId)
     .eq("email", payload.email)
     .in("status", ["ATIVO", "REATIVADO"])
+    .neq("source_order_id", String(payload.id))
+    .lte("depositado_em", orderDate)
     .order("depositado_em", { ascending: true, nullsFirst: false })
     .limit(1)
     .maybeSingle();
