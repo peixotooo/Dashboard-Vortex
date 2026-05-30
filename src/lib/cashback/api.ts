@@ -459,7 +459,7 @@ export async function markAsUsedFromOrder(
     .from("cashback_transactions")
     .update({
       status: "USADO",
-      usado_em: new Date().toISOString(),
+      usado_em: orderDate,
       updated_at: new Date().toISOString(),
     })
     .eq("id", active.id);
@@ -468,7 +468,10 @@ export async function markAsUsedFromOrder(
 
   await logEvent(admin, workspaceId, active.id, "USO", {
     source_order_id: String(payload.id),
+    source_order_code: payload.code ?? null,
     credit_used: creditUsed,
+    source_order_total: payload.total ?? null,
+    used_at: orderDate,
   });
 
   return { marked: true, cashbackId: active.id, creditUsed };

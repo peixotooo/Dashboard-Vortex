@@ -42,9 +42,38 @@ import {
 
 interface Metrics {
   windowDays: number;
-  counts: { pedidoCount: number; depositadoCount: number; usadoCount: number };
-  totals: { emitido: number; depositado: number; usado: number; expirado: number; ativoNow: number };
-  ratios: { conversionRate: number; breakageRate: number; avgUsedTicket: number };
+  cohort?: MetricsSummary;
+  usage?: MetricsSummary;
+  counts: MetricsSummary["counts"];
+  totals: MetricsSummary["totals"];
+  ratios: MetricsSummary["ratios"];
+}
+
+interface MetricsSummary {
+  counts: {
+    pedidoCount?: number;
+    depositadoCount?: number;
+    usadoCount: number;
+    usedOutsideCohort?: number;
+    eventsWithCreditUsed?: number;
+  };
+  totals: {
+    emitido?: number;
+    depositado?: number;
+    usado: number;
+    expirado?: number;
+    ativoNow?: number;
+    creditUsed?: number;
+    originalOrderValue?: number;
+    usedOutsideCohort?: number;
+  };
+  ratios: {
+    conversionRate?: number;
+    breakageRate?: number;
+    avgUsedTicket?: number;
+    avgCreditUsed?: number;
+    avgCashbackUsed?: number;
+  };
 }
 
 interface Transaction {
@@ -186,46 +215,84 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
     );
   }
 
-  const kpis: Array<{ icon: React.ReactNode; label: string; value: string; hint?: string }> = [
+  const cohort = metrics.cohort ?? {
+    counts: metrics.counts,
+    totals: metrics.totals,
+    ratios: metrics.ratios,
+  };
+  const usage = metrics.usage ?? {
+    counts: { usadoCount: metrics.counts.usadoCount },
+    totals: { usado: metrics.totals.usado },
+    ratios: {},
+  };
+
+  const cohortKpis: Array<{ icon: React.ReactNode; label: string; value: string; hint?: string }> = [
     {
       icon: <Coins className="h-4 w-4 text-amber-400" />,
       label: "Emitido",
-      value: BRL(metrics.totals.emitido),
-      hint: `${metrics.counts.pedidoCount} pedidos`,
+      value: BRL(cohort.totals.emitido ?? 0),
+      hint: `${cohort.counts.pedidoCount ?? 0} pedidos`,
     },
     {
       icon: <Wallet className="h-4 w-4 text-emerald-400" />,
       label: "Depositado",
-      value: BRL(metrics.totals.depositado),
-      hint: `${metrics.counts.depositadoCount} depósitos`,
+      value: BRL(cohort.totals.depositado ?? 0),
+      hint: `${cohort.counts.depositadoCount ?? 0} depósitos`,
     },
     {
       icon: <TrendingUp className="h-4 w-4 text-fuchsia-400" />,
-      label: "Usado (convertido)",
-      value: BRL(metrics.totals.usado),
-      hint: `${metrics.counts.usadoCount} usos`,
+      label: "Usado da coorte",
+      value: BRL(cohort.totals.usado),
+      hint: `${cohort.counts.usadoCount} de ${cohort.counts.depositadoCount ?? 0} depósitos`,
     },
     {
       icon: <Clock className="h-4 w-4 text-zinc-400" />,
       label: "Expirado",
-      value: BRL(metrics.totals.expirado),
-      hint: `breakage ${PCT(metrics.ratios.breakageRate)}`,
+      value: BRL(cohort.totals.expirado ?? 0),
+      hint: `breakage ${PCT(cohort.ratios.breakageRate ?? 0)}`,
     },
     {
       icon: <Repeat className="h-4 w-4 text-cyan-400" />,
       label: "Saldo ativo agora",
-      value: BRL(metrics.totals.ativoNow),
+      value: BRL(cohort.totals.ativoNow ?? 0),
     },
     {
       icon: <CheckCircle2 className="h-4 w-4 text-violet-400" />,
-      label: "Conversão",
-      value: PCT(metrics.ratios.conversionRate),
-      hint: `ticket médio ${BRL(metrics.ratios.avgUsedTicket)}`,
+      label: "Conversão da coorte",
+      value: PCT(cohort.ratios.conversionRate ?? 0),
+      hint: `pedido original médio ${BRL(cohort.ratios.avgUsedTicket ?? 0)}`,
+    },
+  ];
+
+  const usageKpis: Array<{ icon: React.ReactNode; label: string; value: string; hint?: string }> = [
+    {
+      icon: <TrendingUp className="h-4 w-4 text-fuchsia-400" />,
+      label: "Cashback usado",
+      value: BRL(usage.totals.usado),
+      hint: `${usage.counts.usadoCount} usos pela data de uso`,
+    },
+    {
+      icon: <Wallet className="h-4 w-4 text-emerald-400" />,
+      label: "Crédito VNDA",
+      value: BRL(usage.totals.creditUsed ?? 0),
+      hint: `${usage.counts.eventsWithCreditUsed ?? 0} pedidos com desconto capturado`,
+    },
+    {
+      icon: <CheckCircle2 className="h-4 w-4 text-violet-400" />,
+      label: "Média por uso",
+      value: BRL(usage.ratios.avgCashbackUsed ?? 0),
+      hint: `crédito VNDA médio ${BRL(usage.ratios.avgCreditUsed ?? 0)}`,
+    },
+    {
+      icon: <Clock className="h-4 w-4 text-cyan-400" />,
+      label: "Emitidos antes da janela",
+      value: String(usage.counts.usedOutsideCohort ?? 0),
+      hint: BRL(usage.totals.usedOutsideCohort ?? 0),
     },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Label className="text-sm text-muted-foreground">Janela:</Label>
@@ -246,20 +313,48 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        {kpis.map((k) => (
-          <Card key={k.label}>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                {k.icon} {k.label}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">{k.value}</div>
-              {k.hint && <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>}
-            </CardContent>
-          </Card>
-        ))}
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Coorte de emissão</h2>
+          <p className="text-xs text-muted-foreground">Cashbacks gerados dentro da janela selecionada.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          {cohortKpis.map((k) => (
+            <Card key={k.label}>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  {k.icon} {k.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{k.value}</div>
+                {k.hint && <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Conversões por data de uso</h2>
+          <p className="text-xs text-muted-foreground">Cashbacks que viraram uso dentro da janela selecionada.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {usageKpis.map((k) => (
+            <Card key={k.label}>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  {k.icon} {k.label}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{k.value}</div>
+                {k.hint && <p className="mt-1 text-xs text-muted-foreground">{k.hint}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
