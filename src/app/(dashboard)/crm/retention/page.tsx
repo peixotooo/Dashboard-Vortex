@@ -70,6 +70,7 @@ interface SummaryResponse {
     uniqueOrders: number;
     uniqueCustomers: number;
     savedCampaignsAreCpaProxy: boolean;
+    acquisitionProxySource?: "campaigns" | "creatives" | "none";
     abcMarginNeedsValidation: boolean;
   };
   financial: {
@@ -106,6 +107,8 @@ interface SummaryResponse {
     revenue: number;
     purchases: number;
     cpa: number | null;
+    source?: "campaigns" | "creatives" | "none";
+    latestSavedAt?: string | null;
   };
   cashback: {
     activeTransactions: number;
@@ -592,6 +595,173 @@ function MetricCard({
   );
 }
 
+type ReadinessStatus = "ready" | "attention" | "todo";
+
+const READINESS_LABELS: Record<ReadinessStatus, string> = {
+  ready: "pronto",
+  attention: "revisar",
+  todo: "fazer",
+};
+
+function readinessVariant(status: ReadinessStatus): "default" | "secondary" | "outline" {
+  if (status === "ready") return "default";
+  if (status === "attention") return "secondary";
+  return "outline";
+}
+
+function acquisitionSourceLabel(source?: "campaigns" | "creatives" | "none") {
+  if (source === "campaigns") return "campanhas salvas";
+  if (source === "creatives") return "criativos salvos";
+  return "sem proxy recente";
+}
+
+function ReadinessItem({
+  icon,
+  title,
+  status,
+  value,
+  detail,
+  href,
+  cta,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  status: ReadinessStatus;
+  value: string;
+  detail: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <div className="flex min-h-[156px] flex-col justify-between rounded-md border bg-background p-3">
+      <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="text-muted-foreground">{icon}</span>
+            {title}
+          </div>
+          <Badge variant={readinessVariant(status)}>{READINESS_LABELS[status]}</Badge>
+        </div>
+        <p className="mt-3 text-lg font-semibold">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      </div>
+      <Button asChild size="sm" variant={status === "todo" ? "default" : "outline"} className="mt-3 w-full">
+        <Link href={href}>
+          {cta}
+          <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+function ReadinessPanel({ data, runs }: { data: SummaryResponse; runs: RunReport[] }) {
+  const runsWithHoldout = runs.filter((run) => (run.holdoutList?.totalCount ?? 0) > 0).length;
+  const measurementStatus: ReadinessStatus =
+    runsWithHoldout > 0 ? "ready" : runs.length > 0 ? "attention" : "todo";
+  const cpaSource = data.acquisition.source ?? data.dataQuality.acquisitionProxySource ?? "none";
+  const hasCpa = data.acquisition.cpa != null && data.acquisition.purchases > 0;
+
+  const items = [
+    {
+      icon: <WalletCards className="h-3.5 w-3.5" />,
+      title: "CAC/CPA",
+      status: hasCpa ? "ready" : "attention",
+      value: hasCpa ? BRL(data.acquisition.cpa ?? 0) : "Sem CPA fresco",
+      detail: hasCpa
+        ? `${NUMBER(data.acquisition.purchases)} compras via ${acquisitionSourceLabel(cpaSource)} nos ultimos 30 dias.`
+        : "Atualize Meta/salve campanhas para comparar aquisicao com margem.",
+      href: "/campaigns",
+      cta: hasCpa ? "Ver campanhas" : "Atualizar origem",
+    },
+    {
+      icon: <ShieldCheck className="h-3.5 w-3.5" />,
+      title: "Margem",
+      status: data.financial.contributionAfterMarketingPct > 0 ? "ready" : "attention",
+      value: PCT(data.financial.contributionAfterMarketingPct),
+      detail: `${PCT(data.financial.contributionBeforeMarketingPct)} antes de midia; teto bruto por pedido ${BRL(data.financial.firstOrderContribution)}.`,
+      href: "/financeiro",
+      cta: "Ver financeiro",
+    },
+    {
+      icon: <Coins className="h-3.5 w-3.5" />,
+      title: "Cashback",
+      status: data.capabilities.cashbackTemplates > 0 && data.cashback.activeValue > 0 ? "ready" : "attention",
+      value: BRL(data.cashback.activeValue),
+      detail: `${NUMBER(data.cashback.activeCustomers)} clientes com saldo; ${BRL(data.cashback.expiring14Value)} expira em 14 dias.`,
+      href: "/crm/cashback",
+      cta: "Abrir cashback",
+    },
+    {
+      icon: <MessageCircle className="h-3.5 w-3.5" />,
+      title: "WhatsApp",
+      status: data.capabilities.waTemplates > 0 ? "ready" : "todo",
+      value: `${NUMBER(data.capabilities.waTemplates)} templates`,
+      detail: `${NUMBER(data.capabilities.waCampaigns)} campanhas criadas. Use sempre lista de tratamento, nunca holdout.`,
+      href: "/crm/whatsapp",
+      cta: "Criar WhatsApp",
+    },
+    {
+      icon: <Mail className="h-3.5 w-3.5" />,
+      title: "Email",
+      status: data.capabilities.emailDrafts > 0 ? "ready" : "todo",
+      value: `${NUMBER(data.capabilities.emailDrafts)} rascunhos`,
+      detail: `${NUMBER(data.capabilities.emailReports)} relatorios. O criador com IA ja recebe contexto do playbook.`,
+      href: "/crm/email-templates",
+      cta: "Criar email",
+    },
+    {
+      icon: <Tag className="h-3.5 w-3.5" />,
+      title: "Cupom VNDA",
+      status: data.capabilities.couponPlans > 0 || data.capabilities.activeCoupons > 0 ? "ready" : "attention",
+      value: `${NUMBER(data.capabilities.activeCoupons)} ativos`,
+      detail: `${NUMBER(data.capabilities.couponPlans)} planos. Use cupom so quando cashback/novidade nao bastar.`,
+      href: "/coupons",
+      cta: "Ver cupons",
+    },
+    {
+      icon: <BarChart3 className="h-3.5 w-3.5" />,
+      title: "Mensuracao",
+      status: measurementStatus,
+      value: `${NUMBER(runs.length)} runs`,
+      detail: `${NUMBER(runsWithHoldout)} com holdout. KPI principal: ${data.measurement.primaryMetric}.`,
+      href: "/crm/retention",
+      cta: measurementStatus === "todo" ? "Preparar run" : "Ver resultados",
+    },
+  ] satisfies Array<{
+    icon: React.ReactNode;
+    title: string;
+    status: ReadinessStatus;
+    value: string;
+    detail: string;
+    href: string;
+    cta: string;
+  }>;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base">Painel de implantacao</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              O que ja esta pronto e o que ainda trava executar com poucos cliques.
+            </p>
+          </div>
+          <Badge variant="outline">{NUMBER(items.filter((item) => item.status === "ready").length)} prontos</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {items.map((item) => (
+            <ReadinessItem key={item.title} {...item} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function RetentionPlaybooksPage() {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
@@ -860,6 +1030,8 @@ export default function RetentionPlaybooksPage() {
               </p>
             </div>
           </div>
+
+          <ReadinessPanel data={data} runs={runs} />
 
           <section className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-2">
@@ -1178,68 +1350,6 @@ export default function RetentionPlaybooksPage() {
                 })}
               </div>
             )}
-          </section>
-
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">O que ja esta pronto</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                <div>
-                  <p className="text-muted-foreground">Campanhas WA</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.waCampaigns)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Templates WA</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.waTemplates)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Emails</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.emailDrafts)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Cupons</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.couponPlans)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Listas</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.contactLists)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Régua cashback</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.cashbackTemplates)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Relatorios email</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.emailReports)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Cupons ativos</p>
-                  <p className="font-semibold">{NUMBER(data.capabilities.activeCoupons)}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Proximas travas de escala</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex gap-3">
-                  <Badge variant="secondary">1</Badge>
-                  <p>Salvar cada disparo como run unico com audiencia, holdout, template, cupom e custo.</p>
-                </div>
-                <div className="flex gap-3">
-                  <Badge variant="secondary">2</Badge>
-                  <p>Aplicar guardrail de margem por produto antes de liberar cupom ou cashback extra.</p>
-                </div>
-                <div className="flex gap-3">
-                  <Badge variant="secondary">3</Badge>
-                  <p>Unificar WhatsApp, email, cupom e cashback em um relatorio de margem incremental.</p>
-                </div>
-              </CardContent>
-            </Card>
           </section>
         </>
       ) : null}

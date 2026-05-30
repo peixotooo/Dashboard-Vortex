@@ -59,6 +59,16 @@ interface SavedCampaignRow {
   saved_at: string | null;
 }
 
+interface SavedAcquisitionSummary {
+  campaigns: number;
+  spend: number;
+  revenue: number;
+  purchases: number;
+  cpa: number | null;
+  source: "campaigns" | "creatives" | "none";
+  latestSavedAt: string | null;
+}
+
 interface SegmentStats {
   customers: number;
   withPhone: number;
@@ -293,21 +303,57 @@ async function safeCount(
   }
 }
 
-async function getSavedCampaignsLast30(
+async function getSavedAcquisitionLast30(
   admin: NonNullable<Awaited<ReturnType<typeof authRoute>>["auth"]>["admin"],
   workspaceId: string,
   sinceISO: string
 ) {
-  const { data, error } = await admin
-    .from("saved_campaigns")
-    .select("spend, revenue, purchases, saved_at")
-    .eq("workspace_id", workspaceId)
-    .gte("saved_at", sinceISO)
-    .limit(500);
+  async function summarize(table: "saved_campaigns" | "saved_creatives", source: "campaigns" | "creatives") {
+    const { data, error } = await admin
+      .from(table)
+      .select("spend, revenue, purchases, saved_at")
+      .eq("workspace_id", workspaceId)
+      .gte("saved_at", sinceISO)
+      .order("saved_at", { ascending: false })
+      .limit(500);
 
-  if (error) return { campaigns: 0, spend: 0, revenue: 0, purchases: 0, cpa: null as number | null };
+    if (error) {
+      return {
+        campaigns: 0,
+        spend: 0,
+        revenue: 0,
+        purchases: 0,
+        cpa: null,
+        source: "none" as const,
+        latestSavedAt: null,
+      } satisfies SavedAcquisitionSummary;
+    }
 
-  const rows = (data || []) as SavedCampaignRow[];
+    const rows = (data || []) as SavedCampaignRow[];
+    const spend = rows.reduce((sum, row) => sum + toNumber(row.spend), 0);
+    const revenue = rows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
+    const purchases = rows.reduce((sum, row) => sum + toNumber(row.purchases), 0);
+
+    return {
+      campaigns: rows.length,
+      spend,
+      revenue,
+      purchases,
+      cpa: purchases > 0 ? spend / purchases : null,
+      source: rows.length > 0 ? source : "none",
+      latestSavedAt: rows[0]?.saved_at || null,
+    } satisfies SavedAcquisitionSummary;
+  }
+
+  const [campaigns, creatives] = await Promise.all([
+    summarize("saved_campaigns", "campaigns"),
+    summarize("saved_creatives", "creatives"),
+  ]);
+
+  if (campaigns.purchases > 0 || campaigns.spend > 0) return campaigns;
+  if (creatives.purchases > 0 || creatives.spend > 0) return creatives;
+
+  const rows: SavedCampaignRow[] = [];
   const spend = rows.reduce((sum, row) => sum + toNumber(row.spend), 0);
   const revenue = rows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
   const purchases = rows.reduce((sum, row) => sum + toNumber(row.purchases), 0);
@@ -318,7 +364,9 @@ async function getSavedCampaignsLast30(
     revenue,
     purchases,
     cpa: purchases > 0 ? spend / purchases : null,
-  };
+    source: "none" as const,
+    latestSavedAt: null,
+  } satisfies SavedAcquisitionSummary;
 }
 
 export async function GET(request: NextRequest) {
@@ -338,7 +386,7 @@ export async function GET(request: NextRequest) {
       orders,
       activeCashback,
       usedCashbackLast30,
-      savedCampaigns,
+      savedAcquisition,
       waCampaigns,
       waTemplates,
       emailDrafts,
@@ -356,7 +404,7 @@ export async function GET(request: NextRequest) {
       fetchCrmOrders(admin, workspaceId),
       fetchActiveCashback(admin, workspaceId),
       fetchUsedCashbackLast30(admin, workspaceId, since30.toISOString()),
-      getSavedCampaignsLast30(admin, workspaceId, since30.toISOString()),
+      getSavedAcquisitionLast30(admin, workspaceId, since30.toISOString()),
       safeCount(admin, workspaceId, "wa_campaigns", (q) => q.eq("kind", "campaign")),
       safeCount(admin, workspaceId, "wa_templates"),
       safeCount(admin, workspaceId, "email_template_drafts"),
@@ -712,6 +760,7 @@ export async function GET(request: NextRequest) {
           uniqueOrders: totals.orders,
           uniqueCustomers: customerList.length,
           savedCampaignsAreCpaProxy: true,
+          acquisitionProxySource: savedAcquisition.source,
           abcMarginNeedsValidation: true,
         },
         financial: {
@@ -752,7 +801,7 @@ export async function GET(request: NextRequest) {
             dormantHighLtv,
           },
         },
-        acquisition: savedCampaigns,
+        acquisition: savedAcquisition,
         cashback: {
           activeTransactions: activeCashback.length,
           activeCustomers: cashbackActiveCustomers.size,
