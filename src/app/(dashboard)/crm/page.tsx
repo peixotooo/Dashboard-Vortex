@@ -648,6 +648,48 @@ export default function CrmPage() {
     totalClients: number;
     totalRevenue: number;
   }
+
+  interface WaPerformanceRow {
+    campaign: {
+      id: string;
+      name: string;
+      status: string;
+      total_messages: number;
+      sent_count: number;
+      created_at: string;
+      started_at: string | null;
+      completed_at: string | null;
+      wa_templates?: { name: string; language: string } | null;
+    };
+    performance: {
+      conversions: number;
+      attributed_revenue: number;
+      total_cost_brl: number;
+      real_cost_brl?: number;
+      roi_pct: number;
+      roas: number;
+      window_days: number;
+      window_active: boolean;
+      window_ends_at: string | null;
+      sent_count: number;
+      attribution_start: string | null;
+      attribution_start_source: string | null;
+      matched_phones: number;
+      cost_source?: "meta_api" | "estimated";
+    };
+  }
+
+  interface WaPerformanceSummary {
+    campaigns: number;
+    sent: number;
+    conversions: number;
+    attributed_revenue: number;
+    total_cost_brl: number;
+    roas: number;
+    roi_pct: number;
+    revenue_per_sent: number;
+  }
+
   const [metricsData, setMetricsData] = useState<MetricsData | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyCohortRow[]>([]);
   const [adSpend, setAdSpend] = useState<Record<string, number> | null>(null);
@@ -658,6 +700,14 @@ export default function CrmPage() {
     product_cost_pct: number; tax_pct: number; frete_pct: number;
     desconto_pct: number; other_expenses_pct: number; invest_pct: number;
   } | null>(null);
+
+  // WhatsApp performance tab
+  const [waPerfRows, setWaPerfRows] = useState<WaPerformanceRow[]>([]);
+  const [waPerfSummary, setWaPerfSummary] = useState<WaPerformanceSummary | null>(null);
+  const [waPerfLoading, setWaPerfLoading] = useState(false);
+  const [waPerfError, setWaPerfError] = useState<string | null>(null);
+  const [waPerfDays, setWaPerfDays] = useState(90);
+  const [waPerfSort, setWaPerfSort] = useState<"revenue" | "roas" | "conversions" | "revenue_per_sent" | "cost">("revenue");
 
   // Snapshot recompute
   const [computing, setComputing] = useState(false);
@@ -681,6 +731,29 @@ export default function CrmPage() {
     if (workspace?.id) hdrs["x-workspace-id"] = workspace.id;
     return hdrs;
   }, [workspace?.id]);
+
+  const fetchWaPerformance = useCallback(async () => {
+    if (!workspace?.id) return;
+    setWaPerfLoading(true);
+    setWaPerfError(null);
+    try {
+      const params = new URLSearchParams({
+        days: String(waPerfDays),
+        limit: "100",
+      });
+      const res = await fetch(`/api/crm/whatsapp/campaigns/performance?${params.toString()}`, {
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao carregar performance.");
+      setWaPerfRows(Array.isArray(data.campaigns) ? data.campaigns : []);
+      setWaPerfSummary(data.summary || null);
+    } catch (error) {
+      setWaPerfError(error instanceof Error ? error.message : "Falha ao carregar performance.");
+    } finally {
+      setWaPerfLoading(false);
+    }
+  }, [workspace?.id, waPerfDays, wsHeaders]);
 
   // Stage 1: summary only (mount) — ~5KB instead of 10-35MB
   const fetchSummary = useCallback(async () => {
@@ -1126,6 +1199,12 @@ export default function CrmPage() {
     }
   }, [customersLoaded, activeFilters.length, fetchCustomers]);
 
+  useEffect(() => {
+    if (activeTab === "performance") {
+      fetchWaPerformance();
+    }
+  }, [activeTab, fetchWaPerformance]);
+
   const clearAllFilters = useCallback(() => {
     setSelectedEmails(new Set());
     setSegmentFilter("all");
@@ -1389,6 +1468,37 @@ export default function CrmPage() {
     return { action, ...labels[action], reasons, cautions };
   }, [periodTotals.mel, monthlyWithCac]);
 
+  const sortedWaPerfRows = useMemo(() => {
+    const getCost = (row: WaPerformanceRow) =>
+      row.performance.real_cost_brl ?? row.performance.total_cost_brl ?? 0;
+    const getRevenuePerSent = (row: WaPerformanceRow) => {
+      const sent = row.performance.sent_count || row.campaign.sent_count || 0;
+      return sent > 0 ? row.performance.attributed_revenue / sent : 0;
+    };
+    const valueForSort = (row: WaPerformanceRow) => {
+      if (waPerfSort === "roas") return row.performance.roas || 0;
+      if (waPerfSort === "conversions") return row.performance.conversions || 0;
+      if (waPerfSort === "revenue_per_sent") return getRevenuePerSent(row);
+      if (waPerfSort === "cost") return getCost(row);
+      return row.performance.attributed_revenue || 0;
+    };
+    return [...waPerfRows].sort((a, b) => valueForSort(b) - valueForSort(a));
+  }, [waPerfRows, waPerfSort]);
+
+  const waPerfBestRevenue = useMemo(
+    () => [...waPerfRows]
+      .filter((r) => r.performance.attributed_revenue > 0)
+      .sort((a, b) => b.performance.attributed_revenue - a.performance.attributed_revenue)[0],
+    [waPerfRows]
+  );
+
+  const waPerfWorstRoas = useMemo(
+    () => [...waPerfRows]
+      .filter((r) => (r.performance.sent_count || r.campaign.sent_count || 0) >= 1000)
+      .sort((a, b) => (a.performance.roas || 0) - (b.performance.roas || 0))[0],
+    [waPerfRows]
+  );
+
   return (
     <TooltipProvider>
     <div className="space-y-6 p-6">
@@ -1540,6 +1650,7 @@ export default function CrmPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="metrics">Metricas</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="overview">Visao Geral</TabsTrigger>
           <TabsTrigger value="segments">Segmentos RFM</TabsTrigger>
           <TabsTrigger value="behavior">Comportamento</TabsTrigger>
@@ -2066,7 +2177,241 @@ export default function CrmPage() {
           </>)}
         </TabsContent>
 
-        {/* ===== Tab 1: Overview ===== */}
+        {/* ===== Tab 1: Performance ===== */}
+        <TabsContent value="performance" className="space-y-6">
+          {activeTab === "performance" && (<>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold">Performance WhatsApp</h2>
+              <p className="text-sm text-muted-foreground">
+                Atribuicao por telefone dentro da janela configurada em cada campanha.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={waPerfDays}
+                onChange={(e) => setWaPerfDays(Number(e.target.value))}
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground"
+              >
+                <option value={30}>Ultimos 30 dias</option>
+                <option value={90}>Ultimos 90 dias</option>
+                <option value={180}>Ultimos 180 dias</option>
+                <option value={365}>Ultimos 365 dias</option>
+                <option value={0}>Todas as campanhas</option>
+              </select>
+              <select
+                value={waPerfSort}
+                onChange={(e) => setWaPerfSort(e.target.value as typeof waPerfSort)}
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground"
+              >
+                <option value="revenue">Ordenar por receita</option>
+                <option value="roas">Ordenar por ROAS</option>
+                <option value="conversions">Ordenar por conversoes</option>
+                <option value="revenue_per_sent">Ordenar por R$/envio</option>
+                <option value="cost">Ordenar por custo</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={fetchWaPerformance}
+                disabled={waPerfLoading}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${waPerfLoading ? "animate-spin" : ""}`} />
+                Atualizar
+              </Button>
+            </div>
+          </div>
+
+          {waPerfError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
+              {waPerfError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita atribuida</p>
+              <p className="text-2xl font-bold text-primary mt-2">
+                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.attributed_revenue ?? 0)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">ROAS</p>
+              <p className="text-2xl font-bold text-foreground mt-2">
+                {waPerfLoading && !waPerfSummary ? "..." : `${(waPerfSummary?.roas ?? 0).toFixed(2)}x`}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Conversoes</p>
+              <p className="text-2xl font-bold text-foreground mt-2">
+                {waPerfLoading && !waPerfSummary ? "..." : formatNumber(waPerfSummary?.conversions ?? 0)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Custo WhatsApp</p>
+              <p className="text-2xl font-bold text-foreground mt-2">
+                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.total_cost_brl ?? 0)}
+              </p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita/envio</p>
+              <p className="text-2xl font-bold text-foreground mt-2">
+                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.revenue_per_sent ?? 0)}
+              </p>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Melhor campanha por receita</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {waPerfBestRevenue ? (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="font-semibold">{waPerfBestRevenue.campaign.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(waPerfBestRevenue.campaign.created_at).toLocaleDateString("pt-BR")} · {waPerfBestRevenue.performance.window_days}d de janela
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-muted-foreground text-xs">Receita</p>
+                        <p className="font-semibold text-primary">{formatCurrency(waPerfBestRevenue.performance.attributed_revenue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">ROAS</p>
+                        <p className="font-semibold">{waPerfBestRevenue.performance.roas.toFixed(2)}x</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Vendas</p>
+                        <p className="font-semibold">{formatNumber(waPerfBestRevenue.performance.conversions)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem campanhas atribuídas no período.</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pior ROAS com volume relevante</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {waPerfWorstRoas ? (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="font-semibold">{waPerfWorstRoas.campaign.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatNumber(waPerfWorstRoas.performance.sent_count)} envios · {waPerfWorstRoas.performance.window_days}d de janela
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-muted-foreground text-xs">ROAS</p>
+                        <p className={`font-semibold ${waPerfWorstRoas.performance.roas >= 1 ? "text-amber-600" : "text-red-600"}`}>
+                          {waPerfWorstRoas.performance.roas.toFixed(2)}x
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Receita</p>
+                        <p className="font-semibold">{formatCurrency(waPerfWorstRoas.performance.attributed_revenue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">Custo</p>
+                        <p className="font-semibold">{formatCurrency(waPerfWorstRoas.performance.real_cost_brl ?? waPerfWorstRoas.performance.total_cost_brl)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem campanhas com mais de 1.000 envios no período.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Ranking de campanhas</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Receita = soma de pedidos do CRM cujo telefone recebeu a campanha dentro da janela.
+                  </p>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {waPerfRows.length} campanha{waPerfRows.length === 1 ? "" : "s"}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              {waPerfLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : sortedWaPerfRows.length === 0 ? (
+                <p className="text-muted-foreground text-sm text-center py-8">Sem campanhas com performance no período.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="py-3 px-2 text-left min-w-[260px]">Campanha</th>
+                      <th className="py-3 px-2 text-right">Data</th>
+                      <th className="py-3 px-2 text-right">Enviadas</th>
+                      <th className="py-3 px-2 text-right">Vendas</th>
+                      <th className="py-3 px-2 text-right">Receita</th>
+                      <th className="py-3 px-2 text-right">Custo</th>
+                      <th className="py-3 px-2 text-right">ROAS</th>
+                      <th className="py-3 px-2 text-right">R$/envio</th>
+                      <th className="py-3 px-2 text-right">Janela</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedWaPerfRows.map((row) => {
+                      const cost = row.performance.real_cost_brl ?? row.performance.total_cost_brl ?? 0;
+                      const sent = row.performance.sent_count || row.campaign.sent_count || 0;
+                      const revenuePerSent = sent > 0 ? row.performance.attributed_revenue / sent : 0;
+                      const roasColor =
+                        row.performance.roas >= 3 ? "text-green-600" :
+                        row.performance.roas >= 1 ? "text-amber-600" : "text-red-600";
+                      return (
+                        <tr key={row.campaign.id} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="py-3 px-2">
+                            <p className="font-medium text-foreground">{row.campaign.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.campaign.wa_templates?.name || "Template sem vínculo"} · {row.campaign.status}
+                              {row.performance.cost_source === "meta_api" ? " · custo Meta" : " · custo estimado"}
+                            </p>
+                          </td>
+                          <td className="py-3 px-2 text-right text-muted-foreground whitespace-nowrap">
+                            {new Date(row.campaign.created_at).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="py-3 px-2 text-right">{formatNumber(sent)}</td>
+                          <td className="py-3 px-2 text-right font-semibold">{formatNumber(row.performance.conversions)}</td>
+                          <td className="py-3 px-2 text-right font-semibold text-primary">{formatCurrency(row.performance.attributed_revenue)}</td>
+                          <td className="py-3 px-2 text-right">{formatCurrency(cost)}</td>
+                          <td className={`py-3 px-2 text-right font-semibold ${roasColor}`}>
+                            {row.performance.roas.toFixed(2)}x
+                          </td>
+                          <td className="py-3 px-2 text-right">{formatCurrency(revenuePerSent)}</td>
+                          <td className="py-3 px-2 text-right text-muted-foreground whitespace-nowrap">
+                            {row.performance.window_days}d{row.performance.window_active ? " ativa" : ""}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+          </>)}
+        </TabsContent>
+
+        {/* ===== Tab 2: Overview ===== */}
         <TabsContent value="overview" className="space-y-6">
           {activeTab === "overview" && (<>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

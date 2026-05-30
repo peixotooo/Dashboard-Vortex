@@ -304,6 +304,7 @@ export default function WhatsAppPage() {
       const res = await fetch("/api/crm/whatsapp/campaigns", { headers: wsHeaders() });
       const data = await res.json();
       setCampaigns(data.campaigns || []);
+      setPerfData({});
     } catch {
       // ignore
     }
@@ -361,11 +362,11 @@ export default function WhatsAppPage() {
     setExclusionsLoading(false);
   }, [workspace?.id, wsHeaders]);
 
-  // Fetch performance data for completed/sending campaigns (batch)
+  // Fetch attribution/performance for campaigns that already sent messages.
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
     const trackable = campaigns.filter((c) =>
-      ["completed", "sending"].includes(c.status) && c.started_at
+      ["completed", "sending", "failed"].includes(c.status) && (c.sent_count || 0) > 0
     );
     if (trackable.length === 0) return;
 
@@ -1023,7 +1024,7 @@ export default function WhatsAppPage() {
                             const thisMonth = new Date();
                             const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
                             const totalSent = campaigns
-                              .filter((c) => c.started_at && new Date(c.started_at) >= monthStart)
+                              .filter((c) => new Date(c.started_at || c.created_at) >= monthStart)
                               .reduce((sum, c) => sum + (c.sent_count || 0), 0);
                             const estBrl = totalSent * (campaigns[0]?.message_cost_usd || 0.0625) * (campaigns[0]?.exchange_rate || 5.80);
                             return `~R$ ${estBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
@@ -1037,7 +1038,7 @@ export default function WhatsAppPage() {
                             const thisMonth = new Date();
                             const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
                             const totalSent = campaigns
-                              .filter((c) => c.started_at && new Date(c.started_at) >= monthStart)
+                              .filter((c) => new Date(c.started_at || c.created_at) >= monthStart)
                               .reduce((sum, c) => sum + (c.sent_count || 0), 0);
                             const estUsd = totalSent * (campaigns[0]?.message_cost_usd || 0.0625);
                             return `(~US$ ${estUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })})`;
@@ -1102,7 +1103,7 @@ export default function WhatsAppPage() {
                             .filter((c) => {
                               const thisMonth = new Date();
                               const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
-                              return c.started_at && new Date(c.started_at) >= monthStart;
+                              return new Date(c.started_at || c.created_at) >= monthStart;
                             })
                             .reduce((sum, c) => sum + (c.sent_count || 0), 0)
                             .toLocaleString("pt-BR")}
