@@ -46,6 +46,12 @@ interface Plan {
   created_at: string;
 }
 
+interface PlaybookCouponContext {
+  playbookId: string;
+  runId: string;
+  name: string;
+}
+
 interface BanditStats {
   pct_attempts: number;
   pct_revenue: number;
@@ -159,6 +165,7 @@ export default function CouponsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Plan> | null>(null);
+  const [playbookContext, setPlaybookContext] = useState<PlaybookCouponContext | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, VndaVerify>>({});
@@ -250,6 +257,11 @@ export default function CouponsPage() {
     if (!playbook && !run && !name) return;
 
     handledQueryRef.current = true;
+    setPlaybookContext({
+      playbookId: playbook || "",
+      runId: run || "",
+      name: name || "Cupom playbook CRM",
+    });
     setTab("plans");
     setEditing({
       ...EMPTY_PLAN,
@@ -279,10 +291,23 @@ export default function CouponsPage() {
     try {
       const path = editing.id ? `/api/coupons/plans/${editing.id}` : "/api/coupons/plans";
       const method = editing.id ? "PATCH" : "POST";
-      const res = await fetch(path, { method, headers: headers(), body: JSON.stringify(editing) });
+      const body =
+        !editing.id && playbookContext
+          ? {
+              ...editing,
+              playbook_id: playbookContext.playbookId,
+              playbook_run_id: playbookContext.runId,
+              playbook_name: playbookContext.name,
+            }
+          : editing;
+      const res = await fetch(path, { method, headers: headers(), body: JSON.stringify(body) });
       const data = await res.json();
       if (data.error) setError(data.error);
-      else { setEditing(null); await reload(); }
+      else {
+        setEditing(null);
+        setPlaybookContext(null);
+        await reload();
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "erro"); }
     setBusy(null);
   }
@@ -811,7 +836,7 @@ export default function CouponsPage() {
       </Tabs>
 
       {/* PLAN EDITOR */}
-      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) { setEditing(null); setPlaybookContext(null); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editing?.id ? "Editar plano" : "Novo plano"}</DialogTitle></DialogHeader>
           {editing && (
@@ -976,7 +1001,7 @@ export default function CouponsPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+                <Button variant="outline" onClick={() => { setEditing(null); setPlaybookContext(null); }}>Cancelar</Button>
                 <Button onClick={savePlan} disabled={busy === "save"}>
                   {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar
                 </Button>

@@ -92,12 +92,22 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const playbookContext = {
+    playbook_id: typeof body.playbook_id === "string" ? body.playbook_id : null,
+    playbook_run_id: typeof body.playbook_run_id === "string" ? body.playbook_run_id : null,
+    playbook_name: typeof body.playbook_name === "string" ? body.playbook_name : null,
+  };
   await logCouponAudit({
     workspaceId: ctx.workspaceId,
     action: "plan_created",
     actor: ctx.user.id,
     planId: data.id,
-    details: { name: data.name, mode: data.mode, target: data.target },
+    details: {
+      name: data.name,
+      mode: data.mode,
+      target: data.target,
+      ...(playbookContext.playbook_run_id ? playbookContext : {}),
+    },
   });
   return NextResponse.json({ plan: data });
 }

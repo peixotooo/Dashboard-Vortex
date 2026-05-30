@@ -54,6 +54,43 @@ interface WaCampaignRow {
   } | null;
 }
 
+interface EmailDispatchRow {
+  id: string;
+  provider: string | null;
+  status: string;
+  subject: string | null;
+  locaweb_list_ids: string[] | null;
+  recipients_total: number | string | null;
+  recipients_sent: number | string | null;
+  recipients_failed: number | string | null;
+  stats: Record<string, unknown> | null;
+  scheduled_to: string | null;
+  created_at: string;
+}
+
+interface CouponAuditRow {
+  id: string;
+  plan_id: string | null;
+  created_at: string;
+  details: {
+    playbook_run_id?: string;
+    playbook_id?: string;
+    playbook_name?: string;
+  } | null;
+}
+
+interface ActiveCouponRow {
+  id: string;
+  plan_id: string | null;
+  status: string;
+  vnda_coupon_code: string;
+  attributed_revenue: number | string | null;
+  attributed_units: number | string | null;
+  discount_pct: number | string | null;
+  expires_at: string;
+  created_at: string;
+}
+
 interface Contact {
   email?: string;
   phone?: string;
@@ -561,11 +598,201 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
 }
 
 function summarizeEmailChannel(list: ContactListRow) {
+  const listId = list.locaweb_list_id;
   return {
-    listReady: Boolean(list.locaweb_list_id),
-    locawebListId: list.locaweb_list_id,
+    listReady: Boolean(listId),
+    locawebListId: listId,
     emailContacts: list.email_count,
     sourceListId: list.id,
+  };
+}
+
+async function fetchEmailDispatchesSince(
+  admin: AdminClient,
+  workspaceId: string,
+  since: string,
+  locawebListIds: Set<string>
+): Promise<EmailDispatchRow[]> {
+  if (locawebListIds.size === 0) return [];
+
+  const rows: EmailDispatchRow[] = [];
+  for (let from = 0; from < 10000; from += PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("email_template_dispatches")
+      .select(
+        "id, provider, status, subject, locaweb_list_ids, recipients_total, recipients_sent, recipients_failed, stats, scheduled_to, created_at"
+      )
+      .eq("workspace_id", workspaceId)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = ((data || []) as EmailDispatchRow[]).filter((dispatch) =>
+      (dispatch.locaweb_list_ids || []).some((listId) => locawebListIds.has(String(listId)))
+    );
+    rows.push(...page);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+function summarizeEmailDispatches(list: ContactListRow, dispatches: EmailDispatchRow[]) {
+  const base = summarizeEmailChannel(list);
+  if (!list.locaweb_list_id) {
+    return {
+      ...base,
+      dispatchCount: 0,
+      sent: 0,
+      failed: 0,
+      opens: 0,
+      clicks: 0,
+      statuses: {} as Record<string, number>,
+      dispatches: [] as Array<{
+        id: string;
+        subject: string | null;
+        status: string;
+        provider: string;
+        sent: number;
+        failed: number;
+        createdAt: string;
+      }>,
+    };
+  }
+
+  const rows = dispatches.filter((dispatch) =>
+    (dispatch.locaweb_list_ids || []).some((listId) => String(listId) === list.locaweb_list_id)
+  );
+  const totals = rows.reduce(
+    (acc, dispatch) => {
+      const sent = toNumber(dispatch.recipients_sent);
+      const total = toNumber(dispatch.recipients_total);
+      const failed = toNumber(dispatch.recipients_failed);
+      const stats = dispatch.stats || {};
+      acc.sent += sent || total;
+      acc.failed += failed;
+      acc.opens += toNumber(stats.opens ?? stats.opened ?? stats.total_opens);
+      acc.clicks += toNumber(stats.clicks ?? stats.clicked ?? stats.total_clicks);
+      acc.statuses[dispatch.status] = (acc.statuses[dispatch.status] || 0) + 1;
+      return acc;
+    },
+    {
+      sent: 0,
+      failed: 0,
+      opens: 0,
+      clicks: 0,
+      statuses: {} as Record<string, number>,
+    }
+  );
+
+  return {
+    ...base,
+    dispatchCount: rows.length,
+    ...totals,
+    dispatches: rows.slice(0, 5).map((dispatch) => ({
+      id: dispatch.id,
+      subject: dispatch.subject,
+      status: dispatch.status,
+      provider: dispatch.provider || "locaweb",
+      sent: toNumber(dispatch.recipients_sent) || toNumber(dispatch.recipients_total),
+      failed: toNumber(dispatch.recipients_failed),
+      createdAt: dispatch.created_at,
+    })),
+  };
+}
+
+async function fetchCouponAuditsSince(
+  admin: AdminClient,
+  workspaceId: string,
+  since: string,
+  runIds: Set<string>
+): Promise<CouponAuditRow[]> {
+  const rows: CouponAuditRow[] = [];
+  for (let from = 0; from < 10000; from += PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("coupon_audit_log")
+      .select("id, plan_id, created_at, details")
+      .eq("workspace_id", workspaceId)
+      .eq("action", "plan_created")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = ((data || []) as CouponAuditRow[]).filter((audit) => {
+      const runId = audit.details?.playbook_run_id;
+      return runId ? runIds.has(runId) : false;
+    });
+    rows.push(...page);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchActiveCouponsForPlans(
+  admin: AdminClient,
+  workspaceId: string,
+  planIds: Set<string>
+): Promise<ActiveCouponRow[]> {
+  if (planIds.size === 0) return [];
+
+  const ids = [...planIds];
+  const rows: ActiveCouponRow[] = [];
+  for (let start = 0; start < ids.length; start += 100) {
+    const slice = ids.slice(start, start + 100);
+    const { data, error } = await admin
+      .from("promo_active_coupons")
+      .select(
+        "id, plan_id, status, vnda_coupon_code, attributed_revenue, attributed_units, discount_pct, expires_at, created_at"
+      )
+      .eq("workspace_id", workspaceId)
+      .in("plan_id", slice)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    rows.push(...((data || []) as ActiveCouponRow[]));
+  }
+  return rows;
+}
+
+function summarizeCoupons(
+  runId: string,
+  audits: CouponAuditRow[],
+  coupons: ActiveCouponRow[]
+) {
+  const planIds = new Set(
+    audits
+      .filter((audit) => audit.details?.playbook_run_id === runId && audit.plan_id)
+      .map((audit) => audit.plan_id as string)
+  );
+  const rows = coupons.filter((coupon) => coupon.plan_id && planIds.has(coupon.plan_id));
+  const totals = rows.reduce(
+    (acc, coupon) => {
+      acc.attributedRevenue += toNumber(coupon.attributed_revenue);
+      acc.attributedUnits += toNumber(coupon.attributed_units);
+      acc.statuses[coupon.status] = (acc.statuses[coupon.status] || 0) + 1;
+      return acc;
+    },
+    {
+      attributedRevenue: 0,
+      attributedUnits: 0,
+      statuses: {} as Record<string, number>,
+    }
+  );
+
+  return {
+    planCount: planIds.size,
+    couponCount: rows.length,
+    ...totals,
+    coupons: rows.slice(0, 5).map((coupon) => ({
+      id: coupon.id,
+      code: coupon.vnda_coupon_code,
+      status: coupon.status,
+      discountPct: toNumber(coupon.discount_pct),
+      attributedRevenue: toNumber(coupon.attributed_revenue),
+      attributedUnits: toNumber(coupon.attributed_units),
+      expiresAt: coupon.expires_at,
+    })),
   };
 }
 
@@ -726,11 +953,28 @@ export async function GET(request: NextRequest) {
       .map(([, group]) => group.treatment!.created_at)
       .sort()[0];
     const runIds = new Set(groups.map(([runId]) => runId));
-    const [sales, marginPct, waCampaigns] = await Promise.all([
+    const locawebListIds = new Set(
+      groups
+        .map(([, group]) => group.treatment!.locaweb_list_id)
+        .filter((id): id is string => Boolean(id))
+    );
+    const [sales, marginPct, waCampaigns, emailDispatches, couponAudits] = await Promise.all([
       fetchSalesSince(auth!.admin, auth!.workspaceId, since),
       contributionMarginPct(auth!.admin, auth!.workspaceId),
       fetchWaCampaignsSince(auth!.admin, auth!.workspaceId, since, runIds),
+      fetchEmailDispatchesSince(auth!.admin, auth!.workspaceId, since, locawebListIds),
+      fetchCouponAuditsSince(auth!.admin, auth!.workspaceId, since, runIds),
     ]);
+    const couponPlanIds = new Set(
+      couponAudits
+        .map((audit) => audit.plan_id)
+        .filter((id): id is string => Boolean(id))
+    );
+    const activeCoupons = await fetchActiveCouponsForPlans(
+      auth!.admin,
+      auth!.workspaceId,
+      couponPlanIds
+    );
 
     const runs = groups.map(([runId, group]) => {
       const treatment = group.treatment!;
@@ -747,7 +991,8 @@ export async function GET(request: NextRequest) {
         treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
-      const email = summarizeEmailChannel(treatment);
+      const email = summarizeEmailDispatches(treatment, emailDispatches);
+      const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
       const incrementalContribution =
         incrementalRevenue * (marginPct / 100) - whatsapp.costBrl;
 
@@ -785,6 +1030,7 @@ export async function GET(request: NextRequest) {
         channels: {
           whatsapp,
           email,
+          coupons,
         },
         links: {
           whatsapp: withParams("/crm/whatsapp", {

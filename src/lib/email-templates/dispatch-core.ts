@@ -415,7 +415,7 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
       suggestion_id: payload.suggestion_id ?? null,
       provider: "iporto",
       locaweb_message_id: null,
-      locaweb_list_ids: [],
+      locaweb_list_ids: payload.list_ids ?? [],
       iporto_message_ids: [],
       recipients_total: recipients.length,
       recipients_sent: 0,

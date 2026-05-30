@@ -193,6 +193,38 @@ interface EmailRunSummary {
   locawebListId: string | null;
   emailContacts: number;
   sourceListId: string;
+  dispatchCount: number;
+  sent: number;
+  failed: number;
+  opens: number;
+  clicks: number;
+  statuses: Record<string, number>;
+  dispatches: Array<{
+    id: string;
+    subject: string | null;
+    status: string;
+    provider: string;
+    sent: number;
+    failed: number;
+    createdAt: string;
+  }>;
+}
+
+interface CouponRunSummary {
+  planCount: number;
+  couponCount: number;
+  attributedRevenue: number;
+  attributedUnits: number;
+  statuses: Record<string, number>;
+  coupons: Array<{
+    id: string;
+    code: string;
+    status: string;
+    discountPct: number;
+    attributedRevenue: number;
+    attributedUnits: number;
+    expiresAt: string;
+  }>;
 }
 
 interface RunReport {
@@ -240,6 +272,7 @@ interface RunReport {
   channels?: {
     whatsapp?: WhatsAppRunSummary;
     email?: EmailRunSummary;
+    coupons?: CouponRunSummary;
   };
   links: {
     whatsapp: string;
@@ -294,6 +327,24 @@ function waStatusSummary(statuses: Record<string, number> | undefined) {
   return entries.map(([status, count]) => `${NUMBER(count)} ${waStatusLabel(status)}`).join(" · ");
 }
 
+const COUPON_STATUS_LABELS: Record<string, string> = {
+  pending: "pendente",
+  active: "ativo",
+  paused: "pausado",
+  expired: "expirado",
+  cancelled: "cancelado",
+  failed: "falhou",
+};
+
+function compactStatusSummary(
+  statuses: Record<string, number> | undefined,
+  labels: Record<string, string> = {}
+) {
+  const entries = Object.entries(statuses || {}).filter(([, count]) => count > 0);
+  if (entries.length === 0) return "sem registro";
+  return entries.map(([status, count]) => `${NUMBER(count)} ${labels[status] || status}`).join(" · ");
+}
+
 type ExecutionStepState = "ready" | "todo" | "optional";
 
 const EXECUTION_STATE_LABELS: Record<ExecutionStepState, string> = {
@@ -343,10 +394,12 @@ function ExecutionStep({
 function RunExecutionChecklist({ run }: { run: RunReport }) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
+  const coupons = run.channels?.coupons;
   const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
   const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
   const needsCoupon = /cupom|segunda|recorrentes|dormantes|winback/i.test(run.playbookName);
+  const couponReady = (coupons?.planCount ?? 0) > 0;
 
   return (
     <div className="rounded-md border bg-muted/20 p-3">
@@ -388,7 +441,9 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           label="Email"
           state={emailReady ? "ready" : "todo"}
           hint={
-            emailReady
+            (email?.dispatchCount ?? 0) > 0
+              ? `${NUMBER(email?.dispatchCount ?? 0)} disparos vinculados`
+              : emailReady
               ? `Lista Locaweb pronta`
               : `${NUMBER(email?.emailContacts ?? run.treatmentList.emailCount)} contatos com email`
           }
@@ -398,8 +453,14 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
         <ExecutionStep
           icon={<Tag className="h-3.5 w-3.5" />}
           label="Cupom"
-          state={needsCoupon ? "todo" : "optional"}
-          hint={needsCoupon ? "Oferta precisa de plano VNDA" : "Sem desconto novo como padrao"}
+          state={couponReady ? "ready" : needsCoupon ? "todo" : "optional"}
+          hint={
+            couponReady
+              ? `${NUMBER(coupons?.couponCount ?? 0)} cupons · ${BRL(coupons?.attributedRevenue ?? 0)} atribuido`
+              : needsCoupon
+              ? "Oferta precisa de plano VNDA"
+              : "Sem desconto novo como padrao"
+          }
           href={run.links.coupons}
           actionLabel={needsCoupon ? "Criar" : "Avaliar"}
         />
@@ -790,8 +851,12 @@ export default function RetentionPlaybooksPage() {
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {runs.map((run) => {
                   const whatsapp = run.channels?.whatsapp;
+                  const email = run.channels?.email;
+                  const coupons = run.channels?.coupons;
                   const whatsappCampaigns = whatsapp?.campaigns ?? [];
                   const hasWhatsapp = (whatsapp?.campaignCount ?? 0) > 0;
+                  const hasEmailDispatch = (email?.dispatchCount ?? 0) > 0;
+                  const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
 
                   return (
                     <Card key={run.id}>
@@ -904,6 +969,70 @@ export default function RetentionPlaybooksPage() {
                             ))}
                           </div>
                         )}
+                      </div>
+
+                      <div className="grid gap-3 text-sm md:grid-cols-2">
+                        <div className="rounded-md border bg-muted/30 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold">Email vinculado</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {compactStatusSummary(email?.statuses)}
+                              </p>
+                            </div>
+                            <Badge variant={hasEmailDispatch ? "secondary" : "outline"}>
+                              {hasEmailDispatch
+                                ? `${NUMBER(email?.dispatchCount ?? 0)} disparos`
+                                : email?.listReady
+                                  ? "lista pronta"
+                                  : "sem lista"}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Enviados</p>
+                              <p className="font-semibold">{NUMBER(email?.sent ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Aberturas</p>
+                              <p className="font-semibold">{NUMBER(email?.opens ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Cliques</p>
+                              <p className="font-semibold">{NUMBER(email?.clicks ?? 0)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border bg-muted/30 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold">Cupom VNDA vinculado</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {compactStatusSummary(coupons?.statuses, COUPON_STATUS_LABELS)}
+                              </p>
+                            </div>
+                            <Badge variant={hasCouponPlan ? "secondary" : "outline"}>
+                              {hasCouponPlan
+                                ? `${NUMBER(coupons?.planCount ?? 0)} planos`
+                                : "sem plano"}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Cupons</p>
+                              <p className="font-semibold">{NUMBER(coupons?.couponCount ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Usos</p>
+                              <p className="font-semibold">{NUMBER(coupons?.attributedUnits ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Receita</p>
+                              <p className="font-semibold">{BRL(coupons?.attributedRevenue ?? 0)}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                     </Card>
