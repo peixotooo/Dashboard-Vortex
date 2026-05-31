@@ -63,6 +63,8 @@ interface PlaybookCouponContext {
 interface CreatedPlaybookPlan {
   planId: string;
   planName: string;
+  playbookId: string;
+  playbookName: string;
   runId: string;
 }
 
@@ -373,6 +375,8 @@ export default function CouponsPage() {
           setCreatedPlaybookPlan({
             planId: data.plan.id,
             planName: data.plan.name || playbookContextForSave.name,
+            playbookId: playbookContextForSave.playbookId,
+            playbookName: playbookContextForSave.name,
             runId: playbookContextForSave.runId,
           });
           setSuccessMsg("Plano criado e vinculado ao playbook. Agora rode o plano para gerar os cupons desse run.");
@@ -387,18 +391,27 @@ export default function CouponsPage() {
     setBusy(null);
   }
 
-  async function runPlanNow(id: string) {
+  async function runPlanNow(id: string, context?: CreatedPlaybookPlan) {
     setError(null);
     setSuccessMsg(null);
     setBusy("run-" + id);
     try {
       const res = await fetch(`/api/coupons/plans/${id}/run`, {
-        method: "POST", headers: headers(),
+        method: "POST",
+        headers: headers(),
+        body: context
+          ? JSON.stringify({
+              playbook_run_id: context.runId,
+              playbook_id: context.playbookId,
+              playbook_name: context.playbookName,
+            })
+          : undefined,
       });
       const data = await res.json();
       if (data.error) {
         setError(data.error);
       } else {
+        const runSuffix = data.playbook_run_id ? ` Run ${String(data.playbook_run_id).slice(0, 8)} vinculado.` : "";
         const msg = data.proposed === 0
           ? `Plano "${data.plan_name}" rodou, mas nao encontrou produtos elegiveis agora.`
           : data.require_manual_approval
@@ -407,7 +420,7 @@ export default function CouponsPage() {
         // Switch to the relevant tab so user sees the result immediately.
         setTab(data.proposed > 0 ? (data.require_manual_approval ? "pending" : "active") : "plans");
         setError(null);
-        setSuccessMsg(msg);
+        setSuccessMsg(`${msg}${runSuffix}`);
         setCreatedPlaybookPlan((prev) => (prev?.planId === id ? null : prev));
         await reload();
       }
@@ -537,8 +550,8 @@ export default function CouponsPage() {
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                onClick={() => runPlanNow(createdPlaybookPlan.planId)}
                 disabled={busy === "run-" + createdPlaybookPlan.planId}
+                onClick={() => runPlanNow(createdPlaybookPlan.planId, createdPlaybookPlan)}
               >
                 {busy === "run-" + createdPlaybookPlan.planId ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />

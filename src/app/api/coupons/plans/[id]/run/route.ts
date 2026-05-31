@@ -33,6 +33,13 @@ export async function POST(
   if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
   const { id } = await params;
+  const body = await request.json().catch(() => ({}));
+  const playbookContext = {
+    playbook_run_id: typeof body?.playbook_run_id === "string" ? body.playbook_run_id : null,
+    playbook_id: typeof body?.playbook_id === "string" ? body.playbook_id : null,
+    playbook_name: typeof body?.playbook_name === "string" ? body.playbook_name : null,
+  };
+  const hasPlaybookContext = Boolean(playbookContext.playbook_run_id);
 
   // Verify the plan belongs to this workspace and is enabled
   const admin = createAdminClient();
@@ -47,7 +54,10 @@ export async function POST(
 
   try {
     const t0 = Date.now();
-    const results = await proposeNewCoupons(workspaceId, { onlyPlanIds: [id] });
+    const results = await proposeNewCoupons(workspaceId, {
+      onlyPlanIds: [id],
+      ...(hasPlaybookContext ? { playbookContext } : {}),
+    });
     const proposed = results.reduce((s, r) => s + r.inserted, 0);
     let autoApproved = 0;
     // If the plan has auto-approve, run it now so user sees them as 'active'
@@ -60,6 +70,7 @@ export async function POST(
       proposed,
       auto_approved: autoApproved,
       require_manual_approval: plan.require_manual_approval,
+      playbook_run_id: playbookContext.playbook_run_id,
       elapsed_ms: Date.now() - t0,
     });
   } catch (e) {

@@ -99,6 +99,10 @@ interface PlaybookEstimate {
   incentiveBudget: number;
   channelCost: number;
   conversionPct: number;
+  grossContributionPerOrder: number;
+  netContributionPerOrder: number;
+  breakEvenOrders: number;
+  breakEvenConversionPct: number;
 }
 
 interface PlaybookAction {
@@ -231,8 +235,13 @@ function estimatePlaybook(params: {
   const revenue = expectedOrders * params.avgOrderValue;
   const incentiveBudget = expectedOrders * params.incentivePerOrder;
   const channelCost = params.audience * params.channelCostPerRecipient;
-  const contribution =
-    revenue * (params.contributionBeforeMarketingPct / 100) - incentiveBudget - channelCost;
+  const grossContributionPerOrder = params.avgOrderValue * (params.contributionBeforeMarketingPct / 100);
+  const netContributionPerOrder = grossContributionPerOrder - params.incentivePerOrder;
+  const contribution = expectedOrders * netContributionPerOrder - channelCost;
+  const breakEvenOrders =
+    netContributionPerOrder > 0 ? Math.ceil(channelCost / netContributionPerOrder) : params.audience;
+  const breakEvenConversionPct =
+    params.audience > 0 ? (breakEvenOrders / params.audience) * 100 : 0;
 
   return {
     expectedOrders,
@@ -241,6 +250,10 @@ function estimatePlaybook(params: {
     incentiveBudget,
     channelCost,
     conversionPct: params.conversionPct,
+    grossContributionPerOrder,
+    netContributionPerOrder,
+    breakEvenOrders,
+    breakEvenConversionPct,
   };
 }
 

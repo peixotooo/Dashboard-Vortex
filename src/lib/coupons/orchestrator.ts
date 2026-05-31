@@ -210,12 +210,31 @@ export interface ProposeResult {
   skipped: number;
 }
 
+interface CouponPlaybookContext {
+  playbook_id?: string | null;
+  playbook_run_id?: string | null;
+  playbook_name?: string | null;
+}
+
+function cleanPlaybookContext(context?: CouponPlaybookContext): Record<string, string> {
+  if (!context) return {};
+  const details: Record<string, string> = {};
+  const playbookRunId = String(context.playbook_run_id || "").trim();
+  const playbookId = String(context.playbook_id || "").trim();
+  const playbookName = String(context.playbook_name || "").trim();
+  if (playbookRunId) details.playbook_run_id = playbookRunId;
+  if (playbookId) details.playbook_id = playbookId;
+  if (playbookName) details.playbook_name = playbookName;
+  return details;
+}
+
 export async function proposeNewCoupons(
   workspaceId: string,
-  options: { onlyPlanIds?: string[] } = {}
+  options: { onlyPlanIds?: string[]; playbookContext?: CouponPlaybookContext } = {}
 ): Promise<ProposeResult[]> {
   const admin = createAdminClient();
   const settings = await getCouponSettings(workspaceId);
+  const playbookDetails = cleanPlaybookContext(options.playbookContext);
 
   // Plans we should consider this run
   let q = admin
@@ -258,7 +277,7 @@ export async function proposeNewCoupons(
           action: "cron_skipped",
           actor: "cron",
           planId: plan.id,
-          details: { reason: "smart_24h_throttle", last_run: plan.recurring_last_run_at },
+          details: { reason: "smart_24h_throttle", last_run: plan.recurring_last_run_at, ...playbookDetails },
         });
         results.push({ planId: plan.id, inserted: 0, skipped: 0 });
         continue;
@@ -309,7 +328,7 @@ export async function proposeNewCoupons(
         action: "cron_skipped",
         actor: "cron",
         planId: plan.id,
-        details: { reason: "no_candidates", plan_name: plan.name },
+        details: { reason: "no_candidates", plan_name: plan.name, ...playbookDetails },
       });
       results.push({ planId: plan.id, inserted: 0, skipped: 0 });
       continue;
@@ -321,22 +340,28 @@ export async function proposeNewCoupons(
     let inserted = 0;
     for (const pick of picks) {
       let code = "";
+      let activeCouponId: string | undefined;
       for (let attempt = 0; attempt < 5; attempt++) {
         code = generateCouponCode(pick.product_id, pick.discount_pct);
-        const { error } = await admin.from("promo_active_coupons").insert({
-          workspace_id: workspaceId,
-          plan_id: plan.id,
-          product_id: pick.product_id,
-          vnda_coupon_code: code,
-          discount_pct: pick.discount_pct,
-          discount_unit: pick.discount_unit,
-          discount_value_brl: pick.discount_value_brl ?? null,
-          starts_at: startsAt.toISOString(),
-          expires_at: expiresAt.toISOString(),
-          status: "pending",
-        });
+        const { data: insertedRow, error } = await admin
+          .from("promo_active_coupons")
+          .insert({
+            workspace_id: workspaceId,
+            plan_id: plan.id,
+            product_id: pick.product_id,
+            vnda_coupon_code: code,
+            discount_pct: pick.discount_pct,
+            discount_unit: pick.discount_unit,
+            discount_value_brl: pick.discount_value_brl ?? null,
+            starts_at: startsAt.toISOString(),
+            expires_at: expiresAt.toISOString(),
+            status: "pending",
+          })
+          .select("id")
+          .single();
         if (!error) {
           inserted++;
+          activeCouponId = insertedRow?.id;
           break;
         }
         if (!error.message.toLowerCase().includes("unique")) {
@@ -356,6 +381,7 @@ export async function proposeNewCoupons(
         action: "cron_picked",
         actor: "cron",
         planId: plan.id,
+        activeCouponId,
         productId: pick.product_id,
         details: {
           discount_pct: pick.discount_pct,
@@ -371,6 +397,8 @@ export async function proposeNewCoupons(
           demand_modifier: demandSignal.modifier,
           demand_reason: demandSignal.reason,
           cooldown_days: cooldownDays,
+          inserted: Boolean(activeCouponId),
+          ...playbookDetails,
         },
       });
     }

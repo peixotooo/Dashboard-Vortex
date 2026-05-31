@@ -44,6 +44,10 @@ interface PlaybookEstimate {
   incentiveBudget: number;
   channelCost: number;
   conversionPct: number;
+  grossContributionPerOrder: number;
+  netContributionPerOrder: number;
+  breakEvenOrders: number;
+  breakEvenConversionPct: number;
 }
 
 interface PlaybookAction {
@@ -945,6 +949,7 @@ function StrategyBoard({
   const expiringShare =
     data.cashback.activeValue > 0 ? data.cashback.expiring14Value / data.cashback.activeValue : 0;
   const cfg = data.cashback.config;
+  const bestPlaybook = data.playbooks[0];
 
   const lanes: Array<{
     title: string;
@@ -1009,7 +1014,7 @@ function StrategyBoard({
         </Button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <StrategyPill
           icon={<WalletCards className="h-3.5 w-3.5" />}
           label="CAC/CPA salvo"
@@ -1018,6 +1023,16 @@ function StrategyBoard({
             cpaShare == null
               ? "Salve campanhas para comparar aquisicao vs recompra."
               : `${RATE(cpaShare)} da contribuicao bruta por pedido.`
+          }
+        />
+        <StrategyPill
+          icon={<Gauge className="h-3.5 w-3.5" />}
+          label="Break-even"
+          value={bestPlaybook ? PCT(bestPlaybook.estimate.breakEvenConversionPct) : "0.0%"}
+          hint={
+            bestPlaybook
+              ? `${bestPlaybook.name}: ${NUMBER(bestPlaybook.estimate.breakEvenOrders)} pedidos pagam canal + incentivo.`
+              : "Sem fila acionavel."
           }
         />
         <StrategyPill
@@ -1036,7 +1051,7 @@ function StrategyBoard({
           icon={<Gauge className="h-3.5 w-3.5" />}
           label="Fila completa"
           value={BRL(totalEstimatedContribution)}
-          hint={`${NUMBER(totalEstimatedOrders)} pedidos estimados; cobre ${RATE(Math.min(gapCoverage, 1))} do gap bruto.`}
+          hint={`${NUMBER(totalEstimatedOrders)} pedidos estimados; cobre ${RATE(Math.min(gapCoverage, 1))} do gap bruto. MC liquida por pedido: ${BRL(bestPlaybook?.estimate.netContributionPerOrder ?? 0)}.`}
         />
       </div>
 
@@ -1442,7 +1457,7 @@ export default function RetentionPlaybooksPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                       <div>
                         <p className="text-xs text-muted-foreground">Publico</p>
                         <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
@@ -1458,6 +1473,10 @@ export default function RetentionPlaybooksPage() {
                       <div>
                         <p className="text-xs text-muted-foreground">Conv.</p>
                         <p className="font-semibold">{PCT(playbook.estimate.conversionPct)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Minimo</p>
+                        <p className="font-semibold">{PCT(playbook.estimate.breakEvenConversionPct)}</p>
                       </div>
                     </div>
 

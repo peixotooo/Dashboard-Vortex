@@ -80,7 +80,9 @@ interface EmailDispatchRow {
 
 interface CouponAuditRow {
   id: string;
+  action: string;
   plan_id: string | null;
+  active_coupon_id: string | null;
   created_at: string;
   details: {
     playbook_run_id?: string;
@@ -933,9 +935,9 @@ async function fetchCouponAuditsSince(
   for (let from = 0; from < 10000; from += PAGE_SIZE) {
     const { data, error } = await admin
       .from("coupon_audit_log")
-      .select("id, plan_id, created_at, details")
+      .select("id, action, plan_id, active_coupon_id, created_at, details")
       .eq("workspace_id", workspaceId)
-      .eq("action", "plan_created")
+      .in("action", ["plan_created", "cron_picked"])
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
@@ -987,7 +989,15 @@ function summarizeCoupons(
       .filter((audit) => audit.details?.playbook_run_id === runId && audit.plan_id)
       .map((audit) => audit.plan_id as string)
   );
-  const rows = coupons.filter((coupon) => coupon.plan_id && planIds.has(coupon.plan_id));
+  const directCouponIds = new Set(
+    audits
+      .filter((audit) => audit.details?.playbook_run_id === runId && audit.active_coupon_id)
+      .map((audit) => audit.active_coupon_id as string)
+  );
+  const rows =
+    directCouponIds.size > 0
+      ? coupons.filter((coupon) => directCouponIds.has(coupon.id))
+      : coupons.filter((coupon) => coupon.plan_id && planIds.has(coupon.plan_id));
   const couponDiscountAmount = (coupon: ActiveCouponRow) => {
     const attributedRevenue = toNumber(coupon.attributed_revenue);
     const discountPct = Math.min(95, Math.max(0, toNumber(coupon.discount_pct)));
