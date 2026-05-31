@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authRoute } from "@/lib/cashback/route-helpers";
+import { filterContacts } from "@/lib/wa-compliance";
+import {
+  extractTemplateVariables,
+  getTemplateBodyText,
+  type WaTemplateComponent,
+} from "@/lib/whatsapp-api";
 
 export const maxDuration = 60;
 
@@ -149,6 +155,15 @@ interface ContactListRow {
     source_decision?: string;
     created_at?: string;
   } | null;
+}
+
+interface WaTemplateRow {
+  id: string;
+  name: string;
+  language: string | null;
+  category: string | null;
+  status: string;
+  components: WaTemplateComponent[];
 }
 
 const PLAYBOOK_LABELS: Record<string, string> = {
@@ -1173,13 +1188,344 @@ function attributionWindowForRun(treatment: ContactListRow) {
   return { playbookId, days, start, end };
 }
 
+function formatPhoneForWa(phone: string | undefined): string {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("55")) return digits;
+  return `55${digits}`;
+}
+
+function templateScore(template: WaTemplateRow, terms: string[]) {
+  const haystack = `${template.name} ${template.category || ""} ${getTemplateBodyText(template.components || [])}`
+    .toLowerCase();
+  return terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+async function pickApprovedUtilityTemplate(
+  admin: AdminClient,
+  workspaceId: string,
+  playbookId: string
+) {
+  const context = WHATSAPP_PLAYBOOK_CONTEXT[playbookId];
+  const terms = (context?.templateHint || "cashback retencao")
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+
+  const { data, error } = await admin
+    .from("wa_templates")
+    .select("id, name, language, category, status, components")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "APPROVED")
+    .eq("category", "UTILITY");
+
+  if (error) throw error;
+  const templates = ((data || []) as WaTemplateRow[]).filter((template) =>
+    Array.isArray(template.components)
+  );
+  if (templates.length === 0) return null;
+
+  return templates
+    .map((template) => ({ template, score: templateScore(template, terms) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))[0]
+    ?.template || null;
+}
+
+function templateVariableContext(templateBody: string, variable: string): string {
+  const index = templateBody.indexOf(variable);
+  if (index < 0) return "";
+  return templateBody.slice(Math.max(0, index - 48), index + variable.length + 48).toLowerCase();
+}
+
+function buildAutopilotVariableDefaults(
+  playbookId: string,
+  template: WaTemplateRow,
+  vars: string[]
+): Record<string, string> {
+  const body = getTemplateBodyText(template.components || []);
+  const isCashbackPlaybook =
+    playbookId === "cashback-expiring-14d" ||
+    playbookId === "active-cashback-balance";
+  const defaults: Record<string, string> = {};
+
+  for (const variable of vars) {
+    const position = Number(variable.replace(/\D/g, ""));
+    const around = templateVariableContext(body, variable);
+
+    if (position === 1 || /nome|cliente|oi|ola|olá/.test(around)) {
+      defaults[variable] = "{{nome}}";
+      continue;
+    }
+
+    if (isCashbackPlaybook && /saldo|cashback|r\$|valor/.test(around)) {
+      defaults[variable] = "{{saldo_cashback}}";
+      continue;
+    }
+
+    if (isCashbackPlaybook && /dia|expir|vence|valid/.test(around)) {
+      defaults[variable] = around.includes("dia") ? "{{dias_para_expirar}}" : "{{expira_em}}";
+      continue;
+    }
+
+    if (/ultima|última/.test(around)) {
+      defaults[variable] = "{{ultima_compra}}";
+      continue;
+    }
+
+    if (/dia/.test(around)) {
+      defaults[variable] = "{{dias_ultima_compra}}";
+      continue;
+    }
+
+    if (/ticket/.test(around)) {
+      defaults[variable] = "{{ticket_medio}}";
+      continue;
+    }
+
+    if (/compra/.test(around)) {
+      defaults[variable] = "{{total_compras}}";
+    }
+  }
+
+  return defaults;
+}
+
+function resolveTemplateValue(value: string, contact: Contact): string {
+  if (value === "{{nome}}") return contact.name || "cliente";
+  const match = value.match(/^\{\{([a-zA-Z0-9_]+)\}\}$/);
+  if (!match) return value;
+  return contact.variables?.[match[1]] || "";
+}
+
+async function inferBestSendHour(admin: AdminClient, workspaceId: string) {
+  const since = new Date(Date.now() - 90 * DAY_MS).toISOString();
+  const { data } = await admin
+    .from("crm_vendas")
+    .select("data_compra")
+    .eq("workspace_id", workspaceId)
+    .gte("data_compra", since)
+    .limit(5000);
+
+  const counts = new Map<number, number>();
+  for (const row of (data || []) as Array<{ data_compra: string | null }>) {
+    if (!row.data_compra || !/[T\s]\d{2}:\d{2}/.test(row.data_compra)) continue;
+    const date = parseDate(row.data_compra);
+    if (!date) continue;
+    const hour = Number(
+      new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "2-digit",
+        hour12: false,
+      }).format(date)
+    );
+    if (!Number.isFinite(hour) || hour < 9 || hour > 20) continue;
+    counts.set(hour, (counts.get(hour) || 0) + 1);
+  }
+
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+  return best ? { hour: best[0], source: "historico_pedidos" } : { hour: 10, source: "fallback_10h" };
+}
+
+function nextBusinessSendAt(hour: number) {
+  const now = new Date();
+  const brtNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const scheduledBrt = new Date(
+    Date.UTC(
+      brtNow.getUTCFullYear(),
+      brtNow.getUTCMonth(),
+      brtNow.getUTCDate(),
+      hour,
+      0,
+      0,
+      0
+    )
+  );
+
+  if (scheduledBrt.getTime() <= brtNow.getTime() + 60 * 60 * 1000) {
+    scheduledBrt.setUTCDate(scheduledBrt.getUTCDate() + 1);
+  }
+
+  while ([0, 6].includes(scheduledBrt.getUTCDay())) {
+    scheduledBrt.setUTCDate(scheduledBrt.getUTCDate() + 1);
+  }
+
+  return new Date(scheduledBrt.getTime() + 3 * 60 * 60 * 1000).toISOString();
+}
+
+async function autoScheduleWhatsappRun(params: {
+  admin: AdminClient;
+  workspaceId: string;
+  playbookId: string;
+  playbookName: string;
+  runId: string;
+  treatmentList: Omit<ContactListRow, "contacts">;
+  treatmentContacts: Contact[];
+  holdoutList: Omit<ContactListRow, "contacts"> | null;
+  attributionWindowDays: number;
+}) {
+  const allowedAutopilotPlaybooks = new Set(["cashback-expiring-14d", "active-cashback-balance"]);
+  if (!allowedAutopilotPlaybooks.has(params.playbookId)) {
+    return {
+      status: "needs_review" as const,
+      reason:
+        "Este playbook pode exigir cupom/oferta e ainda fica em modo assistido para proteger margem e mensagem.",
+    };
+  }
+
+  const template = await pickApprovedUtilityTemplate(
+    params.admin,
+    params.workspaceId,
+    params.playbookId
+  );
+  if (!template) {
+    return {
+      status: "needs_template" as const,
+      reason:
+        "Nao encontrei template WhatsApp aprovado na categoria UTILITY compatível com cashback/retencao.",
+    };
+  }
+
+  const vars = extractTemplateVariables(template.components || []);
+  const variableValues = buildAutopilotVariableDefaults(params.playbookId, template, vars);
+  const missingVars = vars.filter((variable) => !variableValues[variable]);
+  if (missingVars.length > 0) {
+    return {
+      status: "needs_template_mapping" as const,
+      reason: `Template aprovado, mas faltou mapear ${missingVars.join(", ")} sem risco de mensagem sem sentido.`,
+      templateName: template.name,
+    };
+  }
+
+  const rawContacts = params.treatmentContacts
+    .filter((contact) => contact.phone)
+    .map((contact) => ({
+      phone: formatPhoneForWa(contact.phone),
+      name: contact.name || "",
+      variables: Object.fromEntries(
+        vars.map((variable) => [variable, resolveTemplateValue(variableValues[variable], contact)])
+      ),
+    }))
+    .filter((contact) => contact.phone && vars.every((variable) => String(contact.variables[variable] || "").trim()));
+
+  if (rawContacts.length === 0) {
+    return {
+      status: "blocked" as const,
+      reason: "A lista de tratamento nao tem contatos com telefone e variaveis suficientes para WhatsApp.",
+      templateName: template.name,
+    };
+  }
+
+  const compliance = await filterContacts(params.workspaceId, rawContacts, 7);
+  if (compliance.allowed.length === 0) {
+    return {
+      status: "blocked" as const,
+      reason: "Todos os contatos foram bloqueados por cooldown ou exclusao.",
+      templateName: template.name,
+      compliance: {
+        originalCount: rawContacts.length,
+        cooldownCount: compliance.cooldownCount,
+        blockedCount: compliance.blockedCount,
+      },
+    };
+  }
+
+  const bestHour = await inferBestSendHour(params.admin, params.workspaceId);
+  const scheduledAt = nextBusinessSendAt(bestHour.hour);
+  const campaignName = `Auto Retencao ${params.playbookName} ${new Date().toISOString().slice(0, 10)}`;
+
+  const { data: campaign, error: campaignError } = await params.admin
+    .from("wa_campaigns")
+    .insert({
+      workspace_id: params.workspaceId,
+      kind: "campaign",
+      name: campaignName,
+      template_id: template.id,
+      template_name: template.name,
+      template_language: template.language,
+      segment_filter: {
+        contact_list_id: params.treatmentList.id,
+        contact_list_name: params.treatmentList.name,
+        playbook_run_id: params.runId,
+        playbook_id: params.playbookId,
+        playbook_name: params.playbookName,
+        playbook_audience_role: "treatment",
+        holdout_contact_list_id: params.holdoutList?.id || null,
+        holdout_pct: params.treatmentList.auto_segment?.holdout_pct ?? null,
+        attribution_window_days: params.attributionWindowDays,
+        autopilot: true,
+        template_guardrail: WHATSAPP_PLAYBOOK_CONTEXT[params.playbookId]?.guardrail || null,
+        send_hour_source: bestHour.source,
+      },
+      variable_values: variableValues,
+      status: "scheduled",
+      total_messages: compliance.allowed.length,
+      attribution_window_days: params.attributionWindowDays,
+      message_cost_usd: 0.0625,
+      exchange_rate: 5.5,
+      scheduled_at: scheduledAt,
+    })
+    .select("id, name, status, scheduled_at, total_messages, template_name")
+    .single();
+
+  if (campaignError || !campaign) {
+    throw new Error(`Falha ao criar campanha automatica: ${campaignError?.message}`);
+  }
+
+  const batchSize = 500;
+  for (let i = 0; i < compliance.allowed.length; i += batchSize) {
+    const batch = compliance.allowed.slice(i, i + batchSize).map((contact) => ({
+      workspace_id: params.workspaceId,
+      campaign_id: campaign.id,
+      phone: contact.phone,
+      contact_name: contact.name || null,
+      variable_values: contact.variables || {},
+      status: "queued",
+    }));
+    const { error } = await params.admin.from("wa_messages").insert(batch);
+    if (error) {
+      await params.admin.from("wa_campaigns").update({ status: "failed" }).eq("id", campaign.id);
+      throw new Error(`Falha ao enfileirar mensagens automaticas: ${error.message}`);
+    }
+  }
+
+  return {
+    status: "scheduled" as const,
+    campaignId: campaign.id as string,
+    campaignName: campaign.name as string,
+    templateName: template.name,
+    scheduledAt,
+    recipients: compliance.allowed.length,
+    originalContacts: rawContacts.length,
+    cooldownCount: compliance.cooldownCount,
+    blockedCount: compliance.blockedCount,
+    sendHour: bestHour.hour,
+    sendHourSource: bestHour.source,
+  };
+}
+
 export async function POST(request: NextRequest) {
   const { auth, error } = await authRoute(request);
   if (error) return error;
 
   try {
     const body = await request.json();
-    const playbookId = String(body.playbookId || "");
+    const autoSchedule = body.autoSchedule === true;
+    let playbookId = String(body.playbookId || "");
+    let prebuiltAudience: AudienceContact[] | null = null;
+
+    if (!playbookId && autoSchedule) {
+      for (const candidate of ["cashback-expiring-14d", "active-cashback-balance"]) {
+        const candidateAudience = await buildAudience(auth!.admin, auth!.workspaceId, candidate);
+        if (candidateAudience.length > 0) {
+          playbookId = candidate;
+          prebuiltAudience = candidateAudience;
+          break;
+        }
+      }
+    }
+
     if (!PLAYBOOK_LABELS[playbookId]) {
       return NextResponse.json({ error: "Playbook invalido" }, { status: 400 });
     }
@@ -1191,10 +1537,43 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const playbookName = PLAYBOOK_LABELS[playbookId];
     const attributionWindowDays = playbookAttributionWindowDays(playbookId);
-    const audience = await buildAudience(auth!.admin, auth!.workspaceId, playbookId);
+    const audience = prebuiltAudience ?? (await buildAudience(auth!.admin, auth!.workspaceId, playbookId));
 
     if (audience.length === 0) {
       return NextResponse.json({ error: "Audiencia vazia para este playbook" }, { status: 400 });
+    }
+
+    if (autoSchedule) {
+      if (!["cashback-expiring-14d", "active-cashback-balance"].includes(playbookId)) {
+        return NextResponse.json(
+          {
+            error:
+              "Piloto automatico completo esta liberado apenas para cashback/saldo. Playbooks com cupom ficam em modo assistido.",
+          },
+          { status: 400 }
+        );
+      }
+      const template = await pickApprovedUtilityTemplate(auth!.admin, auth!.workspaceId, playbookId);
+      if (!template) {
+        return NextResponse.json(
+          {
+            error:
+              "Nao encontrei template WhatsApp aprovado em UTILITY compativel com cashback. Sincronize/crie um template utility antes de ligar o piloto automatico.",
+          },
+          { status: 400 }
+        );
+      }
+      const vars = extractTemplateVariables(template.components || []);
+      const defaults = buildAutopilotVariableDefaults(playbookId, template, vars);
+      const missingVars = vars.filter((variable) => !defaults[variable]);
+      if (missingVars.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Template aprovado, mas faltou mapear ${missingVars.join(", ")} sem risco de mensagem sem sentido.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const treatment: Contact[] = [];
@@ -1249,6 +1628,20 @@ export async function POST(request: NextRequest) {
           })
         : null;
 
+    const automation = autoSchedule
+      ? await autoScheduleWhatsappRun({
+          admin: auth!.admin,
+          workspaceId: auth!.workspaceId,
+          playbookId,
+          playbookName,
+          runId,
+          treatmentList,
+          treatmentContacts: treatment,
+          holdoutList,
+          attributionWindowDays,
+        })
+      : null;
+
     return NextResponse.json({
       run: {
         id: runId,
@@ -1290,6 +1683,7 @@ export async function POST(request: NextRequest) {
           }),
         },
       },
+      automation,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

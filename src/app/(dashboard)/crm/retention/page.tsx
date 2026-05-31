@@ -8,6 +8,7 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  Clock,
   Coins,
   Gauge,
   Gem,
@@ -17,6 +18,7 @@ import {
   MessageCircle,
   Percent,
   RefreshCw,
+  Send,
   ShieldCheck,
   Tag,
   Target,
@@ -226,6 +228,26 @@ interface PreparedRun {
   };
 }
 
+interface AutoScheduleResult {
+  status:
+    | "scheduled"
+    | "needs_review"
+    | "needs_template"
+    | "needs_template_mapping"
+    | "blocked";
+  reason?: string;
+  campaignId?: string;
+  campaignName?: string;
+  templateName?: string;
+  scheduledAt?: string;
+  recipients?: number;
+  originalContacts?: number;
+  cooldownCount?: number;
+  blockedCount?: number;
+  sendHour?: number;
+  sendHourSource?: string;
+}
+
 interface WhatsAppRunSummary {
   campaignCount: number;
   totalMessages: number;
@@ -377,6 +399,18 @@ const NUMBER = (value: number) => value.toLocaleString("pt-BR");
 
 const PCT = (value: number) => `${value.toFixed(1)}%`;
 const RATE = (value: number) => `${(value * 100).toFixed(1)}%`;
+
+function DATE_TIME(value?: string | null) {
+  if (!value) return "sem horario";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "sem horario";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function priorityVariant(priority: RetentionPlaybook["priority"]): "default" | "secondary" | "outline" {
   if (priority === "alta") return "default";
@@ -1426,6 +1460,198 @@ function StrategyPill({
   );
 }
 
+function AutopilotPanel({
+  playbook,
+  result,
+  loading,
+  onSchedule,
+}: {
+  playbook: RetentionPlaybook | null;
+  result: AutoScheduleResult | null;
+  loading: boolean;
+  onSchedule: () => void;
+}) {
+  const scheduled = result?.status === "scheduled";
+  const blocked = result && result.status !== "scheduled";
+
+  return (
+    <Card className="border-primary/25 bg-primary/5">
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-base font-semibold">Piloto automatico de retencao</p>
+              <Badge variant={scheduled ? "default" : "secondary"}>
+                {scheduled ? "agendado" : "1 clique"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Cria tratamento e holdout, escolhe template utilidade aprovado, preenche variaveis seguras,
+              aplica cooldown e agenda no melhor horario disponivel.
+            </p>
+          </div>
+          <Button
+            size="lg"
+            onClick={onSchedule}
+            disabled={loading || !playbook || playbook.audience.customers === 0}
+          >
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            Agendar melhor campanha
+          </Button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-md bg-background p-3">
+            <p className="text-xs text-muted-foreground">Publico escolhido</p>
+            <p className="mt-1 text-sm font-semibold">{playbook?.name ?? "Aguardando dados"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {playbook ? `${NUMBER(playbook.audience.customers)} clientes elegiveis` : "sem fila"}
+            </p>
+          </div>
+          <div className="rounded-md bg-background p-3">
+            <p className="text-xs text-muted-foreground">Seguranca</p>
+            <p className="mt-1 text-sm font-semibold">Holdout automatico</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Controle isolado para medir lift e incrementabilidade.
+            </p>
+          </div>
+          <div className="rounded-md bg-background p-3">
+            <p className="text-xs text-muted-foreground">Mensagem</p>
+            <p className="mt-1 text-sm font-semibold">{result?.templateName || "Template utility"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sem cupom novo em cashback; bloqueia se variavel ficar sem sentido.
+            </p>
+          </div>
+          <div className="rounded-md bg-background p-3">
+            <p className="text-xs text-muted-foreground">Horario</p>
+            <p className="mt-1 text-sm font-semibold">{scheduled ? DATE_TIME(result.scheduledAt) : "Auto"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {scheduled
+                ? `${NUMBER(result.recipients ?? 0)} contatos apos compliance`
+                : "Inferido por historico; fallback 10h."}
+            </p>
+          </div>
+        </div>
+
+        {scheduled && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
+            <div>
+              <p className="font-semibold text-emerald-800 dark:text-emerald-200">
+                Campanha agendada: {result.campaignName}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Run ja esta mensuravel. Agora acompanhe lift, receita incremental e MC liquida.
+              </p>
+            </div>
+            <Badge variant="secondary">
+              <Clock className="mr-1 h-3.5 w-3.5" />
+              {DATE_TIME(result.scheduledAt)}
+            </Badge>
+          </div>
+        )}
+
+        {blocked && (
+          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
+            <p className="font-semibold">Automacao segurou o disparo</p>
+            <p className="mt-1 text-xs">{result.reason}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RunKpiPanel({
+  runs,
+  data,
+}: {
+  runs: RunReport[];
+  data: SummaryResponse;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">KPIs incrementais</h2>
+          <p className="text-sm text-muted-foreground">
+            O trabalho aqui e acompanhar se o tratamento venceu o holdout com margem positiva.
+          </p>
+        </div>
+        <Badge variant="outline">{NUMBER(runs.length)} runs</Badge>
+      </div>
+
+      {runs.length === 0 ? (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">
+            Nenhum run ainda. Use o piloto automatico para agendar a primeira campanha mensuravel.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          {runs.map((run) => {
+            const playbook = data.playbooks.find((candidate) => candidate.id === run.playbookId);
+            const attributionWindowDays =
+              run.attributionWindowDays ??
+              playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
+            const decision = getRunDecision(run, attributionWindowDays);
+            const whatsapp = run.channels?.whatsapp;
+            const primaryCampaign = whatsapp?.campaigns?.[0];
+
+            return (
+              <Card key={run.id}>
+                <CardContent className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{run.playbookName}</p>
+                        <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Run {run.id.slice(0, 8)} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
+                        {primaryCampaign ? ` · WhatsApp ${waStatusLabel(primaryCampaign.status)}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant={run.metrics.incrementalContribution > 0 ? "default" : "outline"}>
+                      {run.metrics.incrementalContribution > 0 ? "ganhando" : "em leitura"}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tratamento</p>
+                      <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Holdout</p>
+                      <p className="font-semibold">{NUMBER(run.holdoutList?.totalCount ?? 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Lift</p>
+                      <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Receita incr.</p>
+                      <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">MC liquida</p>
+                      <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-md bg-muted/35 p-3 text-xs text-muted-foreground">
+                    {decision.detail}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function StrategyBoard({
   data,
   preparingId,
@@ -1702,6 +1928,8 @@ export default function RetentionPlaybooksPage() {
   const [loading, setLoading] = useState(true);
   const [preparingId, setPreparingId] = useState<string | null>(null);
   const [preparedRun, setPreparedRun] = useState<PreparedRun | null>(null);
+  const [autoScheduling, setAutoScheduling] = useState(false);
+  const [autoResult, setAutoResult] = useState<AutoScheduleResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
@@ -1745,6 +1973,16 @@ export default function RetentionPlaybooksPage() {
   }, [load]);
 
   const topPlaybook = useMemo(() => data?.playbooks?.[0] ?? null, [data]);
+  const autopilotPlaybook = useMemo(() => {
+    if (!data) return null;
+    return (
+      data.playbooks.find(
+        (playbook) =>
+          ["cashback-expiring-14d", "active-cashback-balance"].includes(playbook.id) &&
+          playbook.audience.customers > 0
+      ) || null
+    );
+  }, [data]);
   const nextRunAction = useMemo(() => {
     for (const run of runs) {
       const action = getRunNextAction(run);
@@ -1808,6 +2046,36 @@ export default function RetentionPlaybooksPage() {
     }
   }
 
+  async function scheduleAutopilot() {
+    if (!workspaceId || !autopilotPlaybook) return;
+    setAutoScheduling(true);
+    setAutoResult(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/crm/retention-playbooks/runs", {
+        method: "POST",
+        headers: {
+          "x-workspace-id": workspaceId,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          autoSchedule: true,
+          playbookId: autopilotPlaybook.id,
+          holdoutPct: autopilotPlaybook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Erro ao agendar campanha automatica");
+      setPreparedRun(payload.run);
+      setAutoResult(payload.automation || null);
+      await fetchRuns();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
+    } finally {
+      setAutoScheduling(false);
+    }
+  }
+
   if (!workspaceId) {
     return (
       <div className="max-w-6xl space-y-4">
@@ -1849,7 +2117,7 @@ export default function RetentionPlaybooksPage() {
         </div>
       ) : data ? (
         <>
-          {preparedRun && (
+          {preparedRun && autoResult?.status !== "scheduled" && (
             <Card className="border-emerald-500/30 bg-emerald-500/5">
               <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
                 <div>
@@ -1881,62 +2149,12 @@ export default function RetentionPlaybooksPage() {
             </Card>
           )}
 
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
-              <div>
-                <p className="text-sm font-semibold">Proximo clique recomendado</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {nextRunAction
-                    ? `${nextRunAction.run.playbookName}: ${nextRunAction.action.hint}`
-                    : nextScaleAction
-                      ? `${nextScaleAction.run.playbookName}: lift e margem positivos. Preparar nova safra com holdout novo.`
-                    : topPlaybook
-                      ? `${topPlaybook.name}: preparar tratamento, holdout e links de execucao.`
-                      : "Sem playbook acionavel neste momento."}
-                </p>
-              </div>
-              {nextRunAction ? (
-                <Button asChild size="sm">
-                  <Link href={nextRunAction.action.href}>
-                    {nextRunAction.action.icon}
-                    <span className="ml-1.5">{nextRunAction.action.label}</span>
-                    <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                  </Link>
-                </Button>
-              ) : nextScaleAction ? (
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    preparePlaybook(nextScaleAction.playbook, {
-                      runId: nextScaleAction.run.id,
-                      decision: nextScaleAction.decision.tone,
-                    })
-                  }
-                  disabled={preparingId !== null}
-                >
-                  {preparingId === nextScaleAction.playbook.id ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ListChecks className="mr-2 h-3.5 w-3.5" />
-                  )}
-                  Preparar nova safra
-                </Button>
-              ) : topPlaybook ? (
-                <Button
-                  size="sm"
-                  onClick={() => preparePlaybook(topPlaybook)}
-                  disabled={preparingId !== null || topPlaybook.audience.customers === 0}
-                >
-                  {preparingId === topPlaybook.id ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ListChecks className="mr-2 h-3.5 w-3.5" />
-                  )}
-                  Preparar execucao
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
+          <AutopilotPanel
+            playbook={autopilotPlaybook}
+            result={autoResult}
+            loading={autoScheduling}
+            onSchedule={scheduleAutopilot}
+          />
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard
@@ -1971,9 +2189,16 @@ export default function RetentionPlaybooksPage() {
             />
           </div>
 
-          <StrategyBoard data={data} preparingId={preparingId} onPrepare={preparePlaybook} />
+          <RunKpiPanel runs={runs} data={data} />
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <details className="rounded-md border bg-card p-4">
+            <summary className="cursor-pointer text-sm font-semibold">
+              Configuracao avancada e diagnostico
+            </summary>
+            <div className="mt-4 space-y-6">
+              <StrategyBoard data={data} preparingId={preparingId} onPrepare={preparePlaybook} />
+
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div className="rounded-md border bg-card p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agora</p>
               <p className="mt-2 text-lg font-semibold">{topPlaybook?.name ?? "Sem playbook"}</p>
@@ -2405,6 +2630,8 @@ export default function RetentionPlaybooksPage() {
               </div>
             )}
           </section>
+            </div>
+          </details>
         </>
       ) : null}
     </div>
