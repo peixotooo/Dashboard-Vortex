@@ -182,6 +182,7 @@ export default function ContactListsPage() {
     });
     if (context?.playbookId) params.set("playbook_id", context.playbookId);
     if (context?.runId) params.set("run", context.runId);
+    if (context?.runId || context?.playbookId) params.set("compose", "1");
     return `/crm/email-templates?${params.toString()}`;
   }
 
