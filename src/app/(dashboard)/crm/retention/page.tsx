@@ -676,7 +676,132 @@ function ExecutionStep({
   );
 }
 
-function RunExecutionChecklist({ run }: { run: RunReport }) {
+function trackingStateVariant(state: ExecutionStepState): "default" | "secondary" | "outline" {
+  if (state === "ready") return "secondary";
+  if (state === "todo") return "default";
+  return "outline";
+}
+
+function getRunTrackingContract(run: RunReport, attributionWindowDays: number) {
+  const state = getRunExecutionState(run);
+  const whatsapp = run.channels?.whatsapp;
+  const email = run.channels?.email;
+  const coupons = run.channels?.coupons;
+  const cashback = run.channels?.cashback;
+  const ageDays = daysFrom(run.createdAt);
+  const windowDays = Math.max(1, attributionWindowDays);
+  const hasWhatsapp = (whatsapp?.campaignCount ?? 0) > 0;
+  const hasEmail = (email?.dispatchCount ?? 0) > 0;
+  const channelValue = hasWhatsapp
+    ? `${NUMBER(whatsapp?.campaignCount ?? 0)} WA`
+    : hasEmail
+      ? `${NUMBER(email?.dispatchCount ?? 0)} email`
+      : state.emailReady
+        ? "email pronto"
+        : "pendente";
+  const offerValue = state.needsCoupon
+    ? state.couponReady
+      ? `${NUMBER(coupons?.couponCount ?? 0)} cupons`
+      : state.couponPlanReady
+        ? "plano criado"
+        : "cupom pendente"
+    : state.hasCashbackUsage
+      ? `${NUMBER(cashback?.treatment.uses ?? 0)} usos`
+      : state.couponRequirement === "none"
+        ? "sem cupom"
+        : state.couponReady
+          ? `${NUMBER(coupons?.couponCount ?? 0)} cupons`
+          : "opcional";
+
+  return [
+    {
+      label: "Run ID",
+      value: run.id.slice(0, 8),
+      state: "ready" as const,
+      hint: "base de atribuicao",
+    },
+    {
+      label: "Holdout",
+      value: NUMBER(run.holdoutList?.totalCount ?? 0),
+      state: state.hasHoldout ? ("ready" as const) : ("todo" as const),
+      hint: state.hasHoldout ? "controle isolado" : "sem controle",
+    },
+    {
+      label: "Canal",
+      value: channelValue,
+      state: state.outboundReady ? ("ready" as const) : ("todo" as const),
+      hint: state.outboundReady ? "vinculado ao run" : "faltando disparo",
+    },
+    {
+      label: "Incentivo",
+      value: offerValue,
+      state:
+        state.needsCoupon && !state.couponReady
+          ? ("todo" as const)
+          : state.couponReady
+            ? ("ready" as const)
+            : ("optional" as const),
+      hint: state.needsCoupon
+        ? "custo rastreavel"
+        : state.couponRequirement === "none"
+          ? "cashback/saldo"
+          : "segundo toque",
+    },
+    {
+      label: "Janela",
+      value: `${NUMBER(ageDays)}/${NUMBER(windowDays)}d`,
+      state: ageDays >= windowDays ? ("ready" as const) : ("optional" as const),
+      hint: ageDays >= windowDays ? "decisao liberada" : "em coleta",
+    },
+  ];
+}
+
+function RunTrackingContract({
+  run,
+  attributionWindowDays,
+}: {
+  run: RunReport;
+  attributionWindowDays: number;
+}) {
+  const items = getRunTrackingContract(run, attributionWindowDays);
+  const missing = items.filter((item) => item.state === "todo").map((item) => item.label.toLowerCase());
+
+  return (
+    <div className="mt-3 rounded-md border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">Contrato de medicao</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Receita, margem, custo e lift usam estes vinculos para fechar o resultado.
+          </p>
+        </div>
+        <Badge variant={missing.length === 0 ? "secondary" : "outline"}>
+          {missing.length === 0 ? "rastreavel" : `falta ${missing.join(", ")}`}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-md bg-muted/35 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">{item.label}</p>
+              <Badge variant={trackingStateVariant(item.state)}>{EXECUTION_STATE_LABELS[item.state]}</Badge>
+            </div>
+            <p className="mt-1 truncate text-sm font-semibold">{item.value}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{item.hint}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RunExecutionChecklist({
+  run,
+  attributionWindowDays,
+}: {
+  run: RunReport;
+  attributionWindowDays: number;
+}) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
   const coupons = run.channels?.coupons;
@@ -790,6 +915,7 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           }
         />
       </div>
+      <RunTrackingContract run={run} attributionWindowDays={attributionWindowDays} />
     </div>
   );
 }
@@ -1940,7 +2066,10 @@ export default function RetentionPlaybooksPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <RunExecutionChecklist run={run} />
+                      <RunExecutionChecklist
+                        run={run}
+                        attributionWindowDays={data.measurement.attributionWindowDays}
+                      />
                       <RunDecisionPanel
                         run={run}
                         decision={decision}
