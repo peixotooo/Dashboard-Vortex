@@ -180,6 +180,8 @@ interface PreparedRun {
   playbookId: string;
   playbookName: string;
   createdAt: string;
+  sourceRunId?: string | null;
+  sourceDecision?: string | null;
   holdoutPct: number;
   audienceCount: number;
   treatmentList: {
@@ -289,6 +291,8 @@ interface RunReport {
   playbookId?: string;
   playbookName: string;
   createdAt: string;
+  sourceRunId?: string | null;
+  sourceDecision?: string | null;
   treatmentList: {
     id: string;
     name: string;
@@ -859,7 +863,7 @@ function RunDecisionPanel({
   scalePlaybook?: RetentionPlaybook;
   scaleDisabled?: boolean;
   scaleLoading?: boolean;
-  onScale?: (playbook: RetentionPlaybook) => void;
+  onScale?: (playbook: RetentionPlaybook, sourceRun: RunReport, sourceDecision: RunDecision) => void;
 }) {
   const canScale = decision.tone === "scale" && Boolean(scalePlaybook && onScale);
 
@@ -877,7 +881,7 @@ function RunDecisionPanel({
         {canScale ? (
           <Button
             size="sm"
-            onClick={() => scalePlaybook && onScale?.(scalePlaybook)}
+            onClick={() => scalePlaybook && onScale?.(scalePlaybook, run, decision)}
             disabled={scaleDisabled || scaleLoading}
           >
             {scaleLoading ? (
@@ -1466,7 +1470,10 @@ export default function RetentionPlaybooksPage() {
     return null;
   }, [data, runs]);
 
-  async function preparePlaybook(playbook: RetentionPlaybook) {
+  async function preparePlaybook(
+    playbook: RetentionPlaybook,
+    source?: { runId?: string | null; decision?: RunDecision["tone"] | null }
+  ) {
     if (!workspaceId) return;
     setPreparingId(playbook.id);
     setErrorMsg(null);
@@ -1480,6 +1487,12 @@ export default function RetentionPlaybooksPage() {
         body: JSON.stringify({
           playbookId: playbook.id,
           holdoutPct: data?.measurement.holdoutPctDefault ?? 10,
+          ...(source?.runId
+            ? {
+                sourceRunId: source.runId,
+                sourceDecision: source.decision || "scale",
+              }
+            : {}),
         }),
       });
       const payload = await res.json();
@@ -1544,6 +1557,7 @@ export default function RetentionPlaybooksPage() {
                     {preparedRun.holdoutList
                       ? ` e holdout com ${NUMBER(preparedRun.holdoutList.total_count)} contatos.`
                       : "."}
+                    {preparedRun.sourceRunId ? ` Origem: run ${preparedRun.sourceRunId.slice(0, 8)}.` : ""}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1601,7 +1615,12 @@ export default function RetentionPlaybooksPage() {
               ) : nextScaleAction ? (
                 <Button
                   size="sm"
-                  onClick={() => preparePlaybook(nextScaleAction.playbook)}
+                  onClick={() =>
+                    preparePlaybook(nextScaleAction.playbook, {
+                      runId: nextScaleAction.run.id,
+                      decision: nextScaleAction.decision.tone,
+                    })
+                  }
                   disabled={preparingId !== null}
                 >
                   {preparingId === nextScaleAction.playbook.id ? (
@@ -1848,6 +1867,7 @@ export default function RetentionPlaybooksPage() {
                           <CardTitle className="text-base">{run.playbookName}</CardTitle>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {new Date(run.createdAt).toLocaleDateString("pt-BR")} · {run.id.slice(0, 8)}
+                            {run.sourceRunId ? ` · escala de ${run.sourceRunId.slice(0, 8)}` : ""}
                           </p>
                         </div>
                         <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
@@ -1861,7 +1881,12 @@ export default function RetentionPlaybooksPage() {
                         scalePlaybook={scalePlaybook}
                         scaleDisabled={preparingId !== null || (scalePlaybook?.audience.customers ?? 0) === 0}
                         scaleLoading={Boolean(scalePlaybook && preparingId === scalePlaybook.id)}
-                        onScale={preparePlaybook}
+                        onScale={(playbook, sourceRun, sourceDecision) =>
+                          preparePlaybook(playbook, {
+                            runId: sourceRun.id,
+                            decision: sourceDecision.tone,
+                          })
+                        }
                       />
 
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

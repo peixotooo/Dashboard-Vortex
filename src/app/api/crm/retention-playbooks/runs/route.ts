@@ -142,6 +142,8 @@ interface ContactListRow {
     playbook_id?: string;
     playbook_name?: string;
     holdout_pct?: number;
+    source_run_id?: string;
+    source_decision?: string;
     created_at?: string;
   } | null;
 }
@@ -336,6 +338,20 @@ function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function cleanSourceRunId(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9-]/g, "")
+    .slice(0, 64);
+}
+
+function cleanSourceDecision(value: unknown): string {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return ["scale", "setup", "wait", "pause", "watch"].includes(normalized) ? normalized : "";
 }
 
 function daysSince(date: Date | null, now: Date): number {
@@ -1100,6 +1116,8 @@ export async function POST(request: NextRequest) {
     }
 
     const holdoutPct = Math.min(30, Math.max(0, Number(body.holdoutPct ?? 10)));
+    const sourceRunId = cleanSourceRunId(body.sourceRunId);
+    const sourceDecision = cleanSourceDecision(body.sourceDecision);
     const runId = randomUUID();
     const now = new Date();
     const playbookName = PLAYBOOK_LABELS[playbookId];
@@ -1130,15 +1148,20 @@ export async function POST(request: NextRequest) {
       playbook_id: playbookId,
       playbook_name: playbookName,
       holdout_pct: holdoutPct,
+      ...(sourceRunId ? { source_run_id: sourceRunId } : {}),
+      ...(sourceDecision ? { source_decision: sourceDecision } : {}),
       created_at: now.toISOString(),
     };
+    const sourceDescription = sourceRunId
+      ? ` Escala/aprendizado a partir do run ${sourceRunId}.`
+      : "";
 
     const treatmentList = await createList({
       admin: auth!.admin,
       workspaceId: auth!.workspaceId,
       userId: auth!.userId,
       name: `Playbook ${playbookName} ${dateLabel} Tratamento`,
-      description: `Tratamento do playbook ${playbookName}. Run ${runId}.`,
+      description: `Tratamento do playbook ${playbookName}. Run ${runId}.${sourceDescription}`,
       contacts: treatment,
       autoSegment: { ...baseAutoSegment, role: "treatment" },
     });
@@ -1150,7 +1173,7 @@ export async function POST(request: NextRequest) {
             workspaceId: auth!.workspaceId,
             userId: auth!.userId,
             name: `Playbook ${playbookName} ${dateLabel} Holdout`,
-            description: `Grupo de controle do playbook ${playbookName}. Nao disparar campanha. Run ${runId}.`,
+            description: `Grupo de controle do playbook ${playbookName}. Nao disparar campanha. Run ${runId}.${sourceDescription}`,
             contacts: holdout,
             autoSegment: { ...baseAutoSegment, role: "holdout" },
           })
@@ -1162,6 +1185,8 @@ export async function POST(request: NextRequest) {
         playbookId,
         playbookName,
         createdAt: now.toISOString(),
+        sourceRunId: sourceRunId || null,
+        sourceDecision: sourceDecision || null,
         holdoutPct,
         audienceCount: audience.length,
         treatmentList,
@@ -1304,6 +1329,8 @@ export async function GET(request: NextRequest) {
         playbookId: treatment.auto_segment?.playbook_id,
         playbookName: treatment.auto_segment?.playbook_name || treatment.name,
         createdAt: treatment.created_at,
+        sourceRunId: treatment.auto_segment?.source_run_id || null,
+        sourceDecision: treatment.auto_segment?.source_decision || null,
         treatmentList: {
           id: treatment.id,
           name: treatment.name,
