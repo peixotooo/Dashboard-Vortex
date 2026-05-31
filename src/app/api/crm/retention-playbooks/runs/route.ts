@@ -17,7 +17,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 1000;
 const HARD_CAP = 120000;
 const RETENTION_AUTOPILOT_TEMPLATE_PREFIX = "bkng_account_update_v";
-const RETENTION_AUTOPILOT_TEMPLATE_BODY = "Ola {{1}}, tudo bem?\n\n{{2}}";
+const RETENTION_AUTOPILOT_TEMPLATE_BODY =
+  "Ola {{1}}, tudo bem?\n\n{{2}}\n\nCaso precise de ajuda, responda esta mensagem.";
 const RETENTION_AUTOPILOT_TEMPLATE_EXAMPLE_BODY_TEXT = [
   [
     "Mariana",

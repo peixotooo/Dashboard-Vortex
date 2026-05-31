@@ -322,7 +322,15 @@ export async function createTemplateOnMeta(
     let detail = text.slice(0, 300);
     try {
       const parsed = JSON.parse(text);
-      detail = parsed.error?.message || detail;
+      if (parsed.error) {
+        const parts = [
+          parsed.error.message,
+          parsed.error.code ? `code=${parsed.error.code}` : "",
+          parsed.error.error_subcode ? `subcode=${parsed.error.error_subcode}` : "",
+          parsed.error.error_data?.details,
+        ].filter(Boolean);
+        detail = parts.join(" | ") || detail;
+      }
     } catch {}
     throw new Error(`Meta API ${res.status}: ${detail}`);
   }
