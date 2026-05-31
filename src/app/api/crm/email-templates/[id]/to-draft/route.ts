@@ -62,6 +62,7 @@ interface ToDraftBody {
     list_id?: string;
     audience?: string;
     playbook?: string;
+    playbook_id?: string;
     run?: string;
   };
 }
@@ -165,6 +166,7 @@ export async function POST(
                   list_id: body.retention_context.list_id,
                   audience: body.retention_context.audience,
                   playbook: body.retention_context.playbook,
+                  playbook_id: body.retention_context.playbook_id,
                   run: body.retention_context.run,
                 },
               }

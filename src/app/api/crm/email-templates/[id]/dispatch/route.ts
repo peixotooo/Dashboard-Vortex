@@ -54,6 +54,7 @@ interface Body {
     list_id?: string;
     audience?: string;
     playbook?: string;
+    playbook_id?: string;
     run?: string;
   };
 }
@@ -62,6 +63,7 @@ function retentionStats(context: Body["retention_context"]): Record<string, unkn
   if (!context) return {};
   return {
     playbook_run_id: context.run || null,
+    playbook_id: context.playbook_id || null,
     playbook_name: context.playbook || null,
     playbook_audience: context.audience || null,
     playbook_locaweb_list_id: context.list_id || null,

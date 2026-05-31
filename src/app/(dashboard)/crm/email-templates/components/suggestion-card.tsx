@@ -31,6 +31,7 @@ export function SuggestionCard({
     listId: string;
     audience: string;
     playbook: string;
+    playbookId?: string;
     run: string;
   } | null;
 }) {
@@ -52,6 +53,7 @@ export function SuggestionCard({
                 list_id: retentionContext.listId,
                 audience: retentionContext.audience,
                 playbook: retentionContext.playbook,
+                playbook_id: retentionContext.playbookId,
                 run: retentionContext.run,
               }
             : undefined,
@@ -63,6 +65,7 @@ export function SuggestionCard({
         if (retentionContext?.listId) params.set("list", retentionContext.listId);
         if (retentionContext?.audience) params.set("audience", retentionContext.audience);
         if (retentionContext?.playbook) params.set("playbook", retentionContext.playbook);
+        if (retentionContext?.playbookId) params.set("playbook_id", retentionContext.playbookId);
         if (retentionContext?.run) params.set("run", retentionContext.run);
         const qs = params.toString();
         window.location.href = `/crm/email-templates/editor/${d.draft.id}${qs ? `?${qs}` : ""}`;

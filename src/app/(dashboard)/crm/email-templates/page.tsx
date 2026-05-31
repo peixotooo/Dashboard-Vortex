@@ -15,6 +15,7 @@ interface RetentionEmailContext {
   listId: string;
   audience: string;
   playbook: string;
+  playbookId?: string;
   run: string;
 }
 
@@ -38,6 +39,7 @@ export default function EmailTemplatesPage() {
       listId,
       audience: params.get("audience") || "Lista de tratamento",
       playbook: params.get("playbook") || "Playbook de retencao",
+      playbookId: params.get("playbook_id") || undefined,
       run: params.get("run") || "",
     });
   }, []);

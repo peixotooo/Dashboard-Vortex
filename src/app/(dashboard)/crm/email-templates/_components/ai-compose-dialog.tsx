@@ -37,8 +37,20 @@ interface Props {
     listId: string;
     audience: string;
     playbook: string;
+    playbookId?: string;
     run: string;
   } | null;
+}
+
+type Tone = "urgent" | "premium" | "playful" | "minimal";
+type EmailSlot = 1 | 2 | 3;
+
+interface RetentionPreset {
+  text: string;
+  tone: Tone;
+  slot: EmailSlot;
+  countdown: boolean;
+  countdownHours: number;
 }
 
 /** Bulking-aligned context chips. Streetwear/fitness apparel, "Respect the
@@ -94,17 +106,143 @@ const CONTEXT_CHIPS: Array<{ label: string; text: string }> = [
   },
 ];
 
-const TONES: Array<{ id: "urgent" | "premium" | "playful" | "minimal"; label: string }> = [
+const TONES: Array<{ id: Tone; label: string }> = [
   { id: "urgent", label: "Urgente" },
   { id: "premium", label: "Premium" },
   { id: "playful", label: "Brincalhão" },
   { id: "minimal", label: "Minimal" },
 ];
 
+function retentionPreset(
+  retentionContext: NonNullable<Props["retentionContext"]>
+): RetentionPreset {
+  const name = retentionContext.playbook.toLowerCase();
+  const id = retentionContext.playbookId || "";
+  const base = [
+    `Playbook de retencao: ${retentionContext.playbook}.`,
+    `Audiencia: ${retentionContext.audience}.`,
+  ].filter(Boolean);
+
+  if (id === "cashback-expiring-14d" || /saldo expirando/.test(name)) {
+    return {
+      tone: "urgent",
+      slot: 1,
+      countdown: true,
+      countdownHours: 24,
+      text: [
+        ...base,
+        "Objetivo: fazer o cliente usar o saldo de cashback antes de expirar.",
+        "Oferta: nao criar cupom novo; o incentivo e o saldo ja emitido.",
+        "Mensagem: lembrete direto, com urgencia real, reforcando que o saldo ja esta disponivel na conta.",
+        "Produto: usar best-seller ou reposicao facil para reduzir friccao da recompra.",
+        "Guardrail: nao mencionar holdout, run, CRM ou regra interna.",
+      ].join(" "),
+    };
+  }
+
+  if (id === "active-cashback-balance" || /saldo ativo|cashback/.test(name)) {
+    return {
+      tone: "minimal",
+      slot: 1,
+      countdown: false,
+      countdownHours: 48,
+      text: [
+        ...base,
+        "Objetivo: reduzir esquecimento e transformar saldo ativo em recompra.",
+        "Oferta: usar apenas o cashback existente, sem desconto extra.",
+        "Mensagem: curta, clara e com foco em escolher uma peca facil de comprar agora.",
+        "Produto: priorizar best-seller, restock ou item de margem saudavel.",
+        "Guardrail: nao prometer cupom nem desconto novo.",
+      ].join(" "),
+    };
+  }
+
+  if (id === "second-purchase-31-60d" || /segunda compra/.test(name)) {
+    return {
+      tone: "premium",
+      slot: 1,
+      countdown: false,
+      countdownHours: 72,
+      text: [
+        ...base,
+        "Objetivo: transformar primeira compra em segunda compra, criando habito de recompra.",
+        "Oferta: comecar por produto certo e prova de valor; cupom so se ja estiver aprovado para esse run.",
+        "Mensagem: mostrar continuacao natural da primeira experiencia com a marca.",
+        "Produto: best-seller, kit ou peca complementar com margem saudavel.",
+        "Guardrail: nao parecer liquidacao e nao mencionar desconto se o cupom nao estiver ativo.",
+      ].join(" "),
+    };
+  }
+
+  if (id === "one-time-61-90d-save" || /primeira compra esfriando/.test(name)) {
+    return {
+      tone: "minimal",
+      slot: 3,
+      countdown: false,
+      countdownHours: 72,
+      text: [
+        ...base,
+        "Objetivo: evitar que comprador de uma compra vire base perdida.",
+        "Oferta: primeiro toque sem desconto; usar novidade, drop, restock ou produto complementar.",
+        "Mensagem: reaproximacao direta, sem tom de saudade exagerado.",
+        "Produto: novidade ou peca de entrada que reforce valor da marca.",
+        "Guardrail: cupom so no segundo toque e apenas se houver margem.",
+      ].join(" "),
+    };
+  }
+
+  if (id === "repeat-61-180d" || /recorrentes|recompra/.test(name)) {
+    return {
+      tone: "premium",
+      slot: 3,
+      countdown: false,
+      countdownHours: 72,
+      text: [
+        ...base,
+        "Objetivo: recuperar cliente recorrente com novidade, reposicao ou acesso antecipado.",
+        "Oferta: priorizar drop, restock, kit ou produto de margem saudavel antes de desconto.",
+        "Mensagem: tratar como cliente que ja conhece a marca, sem explicar o basico.",
+        "Produto: novidade, restock ou conjunto que aumenta ticket.",
+        "Guardrail: cupom seletivo apenas se aprovado e sem prometer desconto aberto.",
+      ].join(" "),
+    };
+  }
+
+  if (id === "high-ltv-dormant" || /dormantes|alto ltv|winback/.test(name)) {
+    return {
+      tone: "premium",
+      slot: 3,
+      countdown: true,
+      countdownHours: 72,
+      text: [
+        ...base,
+        "Objetivo: reativar cliente de alto LTV sem abrir desconto para a base inteira.",
+        "Oferta: exclusiva, limitada e ligada a historico de valor; cupom somente se aprovado para esse run.",
+        "Mensagem: reconhecer que e cliente antigo/valioso, com retorno claro para a colecao atual.",
+        "Produto: novidade forte, restock desejado ou kit de ticket maior.",
+        "Guardrail: nao parecer disparo de massa e nao mencionar informacoes internas de LTV.",
+      ].join(" "),
+    };
+  }
+
+  return {
+    tone: "minimal",
+    slot: 1,
+    countdown: false,
+    countdownHours: 48,
+    text: [
+      ...base,
+      "Objetivo: ativar recompra com tom Bulking, direto e sem parecer campanha generica.",
+      "Oferta: manter foco em margem e nao oferecer desconto extra se o playbook nao exigir.",
+      "Mensagem: usar produto certo, CTA claro e sem mencionar holdout, run ou CRM.",
+    ].join(" "),
+  };
+}
+
 export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }: Props) {
-  type Tone = "urgent" | "premium" | "playful" | "minimal";
   const [context, setContext] = useState("");
   const [tone, setTone] = useState<Tone | null>(null);
+  const [slot, setSlot] = useState<EmailSlot>(1);
   const [layouts, setLayouts] = useState<LayoutMeta[]>([]);
   const [layoutId, setLayoutId] = useState<string | null>(null);
   const [product, setProduct] = useState<PickedProduct | null>(null);
@@ -124,15 +262,13 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
 
   useEffect(() => {
     if (!open || !retentionContext) return;
-    setContext(
-      [
-        `Playbook de retencao: ${retentionContext.playbook}.`,
-        `Audiencia: ${retentionContext.audience}.`,
-        "Escrever email para ativar recompra com tom Bulking, direto e sem parecer campanha generica.",
-        "Manter foco em margem e nao oferecer desconto extra se o playbook nao exigir.",
-      ].join(" ")
-    );
-    setTone("minimal");
+    const preset = retentionPreset(retentionContext);
+    setContext(preset.text);
+    setTone(preset.tone);
+    setSlot(preset.slot);
+    setCountdownEnabled(preset.countdown);
+    setCountdownHours(preset.countdownHours);
+    setCouponEnabled(false);
   }, [open, retentionContext]);
 
   // Load layouts when dialog opens
@@ -168,6 +304,7 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
   const reset = () => {
     setContext("");
     setTone(null);
+    setSlot(1);
     setProduct(null);
     setProductSearch("");
     setProductResults([]);
@@ -223,6 +360,7 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
         body: JSON.stringify({
           context: context.trim(),
           layout_id: layoutId,
+          slot,
           product_id: product?.vnda_id,
           tone: tone ?? undefined,
           // Both toggles share the same expires_at on the backend (the
@@ -243,6 +381,7 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
                 list_id: retentionContext.listId,
                 audience: retentionContext.audience,
                 playbook: retentionContext.playbook,
+                playbook_id: retentionContext.playbookId,
                 run: retentionContext.run,
               }
             : undefined,
@@ -256,6 +395,7 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
       if (retentionContext?.listId) params.set("list", retentionContext.listId);
       if (retentionContext?.audience) params.set("audience", retentionContext.audience);
       if (retentionContext?.playbook) params.set("playbook", retentionContext.playbook);
+      if (retentionContext?.playbookId) params.set("playbook_id", retentionContext.playbookId);
       if (retentionContext?.run) params.set("run", retentionContext.run);
       const qs = params.toString();
       window.location.href = `/crm/email-templates/editor/${d.draft.id}${qs ? `?${qs}` : ""}`;

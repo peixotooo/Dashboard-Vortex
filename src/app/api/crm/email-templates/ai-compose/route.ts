@@ -44,6 +44,7 @@ interface Body {
     list_id?: string;
     audience?: string;
     playbook?: string;
+    playbook_id?: string;
     run?: string;
   };
 }
@@ -99,6 +100,46 @@ const TONE_HINT: Record<NonNullable<Body["tone"]>, string> = {
   minimal: "Tom: minimalista, frase curta, descrição quase clínica.",
 };
 
+function retentionPrompt(context?: Body["retention_context"]): string {
+  if (!context) return "";
+  const playbook = `${context.playbook_id || ""} ${context.playbook || ""}`.toLowerCase();
+  const rules = [
+    `\nPlaybook de retencao: ${context.playbook || "retencao"}.`,
+    context.audience ? `Audiencia: ${context.audience}.` : "",
+    context.run ? "Este email pertence a um run mensurado. Nao mencione run, holdout, CRM ou grupo de controle para o cliente." : "",
+  ];
+
+  if (/cashback|saldo/.test(playbook)) {
+    rules.push(
+      "Regra do playbook: o incentivo principal e cashback/saldo existente. Nao invente cupom, percentual de desconto ou promocao nova.",
+      "A copy deve lembrar valor disponivel/urgencia de uso sem soar como liquidacao."
+    );
+  } else if (/second-purchase|segunda compra/.test(playbook)) {
+    rules.push(
+      "Regra do playbook: vender a segunda compra como proximo passo natural da experiencia com a marca.",
+      "Cupom so pode aparecer se o payload trouxer cupom. Se nao houver cupom, foque produto, complemento e prova de valor."
+    );
+  } else if (/one-time|esfriando/.test(playbook)) {
+    rules.push(
+      "Regra do playbook: primeiro toque sem desconto, usando novidade ou produto complementar para evitar churn.",
+      "Nao use tom carente; escreva como reaproximacao direta."
+    );
+  } else if (/repeat|recorrente|recompra/.test(playbook)) {
+    rules.push(
+      "Regra do playbook: recorrentes respondem melhor a novidade, restock, acesso antecipado e kit do que a desconto aberto.",
+      "Escreva para alguem que ja conhece a Bulking."
+    );
+  } else if (/dormant|dormante|alto ltv|winback/.test(playbook)) {
+    rules.push(
+      "Regra do playbook: winback seletivo para cliente valioso. Deve parecer convite exclusivo, nao disparo de massa.",
+      "Nao mencione LTV, score, segmentacao ou historico interno."
+    );
+  }
+
+  rules.push("Regra geral: nao prometa desconto, cashback novo, frete gratis ou prazo se isso nao estiver explicitamente no contexto.");
+  return rules.filter(Boolean).join("\n");
+}
+
 interface CopyOut {
   subject: string;
   preview: string;
@@ -112,7 +153,8 @@ async function generateCopyWithLLM(
   context: string,
   product: ProductSnapshot,
   tone: Body["tone"],
-  coupon?: Body["coupon"]
+  coupon?: Body["coupon"],
+  retentionContext?: Body["retention_context"]
 ): Promise<CopyOut> {
   const couponLine = coupon
     ? `\nCupom: ${coupon.code ?? "(gerado)"} · ${coupon.discount_percent}% off · expira em ${
@@ -125,6 +167,7 @@ Produto em destaque: ${product.name} · R$ ${product.price.toFixed(2)}${
     product.old_price ? ` (de R$ ${product.old_price.toFixed(2)})` : ""
   }${couponLine}
 ${tone ? TONE_HINT[tone] : ""}
+${retentionPrompt(retentionContext)}
 
 Devolva o JSON.`;
 
@@ -232,7 +275,13 @@ export async function POST(req: NextRequest) {
     // 3) Generate copy with the LLM
     let copy: CopyOut;
     try {
-      copy = await generateCopyWithLLM(body.context.trim(), primary, body.tone, body.coupon);
+      copy = await generateCopyWithLLM(
+        body.context.trim(),
+        primary,
+        body.tone,
+        body.coupon,
+        body.retention_context
+      );
     } catch (err) {
       console.error("[ai-compose] LLM failed:", err);
       return NextResponse.json(
@@ -287,6 +336,7 @@ export async function POST(req: NextRequest) {
                   list_id: body.retention_context.list_id,
                   audience: body.retention_context.audience,
                   playbook: body.retention_context.playbook,
+                  playbook_id: body.retention_context.playbook_id,
                   run: body.retention_context.run,
                 },
               }

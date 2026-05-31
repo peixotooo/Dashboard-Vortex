@@ -48,6 +48,7 @@ export interface DispatchPayload {
     list_id?: string;
     audience?: string;
     playbook?: string;
+    playbook_id?: string;
     run?: string;
   };
 }
@@ -191,6 +192,7 @@ function retentionStats(
   if (!context) return {};
   return {
     playbook_run_id: context.run || null,
+    playbook_id: context.playbook_id || null,
     playbook_name: context.playbook || null,
     playbook_audience: context.audience || null,
     playbook_locaweb_list_id: context.list_id || null,

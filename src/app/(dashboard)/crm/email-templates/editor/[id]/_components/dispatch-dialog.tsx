@@ -49,6 +49,7 @@ interface Props {
     listId: string;
     audience: string;
     playbook: string;
+    playbookId?: string;
     run: string;
   } | null;
 }
@@ -198,6 +199,7 @@ export function DispatchDialog({
                   list_id: retentionContext.listId,
                   audience: retentionContext.audience,
                   playbook: retentionContext.playbook,
+                  playbook_id: retentionContext.playbookId,
                   run: retentionContext.run,
                 }
               : undefined,

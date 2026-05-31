@@ -52,6 +52,7 @@ export interface DraftMeta {
     list_id?: string;
     audience?: string;
     playbook?: string;
+    playbook_id?: string;
     run?: string;
   };
 }

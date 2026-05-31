@@ -434,6 +434,7 @@ function emailTemplatesHref(run: RunReport) {
     run: run.id,
     playbook: run.playbookName,
   });
+  if (run.playbookId) params.set("playbook_id", run.playbookId);
   return `/crm/email-templates?${params.toString()}`;
 }
 

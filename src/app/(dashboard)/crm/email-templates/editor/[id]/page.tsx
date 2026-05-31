@@ -81,6 +81,7 @@ interface RetentionEmailContext {
   listId: string;
   audience: string;
   playbook: string;
+  playbookId?: string;
   run: string;
 }
 
@@ -91,6 +92,7 @@ function retentionFromMeta(meta: DraftMeta | null | undefined): RetentionEmailCo
     listId: context.list_id,
     audience: context.audience || "Lista de tratamento",
     playbook: context.playbook || "Playbook de retencao",
+    playbookId: context.playbook_id || undefined,
     run: context.run || "",
   };
 }
@@ -124,6 +126,7 @@ export default function EmailEditorPage({ params }: PageProps) {
       listId,
       audience: query.get("audience") || "Lista de tratamento",
       playbook: query.get("playbook") || "Playbook de retencao",
+      playbookId: query.get("playbook_id") || undefined,
       run: query.get("run") || "",
     });
   }, []);
