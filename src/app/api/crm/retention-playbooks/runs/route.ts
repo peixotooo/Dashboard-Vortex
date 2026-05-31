@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { authRoute } from "@/lib/cashback/route-helpers";
+import { getGA4Report } from "@/lib/ga4-api";
 import { filterContacts } from "@/lib/wa-compliance";
 import {
   createTemplateOnMeta,
@@ -63,7 +64,10 @@ interface WaCampaignRow {
   id: string;
   name: string;
   status: string;
+  template_id: string | null;
   template_name: string | null;
+  template_language: string | null;
+  variable_values: Record<string, string> | null;
   total_messages: number | string | null;
   sent_count: number | string | null;
   delivered_count: number | string | null;
@@ -80,7 +84,27 @@ interface WaCampaignRow {
     playbook_id?: string;
     playbook_name?: string;
     contact_list_id?: string;
+    desired_send_hour?: number | string;
+    send_hour_source?: string;
+    send_hour_reason?: string;
+    recommended_send_day?: number | string;
   } | null;
+  wa_templates:
+    | {
+        name: string;
+        language: string | null;
+        category: string | null;
+        status: string | null;
+        components: WaTemplateComponent[] | null;
+      }
+    | Array<{
+        name: string;
+        language: string | null;
+        category: string | null;
+        status: string | null;
+        components: WaTemplateComponent[] | null;
+      }>
+    | null;
 }
 
 interface EmailDispatchRow {
@@ -817,7 +841,7 @@ async function fetchWaCampaignsSince(
     const { data, error } = await admin
       .from("wa_campaigns")
       .select(
-        "id, name, status, template_name, total_messages, sent_count, delivered_count, read_count, failed_count, message_cost_usd, exchange_rate, created_at, scheduled_at, started_at, completed_at, segment_filter"
+        "id, name, status, template_id, template_name, template_language, variable_values, total_messages, sent_count, delivered_count, read_count, failed_count, message_cost_usd, exchange_rate, created_at, scheduled_at, started_at, completed_at, segment_filter, wa_templates(name, language, category, status, components)"
       )
       .eq("workspace_id", workspaceId)
       .gte("created_at", since)
@@ -833,6 +857,32 @@ async function fetchWaCampaignsSince(
     if (!data || data.length < PAGE_SIZE) break;
   }
   return rows;
+}
+
+function normalizeJoinedTemplate(template: WaCampaignRow["wa_templates"]) {
+  if (Array.isArray(template)) return template[0] || null;
+  return template || null;
+}
+
+function renderCampaignMessage(campaign: WaCampaignRow) {
+  const template = normalizeJoinedTemplate(campaign.wa_templates);
+  const body = getTemplateBodyText(template?.components || []);
+  const variableValues = campaign.variable_values || {};
+  if (!body) return "";
+
+  return body.replace(/\{\{(\d+)\}\}/g, (match) => {
+    const value = variableValues[match] || "";
+    if (!value) return match;
+    return value
+      .replace(/\{\{nome\}\}/g, "Nome do cliente")
+      .replace(/\{\{saldo_cashback\}\}/g, "saldo do cliente")
+      .replace(/\{\{dias_para_expirar\}\}/g, "dias restantes")
+      .replace(/\{\{expira_em\}\}/g, "data de expiracao")
+      .replace(/\{\{ultima_compra\}\}/g, "ultima compra")
+      .replace(/\{\{dias_ultima_compra\}\}/g, "dias desde a ultima compra")
+      .replace(/\{\{ticket_medio\}\}/g, "ticket medio")
+      .replace(/\{\{total_compras\}\}/g, "total de compras");
+  });
 }
 
 function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
@@ -868,22 +918,34 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
   return {
     campaignCount: rows.length,
     ...totals,
-    campaigns: rows.slice(0, 5).map((campaign) => ({
-      id: campaign.id,
-      name: campaign.name,
-      status: campaign.status,
-      templateName: campaign.template_name,
-      totalMessages: toNumber(campaign.total_messages),
-      sent: toNumber(campaign.sent_count),
-      costBrl:
-        toNumber(campaign.sent_count) *
-        toNumber(campaign.message_cost_usd, 0.0625) *
-        toNumber(campaign.exchange_rate, 5.5),
-      createdAt: campaign.created_at,
-      scheduledAt: campaign.scheduled_at,
-      startedAt: campaign.started_at,
-      completedAt: campaign.completed_at,
-    })),
+    campaigns: rows.slice(0, 5).map((campaign) => {
+      const template = normalizeJoinedTemplate(campaign.wa_templates);
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        templateName: campaign.template_name,
+        templateLanguage: campaign.template_language || template?.language || null,
+        templateCategory: template?.category || null,
+        templateStatus: template?.status || null,
+        templateBody: getTemplateBodyText(template?.components || []),
+        messagePreview: renderCampaignMessage(campaign),
+        sendHourSource: campaign.segment_filter?.send_hour_source || null,
+        sendHourReason: campaign.segment_filter?.send_hour_reason || null,
+        desiredSendHour: toNumber(campaign.segment_filter?.desired_send_hour, 0),
+        recommendedSendDay: toNumber(campaign.segment_filter?.recommended_send_day, -1),
+        totalMessages: toNumber(campaign.total_messages),
+        sent: toNumber(campaign.sent_count),
+        costBrl:
+          toNumber(campaign.sent_count) *
+          toNumber(campaign.message_cost_usd, 0.0625) *
+          toNumber(campaign.exchange_rate, 5.5),
+        createdAt: campaign.created_at,
+        scheduledAt: campaign.scheduled_at,
+        startedAt: campaign.started_at,
+        completedAt: campaign.completed_at,
+      };
+    }),
   };
 }
 
@@ -1487,7 +1549,7 @@ function resolveTemplateValue(value: string, contact: Contact): string {
   return missingRequiredToken ? "" : resolvedValue;
 }
 
-async function inferBestSendHour(admin: AdminClient, workspaceId: string) {
+async function inferBestSendWindow(admin: AdminClient, workspaceId: string) {
   const since = new Date(Date.now() - 90 * DAY_MS).toISOString();
   const { data } = await admin
     .from("crm_vendas")
@@ -1496,50 +1558,149 @@ async function inferBestSendHour(admin: AdminClient, workspaceId: string) {
     .gte("data_compra", since)
     .limit(5000);
 
-  const counts = new Map<number, number>();
+  const crmBySlot = new Map<string, number>();
   for (const row of (data || []) as Array<{ data_compra: string | null }>) {
     if (!row.data_compra || !/[T\s]\d{2}:\d{2}/.test(row.data_compra)) continue;
     const date = parseDate(row.data_compra);
     if (!date) continue;
-    const hour = Number(
-      new Intl.DateTimeFormat("pt-BR", {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Sao_Paulo",
+        weekday: "short",
         hour: "2-digit",
         hour12: false,
-      }).format(date)
+      })
+        .formatToParts(date)
+        .map((part) => [part.type, part.value])
     );
+    const hour = Number(parts.hour);
     if (!Number.isFinite(hour) || hour < 9 || hour > 20) continue;
-    counts.set(hour, (counts.get(hour) || 0) + 1);
+    const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(parts.weekday));
+    const key = `${day >= 0 ? day : date.getDay()}:${hour}`;
+    crmBySlot.set(key, (crmBySlot.get(key) || 0) + 1);
   }
 
-  const best = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
-  return best ? { hour: best[0], source: "historico_pedidos" } : { hour: 10, source: "fallback_10h" };
-}
+  const ga4BySlot = new Map<
+    string,
+    { sessions: number; transactions: number; revenue: number }
+  >();
+  let ga4Available = false;
+  if (process.env.GA4_PROPERTY_ID) {
+    try {
+      const ga4 = await getGA4Report({
+        datePreset: "last_90d",
+        dimensions: ["dayOfWeek", "hour"],
+        metrics: ["sessions", "transactions", "purchaseRevenue"],
+        limit: 200,
+      });
+      for (const row of ga4.rows || []) {
+        const day = Number(row.dimensions.dayOfWeek);
+        const hour = Number(row.dimensions.hour);
+        if (!Number.isFinite(day) || !Number.isFinite(hour) || hour < 9 || hour > 20) continue;
+        ga4BySlot.set(`${day}:${hour}`, {
+          sessions: toNumber(row.metrics.sessions),
+          transactions: toNumber(row.metrics.transactions),
+          revenue: toNumber(row.metrics.purchaseRevenue),
+        });
+      }
+      ga4Available = ga4BySlot.size > 0;
+    } catch (err) {
+      console.error("[Retention Autopilot] GA4 hour score failed:", err instanceof Error ? err.message : err);
+    }
+  }
 
-function nextBusinessSendAt(hour: number) {
+  const crmMax = Math.max(1, ...crmBySlot.values());
+  const ga4Rows = [...ga4BySlot.values()];
+  const ga4TxMax = Math.max(1, ...ga4Rows.map((row) => row.transactions));
+  const ga4RevenueMax = Math.max(1, ...ga4Rows.map((row) => row.revenue));
+  const ga4SessionsMax = Math.max(1, ...ga4Rows.map((row) => row.sessions));
+  const slotScore = (day: number, hour: number) => {
+    const key = `${day}:${hour}`;
+    const crmOrders = crmBySlot.get(key) || 0;
+    const ga4 = ga4BySlot.get(key) || { sessions: 0, transactions: 0, revenue: 0 };
+    return {
+      crmOrders,
+      ga4,
+      score:
+        (crmOrders / crmMax) * 45 +
+        (ga4.transactions / ga4TxMax) * 35 +
+        (ga4.revenue / ga4RevenueMax) * 15 +
+        (ga4.sessions / ga4SessionsMax) * 5,
+    };
+  };
+
   const now = new Date();
   const brtNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-  const scheduledBrt = new Date(
-    Date.UTC(
-      brtNow.getUTCFullYear(),
-      brtNow.getUTCMonth(),
-      brtNow.getUTCDate(),
-      hour,
-      0,
-      0,
-      0
-    )
-  );
+  const candidates: Array<{
+    day: number;
+    hour: number;
+    daysAhead: number;
+    scheduledAt: string;
+    score: number;
+    crmOrders: number;
+    ga4: { sessions: number; transactions: number; revenue: number };
+  }> = [];
 
-  if (scheduledBrt.getTime() <= brtNow.getTime() + 60 * 60 * 1000) {
-    scheduledBrt.setUTCDate(scheduledBrt.getUTCDate() + 1);
+  for (let daysAhead = 0; daysAhead < 8; daysAhead++) {
+    const date = new Date(brtNow);
+    date.setUTCDate(date.getUTCDate() + daysAhead);
+    const day = date.getUTCDay();
+    for (let hour = 9; hour <= 20; hour++) {
+      const scheduledBrt = new Date(
+        Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hour, 0, 0, 0)
+      );
+      const scheduledUtc = new Date(scheduledBrt.getTime() + 3 * 60 * 60 * 1000);
+      if (scheduledUtc.getTime() <= now.getTime() + 30 * 60 * 1000) continue;
+      const slot = slotScore(day, hour);
+      candidates.push({
+        day,
+        hour,
+        daysAhead,
+        scheduledAt: scheduledUtc.toISOString(),
+        score: slot.score,
+        crmOrders: slot.crmOrders,
+        ga4: slot.ga4,
+      });
+    }
   }
 
-  while ([0, 6].includes(scheduledBrt.getUTCDay())) {
-    scheduledBrt.setUTCDate(scheduledBrt.getUTCDate() + 1);
+  const best = candidates
+    .sort((a, b) => (b.score - b.daysAhead * 7) - (a.score - a.daysAhead * 7) || a.daysAhead - b.daysAhead || a.hour - b.hour)[0];
+
+  if (!best) {
+    return {
+      hour: 10,
+      day: brtNow.getUTCDay(),
+      scheduledAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+      source: "fallback_10h",
+      reason: "Sem janela valida encontrada; fallback operacional.",
+    };
   }
 
-  return new Date(scheduledBrt.getTime() + 3 * 60 * 60 * 1000).toISOString();
+  const source =
+    ga4Available && crmBySlot.size > 0
+      ? "ga4_crm_historico"
+      : ga4Available
+        ? "ga4_historico"
+        : crmBySlot.size > 0
+          ? "historico_pedidos"
+          : "fallback_horario";
+  const reason =
+    source === "ga4_crm_historico"
+      ? `Cruzou pedidos CRM e GA4: ${best.crmOrders} pedidos CRM, ${best.ga4.transactions} transacoes GA4 e ${Math.round(best.ga4.sessions)} sessoes nesse slot.`
+      : source === "ga4_historico"
+        ? `GA4 indicou ${best.ga4.transactions} transacoes e ${Math.round(best.ga4.sessions)} sessoes nesse slot.`
+        : source === "historico_pedidos"
+          ? `Historico CRM indicou ${best.crmOrders} pedidos nesse dia/hora.`
+          : "Sem dados fortes; escolheu a proxima janela operacional.";
+
+  return {
+    hour: best.hour,
+    day: best.day,
+    scheduledAt: best.scheduledAt,
+    source,
+    reason,
+  };
 }
 
 async function autoScheduleWhatsappRun(params: {
@@ -1617,8 +1778,8 @@ async function autoScheduleWhatsappRun(params: {
     };
   }
 
-  const bestHour = await inferBestSendHour(params.admin, params.workspaceId);
-  const scheduledAt = nextBusinessSendAt(bestHour.hour);
+  const sendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const scheduledAt = sendWindow.scheduledAt;
   const campaignName = `Auto Retencao ${params.playbookName} ${new Date().toISOString().slice(0, 10)}`;
   const templateApproved = template.status === "APPROVED" && template.category === "UTILITY";
   const campaignStatus = templateApproved ? "scheduled" : "pending_template";
@@ -1646,8 +1807,10 @@ async function autoScheduleWhatsappRun(params: {
         pending_template: !templateApproved,
         pending_template_created: templateCreated,
         template_guardrail: WHATSAPP_PLAYBOOK_CONTEXT[params.playbookId]?.guardrail || null,
-        desired_send_hour: bestHour.hour,
-        send_hour_source: bestHour.source,
+        desired_send_hour: sendWindow.hour,
+        recommended_send_day: sendWindow.day,
+        send_hour_source: sendWindow.source,
+        send_hour_reason: sendWindow.reason,
       },
       variable_values: variableValues,
       status: campaignStatus,
@@ -1691,8 +1854,8 @@ async function autoScheduleWhatsappRun(params: {
     originalContacts: rawContacts.length,
     cooldownCount: compliance.cooldownCount,
     blockedCount: compliance.blockedCount,
-    sendHour: bestHour.hour,
-    sendHourSource: bestHour.source,
+    sendHour: sendWindow.hour,
+    sendHourSource: sendWindow.source,
     reason: templateApproved
       ? undefined
       : templateCreated

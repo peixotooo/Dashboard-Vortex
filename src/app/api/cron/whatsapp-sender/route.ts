@@ -30,11 +30,7 @@ function nextBusinessSendAt(hour: number) {
     )
   );
 
-  if (scheduledBrt.getTime() <= brtNow.getTime() + 60 * 60 * 1000) {
-    scheduledBrt.setTime(scheduledBrt.getTime() + DAY_MS);
-  }
-
-  while ([0, 6].includes(scheduledBrt.getUTCDay())) {
+  if (scheduledBrt.getTime() <= brtNow.getTime() + 30 * 60 * 1000) {
     scheduledBrt.setTime(scheduledBrt.getTime() + DAY_MS);
   }
 

@@ -263,6 +263,15 @@ interface WhatsAppRunSummary {
     name: string;
     status: string;
     templateName: string | null;
+    templateLanguage: string | null;
+    templateCategory: string | null;
+    templateStatus: string | null;
+    templateBody: string;
+    messagePreview: string;
+    sendHourSource: string | null;
+    sendHourReason: string | null;
+    desiredSendHour: number;
+    recommendedSendDay: number;
     totalMessages: number;
     sent: number;
     costBrl: number;
@@ -1545,11 +1554,11 @@ function OperationsBoard({
         <Badge variant="outline">{NUMBER(opportunities.length)} oportunidades</Badge>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="space-y-4">
         <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">Proximos clusters</p>
+              <p className="text-sm font-semibold">1. Oportunidades recomendadas</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Cada agendamento cria tratamento, holdout, cooldown e vinculo para medir resultado.
               </p>
@@ -1557,7 +1566,7 @@ function OperationsBoard({
             <Badge variant="secondary">{BRL(positiveSum(opportunities.map((item) => item.estimate.contribution)))}</Badge>
           </div>
 
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
             {opportunities.map((playbook, index) => (
               <div key={playbook.id} className="rounded-md border bg-background p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1634,9 +1643,9 @@ function OperationsBoard({
         <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">Agenda de runs</p>
+              <p className="text-sm font-semibold">2. Agenda e disparos</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                O status vem das campanhas WhatsApp vinculadas ao run.
+                O que esta agendado, qual template usa e qual mensagem vai sair.
               </p>
             </div>
             <Badge variant="outline">{NUMBER(agendaRuns.length)} runs</Badge>
@@ -1647,7 +1656,7 @@ function OperationsBoard({
               Nenhum agendamento preparado ainda.
             </div>
           ) : (
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
               {agendaRuns.map((run) => {
                 const campaign = getPrimaryCampaign(run);
                 const status = campaign?.status || "prepared";
@@ -1664,7 +1673,7 @@ function OperationsBoard({
                       </div>
                       <Badge variant={campaignVariant(status)}>{status === "prepared" ? "preparado" : waStatusLabel(status)}</Badge>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
                       <div>
                         <p className="text-xs text-muted-foreground">Quando</p>
                         <p className="font-semibold">{campaignWhenLabel(campaign)}</p>
@@ -1674,13 +1683,34 @@ function OperationsBoard({
                         <p className="font-semibold">{NUMBER(campaign?.totalMessages ?? run.treatmentList.phoneCount)}</p>
                       </div>
                       <div>
+                        <p className="text-xs text-muted-foreground">Template</p>
+                        <p className="truncate font-semibold">{campaign?.templateName || "sem template"}</p>
+                      </div>
+                      <div>
                         <p className="text-xs text-muted-foreground">Resultado</p>
                         <p className="font-semibold">{runResultLabel(run)}</p>
                       </div>
                     </div>
+                    {campaign && (
+                      <div className="mt-3 rounded-md bg-muted/35 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Mensagem do disparo
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {campaign.templateCategory && <Badge variant="outline">{campaign.templateCategory}</Badge>}
+                            {campaign.templateStatus && <Badge variant="secondary">{campaign.templateStatus}</Badge>}
+                            {campaign.templateLanguage && <Badge variant="outline">{campaign.templateLanguage}</Badge>}
+                          </div>
+                        </div>
+                        <p className="mt-2 whitespace-pre-wrap text-sm">
+                          {campaign.messagePreview || campaign.templateBody || "Mensagem indisponivel para este template."}
+                        </p>
+                      </div>
+                    )}
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
-                        {campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint}
+                        {campaign?.sendHourReason || (campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint)}
                       </p>
                       <Button asChild size="sm" variant="outline">
                         <Link href={campaign ? "/crm/whatsapp" : nextAction.href}>
@@ -1701,7 +1731,7 @@ function OperationsBoard({
         <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">Resultados em acompanhamento</p>
+              <p className="text-sm font-semibold">3. Resultados em acompanhamento</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Leitura por lift contra holdout, receita incremental e margem liquida.
               </p>
