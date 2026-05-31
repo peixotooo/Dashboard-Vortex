@@ -246,6 +246,23 @@ interface CouponRunSummary {
   }>;
 }
 
+interface CashbackMetricSummary {
+  users: number;
+  uses: number;
+  cashbackValue: number;
+  orderValue: number;
+  usageRate: number;
+  valuePerContact: number;
+}
+
+interface CashbackRunSummary {
+  treatment: CashbackMetricSummary;
+  holdout: CashbackMetricSummary;
+  liftUsageRate: number;
+  incrementalCashbackValue: number;
+  incrementalOrderValue: number;
+}
+
 interface RunReport {
   id: string;
   playbookId?: string;
@@ -288,6 +305,7 @@ interface RunReport {
     incrementalRevenue: number;
     incrementalContribution: number;
     trackedChannelCost: number;
+    trackedCashbackCost?: number;
     trackedOfferCost?: number;
     trackedTotalCost?: number;
   };
@@ -295,6 +313,7 @@ interface RunReport {
     whatsapp?: WhatsAppRunSummary;
     email?: EmailRunSummary;
     coupons?: CouponRunSummary;
+    cashback?: CashbackRunSummary;
   };
   links: {
     whatsapp: string;
@@ -1243,10 +1262,12 @@ export default function RetentionPlaybooksPage() {
                   const whatsapp = run.channels?.whatsapp;
                   const email = run.channels?.email;
                   const coupons = run.channels?.coupons;
+                  const cashback = run.channels?.cashback;
                   const whatsappCampaigns = whatsapp?.campaigns ?? [];
                   const hasWhatsapp = (whatsapp?.campaignCount ?? 0) > 0;
                   const hasEmailDispatch = (email?.dispatchCount ?? 0) > 0;
                   const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
+                  const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
 
                   return (
                     <Card key={run.id}>
@@ -1363,7 +1384,7 @@ export default function RetentionPlaybooksPage() {
                         )}
                       </div>
 
-                      <div className="grid gap-3 text-sm md:grid-cols-2">
+                      <div className="grid gap-3 text-sm 2xl:grid-cols-3">
                         <div className="rounded-md border bg-muted/30 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
@@ -1399,6 +1420,40 @@ export default function RetentionPlaybooksPage() {
                         <div className="rounded-md border bg-muted/30 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
+                              <p className="font-semibold">Cashback do run</p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Tratamento {RATE(cashback?.treatment.usageRate ?? 0)} · holdout {RATE(cashback?.holdout.usageRate ?? 0)}
+                              </p>
+                            </div>
+                            <Badge variant={hasCashbackUsage ? "secondary" : "outline"}>
+                              {hasCashbackUsage
+                                ? `${NUMBER(cashback?.treatment.uses ?? 0)} usos`
+                                : "sem uso"}
+                            </Badge>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Usos trat.</p>
+                              <p className="font-semibold">{NUMBER(cashback?.treatment.uses ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Saldo usado</p>
+                              <p className="font-semibold">{BRL(cashback?.treatment.cashbackValue ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Lift uso</p>
+                              <p className="font-semibold">{RATE(cashback?.liftUsageRate ?? 0)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Incremental</p>
+                              <p className="font-semibold">{BRL(cashback?.incrementalCashbackValue ?? 0)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md border bg-muted/30 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
                               <p className="font-semibold">Cupom VNDA vinculado</p>
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {compactStatusSummary(coupons?.statuses, COUPON_STATUS_LABELS)}
@@ -1410,7 +1465,7 @@ export default function RetentionPlaybooksPage() {
                                 : "sem plano"}
                             </Badge>
                           </div>
-                          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                          <div className="mt-3 grid grid-cols-2 gap-3">
                             <div>
                               <p className="text-xs text-muted-foreground">Cupons</p>
                               <p className="font-semibold">{NUMBER(coupons?.couponCount ?? 0)}</p>

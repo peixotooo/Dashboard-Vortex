@@ -31,6 +31,16 @@ interface CashbackRow {
   expira_em: string | null;
 }
 
+interface CashbackUsageRow {
+  id: string;
+  email: string | null;
+  telefone: string | null;
+  status: string;
+  valor_cashback: number | string | null;
+  valor_pedido: number | string | null;
+  usado_em: string | null;
+}
+
 interface WaCampaignRow {
   id: string;
   name: string;
@@ -611,6 +621,15 @@ function saleKeys(row: CrmOrderRow): string[] {
   return keys;
 }
 
+function cashbackUsageKeys(row: CashbackUsageRow): string[] {
+  const keys: string[] = [];
+  const email = normalizeEmail(row.email);
+  if (email) keys.push(`email:${email}`);
+  const phone = normalizePhone(row.telefone);
+  if (phone) keys.push(`phone:${phone}`);
+  return keys;
+}
+
 function summarizeSalesForList(
   list: ContactListRow | undefined,
   sales: CrmOrderRow[],
@@ -645,6 +664,39 @@ function summarizeSalesForList(
   };
 }
 
+function summarizeCashbackForList(
+  list: ContactListRow | undefined,
+  usages: CashbackUsageRow[]
+) {
+  if (!list) {
+    return { users: 0, uses: 0, cashbackValue: 0, orderValue: 0, usageRate: 0, valuePerContact: 0 };
+  }
+
+  const keys = contactKeys(list.contacts);
+  const users = new Set<string>();
+  const seen = new Set<string>();
+  let cashbackValue = 0;
+  let orderValue = 0;
+
+  for (const usage of usages) {
+    const matchedKey = cashbackUsageKeys(usage).find((key) => keys.has(key));
+    if (!matchedKey || seen.has(usage.id)) continue;
+    seen.add(usage.id);
+    users.add(matchedKey);
+    cashbackValue += toNumber(usage.valor_cashback);
+    orderValue += toNumber(usage.valor_pedido);
+  }
+
+  return {
+    users: users.size,
+    uses: seen.size,
+    cashbackValue,
+    orderValue,
+    usageRate: list.total_count > 0 ? users.size / list.total_count : 0,
+    valuePerContact: list.total_count > 0 ? cashbackValue / list.total_count : 0,
+  };
+}
+
 async function fetchSalesSince(
   admin: AdminClient,
   workspaceId: string,
@@ -661,6 +713,29 @@ async function fetchSalesSince(
 
     if (error) throw error;
     const page = (data || []) as CrmOrderRow[];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchCashbackUsagesSince(
+  admin: AdminClient,
+  workspaceId: string,
+  since: string
+): Promise<CashbackUsageRow[]> {
+  const rows: CashbackUsageRow[] = [];
+  for (let from = 0; from < 50000; from += PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("cashback_transactions")
+      .select("id, email, telefone, status, valor_cashback, valor_pedido, usado_em")
+      .eq("workspace_id", workspaceId)
+      .not("usado_em", "is", null)
+      .gte("usado_em", since)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = (data || []) as CashbackUsageRow[];
     rows.push(...page);
     if (page.length < PAGE_SIZE) break;
   }
@@ -956,6 +1031,34 @@ function summarizeCoupons(
   };
 }
 
+function summarizeCashbackUsage(
+  treatment: ContactListRow,
+  holdout: ContactListRow | undefined,
+  usages: CashbackUsageRow[]
+) {
+  const treatmentUsage = summarizeCashbackForList(treatment, usages);
+  const holdoutUsage = summarizeCashbackForList(holdout, usages);
+  const liftUsageRate = treatmentUsage.usageRate - holdoutUsage.usageRate;
+  const liftValuePerContact = treatmentUsage.valuePerContact - holdoutUsage.valuePerContact;
+  const treatmentOrderPerContact =
+    treatment.total_count > 0 ? treatmentUsage.orderValue / treatment.total_count : 0;
+  const holdoutOrderPerContact =
+    holdout && holdout.total_count > 0 ? holdoutUsage.orderValue / holdout.total_count : 0;
+  const incrementalCashbackValue = Math.max(0, liftValuePerContact * treatment.total_count);
+  const incrementalOrderValue = Math.max(
+    0,
+    (treatmentOrderPerContact - holdoutOrderPerContact) * treatment.total_count
+  );
+
+  return {
+    treatment: treatmentUsage,
+    holdout: holdoutUsage,
+    liftUsageRate,
+    incrementalCashbackValue,
+    incrementalOrderValue,
+  };
+}
+
 async function contributionMarginPct(admin: AdminClient, workspaceId: string): Promise<number> {
   const { data } = await admin
     .from("workspace_financial_settings")
@@ -1126,12 +1229,13 @@ export async function GET(request: NextRequest) {
         .map(([, group]) => group.treatment!.locaweb_list_id)
         .filter((id): id is string => Boolean(id))
     );
-    const [sales, marginPct, waCampaigns, emailDispatches, couponAudits] = await Promise.all([
+    const [sales, marginPct, waCampaigns, emailDispatches, couponAudits, cashbackUsages] = await Promise.all([
       fetchSalesSince(auth!.admin, auth!.workspaceId, since),
       contributionMarginPct(auth!.admin, auth!.workspaceId),
       fetchWaCampaignsSince(auth!.admin, auth!.workspaceId, since, runIds),
       fetchEmailDispatchesSince(auth!.admin, auth!.workspaceId, since, locawebListIds),
       fetchCouponAuditsSince(auth!.admin, auth!.workspaceId, since, runIds),
+      fetchCashbackUsagesSince(auth!.admin, auth!.workspaceId, since),
     ]);
     const couponPlanIds = new Set(
       couponAudits
@@ -1161,13 +1265,20 @@ export async function GET(request: NextRequest) {
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
       const email = summarizeEmailDispatches(treatment, emailDispatches);
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
+      const runCashbackUsages = cashbackUsages.filter((usage) => {
+        const usageDate = parseDate(usage.usado_em);
+        const start = parseDate(treatment.created_at);
+        return usageDate && start && usageDate >= start;
+      });
+      const cashback = summarizeCashbackUsage(treatment, holdout, runCashbackUsages);
       const couponCreationLink = withParams("/coupons", {
         playbook: String(treatment.auto_segment?.playbook_id || ""),
         run: runId,
         name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
         ...couponGuardrailParams(String(treatment.auto_segment?.playbook_id || "")),
       });
-      const trackedOfferCost = coupons.attributedDiscount;
+      const trackedCashbackCost = cashback.incrementalCashbackValue;
+      const trackedOfferCost = coupons.attributedDiscount + trackedCashbackCost;
       const trackedTotalCost = whatsapp.costBrl + trackedOfferCost;
       const incrementalContribution =
         incrementalRevenue * (marginPct / 100) - trackedTotalCost;
@@ -1202,6 +1313,7 @@ export async function GET(request: NextRequest) {
           incrementalRevenue,
           incrementalContribution,
           trackedChannelCost: whatsapp.costBrl,
+          trackedCashbackCost,
           trackedOfferCost,
           trackedTotalCost,
         },
@@ -1209,6 +1321,7 @@ export async function GET(request: NextRequest) {
           whatsapp,
           email,
           coupons,
+          cashback,
         },
         links: {
           whatsapp: withParams(
