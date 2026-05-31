@@ -98,6 +98,9 @@ interface PlaybookEstimate {
   contribution: number;
   incentiveBudget: number;
   channelCost: number;
+  retentionCostPerOrder: number;
+  cpaDelta: number | null;
+  cpaEfficiency: number | null;
   conversionPct: number;
   grossContributionPerOrder: number;
   netContributionPerOrder: number;
@@ -230,11 +233,22 @@ function estimatePlaybook(params: {
   contributionBeforeMarketingPct: number;
   incentivePerOrder: number;
   channelCostPerRecipient: number;
+  acquisitionCpa?: number | null;
 }): PlaybookEstimate {
   const expectedOrders = Math.round(params.audience * (params.conversionPct / 100));
   const revenue = expectedOrders * params.avgOrderValue;
   const incentiveBudget = expectedOrders * params.incentivePerOrder;
   const channelCost = params.audience * params.channelCostPerRecipient;
+  const trackedCost = incentiveBudget + channelCost;
+  const retentionCostPerOrder = expectedOrders > 0 ? trackedCost / expectedOrders : 0;
+  const cpaDelta =
+    params.acquisitionCpa != null && expectedOrders > 0
+      ? params.acquisitionCpa - retentionCostPerOrder
+      : null;
+  const cpaEfficiency =
+    params.acquisitionCpa != null && retentionCostPerOrder > 0
+      ? params.acquisitionCpa / retentionCostPerOrder
+      : null;
   const grossContributionPerOrder = params.avgOrderValue * (params.contributionBeforeMarketingPct / 100);
   const netContributionPerOrder = grossContributionPerOrder - params.incentivePerOrder;
   const contribution = expectedOrders * netContributionPerOrder - channelCost;
@@ -249,6 +263,9 @@ function estimatePlaybook(params: {
     contribution,
     incentiveBudget,
     channelCost,
+    retentionCostPerOrder,
+    cpaDelta,
+    cpaEfficiency,
     conversionPct: params.conversionPct,
     grossContributionPerOrder,
     netContributionPerOrder,
@@ -727,6 +744,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: avgExpiringCashback,
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Cashback", href: "/crm/cashback", kind: "cashback" },
@@ -756,6 +774,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: avgActiveCashback,
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Cashback", href: "/crm/cashback", kind: "cashback" },
@@ -791,6 +810,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: Math.min(avgOrderValue * 0.1, conservativeIncentiveCap),
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Lista", href: "/crm/listas", kind: "list" },
@@ -827,6 +847,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: Math.min(avgOrderValue * 0.08, conservativeIncentiveCap),
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Email", href: "/crm/email-templates", kind: "email" },
@@ -862,6 +883,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: Math.min(avgOrderValue * 0.12, firstOrderContribution * 0.4),
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Lista", href: "/crm/listas", kind: "list" },
@@ -896,6 +918,7 @@ export async function GET(request: NextRequest) {
           contributionBeforeMarketingPct,
           incentivePerOrder: Math.min(avgOrderValue * 0.15, firstOrderContribution * 0.45),
           channelCostPerRecipient: waCostPerRecipient,
+          acquisitionCpa: savedAcquisition.cpa,
         }),
         actions: [
           { label: "Lista", href: "/crm/listas", kind: "list" },

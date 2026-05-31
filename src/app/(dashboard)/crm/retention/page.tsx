@@ -43,6 +43,9 @@ interface PlaybookEstimate {
   contribution: number;
   incentiveBudget: number;
   channelCost: number;
+  retentionCostPerOrder: number;
+  cpaDelta: number | null;
+  cpaEfficiency: number | null;
   conversionPct: number;
   grossContributionPerOrder: number;
   netContributionPerOrder: number;
@@ -1033,6 +1036,14 @@ function guardrailSummary(guardrail: IncentiveGuardrail) {
   return `${guardrail.discountMinPct}-${guardrail.discountMaxPct}% · ${guardrail.durationHours}h · ${NUMBER(guardrail.maxActiveProducts)} ativos`;
 }
 
+function cpaEfficiencyText(estimate: PlaybookEstimate) {
+  if (estimate.cpaDelta == null || estimate.cpaEfficiency == null) return "sem CPA salvo";
+  if (estimate.cpaDelta >= 0) {
+    return `${estimate.cpaEfficiency.toFixed(1)}x menor que CPA`;
+  }
+  return `${BRL(Math.abs(estimate.cpaDelta))} acima do CPA`;
+}
+
 function ReadinessItem({
   icon,
   title,
@@ -1329,11 +1340,11 @@ function StrategyBoard({
         />
         <StrategyPill
           icon={<Gauge className="h-3.5 w-3.5" />}
-          label="Break-even"
-          value={bestPlaybook ? PCT(bestPlaybook.estimate.breakEvenConversionPct) : "0.0%"}
+          label="Custo/recompra"
+          value={bestPlaybook ? BRL(bestPlaybook.estimate.retentionCostPerOrder) : BRL(0)}
           hint={
             bestPlaybook
-              ? `${bestPlaybook.name}: ${NUMBER(bestPlaybook.estimate.breakEvenOrders)} pedidos pagam canal + incentivo.`
+              ? `${bestPlaybook.name}: ${cpaEfficiencyText(bestPlaybook.estimate)}.`
               : "Sem fila acionavel."
           }
         />
@@ -1792,7 +1803,7 @@ export default function RetentionPlaybooksPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
                       <div>
                         <p className="text-xs text-muted-foreground">Publico</p>
                         <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
@@ -1806,8 +1817,18 @@ export default function RetentionPlaybooksPage() {
                         <p className="font-semibold">{BRL(playbook.estimate.revenue)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Conv.</p>
-                        <p className="font-semibold">{PCT(playbook.estimate.conversionPct)}</p>
+                        <p className="text-xs text-muted-foreground">Custo/pedido</p>
+                        <p className="font-semibold">{BRL(playbook.estimate.retentionCostPerOrder)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Economia CPA</p>
+                        <p className="font-semibold">
+                          {playbook.estimate.cpaDelta == null
+                            ? "sem CPA"
+                            : playbook.estimate.cpaDelta >= 0
+                              ? `+${BRL(playbook.estimate.cpaDelta)}`
+                              : `-${BRL(Math.abs(playbook.estimate.cpaDelta))}`}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Minimo</p>
