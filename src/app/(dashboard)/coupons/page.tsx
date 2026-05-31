@@ -349,7 +349,7 @@ export default function CouponsPage() {
     window.history.replaceState({}, "", url);
   }, [workspace?.id]);
 
-  async function savePlan() {
+  async function savePlan(options: { runAfterSave?: boolean } = {}) {
     if (!editing || !editing.name) return;
     setError(null);
     setSuccessMsg(null);
@@ -369,26 +369,38 @@ export default function CouponsPage() {
           : editing;
       const res = await fetch(path, { method, headers: headers(), body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.error) setError(data.error);
-      else {
-        if (playbookContextForSave && data.plan?.id) {
-          setCreatedPlaybookPlan({
-            planId: data.plan.id,
-            planName: data.plan.name || playbookContextForSave.name,
-            playbookId: playbookContextForSave.playbookId,
-            playbookName: playbookContextForSave.name,
-            runId: playbookContextForSave.runId,
-          });
-          setSuccessMsg("Plano criado e vinculado ao playbook. Agora rode o plano para gerar os cupons desse run.");
-        } else {
-          setSuccessMsg(editing.id ? "Plano atualizado." : "Plano criado.");
-        }
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+
+      if (playbookContextForSave && data.plan?.id) {
+        const createdPlan = {
+          planId: data.plan.id,
+          planName: data.plan.name || playbookContextForSave.name,
+          playbookId: playbookContextForSave.playbookId,
+          playbookName: playbookContextForSave.name,
+          runId: playbookContextForSave.runId,
+        };
         setEditing(null);
         setPlaybookContext(null);
-        await reload();
+        if (options.runAfterSave) {
+          setCreatedPlaybookPlan(null);
+          await runPlanNow(createdPlan.planId, createdPlan);
+          return;
+        }
+        setCreatedPlaybookPlan(createdPlan);
+        setSuccessMsg("Plano criado e vinculado ao playbook. Agora rode o plano para gerar os cupons desse run.");
+      } else {
+        setSuccessMsg(editing.id ? "Plano atualizado." : "Plano criado.");
+        setEditing(null);
+        setPlaybookContext(null);
       }
+      await reload();
     } catch (e) { setError(e instanceof Error ? e.message : "erro"); }
-    setBusy(null);
+    finally {
+      setBusy(null);
+    }
   }
 
   async function runPlanNow(id: string, context?: CreatedPlaybookPlan) {
@@ -1195,7 +1207,13 @@ export default function CouponsPage() {
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <Button variant="outline" onClick={() => { setEditing(null); setPlaybookContext(null); }}>Cancelar</Button>
-                <Button onClick={savePlan} disabled={busy === "save"}>
+                {playbookContext && !editing.id && (
+                  <Button variant="secondary" onClick={() => savePlan({ runAfterSave: true })} disabled={busy === "save"}>
+                    {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+                    Salvar e rodar agora
+                  </Button>
+                )}
+                <Button onClick={() => savePlan()} disabled={busy === "save"}>
                   {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Salvar
                 </Button>
               </div>
