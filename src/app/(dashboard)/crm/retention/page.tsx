@@ -568,15 +568,29 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
   const coupons = run.channels?.coupons;
+  const cashback = run.channels?.cashback;
   const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
   const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
+  const emailSent = (email?.dispatchCount ?? 0) > 0;
   const couponRequirement = runCouponRequirement(run);
   const needsCoupon = couponRequirement === "required";
   const couponPlanReady = (coupons?.planCount ?? 0) > 0;
   const couponGenerated = (coupons?.couponCount ?? 0) > 0;
   const pendingCoupons = couponStatusCount(coupons, "pending");
   const couponReady = couponGenerated;
+  const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
+  const outboundReady = whatsappReady || emailSent;
+  const measurementReady = hasHoldout && (outboundReady || couponReady || hasCashbackUsage);
+  const progressSteps = [
+    { label: "holdout", done: hasHoldout },
+    ...(needsCoupon ? [{ label: "cupom", done: couponReady }] : []),
+    { label: "canal", done: outboundReady },
+    { label: "medicao", done: measurementReady },
+  ];
+  const doneSteps = progressSteps.filter((step) => step.done).length;
+  const missingSteps = progressSteps.filter((step) => !step.done).map((step) => step.label);
+  const progressPct = Math.round((doneSteps / Math.max(1, progressSteps.length)) * 100);
   const couponActionLabel = couponGenerated
     ? pendingCoupons > 0
       ? "Aprovar"
@@ -598,8 +612,8 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={whatsappReady && hasHoldout ? "secondary" : "outline"}>
-            {whatsappReady && hasHoldout ? "medindo" : "preparando"}
+          <Badge variant={measurementReady ? "secondary" : "outline"}>
+            {measurementReady ? "medindo" : `${doneSteps}/${progressSteps.length} pronto`}
           </Badge>
           <Button asChild size="sm">
             <Link href={nextAction.href}>
@@ -610,7 +624,15 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           </Button>
         </div>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">Proximo clique: {nextAction.hint}</p>
+      <div className="mt-2 space-y-1.5">
+        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPct}%` }} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Proximo clique: {nextAction.hint}
+          {missingSteps.length > 0 ? ` Falta: ${missingSteps.join(", ")}.` : ""}
+        </p>
+      </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-5">
         <ExecutionStep
@@ -644,8 +666,8 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
               ? `Lista Locaweb pronta`
               : `${NUMBER(email?.emailContacts ?? run.treatmentList.emailCount)} contatos com email`
           }
-          href={emailReady ? run.links.lists : run.links.email}
-          actionLabel={emailReady ? "Abrir" : "Promover"}
+          href={emailReady ? emailTemplatesHref(run) : run.links.email}
+          actionLabel={emailReady ? (emailSent ? "Ver" : "Criar") : "Promover"}
         />
         <ExecutionStep
           icon={<Tag className="h-3.5 w-3.5" />}
@@ -668,10 +690,12 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
         <ExecutionStep
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}
           label="Medicao"
-          state={hasHoldout ? "ready" : "todo"}
+          state={measurementReady ? "ready" : hasHoldout ? "optional" : "todo"}
           hint={
-            hasHoldout
-              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo`
+            measurementReady
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} com canal/custo vinculado`
+              : hasHoldout
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo; falta canal vinculado`
               : "Sem grupo de controle"
           }
         />
