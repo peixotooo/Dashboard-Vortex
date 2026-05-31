@@ -1081,10 +1081,10 @@ export default function WhatsAppPage() {
 
   // --- Extract variables from selected template ---
 
-  function getTemplateVars(): string[] {
-    if (!selectedTemplate) return [];
+  function getTemplateVarsFrom(template: WaTemplate | null): string[] {
+    if (!template) return [];
     const vars: string[] = [];
-    for (const comp of selectedTemplate.components) {
+    for (const comp of template.components) {
       if (comp.text) {
         const matches = comp.text.match(/\{\{(\d+)\}\}/g);
         if (matches) {
@@ -1097,18 +1097,113 @@ export default function WhatsAppPage() {
     return vars.sort();
   }
 
+  function getTemplateVars(): string[] {
+    return getTemplateVarsFrom(selectedTemplate);
+  }
+
   function getTemplateBodyPreview(): string {
     if (!selectedTemplate) return "";
     const body = selectedTemplate.components.find((c) => c.type === "BODY");
     let text = body?.text || "";
     for (const [key, val] of Object.entries(variableValues)) {
-      text = text.replace(key, val || key);
+      text = text.split(key).join(previewVariableValue(val || key));
     }
     return text;
   }
 
   function getTemplateBodyText(template: WaTemplate): string {
     return template.components.find((c) => c.type === "BODY")?.text || "";
+  }
+
+  function previewVariableValue(value: string): string {
+    const match = value.match(/^\{\{([a-zA-Z0-9_]+)\}\}$/);
+    if (!match) return value;
+    const samples: Record<string, string> = {
+      nome: "Guilherme",
+      saldo_cashback: "35,90",
+      expira_em: "2026-06-03",
+      dias_para_expirar: "3",
+      total_compras: "2",
+      valor_total: "640,00",
+      ticket_medio: "320,00",
+      dias_ultima_compra: "45",
+      ultima_compra: "2026-04-16",
+    };
+    return samples[match[1]] || value;
+  }
+
+  function templateVariableContext(templateBody: string, variable: string): string {
+    const index = templateBody.indexOf(variable);
+    if (index < 0) return "";
+    return templateBody.slice(Math.max(0, index - 48), index + variable.length + 48).toLowerCase();
+  }
+
+  function buildRetentionVariableDefaults(
+    context: RetentionWaContext | null,
+    template: WaTemplate,
+    vars: string[]
+  ): Record<string, string> {
+    if (!context || vars.length === 0) return {};
+    const body = getTemplateBodyText(template);
+    const isCashbackPlaybook =
+      context.playbookId === "cashback-expiring-14d" ||
+      context.playbookId === "active-cashback-balance";
+
+    const defaults: Record<string, string> = {};
+    for (const variable of vars) {
+      const position = Number(variable.replace(/\D/g, ""));
+      const around = templateVariableContext(body, variable);
+
+      if (position === 1 || /nome|cliente|oi|ola|olá/.test(around)) {
+        defaults[variable] = "{{nome}}";
+        continue;
+      }
+
+      if (isCashbackPlaybook && /saldo|cashback|r\$|valor/.test(around)) {
+        defaults[variable] = "{{saldo_cashback}}";
+        continue;
+      }
+
+      if (isCashbackPlaybook && /dia|expir|vence|valid/.test(around)) {
+        defaults[variable] = around.includes("dia") ? "{{dias_para_expirar}}" : "{{expira_em}}";
+        continue;
+      }
+
+      if (/ultima|última/.test(around)) {
+        defaults[variable] = "{{ultima_compra}}";
+        continue;
+      }
+
+      if (/dia/.test(around)) {
+        defaults[variable] = "{{dias_ultima_compra}}";
+        continue;
+      }
+
+      if (/ticket/.test(around)) {
+        defaults[variable] = "{{ticket_medio}}";
+        continue;
+      }
+
+      if (/compra/.test(around)) {
+        defaults[variable] = "{{total_compras}}";
+      }
+    }
+
+    return defaults;
+  }
+
+  function selectTemplateForCampaign(template: WaTemplate) {
+    const vars = getTemplateVarsFrom(template);
+    setSelectedTemplate(template);
+    setVariableValues(buildRetentionVariableDefaults(retentionContext, template, vars));
+  }
+
+  function hasMissingTemplateVars(): boolean {
+    return getTemplateVars().some((variable) => !String(variableValues[variable] || "").trim());
+  }
+
+  function nextCreateStep(): 2 | 3 {
+    return getTemplateVars().length > 0 && hasMissingTemplateVars() ? 2 : 3;
   }
 
   function getSuggestedTemplates(): WaTemplate[] {
@@ -1132,6 +1227,15 @@ export default function WhatsAppPage() {
       .slice(0, 3)
       .map((item) => item.template);
   }
+
+  useEffect(() => {
+    if (!retentionContext || selectedTemplate || templates.length === 0) return;
+    const suggested = getSuggestedTemplates();
+    if (suggested.length === 1) {
+      selectTemplateForCampaign(suggested[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retentionContext, selectedTemplate, templates]);
 
   async function handleGenerateCopy() {
     const vars = getTemplateVars();
@@ -1607,8 +1711,7 @@ export default function WhatsAppPage() {
                               key={template.id}
                               type="button"
                               onClick={() => {
-                                setSelectedTemplate(template);
-                                setVariableValues({});
+                                selectTemplateForCampaign(template);
                               }}
                               className={`rounded-md border p-2 text-left transition-colors ${
                                 selectedTemplate?.id === template.id
@@ -1658,8 +1761,11 @@ export default function WhatsAppPage() {
                         value={selectedTemplate?.id || ""}
                         onValueChange={(id) => {
                           const t = templates.find((t) => t.id === id);
-                          setSelectedTemplate(t || null);
-                          setVariableValues({});
+                          if (t) selectTemplateForCampaign(t);
+                          else {
+                            setSelectedTemplate(null);
+                            setVariableValues({});
+                          }
                         }}
                       >
                         <SelectTrigger>
@@ -1693,7 +1799,7 @@ export default function WhatsAppPage() {
                         !selectedTemplate ||
                         (audienceMode === "segment" ? !selectedSegment : !selectedListId)
                       }
-                      onClick={() => setCreateStep(getTemplateVars().length > 0 ? 2 : 3)}
+                      onClick={() => setCreateStep(nextCreateStep())}
                     >
                       Proximo
                     </Button>
@@ -1974,7 +2080,7 @@ export default function WhatsAppPage() {
                     <div className="flex gap-2">
                       <Button
                         variant="outline"
-                        onClick={() => setCreateStep(getTemplateVars().length > 0 ? 2 : 1)}
+                        onClick={() => setCreateStep(nextCreateStep() === 3 ? 1 : 2)}
                       >
                         Voltar
                       </Button>
