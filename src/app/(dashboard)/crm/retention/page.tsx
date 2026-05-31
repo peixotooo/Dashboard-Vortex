@@ -1487,7 +1487,7 @@ function AutopilotPanel({
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Cria tratamento e holdout, escolhe template utilidade aprovado, preenche variaveis seguras,
-              aplica cooldown e agenda no melhor horario disponivel.
+              aplica cooldown e agenda no melhor publico/horario disponivel.
             </p>
           </div>
           <Button
@@ -1519,7 +1519,7 @@ function AutopilotPanel({
             <p className="text-xs text-muted-foreground">Mensagem</p>
             <p className="mt-1 text-sm font-semibold">{result?.templateName || "Template utility"}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Sem cupom novo em cashback; bloqueia se variavel ficar sem sentido.
+              Mensagem operacional; bloqueia se variavel ficar sem sentido.
             </p>
           </div>
           <div className="rounded-md bg-background p-3">
@@ -1975,13 +1975,7 @@ export default function RetentionPlaybooksPage() {
   const topPlaybook = useMemo(() => data?.playbooks?.[0] ?? null, [data]);
   const autopilotPlaybook = useMemo(() => {
     if (!data) return null;
-    return (
-      data.playbooks.find(
-        (playbook) =>
-          ["cashback-expiring-14d", "active-cashback-balance"].includes(playbook.id) &&
-          playbook.audience.customers > 0
-      ) || null
-    );
+    return data.playbooks.find((playbook) => playbook.audience.customers > 0) || null;
   }, [data]);
   const nextRunAction = useMemo(() => {
     for (const run of runs) {

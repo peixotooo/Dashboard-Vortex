@@ -1201,6 +1201,17 @@ function templateScore(template: WaTemplateRow, terms: string[]) {
   return terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
 }
 
+function isGenericUtilityTemplate(template: WaTemplateRow) {
+  const body = getTemplateBodyText(template.components || []).toLowerCase();
+  const vars = extractTemplateVariables(template.components || []);
+  return (
+    vars.includes("{{1}}") &&
+    vars.includes("{{2}}") &&
+    /ol[aá]|tudo bem|qualquer coisa|responder/.test(body) &&
+    !/codigo|c[oó]digo|senha|token|otp/.test(body)
+  );
+}
+
 async function pickApprovedUtilityTemplate(
   admin: AdminClient,
   workspaceId: string,
@@ -1226,11 +1237,28 @@ async function pickApprovedUtilityTemplate(
   );
   if (templates.length === 0) return null;
 
-  return templates
+  const scored = templates
     .map((template) => ({ template, score: templateScore(template, terms) }))
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))[0]
-    ?.template || null;
+    .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))
+    .map((item) => item.template);
+
+  const candidates = [
+    ...scored,
+    ...templates.filter(isGenericUtilityTemplate).sort((a, b) => a.name.localeCompare(b.name)),
+  ];
+  const seen = new Set<string>();
+
+  for (const template of candidates) {
+    if (seen.has(template.id)) continue;
+    seen.add(template.id);
+    const vars = extractTemplateVariables(template.components || []);
+    const defaults = buildAutopilotVariableDefaults(playbookId, template, vars);
+    const hasAllVars = vars.every((variable) => defaults[variable]);
+    if (hasAllVars) return template;
+  }
+
+  return null;
 }
 
 function templateVariableContext(templateBody: string, variable: string): string {
@@ -1244,6 +1272,15 @@ function buildAutopilotVariableDefaults(
   template: WaTemplateRow,
   vars: string[]
 ): Record<string, string> {
+  if (isGenericUtilityTemplate(template)) {
+    const genericDefaults: Record<string, string> = {};
+    for (const variable of vars) {
+      if (variable === "{{1}}") genericDefaults[variable] = "{{nome}}";
+      if (variable === "{{2}}") genericDefaults[variable] = playbookRuntimeMessage(playbookId);
+    }
+    return genericDefaults;
+  }
+
   const body = getTemplateBodyText(template.components || []);
   const isCashbackPlaybook =
     playbookId === "cashback-expiring-14d" ||
@@ -1292,11 +1329,40 @@ function buildAutopilotVariableDefaults(
   return defaults;
 }
 
+function playbookRuntimeMessage(playbookId: string) {
+  if (playbookId === "cashback-expiring-14d") {
+    return "Voce tem R$ {{saldo_cashback}} de cashback disponivel e ele vence em {{dias_para_expirar}} dias. Use antes de expirar; o saldo ja esta na sua conta.";
+  }
+  if (playbookId === "active-cashback-balance") {
+    return "Voce tem R$ {{saldo_cashback}} de cashback disponivel para usar na proxima compra. O saldo ja esta ativo na sua conta.";
+  }
+  if (playbookId === "second-purchase-31-60d") {
+    return "Faz {{dias_ultima_compra}} dias desde sua ultima compra. Separei uma selecao para facilitar sua proxima recompra, sem precisar de cupom novo.";
+  }
+  if (playbookId === "one-time-61-90d-save") {
+    return "Faz {{dias_ultima_compra}} dias desde sua compra. Se quiser voltar, sua conta ja esta pronta para uma nova compra com as novidades da Bulking.";
+  }
+  if (playbookId === "repeat-61-180d") {
+    return "Sua ultima compra foi em {{ultima_compra}}. Temos novidades e reposicoes que combinam com quem ja compra com a Bulking.";
+  }
+  if (playbookId === "high-ltv-dormant") {
+    return "Sentimos sua falta por aqui. Sua conta segue ativa e separei uma selecao para voce voltar quando fizer sentido.";
+  }
+  return "Sua conta segue ativa na Bulking. Separei uma comunicacao rapida para te ajudar na proxima compra.";
+}
+
 function resolveTemplateValue(value: string, contact: Contact): string {
-  if (value === "{{nome}}") return contact.name || "cliente";
-  const match = value.match(/^\{\{([a-zA-Z0-9_]+)\}\}$/);
-  if (!match) return value;
-  return contact.variables?.[match[1]] || "";
+  let missingRequiredToken = false;
+  const resolveToken = (token: string) => {
+    if (token === "nome") return contact.name || "cliente";
+    const resolved = contact.variables?.[token] || "";
+    if (!String(resolved).trim()) missingRequiredToken = true;
+    return resolved;
+  };
+  const resolvedValue = value.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_match, token: string) =>
+    resolveToken(token)
+  );
+  return missingRequiredToken ? "" : resolvedValue;
 }
 
 async function inferBestSendHour(admin: AdminClient, workspaceId: string) {
@@ -1365,15 +1431,6 @@ async function autoScheduleWhatsappRun(params: {
   holdoutList: Omit<ContactListRow, "contacts"> | null;
   attributionWindowDays: number;
 }) {
-  const allowedAutopilotPlaybooks = new Set(["cashback-expiring-14d", "active-cashback-balance"]);
-  if (!allowedAutopilotPlaybooks.has(params.playbookId)) {
-    return {
-      status: "needs_review" as const,
-      reason:
-        "Este playbook pode exigir cupom/oferta e ainda fica em modo assistido para proteger margem e mensagem.",
-    };
-  }
-
   const template = await pickApprovedUtilityTemplate(
     params.admin,
     params.workspaceId,
@@ -1544,21 +1601,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (autoSchedule) {
-      if (!["cashback-expiring-14d", "active-cashback-balance"].includes(playbookId)) {
-        return NextResponse.json(
-          {
-            error:
-              "Piloto automatico completo esta liberado apenas para cashback/saldo. Playbooks com cupom ficam em modo assistido.",
-          },
-          { status: 400 }
-        );
-      }
       const template = await pickApprovedUtilityTemplate(auth!.admin, auth!.workspaceId, playbookId);
       if (!template) {
         return NextResponse.json(
           {
             error:
-              "Nao encontrei template WhatsApp aprovado em UTILITY compativel com cashback. Sincronize/crie um template utility antes de ligar o piloto automatico.",
+              "Nao encontrei template WhatsApp aprovado em UTILITY compativel ou generico. Sincronize/crie um template utility antes de ligar o piloto automatico.",
           },
           { status: 400 }
         );
