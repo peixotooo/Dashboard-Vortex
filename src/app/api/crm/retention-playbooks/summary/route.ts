@@ -137,6 +137,8 @@ interface RetentionPlaybook {
   channels: string[];
   marginRule: string;
   measurement: string;
+  holdoutPct: number;
+  attributionWindowDays: number;
   why: string;
   incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
@@ -733,6 +735,8 @@ export async function GET(request: NextRequest) {
         channels: ["WhatsApp", "Email", "Cashback"],
         marginRule: `Nao adicionar cupom enquanto houver saldo ativo. Teto medio ja emitido: R$ ${avgExpiringCashback.toFixed(2)}.`,
         measurement: "Holdout 10%, janela 7 dias, margem incremental por cliente acionado.",
+        holdoutPct: 10,
+        attributionWindowDays: 7,
         why: "Transforma passivo de cashback em recompra antes de expirar, com custo de midia baixo.",
         incentiveGuardrail: noNewCouponGuardrail(
           "Cliente ja tem incentivo emitido. Criar cupom novo duplicaria custo e sujaria a leitura de margem."
@@ -763,6 +767,8 @@ export async function GET(request: NextRequest) {
         channels: ["Cashback", "WhatsApp"],
         marginRule: `Priorizar itens de margem saudavel. Evitar cupom extra acima de ${pct(financialSettings.safetyMarginPct)}.`,
         measurement: "Comparar uso de saldo vs grupo nao acionado por 14 dias.",
+        holdoutPct: 10,
+        attributionWindowDays: 14,
         why: "A base ja tem motivo para voltar; o trabalho e reduzir esquecimento e friccao.",
         incentiveGuardrail: noNewCouponGuardrail(
           "Saldo ativo deve ser o incentivo principal. Use WhatsApp/email para lembrar, nao para empilhar desconto."
@@ -792,6 +798,8 @@ export async function GET(request: NextRequest) {
         channels: ["WhatsApp", "Email", "Cupom VNDA"],
         marginRule: `Incentivo maximo sugerido: ${pct(Math.min(10, (conservativeIncentiveCap / Math.max(avgOrderValue, 1)) * 100))} do pedido medio.`,
         measurement: "Holdout 10%, janela 14 dias, segunda compra incremental.",
+        holdoutPct: 10,
+        attributionWindowDays: 14,
         why: "Grandes ecommerces tratam a segunda compra como o principal evento de retencao.",
         incentiveGuardrail: couponGuardrail({
           mode: "coupon_allowed",
@@ -829,6 +837,8 @@ export async function GET(request: NextRequest) {
         channels: ["Email", "WhatsApp"],
         marginRule: `Comecar sem desconto; se usar cupom, manter abaixo de R$ ${Math.min(avgOrderValue * 0.12, conservativeIncentiveCap).toFixed(2)}.`,
         measurement: "Medir recompra em 21 dias e comparar desconto vs sem desconto.",
+        holdoutPct: 10,
+        attributionWindowDays: 21,
         why: "Evita que clientes de uma compra virem base perdida antes de ficarem caros de reativar.",
         incentiveGuardrail: couponGuardrail({
           mode: "no_discount_first",
@@ -865,6 +875,8 @@ export async function GET(request: NextRequest) {
         channels: ["WhatsApp", "Email", "Cupom VNDA"],
         marginRule: `Liberar incentivo apenas se margem esperada ficar acima de ${pct(contributionAfterMarketingPct)} pos-midia.`,
         measurement: "Incremental lift por ticket e frequencia, nao so receita atribuida.",
+        holdoutPct: 10,
+        attributionWindowDays: 21,
         why: "Clientes recorrentes respondem melhor a novidade, exclusividade e reposicao do que desconto aberto.",
         incentiveGuardrail: couponGuardrail({
           label: "Cupom seletivo",
@@ -901,6 +913,8 @@ export async function GET(request: NextRequest) {
         channels: ["WhatsApp", "Email", "Cupom VNDA"],
         marginRule: `So entrar com cupom alto se LTV historico >= R$ ${highLtvThreshold.toFixed(0)}.`,
         measurement: "Janela 21 dias, holdout 15%, margem por reativado.",
+        holdoutPct: 15,
+        attributionWindowDays: 21,
         why: "Reativacao de massa costuma queimar margem; o recorte por LTV preserva contribuicao.",
         incentiveGuardrail: couponGuardrail({
           label: "Winback limitado",

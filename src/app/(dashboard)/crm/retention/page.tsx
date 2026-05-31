@@ -82,6 +82,8 @@ interface RetentionPlaybook {
   channels: string[];
   marginRule: string;
   measurement: string;
+  holdoutPct: number;
+  attributionWindowDays: number;
   why: string;
   incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
@@ -948,6 +950,10 @@ function daysFrom(value: string) {
   return Math.max(0, Math.floor((Date.now() - date.getTime()) / MS_PER_DAY));
 }
 
+function playbookAttributionWindowDays(playbook: RetentionPlaybook | undefined, fallback: number) {
+  return Math.max(1, playbook?.attributionWindowDays ?? fallback);
+}
+
 function getRunDecision(run: RunReport, attributionWindowDays: number): RunDecision {
   const state = getRunExecutionState(run);
   const nextAction = getRunNextAction(run);
@@ -1651,9 +1657,12 @@ export default function RetentionPlaybooksPage() {
   const nextScaleAction = useMemo(() => {
     if (!data) return null;
     for (const run of runs) {
-      const decision = getRunDecision(run, data.measurement.attributionWindowDays);
-      if (decision.tone !== "scale") continue;
       const playbook = data.playbooks.find((candidate) => candidate.id === run.playbookId);
+      const decision = getRunDecision(
+        run,
+        playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays)
+      );
+      if (decision.tone !== "scale") continue;
       if (playbook && playbook.audience.customers > 0) return { run, decision, playbook };
     }
     return null;
@@ -1679,7 +1688,7 @@ export default function RetentionPlaybooksPage() {
         },
         body: JSON.stringify({
           playbookId: playbook.id,
-          holdoutPct: data?.measurement.holdoutPctDefault ?? 10,
+          holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
           ...(source?.runId
             ? {
                 sourceRunId: source.runId,
@@ -1884,10 +1893,11 @@ export default function RetentionPlaybooksPage() {
             <div className="rounded-md border bg-card p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mensuracao</p>
               <p className="mt-2 text-lg font-semibold">
-                Holdout {data.measurement.holdoutPctDefault}% · {data.measurement.attributionWindowDays}d
+                Holdout {topPlaybook?.holdoutPct ?? data.measurement.holdoutPctDefault}% ·{" "}
+                {topPlaybook?.attributionWindowDays ?? data.measurement.attributionWindowDays}d
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                KPI primario: {data.measurement.primaryMetric}.
+                KPI primario: {data.measurement.primaryMetric}. A janela varia por playbook.
               </p>
             </div>
           </div>
@@ -2048,8 +2058,12 @@ export default function RetentionPlaybooksPage() {
                   const hasEmailDispatch = (email?.dispatchCount ?? 0) > 0;
                   const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
                   const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
-                  const decision = getRunDecision(run, data.measurement.attributionWindowDays);
                   const scalePlaybook = data.playbooks.find((playbook) => playbook.id === run.playbookId);
+                  const attributionWindowDays = playbookAttributionWindowDays(
+                    scalePlaybook,
+                    data.measurement.attributionWindowDays
+                  );
+                  const decision = getRunDecision(run, attributionWindowDays);
 
                   return (
                     <Card key={run.id}>
@@ -2068,7 +2082,7 @@ export default function RetentionPlaybooksPage() {
                     <CardContent className="space-y-4">
                       <RunExecutionChecklist
                         run={run}
-                        attributionWindowDays={data.measurement.attributionWindowDays}
+                        attributionWindowDays={attributionWindowDays}
                       />
                       <RunDecisionPanel
                         run={run}
