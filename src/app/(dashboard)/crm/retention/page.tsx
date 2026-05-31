@@ -118,6 +118,19 @@ interface SummaryResponse {
     avgOrderValue: number;
     firstOrderContribution: number;
     plannedMarketingPerOrder: number;
+    guardrails: {
+      variableContributionPerOrder: number;
+      plannedMarketingPerOrder: number;
+      fixedCostPctOfTarget: number;
+      acquisitionBreakevenPct: number;
+      acquisitionHealthyPct: number;
+      maxCacBreakeven: number;
+      maxCacHealthy: number;
+      breakevenRoas: number | null;
+      healthyRoas: number | null;
+      currentCpaStatus: "scale" | "watch" | "pause" | "no_data";
+      scaleRule: string;
+    };
     targetMonthlyRevenue: number;
     revenueGap30: number;
     orderGap30: number;
@@ -1223,6 +1236,13 @@ function cpaEfficiencyText(estimate: PlaybookEstimate) {
   return `${BRL(Math.abs(estimate.cpaDelta))} acima do CPA`;
 }
 
+function cpaStatusLabel(status: SummaryResponse["financial"]["guardrails"]["currentCpaStatus"]) {
+  if (status === "scale") return "escalar";
+  if (status === "watch") return "monitorar";
+  if (status === "pause") return "pausar";
+  return "sem dado";
+}
+
 function ReadinessItem({
   icon,
   title,
@@ -1428,11 +1448,12 @@ function StrategyBoard({
   const totalEstimatedContribution = positiveSum(
     data.playbooks.map((playbook) => playbook.estimate.contribution)
   );
+  const guardrails = data.financial.guardrails;
   const gapCoverage =
     data.financial.revenueGap30 > 0 ? totalEstimatedRevenue / data.financial.revenueGap30 : 0;
   const cpaShare =
-    data.acquisition.cpa != null && data.financial.firstOrderContribution > 0
-      ? data.acquisition.cpa / data.financial.firstOrderContribution
+    data.acquisition.cpa != null && guardrails.maxCacHealthy > 0
+      ? data.acquisition.cpa / guardrails.maxCacHealthy
       : null;
   const cashbackUseShare =
     data.cashback.activeValue + data.cashback.used30Value > 0
@@ -1514,11 +1535,21 @@ function StrategyBoard({
           hint={
             cpaShare == null
               ? "Salve campanhas para comparar aquisicao vs recompra."
-              : `${RATE(cpaShare)} da contribuicao bruta por pedido.`
+              : `${RATE(cpaShare)} do CAC saudavel. Status: ${cpaStatusLabel(guardrails.currentCpaStatus)}.`
           }
         />
         <StrategyPill
           icon={<Gauge className="h-3.5 w-3.5" />}
+          label="CAC saudavel"
+          value={BRL(guardrails.maxCacHealthy)}
+          hint={
+            guardrails.healthyRoas == null
+              ? "Revise custos antes de escalar midia."
+              : `Break-even ${BRL(guardrails.maxCacBreakeven)} · ROAS saudavel ${guardrails.healthyRoas.toFixed(2)}.`
+          }
+        />
+        <StrategyPill
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
           label="Custo/recompra"
           value={bestPlaybook ? BRL(bestPlaybook.estimate.retentionCostPerOrder) : BRL(0)}
           hint={
@@ -1526,12 +1557,6 @@ function StrategyBoard({
               ? `${bestPlaybook.name}: ${cpaEfficiencyText(bestPlaybook.estimate)}.`
               : "Sem fila acionavel."
           }
-        />
-        <StrategyPill
-          icon={<ShieldCheck className="h-3.5 w-3.5" />}
-          label="Teto por pedido"
-          value={BRL(data.financial.firstOrderContribution)}
-          hint={`${PCT(data.financial.contributionBeforeMarketingPct)} antes de midia; ${BRL(data.financial.plannedMarketingPerOrder)} ja iria para ads.`}
         />
         <StrategyPill
           icon={<Coins className="h-3.5 w-3.5" />}
@@ -1556,7 +1581,34 @@ function StrategyBoard({
                 Ordem pratica para gerar volume sem treinar a base a esperar desconto.
               </p>
             </div>
-            <Badge variant="secondary">{NUMBER(data.playbooks.length)} playbooks</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={guardrails.currentCpaStatus === "scale" ? "default" : "outline"}>
+                midia: {cpaStatusLabel(guardrails.currentCpaStatus)}
+              </Badge>
+              <Badge variant="secondary">{NUMBER(data.playbooks.length)} playbooks</Badge>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded-md bg-muted/35 p-3">
+              <p className="text-xs text-muted-foreground">Regra de escala</p>
+              <p className="mt-1 text-sm font-medium">{guardrails.scaleRule}</p>
+            </div>
+            <div className="rounded-md bg-muted/35 p-3">
+              <p className="text-xs text-muted-foreground">ROAS minimo</p>
+              <p className="mt-1 text-sm font-semibold">
+                {guardrails.breakevenRoas == null ? "sem dado" : guardrails.breakevenRoas.toFixed(2)}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Saudavel: {guardrails.healthyRoas == null ? "sem dado" : guardrails.healthyRoas.toFixed(2)}
+              </p>
+            </div>
+            <div className="rounded-md bg-muted/35 p-3">
+              <p className="text-xs text-muted-foreground">Sobra para aquisicao</p>
+              <p className="mt-1 text-sm font-semibold">{PCT(guardrails.acquisitionHealthyPct)}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Fixo sobre meta: {PCT(guardrails.fixedCostPctOfTarget)}
+              </p>
+            </div>
           </div>
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
             {lanes.map((lane) => {
@@ -1902,7 +1954,7 @@ export default function RetentionPlaybooksPage() {
               icon={<WalletCards className="h-4 w-4" />}
               label="CPA salvo"
               value={data.acquisition.cpa == null ? "Sem dado" : BRL(data.acquisition.cpa)}
-              hint={`${NUMBER(data.acquisition.purchases)} compras em campanhas salvas`}
+              hint={`${NUMBER(data.acquisition.purchases)} compras · ${cpaStatusLabel(data.financial.guardrails.currentCpaStatus)}`}
             />
             <MetricCard
               icon={<Coins className="h-4 w-4" />}
@@ -1931,10 +1983,10 @@ export default function RetentionPlaybooksPage() {
               </p>
             </div>
             <div className="rounded-md border bg-card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Teto de CAC</p>
-              <p className="mt-2 text-lg font-semibold">{BRL(data.financial.firstOrderContribution)}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">CAC saudavel</p>
+              <p className="mt-2 text-lg font-semibold">{BRL(data.financial.guardrails.maxCacHealthy)}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Contribuicao media antes de midia por pedido de {BRL(data.financial.avgOrderValue)}.
+                Break-even em {BRL(data.financial.guardrails.maxCacBreakeven)} para ticket de {BRL(data.financial.avgOrderValue)}.
               </p>
             </div>
             <div className="rounded-md border bg-card p-4">

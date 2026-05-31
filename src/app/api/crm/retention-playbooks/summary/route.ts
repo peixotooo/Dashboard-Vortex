@@ -689,6 +689,26 @@ export async function GET(request: NextRequest) {
 
     const waCostPerRecipient = 0.0625 * 5.5;
     const firstOrderContribution = avgOrderValue * (contributionBeforeMarketingPct / 100);
+    const targetRevenueBase = financialSettings.annualRevenueTarget / 12;
+    const fixedCostPctOfTarget =
+      targetRevenueBase > 0 ? (financialSettings.monthlyFixedCosts / targetRevenueBase) * 100 : 0;
+    const acquisitionBreakevenPct = Math.max(0, contributionBeforeMarketingPct - fixedCostPctOfTarget);
+    const acquisitionHealthyPct = Math.max(
+      0,
+      acquisitionBreakevenPct - financialSettings.safetyMarginPct
+    );
+    const maxCacBreakeven = avgOrderValue * (acquisitionBreakevenPct / 100);
+    const maxCacHealthy = avgOrderValue * (acquisitionHealthyPct / 100);
+    const breakevenRoas = acquisitionBreakevenPct > 0 ? 100 / acquisitionBreakevenPct : null;
+    const healthyRoas = acquisitionHealthyPct > 0 ? 100 / acquisitionHealthyPct : null;
+    const currentCpaStatus =
+      savedAcquisition.cpa == null
+        ? "no_data"
+        : savedAcquisition.cpa <= maxCacHealthy
+          ? "scale"
+          : savedAcquisition.cpa <= maxCacBreakeven
+            ? "watch"
+            : "pause";
     const conservativeIncentiveCap = Math.max(0, firstOrderContribution * 0.35);
     const targetMonthlyRevenue =
       contributionAfterMarketingPct > 0
@@ -962,6 +982,20 @@ export async function GET(request: NextRequest) {
           avgOrderValue,
           firstOrderContribution,
           plannedMarketingPerOrder: avgOrderValue * (financialSettings.investPct / 100),
+          guardrails: {
+            variableContributionPerOrder: firstOrderContribution,
+            plannedMarketingPerOrder: avgOrderValue * (financialSettings.investPct / 100),
+            fixedCostPctOfTarget,
+            acquisitionBreakevenPct,
+            acquisitionHealthyPct,
+            maxCacBreakeven,
+            maxCacHealthy,
+            breakevenRoas,
+            healthyRoas,
+            currentCpaStatus,
+            scaleRule:
+              "Escalar aquisicao quando CAC estiver abaixo do saudavel e ROAS acima do saudavel; usar retencao quando recompra custar menos que o CAC.",
+          },
           targetMonthlyRevenue,
           revenueGap30,
           orderGap30,
