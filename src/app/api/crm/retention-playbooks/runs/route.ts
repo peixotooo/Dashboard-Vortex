@@ -1196,9 +1196,20 @@ function formatPhoneForWa(phone: string | undefined): string {
 }
 
 function templateScore(template: WaTemplateRow, terms: string[]) {
-  const haystack = `${template.name} ${template.category || ""} ${getTemplateBodyText(template.components || [])}`
-    .toLowerCase();
+  const haystack = templateHaystack(template);
   return terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function templateHaystack(template: WaTemplateRow) {
+  return `${template.name} ${template.category || ""} ${getTemplateBodyText(template.components || [])}`
+    .toLowerCase();
+}
+
+function isReservedAutomationTemplate(template: WaTemplateRow) {
+  const haystack = templateHaystack(template);
+  return /cart|carrinho|abandonad|checkout|gift|presente|codigo|c[oó]digo|senha|token|otp|autentic/.test(
+    haystack
+  );
 }
 
 function isGenericUtilityTemplate(template: WaTemplateRow) {
@@ -1209,6 +1220,15 @@ function isGenericUtilityTemplate(template: WaTemplateRow) {
     vars.includes("{{2}}") &&
     /ol[aá]|tudo bem|qualquer coisa|responder/.test(body) &&
     !/codigo|c[oó]digo|senha|token|otp/.test(body)
+  );
+}
+
+function isGenericRetentionUtilityTemplate(template: WaTemplateRow) {
+  const haystack = templateHaystack(template);
+  return (
+    isGenericUtilityTemplate(template) &&
+    !isReservedAutomationTemplate(template) &&
+    /retenc|recompra|winback|dormant|dormante|cashback|saldo|cliente|vip/.test(haystack)
   );
 }
 
@@ -1232,8 +1252,8 @@ async function pickApprovedUtilityTemplate(
     .eq("category", "UTILITY");
 
   if (error) throw error;
-  const templates = ((data || []) as WaTemplateRow[]).filter((template) =>
-    Array.isArray(template.components)
+  const templates = ((data || []) as WaTemplateRow[]).filter(
+    (template) => Array.isArray(template.components) && !isReservedAutomationTemplate(template)
   );
   if (templates.length === 0) return null;
 
@@ -1245,7 +1265,7 @@ async function pickApprovedUtilityTemplate(
 
   const candidates = [
     ...scored,
-    ...templates.filter(isGenericUtilityTemplate).sort((a, b) => a.name.localeCompare(b.name)),
+    ...templates.filter(isGenericRetentionUtilityTemplate).sort((a, b) => a.name.localeCompare(b.name)),
   ];
   const seen = new Set<string>();
 
@@ -1272,7 +1292,7 @@ function buildAutopilotVariableDefaults(
   template: WaTemplateRow,
   vars: string[]
 ): Record<string, string> {
-  if (isGenericUtilityTemplate(template)) {
+  if (isGenericRetentionUtilityTemplate(template)) {
     const genericDefaults: Record<string, string> = {};
     for (const variable of vars) {
       if (variable === "{{1}}") genericDefaults[variable] = "{{nome}}";
@@ -1440,7 +1460,7 @@ async function autoScheduleWhatsappRun(params: {
     return {
       status: "needs_template" as const,
       reason:
-        "Nao encontrei template WhatsApp aprovado na categoria UTILITY compatível com cashback/retencao.",
+        "Nao encontrei template WhatsApp aprovado na categoria UTILITY compativel com este playbook de retencao.",
     };
   }
 
@@ -1606,7 +1626,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "Nao encontrei template WhatsApp aprovado em UTILITY compativel ou generico. Sincronize/crie um template utility antes de ligar o piloto automatico.",
+              "Nao encontrei template WhatsApp aprovado em UTILITY compativel com este playbook ou generico de retencao. Sincronize/crie um template utility de retencao antes de ligar o piloto automatico.",
           },
           { status: 400 }
         );
