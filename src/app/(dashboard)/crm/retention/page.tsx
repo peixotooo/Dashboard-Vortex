@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/lib/workspace-context";
 
 interface SegmentStats {
@@ -1539,113 +1540,143 @@ function OperationsBoard({
   const opportunities = data.playbooks
     .filter((playbook) => playbook.audience.customers > 0)
     .slice(0, 5);
-  const agendaRuns = runs.slice(0, 6);
-  const resultRuns = runs.slice(0, 4);
+  const agendaRuns = runs.slice(0, 8);
+  const messageRuns = runs.filter((run) => getPrimaryCampaign(run)).slice(0, 8);
+  const resultRuns = runs.slice(0, 8);
+  const opportunityContribution = positiveSum(opportunities.map((item) => item.estimate.contribution));
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">Oportunidades e agenda</h2>
+          <h2 className="text-lg font-semibold">Central de operacao</h2>
           <p className="text-sm text-muted-foreground">
-            Clusters priorizados por margem, CPA, cashback e base com canal acionavel.
+            Ordem clara: escolher publico, conferir disparo, validar mensagem e medir margem.
           </p>
         </div>
         <Badge variant="outline">{NUMBER(opportunities.length)} oportunidades</Badge>
       </div>
 
-      <div className="space-y-4">
-        <div className="rounded-md border bg-card p-4">
+      <Tabs defaultValue="oportunidades" className="space-y-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 lg:w-auto lg:grid-cols-4">
+          <TabsTrigger value="oportunidades" className="gap-2">
+            <Target className="h-3.5 w-3.5" />
+            Oportunidades
+          </TabsTrigger>
+          <TabsTrigger value="agenda" className="gap-2">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Agenda
+          </TabsTrigger>
+          <TabsTrigger value="mensagem" className="gap-2">
+            <MessageCircle className="h-3.5 w-3.5" />
+            Mensagem
+          </TabsTrigger>
+          <TabsTrigger value="resultados" className="gap-2">
+            <BarChart3 className="h-3.5 w-3.5" />
+            Resultados
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="oportunidades" className="mt-0">
+          <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">1. Oportunidades recomendadas</p>
+              <p className="text-sm font-semibold">Oportunidades recomendadas</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Cada agendamento cria tratamento, holdout, cooldown e vinculo para medir resultado.
+                Prioridade por margem, CPA, cashback e base acionavel.
               </p>
             </div>
-            <Badge variant="secondary">{BRL(positiveSum(opportunities.map((item) => item.estimate.contribution)))}</Badge>
+            <Badge variant="secondary">{BRL(opportunityContribution)}</Badge>
           </div>
 
-          <div className="mt-3 grid gap-3 xl:grid-cols-2">
-            {opportunities.map((playbook, index) => (
-              <div key={playbook.id} className="rounded-md border bg-background p-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={index === 0 ? "default" : priorityVariant(playbook.priority)}>
-                        #{index + 1}
-                      </Badge>
-                      <p className="font-semibold">{playbook.name}</p>
-                      <Badge variant="outline">{playbook.priority}</Badge>
+          {opportunities.length === 0 ? (
+            <div className="mt-3 rounded-md bg-muted/35 p-3 text-sm text-muted-foreground">
+              Nenhuma oportunidade acionavel agora.
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+              {opportunities.map((playbook, index) => (
+                <div key={playbook.id} className="rounded-md border bg-background p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={index === 0 ? "default" : priorityVariant(playbook.priority)}>
+                          #{index + 1}
+                        </Badge>
+                        <p className="font-semibold">{playbook.name}</p>
+                        <Badge variant="outline">{playbook.priority}</Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{opportunityReason(playbook, data)}</p>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{opportunityReason(playbook, data)}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-primary">{BRL(playbook.estimate.contribution)}</p>
+                      <p className="text-xs text-muted-foreground">MC estimada</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-primary">{BRL(playbook.estimate.contribution)}</p>
-                    <p className="text-xs text-muted-foreground">MC estimada</p>
-                  </div>
-                </div>
 
-                <div className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
-                  <div className="rounded-md bg-muted/35 p-2">
-                    <p className="text-xs text-muted-foreground">Base</p>
-                    <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
+                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
+                    <div className="rounded-md bg-muted/35 p-2">
+                      <p className="text-xs text-muted-foreground">Base</p>
+                      <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/35 p-2">
+                      <p className="text-xs text-muted-foreground">Pedidos</p>
+                      <p className="font-semibold">{NUMBER(playbook.estimate.expectedOrders)}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/35 p-2">
+                      <p className="text-xs text-muted-foreground">Custo/pedido</p>
+                      <p className="font-semibold">{BRL(playbook.estimate.retentionCostPerOrder)}</p>
+                    </div>
+                    <div className="rounded-md bg-muted/35 p-2">
+                      <p className="text-xs text-muted-foreground">Cadencia</p>
+                      <p className="truncate font-semibold">{playbookCadenceLabel(playbook.id)}</p>
+                    </div>
                   </div>
-                  <div className="rounded-md bg-muted/35 p-2">
-                    <p className="text-xs text-muted-foreground">Pedidos</p>
-                    <p className="font-semibold">{NUMBER(playbook.estimate.expectedOrders)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/35 p-2">
-                    <p className="text-xs text-muted-foreground">Custo/pedido</p>
-                    <p className="font-semibold">{BRL(playbook.estimate.retentionCostPerOrder)}</p>
-                  </div>
-                  <div className="rounded-md bg-muted/35 p-2">
-                    <p className="text-xs text-muted-foreground">Cadencia</p>
-                    <p className="truncate font-semibold">{playbookCadenceLabel(playbook.id)}</p>
-                  </div>
-                </div>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="max-w-2xl text-xs text-muted-foreground">{playbook.why}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => onSchedule(playbook)}
-                      disabled={Boolean(schedulingId) || preparingId !== null}
-                    >
-                      {schedulingId === playbook.id ? (
-                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Send className="mr-2 h-3.5 w-3.5" />
-                      )}
-                      Agendar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onPrepare(playbook)}
-                      disabled={Boolean(schedulingId) || preparingId !== null}
-                    >
-                      {preparingId === playbook.id ? (
-                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ListChecks className="mr-2 h-3.5 w-3.5" />
-                      )}
-                      Preparar
-                    </Button>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="max-w-2xl text-xs text-muted-foreground">{playbook.why}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => onSchedule(playbook)}
+                        disabled={Boolean(schedulingId) || preparingId !== null}
+                      >
+                        {schedulingId === playbook.id ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        Agendar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onPrepare(playbook)}
+                        disabled={Boolean(schedulingId) || preparingId !== null}
+                      >
+                        {preparingId === playbook.id ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ListChecks className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        Preparar
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
           </div>
-        </div>
+        </TabsContent>
 
-        <div className="rounded-md border bg-card p-4">
+        <TabsContent value="agenda" className="mt-0">
+          <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">2. Agenda e disparos</p>
+              <p className="text-sm font-semibold">Agenda e disparos</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                O que esta agendado, qual template usa e qual mensagem vai sair.
+                Data, status, volume e proximo passo de cada run.
               </p>
             </div>
             <Badge variant="outline">{NUMBER(agendaRuns.length)} runs</Badge>
@@ -1673,7 +1704,7 @@ function OperationsBoard({
                       </div>
                       <Badge variant={campaignVariant(status)}>{status === "prepared" ? "preparado" : waStatusLabel(status)}</Badge>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
                       <div>
                         <p className="text-xs text-muted-foreground">Quando</p>
                         <p className="font-semibold">{campaignWhenLabel(campaign)}</p>
@@ -1687,27 +1718,14 @@ function OperationsBoard({
                         <p className="truncate font-semibold">{campaign?.templateName || "sem template"}</p>
                       </div>
                       <div>
+                        <p className="text-xs text-muted-foreground">Canal</p>
+                        <p className="font-semibold">WhatsApp</p>
+                      </div>
+                      <div>
                         <p className="text-xs text-muted-foreground">Resultado</p>
                         <p className="font-semibold">{runResultLabel(run)}</p>
                       </div>
                     </div>
-                    {campaign && (
-                      <div className="mt-3 rounded-md bg-muted/35 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Mensagem do disparo
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {campaign.templateCategory && <Badge variant="outline">{campaign.templateCategory}</Badge>}
-                            {campaign.templateStatus && <Badge variant="secondary">{campaign.templateStatus}</Badge>}
-                            {campaign.templateLanguage && <Badge variant="outline">{campaign.templateLanguage}</Badge>}
-                          </div>
-                        </div>
-                        <p className="mt-2 whitespace-pre-wrap text-sm">
-                          {campaign.messagePreview || campaign.templateBody || "Mensagem indisponivel para este template."}
-                        </p>
-                      </div>
-                    )}
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
                         {campaign?.sendHourReason || (campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint)}
@@ -1724,63 +1742,163 @@ function OperationsBoard({
               })}
             </div>
           )}
-        </div>
-      </div>
+          </div>
+        </TabsContent>
 
-      {resultRuns.length > 0 && (
-        <div className="rounded-md border bg-card p-4">
+        <TabsContent value="mensagem" className="mt-0">
+          <div className="rounded-md border bg-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Mensagem e template</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Template aprovado, variaveis renderizadas e texto que sera enviado.
+                </p>
+              </div>
+              <Badge variant="outline">{NUMBER(messageRuns.length)} campanhas</Badge>
+            </div>
+
+            {messageRuns.length === 0 ? (
+              <div className="mt-3 rounded-md bg-muted/35 p-3 text-sm text-muted-foreground">
+                Nenhuma campanha com template vinculada ainda.
+              </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {messageRuns.map((run) => {
+                  const campaign = getPrimaryCampaign(run);
+                  if (!campaign) return null;
+                  return (
+                    <div key={run.id} className="rounded-md border bg-background p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{run.playbookName}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Run {run.id.slice(0, 8)} · {campaignWhenLabel(campaign)} · {NUMBER(campaign.totalMessages)} mensagens
+                          </p>
+                        </div>
+                        <Badge variant={campaignVariant(campaign.status)}>{waStatusLabel(campaign.status)}</Badge>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 lg:grid-cols-[0.75fr_1.25fr]">
+                        <div className="rounded-md bg-muted/35 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Template
+                          </p>
+                          <p className="mt-2 break-words text-sm font-semibold">
+                            {campaign.templateName || "sem template"}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {campaign.templateCategory && <Badge variant="outline">{campaign.templateCategory}</Badge>}
+                            {campaign.templateStatus && <Badge variant="secondary">{campaign.templateStatus}</Badge>}
+                            {campaign.templateLanguage && <Badge variant="outline">{campaign.templateLanguage}</Badge>}
+                          </div>
+                          <div className="mt-3 space-y-2 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-muted-foreground">Fonte horario</span>
+                              <span className="text-right font-medium">{campaign.sendHourSource || "manual"}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-muted-foreground">Envio</span>
+                              <span className="text-right font-medium">{campaignWhenLabel(campaign)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-md bg-muted/35 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Mensagem
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                            {campaign.messagePreview || campaign.templateBody || "Mensagem indisponivel para este template."}
+                          </p>
+                          {campaign.templateBody && campaign.templateBody !== campaign.messagePreview && (
+                            <div className="mt-3 rounded-md border bg-background p-2">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Corpo original
+                              </p>
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                                {campaign.templateBody}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="resultados" className="mt-0">
+          <div className="rounded-md border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">3. Resultados em acompanhamento</p>
+              <p className="text-sm font-semibold">Resultados em acompanhamento</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Leitura por lift contra holdout, receita incremental e margem liquida.
               </p>
             </div>
             <Badge variant="outline">{NUMBER(resultRuns.length)} recentes</Badge>
           </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {resultRuns.map((run) => {
-              const campaign = getPrimaryCampaign(run);
-              const playbook = data.playbooks.find((item) => item.id === run.playbookId);
-              const attributionWindowDays =
-                run.attributionWindowDays ??
-                playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
-              const decision = getRunDecision(run, attributionWindowDays);
-              return (
-                <div key={run.id} className="rounded-md border bg-background p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{run.playbookName}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {campaign ? waStatusLabel(campaign.status) : "sem campanha"} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
-                      </p>
+
+          {resultRuns.length === 0 ? (
+            <div className="mt-3 rounded-md bg-muted/35 p-3 text-sm text-muted-foreground">
+              Nenhum run mensuravel ainda.
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+              {resultRuns.map((run) => {
+                const campaign = getPrimaryCampaign(run);
+                const playbook = data.playbooks.find((item) => item.id === run.playbookId);
+                const attributionWindowDays =
+                  run.attributionWindowDays ??
+                  playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
+                const decision = getRunDecision(run, attributionWindowDays);
+                return (
+                  <div key={run.id} className="rounded-md border bg-background p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{run.playbookName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {campaign ? waStatusLabel(campaign.status) : "sem campanha"} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
+                        </p>
+                      </div>
+                      <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
                     </div>
-                    <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Tratamento</p>
+                        <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Holdout</p>
+                        <p className="font-semibold">{NUMBER(run.holdoutList?.totalCount ?? 0)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Lift</p>
+                        <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Receita incr.</p>
+                        <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">MC liquida</p>
+                        <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-md bg-muted/35 p-3 text-xs text-muted-foreground">
+                      {decision.detail}
+                    </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Lift</p>
-                      <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">MC liquida</p>
-                      <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Receita incr.</p>
-                      <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">WA enviados</p>
-                      <p className="font-semibold">{NUMBER(run.channels?.whatsapp?.sent ?? 0)}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          )}
           </div>
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
@@ -2543,8 +2661,6 @@ export default function RetentionPlaybooksPage() {
             onPrepare={preparePlaybook}
             onSchedule={schedulePlaybook}
           />
-
-          <RunKpiPanel runs={runs} data={data} />
 
           <details className="rounded-md border bg-card p-4">
             <summary className="cursor-pointer text-sm font-semibold">
