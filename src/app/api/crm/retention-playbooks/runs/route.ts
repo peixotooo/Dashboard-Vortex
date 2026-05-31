@@ -157,6 +157,19 @@ const PLAYBOOK_LABELS: Record<string, string> = {
   "high-ltv-dormant": "Dormantes de alto LTV",
 };
 
+const PLAYBOOK_ATTRIBUTION_WINDOWS: Record<string, number> = {
+  "cashback-expiring-14d": 7,
+  "active-cashback-balance": 14,
+  "second-purchase-31-60d": 14,
+  "one-time-61-90d-save": 21,
+  "repeat-61-180d": 21,
+  "high-ltv-dormant": 21,
+};
+
+function playbookAttributionWindowDays(playbookId: string): number {
+  return PLAYBOOK_ATTRIBUTION_WINDOWS[playbookId] ?? 14;
+}
+
 function withParams(path: string, params: Record<string, string>): string {
   const qs = new URLSearchParams(params);
   return `${path}?${qs.toString()}`;
@@ -217,6 +230,7 @@ function whatsappPlaybookParams({
   playbookName,
   runId,
   audienceName,
+  attributionWindowDays,
 }: {
   listId: string;
   campaignName: string;
@@ -224,6 +238,7 @@ function whatsappPlaybookParams({
   playbookName: string;
   runId: string;
   audienceName: string;
+  attributionWindowDays?: number;
 }): Record<string, string> {
   const context =
     WHATSAPP_PLAYBOOK_CONTEXT[playbookId] ||
@@ -245,6 +260,7 @@ function whatsappPlaybookParams({
     template_hint: context.templateHint,
     message_goal: context.messageGoal,
     guardrail: context.guardrail,
+    attribution_window_days: String(attributionWindowDays ?? playbookAttributionWindowDays(playbookId)),
   };
 }
 
@@ -1121,6 +1137,7 @@ export async function POST(request: NextRequest) {
     const runId = randomUUID();
     const now = new Date();
     const playbookName = PLAYBOOK_LABELS[playbookId];
+    const attributionWindowDays = playbookAttributionWindowDays(playbookId);
     const audience = await buildAudience(auth!.admin, auth!.workspaceId, playbookId);
 
     if (audience.length === 0) {
@@ -1201,6 +1218,7 @@ export async function POST(request: NextRequest) {
               playbookName,
               runId,
               audienceName: treatmentList.name,
+              attributionWindowDays,
             })
           ),
           lists: withParams("/crm/listas", { list: treatmentList.id }),
@@ -1376,6 +1394,7 @@ export async function GET(request: NextRequest) {
               playbookName: treatment.auto_segment?.playbook_name || "Retencao",
               runId,
               audienceName: treatment.name,
+              attributionWindowDays: playbookAttributionWindowDays(String(treatment.auto_segment?.playbook_id || "")),
             })
           ),
           lists: withParams("/crm/listas", { list: treatment.id }),

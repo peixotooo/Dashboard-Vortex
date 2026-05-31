@@ -161,6 +161,7 @@ interface RetentionWaContext {
   templateHint: string;
   messageGoal: string;
   guardrail: string;
+  attributionWindowDays: number;
 }
 
 function retentionTemplatePreset(context: RetentionWaContext | null): TemplateCreateInitialValues | undefined {
@@ -303,6 +304,7 @@ export default function WhatsAppPage() {
   const [audienceMode, setAudienceMode] = useState<"segment" | "list">("segment");
   const [selectedSegment, setSelectedSegment] = useState("");
   const [selectedListId, setSelectedListId] = useState("");
+  const [attributionWindowDays, setAttributionWindowDays] = useState(3);
   const [excludeListId, setExcludeListId] = useState("");
   const [contactLists, setContactLists] = useState<Array<{ id: string; name: string; total_count: number; phone_count: number }>>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
@@ -517,10 +519,18 @@ export default function WhatsAppPage() {
       const templateHint = params.get("template_hint") || "";
       const messageGoal = params.get("message_goal") || "";
       const guardrail = params.get("guardrail") || "";
+      const attributionWindowParam = Number(
+        params.get("attribution_window_days") || params.get("window_days") || ""
+      );
+      const playbookAttributionWindowDays =
+        Number.isFinite(attributionWindowParam) && attributionWindowParam > 0
+          ? attributionWindowParam
+          : 3;
 
       setAudienceMode("list");
       setSelectedListId(listId);
       if (presetName) setCampaignName(presetName);
+      setAttributionWindowDays(playbookAttributionWindowDays);
       if (playbookId || runId || messageGoal || guardrail) {
         setRetentionContext({
           runId,
@@ -531,6 +541,7 @@ export default function WhatsAppPage() {
           templateHint,
           messageGoal,
           guardrail,
+          attributionWindowDays: playbookAttributionWindowDays,
         });
         const prompt = [messageGoal, guardrail].filter(Boolean).join("\n");
         if (prompt) setCopyPrompt(prompt);
@@ -546,6 +557,8 @@ export default function WhatsAppPage() {
       params.delete("template_hint");
       params.delete("message_goal");
       params.delete("guardrail");
+      params.delete("attribution_window_days");
+      params.delete("window_days");
       const url = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", url);
     }
@@ -693,10 +706,12 @@ export default function WhatsAppPage() {
           segmentFilter.playbook_run_id = segmentFilter.playbook_run_id || retentionContext.runId;
           segmentFilter.playbook_id = segmentFilter.playbook_id || retentionContext.playbookId;
           segmentFilter.playbook_name = segmentFilter.playbook_name || retentionContext.playbookName;
+          segmentFilter.attribution_window_days = attributionWindowDays;
           segmentFilter.playbook_context = {
             template_hint: retentionContext.templateHint,
             message_goal: retentionContext.messageGoal,
             guardrail: retentionContext.guardrail,
+            attribution_window_days: attributionWindowDays,
           };
         }
       }
@@ -757,6 +772,7 @@ export default function WhatsAppPage() {
           segmentFilter,
           variableValues,
           contacts,
+          attribution_window_days: attributionWindowDays,
           cooldownDays,
           scheduled_at: scheduledAt,
           requires_approval: requiresApproval,
@@ -832,6 +848,7 @@ export default function WhatsAppPage() {
     setAudienceMode("segment");
     setSelectedSegment("");
     setSelectedListId("");
+    setAttributionWindowDays(3);
     setExcludeListId("");
     setVariableValues({});
     setRequiresApproval(false);
@@ -1233,6 +1250,9 @@ export default function WhatsAppPage() {
                     run {retentionContext.runId.slice(0, 8)}
                   </span>
                 )}
+                <span className="text-xs text-muted-foreground">
+                  janela {retentionContext.attributionWindowDays}d
+                </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Lista de tratamento selecionada:{" "}
@@ -1270,6 +1290,7 @@ export default function WhatsAppPage() {
                 onClick={() => {
                   setRetentionContext(null);
                   setCopyPrompt("");
+                  setAttributionWindowDays(3);
                 }}
               >
                 <X className="h-3.5 w-3.5" />
@@ -1443,6 +1464,9 @@ export default function WhatsAppPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="secondary">Playbook CRM</Badge>
                       <span className="font-semibold">{retentionContext.playbookName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        janela {retentionContext.attributionWindowDays}d
+                      </span>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {retentionContext.guardrail ||
@@ -1796,6 +1820,10 @@ export default function WhatsAppPage() {
                               : `${contactLists.find((l) => l.id === selectedListId)?.phone_count || 0} contatos`}
                           </span>
                         </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Janela de atribuicao:</span>
+                          <span className="font-medium">{attributionWindowDays} dias</span>
+                        </div>
                       </CardContent>
                     </Card>
 
@@ -1805,6 +1833,32 @@ export default function WhatsAppPage() {
                       </p>
                       <p className="text-sm whitespace-pre-wrap bg-white dark:bg-background rounded p-3 border">
                         {getTemplateBodyPreview()}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 border rounded-md p-4">
+                      <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                        Janela de atribuição do relatório
+                      </Label>
+                      <Select
+                        value={String(attributionWindowDays)}
+                        onValueChange={(value) => setAttributionWindowDays(Number(value))}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="3">3 dias</SelectItem>
+                          <SelectItem value="7">7 dias</SelectItem>
+                          <SelectItem value="14">14 dias</SelectItem>
+                          <SelectItem value="21">21 dias</SelectItem>
+                          <SelectItem value="30">30 dias</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {retentionContext
+                          ? `Veio do playbook ${retentionContext.playbookName}; mantenha igual para cruzar WhatsApp com lift e margem.`
+                          : "Define por quantos dias as vendas entram no relatório de performance desta campanha."}
                       </p>
                     </div>
 
