@@ -29,6 +29,7 @@ type EccosysClient = {
 type EccosysOrder = {
   id?: number;
   numeroPedido?: string | null;
+  numeroDaOrdemDeCompra?: string | null;
   data?: string | null;
   dataPagamento?: string | null;
   dataFaturamento?: string | null;
@@ -43,6 +44,9 @@ type EccosysOrder = {
   tipoPagamento?: string | null;
   canalDeVenda?: string | null;
   servicePlatformOrigin?: string | null;
+  idPedidoOrigem?: string | number | null;
+  idMarketplacePedidoMaster?: string | number | null;
+  paymentOrderID?: string | number | null;
   _Parcelas?: Array<{ formaPagamento?: string | null; valor?: string | number | null }>;
 };
 
@@ -227,6 +231,47 @@ function normalizeOrderCode(raw: unknown): string {
   return typeof raw === "string" || typeof raw === "number" ? String(raw).trim().toLowerCase() : "";
 }
 
+function orderCodeVariants(...values: unknown[]): string[] {
+  const variants = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeOrderCode(value);
+    if (!normalized || normalized === "0") continue;
+    variants.add(normalized);
+
+    const compact = normalized.replace(/[^a-z0-9]/g, "");
+    if (compact.length >= 8) variants.add(compact);
+
+    const digits = normalized.replace(/\D/g, "");
+    if (digits.length >= 8) variants.add(digits);
+  }
+  return [...variants];
+}
+
+function orderExternalReferenceVariants(order: EccosysOrder): string[] {
+  const serviceOriginOrderRefs = normalizeOrderCode(order.servicePlatformOrigin)
+    .split(/[_\s|/]+/)
+    .filter((part) => part.includes("-") || part.replace(/\D/g, "").length >= 10);
+  return orderCodeVariants(
+    order.numeroDaOrdemDeCompra,
+    order.idPedidoOrigem,
+    order.idMarketplacePedidoMaster,
+    order.paymentOrderID,
+    order.servicePlatformOrigin,
+    ...serviceOriginOrderRefs,
+  );
+}
+
+function orderIdentityVariants(order: EccosysOrder): string[] {
+  return orderCodeVariants(
+    order.numeroPedido,
+    ...orderExternalReferenceVariants(order),
+  );
+}
+
+function preferredOrderCode(order: EccosysOrder): string | null {
+  return normalizeOrderCode(order.numeroDaOrdemDeCompra) || normalizeOrderCode(order.numeroPedido) || null;
+}
+
 function moneyCents(raw: unknown): string {
   const n = parseNumber(raw);
   if (!Number.isFinite(n)) return "";
@@ -326,8 +371,7 @@ async function fetchExistingCrmIndex(admin: SupabaseClient, workspaceId: string)
       const email = normalizeEmail(row.email);
       if (email) emails.add(email);
       if (row.source_order_id) sourceOrderIds.add(String(row.source_order_id));
-      const code = normalizeOrderCode(row.numero_pedido);
-      if (code) orderCodes.add(code);
+      for (const code of orderCodeVariants(row.numero_pedido, row.source_order_id)) orderCodes.add(code);
       const fingerprint = orderFingerprint(row);
       if (fingerprint) fingerprints.add(fingerprint);
     }
@@ -510,7 +554,7 @@ function mapEccosysOrderToCrmRow(
     valor,
     data_compra: dataCompra,
     cupom: null,
-    numero_pedido: order.numeroPedido ? String(order.numeroPedido) : null,
+    numero_pedido: preferredOrderCode(order),
     compras_anteriores: 0,
     source: options.source,
     source_order_id: `${options.source}:${order.id}`,
@@ -689,8 +733,8 @@ export async function runEccosysCrmImport(
         continue;
       }
 
-      const code = normalizeOrderCode(order.numeroPedido);
-      if (code && (crmBefore.orderCodes.has(code) || seenOrderCodes.has(code))) {
+      const codeVariants = orderIdentityVariants(order);
+      if (codeVariants.some((code) => crmBefore.orderCodes.has(code) || seenOrderCodes.has(code))) {
         skippedExistingOrderCode++;
         continue;
       }
@@ -722,7 +766,7 @@ export async function runEccosysCrmImport(
 
       eligibleRows.push(row);
       seenSourceIds.add(sourceOrderId);
-      if (code) seenOrderCodes.add(code);
+      for (const code of codeVariants) seenOrderCodes.add(code);
       if (fingerprint) seenFingerprints.add(fingerprint);
     }
 
