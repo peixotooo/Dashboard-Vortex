@@ -419,6 +419,12 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
   })();
 
   const isLast = step === TOTAL_STEPS;
+  const canQuickBuildPlaybookEmail = Boolean(
+    retentionContext &&
+      context.trim().length >= 5 &&
+      layoutId &&
+      !loading
+  );
   const stepLabel = (() => {
     switch (step) {
       case 1: return "Contexto";
@@ -843,17 +849,28 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
               IA escrevendo a copy e montando o email... (~10-20s)
             </div>
           )}
-          {!error && !loading && step === 1 && context.trim().length < 5 && (
+          {!error && !loading && retentionContext && step < TOTAL_STEPS && (
+            <div className="text-[11px] flex-1 min-w-0">
+              {layoutId ? (
+                <span className="text-muted-foreground">
+                  Defaults do playbook prontos: briefing, tom, janela e lista mensurada.
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Carregando templates para montar direto.</span>
+              )}
+            </div>
+          )}
+          {!error && !loading && !retentionContext && step === 1 && context.trim().length < 5 && (
             <div className="text-[11px] text-muted-foreground flex-1">
               Escreva pelo menos uma frase pra avançar.
             </div>
           )}
-          {!error && !loading && step === 2 && !layoutId && (
+          {!error && !loading && !retentionContext && step === 2 && !layoutId && (
             <div className="text-[11px] text-muted-foreground flex-1">
               Escolha um template pra avançar.
             </div>
           )}
-          {!error && !loading && (step >= 3 && step <= 5) && (
+          {!error && !loading && !retentionContext && (step >= 3 && step <= 5) && (
             <div className="text-[11px] text-muted-foreground flex-1">
               Opcional · pode pular.
             </div>
@@ -873,6 +890,27 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
           >
             Cancelar
           </Button>
+          {retentionContext && step < TOTAL_STEPS && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={submit}
+              disabled={!canQuickBuildPlaybookEmail}
+              className="gap-1.5"
+              title={
+                layoutId
+                  ? "Usa os defaults do playbook e abre o editor com o rascunho pronto."
+                  : "Aguardando carregar os templates."
+              }
+            >
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5" />
+              )}
+              Montar agora
+            </Button>
+          )}
           {step > 1 && (
             <Button variant="outline" size="sm" onClick={prevStep} disabled={loading} className="gap-1.5">
               <ArrowRight className="w-3.5 h-3.5 rotate-180" />
