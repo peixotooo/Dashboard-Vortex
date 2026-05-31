@@ -45,6 +45,12 @@ interface Props {
   draftPreview?: string;
   initialListId?: string;
   initialAudienceLabel?: string;
+  retentionContext?: {
+    listId: string;
+    audience: string;
+    playbook: string;
+    run: string;
+  } | null;
 }
 
 export function DispatchDialog({
@@ -57,6 +63,7 @@ export function DispatchDialog({
   draftPreview,
   initialListId,
   initialAudienceLabel,
+  retentionContext,
 }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [reviewed, setReviewed] = useState(false);
@@ -186,6 +193,14 @@ export function DispatchDialog({
               ? `${scheduledDate}T${scheduledTime}:00-03:00`
               : undefined,
             requires_approval: requiresApproval,
+            retention_context: retentionContext
+              ? {
+                  list_id: retentionContext.listId,
+                  audience: retentionContext.audience,
+                  playbook: retentionContext.playbook,
+                  run: retentionContext.run,
+                }
+              : undefined,
           }),
         }
       );
@@ -492,6 +507,12 @@ export function DispatchDialog({
             label="Listas"
             value={
               <>
+                {retentionContext && (
+                  <div className="mb-1 text-emerald-700 dark:text-emerald-300">
+                    Playbook · {retentionContext.playbook}
+                    {retentionContext.run ? ` · run ${retentionContext.run.slice(0, 8)}` : ""}
+                  </div>
+                )}
                 {Array.from(selectedListIds).map((id) => {
                   const l = lists?.find((x) => x.id === id);
                   return (

@@ -47,6 +47,12 @@ interface Props {
   workspaceId: string;
   initialListId?: string;
   initialAudienceLabel?: string;
+  retentionContext?: {
+    listId: string;
+    audience: string;
+    playbook: string;
+    run: string;
+  } | null;
   onClose: () => void;
 }
 
@@ -61,6 +67,7 @@ export function SuggestionDispatchDialog({
   workspaceId,
   initialListId,
   initialAudienceLabel,
+  retentionContext,
   onClose,
 }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
@@ -233,6 +240,14 @@ export function SuggestionDispatchDialog({
               lead: leadEdit,
               cta_text: ctaTextEdit,
             },
+            retention_context: retentionContext
+              ? {
+                  list_id: retentionContext.listId,
+                  audience: retentionContext.audience,
+                  playbook: retentionContext.playbook,
+                  run: retentionContext.run,
+                }
+              : undefined,
           }),
         }
       );
@@ -258,6 +273,14 @@ export function SuggestionDispatchDialog({
             utm_term: (suggestion.target_segment_payload as {
               display_label?: string;
             })?.display_label,
+            retention_context: retentionContext
+              ? {
+                  list_id: retentionContext.listId,
+                  audience: retentionContext.audience,
+                  playbook: retentionContext.playbook,
+                  run: retentionContext.run,
+                }
+              : undefined,
             requires_approval: true,
           }),
         }
@@ -323,6 +346,14 @@ export function SuggestionDispatchDialog({
               subjectEdit.trim() !== originalSubject.trim()
                 ? subjectEdit.trim()
                 : undefined,
+            retention_context: retentionContext
+              ? {
+                  list_id: retentionContext.listId,
+                  audience: retentionContext.audience,
+                  playbook: retentionContext.playbook,
+                  run: retentionContext.run,
+                }
+              : undefined,
           }),
         }
       );
@@ -671,6 +702,12 @@ export function SuggestionDispatchDialog({
             label="Audiência"
             value={
               <>
+                {retentionContext && (
+                  <div className="mb-1 text-emerald-700 dark:text-emerald-300">
+                    Playbook · {retentionContext.playbook}
+                    {retentionContext.run ? ` · run ${retentionContext.run.slice(0, 8)}` : ""}
+                  </div>
+                )}
                 {useSegment && (
                   <div>
                     Segmento sugerido · {segmentLabel}

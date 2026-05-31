@@ -238,6 +238,14 @@ export function AIComposeDialog({ open, onClose, workspaceId, retentionContext }
                 }
               : undefined,
           countdown_only: !couponEnabled && countdownEnabled,
+          retention_context: retentionContext
+            ? {
+                list_id: retentionContext.listId,
+                audience: retentionContext.audience,
+                playbook: retentionContext.playbook,
+                run: retentionContext.run,
+              }
+            : undefined,
         }),
       });
       const d = await r.json();

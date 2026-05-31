@@ -84,6 +84,17 @@ interface RetentionEmailContext {
   run: string;
 }
 
+function retentionFromMeta(meta: DraftMeta | null | undefined): RetentionEmailContext | null {
+  const context = meta?.retention_context;
+  if (!context?.list_id) return null;
+  return {
+    listId: context.list_id,
+    audience: context.audience || "Lista de tratamento",
+    playbook: context.playbook || "Playbook de retencao",
+    run: context.run || "",
+  };
+}
+
 const LOGO_TOKEN = "__logo__";
 
 export default function EmailEditorPage({ params }: PageProps) {
@@ -153,6 +164,11 @@ export default function EmailEditorPage({ params }: PageProps) {
         setBlocks(next.blocks ?? []);
         setMeta(next.meta);
         setName(next.name);
+        const query = new URLSearchParams(window.location.search);
+        if (!query.get("list")) {
+          const storedContext = retentionFromMeta(next.meta);
+          if (storedContext) setRetentionContext(storedContext);
+        }
       });
   }, [id, workspaceId]);
 
@@ -500,6 +516,16 @@ export default function EmailEditorPage({ params }: PageProps) {
         </div>
       </div>
 
+      {retentionContext && (
+        <div className="border-b bg-emerald-500/5 px-4 py-2 text-xs">
+          <span className="font-medium">Playbook:</span>{" "}
+          {retentionContext.playbook} ·{" "}
+          <span className="font-medium">audiencia:</span>{" "}
+          {retentionContext.audience}
+          {retentionContext.run ? ` · run ${retentionContext.run.slice(0, 8)}` : ""}
+        </div>
+      )}
+
       {/* 3-pane layout */}
       <div className="flex-1 grid grid-cols-[220px_1fr_320px] min-h-0">
         {/* left: tabs — adicionar (palette) | estrutura (drag-and-drop).
@@ -710,6 +736,7 @@ export default function EmailEditorPage({ params }: PageProps) {
         draftPreview={meta.preview}
         initialListId={retentionContext?.listId}
         initialAudienceLabel={retentionContext?.audience}
+        retentionContext={retentionContext}
       />
     </div>
   );

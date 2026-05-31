@@ -20,12 +20,19 @@ export function SuggestionCard({
   workspaceId,
   initialListId,
   initialAudienceLabel,
+  retentionContext,
 }: {
   suggestion: EmailSuggestion;
   onChanged: () => void;
   workspaceId: string;
   initialListId?: string;
   initialAudienceLabel?: string;
+  retentionContext?: {
+    listId: string;
+    audience: string;
+    playbook: string;
+    run: string;
+  } | null;
 }) {
   const [copying, setCopying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -38,11 +45,27 @@ export function SuggestionCard({
     try {
       const r = await fetch(`/api/crm/email-templates/${suggestion.id}/to-draft`, {
         method: "POST",
-        headers: { "x-workspace-id": workspaceId },
+        headers: { "Content-Type": "application/json", "x-workspace-id": workspaceId },
+        body: JSON.stringify({
+          retention_context: retentionContext
+            ? {
+                list_id: retentionContext.listId,
+                audience: retentionContext.audience,
+                playbook: retentionContext.playbook,
+                run: retentionContext.run,
+              }
+            : undefined,
+        }),
       });
       const d = await r.json();
       if (d.draft?.id) {
-        window.location.href = `/crm/email-templates/editor/${d.draft.id}`;
+        const params = new URLSearchParams();
+        if (retentionContext?.listId) params.set("list", retentionContext.listId);
+        if (retentionContext?.audience) params.set("audience", retentionContext.audience);
+        if (retentionContext?.playbook) params.set("playbook", retentionContext.playbook);
+        if (retentionContext?.run) params.set("run", retentionContext.run);
+        const qs = params.toString();
+        window.location.href = `/crm/email-templates/editor/${d.draft.id}${qs ? `?${qs}` : ""}`;
       } else {
         alert(d.error ?? "Falha ao abrir no editor");
         setOpening(false);
@@ -158,6 +181,7 @@ export function SuggestionCard({
         workspaceId={workspaceId}
         initialListId={initialListId}
         initialAudienceLabel={initialAudienceLabel}
+        retentionContext={retentionContext}
         onClose={() => {
           setDispatchOpen(false);
           onChanged();

@@ -50,6 +50,22 @@ interface Body {
    *  continuam exigindo o caminho "Salvar como rascunho" porque viraram
    *  rendered_html no momento da geração. */
   subject_override?: string;
+  retention_context?: {
+    list_id?: string;
+    audience?: string;
+    playbook?: string;
+    run?: string;
+  };
+}
+
+function retentionStats(context: Body["retention_context"]): Record<string, unknown> {
+  if (!context) return {};
+  return {
+    playbook_run_id: context.run || null,
+    playbook_name: context.playbook || null,
+    playbook_audience: context.audience || null,
+    playbook_locaweb_list_id: context.list_id || null,
+  };
 }
 
 export async function POST(
@@ -253,6 +269,7 @@ export async function POST(
           utm_id: dispatchId,
           utm_term: body.utm_term ?? null,
           target_segment: s.target_segment_payload?.display_label ?? null,
+          ...retentionStats(body.retention_context),
           materialized_segment_list: materialized
             ? {
                 list_id: String(materialized.list_id),
@@ -452,7 +469,7 @@ async function dispatchSuggestionViaIporto(
       suggestion_id: s.id,
       provider: "iporto",
       locaweb_message_id: null,
-      locaweb_list_ids: [],
+      locaweb_list_ids: listIds.map(String),
       iporto_message_ids: [],
       recipients_total: recipients.length,
       recipients_sent: 0,
@@ -474,6 +491,7 @@ async function dispatchSuggestionViaIporto(
         utm_id: dispatchId,
         utm_term: body.utm_term ?? clusterLabel ?? null,
         target_segment: s.target_segment_payload?.display_label ?? clusterLabel ?? null,
+        ...retentionStats(body.retention_context),
       },
     })
     .select()

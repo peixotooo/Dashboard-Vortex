@@ -58,6 +58,12 @@ interface ToDraftBody {
     cta_text: string;
     cta_url: string;
   }>;
+  retention_context?: {
+    list_id?: string;
+    audience?: string;
+    playbook?: string;
+    run?: string;
+  };
 }
 
 export async function POST(
@@ -150,7 +156,20 @@ export async function POST(
         name: tree.name,
         // Tree-engine drafts: meta carries engine="tree" and the JSONB blocks
         // column stores the section list. Render endpoint dispatches on engine.
-        meta: { ...tree.meta, engine: "tree" },
+        meta: {
+          ...tree.meta,
+          engine: "tree",
+          ...(body.retention_context
+            ? {
+                retention_context: {
+                  list_id: body.retention_context.list_id,
+                  audience: body.retention_context.audience,
+                  playbook: body.retention_context.playbook,
+                  run: body.retention_context.run,
+                },
+              }
+            : {}),
+        },
         blocks: tree.sections,
       })
       .select()

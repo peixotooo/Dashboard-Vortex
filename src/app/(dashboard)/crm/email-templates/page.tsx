@@ -146,10 +146,16 @@ export default function EmailTemplatesPage() {
               </p>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={clearRetentionContext}>
-            <X className="mr-1.5 h-3.5 w-3.5" />
-            Remover
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => setAiOpen(true)} className="gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Criar email do playbook
+            </Button>
+            <Button size="sm" variant="outline" onClick={clearRetentionContext}>
+              <X className="mr-1.5 h-3.5 w-3.5" />
+              Remover
+            </Button>
+          </div>
         </div>
       )}
       <Tabs defaultValue="today">
@@ -220,6 +226,7 @@ export default function EmailTemplatesPage() {
               workspaceId={workspaceId}
               initialListId={retentionContext?.listId}
               initialAudienceLabel={retentionContext?.audience}
+              retentionContext={retentionContext}
             />
           ))}
         </TabsContent>

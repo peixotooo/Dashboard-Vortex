@@ -69,6 +69,7 @@ export async function POST(
         sender_name: body.sender_name,
         suggestion_id: body.suggestion_id,
         utm_term: body.utm_term,
+        retention_context: body.retention_context,
       };
       const { error: upErr } = await sb
         .from("email_template_drafts")
@@ -136,6 +137,7 @@ export async function POST(
       sender_name: body.sender_name,
       suggestion_id: body.suggestion_id,
       utm_term: body.utm_term,
+      retention_context: body.retention_context,
     });
     if (!result.ok) {
       return NextResponse.json(

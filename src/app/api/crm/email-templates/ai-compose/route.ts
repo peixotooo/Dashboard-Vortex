@@ -40,6 +40,12 @@ interface Body {
     discount_percent: number;
     expires_in_hours?: number;
   };
+  retention_context?: {
+    list_id?: string;
+    audience?: string;
+    playbook?: string;
+    run?: string;
+  };
 }
 
 interface ShelfRow {
@@ -275,6 +281,16 @@ export async function POST(req: NextRequest) {
           subject: copy.subject,
           preview: copy.preview,
           engine: "tree",
+          ...(body.retention_context
+            ? {
+                retention_context: {
+                  list_id: body.retention_context.list_id,
+                  audience: body.retention_context.audience,
+                  playbook: body.retention_context.playbook,
+                  run: body.retention_context.run,
+                },
+              }
+            : {}),
         },
         blocks: tree.sections,
       })

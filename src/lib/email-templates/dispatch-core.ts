@@ -44,6 +44,12 @@ export interface DispatchPayload {
   sender_name?: string;
   suggestion_id?: string;
   utm_term?: string;
+  retention_context?: {
+    list_id?: string;
+    audience?: string;
+    playbook?: string;
+    run?: string;
+  };
 }
 
 export type DispatchResult =
@@ -177,10 +183,24 @@ export async function dispatchDraft(
   });
 }
 
+function retentionStats(
+  draft: { meta?: Draft["meta"] },
+  payload: DispatchPayload
+): Record<string, unknown> {
+  const context = payload.retention_context ?? draft.meta?.retention_context;
+  if (!context) return {};
+  return {
+    playbook_run_id: context.run || null,
+    playbook_name: context.playbook || null,
+    playbook_audience: context.audience || null,
+    playbook_locaweb_list_id: context.list_id || null,
+  };
+}
+
 interface ProviderArgs {
   sb: SupabaseClient;
   workspaceId: string;
-  draft: { id: string; name: string };
+  draft: { id: string; name: string; meta?: Draft["meta"] };
   html: string;
   subject: string;
   payload: DispatchPayload;
@@ -291,6 +311,7 @@ async function dispatchViaLocaweb(
         utm_campaign: campaignSlug,
         utm_id: dispatchId,
         utm_term: payload.utm_term ?? null,
+        ...retentionStats(draft, payload),
       },
     })
     .select()
@@ -430,6 +451,7 @@ async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {
         utm_campaign: campaignSlug,
         utm_id: dispatchId,
         utm_term: payload.utm_term ?? null,
+        ...retentionStats(draft, payload),
       },
     })
     .select()

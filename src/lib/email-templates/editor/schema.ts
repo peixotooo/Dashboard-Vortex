@@ -47,6 +47,13 @@ export interface DraftMeta {
   render_mode?: "template" | "blocks";
   /** Editable copy + product + coupon when render_mode === "template" */
   template_data?: TemplateData;
+  /** Retention playbook context used to preselect audience and measure run lift. */
+  retention_context?: {
+    list_id?: string;
+    audience?: string;
+    playbook?: string;
+    run?: string;
+  };
 }
 
 export interface TemplateData {
