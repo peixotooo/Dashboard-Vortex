@@ -1161,6 +1161,12 @@ export async function GET(request: NextRequest) {
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
       const email = summarizeEmailDispatches(treatment, emailDispatches);
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
+      const couponCreationLink = withParams("/coupons", {
+        playbook: String(treatment.auto_segment?.playbook_id || ""),
+        run: runId,
+        name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
+        ...couponGuardrailParams(String(treatment.auto_segment?.playbook_id || "")),
+      });
       const trackedOfferCost = coupons.attributedDiscount;
       const trackedTotalCost = whatsapp.costBrl + trackedOfferCost;
       const incrementalContribution =
@@ -1218,12 +1224,7 @@ export async function GET(request: NextRequest) {
           ),
           lists: withParams("/crm/listas", { list: treatment.id }),
           email: withParams("/crm/listas", { email: treatment.id }),
-          coupons: withParams("/coupons", {
-            playbook: String(treatment.auto_segment?.playbook_id || ""),
-            run: runId,
-            name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
-            ...couponGuardrailParams(String(treatment.auto_segment?.playbook_id || "")),
-          }),
+          coupons: coupons.planCount > 0 ? "/coupons" : couponCreationLink,
         },
       };
     });

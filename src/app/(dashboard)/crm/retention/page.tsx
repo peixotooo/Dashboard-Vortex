@@ -248,6 +248,7 @@ interface CouponRunSummary {
 
 interface RunReport {
   id: string;
+  playbookId?: string;
   playbookName: string;
   createdAt: string;
   treatmentList: {
@@ -366,8 +367,25 @@ function compactStatusSummary(
   return entries.map(([status, count]) => `${NUMBER(count)} ${labels[status] || status}`).join(" · ");
 }
 
-function runNeedsCoupon(playbookName: string) {
-  return /cupom|segunda|recorrentes|dormantes|winback/i.test(playbookName);
+type CouponRequirement = "required" | "optional" | "none";
+
+const REQUIRED_COUPON_PLAYBOOKS = new Set([
+  "second-purchase-31-60d",
+  "repeat-61-180d",
+  "high-ltv-dormant",
+]);
+const OPTIONAL_COUPON_PLAYBOOKS = new Set(["one-time-61-90d-save"]);
+
+function runCouponRequirement(run: Pick<RunReport, "playbookId" | "playbookName">): CouponRequirement {
+  if (run.playbookId && REQUIRED_COUPON_PLAYBOOKS.has(run.playbookId)) return "required";
+  if (run.playbookId && OPTIONAL_COUPON_PLAYBOOKS.has(run.playbookId)) return "optional";
+  if (/cashback|saldo/i.test(run.playbookName)) return "none";
+  if (/cupom|segunda|recorrentes|dormantes|winback/i.test(run.playbookName)) return "required";
+  return "optional";
+}
+
+function couponStatusCount(coupons: CouponRunSummary | undefined, status: string) {
+  return coupons?.statuses?.[status] ?? 0;
 }
 
 function emailTemplatesHref(run: RunReport) {
@@ -390,14 +408,36 @@ function getRunNextAction(run: RunReport) {
   const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
   const emailSent = (email?.dispatchCount ?? 0) > 0;
-  const needsCoupon = runNeedsCoupon(run.playbookName);
-  const couponReady = (coupons?.planCount ?? 0) > 0;
+  const couponRequirement = runCouponRequirement(run);
+  const needsCoupon = couponRequirement === "required";
+  const couponPlanReady = (coupons?.planCount ?? 0) > 0;
+  const couponGenerated = (coupons?.couponCount ?? 0) > 0;
+  const pendingCoupons = couponStatusCount(coupons, "pending");
+  const activeCoupons = couponStatusCount(coupons, "active");
 
-  if (needsCoupon && !couponReady) {
+  if (needsCoupon && !couponPlanReady) {
     return {
       label: "Criar cupom VNDA",
       href: run.links.coupons,
       hint: "Primeiro prepare a oferta que vai entrar na mensagem.",
+      icon: <Tag className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (needsCoupon && couponPlanReady && !couponGenerated) {
+    return {
+      label: "Rodar cupom VNDA",
+      href: run.links.coupons,
+      hint: "O plano ja existe; rode agora para gerar sugestoes de cupons desse run.",
+      icon: <Tag className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (needsCoupon && pendingCoupons > 0 && activeCoupons === 0) {
+    return {
+      label: "Aprovar cupons",
+      href: run.links.coupons,
+      hint: "Aprove ao menos um cupom antes de usar a oferta na mensagem.",
       icon: <Tag className="h-3.5 w-3.5" />,
     };
   }
@@ -490,8 +530,21 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
   const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
   const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
-  const needsCoupon = runNeedsCoupon(run.playbookName);
-  const couponReady = (coupons?.planCount ?? 0) > 0;
+  const couponRequirement = runCouponRequirement(run);
+  const needsCoupon = couponRequirement === "required";
+  const couponPlanReady = (coupons?.planCount ?? 0) > 0;
+  const couponGenerated = (coupons?.couponCount ?? 0) > 0;
+  const pendingCoupons = couponStatusCount(coupons, "pending");
+  const couponReady = couponGenerated;
+  const couponActionLabel = couponGenerated
+    ? pendingCoupons > 0
+      ? "Aprovar"
+      : "Abrir"
+    : couponPlanReady
+      ? "Rodar"
+      : needsCoupon
+        ? "Criar"
+        : "Avaliar";
   const nextAction = getRunNextAction(run);
 
   return (
@@ -560,12 +613,16 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           hint={
             couponReady
               ? `${NUMBER(coupons?.couponCount ?? 0)} cupons · ${BRL(coupons?.attributedRevenue ?? 0)} atribuido`
+              : couponPlanReady
+              ? "Plano criado; rode para gerar os cupons"
               : needsCoupon
               ? "Oferta precisa de plano VNDA"
-              : "Sem desconto novo como padrao"
+              : couponRequirement === "none"
+              ? "Sem desconto novo como padrao"
+              : "Cupom opcional no segundo toque"
           }
           href={run.links.coupons}
-          actionLabel={needsCoupon ? "Criar" : "Avaliar"}
+          actionLabel={couponActionLabel}
         />
         <ExecutionStep
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}

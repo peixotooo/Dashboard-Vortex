@@ -60,6 +60,12 @@ interface PlaybookCouponContext {
   guardrail: string;
 }
 
+interface CreatedPlaybookPlan {
+  planId: string;
+  planName: string;
+  runId: string;
+}
+
 interface BanditStats {
   pct_attempts: number;
   pct_revenue: number;
@@ -193,6 +199,8 @@ export default function CouponsPage() {
   const [playbookContext, setPlaybookContext] = useState<PlaybookCouponContext | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [createdPlaybookPlan, setCreatedPlaybookPlan] = useState<CreatedPlaybookPlan | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, VndaVerify>>({});
   const [banditStats, setBanditStats] = useState<BanditStats | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
@@ -247,6 +255,7 @@ export default function CouponsPage() {
   async function syncCouponAttribution(id: string) {
     setBusy("sync-" + id);
     setError(null);
+    setSuccessMsg(null);
     try {
       const res = await fetch(`/api/coupons/active/${id}/sync-attribution`, {
         method: "POST",
@@ -261,6 +270,9 @@ export default function CouponsPage() {
               ? { ...c, attributed_revenue: data.attributed_revenue, attributed_units: data.attributed_units }
               : c
           )
+        );
+        setSuccessMsg(
+          `Atribuicao atualizada: ${data.attributed_units} uso(s), ${fmtBRL(data.attributed_revenue)} em receita.`
         );
       }
     } catch (e) {
@@ -338,23 +350,35 @@ export default function CouponsPage() {
   async function savePlan() {
     if (!editing || !editing.name) return;
     setError(null);
+    setSuccessMsg(null);
     setBusy("save");
     try {
       const path = editing.id ? `/api/coupons/plans/${editing.id}` : "/api/coupons/plans";
       const method = editing.id ? "PATCH" : "POST";
+      const playbookContextForSave = !editing.id ? playbookContext : null;
       const body =
-        !editing.id && playbookContext
+        playbookContextForSave
           ? {
               ...editing,
-              playbook_id: playbookContext.playbookId,
-              playbook_run_id: playbookContext.runId,
-              playbook_name: playbookContext.name,
+              playbook_id: playbookContextForSave.playbookId,
+              playbook_run_id: playbookContextForSave.runId,
+              playbook_name: playbookContextForSave.name,
             }
           : editing;
       const res = await fetch(path, { method, headers: headers(), body: JSON.stringify(body) });
       const data = await res.json();
       if (data.error) setError(data.error);
       else {
+        if (playbookContextForSave && data.plan?.id) {
+          setCreatedPlaybookPlan({
+            planId: data.plan.id,
+            planName: data.plan.name || playbookContextForSave.name,
+            runId: playbookContextForSave.runId,
+          });
+          setSuccessMsg("Plano criado e vinculado ao playbook. Agora rode o plano para gerar os cupons desse run.");
+        } else {
+          setSuccessMsg(editing.id ? "Plano atualizado." : "Plano criado.");
+        }
         setEditing(null);
         setPlaybookContext(null);
         await reload();
@@ -365,6 +389,7 @@ export default function CouponsPage() {
 
   async function runPlanNow(id: string) {
     setError(null);
+    setSuccessMsg(null);
     setBusy("run-" + id);
     try {
       const res = await fetch(`/api/coupons/plans/${id}/run`, {
@@ -374,17 +399,17 @@ export default function CouponsPage() {
       if (data.error) {
         setError(data.error);
       } else {
-        const msg = data.require_manual_approval
-          ? `${data.proposed} sugestao(oes) criada(s). Veja na aba "Aguardando aprovacao".`
-          : `${data.proposed} sugestao(oes) criada(s) e ${data.auto_approved} aprovada(s) automaticamente.`;
-        // Switch to the relevant tab so user sees the result immediately
-        setTab(data.require_manual_approval ? "pending" : "active");
+        const msg = data.proposed === 0
+          ? `Plano "${data.plan_name}" rodou, mas nao encontrou produtos elegiveis agora.`
+          : data.require_manual_approval
+            ? `${data.proposed} sugestao(oes) criada(s). Veja na aba "Aguardando aprovacao".`
+            : `${data.proposed} sugestao(oes) criada(s) e ${data.auto_approved} aprovada(s) automaticamente.`;
+        // Switch to the relevant tab so user sees the result immediately.
+        setTab(data.proposed > 0 ? (data.require_manual_approval ? "pending" : "active") : "plans");
         setError(null);
-        // Use error banner styling-agnostic alert via setError ainda nao serve;
-        // a aba ja mostra o resultado.
+        setSuccessMsg(msg);
+        setCreatedPlaybookPlan((prev) => (prev?.planId === id ? null : prev));
         await reload();
-        // Pequena toast info
-        setTimeout(() => alert(msg), 50);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "erro");
@@ -481,6 +506,56 @@ export default function CouponsPage() {
 
       {error && (
         <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+      )}
+
+      {successMsg && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setSuccessMsg(null)}>
+            Fechar
+          </Button>
+        </div>
+      )}
+
+      {createdPlaybookPlan && (
+        <Card className="border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">Plano vinculado ao playbook</Badge>
+                <p className="text-sm font-semibold">{createdPlaybookPlan.planName}</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Rode o plano para gerar os cupons. Depois disso, o resultado entra no relatório do run{" "}
+                {createdPlaybookPlan.runId ? createdPlaybookPlan.runId.slice(0, 8) : "atual"} com receita atribuida,
+                usos e custo do incentivo.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => runPlanNow(createdPlaybookPlan.planId)}
+                disabled={busy === "run-" + createdPlaybookPlan.planId}
+              >
+                {busy === "run-" + createdPlaybookPlan.planId ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="mr-2 h-3.5 w-3.5" />
+                )}
+                Rodar agora
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { window.location.href = "/crm/retention"; }}>
+                Ver playbooks
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setCreatedPlaybookPlan(null)}>
+                Dispensar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {playbookContext && (
