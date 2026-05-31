@@ -1120,6 +1120,15 @@ async function contributionMarginPct(admin: AdminClient, workspaceId: string): P
   );
 }
 
+function attributionWindowForRun(treatment: ContactListRow) {
+  const playbookId = String(treatment.auto_segment?.playbook_id || "");
+  const days = playbookAttributionWindowDays(playbookId);
+  const start = parseDate(treatment.created_at);
+  const end = start ? new Date(start.getTime() + days * DAY_MS) : null;
+
+  return { playbookId, days, start, end };
+}
+
 export async function POST(request: NextRequest) {
   const { auth, error } = await authRoute(request);
   if (error) return error;
@@ -1310,10 +1319,16 @@ export async function GET(request: NextRequest) {
     const runs = groups.map(([runId, group]) => {
       const treatment = group.treatment!;
       const holdout = group.holdout;
+      const attribution = attributionWindowForRun(treatment);
       const runSales = sales.filter((sale) => {
         const saleDate = parseDate(sale.data_compra);
-        const start = parseDate(treatment.created_at);
-        return saleDate && start && saleDate >= start;
+        return (
+          saleDate &&
+          attribution.start &&
+          attribution.end &&
+          saleDate >= attribution.start &&
+          saleDate <= attribution.end
+        );
       });
       const treatmentMetrics = summarizeSalesForList(treatment, runSales, marginPct);
       const holdoutMetrics = summarizeSalesForList(holdout, runSales, marginPct);
@@ -1326,15 +1341,20 @@ export async function GET(request: NextRequest) {
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
       const runCashbackUsages = cashbackUsages.filter((usage) => {
         const usageDate = parseDate(usage.usado_em);
-        const start = parseDate(treatment.created_at);
-        return usageDate && start && usageDate >= start;
+        return (
+          usageDate &&
+          attribution.start &&
+          attribution.end &&
+          usageDate >= attribution.start &&
+          usageDate <= attribution.end
+        );
       });
       const cashback = summarizeCashbackUsage(treatment, holdout, runCashbackUsages);
       const couponCreationLink = withParams("/coupons", {
-        playbook: String(treatment.auto_segment?.playbook_id || ""),
+        playbook: attribution.playbookId,
         run: runId,
         name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
-        ...couponGuardrailParams(String(treatment.auto_segment?.playbook_id || "")),
+        ...couponGuardrailParams(attribution.playbookId),
       });
       const trackedCashbackCost = cashback.incrementalCashbackValue;
       const trackedOfferCost = coupons.attributedDiscount + trackedCashbackCost;
@@ -1344,9 +1364,11 @@ export async function GET(request: NextRequest) {
 
       return {
         id: runId,
-        playbookId: treatment.auto_segment?.playbook_id,
+        playbookId: attribution.playbookId,
         playbookName: treatment.auto_segment?.playbook_name || treatment.name,
         createdAt: treatment.created_at,
+        attributionWindowDays: attribution.days,
+        attributionEndsAt: attribution.end?.toISOString() || null,
         sourceRunId: treatment.auto_segment?.source_run_id || null,
         sourceDecision: treatment.auto_segment?.source_decision || null,
         treatmentList: {
@@ -1390,18 +1412,18 @@ export async function GET(request: NextRequest) {
             whatsappPlaybookParams({
               listId: treatment.id,
               campaignName: `Playbook ${treatment.auto_segment?.playbook_name || "Retencao"}`,
-              playbookId: String(treatment.auto_segment?.playbook_id || ""),
+              playbookId: attribution.playbookId,
               playbookName: treatment.auto_segment?.playbook_name || "Retencao",
               runId,
               audienceName: treatment.name,
-              attributionWindowDays: playbookAttributionWindowDays(String(treatment.auto_segment?.playbook_id || "")),
+              attributionWindowDays: attribution.days,
             })
           ),
           lists: withParams("/crm/listas", { list: treatment.id }),
           email: withParams("/crm/listas", {
             email: treatment.id,
             run: runId,
-            playbook: String(treatment.auto_segment?.playbook_id || ""),
+            playbook: attribution.playbookId,
             playbook_name: treatment.auto_segment?.playbook_name || "Retencao",
             audience: treatment.name,
           }),

@@ -296,6 +296,8 @@ interface RunReport {
   playbookId?: string;
   playbookName: string;
   createdAt: string;
+  attributionWindowDays?: number;
+  attributionEndsAt?: string | null;
   sourceRunId?: string | null;
   sourceDecision?: string | null;
   treatmentList: {
@@ -2059,10 +2061,9 @@ export default function RetentionPlaybooksPage() {
                   const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
                   const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
                   const scalePlaybook = data.playbooks.find((playbook) => playbook.id === run.playbookId);
-                  const attributionWindowDays = playbookAttributionWindowDays(
-                    scalePlaybook,
-                    data.measurement.attributionWindowDays
-                  );
+                  const attributionWindowDays =
+                    run.attributionWindowDays ??
+                    playbookAttributionWindowDays(scalePlaybook, data.measurement.attributionWindowDays);
                   const decision = getRunDecision(run, attributionWindowDays);
 
                   return (
