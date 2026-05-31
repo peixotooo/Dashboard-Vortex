@@ -203,9 +203,20 @@ function onlyDigits(raw: unknown): string {
 function parseNumber(raw: unknown): number {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw !== "string") return 0;
-  const normalized = raw.replace(/\./g, "").replace(",", ".");
+  const cleaned = raw.trim().replace(/\s/g, "").replace(/[^\d,.-]/g, "");
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  const normalized = lastComma > lastDot
+    ? cleaned.replace(/\./g, "").replace(",", ".")
+    : cleaned.replace(/,/g, "");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
+}
+
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function dateKey(raw: unknown): string {
@@ -512,18 +523,19 @@ async function fetchOrderItems(config: EccosysConfig, orderId: number | string):
 function mapEccosysItems(items: EccosysOrderItem[]): Array<Record<string, unknown>> | null {
   const mapped = items.map((item) => {
     const quantity = parseNumber(item.quantidade) || 1;
-    const price = parseNumber(item.valorComImpostos) || parseNumber(item.valor);
+    const price = roundMoney(parseNumber(item.valorComImpostos) || parseNumber(item.valor));
+    const originalPrice = roundMoney(parseNumber(item.precoLista)) || price;
     return {
       name: item.descricao || null,
       sku: item.codigo || null,
       quantity,
       price,
-      original_price: parseNumber(item.precoLista) || price,
-      total: price * quantity,
+      original_price: originalPrice,
+      total: roundMoney(price * quantity),
       reference: item.idProduto ? String(item.idProduto) : null,
       eccosys_item_id: item.id ? String(item.id) : null,
-      discount: parseNumber(item.valorDesconto) || 0,
-      freight: parseNumber(item.valorFrete) || 0,
+      discount: roundMoney(parseNumber(item.valorDesconto)) || 0,
+      freight: roundMoney(parseNumber(item.valorFrete)) || 0,
     };
   });
   return mapped.length ? mapped : null;
@@ -539,7 +551,7 @@ function mapEccosysOrderToCrmRow(
   const email = normalizeEmail(client.email);
   if (!email) return null;
   const dataCompra = dateKey(order.dataPagamento) || dateKey(order.data) || dateKey(order.dtCriacaoVenda);
-  const valor = parseNumber(order.totalVenda);
+  const valor = roundMoney(parseNumber(order.totalVenda));
   if (!dataCompra || valor <= 0) return null;
 
   const document = clientDocument(client);
@@ -567,10 +579,10 @@ function mapEccosysOrderToCrmRow(
     payment_method: paymentMethod ? String(paymentMethod) : null,
     installments: parcelas.length || null,
     shipping_method: order.transportador || null,
-    shipping_price: parseNumber(order.frete) || null,
+    shipping_price: roundMoney(parseNumber(order.frete)) || null,
     delivery_days: null,
-    subtotal: parseNumber(order.totalProdutos) || null,
-    discount_price: parseNumber(order.desconto) || null,
+    subtotal: roundMoney(parseNumber(order.totalProdutos)) || null,
+    discount_price: roundMoney(parseNumber(order.desconto)) || null,
     channel: options.channel,
     items: mapEccosysItems(items),
     discounts: null,
@@ -740,7 +752,7 @@ export async function runEccosysCrmImport(
       }
 
       const email = normalizeEmail(client.email);
-      const valor = parseNumber(order.totalVenda);
+      const valor = roundMoney(parseNumber(order.totalVenda));
       const fingerprint = orderFingerprint({ email, data_compra: orderDate, valor });
       if (fingerprint && (crmBefore.fingerprints.has(fingerprint) || seenFingerprints.has(fingerprint))) {
         skippedExistingFingerprint++;
