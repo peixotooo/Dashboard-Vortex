@@ -428,6 +428,59 @@ function couponStatusCount(coupons: CouponRunSummary | undefined, status: string
   return coupons?.statuses?.[status] ?? 0;
 }
 
+type RunProgressStep = { label: string; done: boolean };
+
+function getRunExecutionState(run: RunReport) {
+  const whatsapp = run.channels?.whatsapp;
+  const email = run.channels?.email;
+  const coupons = run.channels?.coupons;
+  const cashback = run.channels?.cashback;
+  const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
+  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
+  const emailReady = Boolean(email?.listReady);
+  const emailSent = (email?.dispatchCount ?? 0) > 0;
+  const couponRequirement = runCouponRequirement(run);
+  const needsCoupon = couponRequirement === "required";
+  const couponPlanReady = (coupons?.planCount ?? 0) > 0;
+  const couponGenerated = (coupons?.couponCount ?? 0) > 0;
+  const pendingCoupons = couponStatusCount(coupons, "pending");
+  const activeCoupons = couponStatusCount(coupons, "active");
+  const couponReady = couponGenerated;
+  const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
+  const outboundReady = whatsappReady || emailSent;
+  const measurementReady = hasHoldout && (outboundReady || couponReady || hasCashbackUsage);
+  const progressSteps: RunProgressStep[] = [
+    { label: "holdout", done: hasHoldout },
+    ...(needsCoupon ? [{ label: "cupom", done: couponReady }] : []),
+    { label: "canal", done: outboundReady },
+    { label: "medicao", done: measurementReady },
+  ];
+  const doneSteps = progressSteps.filter((step) => step.done).length;
+  const missingSteps = progressSteps.filter((step) => !step.done).map((step) => step.label);
+  const progressPct = Math.round((doneSteps / Math.max(1, progressSteps.length)) * 100);
+
+  return {
+    hasHoldout,
+    whatsappReady,
+    emailReady,
+    emailSent,
+    couponRequirement,
+    needsCoupon,
+    couponPlanReady,
+    couponGenerated,
+    pendingCoupons,
+    activeCoupons,
+    couponReady,
+    hasCashbackUsage,
+    outboundReady,
+    measurementReady,
+    progressSteps,
+    doneSteps,
+    missingSteps,
+    progressPct,
+  };
+}
+
 function emailTemplatesHref(run: RunReport) {
   const listId = run.channels?.email?.locawebListId || run.treatmentList.locawebListId;
   if (!listId) return "/crm/email-templates";
@@ -568,36 +621,14 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
   const coupons = run.channels?.coupons;
-  const cashback = run.channels?.cashback;
-  const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
-  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
-  const emailReady = Boolean(email?.listReady);
-  const emailSent = (email?.dispatchCount ?? 0) > 0;
-  const couponRequirement = runCouponRequirement(run);
-  const needsCoupon = couponRequirement === "required";
-  const couponPlanReady = (coupons?.planCount ?? 0) > 0;
-  const couponGenerated = (coupons?.couponCount ?? 0) > 0;
-  const pendingCoupons = couponStatusCount(coupons, "pending");
-  const couponReady = couponGenerated;
-  const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
-  const outboundReady = whatsappReady || emailSent;
-  const measurementReady = hasHoldout && (outboundReady || couponReady || hasCashbackUsage);
-  const progressSteps = [
-    { label: "holdout", done: hasHoldout },
-    ...(needsCoupon ? [{ label: "cupom", done: couponReady }] : []),
-    { label: "canal", done: outboundReady },
-    { label: "medicao", done: measurementReady },
-  ];
-  const doneSteps = progressSteps.filter((step) => step.done).length;
-  const missingSteps = progressSteps.filter((step) => !step.done).map((step) => step.label);
-  const progressPct = Math.round((doneSteps / Math.max(1, progressSteps.length)) * 100);
-  const couponActionLabel = couponGenerated
-    ? pendingCoupons > 0
+  const state = getRunExecutionState(run);
+  const couponActionLabel = state.couponGenerated
+    ? state.pendingCoupons > 0
       ? "Aprovar"
       : "Abrir"
-    : couponPlanReady
+    : state.couponPlanReady
       ? "Rodar"
-      : needsCoupon
+      : state.needsCoupon
         ? "Criar"
         : "Avaliar";
   const nextAction = getRunNextAction(run);
@@ -612,8 +643,8 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={measurementReady ? "secondary" : "outline"}>
-            {measurementReady ? "medindo" : `${doneSteps}/${progressSteps.length} pronto`}
+          <Badge variant={state.measurementReady ? "secondary" : "outline"}>
+            {state.measurementReady ? "medindo" : `${state.doneSteps}/${state.progressSteps.length} pronto`}
           </Badge>
           <Button asChild size="sm">
             <Link href={nextAction.href}>
@@ -626,11 +657,11 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
       </div>
       <div className="mt-2 space-y-1.5">
         <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progressPct}%` }} />
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${state.progressPct}%` }} />
         </div>
         <p className="text-xs text-muted-foreground">
           Proximo clique: {nextAction.hint}
-          {missingSteps.length > 0 ? ` Falta: ${missingSteps.join(", ")}.` : ""}
+          {state.missingSteps.length > 0 ? ` Falta: ${state.missingSteps.join(", ")}.` : ""}
         </p>
       </div>
 
@@ -646,41 +677,41 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
         <ExecutionStep
           icon={<MessageCircle className="h-3.5 w-3.5" />}
           label="WhatsApp"
-          state={whatsappReady ? "ready" : "todo"}
+          state={state.whatsappReady ? "ready" : "todo"}
           hint={
-            whatsappReady
+            state.whatsappReady
               ? `${NUMBER(whatsapp?.sent ?? 0)} envios vinculados`
               : `${NUMBER(run.treatmentList.phoneCount)} contatos com telefone`
           }
           href={run.links.whatsapp}
-          actionLabel={whatsappReady ? "Abrir" : "Criar"}
+          actionLabel={state.whatsappReady ? "Abrir" : "Criar"}
         />
         <ExecutionStep
           icon={<Mail className="h-3.5 w-3.5" />}
           label="Email"
-          state={emailReady ? "ready" : "todo"}
+          state={state.emailReady ? "ready" : "todo"}
           hint={
             (email?.dispatchCount ?? 0) > 0
               ? `${NUMBER(email?.dispatchCount ?? 0)} disparos vinculados`
-              : emailReady
+              : state.emailReady
               ? `Lista Locaweb pronta`
               : `${NUMBER(email?.emailContacts ?? run.treatmentList.emailCount)} contatos com email`
           }
-          href={emailReady ? emailTemplatesHref(run) : run.links.email}
-          actionLabel={emailReady ? (emailSent ? "Ver" : "Criar") : "Promover"}
+          href={state.emailReady ? emailTemplatesHref(run) : run.links.email}
+          actionLabel={state.emailReady ? (state.emailSent ? "Ver" : "Criar") : "Promover"}
         />
         <ExecutionStep
           icon={<Tag className="h-3.5 w-3.5" />}
           label="Cupom"
-          state={couponReady ? "ready" : needsCoupon ? "todo" : "optional"}
+          state={state.couponReady ? "ready" : state.needsCoupon ? "todo" : "optional"}
           hint={
-            couponReady
+            state.couponReady
               ? `${NUMBER(coupons?.couponCount ?? 0)} cupons · ${BRL(coupons?.attributedRevenue ?? 0)} atribuido`
-              : couponPlanReady
+              : state.couponPlanReady
               ? "Plano criado; rode para gerar os cupons"
-              : needsCoupon
+              : state.needsCoupon
               ? "Oferta precisa de plano VNDA"
-              : couponRequirement === "none"
+              : state.couponRequirement === "none"
               ? "Sem desconto novo como padrao"
               : "Cupom opcional no segundo toque"
           }
@@ -690,15 +721,180 @@ function RunExecutionChecklist({ run }: { run: RunReport }) {
         <ExecutionStep
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}
           label="Medicao"
-          state={measurementReady ? "ready" : hasHoldout ? "optional" : "todo"}
+          state={state.measurementReady ? "ready" : state.hasHoldout ? "optional" : "todo"}
           hint={
-            measurementReady
+            state.measurementReady
               ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} com canal/custo vinculado`
-              : hasHoldout
+              : state.hasHoldout
               ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo; falta canal vinculado`
               : "Sem grupo de controle"
           }
         />
+      </div>
+    </div>
+  );
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+type RunDecisionTone = "setup" | "wait" | "scale" | "pause" | "watch";
+
+interface RunDecision {
+  tone: RunDecisionTone;
+  label: string;
+  title: string;
+  detail: string;
+  ctaLabel: string;
+  href: string;
+  ageDays: number;
+  roi: number | null;
+  windowProgressPct: number;
+}
+
+function decisionVariant(tone: RunDecisionTone): "default" | "secondary" | "outline" {
+  if (tone === "scale") return "default";
+  if (tone === "setup" || tone === "pause") return "secondary";
+  return "outline";
+}
+
+function daysFrom(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / MS_PER_DAY));
+}
+
+function getRunDecision(run: RunReport, attributionWindowDays: number): RunDecision {
+  const state = getRunExecutionState(run);
+  const nextAction = getRunNextAction(run);
+  const ageDays = daysFrom(run.createdAt);
+  const windowDays = Math.max(1, attributionWindowDays);
+  const windowProgressPct = Math.min(100, Math.round((ageDays / windowDays) * 100));
+  const totalCost = run.metrics.trackedTotalCost ?? run.metrics.trackedChannelCost ?? 0;
+  const roi = totalCost > 0 ? run.metrics.incrementalContribution / totalCost : null;
+  const hasAnyResult =
+    run.metrics.treatment.orders > 0 ||
+    run.metrics.holdout.orders > 0 ||
+    run.metrics.incrementalRevenue > 0 ||
+    state.hasCashbackUsage;
+
+  if (!state.measurementReady) {
+    return {
+      tone: "setup",
+      label: "configurar",
+      title: "Ainda nao da para ler o resultado",
+      detail: `Falta ${state.missingSteps.join(", ") || "vincular canal/custo"} para esse run virar relatorio confiavel.`,
+      ctaLabel: nextAction.label,
+      href: nextAction.href,
+      ageDays,
+      roi,
+      windowProgressPct,
+    };
+  }
+
+  if (!hasAnyResult && ageDays < windowDays) {
+    return {
+      tone: "wait",
+      label: "aguardar",
+      title: "Run medindo, mas ainda sem sinal suficiente",
+      detail: `Janela em ${ageDays}/${windowDays} dias. Evite concluir cedo antes de leitura de lift e margem.`,
+      ctaLabel: "Acompanhar",
+      href: "/crm/retention",
+      ageDays,
+      roi,
+      windowProgressPct,
+    };
+  }
+
+  if (run.metrics.incrementalContribution > 0 && run.metrics.liftConversion > 0) {
+    return {
+      tone: "scale",
+      label: "escalar",
+      title: "Lift positivo com margem incremental",
+      detail: "Pode repetir para uma nova safra ou ampliar canal mantendo holdout e o mesmo controle de incentivo.",
+      ctaLabel: nextAction.label === "Acompanhar resultado" ? "Novo canal" : nextAction.label,
+      href: nextAction.label === "Acompanhar resultado" ? run.links.whatsapp : nextAction.href,
+      ageDays,
+      roi,
+      windowProgressPct,
+    };
+  }
+
+  if (ageDays >= windowDays && run.metrics.incrementalContribution <= 0) {
+    return {
+      tone: "pause",
+      label: "pausar",
+      title: "Nao escalar sem aprender",
+      detail: "A janela ja rodou e a contribuicao incremental nao pagou custo/oferta. Revise publico, oferta e canal.",
+      ctaLabel: "Ver detalhes",
+      href: "/crm/retention",
+      ageDays,
+      roi,
+      windowProgressPct,
+    };
+  }
+
+  return {
+    tone: "watch",
+    label: "monitorar",
+    title: "Resultado em formacao",
+    detail: "Mantenha o run isolado ate a janela fechar. A decisao vem de margem incremental, nao de receita bruta.",
+    ctaLabel: "Acompanhar",
+    href: "/crm/retention",
+    ageDays,
+    roi,
+    windowProgressPct,
+  };
+}
+
+function RunDecisionPanel({
+  run,
+  decision,
+}: {
+  run: RunReport;
+  decision: RunDecision;
+}) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">Decisao do run</p>
+            <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+          </div>
+          <p className="mt-1 text-sm font-medium">{decision.title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{decision.detail}</p>
+        </div>
+        <Button asChild size="sm" variant={decision.tone === "setup" ? "default" : "outline"}>
+          <Link href={decision.href}>
+            {decision.ctaLabel}
+            <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
+        <div>
+          <p className="text-xs text-muted-foreground">Janela</p>
+          <p className="font-semibold">{NUMBER(decision.ageDays)}d</p>
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${decision.windowProgressPct}%` }}
+            />
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Lift conv.</p>
+          <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">MC liquida</p>
+          <p className="font-semibold">{BRL(run.metrics.incrementalContribution)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">ROI custo</p>
+          <p className="font-semibold">{decision.roi == null ? "sem custo" : `${decision.roi.toFixed(1)}x`}</p>
+        </div>
       </div>
     </div>
   );
@@ -798,8 +994,9 @@ function ReadinessItem({
 
 function ReadinessPanel({ data, runs }: { data: SummaryResponse; runs: RunReport[] }) {
   const runsWithHoldout = runs.filter((run) => (run.holdoutList?.totalCount ?? 0) > 0).length;
+  const measuredRuns = runs.filter((run) => getRunExecutionState(run).measurementReady).length;
   const measurementStatus: ReadinessStatus =
-    runsWithHoldout > 0 ? "ready" : runs.length > 0 ? "attention" : "todo";
+    measuredRuns > 0 ? "ready" : runsWithHoldout > 0 ? "attention" : "todo";
   const cpaSource = data.acquisition.source ?? data.dataQuality.acquisitionProxySource ?? "none";
   const hasCpa = data.acquisition.cpa != null && data.acquisition.purchases > 0;
 
@@ -864,7 +1061,7 @@ function ReadinessPanel({ data, runs }: { data: SummaryResponse; runs: RunReport
       icon: <BarChart3 className="h-3.5 w-3.5" />,
       title: "Mensuracao",
       status: measurementStatus,
-      value: `${NUMBER(runs.length)} runs`,
+      value: `${NUMBER(measuredRuns)}/${NUMBER(runs.length)} medindo`,
       detail: `${NUMBER(runsWithHoldout)} com holdout. KPI principal: ${data.measurement.primaryMetric}.`,
       href: "/crm/retention",
       cta: measurementStatus === "todo" ? "Preparar run" : "Ver resultados",
@@ -1590,6 +1787,7 @@ export default function RetentionPlaybooksPage() {
                   const hasEmailDispatch = (email?.dispatchCount ?? 0) > 0;
                   const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
                   const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
+                  const decision = getRunDecision(run, data.measurement.attributionWindowDays);
 
                   return (
                     <Card key={run.id}>
@@ -1601,10 +1799,12 @@ export default function RetentionPlaybooksPage() {
                             {new Date(run.createdAt).toLocaleDateString("pt-BR")} · {run.id.slice(0, 8)}
                           </p>
                         </div>
+                        <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <RunExecutionChecklist run={run} />
+                      <RunDecisionPanel run={run} decision={decision} />
 
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                         <div>
