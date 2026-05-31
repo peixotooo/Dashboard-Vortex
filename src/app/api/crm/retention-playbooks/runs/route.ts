@@ -893,7 +893,12 @@ async function fetchEmailDispatchesSince(
   return rows;
 }
 
-function summarizeEmailDispatches(list: ContactListRow, dispatches: EmailDispatchRow[]) {
+function summarizeEmailDispatches(
+  list: ContactListRow,
+  dispatches: EmailDispatchRow[],
+  runId: string,
+  attribution: { start: Date | null; end: Date | null }
+) {
   const base = summarizeEmailChannel(list);
   if (!list.locaweb_list_id) {
     return {
@@ -916,9 +921,24 @@ function summarizeEmailDispatches(list: ContactListRow, dispatches: EmailDispatc
     };
   }
 
-  const rows = dispatches.filter((dispatch) =>
-    (dispatch.locaweb_list_ids || []).some((listId) => String(listId) === list.locaweb_list_id)
-  );
+  const rows = dispatches.filter((dispatch) => {
+    const statsRunValue = dispatch.stats?.playbook_run_id;
+    const statsRunId = typeof statsRunValue === "string" ? statsRunValue : "";
+    if (statsRunId) return statsRunId === runId;
+
+    const createdAt = parseDate(dispatch.created_at);
+    const withinAttribution =
+      createdAt &&
+      attribution.start &&
+      attribution.end &&
+      createdAt >= attribution.start &&
+      createdAt <= attribution.end;
+
+    return (
+      Boolean(withinAttribution) &&
+      (dispatch.locaweb_list_ids || []).some((listId) => String(listId) === list.locaweb_list_id)
+    );
+  });
   const totals = rows.reduce(
     (acc, dispatch) => {
       const sent = toNumber(dispatch.recipients_sent);
@@ -1337,7 +1357,7 @@ export async function GET(request: NextRequest) {
         treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
-      const email = summarizeEmailDispatches(treatment, emailDispatches);
+      const email = summarizeEmailDispatches(treatment, emailDispatches, runId, attribution);
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
       const runCashbackUsages = cashbackUsages.filter((usage) => {
         const usageDate = parseDate(usage.usado_em);
