@@ -432,6 +432,58 @@ function couponStatusCount(coupons: CouponRunSummary | undefined, status: string
   return coupons?.statuses?.[status] ?? 0;
 }
 
+function preparedRunActionPlan(run: PreparedRun) {
+  const couponRequirement = runCouponRequirement(run);
+  const hasPhone = run.treatmentList.phone_count > 0;
+  const hasEmail = run.treatmentList.email_count > 0;
+  const whatsappAction = {
+    key: "whatsapp",
+    href: run.links.whatsapp,
+    label: "Criar WhatsApp",
+    icon: <MessageCircle className="mr-2 h-4 w-4" />,
+  };
+  const emailAction = {
+    key: "email",
+    href: run.links.email,
+    label: "Email",
+    icon: <Mail className="mr-2 h-4 w-4" />,
+  };
+  const couponAction = {
+    key: "coupon",
+    href: run.links.coupons,
+    label: couponRequirement === "optional" ? "Cupom opcional" : "Criar cupom",
+    icon: <Tag className="mr-2 h-4 w-4" />,
+  };
+  const listAction = {
+    key: "lists",
+    href: run.links.lists,
+    label: "Listas",
+    icon: <ListChecks className="mr-2 h-4 w-4" />,
+  };
+  const channelActions = [hasPhone ? whatsappAction : null, hasEmail ? emailAction : null].filter(
+    (action): action is typeof whatsappAction | typeof emailAction => Boolean(action)
+  );
+
+  if (couponRequirement === "required") {
+    return {
+      hint: "Proximo passo: criar/rodar o cupom VNDA antes de disparar a mensagem.",
+      actions: [couponAction, ...channelActions, listAction],
+    };
+  }
+
+  if (couponRequirement === "none") {
+    return {
+      hint: "Proximo passo: comunicar saldo/cashback existente sem criar desconto novo.",
+      actions: [...channelActions, listAction],
+    };
+  }
+
+  return {
+    hint: "Proximo passo: comecar pelo canal; cupom fica como segundo toque se precisar.",
+    actions: [...channelActions, couponAction, listAction],
+  };
+}
+
 type RunProgressStep = { label: string; done: boolean };
 
 function getRunExecutionState(run: RunReport) {
@@ -1469,6 +1521,10 @@ export default function RetentionPlaybooksPage() {
     }
     return null;
   }, [data, runs]);
+  const preparedRunPlan = useMemo(
+    () => (preparedRun ? preparedRunActionPlan(preparedRun) : null),
+    [preparedRun]
+  );
 
   async function preparePlaybook(
     playbook: RetentionPlaybook,
@@ -1559,32 +1615,21 @@ export default function RetentionPlaybooksPage() {
                       : "."}
                     {preparedRun.sourceRunId ? ` Origem: run ${preparedRun.sourceRunId.slice(0, 8)}.` : ""}
                   </p>
+                  {preparedRunPlan && (
+                    <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                      {preparedRunPlan.hint}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button asChild size="sm">
-                    <Link href={preparedRun.links.whatsapp}>
-                      <MessageCircle className="mr-2 h-4 w-4" />
-                      Criar WhatsApp
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={preparedRun.links.email}>
-                      <Mail className="mr-2 h-4 w-4" />
-                      Email
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={preparedRun.links.coupons}>
-                      <Tag className="mr-2 h-4 w-4" />
-                      Cupom
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href={preparedRun.links.lists}>
-                      <ListChecks className="mr-2 h-4 w-4" />
-                      Listas
-                    </Link>
-                  </Button>
+                  {(preparedRunPlan?.actions ?? []).map((action, index) => (
+                    <Button key={action.key} asChild variant={index === 0 ? "default" : "outline"} size="sm">
+                      <Link href={action.href}>
+                        {action.icon}
+                        {action.label}
+                      </Link>
+                    </Button>
+                  ))}
                 </div>
               </CardContent>
             </Card>
