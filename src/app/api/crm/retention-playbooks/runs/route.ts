@@ -148,6 +148,92 @@ function withParams(path: string, params: Record<string, string>): string {
   return `${path}?${qs.toString()}`;
 }
 
+const WHATSAPP_PLAYBOOK_CONTEXT: Record<
+  string,
+  { templateHint: string; messageGoal: string; guardrail: string }
+> = {
+  "cashback-expiring-14d": {
+    templateHint: "cashback",
+    messageGoal:
+      "Avisar que o cliente tem cashback expirando, reforcar o valor disponivel e levar direto para usar o saldo. Nao oferecer desconto novo.",
+    guardrail:
+      "Use somente a lista de tratamento. O holdout nao recebe comunicacao para medir lift incremental.",
+  },
+  "active-cashback-balance": {
+    templateHint: "cashback",
+    messageGoal:
+      "Lembrar o cliente do saldo ativo de cashback e sugerir recompra com produtos de maior afinidade. Nao criar cupom enquanto houver saldo.",
+    guardrail:
+      "Priorize consumo do cashback existente. Se precisar de desconto extra, crie um plano separado com aprovacao.",
+  },
+  "second-purchase-31-60d": {
+    templateHint: "segunda recompra pos compra",
+    messageGoal:
+      "Gerar segunda compra com novidade, beneficio claro e urgencia moderada. Se houver cupom, citar apenas o cupom aprovado no playbook.",
+    guardrail:
+      "Nao misture com outro desconto automatico. Compare contra holdout para validar margem incremental.",
+  },
+  "one-time-61-90d-save": {
+    templateHint: "reativacao recompra",
+    messageGoal:
+      "Recuperar comprador de uma compra com prova social, produtos de entrada e chamada simples para voltar ao site.",
+    guardrail:
+      "Comece com conteudo/oferta leve. Cupom so entra se o plano VNDA estiver criado para este mesmo run.",
+  },
+  "repeat-61-180d": {
+    templateHint: "recorrente reposicao novidade",
+    messageGoal:
+      "Ativar recompra de cliente recorrente com reposicao, novidades e oferta limitada em produtos com margem saudavel.",
+    guardrail:
+      "Evite desconto em produto de margem apertada. Use cupom seletivo quando o playbook indicar.",
+  },
+  "high-ltv-dormant": {
+    templateHint: "vip winback reativacao",
+    messageGoal:
+      "Winback de cliente alto LTV com abordagem VIP, motivo real para voltar e incentivo forte apenas se aprovado.",
+    guardrail:
+      "Exija revisao antes do disparo. Este publico tem valor alto e precisa de controle de frequencia.",
+  },
+};
+
+function whatsappPlaybookParams({
+  listId,
+  campaignName,
+  playbookId,
+  playbookName,
+  runId,
+  audienceName,
+}: {
+  listId: string;
+  campaignName: string;
+  playbookId: string;
+  playbookName: string;
+  runId: string;
+  audienceName: string;
+}): Record<string, string> {
+  const context =
+    WHATSAPP_PLAYBOOK_CONTEXT[playbookId] ||
+    {
+      templateHint: "retencao",
+      messageGoal:
+        "Criar comunicacao de retencao para a lista de tratamento mantendo a oferta alinhada ao playbook.",
+      guardrail:
+        "Nao disparar para holdout. O resultado deve ser medido por lift de receita e margem incremental.",
+    };
+
+  return {
+    list: listId,
+    name: campaignName,
+    run: runId,
+    playbook: playbookId,
+    playbook_name: playbookName,
+    audience: audienceName,
+    template_hint: context.templateHint,
+    message_goal: context.messageGoal,
+    guardrail: context.guardrail,
+  };
+}
+
 function couponGuardrailParams(playbookId: string): Record<string, string> {
   if (playbookId === "second-purchase-31-60d") {
     return {
@@ -968,10 +1054,17 @@ export async function POST(request: NextRequest) {
         treatmentList,
         holdoutList,
         links: {
-          whatsapp: withParams("/crm/whatsapp", {
-            list: treatmentList.id,
-            name: `Playbook ${playbookName} ${dateLabel}`,
-          }),
+          whatsapp: withParams(
+            "/crm/whatsapp",
+            whatsappPlaybookParams({
+              listId: treatmentList.id,
+              campaignName: `Playbook ${playbookName} ${dateLabel}`,
+              playbookId,
+              playbookName,
+              runId,
+              audienceName: treatmentList.name,
+            })
+          ),
           lists: withParams("/crm/listas", { list: treatmentList.id }),
           email: withParams("/crm/listas", { email: treatmentList.id }),
           coupons: withParams("/coupons", {
@@ -1112,10 +1205,17 @@ export async function GET(request: NextRequest) {
           coupons,
         },
         links: {
-          whatsapp: withParams("/crm/whatsapp", {
-            list: treatment.id,
-            name: `Playbook ${treatment.auto_segment?.playbook_name || "Retencao"}`,
-          }),
+          whatsapp: withParams(
+            "/crm/whatsapp",
+            whatsappPlaybookParams({
+              listId: treatment.id,
+              campaignName: `Playbook ${treatment.auto_segment?.playbook_name || "Retencao"}`,
+              playbookId: String(treatment.auto_segment?.playbook_id || ""),
+              playbookName: treatment.auto_segment?.playbook_name || "Retencao",
+              runId,
+              audienceName: treatment.name,
+            })
+          ),
           lists: withParams("/crm/listas", { list: treatment.id }),
           email: withParams("/crm/listas", { email: treatment.id }),
           coupons: withParams("/coupons", {

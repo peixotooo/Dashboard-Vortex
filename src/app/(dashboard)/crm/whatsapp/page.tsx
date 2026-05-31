@@ -55,6 +55,7 @@ import {
   FileEdit,
   Play,
   Pencil,
+  Sparkles,
 } from "lucide-react";
 
 // --- Types ---
@@ -151,6 +152,17 @@ interface WaExclusion {
   created_at: string;
 }
 
+interface RetentionWaContext {
+  runId: string;
+  playbookId: string;
+  playbookName: string;
+  audienceName: string;
+  sourceListId: string;
+  templateHint: string;
+  messageGoal: string;
+  guardrail: string;
+}
+
 // --- RFM segment labels ---
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -222,6 +234,9 @@ export default function WhatsAppPage() {
   const [templateFilter, setTemplateFilter] = useState<"all" | "APPROVED" | "PENDING" | "REJECTED">("all");
   const [previewTemplate, setPreviewTemplate] = useState<WaTemplate | null>(null);
   const [detailsCampaignId, setDetailsCampaignId] = useState<string | null>(null);
+  const [retentionContext, setRetentionContext] = useState<RetentionWaContext | null>(null);
+  const [copyPrompt, setCopyPrompt] = useState("");
+  const [copyLoading, setCopyLoading] = useState(false);
 
   // Modo "rascunho com aprovação" — campanha fica em pending_approval
   // até outro membro do time aprovar.
@@ -405,12 +420,48 @@ export default function WhatsAppPage() {
     const listId = params.get("list");
     const presetName = params.get("name");
     if (listId && contactLists.some((l) => l.id === listId)) {
+      const playbookId = params.get("playbook") || "";
+      const runId = params.get("run") || "";
+      const playbookName =
+        params.get("playbook_name") ||
+        presetName ||
+        "Playbook de retencao";
+      const audienceName =
+        params.get("audience") ||
+        contactLists.find((l) => l.id === listId)?.name ||
+        "";
+      const templateHint = params.get("template_hint") || "";
+      const messageGoal = params.get("message_goal") || "";
+      const guardrail = params.get("guardrail") || "";
+
       setAudienceMode("list");
       setSelectedListId(listId);
       if (presetName) setCampaignName(presetName);
+      if (playbookId || runId || messageGoal || guardrail) {
+        setRetentionContext({
+          runId,
+          playbookId,
+          playbookName,
+          audienceName,
+          sourceListId: listId,
+          templateHint,
+          messageGoal,
+          guardrail,
+        });
+        const prompt = [messageGoal, guardrail].filter(Boolean).join("\n");
+        if (prompt) setCopyPrompt(prompt);
+        if (templateHint) setTemplateSearch(templateHint);
+      }
       setShowCreate(true);
       params.delete("list");
       params.delete("name");
+      params.delete("run");
+      params.delete("playbook");
+      params.delete("playbook_name");
+      params.delete("audience");
+      params.delete("template_hint");
+      params.delete("message_goal");
+      params.delete("guardrail");
       const url = window.location.pathname + (params.toString() ? `?${params}` : "");
       window.history.replaceState({}, "", url);
     }
@@ -554,6 +605,16 @@ export default function WhatsAppPage() {
           segmentFilter.playbook_audience_role = autoSegment.role;
           segmentFilter.holdout_pct = autoSegment.holdout_pct;
         }
+        if (retentionContext && retentionContext.sourceListId === selectedListId) {
+          segmentFilter.playbook_run_id = segmentFilter.playbook_run_id || retentionContext.runId;
+          segmentFilter.playbook_id = segmentFilter.playbook_id || retentionContext.playbookId;
+          segmentFilter.playbook_name = segmentFilter.playbook_name || retentionContext.playbookName;
+          segmentFilter.playbook_context = {
+            template_hint: retentionContext.templateHint,
+            message_goal: retentionContext.messageGoal,
+            guardrail: retentionContext.guardrail,
+          };
+        }
       }
 
       // Resolve exclusion list (se houver) — fetcha contatos e monta Set de phones normalizados
@@ -692,6 +753,9 @@ export default function WhatsAppPage() {
     setRequiresApproval(false);
     setSaveAsDraft(false);
     setScheduleEnabled(false);
+    setRetentionContext(null);
+    setCopyPrompt("");
+    setCopyLoading(false);
   }
 
   function openEdit(c: WaCampaign) {
@@ -942,6 +1006,64 @@ export default function WhatsAppPage() {
     return text;
   }
 
+  function getTemplateBodyText(template: WaTemplate): string {
+    return template.components.find((c) => c.type === "BODY")?.text || "";
+  }
+
+  function getSuggestedTemplates(): WaTemplate[] {
+    if (!retentionContext?.templateHint) return [];
+    const terms = retentionContext.templateHint
+      .toLowerCase()
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter(Boolean);
+    if (terms.length === 0) return [];
+
+    return templates
+      .filter((template) => template.status === "APPROVED")
+      .map((template) => {
+        const haystack = `${template.name} ${template.category} ${getTemplateBodyText(template)}`.toLowerCase();
+        const score = terms.reduce((sum, term) => sum + (haystack.includes(term) ? 1 : 0), 0);
+        return { template, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))
+      .slice(0, 3)
+      .map((item) => item.template);
+  }
+
+  async function handleGenerateCopy() {
+    const vars = getTemplateVars();
+    if (!workspace?.id || !selectedTemplate || vars.length === 0 || copyLoading) return;
+
+    setCopyLoading(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/crm/whatsapp/generate-copy", {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify({
+          campaignName: campaignName.trim(),
+          templateBody: getTemplateBodyText(selectedTemplate),
+          variables: vars,
+          userPrompt: copyPrompt.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorMsg(data.error || "Falha ao gerar variaveis com IA.");
+        return;
+      }
+      if (data.values && Object.keys(data.values).length > 0) {
+        setVariableValues((prev) => ({ ...prev, ...data.values }));
+      }
+    } catch (err) {
+      setErrorMsg(`Erro ao gerar copy: ${err instanceof Error ? err.message : "desconhecido"}`);
+    } finally {
+      setCopyLoading(false);
+    }
+  }
+
   // --- Render ---
 
   const statusBadge = (status: string) => {
@@ -1009,6 +1131,51 @@ export default function WhatsAppPage() {
           <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-300">
             <span className="sr-only">Fechar</span>&times;
           </button>
+        </div>
+      )}
+
+      {retentionContext && (
+        <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary" className="gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Medicao por playbook
+                </Badge>
+                <span className="text-sm font-semibold">{retentionContext.playbookName}</span>
+                {retentionContext.runId && (
+                  <span className="text-xs text-muted-foreground">
+                    run {retentionContext.runId.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Lista de tratamento selecionada:{" "}
+                <span className="font-medium text-foreground">
+                  {retentionContext.audienceName || "lista do playbook"}
+                </span>
+                . O holdout fica fora do disparo para medir lift, receita e margem incremental.
+              </p>
+              {retentionContext.messageGoal && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Direcao da mensagem: {retentionContext.messageGoal}
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => {
+                setRetentionContext(null);
+                setCopyPrompt("");
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+              Limpar contexto
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1170,6 +1337,28 @@ export default function WhatsAppPage() {
                   </DialogTitle>
                 </DialogHeader>
 
+                {retentionContext && (
+                  <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary">Playbook CRM</Badge>
+                      <span className="font-semibold">{retentionContext.playbookName}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {retentionContext.guardrail ||
+                        "Use a lista de tratamento. O holdout fica sem disparo para medir resultado incremental."}
+                    </p>
+                    {retentionContext.templateHint && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Procure um template aprovado relacionado a{" "}
+                        <span className="font-medium text-foreground">
+                          {retentionContext.templateHint}
+                        </span>
+                        .
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Step 1: Segment + Template */}
                 {createStep === 1 && (
                   <div className="space-y-4">
@@ -1283,6 +1472,38 @@ export default function WhatsAppPage() {
 
                     <div>
                       <Label>Template</Label>
+                      {getSuggestedTemplates().length > 0 && (
+                        <div className="mb-2 grid gap-2">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Sugestao pelo playbook
+                          </p>
+                          {getSuggestedTemplates().map((template) => (
+                            <button
+                              key={template.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedTemplate(template);
+                                setVariableValues({});
+                              }}
+                              className={`rounded-md border p-2 text-left transition-colors ${
+                                selectedTemplate?.id === template.id
+                                  ? "border-primary bg-primary/5"
+                                  : "border-border hover:border-primary/40 hover:bg-muted/40"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-medium">{template.name}</span>
+                                <Badge variant="outline" className="text-[10px]">
+                                  {template.language}
+                                </Badge>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                                {getTemplateBodyText(template) || "Sem corpo"}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <Select
                         value={selectedTemplate?.id || ""}
                         onValueChange={(id) => {
@@ -1336,6 +1557,41 @@ export default function WhatsAppPage() {
                       Preencha o valor para cada variavel do template. Use <code className="bg-muted px-1 rounded">{"{{nome}}"}</code> para preencher com o nome do contato.
                     </p>
 
+                    <div className="rounded-md border border-sky-500/20 bg-sky-500/5 p-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-sky-500" />
+                        <p className="text-sm font-medium">Assistente de variaveis</p>
+                      </div>
+                      <Textarea
+                        value={copyPrompt}
+                        onChange={(e) => setCopyPrompt(e.target.value)}
+                        placeholder="Ex: lembrar saldo de cashback e chamar para recompra sem desconto extra"
+                        className="mt-2 min-h-[72px] text-sm"
+                        disabled={copyLoading}
+                      />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={handleGenerateCopy}
+                          disabled={copyLoading || !selectedTemplate}
+                        >
+                          {copyLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-3.5 w-3.5" />
+                          )}
+                          Gerar com IA
+                        </Button>
+                        {retentionContext?.messageGoal && (
+                          <span className="text-xs text-muted-foreground">
+                            O prompt ja veio do playbook.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
                     {getTemplateVars().map((v) => (
                       <div key={v}>
                         <Label>{v}</Label>
@@ -1383,7 +1639,7 @@ export default function WhatsAppPage() {
                           <span className="text-muted-foreground">Campanha:</span>
                           <span className="font-medium">{campaignName}</span>
                         </div>
-<div className="flex justify-between">
+                        <div className="flex justify-between">
                           <span className="text-muted-foreground">Audiência:</span>
                           <span className="font-medium">
                             {audienceMode === "segment"
@@ -1391,6 +1647,17 @@ export default function WhatsAppPage() {
                               : contactLists.find((l) => l.id === selectedListId)?.name || "—"}
                           </span>
                         </div>
+                        {retentionContext && (
+                          <div className="flex justify-between gap-3">
+                            <span className="text-muted-foreground">Playbook:</span>
+                            <span className="text-right font-medium">
+                              {retentionContext.playbookName}
+                              {retentionContext.runId
+                                ? ` · run ${retentionContext.runId.slice(0, 8)}`
+                                : ""}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Template:</span>
                           <span className="font-medium">{selectedTemplate?.name}</span>
