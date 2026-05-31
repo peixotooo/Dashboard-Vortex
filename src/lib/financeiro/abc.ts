@@ -123,6 +123,12 @@ function toItems(row: CrmVendaRow): ItemRow[] {
   return Array.isArray(row.items) ? (row.items as ItemRow[]) : [];
 }
 
+function parseOrderDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
 /**
  * Deriva o "produto pai" de um item de pedido. A curva ABC agrupa por
  * pai — não faz sentido listar 5 variantes de cor da mesma camiseta
@@ -195,16 +201,18 @@ export function computeAbcAndProfitability(
   const productMap = new Map<string, ProductAgg>();
   const orders: OrderProfitabilityRow[] = [];
 
-  let periodStart: string | null = null;
-  let periodEnd: string | null = null;
+  let periodStart: Date | null = null;
+  let periodEnd: Date | null = null;
+  let trackedItemsRevenue = 0;
 
   for (const row of rows) {
     const items = toItems(row);
     if (items.length === 0 && row.valor == null) continue;
 
-    if (row.data_compra) {
-      if (!periodStart || row.data_compra < periodStart) periodStart = row.data_compra;
-      if (!periodEnd || row.data_compra > periodEnd) periodEnd = row.data_compra;
+    const purchasedAt = parseOrderDate(row.data_compra);
+    if (purchasedAt) {
+      if (!periodStart || purchasedAt < periodStart) periodStart = purchasedAt;
+      if (!periodEnd || purchasedAt > periodEnd) periodEnd = purchasedAt;
     }
 
     let orderItemsRevenue = 0;
@@ -214,6 +222,7 @@ export function computeAbcAndProfitability(
       const qty = Math.max(1, Number(item.quantity ?? 1));
       const lineRevenue = Number(item.total ?? (item.price ?? 0) * qty);
       const skuKey = (item.sku ?? "").trim().toLowerCase();
+      const refKey = (item.reference ?? "").trim().toLowerCase();
       const { key: parentKey, displayCode, productId } = aggregationKey(item);
 
       // Custo: tenta variante (sku exato), depois pai (parentKey),
@@ -222,6 +231,8 @@ export function computeAbcAndProfitability(
       let trackedCost: number | undefined;
       if (skuKey && costsBySku.has(skuKey)) {
         trackedCost = costsBySku.get(skuKey);
+      } else if (refKey && costsBySku.has(refKey)) {
+        trackedCost = costsBySku.get(refKey);
       } else if (parentKey && costsBySku.has(parentKey)) {
         trackedCost = costsBySku.get(parentKey);
       }
@@ -239,6 +250,7 @@ export function computeAbcAndProfitability(
 
       orderItemsRevenue += lineRevenue;
       orderItemsCost += lineCost;
+      if (costSource === "tracked") trackedItemsRevenue += lineRevenue;
 
       const existing = productMap.get(parentKey);
       if (existing) {
@@ -271,8 +283,13 @@ export function computeAbcAndProfitability(
     const shippingAbsorbed = shippingPrice <= 0 ? freteAbsorvidoMedio : 0;
     const discount = Number(row.discount_price ?? 0);
 
+    if (orderItemsRevenue <= 0) {
+      orderItemsRevenue = orderTotal;
+      orderItemsCost = orderTotal * productCostFrac;
+    }
+
     const profit =
-      orderItemsRevenue - orderItemsCost - taxes - otherExpenses - shippingAbsorbed;
+      orderTotal - orderItemsCost - taxes - otherExpenses - shippingAbsorbed;
     const marginPct = orderTotal > 0 ? profit / orderTotal : 0;
     const status: OrderProfitabilityRow["status"] =
       profit > 0.5 ? "profit" : profit < -0.5 ? "loss" : "breakeven";
@@ -332,33 +349,30 @@ export function computeAbcAndProfitability(
 
   // Summary roll-up (sum the per-order rows so the totals match exactly
   // what the user will see in the orders table).
-  const totalProductCost = products.reduce((s, p) => s + p.cost_total, 0);
+  const totalOrderRevenue = orders.reduce((s, o) => s + o.valor, 0);
+  const totalProductCost = orders.reduce((s, o) => s + o.items_cost, 0);
   const totalTaxes = orders.reduce((s, o) => s + o.taxes, 0);
   const totalOther = orders.reduce((s, o) => s + o.other_expenses, 0);
   const totalShipping = orders.reduce((s, o) => s + o.shipping_absorbed, 0);
   const totalProfit = orders.reduce((s, o) => s + o.profit, 0);
 
-  const trackedRevenue = products
-    .filter((p) => p.cost_source === "tracked")
-    .reduce((s, p) => s + p.revenue, 0);
-
   const summary: AbcSummary = {
-    total_revenue: round2(totalRevenue),
+    total_revenue: round2(totalOrderRevenue),
     total_cost: round2(totalProductCost),
     total_taxes: round2(totalTaxes),
     total_other_expenses: round2(totalOther),
     total_shipping_absorbed: round2(totalShipping),
     total_profit: round2(totalProfit),
-    gross_margin_pct: totalRevenue > 0 ? round4(totalProfit / totalRevenue) : 0,
+    gross_margin_pct: totalOrderRevenue > 0 ? round4(totalProfit / totalOrderRevenue) : 0,
     a_count: products.filter((p) => p.abc_class === "A").length,
     b_count: products.filter((p) => p.abc_class === "B").length,
     c_count: products.filter((p) => p.abc_class === "C").length,
     profitable_orders: orders.filter((o) => o.status === "profit").length,
     loss_orders: orders.filter((o) => o.status === "loss").length,
     breakeven_orders: orders.filter((o) => o.status === "breakeven").length,
-    period_start: periodStart,
-    period_end: periodEnd,
-    coverage_pct: totalRevenue > 0 ? round4(trackedRevenue / totalRevenue) : 0,
+    period_start: periodStart ? periodStart.toISOString() : null,
+    period_end: periodEnd ? periodEnd.toISOString() : null,
+    coverage_pct: totalOrderRevenue > 0 ? round4(trackedItemsRevenue / totalOrderRevenue) : 0,
   };
 
   return { products, orders, summary };

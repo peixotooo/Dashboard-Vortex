@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
-import { TemplateCreateDialog } from "@/components/crm/template-create-dialog";
+import { TemplateCreateDialog, type TemplateCreateInitialValues } from "@/components/crm/template-create-dialog";
 import { CampaignDetailsDialog } from "@/components/crm/campaign-details-dialog";
 import {
   MessageCircle,
@@ -163,6 +163,86 @@ interface RetentionWaContext {
   guardrail: string;
 }
 
+function retentionTemplatePreset(context: RetentionWaContext | null): TemplateCreateInitialValues | undefined {
+  if (!context) return undefined;
+
+  const common = {
+    category: "MARKETING" as const,
+    language: "pt_BR",
+    templateType: "custom" as const,
+    headerType: "NONE" as const,
+    footerText: "Responda SAIR para nao receber.",
+  };
+
+  if (context.playbookId === "cashback-expiring-14d") {
+    return {
+      ...common,
+      name: "playbook_saldo_expirando",
+      bodyText:
+        "Oi {{1}}, voce tem R$ {{2}} de cashback na Bulking e esse saldo expira em breve. Use hoje para garantir sua proxima compra sem criar desconto extra.",
+      bodyExamples: { "{{1}}": "Guilherme", "{{2}}": "35,90" },
+    };
+  }
+
+  if (context.playbookId === "active-cashback-balance") {
+    return {
+      ...common,
+      name: "playbook_saldo_ativo",
+      bodyText:
+        "Oi {{1}}, seu cashback de R$ {{2}} esta disponivel na Bulking. Aproveite esse saldo para escolher sua proxima peca antes de esquecer.",
+      bodyExamples: { "{{1}}": "Guilherme", "{{2}}": "35,90" },
+    };
+  }
+
+  if (context.playbookId === "second-purchase-31-60d") {
+    return {
+      ...common,
+      name: "playbook_segunda_compra",
+      bodyText:
+        "Oi {{1}}, separamos uma selecao para sua segunda compra na Bulking. Volte para ver novidades pensadas para seu proximo treino.",
+      bodyExamples: { "{{1}}": "Guilherme" },
+    };
+  }
+
+  if (context.playbookId === "one-time-61-90d-save") {
+    return {
+      ...common,
+      name: "playbook_primeira_compra_esfriando",
+      bodyText:
+        "Oi {{1}}, faz um tempo desde sua compra na Bulking. Separamos novidades para voce voltar com calma e encontrar sua proxima peca.",
+      bodyExamples: { "{{1}}": "Guilherme" },
+    };
+  }
+
+  if (context.playbookId === "repeat-61-180d") {
+    return {
+      ...common,
+      name: "playbook_recorrentes_novidade",
+      bodyText:
+        "Oi {{1}}, chegaram novidades que combinam com seu historico na Bulking. Veja a selecao antes que os tamanhos acabem.",
+      bodyExamples: { "{{1}}": "Guilherme" },
+    };
+  }
+
+  if (context.playbookId === "high-ltv-dormant") {
+    return {
+      ...common,
+      name: "playbook_vip_winback",
+      bodyText:
+        "Oi {{1}}, sentimos sua falta por aqui. Preparamos uma selecao VIP para voce voltar para a Bulking com uma condicao limitada.",
+      bodyExamples: { "{{1}}": "Guilherme" },
+    };
+  }
+
+  return {
+    ...common,
+    name: "playbook_retencao",
+    bodyText:
+      "Oi {{1}}, temos uma recomendacao da Bulking para voce voltar no momento certo. Veja a selecao preparada para sua proxima compra.",
+    bodyExamples: { "{{1}}": "Guilherme" },
+  };
+}
+
 // --- RFM segment labels ---
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -237,6 +317,10 @@ export default function WhatsAppPage() {
   const [retentionContext, setRetentionContext] = useState<RetentionWaContext | null>(null);
   const [copyPrompt, setCopyPrompt] = useState("");
   const [copyLoading, setCopyLoading] = useState(false);
+  const playbookTemplatePreset = useMemo(
+    () => retentionTemplatePreset(retentionContext),
+    [retentionContext]
+  );
 
   // Modo "rascunho com aprovação" — campanha fica em pending_approval
   // até outro membro do time aprovar.
@@ -1163,18 +1247,35 @@ export default function WhatsAppPage() {
                 </p>
               )}
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => {
-                setRetentionContext(null);
-                setCopyPrompt("");
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-              Limpar contexto
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={!configured}
+                onClick={() => {
+                  setActiveTab("templates");
+                  setTemplateFilter("all");
+                  setTemplateSearch(retentionContext.templateHint || retentionContext.playbookName);
+                  setShowTemplateCreate(true);
+                }}
+                title={!configured ? "Configure o WhatsApp antes de criar templates." : undefined}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Criar template do playbook
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => {
+                  setRetentionContext(null);
+                  setCopyPrompt("");
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Limpar contexto
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -1502,6 +1603,31 @@ export default function WhatsAppPage() {
                               </p>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {retentionContext && getSuggestedTemplates().length === 0 && (
+                        <div className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+                          <p>
+                            Nenhum template aprovado parece bater com este playbook. Crie um template ja preenchido
+                            e volte aqui assim que a Meta aprovar.
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mt-2"
+                            disabled={!configured}
+                            onClick={() => {
+                              setShowCreate(false);
+                              setActiveTab("templates");
+                              setTemplateFilter("all");
+                              setTemplateSearch(retentionContext.templateHint || retentionContext.playbookName);
+                              setShowTemplateCreate(true);
+                            }}
+                          >
+                            <Plus className="mr-1 h-3.5 w-3.5" />
+                            Criar template do playbook
+                          </Button>
                         </div>
                       )}
                       <Select
@@ -2745,6 +2871,7 @@ export default function WhatsAppPage() {
         open={showTemplateCreate}
         onOpenChange={setShowTemplateCreate}
         onCreated={() => handleSyncTemplates()}
+        initialValues={playbookTemplatePreset}
       />
 
       <CampaignDetailsDialog

@@ -38,6 +38,12 @@ const FINANCIAL_DEFAULTS: FinancialSettings = {
   custo_frete_medio_brl: 18, // ballpark BRL/order Bulking
 };
 
+function parseOrderDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
 export async function recomputeAbcSnapshot(
   client: SupabaseClient,
   workspaceId: string,
@@ -45,12 +51,11 @@ export async function recomputeAbcSnapshot(
   periodDays: number = ABC_PERIOD_DAYS_DEFAULT
 ): Promise<void> {
   // 1. Filter to the analysis window.
-  const cutoff = new Date(
-    Date.now() - periodDays * 24 * 60 * 60 * 1000
-  ).toISOString();
-  const recentRows = allRows.filter(
-    (r) => r.data_compra && r.data_compra >= cutoff
-  );
+  const cutoffTs = Date.now() - periodDays * 24 * 60 * 60 * 1000;
+  const recentRows = allRows.filter((row) => {
+    const purchasedAt = parseOrderDate(row.data_compra);
+    return purchasedAt ? purchasedAt.getTime() >= cutoffTs : false;
+  });
 
   // 2. Load product costs (workspace-scoped).
   const costsBySku = new Map<string, number>();

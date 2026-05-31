@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -86,10 +86,32 @@ interface TemplateFormState {
   cards: CarouselCard[];
 }
 
+export interface TemplateCreateInitialValues {
+  name?: string;
+  category?: "MARKETING" | "UTILITY";
+  language?: string;
+  templateType?: "custom" | "coupon" | "limited_time_offer" | "carousel";
+  headerType?: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  headerText?: string;
+  bodyText?: string;
+  bodyExamples?: Record<string, string>;
+  footerText?: string;
+  buttons?: Array<{
+    type: "URL" | "QUICK_REPLY" | "PHONE_NUMBER" | "COPY_CODE";
+    text: string;
+    url?: string;
+    urlExample?: string;
+    phoneNumber?: string;
+    addUtm: boolean;
+    copyCode?: string;
+  }>;
+}
+
 interface TemplateCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: () => void;
+  initialValues?: TemplateCreateInitialValues;
 }
 
 // --- Constants ---
@@ -142,6 +164,16 @@ const INITIAL_STATE: TemplateFormState = {
   cards: [{ ...EMPTY_CARD }, { ...EMPTY_CARD }],
 };
 
+function createInitialState(initialValues?: TemplateCreateInitialValues): TemplateFormState {
+  return {
+    ...INITIAL_STATE,
+    ...initialValues,
+    cards: [{ ...EMPTY_CARD }, { ...EMPTY_CARD }],
+    buttons: initialValues?.buttons ? initialValues.buttons.map((button) => ({ ...button })) : [],
+    bodyExamples: initialValues?.bodyExamples ? { ...initialValues.bodyExamples } : {},
+  };
+}
+
 // --- Helpers ---
 
 function slugify(name: string): string {
@@ -168,12 +200,12 @@ function buildUtmUrl(baseUrl: string, templateName: string): string {
 
 // --- Component ---
 
-export function TemplateCreateDialog({ open, onOpenChange, onCreated }: TemplateCreateDialogProps) {
+export function TemplateCreateDialog({ open, onOpenChange, onCreated, initialValues }: TemplateCreateDialogProps) {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id || "";
 
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<TemplateFormState>({ ...INITIAL_STATE });
+  const [form, setForm] = useState<TemplateFormState>(() => createInitialState(initialValues));
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
@@ -197,11 +229,22 @@ export function TemplateCreateDialog({ open, onOpenChange, onCreated }: Template
     [workspaceId]
   );
 
+  useEffect(() => {
+    if (!open) return;
+    setStep(0);
+    setForm(createInitialState(initialValues));
+    setSubmitting(false);
+    setSubmitted(false);
+    setError("");
+    setCardUploadIndex(null);
+    setCardGalleryIndex(null);
+  }, [open, initialValues]);
+
   // Reset on close
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setStep(0);
-      setForm({ ...INITIAL_STATE, cards: [{ ...EMPTY_CARD }, { ...EMPTY_CARD }] });
+      setForm(createInitialState(initialValues));
       setSubmitting(false);
       setSubmitted(false);
       setError("");
