@@ -52,6 +52,20 @@ interface CashbackRow {
   usado_em: string | null;
 }
 
+interface CashbackConfigRow {
+  percentage?: number | string | null;
+  deposit_delay_days?: number | string | null;
+  validity_days?: number | string | null;
+  reminder_1_day?: number | string | null;
+  reminder_2_day?: number | string | null;
+  reminder_3_day?: number | string | null;
+  reactivation_days?: number | string | null;
+  reactivation_reminder_day?: number | string | null;
+  whatsapp_min_value?: number | string | null;
+  email_min_value?: number | string | null;
+  channel_mode?: string | null;
+}
+
 interface SavedCampaignRow {
   spend: number | string | null;
   revenue: number | string | null;
@@ -437,6 +451,7 @@ export async function GET(request: NextRequest) {
 
     const [
       financialResult,
+      cashbackConfigResult,
       orders,
       activeCashback,
       usedCashbackLast30,
@@ -455,6 +470,13 @@ export async function GET(request: NextRequest) {
         .select("*")
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
+      admin
+        .from("cashback_config")
+        .select(
+          "percentage, deposit_delay_days, validity_days, reminder_1_day, reminder_2_day, reminder_3_day, reactivation_days, reactivation_reminder_day, whatsapp_min_value, email_min_value, channel_mode"
+        )
+        .eq("workspace_id", workspaceId)
+        .maybeSingle(),
       fetchCrmOrders(admin, workspaceId),
       fetchActiveCashback(admin, workspaceId),
       fetchUsedCashbackLast30(admin, workspaceId, since30.toISOString()),
@@ -471,6 +493,10 @@ export async function GET(request: NextRequest) {
 
     if (financialResult.error) throw financialResult.error;
     const financialData = (financialResult.data || {}) as FinancialRow;
+    if (cashbackConfigResult.error) {
+      console.warn("[Retention Playbooks] cashback config unavailable:", cashbackConfigResult.error.message);
+    }
+    const cashbackConfigData = (cashbackConfigResult.data || {}) as CashbackConfigRow;
 
     const financialSettings = {
       monthlyFixedCosts: toNumber(financialData.monthly_fixed_costs, 160000),
@@ -483,6 +509,19 @@ export async function GET(request: NextRequest) {
       annualRevenueTarget: toNumber(financialData.annual_revenue_target, 9000000),
       targetProfitMonthly: toNumber(financialData.target_profit_monthly, 100000),
       safetyMarginPct: toNumber(financialData.safety_margin_pct, 5),
+    };
+    const cashbackConfig = {
+      percentage: toNumber(cashbackConfigData.percentage, 10),
+      depositDelayDays: toNumber(cashbackConfigData.deposit_delay_days, 15),
+      validityDays: toNumber(cashbackConfigData.validity_days, 30),
+      reminder1Day: toNumber(cashbackConfigData.reminder_1_day, 15),
+      reminder2Day: toNumber(cashbackConfigData.reminder_2_day, 25),
+      reminder3Day: toNumber(cashbackConfigData.reminder_3_day, 29),
+      reactivationDays: toNumber(cashbackConfigData.reactivation_days, 15),
+      reactivationReminderDay: toNumber(cashbackConfigData.reactivation_reminder_day, 13),
+      whatsappMinValue: toNumber(cashbackConfigData.whatsapp_min_value, 10),
+      emailMinValue: toNumber(cashbackConfigData.email_min_value, 5),
+      channelMode: cashbackConfigData.channel_mode || "both",
     };
 
     const contributionBeforeMarketingPct = Math.max(
@@ -915,6 +954,7 @@ export async function GET(request: NextRequest) {
           expiring14Value: cashbackExpiring14Total,
           used30Transactions: usedCashbackLast30.length,
           used30Value: cashbackUsed30Total,
+          config: cashbackConfig,
         },
         capabilities: {
           waCampaigns,

@@ -6,12 +6,16 @@ import {
   AlertCircle,
   ArrowUpRight,
   BarChart3,
+  CalendarDays,
   CheckCircle2,
   Coins,
+  Gauge,
+  Gem,
   ListChecks,
   Loader2,
   Mail,
   MessageCircle,
+  Percent,
   RefreshCw,
   ShieldCheck,
   Tag,
@@ -134,6 +138,19 @@ interface SummaryResponse {
     expiring14Value: number;
     used30Transactions: number;
     used30Value: number;
+    config?: {
+      percentage: number;
+      depositDelayDays: number;
+      validityDays: number;
+      reminder1Day: number;
+      reminder2Day: number;
+      reminder3Day: number;
+      reactivationDays: number;
+      reactivationReminderDay: number;
+      whatsappMinValue: number;
+      emailMinValue: number;
+      channelMode: string;
+    };
   };
   capabilities: {
     waCampaigns: number;
@@ -857,6 +874,265 @@ function ReadinessPanel({ data, runs }: { data: SummaryResponse; runs: RunReport
   );
 }
 
+function positiveSum(values: number[]) {
+  return values.reduce((sum, value) => sum + Math.max(0, value), 0);
+}
+
+function channelModeLabel(mode?: string) {
+  if (mode === "whatsapp_only") return "So WhatsApp";
+  if (mode === "email_only") return "So email";
+  if (mode === "custom") return "Por estagio";
+  return "WhatsApp + email";
+}
+
+function StrategyPill({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+function StrategyBoard({
+  data,
+  preparingId,
+  onPrepare,
+}: {
+  data: SummaryResponse;
+  preparingId: string | null;
+  onPrepare: (playbook: RetentionPlaybook) => void;
+}) {
+  const byId = useMemo(() => {
+    const map = new Map<string, RetentionPlaybook>();
+    for (const playbook of data.playbooks) map.set(playbook.id, playbook);
+    return map;
+  }, [data.playbooks]);
+
+  const totalEstimatedOrders = data.playbooks.reduce(
+    (sum, playbook) => sum + Math.max(0, playbook.estimate.expectedOrders),
+    0
+  );
+  const totalEstimatedRevenue = positiveSum(data.playbooks.map((playbook) => playbook.estimate.revenue));
+  const totalEstimatedContribution = positiveSum(
+    data.playbooks.map((playbook) => playbook.estimate.contribution)
+  );
+  const gapCoverage =
+    data.financial.revenueGap30 > 0 ? totalEstimatedRevenue / data.financial.revenueGap30 : 0;
+  const cpaShare =
+    data.acquisition.cpa != null && data.financial.firstOrderContribution > 0
+      ? data.acquisition.cpa / data.financial.firstOrderContribution
+      : null;
+  const cashbackUseShare =
+    data.cashback.activeValue + data.cashback.used30Value > 0
+      ? data.cashback.used30Value / (data.cashback.activeValue + data.cashback.used30Value)
+      : 0;
+  const expiringShare =
+    data.cashback.activeValue > 0 ? data.cashback.expiring14Value / data.cashback.activeValue : 0;
+  const cfg = data.cashback.config;
+
+  const lanes: Array<{
+    title: string;
+    icon: React.ReactNode;
+    signal: string;
+    rule: string;
+    playbookId: string;
+    cadence: string;
+  }> = [
+    {
+      title: "Cashback primeiro",
+      icon: <Coins className="h-4 w-4" />,
+      signal: `${NUMBER(data.cashback.activeCustomers)} clientes com ${BRL(data.cashback.activeValue)} ativo`,
+      rule: "Nao empilhar cupom. O saldo ja e incentivo; use mensagem, urgencia e produto certo.",
+      playbookId: "cashback-expiring-14d",
+      cadence: `Todo dia: saldos a vencer; D+${cfg?.reminder3Day ?? 29}: véspera de expiracao.`,
+    },
+    {
+      title: "Segunda compra",
+      icon: <Target className="h-4 w-4" />,
+      signal: `${NUMBER(data.crm.segments.oneTimers31To60?.customers ?? 0)} clientes entre 31-60d`,
+      rule: "Tratar como ativacao, nao liquidacao. Cupom leve so onde a margem permite.",
+      playbookId: "second-purchase-31-60d",
+      cadence: "2x por semana, sempre com holdout e janela de 14 dias.",
+    },
+    {
+      title: "Recorrentes/VIP",
+      icon: <Gem className="h-4 w-4" />,
+      signal: `${NUMBER(data.crm.segments.repeat61To180?.customers ?? 0)} recorrentes frios`,
+      rule: "Grandes ecommerces vendem novidade, acesso e reposicao antes de desconto.",
+      playbookId: "repeat-61-180d",
+      cadence: "Rodar junto de drop, restock, kit ou produto de margem saudavel.",
+    },
+    {
+      title: "Winback seletivo",
+      icon: <ShieldCheck className="h-4 w-4" />,
+      signal: `${NUMBER(data.crm.segments.dormantHighLtv?.customers ?? 0)} dormantes de alto LTV`,
+      rule: "Nao reativar massa com desconto aberto. Oferta forte somente para alto LTV.",
+      playbookId: "high-ltv-dormant",
+      cadence: "1x por mes, janela 21 dias e holdout maior para validar margem.",
+    },
+  ];
+
+  return (
+    <section className="rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold">Estrategia recomendada</h2>
+            <Badge variant="outline">Revenue first</Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Usar retencao para comprar recompra barata antes de aumentar CAC. O desconto entra so quando o
+            lift paga a margem.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/crm/cashback">
+            <Coins className="mr-2 h-3.5 w-3.5" />
+            Ver regua de cashback
+          </Link>
+        </Button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StrategyPill
+          icon={<WalletCards className="h-3.5 w-3.5" />}
+          label="CAC/CPA salvo"
+          value={data.acquisition.cpa == null ? "Sem dado" : BRL(data.acquisition.cpa)}
+          hint={
+            cpaShare == null
+              ? "Salve campanhas para comparar aquisicao vs recompra."
+              : `${RATE(cpaShare)} da contribuicao bruta por pedido.`
+          }
+        />
+        <StrategyPill
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+          label="Teto por pedido"
+          value={BRL(data.financial.firstOrderContribution)}
+          hint={`${PCT(data.financial.contributionBeforeMarketingPct)} antes de midia; ${BRL(data.financial.plannedMarketingPerOrder)} ja iria para ads.`}
+        />
+        <StrategyPill
+          icon={<Coins className="h-3.5 w-3.5" />}
+          label="Cashback a capturar"
+          value={BRL(data.cashback.expiring14Value)}
+          hint={`${RATE(expiringShare)} da carteira ativa expira em 14 dias; uso 30d ${RATE(cashbackUseShare)}.`}
+        />
+        <StrategyPill
+          icon={<Gauge className="h-3.5 w-3.5" />}
+          label="Fila completa"
+          value={BRL(totalEstimatedContribution)}
+          hint={`${NUMBER(totalEstimatedOrders)} pedidos estimados; cobre ${RATE(Math.min(gapCoverage, 1))} do gap bruto.`}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-md border bg-background p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Matriz de decisao</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ordem pratica para gerar volume sem treinar a base a esperar desconto.
+              </p>
+            </div>
+            <Badge variant="secondary">{NUMBER(data.playbooks.length)} playbooks</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {lanes.map((lane) => {
+              const playbook = byId.get(lane.playbookId);
+              const disabled = !playbook || playbook.audience.customers === 0 || preparingId !== null;
+              return (
+                <div key={lane.title} className="rounded-md bg-muted/35 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <span className="text-muted-foreground">{lane.icon}</span>
+                      {lane.title}
+                    </div>
+                    {playbook && <Badge variant={priorityVariant(playbook.priority)}>{playbook.priority}</Badge>}
+                  </div>
+                  <p className="mt-2 text-xs font-medium">{lane.signal}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{lane.rule}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    <CalendarDays className="mr-1 inline h-3 w-3" />
+                    {lane.cadence}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant={lane.playbookId === "cashback-expiring-14d" ? "default" : "outline"}
+                    className="mt-3 w-full"
+                    disabled={disabled}
+                    onClick={() => playbook && onPrepare(playbook)}
+                  >
+                    {preparingId === lane.playbookId ? (
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ListChecks className="mr-2 h-3.5 w-3.5" />
+                    )}
+                    Preparar run
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-md border bg-background p-3">
+          <p className="text-sm font-semibold">Regua de cashback atual</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Considerada na estrategia para nao duplicar incentivo com cupom.
+          </p>
+          <div className="mt-3 space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Cashback</span>
+              <span className="font-semibold">{PCT(cfg?.percentage ?? 10)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Deposito</span>
+              <span className="font-semibold">D+{cfg?.depositDelayDays ?? 15}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Validade</span>
+              <span className="font-semibold">{NUMBER(cfg?.validityDays ?? 30)} dias</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Lembretes</span>
+              <span className="font-semibold">
+                D+{cfg?.reminder1Day ?? 15} · D+{cfg?.reminder2Day ?? 25} · D+{cfg?.reminder3Day ?? 29}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Canal</span>
+              <span className="font-semibold">{channelModeLabel(cfg?.channelMode)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-muted-foreground">Templates</span>
+              <span className="font-semibold">{NUMBER(data.capabilities.cashbackTemplates)}</span>
+            </div>
+          </div>
+          <div className="mt-3 rounded-md bg-primary/5 p-3 text-xs text-muted-foreground">
+            <Percent className="mr-1 inline h-3.5 w-3.5" />
+            Regra: cashback compra lembranca e urgencia; cupom compra indecisao. Se os dois aparecem juntos,
+            a margem fica confusa e a leitura do holdout piora.
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function RetentionPlaybooksPage() {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "";
@@ -1097,6 +1373,8 @@ export default function RetentionPlaybooksPage() {
               hint={`${BRL(data.crm.last30.revenue)} em receita`}
             />
           </div>
+
+          <StrategyBoard data={data} preparingId={preparingId} onPrepare={preparePlaybook} />
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div className="rounded-md border bg-card p-4">
