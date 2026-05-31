@@ -93,6 +93,19 @@ interface PlaybookAction {
   kind: "whatsapp" | "email" | "coupon" | "list" | "cashback" | "report";
 }
 
+interface IncentiveGuardrail {
+  mode: "cashback_only" | "no_discount_first" | "coupon_allowed" | "selective_coupon";
+  label: string;
+  discountMinPct: number;
+  discountMaxPct: number;
+  durationHours: number;
+  maxActiveProducts: number;
+  requireManualApproval: boolean;
+  target: "tier_b" | "tier_c" | "low_cvr_high_views" | "manual";
+  discountUnit: "pct" | "brl" | "auto";
+  reason: string;
+}
+
 interface RetentionPlaybook {
   id: string;
   name: string;
@@ -104,6 +117,7 @@ interface RetentionPlaybook {
   marginRule: string;
   measurement: string;
   why: string;
+  incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
   actions: PlaybookAction[];
 }
@@ -213,6 +227,46 @@ function estimatePlaybook(params: {
     incentiveBudget,
     channelCost,
     conversionPct: params.conversionPct,
+  };
+}
+
+function noNewCouponGuardrail(reason: string): IncentiveGuardrail {
+  return {
+    mode: "cashback_only",
+    label: "Sem cupom novo",
+    discountMinPct: 0,
+    discountMaxPct: 0,
+    durationHours: 0,
+    maxActiveProducts: 0,
+    requireManualApproval: true,
+    target: "manual",
+    discountUnit: "pct",
+    reason,
+  };
+}
+
+function couponGuardrail(params: {
+  mode?: IncentiveGuardrail["mode"];
+  label: string;
+  minPct: number;
+  maxPct: number;
+  durationHours: number;
+  maxActiveProducts: number;
+  target: IncentiveGuardrail["target"];
+  unit?: IncentiveGuardrail["discountUnit"];
+  reason: string;
+}): IncentiveGuardrail {
+  return {
+    mode: params.mode || "selective_coupon",
+    label: params.label,
+    discountMinPct: params.minPct,
+    discountMaxPct: params.maxPct,
+    durationHours: params.durationHours,
+    maxActiveProducts: params.maxActiveProducts,
+    requireManualApproval: true,
+    target: params.target,
+    discountUnit: params.unit || "pct",
+    reason: params.reason,
   };
 }
 
@@ -594,6 +648,10 @@ export async function GET(request: NextRequest) {
       activeCashback.length > 0 ? cashbackActiveTotal / activeCashback.length : 0;
     const avgExpiringCashback =
       cashbackExpiring14.length > 0 ? cashbackExpiring14Total / cashbackExpiring14.length : avgActiveCashback;
+    const safeCouponPct = Math.max(
+      0,
+      Math.min(15, contributionAfterMarketingPct - financialSettings.safetyMarginPct)
+    );
 
     const playbooks: RetentionPlaybook[] = [
       {
@@ -607,6 +665,9 @@ export async function GET(request: NextRequest) {
         marginRule: `Nao adicionar cupom enquanto houver saldo ativo. Teto medio ja emitido: R$ ${avgExpiringCashback.toFixed(2)}.`,
         measurement: "Holdout 10%, janela 7 dias, margem incremental por cliente acionado.",
         why: "Transforma passivo de cashback em recompra antes de expirar, com custo de midia baixo.",
+        incentiveGuardrail: noNewCouponGuardrail(
+          "Cliente ja tem incentivo emitido. Criar cupom novo duplicaria custo e sujaria a leitura de margem."
+        ),
         estimate: estimatePlaybook({
           audience: expiringCashbackStats.customers,
           conversionPct: 8,
@@ -633,6 +694,9 @@ export async function GET(request: NextRequest) {
         marginRule: `Priorizar itens de margem saudavel. Evitar cupom extra acima de ${pct(financialSettings.safetyMarginPct)}.`,
         measurement: "Comparar uso de saldo vs grupo nao acionado por 14 dias.",
         why: "A base ja tem motivo para voltar; o trabalho e reduzir esquecimento e friccao.",
+        incentiveGuardrail: noNewCouponGuardrail(
+          "Saldo ativo deve ser o incentivo principal. Use WhatsApp/email para lembrar, nao para empilhar desconto."
+        ),
         estimate: estimatePlaybook({
           audience: activeCashbackStats.customers,
           conversionPct: 5,
@@ -658,6 +722,16 @@ export async function GET(request: NextRequest) {
         marginRule: `Incentivo maximo sugerido: ${pct(Math.min(10, (conservativeIncentiveCap / Math.max(avgOrderValue, 1)) * 100))} do pedido medio.`,
         measurement: "Holdout 10%, janela 14 dias, segunda compra incremental.",
         why: "Grandes ecommerces tratam a segunda compra como o principal evento de retencao.",
+        incentiveGuardrail: couponGuardrail({
+          mode: "coupon_allowed",
+          label: "Cupom leve",
+          minPct: Math.min(8, safeCouponPct),
+          maxPct: Math.min(10, safeCouponPct),
+          durationHours: 72,
+          maxActiveProducts: 3,
+          target: "low_cvr_high_views",
+          reason: "Segunda compra aceita incentivo leve porque aumenta chance de recorrencia sem comprometer a margem.",
+        }),
         estimate: estimatePlaybook({
           audience: oneTimers31To60.customers,
           conversionPct: 4,
@@ -684,6 +758,16 @@ export async function GET(request: NextRequest) {
         marginRule: `Comecar sem desconto; se usar cupom, manter abaixo de R$ ${Math.min(avgOrderValue * 0.12, conservativeIncentiveCap).toFixed(2)}.`,
         measurement: "Medir recompra em 21 dias e comparar desconto vs sem desconto.",
         why: "Evita que clientes de uma compra virem base perdida antes de ficarem caros de reativar.",
+        incentiveGuardrail: couponGuardrail({
+          mode: "no_discount_first",
+          label: "Cupom so no 2o toque",
+          minPct: Math.min(5, safeCouponPct),
+          maxPct: Math.min(8, safeCouponPct),
+          durationHours: 72,
+          maxActiveProducts: 3,
+          target: "tier_b",
+          reason: "Comece com conteudo/produto. Se nao responder, use incentivo baixo e mensure contra holdout.",
+        }),
         estimate: estimatePlaybook({
           audience: oneTimers61To90.customers,
           conversionPct: 2.8,
@@ -709,6 +793,16 @@ export async function GET(request: NextRequest) {
         marginRule: `Liberar incentivo apenas se margem esperada ficar acima de ${pct(contributionAfterMarketingPct)} pos-midia.`,
         measurement: "Incremental lift por ticket e frequencia, nao so receita atribuida.",
         why: "Clientes recorrentes respondem melhor a novidade, exclusividade e reposicao do que desconto aberto.",
+        incentiveGuardrail: couponGuardrail({
+          label: "Cupom seletivo",
+          minPct: Math.min(6, safeCouponPct),
+          maxPct: Math.min(10, safeCouponPct),
+          durationHours: 72,
+          maxActiveProducts: 5,
+          target: "tier_b",
+          unit: "auto",
+          reason: "Recorrentes compram por novidade. Cupom entra somente em produtos elegiveis e com teste % versus R$.",
+        }),
         estimate: estimatePlaybook({
           audience: repeat61To180.customers,
           conversionPct: 3.5,
@@ -734,6 +828,15 @@ export async function GET(request: NextRequest) {
         marginRule: `So entrar com cupom alto se LTV historico >= R$ ${highLtvThreshold.toFixed(0)}.`,
         measurement: "Janela 21 dias, holdout 15%, margem por reativado.",
         why: "Reativacao de massa costuma queimar margem; o recorte por LTV preserva contribuicao.",
+        incentiveGuardrail: couponGuardrail({
+          label: "Winback limitado",
+          minPct: Math.min(10, safeCouponPct),
+          maxPct: Math.min(15, safeCouponPct),
+          durationHours: 96,
+          maxActiveProducts: 3,
+          target: "tier_b",
+          reason: "Cupom forte so faz sentido em alto LTV. Use janela curta e aprovacao manual.",
+        }),
         estimate: estimatePlaybook({
           audience: dormantHighLtv.customers,
           conversionPct: 1.8,

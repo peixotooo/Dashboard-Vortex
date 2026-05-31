@@ -148,6 +148,67 @@ function withParams(path: string, params: Record<string, string>): string {
   return `${path}?${qs.toString()}`;
 }
 
+function couponGuardrailParams(playbookId: string): Record<string, string> {
+  if (playbookId === "second-purchase-31-60d") {
+    return {
+      discount_min: "8",
+      discount_max: "10",
+      duration_hours: "72",
+      max_active: "3",
+      target: "low_cvr_high_views",
+      unit: "pct",
+      approval: "true",
+      guardrail: "Segunda compra: usar cupom leve e medir incremental contra holdout.",
+    };
+  }
+  if (playbookId === "repeat-61-180d") {
+    return {
+      discount_min: "6",
+      discount_max: "10",
+      duration_hours: "72",
+      max_active: "5",
+      target: "tier_b",
+      unit: "auto",
+      approval: "true",
+      guardrail: "Recorrentes: priorizar novidade e limitar cupom a produtos com margem saudavel.",
+    };
+  }
+  if (playbookId === "high-ltv-dormant") {
+    return {
+      discount_min: "10",
+      discount_max: "15",
+      duration_hours: "96",
+      max_active: "3",
+      target: "tier_b",
+      unit: "pct",
+      approval: "true",
+      guardrail: "Winback alto LTV: oferta forte, limitada e sempre com aprovacao manual.",
+    };
+  }
+  if (playbookId === "one-time-61-90d-save") {
+    return {
+      discount_min: "5",
+      discount_max: "8",
+      duration_hours: "72",
+      max_active: "3",
+      target: "tier_b",
+      unit: "pct",
+      approval: "true",
+      guardrail: "Cliente esfriando: comecar por conteudo; cupom so se precisar do segundo toque.",
+    };
+  }
+  return {
+    discount_min: "0",
+    discount_max: "0",
+    duration_hours: "48",
+    max_active: "1",
+    target: "manual",
+    unit: "pct",
+    approval: "true",
+    guardrail: "Cashback ativo: nao criar cupom novo enquanto houver saldo para consumir.",
+  };
+}
+
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
   if (typeof value === "string") {
@@ -917,6 +978,7 @@ export async function POST(request: NextRequest) {
             playbook: playbookId,
             run: runId,
             name: `Cupom ${playbookName} ${dateLabel}`,
+            ...couponGuardrailParams(playbookId),
           }),
         },
       },
@@ -1060,6 +1122,7 @@ export async function GET(request: NextRequest) {
             playbook: String(treatment.auto_segment?.playbook_id || ""),
             run: runId,
             name: `Cupom ${treatment.auto_segment?.playbook_name || "Retencao"}`,
+            ...couponGuardrailParams(String(treatment.auto_segment?.playbook_id || "")),
           }),
         },
       };

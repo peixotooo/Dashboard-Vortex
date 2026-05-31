@@ -50,6 +50,14 @@ interface PlaybookCouponContext {
   playbookId: string;
   runId: string;
   name: string;
+  discountMinPct: number;
+  discountMaxPct: number;
+  durationHours: number;
+  maxActiveProducts: number;
+  target: Plan["target"];
+  discountUnit: Plan["discount_unit"];
+  requireManualApproval: boolean;
+  guardrail: string;
 }
 
 interface BanditStats {
@@ -156,6 +164,23 @@ const TARGET_LABELS: Record<string, string> = {
 
 function fmtBRL(v: number) { return "R$ " + v.toFixed(2).replace(".", ","); }
 
+function numberParam(params: URLSearchParams, key: string, fallback: number) {
+  const value = Number(params.get(key));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function targetParam(value: string | null): Plan["target"] {
+  if (value === "tier_b" || value === "tier_c" || value === "low_cvr_high_views" || value === "manual") {
+    return value;
+  }
+  return "low_cvr_high_views";
+}
+
+function discountUnitParam(value: string | null): Plan["discount_unit"] {
+  if (value === "pct" || value === "brl" || value === "auto") return value;
+  return "pct";
+}
+
 export default function CouponsPage() {
   const { workspace } = useWorkspace();
   const [tab, setTab] = useState("plans");
@@ -254,6 +279,14 @@ export default function CouponsPage() {
     const playbook = params.get("playbook");
     const run = params.get("run");
     const name = params.get("name");
+    const discountMinPct = numberParam(params, "discount_min", 10);
+    const discountMaxPct = numberParam(params, "discount_max", 15);
+    const durationHours = numberParam(params, "duration_hours", 72);
+    const maxActiveProducts = numberParam(params, "max_active", 3);
+    const target = targetParam(params.get("target"));
+    const discountUnit = discountUnitParam(params.get("unit"));
+    const requireManualApproval = params.get("approval") !== "false";
+    const guardrail = params.get("guardrail") || "Plano criado a partir de playbook de retencao.";
     if (!playbook && !run && !name) return;
 
     handledQueryRef.current = true;
@@ -261,25 +294,43 @@ export default function CouponsPage() {
       playbookId: playbook || "",
       runId: run || "",
       name: name || "Cupom playbook CRM",
+      discountMinPct,
+      discountMaxPct,
+      durationHours,
+      maxActiveProducts,
+      target,
+      discountUnit,
+      requireManualApproval,
+      guardrail,
     });
     setTab("plans");
-    setEditing({
-      ...EMPTY_PLAN,
-      name: name || "Cupom playbook CRM",
-      mode: "one_shot",
-      target: "low_cvr_high_views",
-      discount_unit: "pct",
-      discount_min_pct: 10,
-      discount_max_pct: 15,
-      duration_hours: 72,
-      max_active_products: 3,
-      require_manual_approval: true,
-      badge_template: "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
-    });
+    if (discountMaxPct > 0) {
+      setEditing({
+        ...EMPTY_PLAN,
+        name: name || "Cupom playbook CRM",
+        mode: "one_shot",
+        target,
+        discount_unit: discountUnit,
+        discount_min_pct: Math.max(1, discountMinPct),
+        discount_max_pct: Math.max(1, discountMaxPct),
+        duration_hours: durationHours,
+        max_active_products: maxActiveProducts,
+        require_manual_approval: requireManualApproval,
+        badge_template: "{discount}% OFF | Cupom {coupon} | Acaba em {countdown}",
+      });
+    }
 
     params.delete("playbook");
     params.delete("run");
     params.delete("name");
+    params.delete("discount_min");
+    params.delete("discount_max");
+    params.delete("duration_hours");
+    params.delete("max_active");
+    params.delete("target");
+    params.delete("unit");
+    params.delete("approval");
+    params.delete("guardrail");
     const url = window.location.pathname + (params.toString() ? `?${params}` : "");
     window.history.replaceState({}, "", url);
   }, [workspace?.id]);
@@ -430,6 +481,46 @@ export default function CouponsPage() {
 
       {error && (
         <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+      )}
+
+      {playbookContext && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">Playbook CRM</Badge>
+                <p className="text-sm font-semibold">{playbookContext.name}</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{playbookContext.guardrail}</p>
+              {!playbookContext.runId && (
+                <p className="mt-1 text-xs text-amber-600">
+                  Sem run associado: para medir margem incremental, volte ao CRM e use "Preparar execucao" antes do cupom.
+                </p>
+              )}
+              {playbookContext.discountMaxPct > 0 ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Sugestao aplicada: {playbookContext.discountMinPct}-{playbookContext.discountMaxPct}% ·{" "}
+                  {playbookContext.durationHours}h · {playbookContext.maxActiveProducts} ativos ·{" "}
+                  {TARGET_LABELS[playbookContext.target]}.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Este playbook recomenda consumir cashback existente antes de criar desconto novo.
+                </p>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPlaybookContext(null);
+                setEditing(null);
+              }}
+            >
+              Limpar contexto
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -841,6 +932,20 @@ export default function CouponsPage() {
           <DialogHeader><DialogTitle>{editing?.id ? "Editar plano" : "Novo plano"}</DialogTitle></DialogHeader>
           {editing && (
             <div className="space-y-4">
+              {playbookContext && (
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">Guardrail</Badge>
+                    <span className="font-medium">{playbookContext.name}</span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{playbookContext.guardrail}</p>
+                  {!playbookContext.runId && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      Este plano nao ficara ligado a um holdout enquanto nao houver run.
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Nome</Label>
                 <Input value={editing.name || ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Ex: Cupom flash semanal" />

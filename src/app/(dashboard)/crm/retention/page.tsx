@@ -48,6 +48,19 @@ interface PlaybookAction {
   kind: "whatsapp" | "email" | "coupon" | "list" | "cashback" | "report";
 }
 
+interface IncentiveGuardrail {
+  mode: "cashback_only" | "no_discount_first" | "coupon_allowed" | "selective_coupon";
+  label: string;
+  discountMinPct: number;
+  discountMaxPct: number;
+  durationHours: number;
+  maxActiveProducts: number;
+  requireManualApproval: boolean;
+  target: "tier_b" | "tier_c" | "low_cvr_high_views" | "manual";
+  discountUnit: "pct" | "brl" | "auto";
+  reason: string;
+}
+
 interface RetentionPlaybook {
   id: string;
   name: string;
@@ -59,6 +72,7 @@ interface RetentionPlaybook {
   marginRule: string;
   measurement: string;
   why: string;
+  incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
   actions: PlaybookAction[];
 }
@@ -615,6 +629,11 @@ function acquisitionSourceLabel(source?: "campaigns" | "creatives" | "none") {
   return "sem proxy recente";
 }
 
+function guardrailSummary(guardrail: IncentiveGuardrail) {
+  if (guardrail.discountMaxPct <= 0) return "Sem cupom novo";
+  return `${guardrail.discountMinPct}-${guardrail.discountMaxPct}% · ${guardrail.durationHours}h · ${NUMBER(guardrail.maxActiveProducts)} ativos`;
+}
+
 function ReadinessItem({
   icon,
   title,
@@ -1087,7 +1106,7 @@ export default function RetentionPlaybooksPage() {
                       </div>
                     </div>
 
-                    <div className="grid gap-3 text-sm md:grid-cols-2">
+                    <div className="grid gap-3 text-sm md:grid-cols-3">
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Oferta</p>
                         <p className="mt-1">{playbook.offer}</p>
@@ -1095,6 +1114,16 @@ export default function RetentionPlaybooksPage() {
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Margem</p>
                         <p className="mt-1">{playbook.marginRule}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Incentivo</p>
+                        <div className="mt-1 space-y-1">
+                          <Badge variant={playbook.incentiveGuardrail.discountMaxPct > 0 ? "secondary" : "outline"}>
+                            {playbook.incentiveGuardrail.label}
+                          </Badge>
+                          <p>{guardrailSummary(playbook.incentiveGuardrail)}</p>
+                          <p className="text-xs text-muted-foreground">{playbook.incentiveGuardrail.reason}</p>
+                        </div>
                       </div>
                     </div>
 
