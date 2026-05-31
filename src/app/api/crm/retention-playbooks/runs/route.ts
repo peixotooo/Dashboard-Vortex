@@ -100,6 +100,8 @@ interface ActiveCouponRow {
   attributed_revenue: number | string | null;
   attributed_units: number | string | null;
   discount_pct: number | string | null;
+  discount_unit: "pct" | "brl" | string | null;
+  discount_value_brl: number | string | null;
   expires_at: string;
   created_at: string;
 }
@@ -1020,7 +1022,7 @@ async function fetchActiveCouponsForPlans(
     const { data, error } = await admin
       .from("promo_active_coupons")
       .select(
-        "id, plan_id, status, vnda_coupon_code, attributed_revenue, attributed_units, discount_pct, expires_at, created_at"
+        "id, plan_id, status, vnda_coupon_code, attributed_revenue, attributed_units, discount_pct, discount_unit, discount_value_brl, expires_at, created_at"
       )
       .eq("workspace_id", workspaceId)
       .in("plan_id", slice)
@@ -1064,7 +1066,13 @@ function summarizeCoupons(
   }
   const couponDiscountAmount = (coupon: ActiveCouponRow) => {
     const code = coupon.vnda_coupon_code.trim().toUpperCase();
-    const attributedRevenue = salesByCoupon.get(code)?.revenue ?? 0;
+    const scopedAttribution = salesByCoupon.get(code) || { revenue: 0, units: 0 };
+    if (coupon.discount_unit === "brl") {
+      const configuredValueBrl = toNumber(coupon.discount_value_brl);
+      const perUseDiscount = configuredValueBrl > 0 ? configuredValueBrl : toNumber(coupon.discount_pct);
+      return perUseDiscount > 0 ? perUseDiscount * scopedAttribution.units : 0;
+    }
+    const attributedRevenue = scopedAttribution.revenue;
     const discountPct = Math.min(95, Math.max(0, toNumber(coupon.discount_pct)));
     const discountRate = discountPct / 100;
     return discountRate > 0
@@ -1099,6 +1107,8 @@ function summarizeCoupons(
       code: coupon.vnda_coupon_code,
       status: coupon.status,
       discountPct: toNumber(coupon.discount_pct),
+      discountUnit: coupon.discount_unit === "brl" ? "brl" : "pct",
+      discountValueBrl: toNumber(coupon.discount_value_brl),
       attributedRevenue: salesByCoupon.get(coupon.vnda_coupon_code.trim().toUpperCase())?.revenue ?? 0,
       attributedUnits: salesByCoupon.get(coupon.vnda_coupon_code.trim().toUpperCase())?.units ?? 0,
       attributedDiscount: couponDiscountAmount(coupon),

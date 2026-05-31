@@ -267,6 +267,8 @@ interface CouponRunSummary {
     code: string;
     status: string;
     discountPct: number;
+    discountUnit: "pct" | "brl";
+    discountValueBrl: number;
     attributedRevenue: number;
     attributedUnits: number;
     attributedDiscount: number;
