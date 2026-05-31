@@ -1179,7 +1179,13 @@ export async function POST(request: NextRequest) {
             })
           ),
           lists: withParams("/crm/listas", { list: treatmentList.id }),
-          email: withParams("/crm/listas", { email: treatmentList.id }),
+          email: withParams("/crm/listas", {
+            email: treatmentList.id,
+            run: runId,
+            playbook: playbookId,
+            playbook_name: playbookName,
+            audience: treatmentList.name,
+          }),
           coupons: withParams("/coupons", {
             playbook: playbookId,
             run: runId,
@@ -1346,7 +1352,13 @@ export async function GET(request: NextRequest) {
             })
           ),
           lists: withParams("/crm/listas", { list: treatment.id }),
-          email: withParams("/crm/listas", { email: treatment.id }),
+          email: withParams("/crm/listas", {
+            email: treatment.id,
+            run: runId,
+            playbook: String(treatment.auto_segment?.playbook_id || ""),
+            playbook_name: treatment.auto_segment?.playbook_name || "Retencao",
+            audience: treatment.name,
+          }),
           coupons: coupons.planCount > 0 ? "/coupons" : couponCreationLink,
         },
       };

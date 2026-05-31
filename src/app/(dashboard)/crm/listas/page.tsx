@@ -50,7 +50,16 @@ import { EmailListCreateDialog } from "@/components/crm/email-list-create-dialog
 
 type AutoSegment =
   | { type: "gender"; gender: "female" | "male"; min_confidence: "high" | "medium" }
-  | { type: "state"; state: string };
+  | { type: "state"; state: string }
+  | {
+      type: "retention_playbook";
+      role?: "treatment" | "holdout";
+      run_id?: string;
+      playbook_id?: string;
+      playbook_name?: string;
+      holdout_pct?: number;
+      created_at?: string;
+    };
 
 interface ContactList {
   id: string;
@@ -83,6 +92,13 @@ interface DetailList extends ContactList {
   contacts: ParsedContact[];
 }
 
+interface RetentionEmailContext {
+  runId: string;
+  playbookId: string;
+  playbookName: string;
+  audienceName: string;
+}
+
 const FIELD_LABEL: Record<ContactField, string> = {
   name: "Nome",
   phone: "Telefone",
@@ -107,6 +123,7 @@ export default function ContactListsPage() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [emailContacts, setEmailContacts] = useState<{ email: string; name?: string }[]>([]);
   const [emailListName, setEmailListName] = useState<string>("");
+  const [emailRetentionContext, setEmailRetentionContext] = useState<RetentionEmailContext | null>(null);
 
   const wsHeaders = useCallback(
     (): HeadersInit => ({
@@ -138,7 +155,45 @@ export default function ContactListsPage() {
     fetchLists();
   }, [fetchLists]);
 
-  async function openDetail(id: string, opts?: { openEmail?: boolean }) {
+  function emailContextFromList(
+    list: DetailList,
+    fallback?: RetentionEmailContext
+  ): RetentionEmailContext | null {
+    if (fallback) return fallback;
+    const auto = list.auto_segment;
+    if (auto?.type !== "retention_playbook") return null;
+    return {
+      runId: auto.run_id || "",
+      playbookId: auto.playbook_id || "",
+      playbookName: auto.playbook_name || "Playbook de retencao",
+      audienceName: list.name,
+    };
+  }
+
+  function emailTemplatesHref(
+    listId: string,
+    context: RetentionEmailContext | null,
+    listName: string
+  ): string {
+    const params = new URLSearchParams({
+      list: listId,
+      audience: context?.audienceName || listName,
+      playbook: context?.playbookName || "Playbook de retencao",
+    });
+    if (context?.playbookId) params.set("playbook_id", context.playbookId);
+    if (context?.runId) params.set("run", context.runId);
+    return `/crm/email-templates?${params.toString()}`;
+  }
+
+  function redirectToEmailTemplates(
+    listId: string,
+    list: DetailList,
+    context?: RetentionEmailContext | null
+  ) {
+    window.location.href = emailTemplatesHref(listId, context ?? emailContextFromList(list), list.name);
+  }
+
+  async function openDetail(id: string, opts?: { openEmail?: boolean; emailContext?: RetentionEmailContext }) {
     try {
       const res = await fetch(`/api/crm/contact-lists/${id}`, {
         headers: { "x-workspace-id": workspaceId },
@@ -146,7 +201,14 @@ export default function ContactListsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro");
       setDetailList(data.list);
-      if (opts?.openEmail) openEmailDialog(data.list);
+      if (opts?.openEmail) {
+        const context = emailContextFromList(data.list, opts.emailContext);
+        if (data.list.locaweb_list_id && context) {
+          redirectToEmailTemplates(data.list.locaweb_list_id, data.list, context);
+        } else {
+          openEmailDialog(data.list, context);
+        }
+      }
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Erro de rede");
     }
@@ -170,7 +232,7 @@ export default function ContactListsPage() {
     }
   }
 
-  function openEmailDialog(l: DetailList) {
+  function openEmailDialog(l: DetailList, context?: RetentionEmailContext | null) {
     const emails = l.contacts
       .filter((c) => c.email)
       .map((c) => ({ email: c.email!, name: c.name }));
@@ -180,6 +242,7 @@ export default function ContactListsPage() {
     }
     setEmailContacts(emails);
     setEmailListName(l.name);
+    setEmailRetentionContext(context ?? emailContextFromList(l));
     setEmailDialogOpen(true);
   }
 
@@ -194,9 +257,28 @@ export default function ContactListsPage() {
     if (!listId) return;
 
     handledQueryRef.current = true;
-    openDetail(listId, { openEmail: Boolean(emailListId) });
+    const emailContext = {
+      runId: params.get("run") || "",
+      playbookId: params.get("playbook") || "",
+      playbookName: params.get("playbook_name") || "Playbook de retencao",
+      audienceName: params.get("audience") || "Lista de tratamento",
+    };
+    const hasEmailContext = Boolean(
+      emailContext.runId ||
+        emailContext.playbookId ||
+        params.get("playbook_name") ||
+        params.get("audience")
+    );
+    openDetail(listId, {
+      openEmail: Boolean(emailListId),
+      emailContext: emailListId && hasEmailContext ? emailContext : undefined,
+    });
     params.delete("email");
     params.delete("list");
+    params.delete("run");
+    params.delete("playbook");
+    params.delete("playbook_name");
+    params.delete("audience");
     const url = window.location.pathname + (params.toString() ? `?${params}` : "");
     window.history.replaceState({}, "", url);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -405,6 +487,7 @@ export default function ContactListsPage() {
           if (!open) {
             // depois que o dialog fechar, refaz fetch (pode ter criado lista nova)
             fetchLists();
+            setEmailRetentionContext(null);
           }
         }}
         contacts={emailContacts}
@@ -417,6 +500,9 @@ export default function ContactListsPage() {
             body: JSON.stringify({ locaweb_list_id: listId }),
           }).catch(() => {});
           setDetailList((prev) => prev && { ...prev, locaweb_list_id: listId });
+          if (emailRetentionContext) {
+            redirectToEmailTemplates(listId, detailList, emailRetentionContext);
+          }
         }}
       />
     </div>
