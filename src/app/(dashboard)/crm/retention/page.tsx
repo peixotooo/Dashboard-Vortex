@@ -499,9 +499,11 @@ function getRunExecutionState(run: RunReport) {
   const coupons = run.channels?.coupons;
   const cashback = run.channels?.cashback;
   const hasHoldout = (run.holdoutList?.totalCount ?? 0) > 0;
-  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
+  const whatsappCreated = (whatsapp?.campaignCount ?? 0) > 0;
+  const whatsappSent = (whatsapp?.sent ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
-  const emailSent = (email?.dispatchCount ?? 0) > 0;
+  const emailDispatchCreated = (email?.dispatchCount ?? 0) > 0;
+  const emailSent = (email?.sent ?? 0) > 0;
   const couponRequirement = runCouponRequirement(run);
   const needsCoupon = couponRequirement === "required";
   const couponPlanReady = (coupons?.planCount ?? 0) > 0;
@@ -510,8 +512,10 @@ function getRunExecutionState(run: RunReport) {
   const activeCoupons = couponStatusCount(coupons, "active");
   const couponReady = couponGenerated;
   const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
-  const outboundReady = whatsappReady || emailSent;
-  const measurementReady = hasHoldout && (outboundReady || couponReady || hasCashbackUsage);
+  const outboundPrepared = whatsappCreated || emailDispatchCreated || emailReady;
+  const outboundSent = whatsappSent || emailSent;
+  const outboundReady = outboundSent;
+  const measurementReady = hasHoldout && (outboundSent || couponReady || hasCashbackUsage);
   const progressSteps: RunProgressStep[] = [
     { label: "holdout", done: hasHoldout },
     ...(needsCoupon ? [{ label: "cupom", done: couponReady }] : []),
@@ -524,8 +528,11 @@ function getRunExecutionState(run: RunReport) {
 
   return {
     hasHoldout,
-    whatsappReady,
+    whatsappCreated,
+    whatsappReady: whatsappSent,
+    whatsappSent,
     emailReady,
+    emailDispatchCreated,
     emailSent,
     couponRequirement,
     needsCoupon,
@@ -535,6 +542,8 @@ function getRunExecutionState(run: RunReport) {
     activeCoupons,
     couponReady,
     hasCashbackUsage,
+    outboundPrepared,
+    outboundSent,
     outboundReady,
     measurementReady,
     progressSteps,
@@ -562,9 +571,11 @@ function getRunNextAction(run: RunReport) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
   const coupons = run.channels?.coupons;
-  const whatsappReady = (whatsapp?.campaignCount ?? 0) > 0;
+  const whatsappCreated = (whatsapp?.campaignCount ?? 0) > 0;
+  const whatsappSent = (whatsapp?.sent ?? 0) > 0;
   const emailReady = Boolean(email?.listReady);
-  const emailSent = (email?.dispatchCount ?? 0) > 0;
+  const emailDispatchCreated = (email?.dispatchCount ?? 0) > 0;
+  const emailSent = (email?.sent ?? 0) > 0;
   const couponRequirement = runCouponRequirement(run);
   const needsCoupon = couponRequirement === "required";
   const couponPlanReady = (coupons?.planCount ?? 0) > 0;
@@ -599,11 +610,20 @@ function getRunNextAction(run: RunReport) {
     };
   }
 
-  if (!whatsappReady && run.treatmentList.phoneCount > 0) {
+  if (!whatsappCreated && run.treatmentList.phoneCount > 0) {
     return {
       label: "Criar WhatsApp",
       href: run.links.whatsapp,
       hint: "Use a lista de tratamento ja ligada ao holdout.",
+      icon: <MessageCircle className="h-3.5 w-3.5" />,
+    };
+  }
+
+  if (whatsappCreated && !whatsappSent && run.treatmentList.phoneCount > 0) {
+    return {
+      label: "Enviar WhatsApp",
+      href: "/crm/whatsapp",
+      hint: "Campanha criada, mas ainda sem envios. Ative ou aguarde o envio para entrar na medicao.",
       icon: <MessageCircle className="h-3.5 w-3.5" />,
     };
   }
@@ -617,7 +637,7 @@ function getRunNextAction(run: RunReport) {
     };
   }
 
-  if (emailReady && !emailSent) {
+  if (emailReady && !emailDispatchCreated) {
     return {
       label: "Criar email",
       href: emailTemplatesHref(run),
@@ -626,18 +646,28 @@ function getRunNextAction(run: RunReport) {
     };
   }
 
+  if (emailDispatchCreated && !emailSent) {
+    return {
+      label: "Acompanhar email",
+      href: "/crm/email-templates/reports",
+      hint: "Email criado, mas ainda sem enviados contabilizados para este run.",
+      icon: <Mail className="h-3.5 w-3.5" />,
+    };
+  }
+
   return {
     label: "Acompanhar resultado",
     href: "/crm/retention",
-    hint: "Canais principais preparados; acompanhe lift, receita e contribuicao.",
+    hint: "Canais principais enviados; acompanhe lift, receita e contribuicao.",
     icon: <BarChart3 className="h-3.5 w-3.5" />,
   };
 }
 
-type ExecutionStepState = "ready" | "todo" | "optional";
+type ExecutionStepState = "ready" | "prepared" | "todo" | "optional";
 
 const EXECUTION_STATE_LABELS: Record<ExecutionStepState, string> = {
   ready: "pronto",
+  prepared: "preparado",
   todo: "fazer",
   optional: "opcional",
 };
@@ -682,6 +712,7 @@ function ExecutionStep({
 
 function trackingStateVariant(state: ExecutionStepState): "default" | "secondary" | "outline" {
   if (state === "ready") return "secondary";
+  if (state === "prepared") return "outline";
   if (state === "todo") return "default";
   return "outline";
 }
@@ -695,11 +726,15 @@ function getRunTrackingContract(run: RunReport, attributionWindowDays: number) {
   const ageDays = daysFrom(run.createdAt);
   const windowDays = Math.max(1, attributionWindowDays);
   const hasWhatsapp = (whatsapp?.campaignCount ?? 0) > 0;
-  const hasEmail = (email?.dispatchCount ?? 0) > 0;
-  const channelValue = hasWhatsapp
-    ? `${NUMBER(whatsapp?.campaignCount ?? 0)} WA`
-    : hasEmail
-      ? `${NUMBER(email?.dispatchCount ?? 0)} email`
+  const hasEmailDispatch = (email?.dispatchCount ?? 0) > 0;
+  const channelValue = state.whatsappSent
+    ? `${NUMBER(whatsapp?.sent ?? 0)} envios WA`
+    : hasWhatsapp
+      ? `${NUMBER(whatsapp?.campaignCount ?? 0)} WA criado`
+      : state.emailSent
+      ? `${NUMBER(email?.sent ?? 0)} emails`
+      : hasEmailDispatch
+      ? `${NUMBER(email?.dispatchCount ?? 0)} email criado`
       : state.emailReady
         ? "email pronto"
         : "pendente";
@@ -733,8 +768,8 @@ function getRunTrackingContract(run: RunReport, attributionWindowDays: number) {
     {
       label: "Canal",
       value: channelValue,
-      state: state.outboundReady ? ("ready" as const) : ("todo" as const),
-      hint: state.outboundReady ? "vinculado ao run" : "faltando disparo",
+      state: state.outboundSent ? ("ready" as const) : state.outboundPrepared ? ("prepared" as const) : ("todo" as const),
+      hint: state.outboundSent ? "envio registrado" : state.outboundPrepared ? "falta envio" : "faltando disparo",
     },
     {
       label: "Incentivo",
@@ -768,7 +803,9 @@ function RunTrackingContract({
   attributionWindowDays: number;
 }) {
   const items = getRunTrackingContract(run, attributionWindowDays);
-  const missing = items.filter((item) => item.state === "todo").map((item) => item.label.toLowerCase());
+  const missing = items
+    .filter((item) => item.state === "todo" || item.state === "prepared")
+    .map((item) => item.label.toLowerCase());
 
   return (
     <div className="mt-3 rounded-md border bg-background p-3">
@@ -865,22 +902,26 @@ function RunExecutionChecklist({
         <ExecutionStep
           icon={<MessageCircle className="h-3.5 w-3.5" />}
           label="WhatsApp"
-          state={state.whatsappReady ? "ready" : "todo"}
+          state={state.whatsappSent ? "ready" : state.whatsappCreated ? "prepared" : "todo"}
           hint={
-            state.whatsappReady
+            state.whatsappSent
               ? `${NUMBER(whatsapp?.sent ?? 0)} envios vinculados`
+              : state.whatsappCreated
+              ? "Campanha criada; falta envio"
               : `${NUMBER(run.treatmentList.phoneCount)} contatos com telefone`
           }
           href={run.links.whatsapp}
-          actionLabel={state.whatsappReady ? "Abrir" : "Criar"}
+          actionLabel={state.whatsappCreated ? "Abrir" : "Criar"}
         />
         <ExecutionStep
           icon={<Mail className="h-3.5 w-3.5" />}
           label="Email"
-          state={state.emailReady ? "ready" : "todo"}
+          state={state.emailSent ? "ready" : state.emailReady || state.emailDispatchCreated ? "prepared" : "todo"}
           hint={
-            (email?.dispatchCount ?? 0) > 0
-              ? `${NUMBER(email?.dispatchCount ?? 0)} disparos vinculados`
+            state.emailSent
+              ? `${NUMBER(email?.sent ?? 0)} enviados vinculados`
+              : state.emailDispatchCreated
+              ? `${NUMBER(email?.dispatchCount ?? 0)} disparos criados; falta envio`
               : state.emailReady
               ? `Lista Locaweb pronta`
               : `${NUMBER(email?.emailContacts ?? run.treatmentList.emailCount)} contatos com email`
@@ -912,9 +953,11 @@ function RunExecutionChecklist({
           state={state.measurementReady ? "ready" : state.hasHoldout ? "optional" : "todo"}
           hint={
             state.measurementReady
-              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} com canal/custo vinculado`
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} com envio/custo vinculado`
+              : state.hasHoldout && state.outboundPrepared
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo; falta envio`
               : state.hasHoldout
-              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo; falta canal vinculado`
+              ? `Holdout ${NUMBER(run.holdoutList?.totalCount ?? 0)} ativo; falta canal enviado`
               : "Sem grupo de controle"
           }
         />
