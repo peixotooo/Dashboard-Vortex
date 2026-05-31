@@ -17,6 +17,7 @@ interface CrmOrderRow {
   cliente: string | null;
   telefone: string | null;
   valor: number | string | null;
+  cupom?: string | null;
   data_compra: string | null;
   source_order_id?: string | null;
   numero_pedido: string | null;
@@ -740,7 +741,7 @@ async function fetchSalesSince(
   for (let from = 0; from < 50000; from += PAGE_SIZE) {
     const { data, error } = await admin
       .from("crm_vendas")
-      .select("cpf, email, cliente, telefone, valor, data_compra, source_order_id, numero_pedido")
+      .select("cpf, email, cliente, telefone, valor, cupom, data_compra, source_order_id, numero_pedido")
       .eq("workspace_id", workspaceId)
       .gte("data_compra", since)
       .range(from, from + PAGE_SIZE - 1);
@@ -1034,7 +1035,8 @@ async function fetchActiveCouponsForPlans(
 function summarizeCoupons(
   runId: string,
   audits: CouponAuditRow[],
-  coupons: ActiveCouponRow[]
+  coupons: ActiveCouponRow[],
+  sales: CrmOrderRow[]
 ) {
   const planIds = new Set(
     audits
@@ -1050,8 +1052,19 @@ function summarizeCoupons(
     directCouponIds.size > 0
       ? coupons.filter((coupon) => directCouponIds.has(coupon.id))
       : coupons.filter((coupon) => coupon.plan_id && planIds.has(coupon.plan_id));
+  const couponCodes = new Set(rows.map((coupon) => coupon.vnda_coupon_code.trim().toUpperCase()));
+  const salesByCoupon = new Map<string, { revenue: number; units: number }>();
+  for (const sale of sales) {
+    const code = String(sale.cupom || "").trim().toUpperCase();
+    if (!code || !couponCodes.has(code)) continue;
+    const current = salesByCoupon.get(code) || { revenue: 0, units: 0 };
+    current.revenue += toNumber(sale.valor);
+    current.units += 1;
+    salesByCoupon.set(code, current);
+  }
   const couponDiscountAmount = (coupon: ActiveCouponRow) => {
-    const attributedRevenue = toNumber(coupon.attributed_revenue);
+    const code = coupon.vnda_coupon_code.trim().toUpperCase();
+    const attributedRevenue = salesByCoupon.get(code)?.revenue ?? 0;
     const discountPct = Math.min(95, Math.max(0, toNumber(coupon.discount_pct)));
     const discountRate = discountPct / 100;
     return discountRate > 0
@@ -1060,10 +1073,11 @@ function summarizeCoupons(
   };
   const totals = rows.reduce(
     (acc, coupon) => {
-      const attributedRevenue = toNumber(coupon.attributed_revenue);
+      const code = coupon.vnda_coupon_code.trim().toUpperCase();
+      const scopedAttribution = salesByCoupon.get(code) || { revenue: 0, units: 0 };
 
-      acc.attributedRevenue += attributedRevenue;
-      acc.attributedUnits += toNumber(coupon.attributed_units);
+      acc.attributedRevenue += scopedAttribution.revenue;
+      acc.attributedUnits += scopedAttribution.units;
       acc.attributedDiscount += couponDiscountAmount(coupon);
       acc.statuses[coupon.status] = (acc.statuses[coupon.status] || 0) + 1;
       return acc;
@@ -1085,8 +1099,8 @@ function summarizeCoupons(
       code: coupon.vnda_coupon_code,
       status: coupon.status,
       discountPct: toNumber(coupon.discount_pct),
-      attributedRevenue: toNumber(coupon.attributed_revenue),
-      attributedUnits: toNumber(coupon.attributed_units),
+      attributedRevenue: salesByCoupon.get(coupon.vnda_coupon_code.trim().toUpperCase())?.revenue ?? 0,
+      attributedUnits: salesByCoupon.get(coupon.vnda_coupon_code.trim().toUpperCase())?.units ?? 0,
       attributedDiscount: couponDiscountAmount(coupon),
       expiresAt: coupon.expires_at,
     })),
@@ -1358,7 +1372,7 @@ export async function GET(request: NextRequest) {
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
       const email = summarizeEmailDispatches(treatment, emailDispatches, runId, attribution);
-      const coupons = summarizeCoupons(runId, couponAudits, activeCoupons);
+      const coupons = summarizeCoupons(runId, couponAudits, activeCoupons, runSales);
       const runCashbackUsages = cashbackUsages.filter((usage) => {
         const usageDate = parseDate(usage.usado_em);
         return (

@@ -2290,11 +2290,11 @@ export default function RetentionPlaybooksPage() {
                               <p className="font-semibold">{NUMBER(coupons?.attributedUnits ?? 0)}</p>
                             </div>
                             <div>
-                              <p className="text-xs text-muted-foreground">Receita</p>
+                              <p className="text-xs text-muted-foreground">Receita janela</p>
                               <p className="font-semibold">{BRL(coupons?.attributedRevenue ?? 0)}</p>
                             </div>
                             <div>
-                              <p className="text-xs text-muted-foreground">Incentivo</p>
+                              <p className="text-xs text-muted-foreground">Incentivo janela</p>
                               <p className="font-semibold">{BRL(coupons?.attributedDiscount ?? 0)}</p>
                             </div>
                           </div>
