@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { recomputeRfmSnapshot } from "@/lib/crm-compute";
 
-// Snapshot do Bulking já é ~26MB e cresce com a base. 15s não dava
-// margem pra (query + serialização + transferência). 60s é o teto
-// do plano Pro do Vercel pra Node serverless.
-export const maxDuration = 60;
+// Snapshot do Bulking já é grande e pode precisar ser reconstruído quando
+// uma importação invalida crm_rfm_snapshots. Mantemos folga para recompute
+// on-demand em vez de devolver cards zerados ao usuário.
+export const maxDuration = 120;
 
 const EMPTY_RESPONSE = {
   customers: [],
@@ -66,13 +67,17 @@ export async function GET(request: NextRequest) {
       row_count?: number;
     }
 
-    const { data: snapshot } = await admin
-      .from("crm_rfm_snapshots")
-      .select(columns)
-      .eq("workspace_id", workspaceId)
-      .single() as unknown as { data: Snapshot | null };
+    async function readSnapshot(): Promise<Snapshot | null> {
+      const { data } = await admin
+        .from("crm_rfm_snapshots")
+        .select(columns)
+        .eq("workspace_id", workspaceId)
+        .single() as unknown as { data: Snapshot | null };
 
-    if (snapshot) {
+      return data;
+    }
+
+    function snapshotResponse(snapshot: Snapshot) {
       if (fields === "summary") {
         return NextResponse.json({
           segments: snapshot.segments,
@@ -97,9 +102,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // No snapshot — return empty with pending flag.
-    // Heavy recomputation is handled exclusively by the crm-recompute cron job.
-    console.log("[CRM RFM] No snapshot found, returning pending state.");
+    const snapshot = await readSnapshot();
+
+    if (snapshot) {
+      return snapshotResponse(snapshot);
+    }
 
     // Check if workspace has any crm_vendas data at all (single count query)
     const { count } = await admin
@@ -109,6 +116,17 @@ export async function GET(request: NextRequest) {
 
     if (!count || count === 0) {
       return NextResponse.json(EMPTY_RESPONSE);
+    }
+
+    // No snapshot but there is data: rebuild it now and return the fresh
+    // values. This prevents the CRM dashboard from briefly rendering all
+    // zeros after a large import deletes the stale snapshot.
+    console.log("[CRM RFM] No snapshot found, recomputing on demand.");
+    await recomputeRfmSnapshot(admin, workspaceId);
+
+    const recomputedSnapshot = await readSnapshot();
+    if (recomputedSnapshot) {
+      return snapshotResponse(recomputedSnapshot);
     }
 
     return NextResponse.json({
