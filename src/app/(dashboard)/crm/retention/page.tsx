@@ -577,6 +577,7 @@ function emailTemplatesHref(run: RunReport) {
     audience: run.treatmentList.name,
     run: run.id,
     playbook: run.playbookName,
+    compose: "1",
   });
   if (run.playbookId) params.set("playbook_id", run.playbookId);
   return `/crm/email-templates?${params.toString()}`;

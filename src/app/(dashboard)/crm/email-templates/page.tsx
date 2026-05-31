@@ -35,6 +35,10 @@ export default function EmailTemplatesPage() {
     const params = new URLSearchParams(window.location.search);
     const listId = params.get("list");
     if (!listId) return;
+    const shouldOpenComposer = ["1", "true", "yes"].includes(
+      (params.get("compose") || "").toLowerCase()
+    );
+
     setRetentionContext({
       listId,
       audience: params.get("audience") || "Lista de tratamento",
@@ -42,6 +46,13 @@ export default function EmailTemplatesPage() {
       playbookId: params.get("playbook_id") || undefined,
       run: params.get("run") || "",
     });
+    if (shouldOpenComposer) setAiOpen(true);
+
+    ["list", "audience", "playbook", "playbook_id", "run", "compose"].forEach((key) =>
+      params.delete(key)
+    );
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   }, []);
 
   const reload = useCallback(async () => {
