@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 
 interface Workspace {
@@ -68,63 +67,80 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDomainLocked, setIsDomainLocked] = useState(false);
-  const supabaseRef = useRef(createClient());
+  const workspaceIdRef = useRef("");
+
+  useEffect(() => {
+    workspaceIdRef.current = workspaceId;
+  }, [workspaceId]);
 
   const fetchWorkspaces = useCallback(async () => {
     if (!user || !isConfigured) {
+      setWorkspaces([]);
+      setWorkspaceId("");
+      setMembers([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const supabase = supabaseRef.current;
-      const { data, error } = await supabase
-        .from("workspaces")
-        .select("*")
-        .order("created_at", { ascending: true });
+      const res = await fetch("/api/workspaces/bootstrap");
+      const data = await res.json();
 
-      if (error) {
-        console.error("Workspace fetch error:", error);
+      if (!res.ok) {
+        throw new Error(data.error || "Workspace fetch error");
       }
 
-      const ws = (data || []) as Workspace[];
+      const ws = (data.workspaces || []) as Workspace[];
       setWorkspaces(ws);
 
       // Auto-select workspace: domain cookie > localStorage > first
-      if (ws.length > 0 && !workspaceId) {
+      if (ws.length > 0) {
+        const currentId = workspaceIdRef.current;
         const domainWs = getCookie("vortex_domain_workspace");
         if (domainWs && ws.find((w) => w.id === domainWs)) {
           setWorkspaceId(domainWs);
           setIsDomainLocked(true);
+        } else if (currentId && ws.find((w) => w.id === currentId)) {
+          setIsDomainLocked(false);
         } else {
           const savedId = localStorage.getItem("vortex_workspace_id");
           const validSaved = ws.find((w) => w.id === savedId);
           setWorkspaceId(validSaved ? savedId! : ws[0].id);
+          setIsDomainLocked(false);
         }
+      } else {
+        setWorkspaceId("");
+        setMembers([]);
+        setIsDomainLocked(false);
       }
     } catch (err) {
       console.error("Workspace fetch exception:", err);
+      setWorkspaces([]);
+      setWorkspaceId("");
+      setMembers([]);
+      setIsDomainLocked(false);
     } finally {
       setLoading(false);
     }
-  }, [user, isConfigured, workspaceId]);
+  }, [user, isConfigured]);
 
   const fetchMembers = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setMembers([]);
+      return;
+    }
     try {
-      const supabase = supabaseRef.current;
-      const { data, error } = await supabase
-        .from("workspace_members")
-        .select("*, profile:profiles(full_name)")
-        .eq("workspace_id", workspaceId);
+      const res = await fetch(`/api/workspaces/bootstrap?workspace_id=${encodeURIComponent(workspaceId)}`);
+      const data = await res.json();
 
-      if (error) {
-        console.error("Members fetch error:", error);
+      if (!res.ok) {
+        throw new Error(data.error || "Members fetch error");
       }
 
-      setMembers((data || []) as WorkspaceMember[]);
+      setMembers((data.members || []) as WorkspaceMember[]);
     } catch (err) {
       console.error("Members fetch exception:", err);
+      setMembers([]);
     }
   }, [workspaceId]);
 

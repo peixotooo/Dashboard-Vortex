@@ -23,18 +23,27 @@ export function useAccount() {
 }
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
-  const { workspace } = useWorkspace();
+  const { workspace, loading: workspaceLoading } = useWorkspace();
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
   const [accountId, setAccountId] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   const fetchAccounts = useCallback(async () => {
+    if (workspaceLoading) {
+      setLoading(true);
+      return;
+    }
+
+    if (!workspace?.id) {
+      setAccounts([]);
+      setAccountId("");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const headers: Record<string, string> = {};
-      if (workspace?.id) {
-        headers["x-workspace-id"] = workspace.id;
-      }
+      const headers: Record<string, string> = { "x-workspace-id": workspace.id };
 
       const res = await fetch("/api/accounts", { headers });
       const data = await res.json();
@@ -65,7 +74,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, accountId]);
+  }, [workspace?.id, workspaceLoading, accountId]);
 
   useEffect(() => {
     fetchAccounts();
