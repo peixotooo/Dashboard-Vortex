@@ -849,10 +849,20 @@ function getRunDecision(run: RunReport, attributionWindowDays: number): RunDecis
 function RunDecisionPanel({
   run,
   decision,
+  scalePlaybook,
+  scaleDisabled,
+  scaleLoading,
+  onScale,
 }: {
   run: RunReport;
   decision: RunDecision;
+  scalePlaybook?: RetentionPlaybook;
+  scaleDisabled?: boolean;
+  scaleLoading?: boolean;
+  onScale?: (playbook: RetentionPlaybook) => void;
 }) {
+  const canScale = decision.tone === "scale" && Boolean(scalePlaybook && onScale);
+
   return (
     <div className="rounded-md border bg-background p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -864,12 +874,27 @@ function RunDecisionPanel({
           <p className="mt-1 text-sm font-medium">{decision.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">{decision.detail}</p>
         </div>
-        <Button asChild size="sm" variant={decision.tone === "setup" ? "default" : "outline"}>
-          <Link href={decision.href}>
-            {decision.ctaLabel}
-            <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        {canScale ? (
+          <Button
+            size="sm"
+            onClick={() => scalePlaybook && onScale?.(scalePlaybook)}
+            disabled={scaleDisabled || scaleLoading}
+          >
+            {scaleLoading ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ListChecks className="mr-2 h-3.5 w-3.5" />
+            )}
+            Nova safra
+          </Button>
+        ) : (
+          <Button asChild size="sm" variant={decision.tone === "setup" ? "default" : "outline"}>
+            <Link href={decision.href}>
+              {decision.ctaLabel}
+              <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
@@ -1430,6 +1455,16 @@ export default function RetentionPlaybooksPage() {
     }
     return null;
   }, [runs]);
+  const nextScaleAction = useMemo(() => {
+    if (!data) return null;
+    for (const run of runs) {
+      const decision = getRunDecision(run, data.measurement.attributionWindowDays);
+      if (decision.tone !== "scale") continue;
+      const playbook = data.playbooks.find((candidate) => candidate.id === run.playbookId);
+      if (playbook && playbook.audience.customers > 0) return { run, decision, playbook };
+    }
+    return null;
+  }, [data, runs]);
 
   async function preparePlaybook(playbook: RetentionPlaybook) {
     if (!workspaceId) return;
@@ -1548,6 +1583,8 @@ export default function RetentionPlaybooksPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {nextRunAction
                     ? `${nextRunAction.run.playbookName}: ${nextRunAction.action.hint}`
+                    : nextScaleAction
+                      ? `${nextScaleAction.run.playbookName}: lift e margem positivos. Preparar nova safra com holdout novo.`
                     : topPlaybook
                       ? `${topPlaybook.name}: preparar tratamento, holdout e links de execucao.`
                       : "Sem playbook acionavel neste momento."}
@@ -1560,6 +1597,19 @@ export default function RetentionPlaybooksPage() {
                     <span className="ml-1.5">{nextRunAction.action.label}</span>
                     <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
                   </Link>
+                </Button>
+              ) : nextScaleAction ? (
+                <Button
+                  size="sm"
+                  onClick={() => preparePlaybook(nextScaleAction.playbook)}
+                  disabled={preparingId !== null}
+                >
+                  {preparingId === nextScaleAction.playbook.id ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ListChecks className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  Preparar nova safra
                 </Button>
               ) : topPlaybook ? (
                 <Button
@@ -1788,6 +1838,7 @@ export default function RetentionPlaybooksPage() {
                   const hasCouponPlan = (coupons?.planCount ?? 0) > 0;
                   const hasCashbackUsage = (cashback?.treatment.uses ?? 0) > 0 || (cashback?.holdout.uses ?? 0) > 0;
                   const decision = getRunDecision(run, data.measurement.attributionWindowDays);
+                  const scalePlaybook = data.playbooks.find((playbook) => playbook.id === run.playbookId);
 
                   return (
                     <Card key={run.id}>
@@ -1804,7 +1855,14 @@ export default function RetentionPlaybooksPage() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <RunExecutionChecklist run={run} />
-                      <RunDecisionPanel run={run} decision={decision} />
+                      <RunDecisionPanel
+                        run={run}
+                        decision={decision}
+                        scalePlaybook={scalePlaybook}
+                        scaleDisabled={preparingId !== null || (scalePlaybook?.audience.customers ?? 0) === 0}
+                        scaleLoading={Boolean(scalePlaybook && preparingId === scalePlaybook.id)}
+                        onScale={preparePlaybook}
+                      />
 
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                         <div>
