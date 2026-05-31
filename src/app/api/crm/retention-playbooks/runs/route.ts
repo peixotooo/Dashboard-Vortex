@@ -63,6 +63,7 @@ interface WaCampaignRow {
   id: string;
   name: string;
   status: string;
+  template_name: string | null;
   total_messages: number | string | null;
   sent_count: number | string | null;
   delivered_count: number | string | null;
@@ -816,7 +817,7 @@ async function fetchWaCampaignsSince(
     const { data, error } = await admin
       .from("wa_campaigns")
       .select(
-        "id, name, status, total_messages, sent_count, delivered_count, read_count, failed_count, message_cost_usd, exchange_rate, created_at, scheduled_at, started_at, completed_at, segment_filter"
+        "id, name, status, template_name, total_messages, sent_count, delivered_count, read_count, failed_count, message_cost_usd, exchange_rate, created_at, scheduled_at, started_at, completed_at, segment_filter"
       )
       .eq("workspace_id", workspaceId)
       .gte("created_at", since)
@@ -871,6 +872,7 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
       id: campaign.id,
       name: campaign.name,
       status: campaign.status,
+      templateName: campaign.template_name,
       totalMessages: toNumber(campaign.total_messages),
       sent: toNumber(campaign.sent_count),
       costBrl:
@@ -878,6 +880,9 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
         toNumber(campaign.message_cost_usd, 0.0625) *
         toNumber(campaign.exchange_rate, 5.5),
       createdAt: campaign.created_at,
+      scheduledAt: campaign.scheduled_at,
+      startedAt: campaign.started_at,
+      completedAt: campaign.completed_at,
     })),
   };
 }

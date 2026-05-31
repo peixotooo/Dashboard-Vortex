@@ -262,10 +262,14 @@ interface WhatsAppRunSummary {
     id: string;
     name: string;
     status: string;
+    templateName: string | null;
     totalMessages: number;
     sent: number;
     costBrl: number;
     createdAt: string;
+    scheduledAt: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
   }>;
 }
 
@@ -438,6 +442,7 @@ const WA_STATUS_LABELS: Record<string, string> = {
   canceled: "cancelada",
   cancelled: "cancelada",
   paused: "pausada",
+  pending_template: "template em analise",
 };
 
 function waStatusLabel(status: string) {
@@ -1461,6 +1466,295 @@ function StrategyPill({
   );
 }
 
+function playbookCadenceLabel(playbookId: string) {
+  if (playbookId === "cashback-expiring-14d") return "diario quando saldo entra em risco";
+  if (playbookId === "active-cashback-balance") return "2-3x por semana, sem cupom";
+  if (playbookId === "second-purchase-31-60d") return "2x por semana";
+  if (playbookId === "repeat-61-180d") return "em drop, restock ou reposicao";
+  if (playbookId === "high-ltv-dormant") return "mensal, com holdout maior";
+  return "conforme base acionavel";
+}
+
+function opportunityReason(playbook: RetentionPlaybook, data: SummaryResponse) {
+  const cpa = data.acquisition.cpa;
+  const cpaText =
+    cpa != null && playbook.estimate.retentionCostPerOrder > 0
+      ? `${(cpa / playbook.estimate.retentionCostPerOrder).toFixed(1)}x mais barato que comprar cliente`
+      : cpaEfficiencyText(playbook.estimate);
+  return `${cpaText}; breakeven em ${PCT(playbook.estimate.breakEvenConversionPct)} da base.`;
+}
+
+function getPrimaryCampaign(run: RunReport) {
+  return run.channels?.whatsapp?.campaigns?.[0] ?? null;
+}
+
+function campaignVariant(status?: string): "default" | "secondary" | "outline" {
+  if (!status) return "outline";
+  if (status === "scheduled" || status === "completed") return "default";
+  if (status === "pending_template" || status === "sending" || status === "queued") return "secondary";
+  return "outline";
+}
+
+function campaignWhenLabel(campaign: WhatsAppRunSummary["campaigns"][number] | null) {
+  if (!campaign) return "sem disparo";
+  if (campaign.status === "pending_template") return "apos aprovacao";
+  if (campaign.status === "scheduled") return DATE_TIME(campaign.scheduledAt);
+  if (campaign.status === "sending" || campaign.status === "queued") return "em fila";
+  if (campaign.status === "completed") return DATE_TIME(campaign.completedAt || campaign.startedAt);
+  return DATE_TIME(campaign.scheduledAt || campaign.createdAt);
+}
+
+function runResultLabel(run: RunReport) {
+  const state = getRunExecutionState(run);
+  if (!state.measurementReady) return "preparando medicao";
+  if (run.metrics.incrementalContribution > 0 && run.metrics.liftConversion > 0) return "ganhando";
+  if (run.metrics.treatment.orders > 0 || run.metrics.holdout.orders > 0) return "em leitura";
+  return "aguardando pedidos";
+}
+
+function OperationsBoard({
+  data,
+  runs,
+  preparingId,
+  schedulingId,
+  onPrepare,
+  onSchedule,
+}: {
+  data: SummaryResponse;
+  runs: RunReport[];
+  preparingId: string | null;
+  schedulingId: string | null;
+  onPrepare: (playbook: RetentionPlaybook) => void;
+  onSchedule: (playbook: RetentionPlaybook) => void;
+}) {
+  const opportunities = data.playbooks
+    .filter((playbook) => playbook.audience.customers > 0)
+    .slice(0, 5);
+  const agendaRuns = runs.slice(0, 6);
+  const resultRuns = runs.slice(0, 4);
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Oportunidades e agenda</h2>
+          <p className="text-sm text-muted-foreground">
+            Clusters priorizados por margem, CPA, cashback e base com canal acionavel.
+          </p>
+        </div>
+        <Badge variant="outline">{NUMBER(opportunities.length)} oportunidades</Badge>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Proximos clusters</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Cada agendamento cria tratamento, holdout, cooldown e vinculo para medir resultado.
+              </p>
+            </div>
+            <Badge variant="secondary">{BRL(positiveSum(opportunities.map((item) => item.estimate.contribution)))}</Badge>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {opportunities.map((playbook, index) => (
+              <div key={playbook.id} className="rounded-md border bg-background p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={index === 0 ? "default" : priorityVariant(playbook.priority)}>
+                        #{index + 1}
+                      </Badge>
+                      <p className="font-semibold">{playbook.name}</p>
+                      <Badge variant="outline">{playbook.priority}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{opportunityReason(playbook, data)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-primary">{BRL(playbook.estimate.contribution)}</p>
+                    <p className="text-xs text-muted-foreground">MC estimada</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Base</p>
+                    <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Pedidos</p>
+                    <p className="font-semibold">{NUMBER(playbook.estimate.expectedOrders)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Custo/pedido</p>
+                    <p className="font-semibold">{BRL(playbook.estimate.retentionCostPerOrder)}</p>
+                  </div>
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Cadencia</p>
+                    <p className="truncate font-semibold">{playbookCadenceLabel(playbook.id)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="max-w-2xl text-xs text-muted-foreground">{playbook.why}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => onSchedule(playbook)}
+                      disabled={Boolean(schedulingId) || preparingId !== null}
+                    >
+                      {schedulingId === playbook.id ? (
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      Agendar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onPrepare(playbook)}
+                      disabled={Boolean(schedulingId) || preparingId !== null}
+                    >
+                      {preparingId === playbook.id ? (
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ListChecks className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      Preparar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Agenda de runs</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                O status vem das campanhas WhatsApp vinculadas ao run.
+              </p>
+            </div>
+            <Badge variant="outline">{NUMBER(agendaRuns.length)} runs</Badge>
+          </div>
+
+          {agendaRuns.length === 0 ? (
+            <div className="mt-3 rounded-md bg-muted/35 p-3 text-sm text-muted-foreground">
+              Nenhum agendamento preparado ainda.
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {agendaRuns.map((run) => {
+                const campaign = getPrimaryCampaign(run);
+                const status = campaign?.status || "prepared";
+                const nextAction = getRunNextAction(run);
+                return (
+                  <div key={run.id} className="rounded-md border bg-background p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{run.playbookName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Run {run.id.slice(0, 8)} · {NUMBER(run.treatmentList.totalCount)} tratamento ·{" "}
+                          {NUMBER(run.holdoutList?.totalCount ?? 0)} holdout
+                        </p>
+                      </div>
+                      <Badge variant={campaignVariant(status)}>{status === "prepared" ? "preparado" : waStatusLabel(status)}</Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Quando</p>
+                        <p className="font-semibold">{campaignWhenLabel(campaign)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Mensagens</p>
+                        <p className="font-semibold">{NUMBER(campaign?.totalMessages ?? run.treatmentList.phoneCount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Resultado</p>
+                        <p className="font-semibold">{runResultLabel(run)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint}
+                      </p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={campaign ? "/crm/whatsapp" : nextAction.href}>
+                          {campaign ? "Ver campanha" : nextAction.label}
+                          <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {resultRuns.length > 0 && (
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">Resultados em acompanhamento</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Leitura por lift contra holdout, receita incremental e margem liquida.
+              </p>
+            </div>
+            <Badge variant="outline">{NUMBER(resultRuns.length)} recentes</Badge>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {resultRuns.map((run) => {
+              const campaign = getPrimaryCampaign(run);
+              const playbook = data.playbooks.find((item) => item.id === run.playbookId);
+              const attributionWindowDays =
+                run.attributionWindowDays ??
+                playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
+              const decision = getRunDecision(run, attributionWindowDays);
+              return (
+                <div key={run.id} className="rounded-md border bg-background p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{run.playbookName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {campaign ? waStatusLabel(campaign.status) : "sem campanha"} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
+                      </p>
+                    </div>
+                    <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Lift</p>
+                      <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">MC liquida</p>
+                      <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Receita incr.</p>
+                      <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">WA enviados</p>
+                      <p className="font-semibold">{NUMBER(run.channels?.whatsapp?.sent ?? 0)}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AutopilotPanel({
   playbook,
   result,
@@ -1951,7 +2245,7 @@ export default function RetentionPlaybooksPage() {
   const [loading, setLoading] = useState(true);
   const [preparingId, setPreparingId] = useState<string | null>(null);
   const [preparedRun, setPreparedRun] = useState<PreparedRun | null>(null);
-  const [autoScheduling, setAutoScheduling] = useState(false);
+  const [schedulingPlaybookId, setSchedulingPlaybookId] = useState<string | null>(null);
   const [autoResult, setAutoResult] = useState<AutoScheduleResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -2063,9 +2357,9 @@ export default function RetentionPlaybooksPage() {
     }
   }
 
-  async function scheduleAutopilot() {
-    if (!workspaceId || !autopilotPlaybook) return;
-    setAutoScheduling(true);
+  async function schedulePlaybook(playbook: RetentionPlaybook) {
+    if (!workspaceId || !playbook) return;
+    setSchedulingPlaybookId(playbook.id);
     setAutoResult(null);
     setErrorMsg(null);
     try {
@@ -2077,8 +2371,8 @@ export default function RetentionPlaybooksPage() {
         },
         body: JSON.stringify({
           autoSchedule: true,
-          playbookId: autopilotPlaybook.id,
-          holdoutPct: autopilotPlaybook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
+          playbookId: playbook.id,
+          holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
         }),
       });
       const payload = await res.json();
@@ -2089,8 +2383,13 @@ export default function RetentionPlaybooksPage() {
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
     } finally {
-      setAutoScheduling(false);
+      setSchedulingPlaybookId(null);
     }
+  }
+
+  async function scheduleAutopilot() {
+    if (!autopilotPlaybook) return;
+    await schedulePlaybook(autopilotPlaybook);
   }
 
   if (!workspaceId) {
@@ -2169,7 +2468,7 @@ export default function RetentionPlaybooksPage() {
           <AutopilotPanel
             playbook={autopilotPlaybook}
             result={autoResult}
-            loading={autoScheduling}
+            loading={Boolean(schedulingPlaybookId)}
             onSchedule={scheduleAutopilot}
           />
 
@@ -2205,6 +2504,15 @@ export default function RetentionPlaybooksPage() {
               hint={`${BRL(data.crm.last30.revenue)} em receita`}
             />
           </div>
+
+          <OperationsBoard
+            data={data}
+            runs={runs}
+            preparingId={preparingId}
+            schedulingId={schedulingPlaybookId}
+            onPrepare={preparePlaybook}
+            onSchedule={schedulePlaybook}
+          />
 
           <RunKpiPanel runs={runs} data={data} />
 
