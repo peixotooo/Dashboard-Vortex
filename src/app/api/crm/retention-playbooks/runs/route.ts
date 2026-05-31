@@ -4,7 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { authRoute } from "@/lib/cashback/route-helpers";
 import { filterContacts } from "@/lib/wa-compliance";
 import {
+  createTemplateOnMeta,
   extractTemplateVariables,
+  getWaConfig,
   getTemplateBodyText,
   type WaTemplateComponent,
 } from "@/lib/whatsapp-api";
@@ -14,6 +16,14 @@ export const maxDuration = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 1000;
 const HARD_CAP = 120000;
+const RETENTION_AUTOPILOT_TEMPLATE_PREFIX = "bkng_account_update_v";
+const RETENTION_AUTOPILOT_TEMPLATE_BODY = "Ola {{1}}, tudo bem?\n\n{{2}}";
+const RETENTION_AUTOPILOT_TEMPLATE_EXAMPLE_BODY_TEXT = [
+  [
+    "Mariana",
+    "Seu atendimento foi atualizado. Caso precise de ajuda, responda esta mensagem.",
+  ],
+];
 
 type AdminClient = SupabaseClient;
 
@@ -1212,6 +1222,14 @@ function isReservedAutomationTemplate(template: WaTemplateRow) {
   );
 }
 
+function isAutopilotRetentionTemplate(template: WaTemplateRow) {
+  return (
+    template.name.startsWith(RETENTION_AUTOPILOT_TEMPLATE_PREFIX) &&
+    isGenericUtilityTemplate(template) &&
+    !isReservedAutomationTemplate(template)
+  );
+}
+
 function isGenericUtilityTemplate(template: WaTemplateRow) {
   const body = getTemplateBodyText(template.components || []).toLowerCase();
   const vars = extractTemplateVariables(template.components || []);
@@ -1226,10 +1244,88 @@ function isGenericUtilityTemplate(template: WaTemplateRow) {
 function isGenericRetentionUtilityTemplate(template: WaTemplateRow) {
   const haystack = templateHaystack(template);
   return (
-    isGenericUtilityTemplate(template) &&
+    (isGenericUtilityTemplate(template) || isAutopilotRetentionTemplate(template)) &&
     !isReservedAutomationTemplate(template) &&
-    /retenc|recompra|winback|dormant|dormante|cashback|saldo|cliente|vip/.test(haystack)
+    (/retenc|recompra|winback|dormant|dormante|cashback|saldo|cliente|vip/.test(haystack) ||
+      template.name.startsWith(RETENTION_AUTOPILOT_TEMPLATE_PREFIX))
   );
+}
+
+async function ensurePendingRetentionUtilityTemplate(admin: AdminClient, workspaceId: string) {
+  const { data: existing, error: existingError } = await admin
+    .from("wa_templates")
+    .select("id, name, language, category, status, components")
+    .eq("workspace_id", workspaceId)
+    .like("name", `${RETENTION_AUTOPILOT_TEMPLATE_PREFIX}%`)
+    .neq("status", "REJECTED")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (existingError) throw existingError;
+  const reusable = ((existing || []) as WaTemplateRow[]).find((template) =>
+    Array.isArray(template.components)
+  );
+  if (reusable) return { template: reusable, created: false };
+
+  const config = await getWaConfig(workspaceId);
+  if (!config) {
+    return { template: null, created: false, reason: "WhatsApp nao configurado para este workspace." };
+  }
+
+  const name = `${RETENTION_AUTOPILOT_TEMPLATE_PREFIX}${Math.floor(Date.now() / 1000)}`;
+  const language = "pt_BR";
+  const category = "UTILITY";
+  const components = [
+    {
+      type: "BODY",
+      text: RETENTION_AUTOPILOT_TEMPLATE_BODY,
+      example: { body_text: RETENTION_AUTOPILOT_TEMPLATE_EXAMPLE_BODY_TEXT },
+    },
+  ];
+
+  let metaResult: { id: string; status?: string; category?: string };
+  try {
+    metaResult = await createTemplateOnMeta(config, {
+      name,
+      language,
+      category,
+      components,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error(
+      "[Retention Autopilot UtilityTemplate] Meta create failed:",
+      message,
+      "| sent:",
+      JSON.stringify({ name, language, category, components })
+    );
+    return { template: null, created: false, reason: `Meta recusou o template neutro: ${message}` };
+  }
+
+  const { data: template, error } = await admin
+    .from("wa_templates")
+    .insert({
+      workspace_id: workspaceId,
+      meta_id: metaResult.id,
+      name,
+      language,
+      category: metaResult.category || category,
+      status: metaResult.status || "PENDING",
+      components,
+      synced_at: new Date().toISOString(),
+    })
+    .select("id, name, language, category, status, components")
+    .single();
+
+  if (error || !template) {
+    return {
+      template: null,
+      created: true,
+      reason: `Template criado na Meta, mas nao persistiu localmente: ${error?.message || "erro desconhecido"}`,
+    };
+  }
+
+  return { template: template as WaTemplateRow, created: true };
 }
 
 async function pickApprovedUtilityTemplate(
@@ -1451,17 +1547,24 @@ async function autoScheduleWhatsappRun(params: {
   holdoutList: Omit<ContactListRow, "contacts"> | null;
   attributionWindowDays: number;
 }) {
-  const template = await pickApprovedUtilityTemplate(
+  let template = await pickApprovedUtilityTemplate(
     params.admin,
     params.workspaceId,
     params.playbookId
   );
+  let templateCreated = false;
   if (!template) {
-    return {
-      status: "needs_template" as const,
-      reason:
-        "Nao encontrei template WhatsApp aprovado na categoria UTILITY compativel com este playbook de retencao.",
-    };
+    const pending = await ensurePendingRetentionUtilityTemplate(params.admin, params.workspaceId);
+    template = pending.template;
+    templateCreated = pending.created;
+    if (!template) {
+      return {
+        status: "needs_template" as const,
+        reason:
+          pending.reason ||
+          "Nao encontrei template WhatsApp aprovado na categoria UTILITY compativel com este playbook de retencao.",
+      };
+    }
   }
 
   const vars = extractTemplateVariables(template.components || []);
@@ -1511,6 +1614,8 @@ async function autoScheduleWhatsappRun(params: {
   const bestHour = await inferBestSendHour(params.admin, params.workspaceId);
   const scheduledAt = nextBusinessSendAt(bestHour.hour);
   const campaignName = `Auto Retencao ${params.playbookName} ${new Date().toISOString().slice(0, 10)}`;
+  const templateApproved = template.status === "APPROVED" && template.category === "UTILITY";
+  const campaignStatus = templateApproved ? "scheduled" : "pending_template";
 
   const { data: campaign, error: campaignError } = await params.admin
     .from("wa_campaigns")
@@ -1532,16 +1637,19 @@ async function autoScheduleWhatsappRun(params: {
         holdout_pct: params.treatmentList.auto_segment?.holdout_pct ?? null,
         attribution_window_days: params.attributionWindowDays,
         autopilot: true,
+        pending_template: !templateApproved,
+        pending_template_created: templateCreated,
         template_guardrail: WHATSAPP_PLAYBOOK_CONTEXT[params.playbookId]?.guardrail || null,
+        desired_send_hour: bestHour.hour,
         send_hour_source: bestHour.source,
       },
       variable_values: variableValues,
-      status: "scheduled",
+      status: campaignStatus,
       total_messages: compliance.allowed.length,
       attribution_window_days: params.attributionWindowDays,
       message_cost_usd: 0.0625,
       exchange_rate: 5.5,
-      scheduled_at: scheduledAt,
+      scheduled_at: templateApproved ? scheduledAt : null,
     })
     .select("id, name, status, scheduled_at, total_messages, template_name")
     .single();
@@ -1568,17 +1676,22 @@ async function autoScheduleWhatsappRun(params: {
   }
 
   return {
-    status: "scheduled" as const,
+    status: templateApproved ? ("scheduled" as const) : ("pending_template" as const),
     campaignId: campaign.id as string,
     campaignName: campaign.name as string,
     templateName: template.name,
-    scheduledAt,
+    scheduledAt: templateApproved ? scheduledAt : null,
     recipients: compliance.allowed.length,
     originalContacts: rawContacts.length,
     cooldownCount: compliance.cooldownCount,
     blockedCount: compliance.blockedCount,
     sendHour: bestHour.hour,
     sendHourSource: bestHour.source,
+    reason: templateApproved
+      ? undefined
+      : templateCreated
+        ? "Template utilidade neutro criado e enviado para analise da Meta. Quando aprovar como UTILITY, o envio sera agendado automaticamente."
+        : "Template utilidade neutro ja esta em analise na Meta. Quando aprovar como UTILITY, o envio sera agendado automaticamente.",
   };
 }
 
@@ -1622,25 +1735,18 @@ export async function POST(request: NextRequest) {
 
     if (autoSchedule) {
       const template = await pickApprovedUtilityTemplate(auth!.admin, auth!.workspaceId, playbookId);
-      if (!template) {
-        return NextResponse.json(
-          {
-            error:
-              "Nao encontrei template WhatsApp aprovado em UTILITY compativel com este playbook ou generico de retencao. Sincronize/crie um template utility de retencao antes de ligar o piloto automatico.",
-          },
-          { status: 400 }
-        );
-      }
-      const vars = extractTemplateVariables(template.components || []);
-      const defaults = buildAutopilotVariableDefaults(playbookId, template, vars);
-      const missingVars = vars.filter((variable) => !defaults[variable]);
-      if (missingVars.length > 0) {
-        return NextResponse.json(
-          {
-            error: `Template aprovado, mas faltou mapear ${missingVars.join(", ")} sem risco de mensagem sem sentido.`,
-          },
-          { status: 400 }
-        );
+      if (template) {
+        const vars = extractTemplateVariables(template.components || []);
+        const defaults = buildAutopilotVariableDefaults(playbookId, template, vars);
+        const missingVars = vars.filter((variable) => !defaults[variable]);
+        if (missingVars.length > 0) {
+          return NextResponse.json(
+            {
+              error: `Template aprovado, mas faltou mapear ${missingVars.join(", ")} sem risco de mensagem sem sentido.`,
+            },
+            { status: 400 }
+          );
+        }
       }
     }
 

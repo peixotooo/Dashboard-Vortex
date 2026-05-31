@@ -231,6 +231,7 @@ interface PreparedRun {
 interface AutoScheduleResult {
   status:
     | "scheduled"
+    | "pending_template"
     | "needs_review"
     | "needs_template"
     | "needs_template_mapping"
@@ -239,7 +240,7 @@ interface AutoScheduleResult {
   campaignId?: string;
   campaignName?: string;
   templateName?: string;
-  scheduledAt?: string;
+  scheduledAt?: string | null;
   recipients?: number;
   originalContacts?: number;
   cooldownCount?: number;
@@ -1472,7 +1473,8 @@ function AutopilotPanel({
   onSchedule: () => void;
 }) {
   const scheduled = result?.status === "scheduled";
-  const blocked = result && result.status !== "scheduled";
+  const pendingTemplate = result?.status === "pending_template";
+  const blocked = result && result.status !== "scheduled" && result.status !== "pending_template";
 
   return (
     <Card className="border-primary/25 bg-primary/5">
@@ -1482,7 +1484,7 @@ function AutopilotPanel({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-base font-semibold">Piloto automatico de retencao</p>
               <Badge variant={scheduled ? "default" : "secondary"}>
-                {scheduled ? "agendado" : "1 clique"}
+                {scheduled ? "agendado" : pendingTemplate ? "em analise" : "1 clique"}
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -1524,10 +1526,14 @@ function AutopilotPanel({
           </div>
           <div className="rounded-md bg-background p-3">
             <p className="text-xs text-muted-foreground">Horario</p>
-            <p className="mt-1 text-sm font-semibold">{scheduled ? DATE_TIME(result.scheduledAt) : "Auto"}</p>
+            <p className="mt-1 text-sm font-semibold">
+              {scheduled && result.scheduledAt ? DATE_TIME(result.scheduledAt) : pendingTemplate ? "Apos aprovacao" : "Auto"}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {scheduled
                 ? `${NUMBER(result.recipients ?? 0)} contatos apos compliance`
+                : pendingTemplate
+                  ? `${NUMBER(result.recipients ?? 0)} contatos prontos`
                 : "Inferido por historico; fallback 10h."}
             </p>
           </div>
@@ -1546,6 +1552,23 @@ function AutopilotPanel({
             <Badge variant="secondary">
               <Clock className="mr-1 h-3.5 w-3.5" />
               {DATE_TIME(result.scheduledAt)}
+            </Badge>
+          </div>
+        )}
+
+        {pendingTemplate && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm">
+            <div>
+              <p className="font-semibold text-sky-900 dark:text-sky-100">
+                Template enviado para analise: {result.templateName}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A campanha ja esta preparada. Quando a Meta aprovar como UTILITY, o cron agenda o envio automaticamente.
+              </p>
+            </div>
+            <Badge variant="secondary">
+              <Clock className="mr-1 h-3.5 w-3.5" />
+              Em analise
             </Badge>
           </div>
         )}

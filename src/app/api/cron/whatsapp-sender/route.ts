@@ -8,9 +8,101 @@ export const maxDuration = 300;
 const BATCH_SIZE = 200;
 const PARALLEL = 10;  // micro-batch size for Meta API calls
 const DELAY_MS = 50;  // between micro-batches (~20 msgs/sec per parallel slot)
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function nextBusinessSendAt(hour: number) {
+  const safeHour = Number.isFinite(hour) && hour >= 9 && hour <= 20 ? hour : 10;
+  const now = new Date();
+  const brtNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const scheduledBrt = new Date(
+    Date.UTC(
+      brtNow.getUTCFullYear(),
+      brtNow.getUTCMonth(),
+      brtNow.getUTCDate(),
+      safeHour,
+      0,
+      0,
+      0
+    )
+  );
+
+  if (scheduledBrt.getTime() <= brtNow.getTime() + 60 * 60 * 1000) {
+    scheduledBrt.setTime(scheduledBrt.getTime() + DAY_MS);
+  }
+
+  while ([0, 6].includes(scheduledBrt.getUTCDay())) {
+    scheduledBrt.setTime(scheduledBrt.getTime() + DAY_MS);
+  }
+
+  return new Date(scheduledBrt.getTime() + 3 * 60 * 60 * 1000).toISOString();
+}
+
+async function releaseApprovedPendingTemplates(admin: ReturnType<typeof createAdminClient>) {
+  const { data: pendingCampaigns } = await admin
+    .from("wa_campaigns")
+    .select("id, workspace_id, template_id, template_name, segment_filter")
+    .eq("status", "pending_template")
+    .limit(20);
+
+  for (const campaign of pendingCampaigns || []) {
+    if (!campaign.template_id) {
+      await admin
+        .from("wa_campaigns")
+        .update({ status: "failed", rejection_reason: "Campanha sem template_id para revalidar." })
+        .eq("id", campaign.id);
+      continue;
+    }
+
+    const recheck = await recheckTemplateOnMeta(campaign.workspace_id, campaign.template_id);
+    if (!recheck.ok) continue;
+
+    if (recheck.currentStatus === "APPROVED" && recheck.currentCategory === "UTILITY") {
+      const filter = (campaign.segment_filter || {}) as Record<string, unknown>;
+      const hour = Number(filter.desired_send_hour ?? 10);
+      const scheduledAt = nextBusinessSendAt(hour);
+      await admin
+        .from("wa_campaigns")
+        .update({
+          status: "scheduled",
+          scheduled_at: scheduledAt,
+          segment_filter: {
+            ...filter,
+            pending_template: false,
+            template_approved_at: new Date().toISOString(),
+            send_released_by: "whatsapp_sender_cron",
+          },
+        })
+        .eq("id", campaign.id);
+      continue;
+    }
+
+    if (
+      recheck.currentCategory === "MARKETING" ||
+      ["REJECTED", "PAUSED", "DISABLED"].includes(String(recheck.currentStatus || ""))
+    ) {
+      const reason =
+        recheck.currentCategory === "MARKETING"
+          ? `Template ${campaign.template_name || campaign.template_id} foi classificado como MARKETING. Envio bloqueado para evitar custo/risco.`
+          : `Template ${campaign.template_name || campaign.template_id} nao foi aprovado pela Meta (${recheck.currentStatus}).`;
+      await admin
+        .from("wa_campaigns")
+        .update({
+          status: "rejected",
+          rejected_at: new Date().toISOString(),
+          rejection_reason: reason,
+        })
+        .eq("id", campaign.id);
+      await admin
+        .from("wa_messages")
+        .update({ status: "canceled", error_message: reason })
+        .eq("campaign_id", campaign.id)
+        .eq("status", "queued");
+    }
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -24,6 +116,8 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
 
   try {
+    await releaseApprovedPendingTemplates(admin);
+
     // Find active campaigns (queued, sending, or scheduled and due)
     const { data: campaigns } = await admin
       .from("wa_campaigns")
