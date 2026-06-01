@@ -871,6 +871,10 @@ function renderCampaignMessage(campaign: WaCampaignRow) {
   const variableValues = campaign.variable_values || {};
   if (!body) return "";
 
+  return renderTemplatePreview(body, variableValues);
+}
+
+function renderTemplatePreview(body: string, variableValues: Record<string, string>) {
   return body.replace(/\{\{(\d+)\}\}/g, (match) => {
     const value = variableValues[match] || "";
     if (!value) return match;
@@ -1515,6 +1519,225 @@ function buildAutopilotVariableDefaults(
   return defaults;
 }
 
+async function fetchTemplateById(
+  admin: AdminClient,
+  workspaceId: string,
+  templateId: string
+): Promise<WaTemplateRow | null> {
+  if (!templateId) return null;
+  const { data, error } = await admin
+    .from("wa_templates")
+    .select("id, name, language, category, status, components")
+    .eq("workspace_id", workspaceId)
+    .eq("id", templateId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data || !Array.isArray((data as WaTemplateRow).components)) return null;
+  const template = data as WaTemplateRow;
+  if (isReservedAutomationTemplate(template)) return null;
+  if (template.category && template.category !== "UTILITY") return null;
+  return template;
+}
+
+async function findPreviewTemplate(admin: AdminClient, workspaceId: string, playbookId: string) {
+  const approved = await pickApprovedUtilityTemplate(admin, workspaceId, playbookId);
+  if (approved) return approved;
+
+  const { data, error } = await admin
+    .from("wa_templates")
+    .select("id, name, language, category, status, components")
+    .eq("workspace_id", workspaceId)
+    .like("name", `${RETENTION_AUTOPILOT_TEMPLATE_PREFIX}%`)
+    .neq("status", "REJECTED")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  const existing = ((data || []) as WaTemplateRow[]).find((template) =>
+    Array.isArray(template.components)
+  );
+  if (existing) return existing;
+
+  return {
+    id: "",
+    name: "template_utility_neutro",
+    language: "pt_BR",
+    category: "UTILITY",
+    status: "DRAFT",
+    components: [
+      {
+        type: "BODY",
+        text: RETENTION_AUTOPILOT_TEMPLATE_BODY,
+      } as WaTemplateComponent,
+    ],
+  } satisfies WaTemplateRow;
+}
+
+function cleanScheduleVariableValues(
+  raw: unknown,
+  vars: string[],
+  defaults: Record<string, string>
+) {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const cleaned: Record<string, string> = {};
+  for (const variable of vars) {
+    const value = Object.prototype.hasOwnProperty.call(input, variable)
+      ? String(input[variable] ?? "")
+      : defaults[variable] || "";
+    cleaned[variable] = value.trim().slice(0, 1200);
+  }
+  return cleaned;
+}
+
+function buildTemplateContacts(
+  contacts: Contact[],
+  vars: string[],
+  variableValues: Record<string, string>
+) {
+  return contacts
+    .filter((contact) => contact.phone)
+    .map((contact) => ({
+      phone: formatPhoneForWa(contact.phone),
+      name: contact.name || "",
+      variables: Object.fromEntries(
+        vars.map((variable) => [variable, resolveTemplateValue(variableValues[variable], contact)])
+      ),
+    }))
+    .filter((contact) => contact.phone && vars.every((variable) => String(contact.variables[variable] || "").trim()));
+}
+
+async function getRunLists(
+  admin: AdminClient,
+  workspaceId: string,
+  runId: string
+): Promise<{ treatment: ContactListRow; holdout: ContactListRow | null; playbookId: string; playbookName: string }> {
+  const { data, error } = await admin
+    .from("crm_contact_lists")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("auto_segment->>type", "retention_playbook")
+    .eq("auto_segment->>run_id", runId)
+    .limit(5);
+
+  if (error) throw error;
+  const lists = (data || []) as ContactListRow[];
+  const treatment = lists.find((list) => list.auto_segment?.role === "treatment");
+  const holdout = lists.find((list) => list.auto_segment?.role === "holdout") || null;
+  if (!treatment || !treatment.auto_segment?.playbook_id) {
+    throw new Error("Run preparado nao encontrado ou sem lista de tratamento.");
+  }
+
+  return {
+    treatment,
+    holdout,
+    playbookId: treatment.auto_segment.playbook_id,
+    playbookName: treatment.auto_segment.playbook_name || PLAYBOOK_LABELS[treatment.auto_segment.playbook_id] || treatment.name,
+  };
+}
+
+async function fetchActiveCampaignForPlaybook(
+  admin: AdminClient,
+  workspaceId: string,
+  playbookId: string,
+  excludeRunId?: string
+) {
+  const { data, error } = await admin
+    .from("wa_campaigns")
+    .select("id, name, status, total_messages, sent_count, segment_filter")
+    .eq("workspace_id", workspaceId)
+    .eq("segment_filter->>playbook_id", playbookId)
+    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused"])
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) throw error;
+  return ((data || []) as Array<{
+    id: string;
+    name: string;
+    status: string;
+    total_messages: number | string | null;
+    sent_count: number | string | null;
+    segment_filter: { playbook_run_id?: string } | null;
+  }>).find((campaign) => campaign.segment_filter?.playbook_run_id !== excludeRunId) || null;
+}
+
+async function fetchActiveCampaignForRun(admin: AdminClient, workspaceId: string, runId: string) {
+  const { data, error } = await admin
+    .from("wa_campaigns")
+    .select("id, name, status, scheduled_at, total_messages, sent_count, template_name")
+    .eq("workspace_id", workspaceId)
+    .eq("segment_filter->>playbook_run_id", runId)
+    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) throw error;
+  return ((data || []) as Array<{
+    id: string;
+    name: string;
+    status: string;
+    scheduled_at: string | null;
+    total_messages: number | string | null;
+    sent_count: number | string | null;
+    template_name: string | null;
+  }>)[0] || null;
+}
+
+async function buildSchedulePreview(params: {
+  admin: AdminClient;
+  workspaceId: string;
+  runId: string;
+  variableValues?: Record<string, string>;
+  templateId?: string;
+}) {
+  const run = await getRunLists(params.admin, params.workspaceId, params.runId);
+  const template =
+    (await fetchTemplateById(params.admin, params.workspaceId, params.templateId || "")) ||
+    (await findPreviewTemplate(params.admin, params.workspaceId, run.playbookId));
+  const vars = extractTemplateVariables(template.components || []);
+  const defaults = buildAutopilotVariableDefaults(run.playbookId, template, vars);
+  const variableValues = cleanScheduleVariableValues(params.variableValues, vars, defaults);
+  const missingVars = vars.filter((variable) => !variableValues[variable]);
+  if (missingVars.length > 0) {
+    throw new Error(`Preencha ${missingVars.join(", ")} antes de agendar.`);
+  }
+
+  const rawContacts = buildTemplateContacts(run.treatment.contacts || [], vars, variableValues);
+  const compliance = await filterContacts(params.workspaceId, rawContacts, 7);
+  const sendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const body = getTemplateBodyText(template.components || []);
+
+  return {
+    runId: params.runId,
+    playbookId: run.playbookId,
+    playbookName: run.playbookName,
+    treatmentListId: run.treatment.id,
+    treatmentCount: run.treatment.total_count,
+    holdoutCount: run.holdout?.total_count || 0,
+    originalContacts: rawContacts.length,
+    recipients: compliance.allowed.length,
+    cooldownCount: compliance.cooldownCount,
+    blockedCount: compliance.blockedCount,
+    templateId: template.id || null,
+    templateName: template.name,
+    templateLanguage: template.language,
+    templateCategory: template.category,
+    templateStatus: template.status,
+    templateBody: body,
+    variables: vars.map((variable) => ({
+      key: variable,
+      value: variableValues[variable] || "",
+    })),
+    variableValues,
+    messagePreview: renderTemplatePreview(body, variableValues),
+    scheduledAt: sendWindow.scheduledAt,
+    sendHour: sendWindow.hour,
+    sendHourSource: sendWindow.source,
+    sendHourReason: sendWindow.reason,
+  };
+}
+
 function playbookRuntimeMessage(playbookId: string) {
   if (playbookId === "cashback-expiring-14d") {
     return "Voce tem R$ {{saldo_cashback}} de cashback disponivel e ele vence em {{dias_para_expirar}} dias. Use antes de expirar; o saldo ja esta na sua conta.";
@@ -1715,12 +1938,12 @@ async function autoScheduleWhatsappRun(params: {
   treatmentContacts: Contact[];
   holdoutList: Omit<ContactListRow, "contacts"> | null;
   attributionWindowDays: number;
+  templateId?: string | null;
+  variableValues?: Record<string, string>;
 }) {
-  let template = await pickApprovedUtilityTemplate(
-    params.admin,
-    params.workspaceId,
-    params.playbookId
-  );
+  let template =
+    (await fetchTemplateById(params.admin, params.workspaceId, params.templateId || "")) ||
+    (await pickApprovedUtilityTemplate(params.admin, params.workspaceId, params.playbookId));
   let templateCreated = false;
   if (!template) {
     const pending = await ensurePendingRetentionUtilityTemplate(params.admin, params.workspaceId);
@@ -1737,7 +1960,8 @@ async function autoScheduleWhatsappRun(params: {
   }
 
   const vars = extractTemplateVariables(template.components || []);
-  const variableValues = buildAutopilotVariableDefaults(params.playbookId, template, vars);
+  const defaultVariableValues = buildAutopilotVariableDefaults(params.playbookId, template, vars);
+  const variableValues = cleanScheduleVariableValues(params.variableValues, vars, defaultVariableValues);
   const missingVars = vars.filter((variable) => !variableValues[variable]);
   if (missingVars.length > 0) {
     return {
@@ -1747,16 +1971,7 @@ async function autoScheduleWhatsappRun(params: {
     };
   }
 
-  const rawContacts = params.treatmentContacts
-    .filter((contact) => contact.phone)
-    .map((contact) => ({
-      phone: formatPhoneForWa(contact.phone),
-      name: contact.name || "",
-      variables: Object.fromEntries(
-        vars.map((variable) => [variable, resolveTemplateValue(variableValues[variable], contact)])
-      ),
-    }))
-    .filter((contact) => contact.phone && vars.every((variable) => String(contact.variables[variable] || "").trim()));
+  const rawContacts = buildTemplateContacts(params.treatmentContacts, vars, variableValues);
 
   if (rawContacts.length === 0) {
     return {
@@ -1872,7 +2087,94 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    const action = String(body.action || "");
+    if (action === "preview_schedule" || action === "schedule_run") {
+      const runId = cleanSourceRunId(body.runId);
+      if (!runId) {
+        return NextResponse.json({ error: "Run invalido para agendamento" }, { status: 400 });
+      }
+
+      const preview = await buildSchedulePreview({
+        admin: auth!.admin,
+        workspaceId: auth!.workspaceId,
+        runId,
+        templateId: typeof body.templateId === "string" ? body.templateId : undefined,
+        variableValues:
+          body.variableValues && typeof body.variableValues === "object" && !Array.isArray(body.variableValues)
+            ? (body.variableValues as Record<string, string>)
+            : undefined,
+      });
+
+      if (action === "preview_schedule") {
+        return NextResponse.json({ preview });
+      }
+
+      const existingSameRun = await fetchActiveCampaignForRun(auth!.admin, auth!.workspaceId, runId);
+      if (existingSameRun) {
+        return NextResponse.json(
+          {
+            error: `Este run ja tem campanha ativa (${existingSameRun.status}).`,
+            automation: {
+              status: "blocked",
+              reason: `Este run ja tem campanha ativa (${existingSameRun.status}).`,
+              campaignId: existingSameRun.id,
+              campaignName: existingSameRun.name,
+              templateName: existingSameRun.template_name,
+              scheduledAt: existingSameRun.scheduled_at,
+              recipients: toNumber(existingSameRun.total_messages),
+            },
+          },
+          { status: 409 }
+        );
+      }
+
+      const activeForPlaybook = await fetchActiveCampaignForPlaybook(
+        auth!.admin,
+        auth!.workspaceId,
+        preview.playbookId,
+        runId
+      );
+      if (activeForPlaybook) {
+        return NextResponse.json(
+          {
+            error: `Ja existe campanha ativa para ${preview.playbookName}: ${activeForPlaybook.name}.`,
+            automation: {
+              status: "blocked",
+              reason: `Ja existe campanha ativa para ${preview.playbookName}: ${activeForPlaybook.name}.`,
+              campaignId: activeForPlaybook.id,
+              campaignName: activeForPlaybook.name,
+              recipients: toNumber(activeForPlaybook.total_messages),
+            },
+          },
+          { status: 409 }
+        );
+      }
+
+      const run = await getRunLists(auth!.admin, auth!.workspaceId, runId);
+      const automation = await autoScheduleWhatsappRun({
+        admin: auth!.admin,
+        workspaceId: auth!.workspaceId,
+        playbookId: preview.playbookId,
+        playbookName: preview.playbookName,
+        runId,
+        treatmentList: run.treatment,
+        treatmentContacts: run.treatment.contacts || [],
+        holdoutList: run.holdout,
+        attributionWindowDays: playbookAttributionWindowDays(preview.playbookId),
+        templateId: preview.templateId,
+        variableValues: preview.variableValues,
+      });
+
+      return NextResponse.json({ preview, automation });
+    }
+
     const autoSchedule = body.autoSchedule === true;
+    if (autoSchedule) {
+      return NextResponse.json(
+        { error: "Agendamento direto foi desativado. Revise a mensagem pelo preview antes de disparar." },
+        { status: 400 }
+      );
+    }
     let playbookId = String(body.playbookId || "");
     let prebuiltAudience: AudienceContact[] | null = null;
 

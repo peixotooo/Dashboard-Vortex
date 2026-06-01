@@ -29,6 +29,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/workspace-context";
 
 interface SegmentStats {
@@ -250,6 +261,37 @@ interface AutoScheduleResult {
   sendHourSource?: string;
 }
 
+interface SchedulePreview {
+  runId: string;
+  playbookId: string;
+  playbookName: string;
+  treatmentListId: string;
+  treatmentCount: number;
+  holdoutCount: number;
+  originalContacts: number;
+  recipients: number;
+  cooldownCount: number;
+  blockedCount: number;
+  templateId: string | null;
+  templateName: string;
+  templateLanguage: string | null;
+  templateCategory: string | null;
+  templateStatus: string | null;
+  templateBody: string;
+  variables: Array<{ key: string; value: string }>;
+  variableValues: Record<string, string>;
+  messagePreview: string;
+  scheduledAt: string | null;
+  sendHour: number;
+  sendHourSource: string;
+  sendHourReason: string;
+}
+
+interface ScheduleReviewState {
+  preview: SchedulePreview;
+  variableValues: Record<string, string>;
+}
+
 interface WhatsAppRunSummary {
   campaignCount: number;
   totalMessages: number;
@@ -426,6 +468,22 @@ function DATE_TIME(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function humanizeTemplateValue(value: string) {
+  return value
+    .replace(/\{\{nome\}\}/g, "Nome do cliente")
+    .replace(/\{\{saldo_cashback\}\}/g, "saldo do cliente")
+    .replace(/\{\{dias_para_expirar\}\}/g, "dias restantes")
+    .replace(/\{\{expira_em\}\}/g, "data de expiracao")
+    .replace(/\{\{ultima_compra\}\}/g, "ultima compra")
+    .replace(/\{\{dias_ultima_compra\}\}/g, "dias desde a ultima compra")
+    .replace(/\{\{ticket_medio\}\}/g, "ticket medio")
+    .replace(/\{\{total_compras\}\}/g, "total de compras");
+}
+
+function renderTemplatePreview(body: string, variableValues: Record<string, string>) {
+  return body.replace(/\{\{(\d+)\}\}/g, (match) => humanizeTemplateValue(variableValues[match] || match));
 }
 
 function priorityVariant(priority: RetentionPlaybook["priority"]): "default" | "secondary" | "outline" {
@@ -1548,6 +1606,7 @@ function OperationsBoard({
   schedulingId,
   onPrepare,
   onSchedule,
+  onReviewRun,
 }: {
   data: SummaryResponse;
   runs: RunReport[];
@@ -1555,6 +1614,7 @@ function OperationsBoard({
   schedulingId: string | null;
   onPrepare: (playbook: RetentionPlaybook) => void;
   onSchedule: (playbook: RetentionPlaybook) => void;
+  onReviewRun: (run: RunReport) => void;
 }) {
   const lockedRunsByPlaybook = new Map<string, RunReport>();
   for (const run of runs) {
@@ -1802,12 +1862,35 @@ function OperationsBoard({
                           campaign?.sendHourReason ||
                           (campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint)}
                       </p>
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={campaign ? "/crm/whatsapp" : nextAction.href}>
-                          {campaign ? "Ver campanha" : nextAction.label}
-                          <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                        </Link>
-                      </Button>
+                      {campaign ? (
+                        <Button asChild size="sm" variant="outline">
+                          <Link href="/crm/whatsapp">
+                            Ver campanha
+                            <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      ) : run.treatmentList.phoneCount > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => onReviewRun(run)}
+                          disabled={Boolean(schedulingId)}
+                        >
+                          {schedulingId === run.id ? (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          Revisar e agendar
+                        </Button>
+                      ) : (
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={nextAction.href}>
+                            {nextAction.label}
+                            <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1982,6 +2065,147 @@ function OperationsBoard({
         </TabsContent>
       </Tabs>
     </section>
+  );
+}
+
+function ScheduleReviewDialog({
+  review,
+  confirming,
+  onClose,
+  onVariableChange,
+  onConfirm,
+}: {
+  review: ScheduleReviewState | null;
+  confirming: boolean;
+  onClose: () => void;
+  onVariableChange: (key: string, value: string) => void;
+  onConfirm: () => void;
+}) {
+  const preview = review?.preview || null;
+  const variableValues = review?.variableValues || {};
+  const renderedMessage = preview
+    ? renderTemplatePreview(preview.templateBody, variableValues)
+    : "";
+  const missingValue = preview?.variables.some((variable) => !String(variableValues[variable.key] || "").trim());
+
+  return (
+    <Dialog open={Boolean(review)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Revisar mensagem antes de agendar</DialogTitle>
+          <DialogDescription>
+            O envio so sera criado depois da confirmacao. Ajuste as variaveis de texto aqui.
+          </DialogDescription>
+        </DialogHeader>
+
+        {preview && (
+          <div className="space-y-4">
+            <div className="grid gap-2 md:grid-cols-4">
+              <div className="rounded-md bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Run</p>
+                <p className="mt-1 text-sm font-semibold">{preview.playbookName}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{preview.runId.slice(0, 8)}</p>
+              </div>
+              <div className="rounded-md bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Publico</p>
+                <p className="mt-1 text-sm font-semibold">{NUMBER(preview.recipients)} contatos</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {NUMBER(preview.cooldownCount + preview.blockedCount)} bloqueados/cooldown
+                </p>
+              </div>
+              <div className="rounded-md bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Holdout</p>
+                <p className="mt-1 text-sm font-semibold">{NUMBER(preview.holdoutCount)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">nao recebe envio</p>
+              </div>
+              <div className="rounded-md bg-muted/35 p-3">
+                <p className="text-xs text-muted-foreground">Horario</p>
+                <p className="mt-1 text-sm font-semibold">{DATE_TIME(preview.scheduledAt)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{preview.sendHourSource}</p>
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-background p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Template</p>
+                  <p className="mt-1 break-words text-sm font-semibold">{preview.templateName}</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {preview.templateCategory && <Badge variant="outline">{preview.templateCategory}</Badge>}
+                  {preview.templateStatus && <Badge variant="secondary">{preview.templateStatus}</Badge>}
+                  {preview.templateLanguage && <Badge variant="outline">{preview.templateLanguage}</Badge>}
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">{preview.sendHourReason}</p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-semibold">Variaveis editaveis</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Tokens como {"{{nome}}"} usam o dado de cada cliente.
+                  </p>
+                </div>
+                {preview.variables.map((variable) => {
+                  const value = variableValues[variable.key] || "";
+                  const isLong = value.length > 70 || variable.key !== "{{1}}";
+                  return (
+                    <div key={variable.key} className="space-y-1.5">
+                      <Label htmlFor={`review-${variable.key}`}>{variable.key}</Label>
+                      {isLong ? (
+                        <Textarea
+                          id={`review-${variable.key}`}
+                          value={value}
+                          rows={5}
+                          onChange={(event) => onVariableChange(variable.key, event.target.value)}
+                        />
+                      ) : (
+                        <Input
+                          id={`review-${variable.key}`}
+                          value={value}
+                          onChange={(event) => onVariableChange(variable.key, event.target.value)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Preview da mensagem
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                    {renderedMessage || "Mensagem indisponivel para este template."}
+                  </p>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Corpo original
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                    {preview.templateBody}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={confirming}>
+            Cancelar
+          </Button>
+          <Button onClick={onConfirm} disabled={confirming || Boolean(missingValue) || !preview || preview.recipients === 0}>
+            {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            Confirmar agendamento
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2531,6 +2755,8 @@ export default function RetentionPlaybooksPage() {
   const [preparedRun, setPreparedRun] = useState<PreparedRun | null>(null);
   const [schedulingPlaybookId, setSchedulingPlaybookId] = useState<string | null>(null);
   const [autoResult, setAutoResult] = useState<AutoScheduleResult | null>(null);
+  const [scheduleReview, setScheduleReview] = useState<ScheduleReviewState | null>(null);
+  const [confirmingSchedule, setConfirmingSchedule] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
@@ -2617,32 +2843,41 @@ export default function RetentionPlaybooksPage() {
   async function preparePlaybook(
     playbook: RetentionPlaybook,
     source?: { runId?: string | null; decision?: RunDecision["tone"] | null }
+  ): Promise<PreparedRun | null> {
+    if (!workspaceId) return null;
+    const res = await fetch("/api/crm/retention-playbooks/runs", {
+      method: "POST",
+      headers: {
+        "x-workspace-id": workspaceId,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        playbookId: playbook.id,
+        holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
+        ...(source?.runId
+          ? {
+              sourceRunId: source.runId,
+              sourceDecision: source.decision || "scale",
+            }
+          : {}),
+      }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || "Erro ao preparar execucao");
+    setPreparedRun(payload.run);
+    await fetchRuns();
+    return payload.run;
+  }
+
+  async function handlePreparePlaybook(
+    playbook: RetentionPlaybook,
+    source?: { runId?: string | null; decision?: RunDecision["tone"] | null }
   ) {
-    if (!workspaceId) return;
     setPreparingId(playbook.id);
+    setAutoResult(null);
     setErrorMsg(null);
     try {
-      const res = await fetch("/api/crm/retention-playbooks/runs", {
-        method: "POST",
-        headers: {
-          "x-workspace-id": workspaceId,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          playbookId: playbook.id,
-          holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
-          ...(source?.runId
-            ? {
-                sourceRunId: source.runId,
-                sourceDecision: source.decision || "scale",
-              }
-            : {}),
-        }),
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Erro ao preparar execucao");
-      setPreparedRun(payload.run);
-      await fetchRuns();
+      await preparePlaybook(playbook, source);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
     } finally {
@@ -2650,10 +2885,58 @@ export default function RetentionPlaybooksPage() {
     }
   }
 
-  async function schedulePlaybook(playbook: RetentionPlaybook) {
+  async function openScheduleReview(runId: string) {
+    if (!workspaceId) return;
+    const res = await fetch("/api/crm/retention-playbooks/runs", {
+      method: "POST",
+      headers: {
+        "x-workspace-id": workspaceId,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "preview_schedule",
+        runId,
+      }),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || "Erro ao montar preview do agendamento");
+    const preview = payload.preview as SchedulePreview;
+    setScheduleReview({
+      preview,
+      variableValues: { ...(preview.variableValues || {}) },
+    });
+  }
+
+  async function reviewPreparedRun(run: PreparedRun | RunReport) {
+    setSchedulingPlaybookId(run.id);
+    setErrorMsg(null);
+    try {
+      await openScheduleReview(run.id);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
+    } finally {
+      setSchedulingPlaybookId(null);
+    }
+  }
+
+  async function reviewPlaybookSchedule(playbook: RetentionPlaybook) {
     if (!workspaceId || !playbook) return;
     setSchedulingPlaybookId(playbook.id);
     setAutoResult(null);
+    setErrorMsg(null);
+    try {
+      const run = await preparePlaybook(playbook);
+      if (run) await openScheduleReview(run.id);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
+    } finally {
+      setSchedulingPlaybookId(null);
+    }
+  }
+
+  async function confirmScheduleReview() {
+    if (!workspaceId || !scheduleReview) return;
+    setConfirmingSchedule(true);
     setErrorMsg(null);
     try {
       const res = await fetch("/api/crm/retention-playbooks/runs", {
@@ -2663,26 +2946,27 @@ export default function RetentionPlaybooksPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          autoSchedule: true,
-          playbookId: playbook.id,
-          holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
+          action: "schedule_run",
+          runId: scheduleReview.preview.runId,
+          templateId: scheduleReview.preview.templateId,
+          variableValues: scheduleReview.variableValues,
         }),
       });
       const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Erro ao agendar campanha automatica");
-      setPreparedRun(payload.run);
+      if (!res.ok) throw new Error(payload.error || "Erro ao agendar campanha");
       setAutoResult(payload.automation || null);
+      setScheduleReview(null);
       await fetchRuns();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
     } finally {
-      setSchedulingPlaybookId(null);
+      setConfirmingSchedule(false);
     }
   }
 
   async function scheduleAutopilot() {
     if (!autopilotPlaybook) return;
-    await schedulePlaybook(autopilotPlaybook);
+    await reviewPlaybookSchedule(autopilotPlaybook);
   }
 
   if (!workspaceId) {
@@ -2745,8 +3029,20 @@ export default function RetentionPlaybooksPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => reviewPreparedRun(preparedRun)}
+                    disabled={Boolean(schedulingPlaybookId)}
+                  >
+                    {schedulingPlaybookId === preparedRun.id ? (
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-3.5 w-3.5" />
+                    )}
+                    Revisar e agendar
+                  </Button>
                   {(preparedRunPlan?.actions ?? []).map((action, index) => (
-                    <Button key={action.key} asChild variant={index === 0 ? "default" : "outline"} size="sm">
+                    <Button key={action.key} asChild variant="outline" size="sm">
                       <Link href={action.href}>
                         {action.icon}
                         {action.label}
@@ -2804,8 +3100,9 @@ export default function RetentionPlaybooksPage() {
             runs={runs}
             preparingId={preparingId}
             schedulingId={schedulingPlaybookId}
-            onPrepare={preparePlaybook}
-            onSchedule={schedulePlaybook}
+            onPrepare={handlePreparePlaybook}
+            onSchedule={reviewPlaybookSchedule}
+            onReviewRun={reviewPreparedRun}
           />
 
           <details className="rounded-md border bg-card p-4">
@@ -2813,7 +3110,7 @@ export default function RetentionPlaybooksPage() {
               Configuracao avancada e diagnostico
             </summary>
             <div className="mt-4 space-y-6">
-              <StrategyBoard data={data} preparingId={preparingId} onPrepare={preparePlaybook} />
+              <StrategyBoard data={data} preparingId={preparingId} onPrepare={handlePreparePlaybook} />
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div className="rounded-md border bg-card p-4">
@@ -2945,7 +3242,7 @@ export default function RetentionPlaybooksPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
-                        onClick={() => preparePlaybook(playbook)}
+                        onClick={() => handlePreparePlaybook(playbook)}
                         disabled={preparingId !== null || playbook.audience.customers === 0}
                       >
                         {preparingId === playbook.id ? (
@@ -3032,7 +3329,7 @@ export default function RetentionPlaybooksPage() {
                         scaleDisabled={preparingId !== null || (scalePlaybook?.audience.customers ?? 0) === 0}
                         scaleLoading={Boolean(scalePlaybook && preparingId === scalePlaybook.id)}
                         onScale={(playbook, sourceRun, sourceDecision) =>
-                          preparePlaybook(playbook, {
+                          handlePreparePlaybook(playbook, {
                             runId: sourceRun.id,
                             decision: sourceDecision.tone,
                           })
@@ -3249,6 +3546,26 @@ export default function RetentionPlaybooksPage() {
           </section>
             </div>
           </details>
+
+          <ScheduleReviewDialog
+            review={scheduleReview}
+            confirming={confirmingSchedule}
+            onClose={() => setScheduleReview(null)}
+            onVariableChange={(key, value) =>
+              setScheduleReview((current) =>
+                current
+                  ? {
+                      ...current,
+                      variableValues: {
+                        ...current.variableValues,
+                        [key]: value,
+                      },
+                    }
+                  : current
+              )
+            }
+            onConfirm={confirmScheduleReview}
+          />
         </>
       ) : null}
     </div>
