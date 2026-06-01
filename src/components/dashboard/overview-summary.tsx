@@ -14,7 +14,7 @@ interface TopProduct {
   name: string;
   quantity: number;
   revenue: number;
-  orders: number;
+  orders: number | null;
   variants: number;
   stock: number | null;
   stockAvailable: boolean | null;
@@ -115,7 +115,7 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
     }
     let cancelled = false;
     const cacheKey = [
-      "overview-summary",
+      "overview-summary-v2",
       workspace.id,
       datePreset,
       customRangeKey,
@@ -218,10 +218,10 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
               Mais vendidos · {periodLabel}
             </CardTitle>
             <Link
-              href="/crm"
+              href="/financeiro"
               className="text-xs text-primary hover:underline"
             >
-              Ver CRM
+              Ver Curva ABC
             </Link>
           </div>
         </CardHeader>
@@ -239,8 +239,8 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
               </p>
               <p className="text-[10px] text-muted-foreground">
                 Os dados vêm do webhook VNDA. Confira em{" "}
-                <Link href="/crm" className="text-primary hover:underline">
-                  CRM
+                <Link href="/financeiro" className="text-primary hover:underline">
+                  Curva ABC
                 </Link>{" "}
                 se a integração está ativa.
               </p>
@@ -280,7 +280,11 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
                         {p.variants > 1 && (
                           <span className="ml-1">· {p.variants} variantes</span>
                         )}
-                        <span className="ml-1">· {formatNumber(p.orders)} pedidos</span>
+                        {p.orders !== null && (
+                          <span className="ml-1">
+                            · {formatNumber(p.orders)} pedidos
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>

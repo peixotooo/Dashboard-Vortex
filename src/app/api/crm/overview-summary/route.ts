@@ -27,10 +27,23 @@ interface ProductAgg {
   name: string;
   quantity: number;
   revenue: number;
-  orders: number;
+  orders: number | null;
   variants: number;
   stock: number | null;
   stockAvailable: boolean | null;
+}
+
+interface AbcSnapshotProduct {
+  sku: string | null;
+  product_id: string | null;
+  name: string;
+  qty_sold: number;
+  revenue: number;
+}
+
+interface AbcSnapshotSummary {
+  products: AbcSnapshotProduct[] | null;
+  period_days: number | null;
 }
 
 const EMPTY = {
@@ -45,6 +58,13 @@ const EMPTY = {
   totals: { orders: 0, revenue: 0 },
   period: { since: "", until: "" },
   debug: {} as Record<string, unknown>,
+};
+
+const ABC_PRESET_DAYS: Partial<Record<DatePreset, number>> = {
+  last_7d: 7,
+  last_14d: 14,
+  last_30d: 30,
+  last_90d: 90,
 };
 
 function createSupabase(request: NextRequest) {
@@ -208,7 +228,7 @@ export async function GET(request: NextRequest) {
         if (existing) {
           existing.quantity += qty;
           existing.revenue += total;
-          if (!seenInOrder.has(key)) existing.orders += 1;
+          if (!seenInOrder.has(key)) existing.orders = (existing.orders ?? 0) + 1;
         } else {
           productMap.set(key, {
             parentSku: parentSku || "—",
@@ -241,6 +261,46 @@ export async function GET(request: NextRequest) {
     const topProducts = [...productMap.values()]
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
+
+    const abcPeriodDays = customRange ? undefined : ABC_PRESET_DAYS[datePreset];
+    if (abcPeriodDays) {
+      try {
+        const { data: abcSnapshot, error: abcError } = await admin
+          .from("crm_abc_snapshots")
+          .select("products, period_days")
+          .eq("workspace_id", workspaceId)
+          .maybeSingle<AbcSnapshotSummary>();
+
+        if (!abcError && abcSnapshot?.period_days === abcPeriodDays) {
+          const variantsByParent = new Map(
+            [...productMap.values()].map((p) => [p.parentSku, p.variants])
+          );
+
+          topProducts.splice(
+            0,
+            topProducts.length,
+            ...(abcSnapshot.products ?? []).slice(0, 5).map((p) => {
+              const parentSku = p.sku || p.product_id || "—";
+              return {
+                parentSku,
+                name: p.name,
+                quantity: Number(p.qty_sold) || 0,
+                revenue: Number(p.revenue) || 0,
+                orders: null,
+                variants: variantsByParent.get(parentSku) ?? 0,
+                stock: null,
+                stockAvailable: null,
+              } satisfies ProductAgg;
+            })
+          );
+        }
+      } catch (abcErr) {
+        console.warn(
+          "[CRM Overview Summary] ABC bestseller lookup skipped:",
+          abcErr instanceof Error ? abcErr.message : abcErr
+        );
+      }
+    }
 
     // Fetch live stock from VNDA for the top 5 parent SKUs (parallel, best-effort).
     try {
