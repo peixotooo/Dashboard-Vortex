@@ -228,9 +228,9 @@ function retentionTemplatePreset(context: RetentionWaContext | null): TemplateCr
   if (context.playbookId === "high-ltv-dormant") {
     return {
       ...common,
-      name: "playbook_vip_winback",
+      name: "playbook_account_status",
       bodyText:
-        "Oi {{1}}, sentimos sua falta por aqui. Preparamos uma selecao VIP para voce voltar para a Bulking com uma condicao limitada.",
+        "Oi {{1}}, sentimos sua falta por aqui. Sua conta segue ativa na Bulking para voce voltar quando fizer sentido.",
       bodyExamples: { "{{1}}": "Guilherme" },
     };
   }
@@ -239,7 +239,7 @@ function retentionTemplatePreset(context: RetentionWaContext | null): TemplateCr
     ...common,
     name: "playbook_retencao",
     bodyText:
-      "Oi {{1}}, temos uma recomendacao da Bulking para voce voltar no momento certo. Veja a selecao preparada para sua proxima compra.",
+      "Oi {{1}}, sua conta segue ativa na Bulking. Temos uma atualizacao rapida para voce voltar quando fizer sentido.",
     bodyExamples: { "{{1}}": "Guilherme" },
   };
 }

@@ -87,6 +87,7 @@ interface WaCampaignRow {
     desired_send_hour?: number | string;
     send_hour_source?: string;
     send_hour_reason?: string;
+    paused_reason?: string;
     recommended_send_day?: number | string;
   } | null;
   wa_templates:
@@ -932,6 +933,7 @@ function summarizeWaCampaigns(runId: string, campaigns: WaCampaignRow[]) {
         messagePreview: renderCampaignMessage(campaign),
         sendHourSource: campaign.segment_filter?.send_hour_source || null,
         sendHourReason: campaign.segment_filter?.send_hour_reason || null,
+        pausedReason: campaign.segment_filter?.paused_reason || null,
         desiredSendHour: toNumber(campaign.segment_filter?.desired_send_hour, 0),
         recommendedSendDay: toNumber(campaign.segment_filter?.recommended_send_day, -1),
         totalMessages: toNumber(campaign.total_messages),
@@ -1530,9 +1532,9 @@ function playbookRuntimeMessage(playbookId: string) {
     return "Sua ultima compra foi em {{ultima_compra}}. Temos novidades e reposicoes que combinam com quem ja compra com a Bulking.";
   }
   if (playbookId === "high-ltv-dormant") {
-    return "Sentimos sua falta por aqui. Sua conta segue ativa e separei uma selecao para voce voltar quando fizer sentido.";
+    return "Sentimos sua falta por aqui. Sua conta segue ativa na Bulking para voce voltar quando fizer sentido.";
   }
-  return "Sua conta segue ativa na Bulking. Separei uma comunicacao rapida para te ajudar na proxima compra.";
+  return "Sua conta segue ativa na Bulking. Temos uma comunicacao rapida para te ajudar na proxima compra.";
 }
 
 function resolveTemplateValue(value: string, contact: Contact): string {

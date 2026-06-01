@@ -271,6 +271,7 @@ interface WhatsAppRunSummary {
     messagePreview: string;
     sendHourSource: string | null;
     sendHourReason: string | null;
+    pausedReason: string | null;
     desiredSendHour: number;
     recommendedSendDay: number;
     totalMessages: number;
@@ -1501,17 +1502,35 @@ function getPrimaryCampaign(run: RunReport) {
 function campaignVariant(status?: string): "default" | "secondary" | "outline" {
   if (!status) return "outline";
   if (status === "scheduled" || status === "completed") return "default";
-  if (status === "pending_template" || status === "sending" || status === "queued") return "secondary";
+  if (status === "pending_template" || status === "sending" || status === "queued" || status === "paused") {
+    return "secondary";
+  }
   return "outline";
 }
 
 function campaignWhenLabel(campaign: WhatsAppRunSummary["campaigns"][number] | null) {
   if (!campaign) return "sem disparo";
+  if (campaign.status === "paused") return "pausado";
   if (campaign.status === "pending_template") return "apos aprovacao";
   if (campaign.status === "scheduled") return DATE_TIME(campaign.scheduledAt);
   if (campaign.status === "sending" || campaign.status === "queued") return "em fila";
   if (campaign.status === "completed") return DATE_TIME(campaign.completedAt || campaign.startedAt);
   return DATE_TIME(campaign.scheduledAt || campaign.createdAt);
+}
+
+const CAMPAIGN_LOCK_STATUSES = new Set(["scheduled", "queued", "sending", "pending_template", "paused"]);
+
+function runLocksPlaybook(run: RunReport, data: SummaryResponse) {
+  const campaign = getPrimaryCampaign(run);
+  if (!campaign || !run.playbookId) return false;
+  const status = campaign.status.toLowerCase();
+  if (CAMPAIGN_LOCK_STATUSES.has(status)) return true;
+  if (status !== "completed") return false;
+  const playbook = data.playbooks.find((item) => item.id === run.playbookId);
+  const attributionWindowDays =
+    run.attributionWindowDays ??
+    playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
+  return getRunDecision(run, attributionWindowDays).ageDays < attributionWindowDays;
 }
 
 function runResultLabel(run: RunReport) {
@@ -1537,9 +1556,19 @@ function OperationsBoard({
   onPrepare: (playbook: RetentionPlaybook) => void;
   onSchedule: (playbook: RetentionPlaybook) => void;
 }) {
+  const lockedRunsByPlaybook = new Map<string, RunReport>();
+  for (const run of runs) {
+    if (run.playbookId && runLocksPlaybook(run, data) && !lockedRunsByPlaybook.has(run.playbookId)) {
+      lockedRunsByPlaybook.set(run.playbookId, run);
+    }
+  }
   const opportunities = data.playbooks
     .filter((playbook) => playbook.audience.customers > 0)
+    .filter((playbook) => !lockedRunsByPlaybook.has(playbook.id))
     .slice(0, 5);
+  const lockedPlaybooks = data.playbooks
+    .filter((playbook) => playbook.audience.customers > 0 && lockedRunsByPlaybook.has(playbook.id))
+    .slice(0, 4);
   const agendaRuns = runs.slice(0, 8);
   const messageRuns = runs.filter((run) => getPrimaryCampaign(run)).slice(0, 8);
   const resultRuns = runs.slice(0, 8);
@@ -1667,6 +1696,47 @@ function OperationsBoard({
               ))}
             </div>
           )}
+
+          {lockedPlaybooks.length > 0 && (
+            <div className="mt-4 rounded-md border bg-muted/25 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">Ja acionados ou em leitura</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Estes playbooks ficam fora da recomendacao ate terminar envio e janela de leitura.
+                  </p>
+                </div>
+                <Badge variant="secondary">{NUMBER(lockedPlaybooks.length)} bloqueados</Badge>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {lockedPlaybooks.map((playbook) => {
+                  const run = lockedRunsByPlaybook.get(playbook.id);
+                  const campaign = run ? getPrimaryCampaign(run) : null;
+                  return (
+                    <div key={playbook.id} className="rounded-md border bg-background p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{playbook.name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {run ? `Run ${run.id.slice(0, 8)}` : "run ativo"} · {campaignWhenLabel(campaign)}
+                          </p>
+                        </div>
+                        <Badge variant={campaignVariant(campaign?.status)}>
+                          {campaign ? waStatusLabel(campaign.status) : "em leitura"}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {campaign?.pausedReason ||
+                          (campaign
+                            ? `${NUMBER(campaign.sent)} de ${NUMBER(campaign.totalMessages)} mensagens enviadas.`
+                            : "Aguardando leitura incremental antes de novo disparo.")}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           </div>
         </TabsContent>
 
@@ -1728,7 +1798,9 @@ function OperationsBoard({
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
-                        {campaign?.sendHourReason || (campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint)}
+                        {campaign?.pausedReason ||
+                          campaign?.sendHourReason ||
+                          (campaign?.templateName ? `Template ${campaign.templateName}` : nextAction.hint)}
                       </p>
                       <Button asChild size="sm" variant="outline">
                         <Link href={campaign ? "/crm/whatsapp" : nextAction.href}>
@@ -1751,7 +1823,7 @@ function OperationsBoard({
               <div>
                 <p className="text-sm font-semibold">Mensagem e template</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Template aprovado, variaveis renderizadas e texto que sera enviado.
+                  Template aprovado, variaveis renderizadas e texto vinculado ao disparo.
                 </p>
               </div>
               <Badge variant="outline">{NUMBER(messageRuns.length)} campanhas</Badge>
@@ -1772,7 +1844,8 @@ function OperationsBoard({
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{run.playbookName}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Run {run.id.slice(0, 8)} · {campaignWhenLabel(campaign)} · {NUMBER(campaign.totalMessages)} mensagens
+                            Run {run.id.slice(0, 8)} · {campaignWhenLabel(campaign)} · {NUMBER(campaign.sent)} de{" "}
+                            {NUMBER(campaign.totalMessages)} enviadas
                           </p>
                         </div>
                         <Badge variant={campaignVariant(campaign.status)}>{waStatusLabel(campaign.status)}</Badge>
@@ -1792,6 +1865,10 @@ function OperationsBoard({
                             {campaign.templateLanguage && <Badge variant="outline">{campaign.templateLanguage}</Badge>}
                           </div>
                           <div className="mt-3 space-y-2 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-muted-foreground">Status</span>
+                              <span className="text-right font-medium">{waStatusLabel(campaign.status)}</span>
+                            </div>
                             <div className="flex items-center justify-between gap-3">
                               <span className="text-muted-foreground">Fonte horario</span>
                               <span className="text-right font-medium">{campaign.sendHourSource || "manual"}</span>
@@ -1818,6 +1895,11 @@ function OperationsBoard({
                               <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                                 {campaign.templateBody}
                               </p>
+                            </div>
+                          )}
+                          {campaign.pausedReason && (
+                            <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
+                              {campaign.pausedReason}
                             </div>
                           )}
                         </div>
@@ -1905,18 +1987,25 @@ function OperationsBoard({
 
 function AutopilotPanel({
   playbook,
+  activeRun,
   result,
   loading,
   onSchedule,
 }: {
   playbook: RetentionPlaybook | null;
+  activeRun: RunReport | null;
   result: AutoScheduleResult | null;
   loading: boolean;
   onSchedule: () => void;
 }) {
+  const activeCampaign = activeRun ? getPrimaryCampaign(activeRun) : null;
+  const hasActiveRun = Boolean(activeRun && activeCampaign);
   const scheduled = result?.status === "scheduled";
   const pendingTemplate = result?.status === "pending_template";
   const blocked = result && result.status !== "scheduled" && result.status !== "pending_template";
+  const remainingMessages = activeCampaign
+    ? Math.max(0, activeCampaign.totalMessages - activeCampaign.sent)
+    : 0;
 
   return (
     <Card className="border-primary/25 bg-primary/5">
@@ -1925,31 +2014,53 @@ function AutopilotPanel({
           <div className="max-w-3xl">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-base font-semibold">Piloto automatico de retencao</p>
-              <Badge variant={scheduled ? "default" : "secondary"}>
-                {scheduled ? "agendado" : pendingTemplate ? "em analise" : "1 clique"}
+              <Badge variant={hasActiveRun ? campaignVariant(activeCampaign?.status) : scheduled ? "default" : "secondary"}>
+                {hasActiveRun
+                  ? waStatusLabel(activeCampaign?.status || "")
+                  : scheduled
+                    ? "agendado"
+                    : pendingTemplate
+                      ? "em analise"
+                      : "1 clique"}
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Cria tratamento e holdout, escolhe template utilidade aprovado, preenche variaveis seguras,
-              aplica cooldown e agenda no melhor publico/horario disponivel.
+              {hasActiveRun
+                ? "Ja existe uma campanha deste fluxo em andamento ou em leitura. O piloto nao recomenda repetir o mesmo publico agora."
+                : "Cria tratamento e holdout, escolhe template utilidade aprovado, preenche variaveis seguras, aplica cooldown e agenda no melhor publico/horario disponivel."}
             </p>
           </div>
-          <Button
-            size="lg"
-            onClick={onSchedule}
-            disabled={loading || !playbook || playbook.audience.customers === 0}
-          >
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-            Agendar melhor campanha
-          </Button>
+          {hasActiveRun ? (
+            <Button asChild size="lg" variant="outline">
+              <Link href="/crm/whatsapp">
+                <ArrowUpRight className="mr-2 h-4 w-4" />
+                Ver campanha
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={onSchedule}
+              disabled={loading || !playbook || playbook.audience.customers === 0}
+            >
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Agendar melhor campanha
+            </Button>
+          )}
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <div className="rounded-md bg-background p-3">
-            <p className="text-xs text-muted-foreground">Publico escolhido</p>
-            <p className="mt-1 text-sm font-semibold">{playbook?.name ?? "Aguardando dados"}</p>
+            <p className="text-xs text-muted-foreground">{hasActiveRun ? "Publico em andamento" : "Publico escolhido"}</p>
+            <p className="mt-1 text-sm font-semibold">
+              {activeRun?.playbookName || playbook?.name || "Aguardando dados"}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {playbook ? `${NUMBER(playbook.audience.customers)} clientes elegiveis` : "sem fila"}
+              {hasActiveRun
+                ? `${NUMBER(activeCampaign?.sent ?? 0)} enviados · ${NUMBER(remainingMessages)} pendentes`
+                : playbook
+                  ? `${NUMBER(playbook.audience.customers)} clientes elegiveis`
+                  : "sem fila"}
             </p>
           </div>
           <div className="rounded-md bg-background p-3">
@@ -1961,18 +2072,30 @@ function AutopilotPanel({
           </div>
           <div className="rounded-md bg-background p-3">
             <p className="text-xs text-muted-foreground">Mensagem</p>
-            <p className="mt-1 text-sm font-semibold">{result?.templateName || "Template utility"}</p>
+            <p className="mt-1 text-sm font-semibold">
+              {activeCampaign?.templateName || result?.templateName || "Template utility"}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Mensagem operacional; bloqueia se variavel ficar sem sentido.
+              {hasActiveRun
+                ? activeCampaign?.pausedReason || "Template ja vinculado ao run atual."
+                : "Mensagem operacional; bloqueia se variavel ficar sem sentido."}
             </p>
           </div>
           <div className="rounded-md bg-background p-3">
             <p className="text-xs text-muted-foreground">Horario</p>
             <p className="mt-1 text-sm font-semibold">
-              {scheduled && result.scheduledAt ? DATE_TIME(result.scheduledAt) : pendingTemplate ? "Apos aprovacao" : "Auto"}
+              {hasActiveRun
+                ? campaignWhenLabel(activeCampaign)
+                : scheduled && result.scheduledAt
+                  ? DATE_TIME(result.scheduledAt)
+                  : pendingTemplate
+                    ? "Apos aprovacao"
+                    : "Auto"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {scheduled
+              {hasActiveRun
+                ? `${NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens no run`
+                : scheduled
                 ? `${NUMBER(result.recipients ?? 0)} contatos apos compliance`
                 : pendingTemplate
                   ? `${NUMBER(result.recipients ?? 0)} contatos prontos`
@@ -1980,6 +2103,19 @@ function AutopilotPanel({
             </p>
           </div>
         </div>
+
+        {hasActiveRun && (
+          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
+            <p className="font-semibold">
+              Campanha atual: {activeRun?.playbookName} · {NUMBER(activeCampaign?.sent ?? 0)} de{" "}
+              {NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens enviadas
+            </p>
+            <p className="mt-1 text-xs">
+              {activeCampaign?.pausedReason ||
+                "Este publico fica bloqueado para novo disparo ate o envio terminar e a janela de leitura fechar."}
+            </p>
+          </div>
+        )}
 
         {scheduled && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
@@ -2438,10 +2574,19 @@ export default function RetentionPlaybooksPage() {
   }, [load]);
 
   const topPlaybook = useMemo(() => data?.playbooks?.[0] ?? null, [data]);
+  const activeAutopilotRun = useMemo(() => {
+    if (!data) return null;
+    return runs.find((run) => runLocksPlaybook(run, data) && getPrimaryCampaign(run)) || null;
+  }, [data, runs]);
   const autopilotPlaybook = useMemo(() => {
     if (!data) return null;
-    return data.playbooks.find((playbook) => playbook.audience.customers > 0) || null;
-  }, [data]);
+    return (
+      data.playbooks.find((playbook) => {
+        if (playbook.audience.customers <= 0) return false;
+        return !runs.some((run) => run.playbookId === playbook.id && runLocksPlaybook(run, data));
+      }) || null
+    );
+  }, [data, runs]);
   const nextRunAction = useMemo(() => {
     for (const run of runs) {
       const action = getRunNextAction(run);
@@ -2615,6 +2760,7 @@ export default function RetentionPlaybooksPage() {
 
           <AutopilotPanel
             playbook={autopilotPlaybook}
+            activeRun={activeAutopilotRun}
             result={autoResult}
             loading={Boolean(schedulingPlaybookId)}
             onSchedule={scheduleAutopilot}
