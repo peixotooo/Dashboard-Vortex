@@ -2115,6 +2115,40 @@ function playbookCadenceLabel(playbookId: string) {
   return "conforme base acionavel";
 }
 
+// Quem entra em cada playbook. ESPELHA os predicados de buildAudience em
+// src/app/api/crm/retention-playbooks/runs/route.ts (fonte da verdade da selecao).
+// `recency` = resposta curta para "compraram quando?"; `criterio` = regra completa.
+const PLAYBOOK_AUDIENCE: Record<string, { recency: string; criterio: string }> = {
+  "cashback-expiring-14d": {
+    recency: "Saldo expira em ate 14 dias",
+    criterio: "Clientes com cashback ativo prestes a expirar (proximos 14 dias)",
+  },
+  "active-cashback-balance": {
+    recency: "Tem saldo de cashback ativo",
+    criterio: "Clientes com cashback ativo ou reativado — sem filtro de recencia de compra",
+  },
+  "second-purchase-31-60d": {
+    recency: "Compraram ha 31 a 60 dias",
+    criterio: "So 1 compra na vida, a ultima ha 31 a 60 dias (janela de 2a compra)",
+  },
+  "one-time-61-90d-save": {
+    recency: "Compraram ha 61 a 90 dias",
+    criterio: "So 1 compra na vida, a ultima ha 61 a 90 dias (resgate antes de esfriar)",
+  },
+  "repeat-61-180d": {
+    recency: "Ultima compra ha 61 a 180 dias",
+    criterio: "2 ou mais compras, a ultima ha 61 a 180 dias (recorrentes esfriando)",
+  },
+  "high-ltv-dormant": {
+    recency: "Ultima compra ha mais de 180 dias",
+    criterio: "2+ compras e alto LTV, dormentes ha mais de 180 dias",
+  },
+};
+
+function playbookAudienceInfo(playbookId?: string) {
+  return (playbookId && PLAYBOOK_AUDIENCE[playbookId]) || null;
+}
+
 function opportunityReason(playbook: RetentionPlaybook, data: SummaryResponse) {
   const cpa = data.acquisition.cpa;
   const cpaText =
@@ -2268,6 +2302,15 @@ function OperationsBoard({
                         </Badge>
                       </div>
                       <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        {playbookAudienceInfo(playbook.id) && (
+                          <p>
+                            <span className="font-medium text-foreground">Quem entra:</span>{" "}
+                            {playbookAudienceInfo(playbook.id)!.recency} ·{" "}
+                            {NUMBER(playbook.audience.customers)} clientes (
+                            {NUMBER(playbook.audience.withPhone)} com WhatsApp,{" "}
+                            {NUMBER(playbook.audience.withEmail)} com email)
+                          </p>
+                        )}
                         <p>
                           <span className="font-medium text-foreground">Motivo:</span>{" "}
                           {playbook.recommendationReason || opportunityReason(playbook, data)}
@@ -2712,6 +2755,9 @@ function ExecuteRunDialog({
     : "";
   const missingValue = preview?.variables.some((variable) => !String(variableValues[variable.key] || "").trim());
 
+  // Quem entra (janela de recencia do playbook) — resposta a "compraram quando?"
+  const audienceInfo = playbookAudienceInfo(run?.playbookId);
+
   // Etapa de cupom (so quando o playbook exige cupom)
   const couponRequirement = run ? runCouponRequirement(run) : "none";
   const couponNeeded = couponRequirement === "required";
@@ -2746,6 +2792,23 @@ function ExecuteRunDialog({
 
         {preview && (
           <div className="space-y-4">
+            {audienceInfo && (
+              <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+                <p className="flex items-center gap-1.5 text-sm font-semibold">
+                  <Target className="h-4 w-4 text-primary" />
+                  Quem entra: {audienceInfo.recency}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">{audienceInfo.criterio}.</p>
+                {run && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {NUMBER(run.treatmentList.totalCount)} clientes no tratamento ·{" "}
+                    {NUMBER(run.treatmentList.phoneCount)} com WhatsApp ·{" "}
+                    {NUMBER(run.treatmentList.emailCount)} com email ·{" "}
+                    {NUMBER(run.holdoutList?.totalCount ?? 0)} no holdout (fora do envio).
+                  </p>
+                )}
+              </div>
+            )}
             <div className="grid gap-2 md:grid-cols-4">
               <div className="rounded-md bg-muted/35 p-3">
                 <p className="text-xs text-muted-foreground">Run</p>
@@ -3598,7 +3661,8 @@ function NextActionHero({
   } else if (runAction) {
     stepLabel = "Continuar execucao";
     title = `Avance: ${runAction.run.playbookName}`;
-    desc = runAction.action.hint;
+    const info = playbookAudienceInfo(runAction.run.playbookId);
+    desc = info ? `Quem entra: ${info.recency}. ${runAction.action.hint}` : runAction.action.hint;
     button = nextActionOpensDialog(runAction.action.label) ? (
       <Button size="lg" onClick={() => onOpenRun(runAction.run)} disabled={busy}>
         {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : runAction.action.icon}
@@ -3615,8 +3679,10 @@ function NextActionHero({
   } else if (autopilotPlaybook && !hasActiveAutopilotRun) {
     stepLabel = "Passo 1 → 2 · Publico e agendamento";
     title = `Agende a melhor campanha: ${autopilotPlaybook.name}`;
-    desc =
-      "Em 1 clique o piloto cria tratamento + holdout, escolhe o template aprovado e agenda no melhor horario.";
+    const info = playbookAudienceInfo(autopilotPlaybook.id);
+    desc = info
+      ? `Quem entra: ${info.recency}. Em 1 clique cria tratamento + holdout, escolhe o template aprovado e agenda no melhor horario.`
+      : "Em 1 clique o piloto cria tratamento + holdout, escolhe o template aprovado e agenda no melhor horario.";
     button = (
       <Button
         size="lg"
@@ -4352,7 +4418,16 @@ export default function RetentionPlaybooksPage() {
                     </div>
 
                     <div className="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-                      <p className="font-medium text-foreground">Por que entra</p>
+                      {playbookAudienceInfo(playbook.id) && (
+                        <>
+                          <p className="font-medium text-foreground">Quem entra</p>
+                          <p className="mt-1">{playbookAudienceInfo(playbook.id)!.criterio}.</p>
+                          <p className="mt-2 font-medium text-foreground">Por que entra</p>
+                        </>
+                      )}
+                      {!playbookAudienceInfo(playbook.id) && (
+                        <p className="font-medium text-foreground">Por que entra</p>
+                      )}
                       <p className="mt-1">{playbook.why}</p>
                       <p className="mt-2 font-medium text-foreground">Como medir</p>
                       <p className="mt-1">{playbook.measurement}</p>
