@@ -224,7 +224,10 @@ export default function GoogleAdsPage() {
           <CardContent className="py-6">
             <p className="text-sm text-destructive">{error}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Verifique se as credenciais do Google Ads estao configuradas no .env.local
+              Diagnostico: rode <code className="font-mono">npx tsx scripts/google-ads-doctor.ts</code>.
+              Passo a passo completo em docs/google-ads-setup.md. Se aparecer
+              DEVELOPER_TOKEN_NOT_APPROVED, o token so acessa contas de teste — peca
+              Basic Access no API Center (conta gerenciadora/MCC).
             </p>
           </CardContent>
         </Card>
