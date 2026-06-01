@@ -507,23 +507,41 @@ interface VndaVariant {
   total_stock?: number;
 }
 
+type VndaVariantPayload = VndaVariant | Record<string, VndaVariant>;
+
 interface VndaProductWithVariants {
   id: number;
   reference?: string;
   name: string;
   available?: boolean;
-  variants?: VndaVariant[];
+  variants?: VndaVariantPayload[];
   total_stock?: number;
   stock?: number;
   balance?: number;
 }
 
-function extractVariantStock(v: VndaVariant): number {
+function unwrapVndaVariant(v: VndaVariantPayload): VndaVariant {
+  if (
+    v &&
+    typeof v === "object" &&
+    !("sku" in v) &&
+    !("stock" in v) &&
+    !("quantity" in v) &&
+    !("available_quantity" in v)
+  ) {
+    const nested = Object.values(v)[0];
+    if (nested && typeof nested === "object") return nested;
+  }
+  return v as VndaVariant;
+}
+
+function extractVariantStock(raw: VndaVariantPayload): number {
+  const v = unwrapVndaVariant(raw);
   const candidates = [
-    v.stock,
-    v.balance,
     v.quantity,
+    v.balance,
     v.available_quantity,
+    v.stock,
     v.stock_total,
     v.total_stock,
   ];
@@ -534,6 +552,10 @@ function extractVariantStock(v: VndaVariant): number {
     }
   }
   return 0;
+}
+
+function isVariantAvailable(raw: VndaVariantPayload): boolean {
+  return unwrapVndaVariant(raw).available !== false;
 }
 
 function extractProductStock(p: VndaProductWithVariants): number {
@@ -638,11 +660,15 @@ export async function getVndaStockByReference(
   // fetch the product detail endpoint which always carries full variant data.
   const listingVariants = match.variants || [];
   const listingHasStock = listingVariants.some(
-    (v) =>
-      v.stock !== undefined ||
-      v.balance !== undefined ||
-      v.quantity !== undefined ||
-      v.available_quantity !== undefined
+    (raw) => {
+      const v = unwrapVndaVariant(raw);
+      return (
+        v.stock !== undefined ||
+        v.balance !== undefined ||
+        v.quantity !== undefined ||
+        v.available_quantity !== undefined
+      );
+    }
   );
 
   let productForStock = match;
@@ -657,7 +683,7 @@ export async function getVndaStockByReference(
   for (const v of variants) {
     const stockNum = extractVariantStock(v);
     total += stockNum;
-    if (v.available !== false && stockNum > 0) availableAny = true;
+    if (isVariantAvailable(v) && stockNum > 0) availableAny = true;
   }
 
   // If still no per-variant stock, fall back to product-level fields.
@@ -669,7 +695,7 @@ export async function getVndaStockByReference(
   if (total === 0 && variants.length > 0) {
     // Diagnostic: log the first variant's keys so we can identify the
     // correct stock field if VNDA uses something we haven't covered yet.
-    const sampleKeys = Object.keys(variants[0] || {}).join(",");
+    const sampleKeys = Object.keys(unwrapVndaVariant(variants[0]) || {}).join(",");
     console.log(
       `[VNDA Stock] ref=${ref} id=${productForStock.id} variants=${variants.length} ` +
         `stock=0 — variant keys: ${sampleKeys}`

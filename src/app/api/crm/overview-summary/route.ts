@@ -8,7 +8,6 @@ import { getVndaConfig, getVndaStockByReferences } from "@/lib/vnda-api";
 export const maxDuration = 15;
 
 interface VendaRow {
-  cpf: string | null;
   email: string | null;
   cliente: string | null;
   valor: number | null;
@@ -16,6 +15,7 @@ interface VendaRow {
   items: Array<{
     name?: string;
     sku?: string;
+    reference?: string;
     quantity?: number;
     price?: number;
     total?: number;
@@ -62,9 +62,9 @@ function createSupabase(request: NextRequest) {
   );
 }
 
-function customerKey(row: Pick<VendaRow, "cpf" | "email">): string | null {
-  if (row.cpf && row.cpf.trim()) return `cpf:${row.cpf.trim()}`;
-  if (row.email && row.email.trim()) return `email:${row.email.trim().toLowerCase()}`;
+function customerKey(row: Pick<VendaRow, "email">): string | null {
+  const email = row.email?.trim().toLowerCase();
+  if (email && email.includes("@")) return `email:${email}`;
   return null;
 }
 
@@ -151,18 +151,18 @@ export async function GET(request: NextRequest) {
       return all;
     }
 
-    // Current window: need items, valor, cpf, email
+    // Current window: need items, valor, email
     const curOrders = await fetchAllInWindow(
       cur.start.toISOString(),
       cur.end.toISOString(),
-      "cpf, email, cliente, valor, data_compra, items"
+      "email, cliente, valor, data_compra, items"
     );
 
     // Previous window: only identifiers needed (for new/returning split)
     const prevOrders = await fetchAllInWindow(
       prevR.start.toISOString(),
       prevR.end.toISOString(),
-      "cpf, email, cliente, valor, data_compra, items"
+      "email, cliente, valor, data_compra, items"
     );
 
     if (curOrders.length === 0 && prevOrders.length === 0) {
@@ -193,10 +193,11 @@ export async function GET(request: NextRequest) {
       const seenInOrder = new Set<string>();
       for (const it of items) {
         const rawSku = (it.sku || "").trim();
+        const rawReference = (it.reference || "").trim();
         const rawName = (it.name || rawSku || "Sem nome").trim();
         if (!rawSku && !rawName) continue;
 
-        const parentSku = rawSku ? getParentSku(rawSku) : "";
+        const parentSku = rawReference || (rawSku ? getParentSku(rawSku) : "");
         const parentName = getParentName(rawName);
         const key = parentSku || parentName;
 
@@ -279,17 +280,14 @@ export async function GET(request: NextRequest) {
     }
 
     const allKeys = new Set<string>([...customersInCur, ...customersInPrev]);
-    const firstSeen = new Map<string, string>();
+    const firstSeenTs = new Map<string, number>();
     if (allKeys.size > 0) {
-      const cpfs = [...allKeys]
-        .filter((k) => k.startsWith("cpf:"))
-        .map((k) => k.slice(4));
       const emails = [...allKeys]
         .filter((k) => k.startsWith("email:"))
         .map((k) => k.slice(6));
 
       // Look up first-ever order date per customer, paginating to bypass the cap.
-      async function lookupFirstSeen(field: "cpf" | "email", values: string[]) {
+      async function lookupFirstSeen(values: string[]) {
         const CHUNK = 1000;
         // Process IN-list in chunks of 200 to keep URL size sane.
         const VALUES_CHUNK = 200;
@@ -299,10 +297,9 @@ export async function GET(request: NextRequest) {
           while (true) {
             const { data, error } = await admin
               .from("crm_vendas")
-              .select(`${field}, data_compra`)
+              .select("email, data_compra")
               .eq("workspace_id", workspaceId)
-              .in(field, slice)
-              .order("data_compra", { ascending: true })
+              .in("email", slice)
               .range(offset, offset + CHUNK - 1);
             if (error) {
               console.error("[CRM Overview Summary] firstSeen error:", error.message);
@@ -310,10 +307,13 @@ export async function GET(request: NextRequest) {
             }
             const rows = (data || []) as Array<Record<string, string | null>>;
             for (const r of rows) {
-              const v = r[field];
+              const v = r.email;
               if (!v) continue;
-              const k = field === "cpf" ? `cpf:${v}` : `email:${v.toLowerCase()}`;
-              if (!firstSeen.has(k)) firstSeen.set(k, r.data_compra as string);
+              const k = `email:${v.toLowerCase()}`;
+              const t = Date.parse(r.data_compra || "");
+              if (Number.isNaN(t)) continue;
+              const previous = firstSeenTs.get(k);
+              if (previous === undefined || t < previous) firstSeenTs.set(k, t);
             }
             if (rows.length < CHUNK) break;
             offset += CHUNK;
@@ -321,16 +321,14 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      if (cpfs.length > 0) await lookupFirstSeen("cpf", cpfs);
-      if (emails.length > 0) await lookupFirstSeen("email", emails);
+      if (emails.length > 0) await lookupFirstSeen(emails);
     }
 
     let newCount = 0;
     let returningCount = 0;
     for (const k of customersInCur) {
-      const first = firstSeen.get(k);
-      if (!first) continue;
-      const t = new Date(first).getTime();
+      const t = firstSeenTs.get(k);
+      if (t === undefined) continue;
       if (t >= cur.start.getTime()) newCount += 1;
       else returningCount += 1;
     }
@@ -338,9 +336,8 @@ export async function GET(request: NextRequest) {
     let prevNewCount = 0;
     let prevReturningCount = 0;
     for (const k of customersInPrev) {
-      const first = firstSeen.get(k);
-      if (!first) continue;
-      const t = new Date(first).getTime();
+      const t = firstSeenTs.get(k);
+      if (t === undefined) continue;
       if (t >= prevR.start.getTime() && t <= prevR.end.getTime()) prevNewCount += 1;
       else if (t < prevR.start.getTime()) prevReturningCount += 1;
     }

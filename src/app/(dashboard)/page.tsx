@@ -172,6 +172,41 @@ const FIN_DEFAULTS: FinancialSettings = {
   isDefault: true,
 };
 
+const OVERVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface OverviewCacheEntry {
+  savedAt: number;
+  data: OverviewData;
+}
+
+function readOverviewCache(key: string): OverviewData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OverviewCacheEntry;
+    if (Date.now() - parsed.savedAt > OVERVIEW_CACHE_TTL_MS) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeOverviewCache(key: string, data: OverviewData) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      key,
+      JSON.stringify({ savedAt: Date.now(), data } satisfies OverviewCacheEntry)
+    );
+  } catch {
+    // sessionStorage may be unavailable; fetching still works.
+  }
+}
+
 interface OverviewData {
   // Meta
   spend: number;
@@ -248,16 +283,44 @@ export default function OverviewPage() {
     gadsComparison: null,
     finSettings: FIN_DEFAULTS,
   });
+  const accountIdsKey = useMemo(
+    () => [...accounts.map((a) => a.id)].sort().join(","),
+    [accounts]
+  );
+  const customRangeKey =
+    datePreset === "custom" && customRange
+      ? `${customRange.since}:${customRange.until}`
+      : "";
 
   useEffect(() => {
-    if (!accountId) return;
+    if (!accountId) {
+      setLoading(false);
+      return;
+    }
+
+    const cacheKey = [
+      "overview",
+      workspace?.id || "",
+      accountId,
+      accountId === "all" ? accountIdsKey : "",
+      datePreset,
+      customRangeKey,
+    ].join("|");
+    const cached = readOverviewCache(cacheKey);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
       try {
         // Determine which accounts to fetch
         const accountIds = accountId === "all"
-          ? accounts.map((a) => a.id)
+          ? accountIdsKey.split(",").filter(Boolean)
           : [accountId];
 
         // Build date query params — use since/until for custom ranges
@@ -551,7 +614,7 @@ export default function OverviewPage() {
 
         const dailyData = [...trendData].reverse();
 
-        setData({
+        const nextData: OverviewData = {
           spend: totalSpend,
           cpc: totalCpc,
           ctr: totalCtr,
@@ -580,16 +643,24 @@ export default function OverviewPage() {
           vndaComparison: vndaData.comparison || null,
           gadsComparison: ga4Data.googleAdsComparison || null,
           finSettings,
-        });
+        };
+
+        if (!cancelled) {
+          setData(nextData);
+          writeOverviewCache(cacheKey, nextData);
+        }
       } catch {
         // Keep default empty state
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     fetchData();
-  }, [datePreset, customRange, accountId, accounts, workspace?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [datePreset, customRange, customRangeKey, accountId, accountIdsKey, workspace?.id]);
 
   function calcChange(
     current: number,

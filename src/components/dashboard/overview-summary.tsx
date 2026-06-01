@@ -40,6 +40,41 @@ const EMPTY: SummaryData = {
   totals: { orders: 0, revenue: 0 },
 };
 
+const SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface SummaryCacheEntry {
+  savedAt: number;
+  data: SummaryData;
+}
+
+function readSummaryCache(key: string): SummaryData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SummaryCacheEntry;
+    if (Date.now() - parsed.savedAt > SUMMARY_CACHE_TTL_MS) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeSummaryCache(key: string, data: SummaryData) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      key,
+      JSON.stringify({ savedAt: Date.now(), data } satisfies SummaryCacheEntry)
+    );
+  } catch {
+    // sessionStorage may be unavailable; fetching still works.
+  }
+}
+
 const PRESET_LABEL: Record<DatePreset, string> = {
   today: "hoje",
   yesterday: "ontem",
@@ -67,13 +102,31 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
   const { workspace } = useWorkspace();
   const [data, setData] = useState<SummaryData>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const customRangeKey =
+    datePreset === "custom" && customRange
+      ? `${customRange.since}:${customRange.until}`
+      : "";
 
   useEffect(() => {
     if (!workspace?.id) {
+      setData(EMPTY);
       setLoading(false);
       return;
     }
     let cancelled = false;
+    const cacheKey = [
+      "overview-summary",
+      workspace.id,
+      datePreset,
+      customRangeKey,
+    ].join("|");
+    const cached = readSummaryCache(cacheKey);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
     const params = new URLSearchParams();
@@ -85,7 +138,6 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
 
     fetch(`/api/crm/overview-summary?${params.toString()}`, {
       headers: { "x-workspace-id": workspace.id },
-      cache: "no-store",
     })
       .then(async (r) => {
         const json = await r.json().catch(() => null);
@@ -95,7 +147,11 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
         return json as SummaryData | null;
       })
       .then((d) => {
-        if (!cancelled) setData(d ?? EMPTY);
+        const nextData = d ?? EMPTY;
+        if (!cancelled) {
+          setData(nextData);
+          writeSummaryCache(cacheKey, nextData);
+        }
       })
       .catch((err) => {
         console.error("[OverviewSummary] fetch failed", err);
@@ -107,7 +163,7 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [workspace?.id, datePreset, customRange]);
+  }, [workspace?.id, datePreset, customRange, customRangeKey]);
 
   const periodLabel = PRESET_LABEL[datePreset] || "período";
   const newChange = calcChange(data.customers.new, data.customers.prevNew);
