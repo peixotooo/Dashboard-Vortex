@@ -437,6 +437,7 @@ interface EmailRunSummary {
 
 interface CouponRunSummary {
   planCount: number;
+  planIds?: string[];
   couponCount: number;
   attributedRevenue: number;
   attributedUnits: number;
@@ -1220,6 +1221,12 @@ function getRunNextAction(run: RunReport) {
   };
 }
 
+// Acoes que o ExecuteRunDialog resolve inline (cupom + criar WhatsApp via schedule_run).
+// "Enviar WhatsApp" (ativar disparo) e os passos de email seguem como link pro modulo.
+function nextActionOpensDialog(label: string) {
+  return /cupom|cupons/i.test(label) || label === "Criar WhatsApp";
+}
+
 type ExecutionStepState = "ready" | "prepared" | "todo" | "optional";
 
 const EXECUTION_STATE_LABELS: Record<ExecutionStepState, string> = {
@@ -1399,9 +1406,11 @@ function RunTrackingContract({
 function RunExecutionChecklist({
   run,
   attributionWindowDays,
+  onOpenRun,
 }: {
   run: RunReport;
   attributionWindowDays: number;
+  onOpenRun?: (run: RunReport) => void;
 }) {
   const whatsapp = run.channels?.whatsapp;
   const email = run.channels?.email;
@@ -1431,13 +1440,20 @@ function RunExecutionChecklist({
           <Badge variant={state.measurementReady ? "success" : "warning"}>
             {state.measurementReady ? "medindo" : `${state.doneSteps}/${state.progressSteps.length} pronto`}
           </Badge>
-          <Button asChild size="sm">
-            <Link href={nextAction.href}>
+          {onOpenRun && nextActionOpensDialog(nextAction.label) ? (
+            <Button size="sm" onClick={() => onOpenRun(run)}>
               {nextAction.icon}
               <span className="ml-1.5">{nextAction.label}</span>
-              <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-            </Link>
-          </Button>
+            </Button>
+          ) : (
+            <Button asChild size="sm">
+              <Link href={nextAction.href}>
+                {nextAction.icon}
+                <span className="ml-1.5">{nextAction.label}</span>
+                <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
       <div className="mt-2 space-y-1.5">
@@ -2662,15 +2678,29 @@ function OperationsBoard({
   );
 }
 
-function ScheduleReviewDialog({
+function ExecuteRunDialog({
   review,
+  run,
   confirming,
+  couponRunningId,
+  approvingCouponId,
+  couponError,
+  onRunCoupon,
+  onApproveCoupon,
+  onApproveAll,
   onClose,
   onVariableChange,
   onConfirm,
 }: {
   review: ScheduleReviewState | null;
+  run: RunReport | null;
   confirming: boolean;
+  couponRunningId: string | null;
+  approvingCouponId: string | null;
+  couponError: string | null;
+  onRunCoupon: (run: RunReport) => void;
+  onApproveCoupon: (couponId: string) => void;
+  onApproveAll: (run: RunReport) => void;
   onClose: () => void;
   onVariableChange: (key: string, value: string) => void;
   onConfirm: () => void;
@@ -2682,13 +2712,35 @@ function ScheduleReviewDialog({
     : "";
   const missingValue = preview?.variables.some((variable) => !String(variableValues[variable.key] || "").trim());
 
+  // Etapa de cupom (so quando o playbook exige cupom)
+  const couponRequirement = run ? runCouponRequirement(run) : "none";
+  const couponNeeded = couponRequirement === "required";
+  const couponRows = run?.channels?.coupons?.coupons ?? [];
+  const pendingCoupons = couponRows.filter((coupon) => coupon.status === "pending");
+  const activeCoupons = couponRows.filter((coupon) => coupon.status === "active");
+  const couponGenerated = (run?.channels?.coupons?.couponCount ?? 0) > 0;
+  const couponReady = activeCoupons.length > 0;
+  const couponRunning = Boolean(run && couponRunningId === run.id);
+  const couponBlocked = couponNeeded && !couponReady;
+  const anyApproving = approvingCouponId !== null;
+  // Todos os cupons gerados terminaram (cancelados/falharam) e nenhum ficou ativo: oferece rodar de novo.
+  const couponExhausted = couponGenerated && !couponReady && pendingCoupons.length === 0;
+  // Publico sem telefone (so email): o preview de WhatsApp fica com 0 destinatarios.
+  const emailOnlyAudience =
+    Boolean(preview) &&
+    preview!.recipients === 0 &&
+    (run?.treatmentList.emailCount ?? 0) > 0 &&
+    (run?.treatmentList.phoneCount ?? 0) === 0;
+
   return (
     <Dialog open={Boolean(review)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Revisar mensagem antes de agendar</DialogTitle>
+          <DialogTitle>{couponNeeded ? "Executar: cupom e mensagem" : "Revisar mensagem antes de agendar"}</DialogTitle>
           <DialogDescription>
-            O envio so sera criado depois da confirmacao. Ajuste as variaveis de texto aqui.
+            {couponNeeded
+              ? "Rode e aprove o cupom, revise a mensagem e confirme — tudo aqui, sem sair da pagina."
+              : "O envio so sera criado depois da confirmacao. Ajuste as variaveis de texto aqui."}
           </DialogDescription>
         </DialogHeader>
 
@@ -2754,6 +2806,171 @@ function ScheduleReviewDialog({
                     <p className="font-semibold">{preview.goal.learningApplied.multiplier.toFixed(2)}x</p>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {couponNeeded && (
+              <div
+                className={`rounded-md border p-3 ${
+                  couponReady ? "border-success/30 bg-success/5" : "border-warning/40 bg-warning/5"
+                }`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold">
+                      {couponReady ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-700 dark:text-success" />
+                      ) : (
+                        <Tag className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      Oferta (cupom VNDA)
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Esse playbook usa cupom. Rode, revise as sugestoes e aprove — sem sair da pagina.
+                    </p>
+                  </div>
+                  <Badge variant={couponReady ? "success" : couponGenerated ? "warning" : "outline"}>
+                    {couponReady
+                      ? `${NUMBER(activeCoupons.length)} no ar`
+                      : couponGenerated
+                        ? `${NUMBER(pendingCoupons.length)} pendentes`
+                        : "sem cupom"}
+                  </Badge>
+                </div>
+
+                <div className="mt-3">
+                  <StatusBanner
+                    tone="warning"
+                    icon={<AlertCircle className="h-4 w-4" />}
+                    title="Aprovar publica o cupom na VNDA na hora"
+                  >
+                    Os clientes ja podem usar o cupom assim que voce aprovar. Reverter exige pausar na VNDA.
+                  </StatusBanner>
+                </div>
+
+                {couponError && (
+                  <div className="mt-3">
+                    <StatusBanner
+                      tone="destructive"
+                      icon={<AlertCircle className="h-4 w-4" />}
+                      title={couponError}
+                    />
+                  </div>
+                )}
+
+                {!couponGenerated ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Gera sugestoes de cupom para esse run com base no guardrail do playbook.
+                    </p>
+                    <Button size="sm" onClick={() => run && onRunCoupon(run)} disabled={couponRunning}>
+                      {couponRunning ? (
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Tag className="mr-2 h-3.5 w-3.5" />
+                      )}
+                      Rodar cupom VNDA
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {couponRows.map((coupon) => {
+                      const approvingThis =
+                        approvingCouponId === coupon.id || approvingCouponId === "ALL";
+                      return (
+                        <div
+                          key={coupon.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{coupon.code}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {coupon.discountUnit === "brl"
+                                ? BRL(coupon.discountValueBrl)
+                                : `${coupon.discountPct}%`}{" "}
+                              de desconto
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                coupon.status === "active"
+                                  ? "success"
+                                  : coupon.status === "pending"
+                                    ? "warning"
+                                    : coupon.status === "failed"
+                                      ? "destructive"
+                                      : "outline"
+                              }
+                            >
+                              {coupon.status === "active"
+                                ? "no ar"
+                                : coupon.status === "pending"
+                                  ? "pendente"
+                                  : coupon.status === "failed"
+                                    ? "falhou"
+                                    : coupon.status}
+                            </Badge>
+                            {coupon.status === "pending" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onApproveCoupon(coupon.id)}
+                                disabled={anyApproving}
+                              >
+                                {approvingThis ? (
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
+                                )}
+                                Aprovar
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {couponExhausted && (
+                      <p className="text-xs text-muted-foreground">
+                        Nenhuma sugestao ficou ativa (sem estoque ou recusada na VNDA). Rode de novo
+                        para gerar novas sugestoes.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={run?.links.coupons || "/coupons"} target="_blank">
+                          Abrir no modulo de cupons
+                          <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                      {couponExhausted ? (
+                        <Button size="sm" onClick={() => run && onRunCoupon(run)} disabled={couponRunning}>
+                          {couponRunning ? (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Tag className="mr-2 h-3.5 w-3.5" />
+                          )}
+                          Rodar cupom novamente
+                        </Button>
+                      ) : (
+                        pendingCoupons.length > 0 && (
+                          <Button
+                            size="sm"
+                            onClick={() => run && onApproveAll(run)}
+                            disabled={anyApproving}
+                          >
+                            {approvingCouponId === "ALL" ? (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
+                            )}
+                            Aprovar todos ({NUMBER(pendingCoupons.length)})
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2827,11 +3044,33 @@ function ScheduleReviewDialog({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+          {couponBlocked && (
+            <p className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-500 sm:mr-auto">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Aprove ao menos um cupom antes de agendar.
+            </p>
+          )}
+          {!couponBlocked && emailOnlyAudience && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-foreground sm:mr-auto">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-500" />
+              Sem contatos de WhatsApp neste publico.
+              {run && (
+                <Link href={run.links.email} className="inline-flex items-center gap-0.5 underline">
+                  Finalizar por email <ArrowUpRight className="h-3 w-3" />
+                </Link>
+              )}
+            </p>
+          )}
           <Button variant="outline" onClick={onClose} disabled={confirming}>
             Cancelar
           </Button>
-          <Button onClick={onConfirm} disabled={confirming || Boolean(missingValue) || !preview || preview.recipients === 0}>
+          <Button
+            onClick={onConfirm}
+            disabled={
+              confirming || Boolean(missingValue) || !preview || preview.recipients === 0 || couponBlocked
+            }
+          >
             {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             Confirmar agendamento
           </Button>
@@ -3308,6 +3547,7 @@ function NextActionHero({
   hasActiveAutopilotRun,
   busy,
   onReviewPrepared,
+  onOpenRun,
   onScale,
   onScheduleAutopilot,
 }: {
@@ -3319,6 +3559,7 @@ function NextActionHero({
   hasActiveAutopilotRun: boolean;
   busy: boolean;
   onReviewPrepared: (run: PreparedRun) => void;
+  onOpenRun: (run: RunReport) => void;
   onScale: (playbook: RetentionPlaybook, run: RunReport, decision: RunDecision) => void;
   onScheduleAutopilot: () => void;
 }) {
@@ -3358,7 +3599,12 @@ function NextActionHero({
     stepLabel = "Continuar execucao";
     title = `Avance: ${runAction.run.playbookName}`;
     desc = runAction.action.hint;
-    button = (
+    button = nextActionOpensDialog(runAction.action.label) ? (
+      <Button size="lg" onClick={() => onOpenRun(runAction.run)} disabled={busy}>
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : runAction.action.icon}
+        <span className="ml-2">{runAction.action.label}</span>
+      </Button>
+    ) : (
       <Button asChild size="lg">
         <Link href={runAction.action.href}>
           {runAction.action.icon}
@@ -3444,6 +3690,9 @@ export default function RetentionPlaybooksPage() {
   const [autoResult, setAutoResult] = useState<AutoScheduleResult | null>(null);
   const [scheduleReview, setScheduleReview] = useState<ScheduleReviewState | null>(null);
   const [confirmingSchedule, setConfirmingSchedule] = useState(false);
+  const [couponRunningId, setCouponRunningId] = useState<string | null>(null);
+  const [approvingCouponId, setApprovingCouponId] = useState<string | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
@@ -3589,6 +3838,7 @@ export default function RetentionPlaybooksPage() {
     const payload = await res.json();
     if (!res.ok) throw new Error(payload.error || "Erro ao montar preview do agendamento");
     const preview = payload.preview as SchedulePreview;
+    setCouponError(null);
     setScheduleReview({
       preview,
       variableValues: { ...(preview.variableValues || {}) },
@@ -3644,6 +3894,7 @@ export default function RetentionPlaybooksPage() {
       if (!res.ok) throw new Error(payload.error || "Erro ao agendar campanha");
       setAutoResult(payload.automation || null);
       setScheduleReview(null);
+      setCouponError(null);
       await fetchRuns();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Erro de rede");
@@ -3655,6 +3906,135 @@ export default function RetentionPlaybooksPage() {
   async function scheduleAutopilot() {
     if (!autopilotPlaybook) return;
     await reviewPlaybookSchedule(autopilotPlaybook);
+  }
+
+  // Cupom inline: cria o plano (se preciso) e roda, gerando sugestoes pendentes para aprovar.
+  async function runCouponForRun(run: RunReport) {
+    if (!workspaceId) return;
+    setCouponError(null);
+    setCouponRunningId(run.id);
+    try {
+      const headers = { "x-workspace-id": workspaceId, "Content-Type": "application/json" };
+      const playbook = data?.playbooks.find((item) => item.id === run.playbookId) || null;
+      let planId = run.channels?.coupons?.planIds?.[0] || null;
+      if (!planId) {
+        const g = playbook?.incentiveGuardrail;
+        // O guardrail pode colapsar para 0% quando a margem pos-midia fica no limite (sem folga
+        // para cupom). `??` nao substitui 0, e o endpoint rejeita min <= 0 — entao clampamos para
+        // um piso valido e garantimos max >= min, mantendo o fluxo inline funcional.
+        const rawMin = typeof g?.discountMinPct === "number" ? g.discountMinPct : 0;
+        const rawMax = typeof g?.discountMaxPct === "number" ? g.discountMaxPct : 0;
+        const minPct = rawMin > 0 ? rawMin : 5;
+        const maxPct = rawMax >= minPct ? rawMax : Math.max(minPct, 10);
+        const res = await fetch("/api/coupons/plans", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: `Cupom ${run.playbookName}`,
+            enabled: true,
+            mode: "one_shot",
+            target: g?.target && g.target !== "manual" ? g.target : "low_cvr_high_views",
+            discount_min_pct: minPct,
+            discount_max_pct: maxPct,
+            duration_hours: g?.durationHours ?? 72,
+            max_active_products: g?.maxActiveProducts ?? 3,
+            discount_unit: g?.discountUnit && g.discountUnit !== "auto" ? g.discountUnit : "pct",
+            require_manual_approval: true,
+            playbook_id: run.playbookId,
+            playbook_run_id: run.id,
+            playbook_name: run.playbookName,
+          }),
+        });
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || "Erro ao criar plano de cupom");
+        planId = payload.plan?.id || null;
+      }
+      if (!planId) throw new Error("Plano de cupom indisponivel");
+      const runRes = await fetch(`/api/coupons/plans/${planId}/run`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          playbook_run_id: run.id,
+          playbook_id: run.playbookId,
+          playbook_name: run.playbookName,
+        }),
+      });
+      const runPayload = await runRes.json();
+      if (!runRes.ok) throw new Error(runPayload.error || "Erro ao rodar o cupom");
+      await fetchRuns();
+    } catch (err) {
+      setCouponError(err instanceof Error ? err.message : "Erro de rede ao rodar o cupom");
+    } finally {
+      setCouponRunningId(null);
+    }
+  }
+
+  async function approveCoupon(couponId: string) {
+    if (!workspaceId) return;
+    setCouponError(null);
+    setApprovingCouponId(couponId);
+    try {
+      const res = await fetch(`/api/coupons/active/${couponId}`, {
+        method: "POST",
+        headers: { "x-workspace-id": workspaceId, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Erro ao aprovar o cupom");
+      await fetchRuns();
+    } catch (err) {
+      setCouponError(err instanceof Error ? err.message : "Erro de rede ao aprovar o cupom");
+    } finally {
+      setApprovingCouponId(null);
+    }
+  }
+
+  async function approveAllPending(run: RunReport) {
+    if (!workspaceId) return;
+    const pending = (run.channels?.coupons?.coupons ?? []).filter(
+      (coupon) => coupon.status === "pending"
+    );
+    if (pending.length === 0) return;
+    setCouponError(null);
+    setApprovingCouponId("ALL");
+    let failures = 0;
+    let firstReason: string | null = null;
+    try {
+      // Cada aprovacao e isolada: uma falha (HTTP ou rede) conta como falha e segue para as demais.
+      for (const coupon of pending) {
+        try {
+          const res = await fetch(`/api/coupons/active/${coupon.id}`, {
+            method: "POST",
+            headers: { "x-workspace-id": workspaceId, "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "approve" }),
+          });
+          if (!res.ok) {
+            failures += 1;
+            if (!firstReason) {
+              const payload = await res.json().catch(() => null);
+              firstReason = payload?.error ?? null;
+            }
+          }
+        } catch {
+          failures += 1;
+        }
+      }
+      if (failures > 0) {
+        setCouponError(
+          firstReason
+            ? `${failures} cupom(ns) nao puderam ser publicados (ex.: ${firstReason}). Veja no modulo de cupons.`
+            : `${failures} cupom(ns) nao puderam ser publicados (sem estoque ou VNDA). Veja no modulo de cupons.`
+        );
+      }
+    } finally {
+      // Sempre reidrata para refletir os cupons que ja foram ao ar, mesmo com falha parcial.
+      try {
+        await fetchRuns();
+      } catch {
+        /* mantem o couponError de aprovacao; o refresh falhou */
+      }
+      setApprovingCouponId(null);
+    }
   }
 
   if (!workspaceId) {
@@ -3709,6 +4089,7 @@ export default function RetentionPlaybooksPage() {
             hasActiveAutopilotRun={Boolean(activeAutopilotRun)}
             busy={Boolean(schedulingPlaybookId) || preparingId !== null}
             onReviewPrepared={reviewPreparedRun}
+            onOpenRun={reviewPreparedRun}
             onScale={(playbook, sourceRun, sourceDecision) =>
               handlePreparePlaybook(playbook, { runId: sourceRun.id, decision: sourceDecision.tone })
             }
@@ -4106,6 +4487,7 @@ export default function RetentionPlaybooksPage() {
                       <RunExecutionChecklist
                         run={run}
                         attributionWindowDays={attributionWindowDays}
+                        onOpenRun={reviewPreparedRun}
                       />
                       <RunDecisionPanel
                         run={run}
@@ -4332,10 +4714,24 @@ export default function RetentionPlaybooksPage() {
             )}
           </section>
 
-          <ScheduleReviewDialog
+          <ExecuteRunDialog
             review={scheduleReview}
+            run={
+              scheduleReview
+                ? runs.find((item) => item.id === scheduleReview.preview.runId) ?? null
+                : null
+            }
             confirming={confirmingSchedule}
-            onClose={() => setScheduleReview(null)}
+            couponRunningId={couponRunningId}
+            approvingCouponId={approvingCouponId}
+            couponError={couponError}
+            onRunCoupon={runCouponForRun}
+            onApproveCoupon={approveCoupon}
+            onApproveAll={approveAllPending}
+            onClose={() => {
+              setScheduleReview(null);
+              setCouponError(null);
+            }}
             onVariableChange={(key, value) =>
               setScheduleReview((current) =>
                 current
