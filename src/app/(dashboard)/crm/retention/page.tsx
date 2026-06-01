@@ -823,6 +823,30 @@ function OpenSection({
   );
 }
 
+// Um run so e mensuravel por lift se teve um grupo de controle (holdout) reservado no disparo.
+// Sem holdout nao existe contrafactual, entao lift/incremental/MC liquida nao podem ser calculados.
+function runHasHoldout(run: RunReport) {
+  return (run.holdoutList?.totalCount ?? 0) > 0;
+}
+
+const SEM_HOLDOUT_VALUE = <span className="font-normal text-muted-foreground">sem holdout</span>;
+const SEM_HOLDOUT_HINT =
+  "Este run nao tem grupo de controle (holdout), entao nao da para isolar o efeito real da campanha. Os numeros brutos aparecem, mas lift, incremental e MC liquida ficam indisponiveis. Para medir, prepare a proxima safra pelo fluxo — o holdout e criado automaticamente.";
+
+function NoHoldoutNotice() {
+  return (
+    <StatusBanner
+      tone="warning"
+      icon={<ShieldCheck className="h-4 w-4" />}
+      title="Sem grupo de controle — nao da para medir lift"
+    >
+      Este run foi disparado sem holdout, entao so da para ver os numeros brutos (nao o efeito
+      incremental). Para medir de verdade, prepare a proxima safra pelo fluxo: o holdout e criado
+      automaticamente.
+    </StatusBanner>
+  );
+}
+
 function DATE_TIME(value?: string | null) {
   if (!value) return "sem horario";
   const date = new Date(value);
@@ -1533,6 +1557,7 @@ function GoalResultPanel({ run }: { run: RunReport }) {
   const goal = run.goal || null;
   const result = run.goalResult || null;
   const target = result?.target || goal?.target || null;
+  const hasHoldout = runHasHoldout(run);
   const actual = result?.actual || {
     orders: run.metrics.incrementalOrders || 0,
     revenue: run.metrics.incrementalRevenue,
@@ -1561,6 +1586,12 @@ function GoalResultPanel({ run }: { run: RunReport }) {
         <ForecastBar label="Receita" actual={actual.revenue} target={target?.revenue} format={BRL} />
         <ForecastBar label="MC liquida" actual={actual.contribution} target={target?.contribution} format={BRL} />
       </div>
+      {!hasHoldout && (
+        <p className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-500">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          Sem holdout: o &quot;realizado&quot; e bruto (nao incremental) — leitura apenas indicativa.
+        </p>
+      )}
       <p className="mt-3 text-xs text-muted-foreground">
         {result?.reason || goal?.criteria || "Aguardando a janela fechar para classificar o resultado."}
       </p>
@@ -1716,6 +1747,7 @@ function RunDecisionPanel({
   onScale?: (playbook: RetentionPlaybook, sourceRun: RunReport, sourceDecision: RunDecision) => void;
 }) {
   const canScale = decision.tone === "scale" && Boolean(scalePlaybook && onScale);
+  const hasHoldout = runHasHoldout(run);
 
   return (
     <div className="rounded-md border bg-background p-3">
@@ -1760,17 +1792,30 @@ function RunDecisionPanel({
           <p className="font-semibold">{NUMBER(decision.ageDays)}d</p>
           <Progress value={decision.windowProgressPct} className="mt-1 h-1.5" />
         </div>
-        <Stat label="Lift conv." term="lift" value={RATE(run.metrics.liftConversion)} />
+        <Stat
+          label="Lift conv."
+          term={hasHoldout ? "lift" : undefined}
+          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+          value={hasHoldout ? RATE(run.metrics.liftConversion) : SEM_HOLDOUT_VALUE}
+        />
         <Stat
           label="MC liquida"
-          term="mc"
-          emphasis
-          value={BRL(run.metrics.incrementalContribution)}
+          term={hasHoldout ? "mc" : undefined}
+          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+          emphasis={hasHoldout}
+          value={hasHoldout ? BRL(run.metrics.incrementalContribution) : SEM_HOLDOUT_VALUE}
         />
         <Stat
           label="ROI custo"
-          term="roiCusto"
-          value={decision.roi == null ? "sem custo" : `${decision.roi.toFixed(1)}x`}
+          term={hasHoldout ? "roiCusto" : undefined}
+          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+          value={
+            !hasHoldout
+              ? SEM_HOLDOUT_VALUE
+              : decision.roi == null
+                ? "sem custo"
+                : `${decision.roi.toFixed(1)}x`
+          }
         />
       </div>
     </div>
@@ -2553,6 +2598,7 @@ function OperationsBoard({
                   run.attributionWindowDays ??
                   playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
                 const decision = getRunDecision(run, attributionWindowDays);
+                const hasHoldout = runHasHoldout(run);
                 return (
                   <div key={run.id} className="rounded-md border bg-background p-3">
                     <div className="flex items-start justify-between gap-2">
@@ -2566,31 +2612,36 @@ function OperationsBoard({
                         {goalStatusLabel(run.goalResult?.status)}
                       </Badge>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-6">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Tratamento</p>
-                        <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Holdout</p>
-                        <p className="font-semibold">{NUMBER(run.holdoutList?.totalCount ?? 0)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Lift</p>
-                        <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Pedidos incr.</p>
-                        <p className="font-semibold">{NUMBER(run.metrics.incrementalOrders || 0)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Receita incr.</p>
-                        <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">MC liquida</p>
-                        <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
-                      </div>
+                    <div className="mt-3">
+                      <StatGrid cols={6}>
+                        <Stat label="Tratamento" term="tratamento" value={NUMBER(run.treatmentList.totalCount)} />
+                        <Stat label="Holdout" term="holdout" value={NUMBER(run.holdoutList?.totalCount ?? 0)} />
+                        <Stat
+                          label="Lift"
+                          term={hasHoldout ? "lift" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          value={hasHoldout ? RATE(run.metrics.liftConversion) : SEM_HOLDOUT_VALUE}
+                        />
+                        <Stat
+                          label="Pedidos incr."
+                          term={hasHoldout ? "incremental" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          value={hasHoldout ? NUMBER(run.metrics.incrementalOrders || 0) : SEM_HOLDOUT_VALUE}
+                        />
+                        <Stat
+                          label="Receita incr."
+                          term={hasHoldout ? "incremental" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          value={hasHoldout ? BRL(run.metrics.incrementalRevenue) : SEM_HOLDOUT_VALUE}
+                        />
+                        <Stat
+                          label="MC liquida"
+                          term={hasHoldout ? "mc" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          emphasis={hasHoldout}
+                          value={hasHoldout ? BRL(run.metrics.incrementalContribution) : SEM_HOLDOUT_VALUE}
+                        />
+                      </StatGrid>
                     </div>
                     <div className="mt-3">
                       <GoalResultPanel run={run} />
@@ -3963,30 +4014,53 @@ export default function RetentionPlaybooksPage() {
               trailing={<Badge variant="outline">{NUMBER(runs.length)} runs</Badge>}
             />
 
-            {runs.length > 0 && (
-              <div className="rounded-md border bg-muted/20 p-3">
-                <StatGrid cols={3}>
-                  <Stat label="Execucoes" value={NUMBER(runs.length)} />
-                  <Stat
-                    label="Ganhando"
-                    term="mc"
-                    tone="success"
-                    value={`${NUMBER(
-                      runs.filter(
-                        (run) =>
-                          run.metrics.incrementalContribution > 0 && run.metrics.liftConversion > 0
-                      ).length
-                    )} de ${NUMBER(runs.length)}`}
-                  />
-                  <Stat
-                    label="MC liquida total"
-                    term="mc"
-                    emphasis
-                    value={BRL(runs.reduce((sum, run) => sum + run.metrics.incrementalContribution, 0))}
-                  />
-                </StatGrid>
-              </div>
-            )}
+            {runs.length > 0 &&
+              (() => {
+                const measurable = runs.filter(runHasHoldout);
+                const winning = measurable.filter(
+                  (run) =>
+                    run.metrics.incrementalContribution > 0 && run.metrics.liftConversion > 0
+                ).length;
+                const mcTotal = measurable.reduce(
+                  (sum, run) => sum + run.metrics.incrementalContribution,
+                  0
+                );
+                const naoMensuravel = runs.length - measurable.length;
+                return (
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <StatGrid cols={3}>
+                      <Stat label="Execucoes" value={NUMBER(runs.length)} />
+                      <Stat
+                        label="Ganhando"
+                        term="mc"
+                        tone={measurable.length > 0 ? "success" : "default"}
+                        value={
+                          measurable.length > 0
+                            ? `${NUMBER(winning)} de ${NUMBER(measurable.length)}`
+                            : SEM_HOLDOUT_VALUE
+                        }
+                      />
+                      <Stat
+                        label="MC liquida total"
+                        term="mc"
+                        emphasis={measurable.length > 0}
+                        value={measurable.length > 0 ? BRL(mcTotal) : SEM_HOLDOUT_VALUE}
+                      />
+                    </StatGrid>
+                    {naoMensuravel > 0 && (
+                      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                        <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                        {NUMBER(naoMensuravel)}{" "}
+                        {naoMensuravel === 1
+                          ? "run sem holdout nao entra"
+                          : "runs sem holdout nao entram"}{" "}
+                        na medicao de lift — so contam os {NUMBER(measurable.length)} com grupo de
+                        controle.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
             {runs.length === 0 ? (
               <Card>
@@ -4011,6 +4085,7 @@ export default function RetentionPlaybooksPage() {
                     run.attributionWindowDays ??
                     playbookAttributionWindowDays(scalePlaybook, data.measurement.attributionWindowDays);
                   const decision = getRunDecision(run, attributionWindowDays);
+                  const hasHoldout = runHasHoldout(run);
 
                   return (
                     <Card key={run.id}>
@@ -4027,6 +4102,7 @@ export default function RetentionPlaybooksPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                      {!hasHoldout && <NoHoldoutNotice />}
                       <RunExecutionChecklist
                         run={run}
                         attributionWindowDays={attributionWindowDays}
@@ -4050,15 +4126,21 @@ export default function RetentionPlaybooksPage() {
                         <Stat label="Tratamento" term="tratamento" value={NUMBER(run.treatmentList.totalCount)} />
                         <Stat label="Holdout" term="holdout" value={NUMBER(run.holdoutList?.totalCount ?? 0)} />
                         <Stat label="Conv. trat." value={RATE(run.metrics.treatment.conversionRate)} />
-                        <Stat label="Lift" term="lift" value={RATE(run.metrics.liftConversion)} />
+                        <Stat
+                          label="Lift"
+                          term={hasHoldout ? "lift" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          value={hasHoldout ? RATE(run.metrics.liftConversion) : SEM_HOLDOUT_VALUE}
+                        />
                       </StatGrid>
 
                       <StatGrid cols={4}>
                         <Stat label="Receita trat." value={BRL(run.metrics.treatment.revenue)} />
                         <Stat
                           label="Receita incremental"
-                          term="incremental"
-                          value={BRL(run.metrics.incrementalRevenue)}
+                          term={hasHoldout ? "incremental" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          value={hasHoldout ? BRL(run.metrics.incrementalRevenue) : SEM_HOLDOUT_VALUE}
                         />
                         <Stat
                           label="Custo canal/oferta"
@@ -4066,9 +4148,10 @@ export default function RetentionPlaybooksPage() {
                         />
                         <Stat
                           label="Contribuicao liquida"
-                          term="mc"
-                          emphasis
-                          value={BRL(run.metrics.incrementalContribution)}
+                          term={hasHoldout ? "mc" : undefined}
+                          hint={hasHoldout ? undefined : SEM_HOLDOUT_HINT}
+                          emphasis={hasHoldout}
+                          value={hasHoldout ? BRL(run.metrics.incrementalContribution) : SEM_HOLDOUT_VALUE}
                         />
                       </StatGrid>
 
