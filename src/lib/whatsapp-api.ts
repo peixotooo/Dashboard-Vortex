@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
+import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 
 // --- Types ---
 
@@ -244,9 +245,14 @@ export async function sendTemplateMessage(
   language: string,
   variables?: Record<string, string>
 ): Promise<WaSendResult> {
+  const to = normalizeBrazilianWhatsAppPhone(phone);
+  if (!to) {
+    return { messageId: null, error: "invalid_phone" };
+  }
+
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
-    to: phone,
+    to,
     type: "template",
     template: {
       name: templateName,

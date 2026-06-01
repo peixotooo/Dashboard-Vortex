@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 
 // --- Payload types (based on VNDA order confirmed webhook) ---
 
@@ -106,9 +107,11 @@ export function mapVndaPayloadToCrmRow(
     .join(" ")
     .trim();
 
-  const phone = payload.phone
-    ? `${payload.phone_area || ""}${payload.phone}`.trim()
-    : payload.shipping_address?.phone || null;
+  const phone = normalizeBrazilianWhatsAppPhone(
+    payload.phone
+      ? `${payload.phone_area || ""}${payload.phone}`.trim()
+      : payload.shipping_address?.phone || null
+  );
 
   // Normalize payment method
   let paymentMethod: string | null = null;

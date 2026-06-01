@@ -12,6 +12,7 @@ import {
 } from "@/lib/cashback/api";
 import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
 import { syncCustomerToAutoSegmentLists } from "@/lib/segments/sync";
+import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 
 export const maxDuration = 30;
 
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
           `${payload.phone_area || ""}${payload.phone}`) ||
         payload.shipping_address?.phone ||
         "";
-      const phone = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
+      const phone = normalizeBrazilianWhatsAppPhone(rawPhone) || "";
       const state = payload.shipping_address?.state || payload.state || null;
       const syncResults = await syncCustomerToAutoSegmentLists(admin, workspaceId, {
         name: fullName || null,
@@ -162,8 +163,6 @@ export async function POST(request: NextRequest) {
     // derrube o webhook.
     try {
       const email = (payload.email || "").toLowerCase().trim();
-      // Mesma normalização usada no insert do abandoned_cart
-      // (src/lib/cart-recovery/payload.ts): só dígitos, area + número.
       const rawPhone =
         (payload.cellphone &&
           `${payload.cellphone_area || ""}${payload.cellphone}`) ||
@@ -171,11 +170,15 @@ export async function POST(request: NextRequest) {
           `${payload.phone_area || ""}${payload.phone}`) ||
         payload.shipping_address?.phone ||
         "";
-      const phone = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
+      const rawPhoneDigits = rawPhone ? String(rawPhone).replace(/\D/g, "") : "";
+      const phone = normalizeBrazilianWhatsAppPhone(rawPhone) || "";
 
       const orParts: string[] = [];
       if (email) orParts.push(`customer_email.eq.${email}`);
       if (phone) orParts.push(`customer_phone.eq.${phone}`);
+      if (rawPhoneDigits && rawPhoneDigits !== phone) {
+        orParts.push(`customer_phone.eq.${rawPhoneDigits}`);
+      }
 
       if (orParts.length > 0) {
         const { data: closed, error: closeErr } = await admin

@@ -4,6 +4,7 @@ import type {
   VndaAbandonedCartItem,
   VndaAbandonedCartPayload,
 } from "./types";
+import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 
 export function validateAbandonedCartPayload(
   body: unknown
@@ -83,7 +84,7 @@ export function normalizeCart(
   } else if (payload.phone) {
     phone = `${payload.phone_area || ""}${payload.phone}`.trim();
   }
-  if (phone) phone = phone.replace(/\D/g, "") || null;
+  phone = normalizeBrazilianWhatsAppPhone(phone);
 
   const total =
     typeof payload.total === "number"

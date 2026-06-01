@@ -65,7 +65,7 @@ export function buildRecoveryVariables(
   opts: { storeName?: string } = {}
 ): RecoveryVariables {
   const items = cart.items ?? [];
-  const firstName = (cart.customer_name || "").split(/\s+/)[0] || "";
+  const firstName = (cart.customer_name || "").split(/\s+/)[0] || "cliente";
   const total = cart.cart_total ?? 0;
   const expiresIso = cart.recovery_coupon_expires_at || "";
   return {

@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
          steps:cart_recovery_steps(
            id, workspace_id, rule_id, step_order, delay_minutes,
            whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping,
-           email_enabled, email_subject, email_body_html
+           email_enabled, email_subject, email_body_html,
+           coupon_pct, coupon_validity_hours
          )`
       )
       .eq("enabled", true);

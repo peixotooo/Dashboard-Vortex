@@ -11,15 +11,23 @@
 //   - Só atualiza campos que estavam vazios (não sobrescreve nome já vindo).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 import { getVndaConfig } from "@/lib/vnda-api";
 
 interface VndaClientResponse {
   id?: number;
+  name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
+  cellphone_area?: string | null;
+  cellphone?: string | null;
   phone_area?: string | null;
   phone?: string | null;
+  recent_address?: {
+    phone_area?: string | null;
+    phone?: string | null;
+  } | null;
   cpf?: string | null;
   birthdate?: string | null;
 }
@@ -122,19 +130,24 @@ export async function enrichCart(
 
   if (client) {
     if (!newName) {
-      const full = [client.first_name, client.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
+      const full =
+        client.name?.trim() ||
+        [client.first_name, client.last_name].filter(Boolean).join(" ").trim();
       if (full) {
         newName = full;
         patch.customer_name = full;
       }
     }
-    if (!newPhone && client.phone) {
-      const raw = `${client.phone_area || ""}${client.phone}`.replace(
-        /\D/g,
-        ""
+    if (!newPhone) {
+      const raw = normalizeBrazilianWhatsAppPhone(
+        firstPresent(
+          joinPhone(client.phone_area, client.phone),
+          joinPhone(client.cellphone_area, client.cellphone),
+          joinPhone(
+            client.recent_address?.phone_area,
+            client.recent_address?.phone
+          )
+        )
       );
       if (raw) {
         newPhone = raw;
@@ -162,4 +175,16 @@ export async function enrichCart(
     customer_name: newName,
     customer_phone: newPhone,
   };
+}
+
+function joinPhone(
+  area?: string | null,
+  phone?: string | null
+): string | null {
+  if (!phone) return null;
+  return `${area || ""}${phone}`.trim();
+}
+
+function firstPresent(...values: Array<string | null | undefined>): string | null {
+  return values.find((v) => !!v?.trim()) || null;
 }
