@@ -64,12 +64,18 @@ const AVAILABLE_VARS = [
   "customer_name",
   "customer_first_name",
   "customer_email",
+  "customer_state",
+  "customer_region",
   "cart_total",
   "cart_total_formatted",
   "first_item_name",
   "items_count",
   "recovery_url",
   "coupon_code",
+  "coupon_expires_at_formatted",
+  "free_shipping_message",
+  "free_shipping_whatsapp_block",
+  "free_shipping_email_block",
   "store_name",
 ];
 
@@ -107,6 +113,8 @@ interface CartRow {
   vnda_cart_token: string | null;
   customer_email: string;
   customer_name: string | null;
+  customer_state: string | null;
+  customer_region: string | null;
   cart_total: number | null;
   status: string;
   abandoned_at: string;

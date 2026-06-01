@@ -45,7 +45,7 @@ export async function GET(
     const { data: cart, error: cartErr } = await admin
       .from("abandoned_carts")
       .select(
-        "id, vnda_cart_token, vnda_cart_id, vnda_client_id, customer_email, customer_name, customer_phone, cart_total, status, abandoned_at, recovered_at, closed_at, recovery_url, items, coupon_code, recovery_coupon_expires_at, recovery_started_at, enrichment_attempted_at"
+        "id, vnda_cart_token, vnda_cart_id, vnda_client_id, customer_email, customer_name, customer_phone, customer_state, customer_region, cart_total, status, abandoned_at, recovered_at, closed_at, recovery_url, items, coupon_code, recovery_coupon_expires_at, recovery_started_at, enrichment_attempted_at"
       )
       .eq("workspace_id", workspaceId)
       .eq("id", id)

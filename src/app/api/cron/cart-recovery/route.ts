@@ -23,6 +23,8 @@ interface CartRow {
   customer_email: string;
   customer_phone: string | null;
   customer_name: string | null;
+  customer_state: string | null;
+  customer_region: string | null;
   cart_total: number | null;
   items: unknown;
   recovery_url: string | null;
@@ -82,7 +84,7 @@ export async function GET(request: NextRequest) {
       const { data: carts } = await admin
         .from("abandoned_carts")
         .select(
-          "id, workspace_id, customer_email, customer_phone, customer_name, cart_total, items, recovery_url, coupon_code, abandoned_at, recovery_started_at, vnda_client_id, enrichment_attempted_at, recovery_coupon_expires_at"
+          "id, workspace_id, customer_email, customer_phone, customer_name, customer_state, customer_region, cart_total, items, recovery_url, coupon_code, abandoned_at, recovery_started_at, vnda_client_id, enrichment_attempted_at, recovery_coupon_expires_at"
         )
         .eq("workspace_id", workspaceId)
         .eq("status", "open")
@@ -134,26 +136,30 @@ export async function GET(request: NextRequest) {
         // 3 dias atrás disparariam Step 1+2+3 simultaneamente.
         const abandonedAt = cartStartTime(cart).getTime();
 
-        // Enrichment best-effort: se faltar nome/telefone e tiver client_id,
-        // busca via VNDA antes do dispatch. Marca attempted_at pra não
-        // retentar em runs futuros. Não bloqueia o dispatch — se falhar,
-        // segue com customer_name = null.
+        // Enrichment best-effort: se faltar nome/telefone/UF, busca via
+        // VNDA/CRM antes do dispatch. Marca attempted_at pra não retentar em
+        // runs futuros. Não bloqueia o dispatch — se falhar, segue sem campo.
         let enrichedName = cart.customer_name;
         let enrichedPhone = cart.customer_phone;
+        let enrichedState = cart.customer_state;
+        let enrichedRegion = cart.customer_region;
         if (
           !cart.enrichment_attempted_at &&
-          cart.vnda_client_id &&
-          (!cart.customer_name || !cart.customer_phone)
+          (!cart.customer_name || !cart.customer_phone || !cart.customer_state)
         ) {
           const result = await enrichCart(admin, workspaceId, cart);
           enrichedName = result.customer_name;
           enrichedPhone = result.customer_phone;
+          enrichedState = result.customer_state;
+          enrichedRegion = result.customer_region;
         }
 
         const cartForVars = {
           ...cart,
           customer_name: enrichedName,
           customer_phone: enrichedPhone,
+          customer_state: enrichedState,
+          customer_region: enrichedRegion,
           items: Array.isArray(cart.items) ? cart.items : [],
         };
 

@@ -44,6 +44,11 @@ export interface VndaAbandonedCartPayload {
   second_phone?: string | null;
   second_phone_area?: string | null;
   client_id?: number | null;
+  state?: string | null;
+  shipping_state?: string | null;
+  shipping_address?: {
+    state?: string | null;
+  } | null;
 
   // Conteúdo.
   items?: VndaAbandonedCartItem[];
@@ -73,6 +78,8 @@ export interface NormalizedCart {
   customer_email: string;
   customer_phone: string | null;
   customer_name: string | null;
+  customer_state: string | null;
+  customer_region: string | null;
   items: NormalizedCartItem[];
   cart_total: number | null;
   recovery_url: string | null;

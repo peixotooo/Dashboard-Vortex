@@ -5,11 +5,14 @@
 // - interpolar {{var_name}} no assunto e corpo HTML do email
 
 import type { NormalizedCartItem } from "./types";
+import { buildFreeShippingMessage } from "@/lib/cart-recovery/location";
 
 export interface CartRow {
   customer_email: string;
   customer_name: string | null;
   customer_phone: string | null;
+  customer_state?: string | null;
+  customer_region?: string | null;
   cart_total: number | null;
   items: NormalizedCartItem[] | null;
   recovery_url: string | null;
@@ -26,6 +29,8 @@ export interface RecoveryVariables {
   customer_name: string;
   customer_first_name: string;
   customer_email: string;
+  customer_state: string;
+  customer_region: string;
   cart_total: string;
   cart_total_formatted: string;
   first_item_name: string;
@@ -34,6 +39,9 @@ export interface RecoveryVariables {
   coupon_code: string;
   coupon_expires_at: string;
   coupon_expires_at_formatted: string;
+  free_shipping_message: string;
+  free_shipping_whatsapp_block: string;
+  free_shipping_email_block: string;
   store_name: string;
 }
 
@@ -68,10 +76,17 @@ export function buildRecoveryVariables(
   const firstName = (cart.customer_name || "").split(/\s+/)[0] || "cliente";
   const total = cart.cart_total ?? 0;
   const expiresIso = cart.recovery_coupon_expires_at || "";
+  const freeShippingMessage = buildFreeShippingMessage({
+    state: cart.customer_state,
+    region: cart.customer_region,
+    cartTotal: total,
+  });
   return {
     customer_name: cart.customer_name || "",
     customer_first_name: firstName,
     customer_email: cart.customer_email,
+    customer_state: cart.customer_state || "",
+    customer_region: cart.customer_region || "",
     cart_total: total.toFixed(2),
     cart_total_formatted: BRL.format(total),
     first_item_name: items[0]?.name || "",
@@ -80,6 +95,13 @@ export function buildRecoveryVariables(
     coupon_code: cart.coupon_code || "",
     coupon_expires_at: expiresIso,
     coupon_expires_at_formatted: expiresIso ? formatExpiryHuman(expiresIso) : "",
+    free_shipping_message: freeShippingMessage,
+    free_shipping_whatsapp_block: freeShippingMessage
+      ? `${freeShippingMessage}\n\n`
+      : "",
+    free_shipping_email_block: freeShippingMessage
+      ? `<p style="margin:0 0 14px;">${freeShippingMessage}</p>`
+      : "",
     store_name: opts.storeName || "",
   };
 }
@@ -145,6 +167,8 @@ export const SAMPLE_VARS: RecoveryVariables = {
   customer_name: "João Silva",
   customer_first_name: "João",
   customer_email: "joao@exemplo.com",
+  customer_state: "SP",
+  customer_region: "Sudeste",
   cart_total: "199.90",
   cart_total_formatted: "R$ 199,90",
   first_item_name: "Camiseta Hustle III",
@@ -153,6 +177,12 @@ export const SAMPLE_VARS: RecoveryVariables = {
   coupon_code: "BKNG10_ABC123",
   coupon_expires_at: SAMPLE_EXPIRES_AT,
   coupon_expires_at_formatted: formatExpiryHuman(SAMPLE_EXPIRES_AT),
+  free_shipping_message:
+    "Para Sudeste, pedidos acima de R$ 299,00 têm frete grátis.",
+  free_shipping_whatsapp_block:
+    "Para Sudeste, pedidos acima de R$ 299,00 têm frete grátis.\n\n",
+  free_shipping_email_block:
+    '<p style="margin:0 0 14px;">Para Sudeste, pedidos acima de R$ 299,00 têm frete grátis.</p>',
   store_name: "Sua Loja",
 };
 

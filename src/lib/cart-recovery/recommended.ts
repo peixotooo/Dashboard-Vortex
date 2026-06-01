@@ -187,7 +187,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
       //         interpolado via {{recovery_url}} dentro do text:
       "1": "var:customer_first_name",
       "2":
-        "text:vi que você deixou alguns itens no carrinho 👀\n\nquer terminar a compra agora? é só clicar aqui:\n\n{{recovery_url}}",
+        "text:vi que você deixou alguns itens no carrinho 👀\n\n{{free_shipping_whatsapp_block}}quer terminar a compra agora? é só clicar aqui:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject: "{{customer_first_name}}, você esqueceu algo 👀",
@@ -196,6 +196,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
         "Seu carrinho ainda está aqui. Termine a compra em poucos cliques.",
       headline: "{{customer_first_name}},<br/>seu carrinho ainda está aqui.",
       body: `<p style="margin:0 0 14px;">Vi que você selecionou alguns itens mas não finalizou.</p>
+{{free_shipping_email_block}}
 <p style="margin:0 0 14px;">Eles continuam te esperando — leva menos de um minuto pra concluir.</p>`,
       ctaLabel: "Voltar pro carrinho",
       ctaUrl: "{{recovery_url}}",
@@ -217,7 +218,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:passando aqui de novo 🙂\n\nseus itens continuam disponíveis, mas o estoque pode acabar. garanta o seu antes que mude:\n\n{{recovery_url}}",
+        "text:passando aqui de novo 🙂\n\n{{free_shipping_whatsapp_block}}seus itens continuam disponíveis, mas o estoque pode acabar. garanta o seu antes que mude:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject: "Ainda dá tempo, {{customer_first_name}}",
@@ -225,6 +226,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
       preheader: "Os itens do seu carrinho continuam disponíveis. Por enquanto.",
       headline: "Ainda dá tempo,<br/>{{customer_first_name}}.",
       body: `<p style="margin:0 0 14px;">Os itens que você selecionou continuam te esperando.</p>
+{{free_shipping_email_block}}
 <p style="margin:0 0 14px;">Estoque é limitado e pode acabar a qualquer momento. Garanta antes que mude.</p>`,
       ctaLabel: "Finalizar minha compra",
       ctaUrl: "{{recovery_url}}",
@@ -250,7 +252,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
     whatsapp_variable_mapping: {
       "1": "var:customer_first_name",
       "2":
-        "text:separei um cupom de 10% off só pra você fechar essa compra 🎁\n\ncódigo: {{coupon_code}}\n\nvale só por 24h ({{coupon_expires_at_formatted}}). é só usar no checkout:\n\n{{recovery_url}}",
+        "text:separei um cupom de 10% off só pra você fechar essa compra 🎁\n\n{{free_shipping_whatsapp_block}}código: {{coupon_code}}\n\nvale só por 24h ({{coupon_expires_at_formatted}}). é só usar no checkout:\n\n{{recovery_url}}",
     },
     email_enabled: true,
     email_subject:
@@ -260,6 +262,7 @@ export const RECOMMENDED_STEPS: RecommendedStep[] = [
         "Seu cupom de 10% off vale só por 24h. Use no checkout do seu carrinho.",
       headline: "Separei 10% off<br/>pra você, {{customer_first_name}}.",
       body: `<p style="margin:0 0 14px;">Sei que talvez algo tenha te feito desistir do carrinho.</p>
+{{free_shipping_email_block}}
 <p style="margin:0 0 18px;">Pra te ajudar a fechar, criei um cupom de <strong>10% off</strong> só pra você. Vale só nas próximas 24 horas.</p>
 
 <!-- Countdown PNG — recalculado a cada abertura do email -->

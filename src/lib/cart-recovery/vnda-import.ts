@@ -6,6 +6,10 @@ import {
 } from "@/lib/cart-recovery/payload";
 import type { VndaAbandonedCartPayload } from "@/lib/cart-recovery/types";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
+import {
+  normalizeBrazilianState,
+  regionForState,
+} from "@/lib/cart-recovery/location";
 
 interface VndaCartListItem {
   id: number;
@@ -29,12 +33,19 @@ interface VndaClientResponse {
   recent_address?: {
     phone_area?: string | null;
     phone?: string | null;
+    first_phone_area?: string | null;
+    first_phone?: string | null;
+    second_phone_area?: string | null;
+    second_phone?: string | null;
+    state?: string | null;
   } | null;
 }
 
 interface VndaClientContact {
   name: string | null;
   phone: string | null;
+  state: string | null;
+  region: string | null;
 }
 
 interface RecentOrder {
@@ -174,6 +185,11 @@ export async function importMissingCartsFromVnda(
   }
 
   stats.eligible = eligible.length;
+  const stateByEmail = await loadCustomerStateIndex(
+    admin,
+    workspaceId,
+    eligible.map((cart) => cart.email).filter((email): email is string => !!email)
+  );
 
   for (const cart of eligible) {
     try {
@@ -229,6 +245,12 @@ export async function importMissingCartsFromVnda(
           : null;
       const customerPhone = normalized.customer_phone || contact?.phone || null;
       const customerName = normalized.customer_name || contact?.name || "cliente";
+      const customerState =
+        normalized.customer_state ||
+        contact?.state ||
+        stateByEmail.get(normalized.customer_email) ||
+        null;
+      const customerRegion = normalized.customer_region || regionForState(customerState);
 
       if (
         hasConvertedAfterAbandonment(recentOrders, {
@@ -251,6 +273,8 @@ export async function importMissingCartsFromVnda(
           customer_email: normalized.customer_email,
           customer_phone: customerPhone,
           customer_name: customerName,
+          customer_state: customerState,
+          customer_region: customerRegion,
           items: normalized.items,
           cart_total: normalized.cart_total,
           recovery_url: normalized.recovery_url,
@@ -342,6 +366,39 @@ async function loadRecentOrderIndex(
   return empty;
 }
 
+async function loadCustomerStateIndex(
+  admin: SupabaseClient,
+  workspaceId: string,
+  emails: string[]
+): Promise<Map<string, string>> {
+  const uniqueEmails = Array.from(
+    new Set(emails.map((email) => email.toLowerCase().trim()).filter(Boolean))
+  );
+  const out = new Map<string, string>();
+  if (uniqueEmails.length === 0) return out;
+
+  for (let i = 0; i < uniqueEmails.length; i += 200) {
+    const batch = uniqueEmails.slice(i, i + 200);
+    const { data } = await admin
+      .from("crm_vendas")
+      .select("email, state, data_compra")
+      .eq("workspace_id", workspaceId)
+      .in("email", batch)
+      .not("state", "is", null)
+      .order("data_compra", { ascending: false })
+      .limit(2000);
+
+    for (const row of data || []) {
+      const email = String(row.email || "").toLowerCase().trim();
+      if (!email || out.has(email)) continue;
+      const state = normalizeBrazilianState(row.state);
+      if (state) out.set(email, state);
+    }
+  }
+
+  return out;
+}
+
 function hasConvertedAfterAbandonment(
   orders: RecentOrderIndex,
   cart: { email: string; phone: string | null; abandonedAt: string }
@@ -392,10 +449,19 @@ async function fetchClientContact(
       firstPresent(
         joinPhone(client.phone_area, client.phone),
         joinPhone(client.cellphone_area, client.cellphone),
-        joinPhone(client.recent_address?.phone_area, client.recent_address?.phone)
+        joinPhone(client.recent_address?.phone_area, client.recent_address?.phone),
+        joinPhone(
+          client.recent_address?.first_phone_area,
+          client.recent_address?.first_phone
+        ),
+        joinPhone(
+          client.recent_address?.second_phone_area,
+          client.recent_address?.second_phone
+        )
       )
     );
-    return { name, phone };
+    const state = normalizeBrazilianState(client.recent_address?.state);
+    return { name, phone, state, region: regionForState(state) };
   } catch (err) {
     console.warn(
       `[CartRecovery Import] Failed to enrich client ${clientId}:`,

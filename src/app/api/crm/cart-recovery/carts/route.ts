@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     let query = admin
       .from("abandoned_carts")
       .select(
-        "id, vnda_cart_token, customer_email, customer_name, cart_total, status, abandoned_at, recovered_at, recovery_url, items, coupon_code, recovery_coupon_expires_at, recovery_started_at"
+        "id, vnda_cart_token, customer_email, customer_name, customer_state, customer_region, cart_total, status, abandoned_at, recovered_at, recovery_url, items, coupon_code, recovery_coupon_expires_at, recovery_started_at"
       )
       .eq("workspace_id", workspaceId)
       .order("abandoned_at", { ascending: false })

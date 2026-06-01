@@ -5,6 +5,10 @@ import type {
   VndaAbandonedCartPayload,
 } from "./types";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
+import {
+  normalizeBrazilianState,
+  regionForState,
+} from "@/lib/cart-recovery/location";
 
 export function validateAbandonedCartPayload(
   body: unknown
@@ -100,6 +104,10 @@ export function normalizeCart(
       ? payload.coupon_codes[0]
       : null);
 
+  const customerState = normalizeBrazilianState(
+    payload.shipping_address?.state || payload.shipping_state || payload.state
+  );
+
   return {
     vnda_cart_token:
       payload.token || payload.cart_token || (payload.code ? String(payload.code) : null),
@@ -109,6 +117,8 @@ export function normalizeCart(
     customer_email: String(payload.email || "").toLowerCase().trim(),
     customer_phone: phone,
     customer_name: name,
+    customer_state: customerState,
+    customer_region: regionForState(customerState),
     items,
     cart_total: total,
     recovery_url: payload.recovery_url || payload.cart_url || payload.url || null,
