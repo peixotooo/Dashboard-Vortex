@@ -2176,7 +2176,7 @@ function OperationsBoard({
                             </div>
                           )}
                           {campaign.pausedReason && (
-                            <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-100">
+                            <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-2 text-xs text-foreground dark:bg-amber-950/20">
                               {campaign.pausedReason}
                             </div>
                           )}
@@ -2566,15 +2566,20 @@ function AutopilotPanel({
         </div>
 
         {hasActiveRun && (
-          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
-            <p className="font-semibold">
-              Campanha atual: {activeRun?.playbookName} · {NUMBER(activeCampaign?.sent ?? 0)} de{" "}
-              {NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens enviadas
-            </p>
-            <p className="mt-1 text-xs">
-              {activeCampaign?.pausedReason ||
-                "Este publico fica bloqueado para novo disparo ate o envio terminar e a janela de leitura fechar."}
-            </p>
+          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm text-foreground dark:bg-amber-950/20">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  Campanha atual: {activeRun?.playbookName} · {NUMBER(activeCampaign?.sent ?? 0)} de{" "}
+                  {NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens enviadas
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {activeCampaign?.pausedReason ||
+                    "Este publico fica bloqueado para novo disparo ate o envio terminar e a janela de leitura fechar."}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2613,9 +2618,9 @@ function AutopilotPanel({
         )}
 
         {blocked && (
-          <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
+          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm text-foreground dark:bg-amber-950/20">
             <p className="font-semibold">Automacao segurou o disparo</p>
-            <p className="mt-1 text-xs">{result.reason}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{result.reason}</p>
           </div>
         )}
       </CardContent>
