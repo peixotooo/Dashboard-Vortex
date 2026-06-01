@@ -12,6 +12,7 @@ import {
   Coins,
   Gauge,
   Gem,
+  Info,
   ListChecks,
   Loader2,
   Mail,
@@ -26,7 +27,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -40,6 +41,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useWorkspace } from "@/lib/workspace-context";
 
 interface SegmentStats {
@@ -535,6 +548,281 @@ const NUMBER = (value: number) => value.toLocaleString("pt-BR");
 const PCT = (value: number) => `${value.toFixed(1)}%`;
 const RATE = (value: number) => `${(value * 100).toFixed(1)}%`;
 
+// ============================================================
+// Glossario unico de jargao (fonte de verdade do InfoHint)
+// ============================================================
+const JARGON = {
+  holdout:
+    "Holdout: grupo de controle. Clientes parecidos que NAO recebem a campanha, para comparar e provar o efeito real.",
+  tratamento: "Tratamento: os clientes que de fato recebem a campanha (o oposto do holdout).",
+  lift:
+    "Lift: quanto o grupo que recebeu converteu a mais que o holdout. Acima de zero = a campanha ajudou.",
+  mc:
+    "MC liquida (margem de contribuicao): receita incremental menos custo de canal e oferta. E o lucro real que o disparo deixou.",
+  cpa:
+    "CPA / CAC: quanto custa, em midia paga, trazer um pedido (CPA) ou um cliente novo (CAC). Reter costuma sair bem mais barato.",
+  breakeven:
+    "Breakeven: conversao minima da base para a campanha so pagar o proprio custo, sem lucro nem prejuizo.",
+  janela:
+    "Janela de atribuicao: periodo (em dias) apos o disparo em que um pedido ainda conta como efeito da campanha.",
+  incremental:
+    "Incremental: receita/pedidos que so existiram por causa da campanha (tratamento menos holdout).",
+  roiCusto:
+    "ROI custo: quantas vezes a MC liquida cobriu o custo rastreado do run. 1,0x = empatou; acima = lucro.",
+  roas:
+    "ROAS: receita dividida pelo gasto em midia. Break-even = minimo para nao ter prejuizo; saudavel = com folga.",
+  cadencia: "Cadencia: com que frequencia esse publico deve ser acionado sem cansar a base.",
+  guardrail:
+    "Guardrail de incentivo: limite de desconto, duracao e quantos produtos podem entrar em oferta, para proteger a margem.",
+  contrato:
+    "Contrato de medicao: vinculos (lista, holdout, canal, custo, janela) que precisam existir para o resultado fechar confiavel.",
+  confianca:
+    "Confianca: quanto o historico de runs parecidos sustenta a previsao desta recomendacao.",
+  cooldown: "Cooldown: tempo minimo entre disparos para o mesmo contato, para nao cansar a base.",
+  gap: "Gap mensal: receita que ainda falta para bater a meta do mes, no ticket medio atual.",
+  margem:
+    "Margem de contribuicao: % da receita que sobra depois dos custos variaveis (produto, frete, taxas).",
+} as const;
+
+type JargonTerm = keyof typeof JARGON;
+
+function InfoHint({ term, text }: { term?: JargonTerm; text?: string }) {
+  const content = text ?? (term ? JARGON[term] : "");
+  if (!content) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="O que isto significa"
+          onClick={(event) => event.preventDefault()}
+          className="inline-flex shrink-0 text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs leading-relaxed">{content}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+const WORKFLOW_STEPS = [
+  { n: 1, label: "Escolher publico", icon: Target },
+  { n: 2, label: "Agendar", icon: CalendarDays },
+  { n: 3, label: "Revisar mensagem", icon: MessageCircle },
+  { n: 4, label: "Medir", icon: BarChart3 },
+] as const;
+
+function WorkflowStepper() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2">
+      {WORKFLOW_STEPS.map((step, index) => {
+        const Icon = step.icon;
+        return (
+          <React.Fragment key={step.n}>
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                {step.n}
+              </span>
+              <Icon className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">{step.label}</span>
+            </div>
+            {index < WORKFLOW_STEPS.length - 1 && (
+              <span className="px-1 text-muted-foreground/50">&rarr;</span>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionHeading({
+  step,
+  icon,
+  title,
+  intro,
+  trailing,
+}: {
+  step?: number;
+  icon: React.ReactNode;
+  title: string;
+  intro: string;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
+        {step != null ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+            {step}
+          </span>
+        ) : (
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            {icon}
+          </span>
+        )}
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            {step != null ? <span className="text-muted-foreground">{icon}</span> : null}
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{intro}</p>
+        </div>
+      </div>
+      {trailing ? <div className="flex flex-wrap items-center gap-2">{trailing}</div> : null}
+    </div>
+  );
+}
+
+type StatTone = "default" | "success" | "warning" | "destructive";
+
+function statToneClass(tone: StatTone, emphasis?: boolean) {
+  // Darker hues in light theme so VALUE text clears WCAG AA (>=4.5:1) on white/muted cards;
+  // lighter hues in dark theme. Plain success/warning tokens are too light for body text in light mode.
+  if (tone === "success") return "text-green-700 dark:text-green-400";
+  if (tone === "warning") return "text-amber-700 dark:text-amber-500";
+  if (tone === "destructive") return "text-red-700 dark:text-red-400";
+  return emphasis ? "text-primary" : "text-foreground";
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+  term,
+  emphasis,
+  tone = "default",
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  term?: JargonTerm;
+  emphasis?: boolean;
+  tone?: StatTone;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        <span>{label}</span>
+        {(term || hint) && <InfoHint term={term} text={hint} />}
+      </div>
+      <p className={`mt-0.5 font-semibold ${statToneClass(tone, emphasis)}`}>{value}</p>
+    </div>
+  );
+}
+
+function StatGrid({
+  cols = 4,
+  children,
+}: {
+  cols?: 2 | 3 | 4 | 5 | 6;
+  children: React.ReactNode;
+}) {
+  const colClass: Record<number, string> = {
+    2: "grid-cols-2",
+    3: "grid-cols-2 sm:grid-cols-3",
+    4: "grid-cols-2 md:grid-cols-4",
+    5: "grid-cols-2 md:grid-cols-3 xl:grid-cols-5",
+    6: "grid-cols-2 md:grid-cols-3 xl:grid-cols-6",
+  };
+  return <div className={`grid gap-3 ${colClass[cols]}`}>{children}</div>;
+}
+
+type BannerTone = "success" | "info" | "warning" | "destructive";
+
+const BANNER_TONE_CLASS: Record<BannerTone, string> = {
+  success: "border-success/30 bg-success/10 dark:bg-success/15",
+  info: "border-info/30 bg-info/10 dark:bg-info/15",
+  warning: "border-warning/40 bg-warning/10 dark:bg-warning/15",
+  destructive: "border-destructive/30 bg-destructive/10 dark:bg-destructive/15",
+};
+
+const BANNER_ICON_CLASS: Record<BannerTone, string> = {
+  // Darker glyph hues in light theme so the status icon clears 3:1 on the matching tint.
+  success: "text-green-700 dark:text-success",
+  info: "text-blue-700 dark:text-info",
+  warning: "text-amber-700 dark:text-warning",
+  destructive: "text-red-700 dark:text-destructive",
+};
+
+function StatusBanner({
+  tone,
+  icon,
+  title,
+  children,
+  trailing,
+}: {
+  tone: BannerTone;
+  icon?: React.ReactNode;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-start justify-between gap-3 rounded-md border p-3 text-sm text-foreground ${BANNER_TONE_CLASS[tone]}`}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        {icon && <span className={`mt-0.5 shrink-0 ${BANNER_ICON_CLASS[tone]}`}>{icon}</span>}
+        <div className="min-w-0">
+          <p className="font-semibold">{title}</p>
+          {children != null && <div className="mt-1 text-xs text-muted-foreground">{children}</div>}
+        </div>
+      </div>
+      {trailing && <div className="flex shrink-0 flex-wrap items-center gap-2">{trailing}</div>}
+    </div>
+  );
+}
+
+function ProgressBar({
+  value,
+  label,
+  rightLabel,
+  className,
+}: {
+  value: number;
+  label?: string;
+  rightLabel?: React.ReactNode;
+  className?: string;
+}) {
+  const clamped = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+  return (
+    <div className="space-y-1.5">
+      {(label || rightLabel != null) && (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          {label ? <span className="text-muted-foreground">{label}</span> : <span />}
+          {rightLabel != null && <span className="font-medium">{rightLabel}</span>}
+        </div>
+      )}
+      <Progress value={clamped} className={className ?? "h-2"} />
+    </div>
+  );
+}
+
+function OpenSection({
+  title,
+  trailing,
+  children,
+}: {
+  title: React.ReactNode;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible defaultOpen className="rounded-md border bg-muted/20">
+      <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 p-3 text-left text-sm font-semibold">
+        <span className="flex items-center gap-2">{title}</span>
+        <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+          {trailing}
+          <span className="transition-transform group-data-[state=open]:rotate-180">&#9662;</span>
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 px-3 pb-3">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function DATE_TIME(value?: string | null) {
   if (!value) return "sem horario";
   const date = new Date(value);
@@ -554,9 +842,9 @@ function DATE_DAY(value?: string | null) {
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-function goalStatusVariant(status?: GoalStatus | null): "default" | "secondary" | "outline" | "destructive" {
-  if (status === "bateu") return "default";
-  if (status === "parcial") return "secondary";
+function goalStatusVariant(status?: GoalStatus | null): BadgeProps["variant"] {
+  if (status === "bateu") return "success";
+  if (status === "parcial") return "warning";
   if (status === "nao_bateu") return "destructive";
   return "outline";
 }
@@ -568,9 +856,25 @@ function goalStatusLabel(status?: GoalStatus | null) {
   return "Em leitura";
 }
 
-function confidenceVariant(label?: ConfidenceLabel | null): "default" | "secondary" | "outline" {
-  if (label === "alta") return "default";
-  if (label === "media") return "secondary";
+function goalStatusIcon(status?: GoalStatus | null) {
+  if (status === "bateu") return <CheckCircle2 className="h-3 w-3" />;
+  if (status === "parcial") return <Gauge className="h-3 w-3" />;
+  if (status === "nao_bateu") return <AlertCircle className="h-3 w-3" />;
+  return <Clock className="h-3 w-3" />;
+}
+
+function GoalStatusBadge({ status }: { status?: GoalStatus | null }) {
+  return (
+    <Badge variant={goalStatusVariant(status)} className="gap-1">
+      {goalStatusIcon(status)}
+      {goalStatusLabel(status)}
+    </Badge>
+  );
+}
+
+function confidenceVariant(label?: ConfidenceLabel | null): BadgeProps["variant"] {
+  if (label === "alta") return "success";
+  if (label === "media") return "warning";
   return "outline";
 }
 
@@ -924,7 +1228,7 @@ function ExecutionStep({
             <span className="text-muted-foreground">{icon}</span>
             {label}
           </div>
-          <Badge variant={state === "ready" ? "secondary" : "outline"}>
+          <Badge variant={trackingStateVariant(state)}>
             {EXECUTION_STATE_LABELS[state]}
           </Badge>
         </div>
@@ -939,11 +1243,11 @@ function ExecutionStep({
   );
 }
 
-function trackingStateVariant(state: ExecutionStepState): "default" | "secondary" | "outline" {
-  if (state === "ready") return "secondary";
-  if (state === "prepared") return "outline";
-  if (state === "todo") return "default";
-  return "outline";
+function trackingStateVariant(state: ExecutionStepState): BadgeProps["variant"] {
+  if (state === "ready") return "success";
+  if (state === "prepared") return "warning";
+  if (state === "todo") return "outline";
+  return "secondary";
 }
 
 function getRunTrackingContract(run: RunReport, attributionWindowDays: number) {
@@ -1040,12 +1344,15 @@ function RunTrackingContract({
     <div className="mt-3 rounded-md border bg-background p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">Contrato de medicao</p>
+          <p className="flex items-center gap-1 text-sm font-semibold">
+            Contrato de medicao
+            <InfoHint term="contrato" />
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Receita, margem, custo e lift usam estes vinculos para fechar o resultado.
           </p>
         </div>
-        <Badge variant={missing.length === 0 ? "secondary" : "outline"}>
+        <Badge variant={missing.length === 0 ? "success" : "warning"}>
           {missing.length === 0 ? "rastreavel" : `falta ${missing.join(", ")}`}
         </Badge>
       </div>
@@ -1057,7 +1364,7 @@ function RunTrackingContract({
               <Badge variant={trackingStateVariant(item.state)}>{EXECUTION_STATE_LABELS[item.state]}</Badge>
             </div>
             <p className="mt-1 truncate text-sm font-semibold">{item.value}</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{item.hint}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{item.hint}</p>
           </div>
         ))}
       </div>
@@ -1097,7 +1404,7 @@ function RunExecutionChecklist({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={state.measurementReady ? "secondary" : "outline"}>
+          <Badge variant={state.measurementReady ? "success" : "warning"}>
             {state.measurementReady ? "medindo" : `${state.doneSteps}/${state.progressSteps.length} pronto`}
           </Badge>
           <Button asChild size="sm">
@@ -1110,9 +1417,7 @@ function RunExecutionChecklist({
         </div>
       </div>
       <div className="mt-2 space-y-1.5">
-        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${state.progressPct}%` }} />
-        </div>
+        <Progress value={state.progressPct} className="h-1.5" />
         <p className="text-xs text-muted-foreground">
           Proximo clique: {nextAction.hint}
           {state.missingSteps.length > 0 ? ` Falta: ${state.missingSteps.join(", ")}.` : ""}
@@ -1216,17 +1521,11 @@ function ForecastBar({
 }) {
   const pct = progressPct(actual, target);
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">
-          {format(actual)} / {target == null ? "sem meta" : format(target)}
-        </span>
-      </div>
-      <div className="h-2 rounded-full bg-muted">
-        <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
+    <ProgressBar
+      value={pct}
+      label={label}
+      rightLabel={`${format(actual)} / ${target == null ? "sem meta" : format(target)}`}
+    />
   );
 }
 
@@ -1245,16 +1544,17 @@ function GoalResultPanel({ run }: { run: RunReport }) {
     <div className="rounded-md border bg-muted/20 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">Previsao vs realizado</p>
+          <p className="flex items-center gap-1 text-sm font-semibold">
+            Previsao vs realizado
+            <InfoHint text="Compara o que esperavamos (meta criada no preparo) com o que de fato aconteceu na janela de medicao." />
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {target
               ? `Meta criada no preparo e fecha em ${DATE_DAY(target.dueAt)}.`
               : "Run antigo sem contrato de meta automatica."}
           </p>
         </div>
-        <Badge variant={goalStatusVariant(result?.status)}>
-          {goalStatusLabel(result?.status)}
-        </Badge>
+        <GoalStatusBadge status={result?.status} />
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         <ForecastBar label="Pedidos" actual={actual.orders} target={target?.orders} format={NUMBER} />
@@ -1282,10 +1582,29 @@ interface RunDecision {
   windowProgressPct: number;
 }
 
-function decisionVariant(tone: RunDecisionTone): "default" | "secondary" | "outline" {
-  if (tone === "scale") return "default";
-  if (tone === "setup" || tone === "pause") return "secondary";
-  return "outline";
+function decisionVariant(tone: RunDecisionTone): BadgeProps["variant"] {
+  if (tone === "scale") return "success";
+  if (tone === "pause") return "destructive";
+  if (tone === "watch") return "warning";
+  if (tone === "setup") return "outline";
+  return "secondary"; // wait
+}
+
+function decisionIcon(tone: RunDecisionTone) {
+  if (tone === "scale") return <TrendingUp className="h-3 w-3" />;
+  if (tone === "pause") return <AlertCircle className="h-3 w-3" />;
+  if (tone === "watch") return <Gauge className="h-3 w-3" />;
+  if (tone === "setup") return <ListChecks className="h-3 w-3" />;
+  return <Clock className="h-3 w-3" />;
+}
+
+function DecisionTag({ tone, label }: { tone: RunDecisionTone; label: string }) {
+  return (
+    <Badge variant={decisionVariant(tone)} className="gap-1">
+      {decisionIcon(tone)}
+      {label}
+    </Badge>
+  );
 }
 
 function daysFrom(value: string) {
@@ -1404,7 +1723,7 @@ function RunDecisionPanel({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold">Decisao do run</p>
-            <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+            <DecisionTag tone={decision.tone} label={decision.label} />
           </div>
           <p className="mt-1 text-sm font-medium">{decision.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">{decision.detail}</p>
@@ -1434,27 +1753,25 @@ function RunDecisionPanel({
 
       <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
         <div>
-          <p className="text-xs text-muted-foreground">Janela</p>
-          <p className="font-semibold">{NUMBER(decision.ageDays)}d</p>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${decision.windowProgressPct}%` }}
-            />
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span>Janela</span>
+            <InfoHint term="janela" />
           </div>
+          <p className="font-semibold">{NUMBER(decision.ageDays)}d</p>
+          <Progress value={decision.windowProgressPct} className="mt-1 h-1.5" />
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Lift conv.</p>
-          <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">MC liquida</p>
-          <p className="font-semibold">{BRL(run.metrics.incrementalContribution)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">ROI custo</p>
-          <p className="font-semibold">{decision.roi == null ? "sem custo" : `${decision.roi.toFixed(1)}x`}</p>
-        </div>
+        <Stat label="Lift conv." term="lift" value={RATE(run.metrics.liftConversion)} />
+        <Stat
+          label="MC liquida"
+          term="mc"
+          emphasis
+          value={BRL(run.metrics.incrementalContribution)}
+        />
+        <Stat
+          label="ROI custo"
+          term="roiCusto"
+          value={decision.roi == null ? "sem custo" : `${decision.roi.toFixed(1)}x`}
+        />
       </div>
     </div>
   );
@@ -1465,19 +1782,29 @@ function MetricCard({
   label,
   value,
   hint,
+  term,
+  badge,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  hint: string;
+  hint: React.ReactNode;
+  term?: JargonTerm;
+  badge?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-            <p className="mt-2 text-2xl font-bold">{value}</p>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <span>{label}</span>
+              {term && <InfoHint term={term} />}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-2xl font-bold">{value}</p>
+              {badge}
+            </div>
             <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
           </div>
           <div className="rounded-md bg-muted p-2 text-muted-foreground">{icon}</div>
@@ -1495,9 +1822,9 @@ const READINESS_LABELS: Record<ReadinessStatus, string> = {
   todo: "fazer",
 };
 
-function readinessVariant(status: ReadinessStatus): "default" | "secondary" | "outline" {
-  if (status === "ready") return "default";
-  if (status === "attention") return "secondary";
+function readinessVariant(status: ReadinessStatus): BadgeProps["variant"] {
+  if (status === "ready") return "success";
+  if (status === "attention") return "warning";
   return "outline";
 }
 
@@ -1525,6 +1852,15 @@ function cpaStatusLabel(status: SummaryResponse["financial"]["guardrails"]["curr
   if (status === "watch") return "monitorar";
   if (status === "pause") return "pausar";
   return "sem dado";
+}
+
+function cpaStatusVariant(
+  status: SummaryResponse["financial"]["guardrails"]["currentCpaStatus"]
+): BadgeProps["variant"] {
+  if (status === "scale") return "success";
+  if (status === "watch") return "warning";
+  if (status === "pause") return "destructive";
+  return "outline";
 }
 
 function ReadinessItem({
@@ -1731,11 +2067,12 @@ function getPrimaryCampaign(run: RunReport) {
   return run.channels?.whatsapp?.campaigns?.[0] ?? null;
 }
 
-function campaignVariant(status?: string): "default" | "secondary" | "outline" {
+function campaignVariant(status?: string): BadgeProps["variant"] {
   if (!status) return "outline";
-  if (status === "scheduled" || status === "completed") return "default";
+  if (status === "scheduled" || status === "completed") return "success";
+  if (status === "failed" || status === "canceled" || status === "cancelled") return "destructive";
   if (status === "pending_template" || status === "sending" || status === "queued" || status === "paused") {
-    return "secondary";
+    return "warning";
   }
   return "outline";
 }
@@ -1810,33 +2147,30 @@ function OperationsBoard({
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">Central de operacao</h2>
-          <p className="text-sm text-muted-foreground">
-            Ordem clara: escolher publico, conferir disparo, validar mensagem e medir margem.
-          </p>
-        </div>
-        <Badge variant="outline">{NUMBER(opportunities.length)} oportunidades</Badge>
-      </div>
+      <SectionHeading
+        icon={<Send className="h-4 w-4" />}
+        title="Central de operacao"
+        intro="O fluxo de ponta a ponta em 4 abas: escolha o publico, confira o disparo, valide a mensagem e meca a margem."
+        trailing={<Badge variant="outline">{NUMBER(opportunities.length)} oportunidades</Badge>}
+      />
 
       <Tabs defaultValue="oportunidades" className="space-y-4">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 lg:w-auto lg:grid-cols-4">
           <TabsTrigger value="oportunidades" className="gap-2">
             <Target className="h-3.5 w-3.5" />
-            Oportunidades
+            1 · Publico
           </TabsTrigger>
           <TabsTrigger value="agenda" className="gap-2">
             <CalendarDays className="h-3.5 w-3.5" />
-            Agenda
+            2 · Agenda
           </TabsTrigger>
           <TabsTrigger value="mensagem" className="gap-2">
             <MessageCircle className="h-3.5 w-3.5" />
-            Mensagem
+            3 · Mensagem
           </TabsTrigger>
           <TabsTrigger value="resultados" className="gap-2">
             <BarChart3 className="h-3.5 w-3.5" />
-            Resultados
+            4 · Resultados
           </TabsTrigger>
         </TabsList>
 
@@ -2167,7 +2501,7 @@ function OperationsBoard({
                           </p>
                           {campaign.templateBody && campaign.templateBody !== campaign.messagePreview && (
                             <div className="mt-3 rounded-md border bg-background p-2">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                 Corpo original
                               </p>
                               <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
@@ -2176,8 +2510,12 @@ function OperationsBoard({
                             </div>
                           )}
                           {campaign.pausedReason && (
-                            <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-2 text-xs text-foreground dark:bg-amber-950/20">
-                              {campaign.pausedReason}
+                            <div className="mt-3">
+                              <StatusBanner
+                                tone="warning"
+                                icon={<AlertCircle className="h-4 w-4" />}
+                                title={campaign.pausedReason}
+                              />
                             </div>
                           )}
                         </div>
@@ -2319,7 +2657,10 @@ function ScheduleReviewDialog({
                 </p>
               </div>
               <div className="rounded-md bg-muted/35 p-3">
-                <p className="text-xs text-muted-foreground">Holdout</p>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <span>Holdout</span>
+                  <InfoHint term="holdout" />
+                </div>
                 <p className="mt-1 text-sm font-semibold">{NUMBER(preview.holdoutCount)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">nao recebe envio</p>
               </div>
@@ -2334,10 +2675,13 @@ function ScheduleReviewDialog({
               <div className="rounded-md border bg-background p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold">Contrato do disparo</p>
+                    <p className="flex items-center gap-1 text-sm font-semibold">
+                      Contrato do disparo
+                      <InfoHint term="contrato" />
+                    </p>
                     <p className="mt-1 text-xs text-muted-foreground">{preview.goal.reason}</p>
                   </div>
-                  <Badge variant={confidenceVariant(preview.goal.confidence.label)}>
+                  <Badge variant={confidenceVariant(preview.goal.confidence.label)} className="gap-1">
                     confianca {preview.goal.confidence.label}
                   </Badge>
                 </div>
@@ -2475,7 +2819,7 @@ function AutopilotPanel({
           <div className="max-w-3xl">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-base font-semibold">Piloto automatico de retencao</p>
-              <Badge variant={hasActiveRun ? campaignVariant(activeCampaign?.status) : scheduled ? "default" : "secondary"}>
+              <Badge variant={hasActiveRun ? campaignVariant(activeCampaign?.status) : scheduled ? "success" : pendingTemplate ? "warning" : "secondary"}>
                 {hasActiveRun
                   ? waStatusLabel(activeCampaign?.status || "")
                   : scheduled
@@ -2525,7 +2869,10 @@ function AutopilotPanel({
             </p>
           </div>
           <div className="rounded-md bg-background p-3">
-            <p className="text-xs text-muted-foreground">Seguranca</p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span>Seguranca</span>
+              <InfoHint term="holdout" />
+            </div>
             <p className="mt-1 text-sm font-semibold">Holdout automatico</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Controle isolado para medir lift e incrementabilidade.
@@ -2566,156 +2913,70 @@ function AutopilotPanel({
         </div>
 
         {hasActiveRun && (
-          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm text-foreground dark:bg-amber-950/20">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-              <div className="min-w-0">
-                <p className="font-semibold">
-                  Campanha atual: {activeRun?.playbookName} · {NUMBER(activeCampaign?.sent ?? 0)} de{" "}
-                  {NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens enviadas
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {activeCampaign?.pausedReason ||
-                    "Este publico fica bloqueado para novo disparo ate o envio terminar e a janela de leitura fechar."}
-                </p>
-              </div>
-            </div>
+          <div className="mt-3">
+            <StatusBanner
+              tone="warning"
+              icon={<AlertCircle className="h-4 w-4" />}
+              title={`Campanha atual: ${activeRun?.playbookName} · ${NUMBER(
+                activeCampaign?.sent ?? 0
+              )} de ${NUMBER(activeCampaign?.totalMessages ?? 0)} mensagens enviadas`}
+            >
+              {activeCampaign?.pausedReason ||
+                "Este publico fica bloqueado para novo disparo ate o envio terminar e a janela de leitura fechar."}
+            </StatusBanner>
           </div>
         )}
 
         {scheduled && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm">
-            <div>
-              <p className="font-semibold text-emerald-800 dark:text-emerald-200">
-                Campanha agendada: {result.campaignName}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Run ja esta mensuravel. Agora acompanhe lift, receita incremental e MC liquida.
-              </p>
-            </div>
-            <Badge variant="secondary">
-              <Clock className="mr-1 h-3.5 w-3.5" />
-              {DATE_TIME(result.scheduledAt)}
-            </Badge>
+          <div className="mt-3">
+            <StatusBanner
+              tone="success"
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title={`Campanha agendada: ${result.campaignName}`}
+              trailing={
+                <Badge variant="success">
+                  <Clock className="mr-1 h-3.5 w-3.5" />
+                  {DATE_TIME(result.scheduledAt)}
+                </Badge>
+              }
+            >
+              Run ja esta mensuravel. Agora acompanhe lift, receita incremental e MC liquida.
+            </StatusBanner>
           </div>
         )}
 
         {pendingTemplate && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm">
-            <div>
-              <p className="font-semibold text-sky-900 dark:text-sky-100">
-                Template enviado para analise: {result.templateName}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                A campanha ja esta preparada. Quando a Meta aprovar como UTILITY, o cron agenda o envio automaticamente.
-              </p>
-            </div>
-            <Badge variant="secondary">
-              <Clock className="mr-1 h-3.5 w-3.5" />
-              Em analise
-            </Badge>
+          <div className="mt-3">
+            <StatusBanner
+              tone="info"
+              icon={<Clock className="h-4 w-4" />}
+              title={`Template enviado para analise: ${result.templateName}`}
+              trailing={
+                <Badge variant="secondary">
+                  <Clock className="mr-1 h-3.5 w-3.5" />
+                  Em analise
+                </Badge>
+              }
+            >
+              A campanha ja esta preparada. Quando a Meta aprovar como UTILITY, o cron agenda o envio
+              automaticamente.
+            </StatusBanner>
           </div>
         )}
 
         {blocked && (
-          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-50 p-3 text-sm text-foreground dark:bg-amber-950/20">
-            <p className="font-semibold">Automacao segurou o disparo</p>
-            <p className="mt-1 text-xs text-muted-foreground">{result.reason}</p>
+          <div className="mt-3">
+            <StatusBanner
+              tone="warning"
+              icon={<AlertCircle className="h-4 w-4" />}
+              title="Automacao segurou o disparo"
+            >
+              {result.reason}
+            </StatusBanner>
           </div>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function RunKpiPanel({
-  runs,
-  data,
-}: {
-  runs: RunReport[];
-  data: SummaryResponse;
-}) {
-  return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">KPIs incrementais</h2>
-          <p className="text-sm text-muted-foreground">
-            O trabalho aqui e acompanhar se o tratamento venceu o holdout com margem positiva.
-          </p>
-        </div>
-        <Badge variant="outline">{NUMBER(runs.length)} runs</Badge>
-      </div>
-
-      {runs.length === 0 ? (
-        <Card>
-          <CardContent className="p-4 text-sm text-muted-foreground">
-            Nenhum run ainda. Use o piloto automatico para agendar a primeira campanha mensuravel.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {runs.map((run) => {
-            const playbook = data.playbooks.find((candidate) => candidate.id === run.playbookId);
-            const attributionWindowDays =
-              run.attributionWindowDays ??
-              playbookAttributionWindowDays(playbook, data.measurement.attributionWindowDays);
-            const decision = getRunDecision(run, attributionWindowDays);
-            const whatsapp = run.channels?.whatsapp;
-            const primaryCampaign = whatsapp?.campaigns?.[0];
-
-            return (
-              <Card key={run.id}>
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold">{run.playbookName}</p>
-                        <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Run {run.id.slice(0, 8)} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
-                        {primaryCampaign ? ` · WhatsApp ${waStatusLabel(primaryCampaign.status)}` : ""}
-                      </p>
-                    </div>
-                    <Badge variant={run.metrics.incrementalContribution > 0 ? "default" : "outline"}>
-                      {run.metrics.incrementalContribution > 0 ? "ganhando" : "em leitura"}
-                    </Badge>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Tratamento</p>
-                      <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Holdout</p>
-                      <p className="font-semibold">{NUMBER(run.holdoutList?.totalCount ?? 0)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Lift</p>
-                      <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Receita incr.</p>
-                      <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">MC liquida</p>
-                      <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 rounded-md bg-muted/35 p-3 text-xs text-muted-foreground">
-                    {decision.detail}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -2876,7 +3137,7 @@ function StrategyBoard({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={guardrails.currentCpaStatus === "scale" ? "default" : "outline"}>
+              <Badge variant={cpaStatusVariant(guardrails.currentCpaStatus)}>
                 midia: {cpaStatusLabel(guardrails.currentCpaStatus)}
               </Badge>
               <Badge variant="secondary">{NUMBER(data.playbooks.length)} playbooks</Badge>
@@ -2892,14 +3153,14 @@ function StrategyBoard({
               <p className="mt-1 text-sm font-semibold">
                 {guardrails.breakevenRoas == null ? "sem dado" : guardrails.breakevenRoas.toFixed(2)}
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Saudavel: {guardrails.healthyRoas == null ? "sem dado" : guardrails.healthyRoas.toFixed(2)}
               </p>
             </div>
             <div className="rounded-md bg-muted/35 p-3">
               <p className="text-xs text-muted-foreground">Sobra para aquisicao</p>
               <p className="mt-1 text-sm font-semibold">{PCT(guardrails.acquisitionHealthyPct)}</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Fixo sobre meta: {PCT(guardrails.fixedCostPctOfTarget)}
               </p>
             </div>
@@ -2984,6 +3245,139 @@ function StrategyBoard({
         </div>
       </div>
     </section>
+  );
+}
+
+function NextActionHero({
+  preparedRun,
+  preparedRunPlan,
+  scaleAction,
+  runAction,
+  autopilotPlaybook,
+  hasActiveAutopilotRun,
+  busy,
+  onReviewPrepared,
+  onScale,
+  onScheduleAutopilot,
+}: {
+  preparedRun: PreparedRun | null;
+  preparedRunPlan: ReturnType<typeof preparedRunActionPlan> | null;
+  scaleAction: { run: RunReport; decision: RunDecision; playbook: RetentionPlaybook } | null;
+  runAction: { run: RunReport; action: ReturnType<typeof getRunNextAction> } | null;
+  autopilotPlaybook: RetentionPlaybook | null;
+  hasActiveAutopilotRun: boolean;
+  busy: boolean;
+  onReviewPrepared: (run: PreparedRun) => void;
+  onScale: (playbook: RetentionPlaybook, run: RunReport, decision: RunDecision) => void;
+  onScheduleAutopilot: () => void;
+}) {
+  let tone: "primary" | "success" | "none" = "primary";
+  let stepLabel = "";
+  let title = "";
+  let desc: React.ReactNode = "";
+  let button: React.ReactNode = null;
+
+  if (preparedRun) {
+    stepLabel = "Passo 2 · Agendar";
+    title = `Revise e agende: ${preparedRun.playbookName}`;
+    desc = preparedRunPlan?.hint || "A execucao ja esta montada. Confira a mensagem e agende o disparo.";
+    button = (
+      <Button size="lg" onClick={() => onReviewPrepared(preparedRun)} disabled={busy}>
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+        Revisar e agendar
+      </Button>
+    );
+  } else if (scaleAction) {
+    tone = "success";
+    stepLabel = "Passo 4 · Medir → escalar";
+    title = `Escale o que deu certo: ${scaleAction.playbook.name}`;
+    desc =
+      "Lift positivo com margem incremental. Crie uma nova safra mantendo o holdout e o mesmo controle de incentivo.";
+    button = (
+      <Button
+        size="lg"
+        onClick={() => onScale(scaleAction.playbook, scaleAction.run, scaleAction.decision)}
+        disabled={busy}
+      >
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ListChecks className="mr-2 h-4 w-4" />}
+        Nova safra
+      </Button>
+    );
+  } else if (runAction) {
+    stepLabel = "Continuar execucao";
+    title = `Avance: ${runAction.run.playbookName}`;
+    desc = runAction.action.hint;
+    button = (
+      <Button asChild size="lg">
+        <Link href={runAction.action.href}>
+          {runAction.action.icon}
+          <span className="ml-2">{runAction.action.label}</span>
+        </Link>
+      </Button>
+    );
+  } else if (autopilotPlaybook && !hasActiveAutopilotRun) {
+    stepLabel = "Passo 1 → 2 · Publico e agendamento";
+    title = `Agende a melhor campanha: ${autopilotPlaybook.name}`;
+    desc =
+      "Em 1 clique o piloto cria tratamento + holdout, escolhe o template aprovado e agenda no melhor horario.";
+    button = (
+      <Button
+        size="lg"
+        onClick={onScheduleAutopilot}
+        disabled={busy || autopilotPlaybook.audience.customers === 0}
+      >
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+        Agendar melhor campanha
+      </Button>
+    );
+  } else {
+    tone = "none";
+    stepLabel = "Tudo em dia";
+    title = "Nenhuma acao urgente agora";
+    desc = "Escolha um publico na fila do Passo 1 ou acompanhe os resultados no Passo 4.";
+  }
+
+  const toneClass =
+    tone === "success"
+      ? "border-success/40 bg-success/5"
+      : tone === "none"
+        ? "border-border"
+        : "border-primary/40 bg-primary/5";
+  const iconWrapClass =
+    tone === "success"
+      ? "bg-success/15 text-success"
+      : tone === "none"
+        ? "bg-muted text-muted-foreground"
+        : "bg-primary/15 text-primary";
+  const heroIcon =
+    tone === "success" ? (
+      <TrendingUp className="h-5 w-5" />
+    ) : tone === "none" ? (
+      <CheckCircle2 className="h-5 w-5" />
+    ) : (
+      <Target className="h-5 w-5" />
+    );
+
+  return (
+    <Card className={`border-2 ${toneClass}`}>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconWrapClass}`}
+          >
+            {heroIcon}
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              O que fazer agora{stepLabel ? ` · ${stepLabel}` : ""}
+            </p>
+            <p className="mt-0.5 text-base font-semibold">{title}</p>
+            <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">{desc}</p>
+          </div>
+        </div>
+        {button}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -3222,15 +3616,18 @@ export default function RetentionPlaybooksPage() {
   }
 
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <TrendingUp className="h-6 w-6" />
+            <TrendingUp className="h-6 w-6 text-primary" />
             Playbooks de Retencao
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Prioridade por margem, CAC/CPA, cashback e base acionavel.
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Venda de novo para quem ja comprou. Cada campanha sai com um grupo de controle (holdout)
+            automatico, entao da para provar se valeu a pena. O fluxo tem 4 passos: escolher publico,
+            agendar, revisar a mensagem e medir.
           </p>
         </div>
         <Button variant="outline" onClick={load} disabled={loading}>
@@ -3239,11 +3636,10 @@ export default function RetentionPlaybooksPage() {
         </Button>
       </div>
 
+      <WorkflowStepper />
+
       {errorMsg && (
-        <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
-          <AlertCircle className="mt-0.5 h-4 w-4" />
-          <span>{errorMsg}</span>
-        </div>
+        <StatusBanner tone="destructive" icon={<AlertCircle className="h-4 w-4" />} title={errorMsg} />
       )}
 
       {loading && !data ? (
@@ -3253,11 +3649,29 @@ export default function RetentionPlaybooksPage() {
         </div>
       ) : data ? (
         <>
+          <NextActionHero
+            preparedRun={preparedRun && autoResult?.status !== "scheduled" ? preparedRun : null}
+            preparedRunPlan={preparedRunPlan}
+            scaleAction={nextScaleAction}
+            runAction={nextRunAction}
+            autopilotPlaybook={autopilotPlaybook}
+            hasActiveAutopilotRun={Boolean(activeAutopilotRun)}
+            busy={Boolean(schedulingPlaybookId) || preparingId !== null}
+            onReviewPrepared={reviewPreparedRun}
+            onScale={(playbook, sourceRun, sourceDecision) =>
+              handlePreparePlaybook(playbook, { runId: sourceRun.id, decision: sourceDecision.tone })
+            }
+            onScheduleAutopilot={scheduleAutopilot}
+          />
+
           {preparedRun && autoResult?.status !== "scheduled" && (
-            <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <Card className="border-success/30 bg-success/10">
               <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
                 <div>
-                  <p className="text-sm font-semibold">Execucao preparada: {preparedRun.playbookName}</p>
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                    Execucao preparada: {preparedRun.playbookName}
+                  </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Tratamento com {NUMBER(preparedRun.treatmentList.total_count)} contatos
                     {preparedRun.holdoutList
@@ -3266,14 +3680,13 @@ export default function RetentionPlaybooksPage() {
                     {preparedRun.sourceRunId ? ` Origem: run ${preparedRun.sourceRunId.slice(0, 8)}.` : ""}
                   </p>
                   {preparedRunPlan && (
-                    <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      {preparedRunPlan.hint}
-                    </p>
+                    <p className="mt-1 text-xs font-medium text-foreground">{preparedRunPlan.hint}</p>
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
+                    variant="outline"
                     onClick={() => reviewPreparedRun(preparedRun)}
                     disabled={Boolean(schedulingPlaybookId)}
                   >
@@ -3284,7 +3697,7 @@ export default function RetentionPlaybooksPage() {
                     )}
                     Revisar e agendar
                   </Button>
-                  {(preparedRunPlan?.actions ?? []).map((action, index) => (
+                  {(preparedRunPlan?.actions ?? []).map((action) => (
                     <Button key={action.key} asChild variant="outline" size="sm">
                       <Link href={action.href}>
                         {action.icon}
@@ -3305,38 +3718,53 @@ export default function RetentionPlaybooksPage() {
             onSchedule={scheduleAutopilot}
           />
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard
-              icon={<Target className="h-4 w-4" />}
-              label="Gap mensal"
-              value={BRL(data.financial.revenueGap30)}
-              hint={`${NUMBER(data.financial.orderGap30)} pedidos no ticket atual`}
+          <section className="space-y-3">
+            <SectionHeading
+              icon={<Gauge className="h-4 w-4" />}
+              title="Panorama do negocio"
+              intro="Numeros que explicam por que vale investir em retencao este mes."
             />
-            <MetricCard
-              icon={<ShieldCheck className="h-4 w-4" />}
-              label="Margem"
-              value={PCT(data.financial.contributionBeforeMarketingPct)}
-              hint={`${PCT(data.financial.contributionAfterMarketingPct)} apos midia planejada`}
-            />
-            <MetricCard
-              icon={<WalletCards className="h-4 w-4" />}
-              label="CPA salvo"
-              value={data.acquisition.cpa == null ? "Sem dado" : BRL(data.acquisition.cpa)}
-              hint={`${NUMBER(data.acquisition.purchases)} compras · ${cpaStatusLabel(data.financial.guardrails.currentCpaStatus)}`}
-            />
-            <MetricCard
-              icon={<Coins className="h-4 w-4" />}
-              label="Cashback ativo"
-              value={BRL(data.cashback.activeValue)}
-              hint={`${NUMBER(data.cashback.activeCustomers)} clientes com saldo`}
-            />
-            <MetricCard
-              icon={<MessageCircle className="h-4 w-4" />}
-              label="Base 30d"
-              value={NUMBER(data.crm.last30.customers)}
-              hint={`${BRL(data.crm.last30.revenue)} em receita`}
-            />
-          </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <MetricCard
+                icon={<Target className="h-4 w-4" />}
+                label="Gap mensal"
+                term="gap"
+                value={BRL(data.financial.revenueGap30)}
+                hint={`${NUMBER(data.financial.orderGap30)} pedidos no ticket atual`}
+              />
+              <MetricCard
+                icon={<ShieldCheck className="h-4 w-4" />}
+                label="Margem"
+                term="margem"
+                value={PCT(data.financial.contributionBeforeMarketingPct)}
+                hint={`${PCT(data.financial.contributionAfterMarketingPct)} apos midia planejada`}
+              />
+              <MetricCard
+                icon={<WalletCards className="h-4 w-4" />}
+                label="CPA salvo"
+                term="cpa"
+                value={data.acquisition.cpa == null ? "Sem dado" : BRL(data.acquisition.cpa)}
+                badge={
+                  <Badge variant={cpaStatusVariant(data.financial.guardrails.currentCpaStatus)}>
+                    {cpaStatusLabel(data.financial.guardrails.currentCpaStatus)}
+                  </Badge>
+                }
+                hint={`${NUMBER(data.acquisition.purchases)} compras nos ultimos 30 dias`}
+              />
+              <MetricCard
+                icon={<Coins className="h-4 w-4" />}
+                label="Cashback ativo"
+                value={BRL(data.cashback.activeValue)}
+                hint={`${NUMBER(data.cashback.activeCustomers)} clientes com saldo`}
+              />
+              <MetricCard
+                icon={<MessageCircle className="h-4 w-4" />}
+                label="Base 30d"
+                value={NUMBER(data.crm.last30.customers)}
+                hint={`${BRL(data.crm.last30.revenue)} em receita`}
+              />
+            </div>
+          </section>
 
           <OperationsBoard
             data={data}
@@ -3348,56 +3776,77 @@ export default function RetentionPlaybooksPage() {
             onReviewRun={reviewPreparedRun}
           />
 
-          <details className="rounded-md border bg-card p-4">
-            <summary className="cursor-pointer text-sm font-semibold">
-              Configuracao avancada e diagnostico
-            </summary>
-            <div className="mt-4 space-y-6">
-              <StrategyBoard data={data} preparingId={preparingId} onPrepare={handlePreparePlaybook} />
-
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <div className="rounded-md border bg-card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agora</p>
-              <p className="mt-2 text-lg font-semibold">{topPlaybook?.name ?? "Sem playbook"}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {topPlaybook
-                  ? `${NUMBER(topPlaybook.audience.customers)} clientes, ${BRL(topPlaybook.estimate.contribution)} de contribuicao estimada.`
-                  : "Aguardando dados suficientes."}
-              </p>
-            </div>
-            <div className="rounded-md border bg-card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">CAC saudavel</p>
-              <p className="mt-2 text-lg font-semibold">{BRL(data.financial.guardrails.maxCacHealthy)}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Break-even em {BRL(data.financial.guardrails.maxCacBreakeven)} para ticket de {BRL(data.financial.avgOrderValue)}.
-              </p>
-            </div>
-            <div className="rounded-md border bg-card p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mensuracao</p>
-              <p className="mt-2 text-lg font-semibold">
-                Holdout {topPlaybook?.holdoutPct ?? data.measurement.holdoutPctDefault}% ·{" "}
-                {topPlaybook?.attributionWindowDays ?? data.measurement.attributionWindowDays}d
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                KPI primario: {data.measurement.primaryMetric}. A janela varia por playbook.
-              </p>
-            </div>
-          </div>
-
-          <ReadinessPanel data={data} runs={runs} />
+          <section className="space-y-3">
+            <SectionHeading
+              icon={<Gauge className="h-4 w-4" />}
+              title="Estrategia e regras"
+              intro="Quando usar cupom, cashback ou so mensagem — e quanto da para gastar sem corromper a margem."
+            />
+            <StrategyBoard data={data} preparingId={preparingId} onPrepare={handlePreparePlaybook} />
+          </section>
 
           <section className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">Fila recomendada</h2>
-                <p className="text-sm text-muted-foreground">
-                  Ordenada por contribuicao estimada, nao por receita bruta.
+            <SectionHeading
+              icon={<ShieldCheck className="h-4 w-4" />}
+              title="Resumo da configuracao atual"
+              intro="Parametros de holdout, janela e CAC saudavel que valem para as proximas campanhas."
+            />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <div className="rounded-md border bg-card p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agora</p>
+                <p className="mt-2 text-lg font-semibold">{topPlaybook?.name ?? "Sem playbook"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {topPlaybook
+                    ? `${NUMBER(topPlaybook.audience.customers)} clientes, ${BRL(topPlaybook.estimate.contribution)} de contribuicao estimada.`
+                    : "Aguardando dados suficientes."}
                 </p>
               </div>
-              <Badge variant="outline">
-                {NUMBER(data.dataQuality.uniqueCustomers)} clientes · {NUMBER(data.dataQuality.uniqueOrders)} pedidos
-              </Badge>
+              <div className="rounded-md border bg-card p-4">
+                <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <span>CAC saudavel</span>
+                  <InfoHint term="cpa" />
+                </div>
+                <p className="mt-2 text-lg font-semibold">{BRL(data.financial.guardrails.maxCacHealthy)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Break-even em {BRL(data.financial.guardrails.maxCacBreakeven)} para ticket de {BRL(data.financial.avgOrderValue)}.
+                </p>
+              </div>
+              <div className="rounded-md border bg-card p-4">
+                <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <span>Mensuracao</span>
+                  <InfoHint term="holdout" />
+                </div>
+                <p className="mt-2 text-lg font-semibold">
+                  Holdout {topPlaybook?.holdoutPct ?? data.measurement.holdoutPctDefault}% ·{" "}
+                  {topPlaybook?.attributionWindowDays ?? data.measurement.attributionWindowDays}d
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  KPI primario: {data.measurement.primaryMetric}. A janela varia por playbook.
+                </p>
+              </div>
             </div>
+          </section>
+
+          <section className="space-y-3">
+            <SectionHeading
+              icon={<ListChecks className="h-4 w-4" />}
+              title="Pronto para disparar?"
+              intro="Verde = pronto, amarelo = revisar, cinza = ainda falta configurar este canal ou recurso."
+            />
+            <ReadinessPanel data={data} runs={runs} />
+          </section>
+
+          <section className="space-y-3">
+            <SectionHeading
+              icon={<ListChecks className="h-4 w-4" />}
+              title="Catalogo de playbooks"
+              intro="Ficha completa de cada playbook: oferta, regra de margem e como medir. Ordenado por contribuicao estimada, nao por receita bruta."
+              trailing={
+                <Badge variant="outline">
+                  {NUMBER(data.dataQuality.uniqueCustomers)} clientes · {NUMBER(data.dataQuality.uniqueOrders)} pedidos
+                </Badge>
+              }
+            />
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {data.playbooks.map((playbook) => (
@@ -3421,38 +3870,33 @@ export default function RetentionPlaybooksPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Publico</p>
-                        <p className="font-semibold">{NUMBER(playbook.audience.customers)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Pedidos</p>
-                        <p className="font-semibold">{NUMBER(playbook.estimate.expectedOrders)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Receita</p>
-                        <p className="font-semibold">{BRL(playbook.estimate.revenue)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Custo/pedido</p>
-                        <p className="font-semibold">{BRL(playbook.estimate.retentionCostPerOrder)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Economia CPA</p>
-                        <p className="font-semibold">
-                          {playbook.estimate.cpaDelta == null
+                    <StatGrid cols={6}>
+                      <Stat label="Publico" value={NUMBER(playbook.audience.customers)} />
+                      <Stat label="Pedidos" value={NUMBER(playbook.estimate.expectedOrders)} />
+                      <Stat label="Receita" value={BRL(playbook.estimate.revenue)} />
+                      <Stat label="Custo/pedido" value={BRL(playbook.estimate.retentionCostPerOrder)} />
+                      <Stat
+                        label="Economia CPA"
+                        term="cpa"
+                        tone={
+                          playbook.estimate.cpaDelta != null && playbook.estimate.cpaDelta >= 0
+                            ? "success"
+                            : "default"
+                        }
+                        value={
+                          playbook.estimate.cpaDelta == null
                             ? "sem CPA"
                             : playbook.estimate.cpaDelta >= 0
                               ? `+${BRL(playbook.estimate.cpaDelta)}`
-                              : `-${BRL(Math.abs(playbook.estimate.cpaDelta))}`}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Minimo</p>
-                        <p className="font-semibold">{PCT(playbook.estimate.breakEvenConversionPct)}</p>
-                      </div>
-                    </div>
+                              : `-${BRL(Math.abs(playbook.estimate.cpaDelta))}`
+                        }
+                      />
+                      <Stat
+                        label="Minimo"
+                        term="breakeven"
+                        value={PCT(playbook.estimate.breakEvenConversionPct)}
+                      />
+                    </StatGrid>
 
                     <div className="grid gap-3 text-sm md:grid-cols-3">
                       <div>
@@ -3512,15 +3956,37 @@ export default function RetentionPlaybooksPage() {
           </section>
 
           <section className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">Execucoes recentes</h2>
-                <p className="text-sm text-muted-foreground">
-                  Canais preparados, holdout e resultado incremental por run.
-                </p>
+            <SectionHeading
+              icon={<BarChart3 className="h-4 w-4" />}
+              title="Relatorio completo das execucoes"
+              intro="Compare quem recebeu (tratamento) contra quem nao recebeu (holdout). So escale o que deu margem positiva."
+              trailing={<Badge variant="outline">{NUMBER(runs.length)} runs</Badge>}
+            />
+
+            {runs.length > 0 && (
+              <div className="rounded-md border bg-muted/20 p-3">
+                <StatGrid cols={3}>
+                  <Stat label="Execucoes" value={NUMBER(runs.length)} />
+                  <Stat
+                    label="Ganhando"
+                    term="mc"
+                    tone="success"
+                    value={`${NUMBER(
+                      runs.filter(
+                        (run) =>
+                          run.metrics.incrementalContribution > 0 && run.metrics.liftConversion > 0
+                      ).length
+                    )} de ${NUMBER(runs.length)}`}
+                  />
+                  <Stat
+                    label="MC liquida total"
+                    term="mc"
+                    emphasis
+                    value={BRL(runs.reduce((sum, run) => sum + run.metrics.incrementalContribution, 0))}
+                  />
+                </StatGrid>
               </div>
-              <Badge variant="outline">{NUMBER(runs.length)} runs</Badge>
-            </div>
+            )}
 
             {runs.length === 0 ? (
               <Card>
@@ -3557,7 +4023,7 @@ export default function RetentionPlaybooksPage() {
                             {run.sourceRunId ? ` · escala de ${run.sourceRunId.slice(0, 8)}` : ""}
                           </p>
                         </div>
-                        <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+                        <DecisionTag tone={decision.tone} label={decision.label} />
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -3580,48 +4046,41 @@ export default function RetentionPlaybooksPage() {
                       />
                       <GoalResultPanel run={run} />
 
-                      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Tratamento</p>
-                          <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Holdout</p>
-                          <p className="font-semibold">{NUMBER(run.holdoutList?.totalCount ?? 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Conv. trat.</p>
-                          <p className="font-semibold">{RATE(run.metrics.treatment.conversionRate)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Lift</p>
-                          <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
-                        </div>
-                      </div>
+                      <StatGrid cols={4}>
+                        <Stat label="Tratamento" term="tratamento" value={NUMBER(run.treatmentList.totalCount)} />
+                        <Stat label="Holdout" term="holdout" value={NUMBER(run.holdoutList?.totalCount ?? 0)} />
+                        <Stat label="Conv. trat." value={RATE(run.metrics.treatment.conversionRate)} />
+                        <Stat label="Lift" term="lift" value={RATE(run.metrics.liftConversion)} />
+                      </StatGrid>
 
-                      <div className="grid gap-3 text-sm md:grid-cols-4">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Receita trat.</p>
-                          <p className="font-semibold">{BRL(run.metrics.treatment.revenue)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Receita incremental</p>
-                          <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Custo canal/oferta</p>
-                          <p className="font-semibold">
-                            {BRL(run.metrics.trackedTotalCost ?? run.metrics.trackedChannelCost ?? 0)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Contribuicao liquida</p>
-                          <p className="font-semibold text-primary">
-                            {BRL(run.metrics.incrementalContribution)}
-                          </p>
-                        </div>
-                      </div>
+                      <StatGrid cols={4}>
+                        <Stat label="Receita trat." value={BRL(run.metrics.treatment.revenue)} />
+                        <Stat
+                          label="Receita incremental"
+                          term="incremental"
+                          value={BRL(run.metrics.incrementalRevenue)}
+                        />
+                        <Stat
+                          label="Custo canal/oferta"
+                          value={BRL(run.metrics.trackedTotalCost ?? run.metrics.trackedChannelCost ?? 0)}
+                        />
+                        <Stat
+                          label="Contribuicao liquida"
+                          term="mc"
+                          emphasis
+                          value={BRL(run.metrics.incrementalContribution)}
+                        />
+                      </StatGrid>
 
+                      <OpenSection
+                        title={
+                          <span className="flex items-center gap-2">
+                            <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                            Detalhe por canal
+                          </span>
+                        }
+                        trailing="WhatsApp · Email · Cashback · Cupom"
+                      >
                       <div className="rounded-md border bg-muted/30 p-3">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
@@ -3630,7 +4089,7 @@ export default function RetentionPlaybooksPage() {
                               {waStatusSummary(whatsapp?.statuses)}
                             </p>
                           </div>
-                          <Badge variant={hasWhatsapp ? "secondary" : "outline"}>
+                          <Badge variant={hasWhatsapp ? "success" : "outline"}>
                             {hasWhatsapp
                               ? `${NUMBER(whatsapp?.campaignCount ?? 0)} campanhas`
                               : "sem campanha"}
@@ -3689,7 +4148,7 @@ export default function RetentionPlaybooksPage() {
                                 {compactStatusSummary(email?.statuses)}
                               </p>
                             </div>
-                            <Badge variant={hasEmailDispatch ? "secondary" : "outline"}>
+                            <Badge variant={hasEmailDispatch ? "success" : email?.listReady ? "warning" : "outline"}>
                               {hasEmailDispatch
                                 ? `${NUMBER(email?.dispatchCount ?? 0)} disparos`
                                 : email?.listReady
@@ -3721,7 +4180,7 @@ export default function RetentionPlaybooksPage() {
                                 Tratamento {RATE(cashback?.treatment.usageRate ?? 0)} · holdout {RATE(cashback?.holdout.usageRate ?? 0)}
                               </p>
                             </div>
-                            <Badge variant={hasCashbackUsage ? "secondary" : "outline"}>
+                            <Badge variant={hasCashbackUsage ? "success" : "outline"}>
                               {hasCashbackUsage
                                 ? `${NUMBER(cashback?.treatment.uses ?? 0)} usos`
                                 : "sem uso"}
@@ -3755,7 +4214,7 @@ export default function RetentionPlaybooksPage() {
                                 {compactStatusSummary(coupons?.statuses, COUPON_STATUS_LABELS)}
                               </p>
                             </div>
-                            <Badge variant={hasCouponPlan ? "secondary" : "outline"}>
+                            <Badge variant={hasCouponPlan ? "success" : "outline"}>
                               {hasCouponPlan
                                 ? `${NUMBER(coupons?.planCount ?? 0)} planos`
                                 : "sem plano"}
@@ -3781,6 +4240,7 @@ export default function RetentionPlaybooksPage() {
                           </div>
                         </div>
                       </div>
+                      </OpenSection>
                     </CardContent>
                     </Card>
                   );
@@ -3788,8 +4248,6 @@ export default function RetentionPlaybooksPage() {
               </div>
             )}
           </section>
-            </div>
-          </details>
 
           <ScheduleReviewDialog
             review={scheduleReview}
@@ -3813,5 +4271,6 @@ export default function RetentionPlaybooksPage() {
         </>
       ) : null}
     </div>
+    </TooltipProvider>
   );
 }
