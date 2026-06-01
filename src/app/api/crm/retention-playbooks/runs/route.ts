@@ -1476,9 +1476,10 @@ function summarizeCoupons(
 
   return {
     planCount: planIds.size,
+    planIds: Array.from(planIds),
     couponCount: rows.length,
     ...totals,
-    coupons: rows.slice(0, 5).map((coupon) => ({
+    coupons: rows.slice(0, 20).map((coupon) => ({
       id: coupon.id,
       code: coupon.vnda_coupon_code,
       status: coupon.status,
