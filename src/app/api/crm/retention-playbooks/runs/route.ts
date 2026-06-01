@@ -89,6 +89,7 @@ interface WaCampaignRow {
     send_hour_reason?: string;
     paused_reason?: string;
     recommended_send_day?: number | string;
+    recommendation_goal?: RecommendationGoal;
   } | null;
   wa_templates:
     | {
@@ -160,6 +161,73 @@ interface AudienceContact extends Contact {
   key: string;
 }
 
+type GoalStatus = "em_leitura" | "bateu" | "parcial" | "nao_bateu";
+type ConfidenceLabel = "baixa" | "media" | "alta";
+
+interface PlaybookForecast {
+  expectedOrders: number;
+  revenue: number;
+  contribution: number;
+  incentiveBudget: number;
+  channelCost: number;
+  totalCost: number;
+  conversionPct: number;
+}
+
+interface LearningApplied {
+  multiplier: number;
+  sampleSize: number;
+  confidence: ConfidenceLabel;
+  note: string;
+  lastStatus: GoalStatus | null;
+  negativeSignals: number;
+}
+
+interface RecommendationConfidence {
+  score: number;
+  label: ConfidenceLabel;
+  reason: string;
+}
+
+interface RecommendationGoal {
+  version: 1;
+  createdAt: string;
+  playbookId: string;
+  playbookName: string;
+  reason: string;
+  forecast: PlaybookForecast;
+  target: {
+    orders: number;
+    revenue: number;
+    contribution: number;
+    liftConversionPositive: boolean;
+    windowDays: number;
+    dueAt: string;
+  };
+  confidence: RecommendationConfidence;
+  learningApplied: LearningApplied;
+  criteria: string;
+}
+
+interface GoalResult {
+  status: GoalStatus;
+  label: string;
+  reason: string;
+  evaluatedAt: string;
+  target: RecommendationGoal["target"] | null;
+  actual: {
+    orders: number;
+    revenue: number;
+    contribution: number;
+    liftConversion: number;
+  };
+  deltaPct: {
+    orders: number | null;
+    revenue: number | null;
+    contribution: number | null;
+  };
+}
+
 interface CustomerAgg {
   key: string;
   name: string;
@@ -190,6 +258,7 @@ interface ContactListRow {
     holdout_pct?: number;
     source_run_id?: string;
     source_decision?: string;
+    recommendation_goal?: RecommendationGoal;
     created_at?: string;
   } | null;
 }
@@ -387,6 +456,105 @@ function toNumber(value: unknown, fallback = 0): number {
     return Number.isFinite(parsed) ? parsed : fallback;
   }
   return fallback;
+}
+
+function cleanText(value: unknown, fallback = "", max = 600) {
+  const text = String(value ?? fallback).trim();
+  return (text || fallback).slice(0, max);
+}
+
+function cleanConfidence(raw: unknown): RecommendationConfidence {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const score = Math.min(100, Math.max(0, Math.round(toNumber(input.score, 50))));
+  const label = ["baixa", "media", "alta"].includes(String(input.label))
+    ? (String(input.label) as ConfidenceLabel)
+    : score >= 78
+      ? "alta"
+      : score >= 55
+        ? "media"
+        : "baixa";
+  return {
+    score,
+    label,
+    reason: cleanText(input.reason, "Confianca calculada automaticamente.", 300),
+  };
+}
+
+function cleanLearning(raw: unknown): LearningApplied {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const lastStatus = ["em_leitura", "bateu", "parcial", "nao_bateu"].includes(String(input.lastStatus))
+    ? (String(input.lastStatus) as GoalStatus)
+    : null;
+  return {
+    multiplier: Math.min(1.4, Math.max(0.5, toNumber(input.multiplier, 1))),
+    sampleSize: Math.max(0, Math.round(toNumber(input.sampleSize, 0))),
+    confidence: ["baixa", "media", "alta"].includes(String(input.confidence))
+      ? (String(input.confidence) as ConfidenceLabel)
+      : "baixa",
+    note: cleanText(input.note, "Sem aprendizado fechado para este playbook.", 300),
+    lastStatus,
+    negativeSignals: Math.max(0, Math.round(toNumber(input.negativeSignals, 0))),
+  };
+}
+
+function cleanForecast(raw: unknown): PlaybookForecast {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const incentiveBudget = Math.max(0, toNumber(input.incentiveBudget));
+  const channelCost = Math.max(0, toNumber(input.channelCost));
+  return {
+    expectedOrders: Math.max(0, Math.round(toNumber(input.expectedOrders))),
+    revenue: Math.max(0, toNumber(input.revenue)),
+    contribution: toNumber(input.contribution),
+    incentiveBudget,
+    channelCost,
+    totalCost: Math.max(0, toNumber(input.totalCost, incentiveBudget + channelCost)),
+    conversionPct: Math.max(0, toNumber(input.conversionPct)),
+  };
+}
+
+function cleanRecommendationGoal(
+  raw: unknown,
+  playbookId: string,
+  playbookName: string,
+  now: Date,
+  attributionWindowDays: number
+): RecommendationGoal | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const input = raw as Record<string, unknown>;
+  const forecast = cleanForecast(input.forecast);
+  const targetInput =
+    input.target && typeof input.target === "object" && !Array.isArray(input.target)
+      ? (input.target as Record<string, unknown>)
+      : {};
+  const dueAtRaw = cleanText(targetInput.dueAt, "", 80);
+  const dueAtDate = dueAtRaw ? parseDate(dueAtRaw) : null;
+  const dueAt =
+    dueAtDate?.toISOString() ||
+    new Date(now.getTime() + attributionWindowDays * DAY_MS).toISOString();
+
+  return {
+    version: 1,
+    createdAt: cleanText(input.createdAt, now.toISOString(), 80),
+    playbookId,
+    playbookName,
+    reason: cleanText(input.reason, "Recomendacao automatica por margem, base e custo de recompra.", 500),
+    forecast,
+    target: {
+      orders: Math.max(0, Math.round(toNumber(targetInput.orders, forecast.expectedOrders))),
+      revenue: Math.max(0, toNumber(targetInput.revenue, forecast.revenue)),
+      contribution: Math.max(0, toNumber(targetInput.contribution, forecast.contribution)),
+      liftConversionPositive: true,
+      windowDays: Math.max(1, Math.round(toNumber(targetInput.windowDays, attributionWindowDays))),
+      dueAt,
+    },
+    confidence: cleanConfidence(input.confidence),
+    learningApplied: cleanLearning(input.learningApplied),
+    criteria: cleanText(
+      input.criteria,
+      "Bateu se a MC liquida atingir a meta e o lift de conversao for positivo ao fechar a janela.",
+      500
+    ),
+  };
 }
 
 function normalizePhone(phone: string | null | undefined): string {
@@ -750,6 +918,115 @@ function summarizeSalesForList(
     conversionRate: list.total_count > 0 ? buyers.size / list.total_count : 0,
     revenuePerContact: list.total_count > 0 ? revenue / list.total_count : 0,
     contribution: revenue * (marginPct / 100),
+  };
+}
+
+function deltaPct(actual: number, target: number): number | null {
+  if (!Number.isFinite(target) || target <= 0) return null;
+  return ((actual - target) / target) * 100;
+}
+
+function goalStatusLabel(status: GoalStatus) {
+  if (status === "bateu") return "Bateu";
+  if (status === "parcial") return "Parcial";
+  if (status === "nao_bateu") return "Nao bateu";
+  return "Em leitura";
+}
+
+function incrementalOrdersForRun(
+  treatment: ContactListRow,
+  holdout: ContactListRow | null | undefined,
+  treatmentOrders: number,
+  holdoutOrders: number
+) {
+  if (!holdout || treatment.total_count <= 0 || holdout.total_count <= 0) return Math.max(0, treatmentOrders);
+  const liftOrdersPerContact =
+    treatmentOrders / treatment.total_count - holdoutOrders / holdout.total_count;
+  return Math.max(0, Math.round(liftOrdersPerContact * treatment.total_count));
+}
+
+function evaluateGoalResult(params: {
+  goal: RecommendationGoal | null | undefined;
+  attributionEnd: Date | null;
+  hasHoldout: boolean;
+  hasMeasurement: boolean;
+  actualOrders: number;
+  actualRevenue: number;
+  actualContribution: number;
+  liftConversion: number;
+}): GoalResult {
+  const now = new Date();
+  const target = params.goal?.target || null;
+  const actual = {
+    orders: params.actualOrders,
+    revenue: params.actualRevenue,
+    contribution: params.actualContribution,
+    liftConversion: params.liftConversion,
+  };
+  const deltas = {
+    orders: target ? deltaPct(actual.orders, target.orders) : null,
+    revenue: target ? deltaPct(actual.revenue, target.revenue) : null,
+    contribution: target ? deltaPct(actual.contribution, target.contribution) : null,
+  };
+
+  if (!params.goal || !target) {
+    return {
+      status: "em_leitura",
+      label: "Em leitura",
+      reason: "Run antigo ou preparado sem meta automatica gravada.",
+      evaluatedAt: now.toISOString(),
+      target,
+      actual,
+      deltaPct: deltas,
+    };
+  }
+
+  const dueAt = parseDate(target.dueAt) || params.attributionEnd;
+  if (!params.hasHoldout || !params.hasMeasurement) {
+    return {
+      status: "em_leitura",
+      label: "Em leitura",
+      reason: "Falta holdout ou canal mensuravel para fechar a leitura.",
+      evaluatedAt: now.toISOString(),
+      target,
+      actual,
+      deltaPct: deltas,
+    };
+  }
+
+  if (!dueAt || dueAt > now) {
+    return {
+      status: "em_leitura",
+      label: "Em leitura",
+      reason: "Janela de atribuicao ainda aberta.",
+      evaluatedAt: now.toISOString(),
+      target,
+      actual,
+      deltaPct: deltas,
+    };
+  }
+
+  const status: GoalStatus =
+    actual.contribution >= target.contribution && actual.liftConversion > 0
+      ? "bateu"
+      : actual.contribution <= 0 || actual.liftConversion <= 0
+        ? "nao_bateu"
+        : "parcial";
+  const reason =
+    status === "bateu"
+      ? "MC liquida atingiu a meta e o lift foi positivo."
+      : status === "parcial"
+        ? "MC ficou positiva, mas abaixo da meta definida no preparo."
+        : "MC ou lift nao sustentaram escala ao fechar a janela.";
+
+  return {
+    status,
+    label: goalStatusLabel(status),
+    reason,
+    evaluatedAt: now.toISOString(),
+    target,
+    actual,
+    deltaPct: deltas,
   };
 }
 
@@ -1735,6 +2012,7 @@ async function buildSchedulePreview(params: {
     sendHour: sendWindow.hour,
     sendHourSource: sendWindow.source,
     sendHourReason: sendWindow.reason,
+    goal: run.treatment.auto_segment?.recommendation_goal || null,
   };
 }
 
@@ -2028,6 +2306,7 @@ async function autoScheduleWhatsappRun(params: {
         recommended_send_day: sendWindow.day,
         send_hour_source: sendWindow.source,
         send_hour_reason: sendWindow.reason,
+        recommendation_goal: params.treatmentList.auto_segment?.recommendation_goal || null,
       },
       variable_values: variableValues,
       status: campaignStatus,
@@ -2200,6 +2479,13 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const playbookName = PLAYBOOK_LABELS[playbookId];
     const attributionWindowDays = playbookAttributionWindowDays(playbookId);
+    const recommendationGoal = cleanRecommendationGoal(
+      body.recommendationGoal,
+      playbookId,
+      playbookName,
+      now,
+      attributionWindowDays
+    );
     const audience = prebuiltAudience ?? (await buildAudience(auth!.admin, auth!.workspaceId, playbookId));
 
     if (audience.length === 0) {
@@ -2246,6 +2532,7 @@ export async function POST(request: NextRequest) {
       holdout_pct: holdoutPct,
       ...(sourceRunId ? { source_run_id: sourceRunId } : {}),
       ...(sourceDecision ? { source_decision: sourceDecision } : {}),
+      ...(recommendationGoal ? { recommendation_goal: recommendationGoal } : {}),
       created_at: now.toISOString(),
     };
     const sourceDescription = sourceRunId
@@ -2298,6 +2585,7 @@ export async function POST(request: NextRequest) {
         sourceRunId: sourceRunId || null,
         sourceDecision: sourceDecision || null,
         holdoutPct,
+        goal: recommendationGoal,
         audienceCount: audience.length,
         treatmentList,
         holdoutList,
@@ -2421,6 +2709,12 @@ export async function GET(request: NextRequest) {
       const liftRevenuePerContact =
         treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
       const incrementalRevenue = Math.max(0, liftRevenuePerContact * treatment.total_count);
+      const incrementalOrders = incrementalOrdersForRun(
+        treatment,
+        holdout,
+        treatmentMetrics.orders,
+        holdoutMetrics.orders
+      );
       const whatsapp = summarizeWaCampaigns(runId, waCampaigns);
       const email = summarizeEmailDispatches(treatment, emailDispatches, runId, attribution);
       const coupons = summarizeCoupons(runId, couponAudits, activeCoupons, runSales);
@@ -2446,6 +2740,22 @@ export async function GET(request: NextRequest) {
       const trackedTotalCost = whatsapp.costBrl + trackedOfferCost;
       const incrementalContribution =
         incrementalRevenue * (marginPct / 100) - trackedTotalCost;
+      const hasMeasurement =
+        whatsapp.sent > 0 ||
+        email.sent > 0 ||
+        coupons.attributedRevenue > 0 ||
+        cashback.treatment.uses > 0;
+      const goal = treatment.auto_segment?.recommendation_goal || null;
+      const goalResult = evaluateGoalResult({
+        goal,
+        attributionEnd: attribution.end,
+        hasHoldout: Boolean(holdout),
+        hasMeasurement,
+        actualOrders: incrementalOrders,
+        actualRevenue: incrementalRevenue,
+        actualContribution: incrementalContribution,
+        liftConversion,
+      });
 
       return {
         id: runId,
@@ -2456,6 +2766,8 @@ export async function GET(request: NextRequest) {
         attributionEndsAt: attribution.end?.toISOString() || null,
         sourceRunId: treatment.auto_segment?.source_run_id || null,
         sourceDecision: treatment.auto_segment?.source_decision || null,
+        goal,
+        goalResult,
         treatmentList: {
           id: treatment.id,
           name: treatment.name,
@@ -2478,6 +2790,7 @@ export async function GET(request: NextRequest) {
           treatment: treatmentMetrics,
           holdout: holdoutMetrics,
           liftConversion,
+          incrementalOrders,
           incrementalRevenue,
           incrementalContribution,
           trackedChannelCost: whatsapp.costBrl,

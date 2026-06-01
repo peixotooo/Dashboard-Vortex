@@ -67,6 +67,73 @@ interface PlaybookEstimate {
   breakEvenConversionPct: number;
 }
 
+type GoalStatus = "em_leitura" | "bateu" | "parcial" | "nao_bateu";
+type ConfidenceLabel = "baixa" | "media" | "alta";
+
+interface PlaybookForecast {
+  expectedOrders: number;
+  revenue: number;
+  contribution: number;
+  incentiveBudget: number;
+  channelCost: number;
+  totalCost: number;
+  conversionPct: number;
+}
+
+interface LearningApplied {
+  multiplier: number;
+  sampleSize: number;
+  confidence: ConfidenceLabel;
+  note: string;
+  lastStatus: GoalStatus | null;
+  negativeSignals: number;
+}
+
+interface RecommendationConfidence {
+  score: number;
+  label: ConfidenceLabel;
+  reason: string;
+}
+
+interface RecommendationGoal {
+  version: 1;
+  createdAt: string;
+  playbookId: string;
+  playbookName: string;
+  reason: string;
+  forecast: PlaybookForecast;
+  target: {
+    orders: number;
+    revenue: number;
+    contribution: number;
+    liftConversionPositive: boolean;
+    windowDays: number;
+    dueAt: string;
+  };
+  confidence: RecommendationConfidence;
+  learningApplied: LearningApplied;
+  criteria: string;
+}
+
+interface GoalResult {
+  status: GoalStatus;
+  label: string;
+  reason: string;
+  evaluatedAt: string;
+  target: RecommendationGoal["target"] | null;
+  actual: {
+    orders: number;
+    revenue: number;
+    contribution: number;
+    liftConversion: number;
+  };
+  deltaPct: {
+    orders: number | null;
+    revenue: number | null;
+    contribution: number | null;
+  };
+}
+
 interface PlaybookAction {
   label: string;
   href: string;
@@ -99,6 +166,11 @@ interface RetentionPlaybook {
   holdoutPct: number;
   attributionWindowDays: number;
   why: string;
+  recommendationReason: string;
+  forecast: PlaybookForecast;
+  goal: RecommendationGoal;
+  confidence: RecommendationConfidence;
+  learningApplied: LearningApplied;
   incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
   actions: PlaybookAction[];
@@ -214,6 +286,7 @@ interface PreparedRun {
   createdAt: string;
   sourceRunId?: string | null;
   sourceDecision?: string | null;
+  goal?: RecommendationGoal | null;
   holdoutPct: number;
   audienceCount: number;
   treatmentList: {
@@ -285,6 +358,7 @@ interface SchedulePreview {
   sendHour: number;
   sendHourSource: string;
   sendHourReason: string;
+  goal: RecommendationGoal | null;
 }
 
 interface ScheduleReviewState {
@@ -429,6 +503,7 @@ interface RunReport {
       contribution: number;
     };
     liftConversion: number;
+    incrementalOrders: number;
     incrementalRevenue: number;
     incrementalContribution: number;
     trackedChannelCost: number;
@@ -436,6 +511,8 @@ interface RunReport {
     trackedOfferCost?: number;
     trackedTotalCost?: number;
   };
+  goal?: RecommendationGoal | null;
+  goalResult?: GoalResult | null;
   channels?: {
     whatsapp?: WhatsAppRunSummary;
     email?: EmailRunSummary;
@@ -468,6 +545,33 @@ function DATE_TIME(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function DATE_DAY(value?: string | null) {
+  if (!value) return "sem data";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "sem data";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function goalStatusVariant(status?: GoalStatus | null): "default" | "secondary" | "outline" | "destructive" {
+  if (status === "bateu") return "default";
+  if (status === "parcial") return "secondary";
+  if (status === "nao_bateu") return "destructive";
+  return "outline";
+}
+
+function goalStatusLabel(status?: GoalStatus | null) {
+  if (status === "bateu") return "Bateu";
+  if (status === "parcial") return "Parcial";
+  if (status === "nao_bateu") return "Nao bateu";
+  return "Em leitura";
+}
+
+function confidenceVariant(label?: ConfidenceLabel | null): "default" | "secondary" | "outline" {
+  if (label === "alta") return "default";
+  if (label === "media") return "secondary";
+  return "outline";
 }
 
 function humanizeTemplateValue(value: string) {
@@ -1094,6 +1198,76 @@ function RunExecutionChecklist({
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+function progressPct(actual: number, target: number | null | undefined) {
+  if (!target || target <= 0) return actual > 0 ? 100 : 0;
+  return Math.max(0, Math.min(100, (actual / target) * 100));
+}
+
+function ForecastBar({
+  label,
+  actual,
+  target,
+  format,
+}: {
+  label: string;
+  actual: number;
+  target: number | null | undefined;
+  format: (value: number) => string;
+}) {
+  const pct = progressPct(actual, target);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">
+          {format(actual)} / {target == null ? "sem meta" : format(target)}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-muted">
+        <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function GoalResultPanel({ run }: { run: RunReport }) {
+  const goal = run.goal || null;
+  const result = run.goalResult || null;
+  const target = result?.target || goal?.target || null;
+  const actual = result?.actual || {
+    orders: run.metrics.incrementalOrders || 0,
+    revenue: run.metrics.incrementalRevenue,
+    contribution: run.metrics.incrementalContribution,
+    liftConversion: run.metrics.liftConversion,
+  };
+
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">Previsao vs realizado</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {target
+              ? `Meta criada no preparo e fecha em ${DATE_DAY(target.dueAt)}.`
+              : "Run antigo sem contrato de meta automatica."}
+          </p>
+        </div>
+        <Badge variant={goalStatusVariant(result?.status)}>
+          {goalStatusLabel(result?.status)}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <ForecastBar label="Pedidos" actual={actual.orders} target={target?.orders} format={NUMBER} />
+        <ForecastBar label="Receita" actual={actual.revenue} target={target?.revenue} format={BRL} />
+        <ForecastBar label="MC liquida" actual={actual.contribution} target={target?.contribution} format={BRL} />
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {result?.reason || goal?.criteria || "Aguardando a janela fechar para classificar o resultado."}
+      </p>
+    </div>
+  );
+}
+
 type RunDecisionTone = "setup" | "wait" | "scale" | "pause" | "watch";
 
 interface RunDecision {
@@ -1694,8 +1868,27 @@ function OperationsBoard({
                         </Badge>
                         <p className="font-semibold">{playbook.name}</p>
                         <Badge variant="outline">{playbook.priority}</Badge>
+                        <Badge variant={confidenceVariant(playbook.confidence?.label)}>
+                          confianca {playbook.confidence?.label || "baixa"}
+                        </Badge>
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{opportunityReason(playbook, data)}</p>
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p>
+                          <span className="font-medium text-foreground">Motivo:</span>{" "}
+                          {playbook.recommendationReason || opportunityReason(playbook, data)}
+                        </p>
+                        <p>
+                          <span className="font-medium text-foreground">Previsao:</span>{" "}
+                          {NUMBER(playbook.forecast?.expectedOrders ?? playbook.estimate.expectedOrders)} pedidos ·{" "}
+                          {BRL(playbook.forecast?.revenue ?? playbook.estimate.revenue)} receita incr. ·{" "}
+                          {BRL(playbook.forecast?.contribution ?? playbook.estimate.contribution)} MC
+                        </p>
+                        <p>
+                          <span className="font-medium text-foreground">Meta:</span>{" "}
+                          bater {BRL(playbook.goal?.target.contribution ?? playbook.estimate.contribution)} MC e lift positivo ate{" "}
+                          {DATE_DAY(playbook.goal?.target.dueAt)}
+                        </p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-primary">{BRL(playbook.estimate.contribution)}</p>
@@ -1723,7 +1916,9 @@ function OperationsBoard({
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="max-w-2xl text-xs text-muted-foreground">{playbook.why}</p>
+                    <p className="max-w-2xl text-xs text-muted-foreground">
+                      Aprendizado aplicado no proximo disparo: {playbook.learningApplied?.note || playbook.why}
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
@@ -2029,9 +2224,11 @@ function OperationsBoard({
                           {campaign ? waStatusLabel(campaign.status) : "sem campanha"} · janela {NUMBER(decision.ageDays)}/{NUMBER(attributionWindowDays)}d
                         </p>
                       </div>
-                      <Badge variant={decisionVariant(decision.tone)}>{decision.label}</Badge>
+                      <Badge variant={goalStatusVariant(run.goalResult?.status)}>
+                        {goalStatusLabel(run.goalResult?.status)}
+                      </Badge>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-6">
                       <div>
                         <p className="text-xs text-muted-foreground">Tratamento</p>
                         <p className="font-semibold">{NUMBER(run.treatmentList.totalCount)}</p>
@@ -2045,6 +2242,10 @@ function OperationsBoard({
                         <p className="font-semibold">{RATE(run.metrics.liftConversion)}</p>
                       </div>
                       <div>
+                        <p className="text-xs text-muted-foreground">Pedidos incr.</p>
+                        <p className="font-semibold">{NUMBER(run.metrics.incrementalOrders || 0)}</p>
+                      </div>
+                      <div>
                         <p className="text-xs text-muted-foreground">Receita incr.</p>
                         <p className="font-semibold">{BRL(run.metrics.incrementalRevenue)}</p>
                       </div>
@@ -2053,8 +2254,12 @@ function OperationsBoard({
                         <p className="font-semibold text-primary">{BRL(run.metrics.incrementalContribution)}</p>
                       </div>
                     </div>
+                    <div className="mt-3">
+                      <GoalResultPanel run={run} />
+                    </div>
                     <div className="mt-3 rounded-md bg-muted/35 p-3 text-xs text-muted-foreground">
-                      {decision.detail}
+                      Aprendizado aplicado no proximo disparo:{" "}
+                      {run.goal?.learningApplied?.note || decision.detail}
                     </div>
                   </div>
                 );
@@ -2124,6 +2329,38 @@ function ScheduleReviewDialog({
                 <p className="mt-1 text-xs text-muted-foreground">{preview.sendHourSource}</p>
               </div>
             </div>
+
+            {preview.goal && (
+              <div className="rounded-md border bg-background p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">Contrato do disparo</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{preview.goal.reason}</p>
+                  </div>
+                  <Badge variant={confidenceVariant(preview.goal.confidence.label)}>
+                    confianca {preview.goal.confidence.label}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Previsao</p>
+                    <p className="font-semibold">
+                      {NUMBER(preview.goal.forecast.expectedOrders)} pedidos · {BRL(preview.goal.forecast.contribution)}
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Meta</p>
+                    <p className="font-semibold">
+                      {BRL(preview.goal.target.contribution)} MC ate {DATE_DAY(preview.goal.target.dueAt)}
+                    </p>
+                  </div>
+                  <div className="rounded-md bg-muted/35 p-2">
+                    <p className="text-xs text-muted-foreground">Aprendizado</p>
+                    <p className="font-semibold">{preview.goal.learningApplied.multiplier.toFixed(2)}x</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-md border bg-background p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2854,6 +3091,7 @@ export default function RetentionPlaybooksPage() {
       body: JSON.stringify({
         playbookId: playbook.id,
         holdoutPct: playbook.holdoutPct ?? data?.measurement.holdoutPctDefault ?? 10,
+        recommendationGoal: playbook.goal,
         ...(source?.runId
           ? {
               sourceRunId: source.runId,
@@ -3335,6 +3573,7 @@ export default function RetentionPlaybooksPage() {
                           })
                         }
                       />
+                      <GoalResultPanel run={run} />
 
                       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                         <div>

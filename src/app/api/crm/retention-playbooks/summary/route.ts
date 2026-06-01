@@ -108,6 +108,54 @@ interface PlaybookEstimate {
   breakEvenConversionPct: number;
 }
 
+type GoalStatus = "em_leitura" | "bateu" | "parcial" | "nao_bateu";
+type ConfidenceLabel = "baixa" | "media" | "alta";
+
+interface PlaybookForecast {
+  expectedOrders: number;
+  revenue: number;
+  contribution: number;
+  incentiveBudget: number;
+  channelCost: number;
+  totalCost: number;
+  conversionPct: number;
+}
+
+interface LearningApplied {
+  multiplier: number;
+  sampleSize: number;
+  confidence: ConfidenceLabel;
+  note: string;
+  lastStatus: GoalStatus | null;
+  negativeSignals: number;
+}
+
+interface RecommendationConfidence {
+  score: number;
+  label: ConfidenceLabel;
+  reason: string;
+}
+
+interface RecommendationGoal {
+  version: 1;
+  createdAt: string;
+  playbookId: string;
+  playbookName: string;
+  reason: string;
+  forecast: PlaybookForecast;
+  target: {
+    orders: number;
+    revenue: number;
+    contribution: number;
+    liftConversionPositive: boolean;
+    windowDays: number;
+    dueAt: string;
+  };
+  confidence: RecommendationConfidence;
+  learningApplied: LearningApplied;
+  criteria: string;
+}
+
 interface PlaybookAction {
   label: string;
   href: string;
@@ -140,9 +188,55 @@ interface RetentionPlaybook {
   holdoutPct: number;
   attributionWindowDays: number;
   why: string;
+  recommendationReason: string;
+  forecast: PlaybookForecast;
+  goal: RecommendationGoal;
+  confidence: RecommendationConfidence;
+  learningApplied: LearningApplied;
   incentiveGuardrail: IncentiveGuardrail;
   estimate: PlaybookEstimate;
   actions: PlaybookAction[];
+}
+
+type RetentionPlaybookDraft = Omit<
+  RetentionPlaybook,
+  "recommendationReason" | "forecast" | "goal" | "confidence" | "learningApplied"
+>;
+
+interface Contact {
+  email?: string;
+  phone?: string;
+  name?: string;
+  variables?: Record<string, string>;
+}
+
+interface RetentionListRow {
+  id: string;
+  name: string;
+  contacts: Contact[] | null;
+  total_count: number;
+  created_at: string;
+  auto_segment: {
+    type?: string;
+    role?: "treatment" | "holdout";
+    run_id?: string;
+    playbook_id?: string;
+    playbook_name?: string;
+    recommendation_goal?: RecommendationGoal;
+  } | null;
+}
+
+interface LearningCampaignRow {
+  id: string;
+  status: string;
+  total_messages: number | string | null;
+  sent_count: number | string | null;
+  message_cost_usd: number | string | null;
+  exchange_rate: number | string | null;
+  created_at: string;
+  segment_filter: {
+    playbook_run_id?: string;
+  } | null;
 }
 
 function toNumber(value: unknown, fallback = 0): number {
@@ -273,6 +367,172 @@ function estimatePlaybook(params: {
     netContributionPerOrder,
     breakEvenOrders,
     breakEvenConversionPct,
+  };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function confidenceLabel(score: number): ConfidenceLabel {
+  if (score >= 78) return "alta";
+  if (score >= 55) return "media";
+  return "baixa";
+}
+
+function defaultLearning(): LearningApplied {
+  return {
+    multiplier: 1,
+    sampleSize: 0,
+    confidence: "baixa",
+    note: "Sem runs fechados com meta. Usando previsao base ate acumular historico.",
+    lastStatus: null,
+    negativeSignals: 0,
+  };
+}
+
+function forecastFromEstimate(estimate: PlaybookEstimate): PlaybookForecast {
+  return {
+    expectedOrders: estimate.expectedOrders,
+    revenue: estimate.revenue,
+    contribution: estimate.contribution,
+    incentiveBudget: estimate.incentiveBudget,
+    channelCost: estimate.channelCost,
+    totalCost: estimate.incentiveBudget + estimate.channelCost,
+    conversionPct: estimate.conversionPct,
+  };
+}
+
+function applyLearningToEstimate(
+  estimate: PlaybookEstimate,
+  learning: LearningApplied,
+  acquisitionCpa: number | null
+): PlaybookEstimate {
+  const multiplier = learning.multiplier || 1;
+  const expectedOrders = Math.max(0, Math.round(estimate.expectedOrders * multiplier));
+  const revenue = estimate.revenue * multiplier;
+  const incentiveBudget = estimate.incentiveBudget * multiplier;
+  const channelCost = estimate.channelCost;
+  const trackedCost = incentiveBudget + channelCost;
+  const retentionCostPerOrder = expectedOrders > 0 ? trackedCost / expectedOrders : 0;
+  const cpaDelta =
+    acquisitionCpa != null && expectedOrders > 0 ? acquisitionCpa - retentionCostPerOrder : null;
+  const cpaEfficiency =
+    acquisitionCpa != null && retentionCostPerOrder > 0 ? acquisitionCpa / retentionCostPerOrder : null;
+  const contribution = expectedOrders * estimate.netContributionPerOrder - channelCost;
+
+  return {
+    ...estimate,
+    expectedOrders,
+    revenue,
+    contribution,
+    incentiveBudget,
+    retentionCostPerOrder,
+    cpaDelta,
+    cpaEfficiency,
+    conversionPct: estimate.conversionPct * multiplier,
+  };
+}
+
+function lowerPriority(priority: RetentionPlaybook["priority"]): RetentionPlaybook["priority"] {
+  if (priority === "alta") return "media";
+  if (priority === "media") return "baixa";
+  return "baixa";
+}
+
+function buildRecommendationReason(playbook: RetentionPlaybookDraft, acquisitionCpa: number | null) {
+  const cpaText =
+    acquisitionCpa != null && playbook.estimate.retentionCostPerOrder > 0
+      ? `${(acquisitionCpa / playbook.estimate.retentionCostPerOrder).toFixed(1)}x mais barato que comprar cliente`
+      : "sem CPA salvo para comparar aquisicao";
+  return `${cpaText}; breakeven em ${playbook.estimate.breakEvenConversionPct.toFixed(1)}% da base.`;
+}
+
+function buildRecommendationConfidence(
+  playbook: RetentionPlaybookDraft,
+  learning: LearningApplied,
+  acquisitionCpa: number | null
+): RecommendationConfidence {
+  const phoneCoverage = playbook.audience.customers > 0 ? playbook.audience.withPhone / playbook.audience.customers : 0;
+  const baseScore =
+    42 +
+    Math.min(24, learning.sampleSize * 8) +
+    Math.round(phoneCoverage * 18) +
+    (acquisitionCpa != null ? 8 : 0) +
+    (playbook.estimate.expectedOrders > 0 ? 8 : 0);
+  const penalty = learning.negativeSignals > 0 ? Math.min(18, learning.negativeSignals * 6) : 0;
+  const score = clamp(baseScore - penalty, 20, 96);
+  const label = confidenceLabel(score);
+  const reason =
+    learning.sampleSize > 0
+      ? `${learning.sampleSize} runs fechados alimentam o ajuste; cobertura WhatsApp ${Math.round(phoneCoverage * 100)}%.`
+      : `Sem aprendizado fechado ainda; cobertura WhatsApp ${Math.round(phoneCoverage * 100)}%.`;
+
+  return { score, label, reason };
+}
+
+function buildRecommendationGoal(params: {
+  playbook: RetentionPlaybookDraft;
+  reason: string;
+  forecast: PlaybookForecast;
+  confidence: RecommendationConfidence;
+  learning: LearningApplied;
+  now: Date;
+}): RecommendationGoal {
+  const dueAt = new Date(params.now.getTime() + params.playbook.attributionWindowDays * DAY_MS);
+  return {
+    version: 1,
+    createdAt: params.now.toISOString(),
+    playbookId: params.playbook.id,
+    playbookName: params.playbook.name,
+    reason: params.reason,
+    forecast: params.forecast,
+    target: {
+      orders: params.forecast.expectedOrders,
+      revenue: params.forecast.revenue,
+      contribution: Math.max(0, params.forecast.contribution),
+      liftConversionPositive: true,
+      windowDays: params.playbook.attributionWindowDays,
+      dueAt: dueAt.toISOString(),
+    },
+    confidence: params.confidence,
+    learningApplied: params.learning,
+    criteria: "Bateu se a MC liquida atingir a meta e o lift de conversao for positivo ao fechar a janela.",
+  };
+}
+
+function finalizePlaybookWithLearning(
+  playbook: RetentionPlaybookDraft,
+  learning: LearningApplied | undefined,
+  acquisitionCpa: number | null,
+  now: Date
+): RetentionPlaybook {
+  const applied = learning || defaultLearning();
+  const estimate = applyLearningToEstimate(playbook.estimate, applied, acquisitionCpa);
+  const priority =
+    applied.negativeSignals > 0 || applied.multiplier < 0.85
+      ? lowerPriority(playbook.priority)
+      : playbook.priority;
+  const base = { ...playbook, estimate, priority };
+  const recommendationReason = buildRecommendationReason(base, acquisitionCpa);
+  const forecast = forecastFromEstimate(estimate);
+  const confidence = buildRecommendationConfidence(base, applied, acquisitionCpa);
+  const goal = buildRecommendationGoal({
+    playbook: base,
+    reason: recommendationReason,
+    forecast,
+    confidence,
+    learning: applied,
+    now,
+  });
+
+  return {
+    ...base,
+    recommendationReason,
+    forecast,
+    confidence,
+    learningApplied: applied,
+    goal,
   };
 }
 
@@ -469,6 +729,223 @@ async function getSavedAcquisitionLast30(
   } satisfies SavedAcquisitionSummary;
 }
 
+function contactKeys(contacts: Contact[] | null | undefined): Set<string> {
+  const keys = new Set<string>();
+  for (const contact of contacts || []) {
+    const email = contact.email?.trim().toLowerCase();
+    if (email) keys.add(`email:${email}`);
+    const phone = normalizePhone(contact.phone);
+    if (phone) keys.add(`phone:${phone}`);
+  }
+  return keys;
+}
+
+function saleKeys(row: CrmOrderRow): string[] {
+  const keys: string[] = [];
+  const email = row.email?.trim().toLowerCase();
+  if (email) keys.push(`email:${email}`);
+  const phone = normalizePhone(row.telefone);
+  if (phone) keys.push(`phone:${phone}`);
+  return keys;
+}
+
+function summarizeSalesForList(list: RetentionListRow | undefined, sales: CrmOrderRow[]) {
+  if (!list) return { buyers: 0, orders: 0, revenue: 0, conversionRate: 0, revenuePerContact: 0, ordersPerContact: 0 };
+
+  const keys = contactKeys(list.contacts);
+  const buyers = new Set<string>();
+  const seenOrders = new Set<string>();
+  let revenue = 0;
+
+  for (const sale of sales) {
+    const matchedKey = saleKeys(sale).find((key) => keys.has(key));
+    if (!matchedKey) continue;
+    const key = orderKey(sale);
+    if (seenOrders.has(key)) continue;
+    seenOrders.add(key);
+    buyers.add(matchedKey);
+    revenue += toNumber(sale.valor);
+  }
+
+  const total = toNumber(list.total_count);
+  return {
+    buyers: buyers.size,
+    orders: seenOrders.size,
+    revenue,
+    conversionRate: total > 0 ? buyers.size / total : 0,
+    revenuePerContact: total > 0 ? revenue / total : 0,
+    ordersPerContact: total > 0 ? seenOrders.size / total : 0,
+  };
+}
+
+function campaignCost(campaigns: LearningCampaignRow[]) {
+  return campaigns.reduce(
+    (sum, campaign) =>
+      sum +
+      toNumber(campaign.sent_count) *
+        toNumber(campaign.message_cost_usd, 0.0625) *
+        toNumber(campaign.exchange_rate, 5.5),
+    0
+  );
+}
+
+function goalStatusForClosedRun(params: {
+  actualContribution: number;
+  targetContribution: number;
+  liftConversion: number;
+  actualRevenue: number;
+  targetRevenue: number;
+}): GoalStatus {
+  if (params.actualContribution >= params.targetContribution && params.liftConversion > 0) return "bateu";
+  if (params.actualContribution <= 0 || params.liftConversion <= 0) return "nao_bateu";
+  if (params.actualContribution > 0 || params.actualRevenue >= params.targetRevenue) return "parcial";
+  return "nao_bateu";
+}
+
+async function fetchRetentionLearningInputs(
+  admin: NonNullable<Awaited<ReturnType<typeof authRoute>>["auth"]>["admin"],
+  workspaceId: string
+) {
+  const [listsResult, campaignsResult] = await Promise.all([
+    admin
+      .from("crm_contact_lists")
+      .select("id, name, contacts, total_count, created_at, auto_segment")
+      .eq("workspace_id", workspaceId)
+      .eq("auto_segment->>type", "retention_playbook")
+      .order("created_at", { ascending: false })
+      .limit(500),
+    admin
+      .from("wa_campaigns")
+      .select("id, status, total_messages, sent_count, message_cost_usd, exchange_rate, created_at, segment_filter")
+      .eq("workspace_id", workspaceId)
+      .eq("kind", "campaign")
+      .order("created_at", { ascending: false })
+      .limit(1000),
+  ]);
+
+  if (listsResult.error) {
+    console.warn("[Retention Playbooks] learning lists unavailable:", listsResult.error.message);
+  }
+  if (campaignsResult.error) {
+    console.warn("[Retention Playbooks] learning campaigns unavailable:", campaignsResult.error.message);
+  }
+
+  return {
+    lists: (listsResult.data || []) as RetentionListRow[],
+    campaigns: (campaignsResult.data || []) as LearningCampaignRow[],
+  };
+}
+
+function buildLearningByPlaybook(params: {
+  lists: RetentionListRow[];
+  campaigns: LearningCampaignRow[];
+  orders: CrmOrderRow[];
+  contributionPct: number;
+  now: Date;
+}): Map<string, LearningApplied> {
+  const listsByRun = new Map<string, { treatment?: RetentionListRow; holdout?: RetentionListRow }>();
+  for (const list of params.lists) {
+    const runId = list.auto_segment?.run_id;
+    if (!runId) continue;
+    const group = listsByRun.get(runId) || {};
+    if (list.auto_segment?.role === "treatment") group.treatment = list;
+    if (list.auto_segment?.role === "holdout") group.holdout = list;
+    listsByRun.set(runId, group);
+  }
+
+  const campaignsByRun = new Map<string, LearningCampaignRow[]>();
+  for (const campaign of params.campaigns) {
+    const runId = campaign.segment_filter?.playbook_run_id;
+    if (!runId) continue;
+    const rows = campaignsByRun.get(runId) || [];
+    rows.push(campaign);
+    campaignsByRun.set(runId, rows);
+  }
+
+  const samplesByPlaybook = new Map<
+    string,
+    Array<{ createdAt: string; status: GoalStatus; ratio: number; negative: boolean }>
+  >();
+
+  for (const [runId, group] of listsByRun.entries()) {
+    const treatment = group.treatment;
+    const holdout = group.holdout;
+    const goal = treatment?.auto_segment?.recommendation_goal;
+    const playbookId = treatment?.auto_segment?.playbook_id || goal?.playbookId;
+    if (!treatment || !holdout || !goal || !playbookId) continue;
+
+    const targetContribution = toNumber(goal.target?.contribution);
+    if (targetContribution <= 0) continue;
+
+    const runCampaigns = campaignsByRun.get(runId) || [];
+    const sentMessages = runCampaigns.reduce((sum, campaign) => sum + toNumber(campaign.sent_count), 0);
+    if (sentMessages <= 0) continue;
+
+    const createdAt = parseDate(treatment.created_at);
+    const windowDays = toNumber(goal.target?.windowDays, 14);
+    const dueAt = parseDate(goal.target?.dueAt) || (createdAt ? new Date(createdAt.getTime() + windowDays * DAY_MS) : null);
+    if (!createdAt || !dueAt || dueAt > params.now) continue;
+
+    const runSales = params.orders.filter((order) => {
+      const date = parseDate(order.data_compra);
+      return date && date >= createdAt && date <= dueAt;
+    });
+    const treatmentMetrics = summarizeSalesForList(treatment, runSales);
+    const holdoutMetrics = summarizeSalesForList(holdout, runSales);
+    const liftConversion = treatmentMetrics.conversionRate - holdoutMetrics.conversionRate;
+    const liftRevenuePerContact = treatmentMetrics.revenuePerContact - holdoutMetrics.revenuePerContact;
+    const incrementalRevenue = Math.max(0, liftRevenuePerContact * toNumber(treatment.total_count));
+    const actualContribution =
+      incrementalRevenue * (params.contributionPct / 100) - campaignCost(runCampaigns);
+    const status = goalStatusForClosedRun({
+      actualContribution,
+      targetContribution,
+      liftConversion,
+      actualRevenue: incrementalRevenue,
+      targetRevenue: toNumber(goal.target?.revenue),
+    });
+    const ratio = targetContribution > 0 ? actualContribution / targetContribution : 1;
+    const rows = samplesByPlaybook.get(playbookId) || [];
+    rows.push({
+      createdAt: treatment.created_at,
+      status,
+      ratio,
+      negative: actualContribution <= 0 || liftConversion <= 0,
+    });
+    samplesByPlaybook.set(playbookId, rows);
+  }
+
+  const learningByPlaybook = new Map<string, LearningApplied>();
+  for (const [playbookId, rows] of samplesByPlaybook.entries()) {
+    const samples = rows
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+    const rawMultiplier =
+      samples.reduce((sum, sample) => sum + sample.ratio, 0) / Math.max(1, samples.length);
+    const multiplier = clamp(rawMultiplier, 0.5, 1.4);
+    const negativeSignals = samples.filter((sample) => sample.negative).length;
+    const lastStatus = samples[0]?.status || null;
+    const confidence = samples.length >= 3 ? "alta" : samples.length >= 1 ? "media" : "baixa";
+    const note =
+      multiplier >= 1.05
+        ? `Historico bateu meta; proximo forecast ajustado para ${multiplier.toFixed(2)}x.`
+        : multiplier <= 0.95
+          ? `Historico ficou abaixo; proximo forecast reduzido para ${multiplier.toFixed(2)}x.`
+          : `Historico proximo da meta; mantido ajuste ${multiplier.toFixed(2)}x.`;
+
+    learningByPlaybook.set(playbookId, {
+      multiplier,
+      sampleSize: samples.length,
+      confidence,
+      note,
+      lastStatus,
+      negativeSignals,
+    });
+  }
+
+  return learningByPlaybook;
+}
+
 export async function GET(request: NextRequest) {
   const { auth, error } = await authRoute(request);
   if (error) return error;
@@ -496,6 +973,7 @@ export async function GET(request: NextRequest) {
       activeCoupons,
       contactLists,
       cashbackTemplates,
+      retentionLearningInputs,
     ] = await Promise.all([
       admin
         .from("workspace_financial_settings")
@@ -521,6 +999,7 @@ export async function GET(request: NextRequest) {
       safeCount(admin, workspaceId, "promo_active_coupons"),
       safeCount(admin, workspaceId, "crm_contact_lists"),
       safeCount(admin, workspaceId, "cashback_reminder_templates"),
+      fetchRetentionLearningInputs(admin, workspaceId),
     ]);
 
     if (financialResult.error) throw financialResult.error;
@@ -743,8 +1222,15 @@ export async function GET(request: NextRequest) {
       0,
       Math.min(15, contributionAfterMarketingPct - financialSettings.safetyMarginPct)
     );
+    const learningByPlaybook = buildLearningByPlaybook({
+      lists: retentionLearningInputs.lists,
+      campaigns: retentionLearningInputs.campaigns,
+      orders,
+      contributionPct: contributionBeforeMarketingPct,
+      now,
+    });
 
-    const playbooks: RetentionPlaybook[] = [
+    const playbookDrafts: RetentionPlaybookDraft[] = [
       {
         id: "cashback-expiring-14d",
         name: "Saldo expirando",
@@ -962,6 +1448,14 @@ export async function GET(request: NextRequest) {
         ],
       },
     ];
+    let playbooks = playbookDrafts.map((playbook) =>
+      finalizePlaybookWithLearning(
+        playbook,
+        learningByPlaybook.get(playbook.id),
+        savedAcquisition.cpa,
+        now
+      )
+    );
     playbooks.sort((a, b) => b.estimate.contribution - a.estimate.contribution);
 
     return NextResponse.json(
