@@ -458,6 +458,10 @@ function exportCustomersCsv(list: RfmCustomer[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatWaPerformancePeriod(days: number): string {
+  return days > 0 ? `Ultimos ${days} dias` : "Todas as campanhas";
+}
+
 // --- Advanced filter popovers ---
 
 function DateRangeFilterPopover({
@@ -777,11 +781,13 @@ export default function CrmPage() {
   const [waPerfLoading, setWaPerfLoading] = useState(false);
   const [waPerfError, setWaPerfError] = useState<string | null>(null);
   const [waPerfDays, setWaPerfDays] = useState(90);
+  const [waPerfLoadedDays, setWaPerfLoadedDays] = useState<number | null>(null);
   const [waPerfSort, setWaPerfSort] = useState<"revenue" | "roas" | "conversions" | "revenue_per_sent" | "cost">("revenue");
   const [selectedWaPerfRow, setSelectedWaPerfRow] = useState<WaPerformanceRow | null>(null);
   const [waPerfDetail, setWaPerfDetail] = useState<WaPerformanceDetail | null>(null);
   const [waPerfDetailLoading, setWaPerfDetailLoading] = useState(false);
   const [waPerfDetailError, setWaPerfDetailError] = useState<string | null>(null);
+  const waPerfRequestIdRef = useRef(0);
 
   // Snapshot recompute
   const [computing, setComputing] = useState(false);
@@ -806,28 +812,43 @@ export default function CrmPage() {
     return hdrs;
   }, [workspace?.id]);
 
-  const fetchWaPerformance = useCallback(async () => {
+  const fetchWaPerformance = useCallback(async (daysOverride?: number) => {
     if (!workspace?.id) return;
+    const requestedDays = daysOverride ?? waPerfDays;
+    const requestId = waPerfRequestIdRef.current + 1;
+    waPerfRequestIdRef.current = requestId;
     setWaPerfLoading(true);
     setWaPerfError(null);
     try {
       const params = new URLSearchParams({
-        days: String(waPerfDays),
+        days: String(requestedDays),
         limit: "100",
       });
       const res = await fetch(`/api/crm/whatsapp/campaigns/performance?${params.toString()}`, {
         headers: wsHeaders(),
       });
       const data = await res.json();
+      if (requestId !== waPerfRequestIdRef.current) return;
       if (!res.ok) throw new Error(data.error || "Falha ao carregar performance.");
       setWaPerfRows(Array.isArray(data.campaigns) ? data.campaigns : []);
       setWaPerfSummary(data.summary || null);
+      setWaPerfLoadedDays(Number(data.period?.days ?? requestedDays));
     } catch (error) {
+      if (requestId !== waPerfRequestIdRef.current) return;
       setWaPerfError(error instanceof Error ? error.message : "Falha ao carregar performance.");
     } finally {
-      setWaPerfLoading(false);
+      if (requestId === waPerfRequestIdRef.current) setWaPerfLoading(false);
     }
   }, [workspace?.id, waPerfDays, wsHeaders]);
+
+  const handleWaPerformanceDaysChange = useCallback((nextDays: number) => {
+    setWaPerfDays(nextDays);
+    setWaPerfRows([]);
+    setWaPerfSummary(null);
+    setWaPerfLoadedDays(null);
+    setWaPerfError(null);
+    setWaPerfLoading(true);
+  }, []);
 
   const openWaPerformanceDetail = useCallback(async (row: WaPerformanceRow) => {
     if (!workspace?.id) return;
@@ -1599,6 +1620,8 @@ export default function CrmPage() {
       .sort((a, b) => (a.performance.roas || 0) - (b.performance.roas || 0))[0],
     [waPerfRows]
   );
+  const waPerfPeriodLabel = formatWaPerformancePeriod(waPerfLoadedDays ?? waPerfDays);
+  const waPerfTargetPeriodLabel = formatWaPerformancePeriod(waPerfDays);
 
   return (
     <TooltipProvider>
@@ -2285,13 +2308,15 @@ export default function CrmPage() {
             <div>
               <h2 className="text-lg font-semibold">Performance WhatsApp</h2>
               <p className="text-sm text-muted-foreground">
-                Atribuicao por telefone dentro da janela configurada em cada campanha.
+                {waPerfLoading
+                  ? `Atualizando ${waPerfTargetPeriodLabel.toLowerCase()}...`
+                  : `Mostrando ${waPerfPeriodLabel.toLowerCase()}. Atribuicao por telefone dentro da janela de cada campanha.`}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <select
                 value={waPerfDays}
-                onChange={(e) => setWaPerfDays(Number(e.target.value))}
+                onChange={(e) => handleWaPerformanceDaysChange(Number(e.target.value))}
                 className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground"
               >
                 <option value={30}>Ultimos 30 dias</option>
@@ -2315,7 +2340,7 @@ export default function CrmPage() {
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                onClick={fetchWaPerformance}
+                onClick={() => fetchWaPerformance(waPerfDays)}
                 disabled={waPerfLoading}
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${waPerfLoading ? "animate-spin" : ""}`} />
@@ -2334,31 +2359,31 @@ export default function CrmPage() {
             <Card className="p-5">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita atribuida</p>
               <p className="text-2xl font-bold text-primary mt-2">
-                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.attributed_revenue ?? 0)}
+                {waPerfLoading ? "..." : formatCurrency(waPerfSummary?.attributed_revenue ?? 0)}
               </p>
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">ROAS</p>
               <p className="text-2xl font-bold text-foreground mt-2">
-                {waPerfLoading && !waPerfSummary ? "..." : `${(waPerfSummary?.roas ?? 0).toFixed(2)}x`}
+                {waPerfLoading ? "..." : `${(waPerfSummary?.roas ?? 0).toFixed(2)}x`}
               </p>
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Conversoes</p>
               <p className="text-2xl font-bold text-foreground mt-2">
-                {waPerfLoading && !waPerfSummary ? "..." : formatNumber(waPerfSummary?.conversions ?? 0)}
+                {waPerfLoading ? "..." : formatNumber(waPerfSummary?.conversions ?? 0)}
               </p>
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Custo WhatsApp</p>
               <p className="text-2xl font-bold text-foreground mt-2">
-                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.total_cost_brl ?? 0)}
+                {waPerfLoading ? "..." : formatCurrency(waPerfSummary?.total_cost_brl ?? 0)}
               </p>
             </Card>
             <Card className="p-5">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita/envio</p>
               <p className="text-2xl font-bold text-foreground mt-2">
-                {waPerfLoading && !waPerfSummary ? "..." : formatCurrency(waPerfSummary?.revenue_per_sent ?? 0)}
+                {waPerfLoading ? "..." : formatCurrency(waPerfSummary?.revenue_per_sent ?? 0)}
               </p>
             </Card>
           </div>
@@ -2440,11 +2465,13 @@ export default function CrmPage() {
                 <div>
                   <CardTitle className="text-base">Ranking de campanhas</CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Receita = soma de pedidos do CRM cujo telefone recebeu a campanha dentro da janela. Clique em uma linha para ver detalhes.
+                    Receita = pedidos do CRM cujo telefone recebeu a campanha dentro da janela. Clique em uma linha para ver detalhes.
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {waPerfRows.length} campanha{waPerfRows.length === 1 ? "" : "s"}
+                  {waPerfLoading
+                    ? `Atualizando ${waPerfTargetPeriodLabel.toLowerCase()}`
+                    : `${waPerfRows.length} campanha${waPerfRows.length === 1 ? "" : "s"}`}
                 </div>
               </div>
             </CardHeader>
