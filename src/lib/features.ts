@@ -298,6 +298,13 @@ export const FEATURES: Feature[] = [
     parent: "financeiro",
   },
   {
+    id: "financeiro.cockpit",
+    label: "Cockpit de Caixa",
+    description: "Controle de caixa, meta sazonal e gargalos operacionais",
+    routes: ["/simulador/controle"],
+    parent: "financeiro",
+  },
+  {
     id: "financeiro.diagnostico",
     label: "Diagnostico",
     description: "Diagnostico financeiro",

@@ -13,7 +13,18 @@ const DEFAULTS = {
   invest_pct: 12,
   frete_pct: 6,
   desconto_pct: 3,
+  daily_cash_floor_brl: 15500,
 };
+
+function isMissingDailyCashFloorColumn(error: { code?: string; message?: string } | null) {
+  if (!error) return false;
+
+  const text = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+  return (
+    text.includes("daily_cash_floor_brl") &&
+    (text.includes("schema cache") || text.includes("column") || text.includes("pgrst204"))
+  );
+}
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -72,28 +83,39 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
 
-    const { data, error } = await supabase
+    const payload = {
+      workspace_id: workspaceId,
+      monthly_fixed_costs: body.monthly_fixed_costs ?? DEFAULTS.monthly_fixed_costs,
+      tax_pct: body.tax_pct ?? DEFAULTS.tax_pct,
+      product_cost_pct: body.product_cost_pct ?? DEFAULTS.product_cost_pct,
+      other_expenses_pct: body.other_expenses_pct ?? DEFAULTS.other_expenses_pct,
+      monthly_seasonality: body.monthly_seasonality ?? DEFAULTS.monthly_seasonality,
+      target_profit_monthly: body.target_profit_monthly ?? DEFAULTS.target_profit_monthly,
+      safety_margin_pct: body.safety_margin_pct ?? DEFAULTS.safety_margin_pct,
+      annual_revenue_target: body.annual_revenue_target ?? DEFAULTS.annual_revenue_target,
+      invest_pct: body.invest_pct ?? DEFAULTS.invest_pct,
+      frete_pct: body.frete_pct ?? DEFAULTS.frete_pct,
+      desconto_pct: body.desconto_pct ?? DEFAULTS.desconto_pct,
+      daily_cash_floor_brl: body.daily_cash_floor_brl ?? DEFAULTS.daily_cash_floor_brl,
+      updated_at: new Date().toISOString(),
+    };
+
+    let result = await supabase
       .from("workspace_financial_settings")
-      .upsert(
-        {
-          workspace_id: workspaceId,
-          monthly_fixed_costs: body.monthly_fixed_costs ?? DEFAULTS.monthly_fixed_costs,
-          tax_pct: body.tax_pct ?? DEFAULTS.tax_pct,
-          product_cost_pct: body.product_cost_pct ?? DEFAULTS.product_cost_pct,
-          other_expenses_pct: body.other_expenses_pct ?? DEFAULTS.other_expenses_pct,
-          monthly_seasonality: body.monthly_seasonality ?? DEFAULTS.monthly_seasonality,
-          target_profit_monthly: body.target_profit_monthly ?? DEFAULTS.target_profit_monthly,
-          safety_margin_pct: body.safety_margin_pct ?? DEFAULTS.safety_margin_pct,
-          annual_revenue_target: body.annual_revenue_target ?? DEFAULTS.annual_revenue_target,
-          invest_pct: body.invest_pct ?? DEFAULTS.invest_pct,
-          frete_pct: body.frete_pct ?? DEFAULTS.frete_pct,
-          desconto_pct: body.desconto_pct ?? DEFAULTS.desconto_pct,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "workspace_id" }
-      )
+      .upsert(payload, { onConflict: "workspace_id" })
       .select()
       .single();
+
+    if (isMissingDailyCashFloorColumn(result.error)) {
+      const { daily_cash_floor_brl: _dailyCashFloor, ...fallbackPayload } = payload;
+      result = await supabase
+        .from("workspace_financial_settings")
+        .upsert(fallbackPayload, { onConflict: "workspace_id" })
+        .select()
+        .single();
+    }
+
+    const { data, error } = result;
 
     if (error) {
       console.error("[Financial Settings] Upsert error:", error);

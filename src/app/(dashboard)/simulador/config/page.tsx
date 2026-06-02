@@ -24,6 +24,7 @@ const DEFAULTS = {
   invest_pct: 12,
   frete_pct: 6,
   desconto_pct: 3,
+  daily_cash_floor_brl: 15500,
 };
 
 export default function FinancialConfigPage() {
@@ -44,6 +45,7 @@ export default function FinancialConfigPage() {
   const [investPct, setInvestPct] = useState(DEFAULTS.invest_pct);
   const [fretePct, setFretePct] = useState(DEFAULTS.frete_pct);
   const [descontoPct, setDescontoPct] = useState(DEFAULTS.desconto_pct);
+  const [dailyCashFloor, setDailyCashFloor] = useState(DEFAULTS.daily_cash_floor_brl);
 
   useEffect(() => {
     if (!workspace?.id) return;
@@ -66,6 +68,7 @@ export default function FinancialConfigPage() {
         setInvestPct(data.invest_pct ?? DEFAULTS.invest_pct);
         setFretePct(data.frete_pct ?? DEFAULTS.frete_pct);
         setDescontoPct(data.desconto_pct ?? DEFAULTS.desconto_pct);
+        setDailyCashFloor(data.daily_cash_floor_brl ?? DEFAULTS.daily_cash_floor_brl);
         setIsDefault(data.isDefault ?? true);
       } catch {
         // Keep defaults
@@ -99,6 +102,7 @@ export default function FinancialConfigPage() {
           invest_pct: investPct,
           frete_pct: fretePct,
           desconto_pct: descontoPct,
+          daily_cash_floor_brl: dailyCashFloor,
         }),
       });
       if (res.ok) {
@@ -125,6 +129,7 @@ export default function FinancialConfigPage() {
     setInvestPct(DEFAULTS.invest_pct);
     setFretePct(DEFAULTS.frete_pct);
     setDescontoPct(DEFAULTS.desconto_pct);
+    setDailyCashFloor(DEFAULTS.daily_cash_floor_brl);
   }
 
   function updateSeasonality(index: number, value: number) {
@@ -229,6 +234,14 @@ export default function FinancialConfigPage() {
               suffix="%"
               hint="% da receita em descontos"
             />
+            <ConfigField
+              label="Piso de Caixa Diário"
+              value={dailyCashFloor}
+              onChange={setDailyCashFloor}
+              step={500}
+              prefix="R$"
+              hint="Receita real menos ads mínima por dia"
+            />
           </div>
           {/* Preview: meta do mês atual */}
           <div className="mt-4 pt-4 border-t border-border/50 flex items-center gap-6 text-sm">
@@ -243,6 +256,10 @@ export default function FinancialConfigPage() {
               <p className="font-semibold">
                 {(investPct + fretePct + descontoPct + taxPct + productCostPct + otherExpensesPct).toFixed(1)}%
               </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Piso caixa este mês</p>
+              <p className="font-semibold">{formatCurrency(dailyCashFloor * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate())}</p>
             </div>
           </div>
         </CardContent>
@@ -392,4 +409,3 @@ export default function FinancialConfigPage() {
     </div>
   );
 }
-

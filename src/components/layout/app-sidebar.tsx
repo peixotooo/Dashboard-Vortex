@@ -215,6 +215,7 @@ const navGroups: NavGroup[] = [
         href: "/simulador",
         icon: Landmark,
         items: [
+          { title: "Cockpit de Caixa", href: "/simulador/controle", icon: Banknote },
           { title: "Simulador", href: "/simulador", icon: Calculator },
           { title: "Diagnostico", href: "/simulador/diagnostico", icon: Search },
           { title: "Escala", href: "/simulador/escala", icon: TrendingUp },
