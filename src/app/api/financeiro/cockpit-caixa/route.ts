@@ -60,6 +60,44 @@ type PatternRow = {
   avg_ticket: number;
 };
 
+type BehaviorPatterns = {
+  window_days: number;
+  orders: number;
+  confidence: "alta" | "media" | "baixa";
+  best_week: PatternRow | null;
+  worst_week: PatternRow | null;
+  best_weekday: PatternRow | null;
+  worst_weekday: PatternRow | null;
+  best_hour: PatternRow | null;
+  worst_hour: PatternRow | null;
+  best_combos: PatternRow[];
+};
+
+type ProductSignal = {
+  sku: string;
+  name: string;
+  revenue: number;
+  qty_sold: number;
+  margin_pct: number;
+  abc_class: string;
+  in_stock: boolean | null;
+  active: boolean | null;
+  price: number | null;
+  sale_price: number | null;
+  category: string | null;
+};
+
+type OperationalContext = {
+  abc_computed_at: string | null;
+  abc_coverage_pct: number | null;
+  top_a_count: number;
+  a_revenue_share_pct: number;
+  top_a_ready: ProductSignal[];
+  top_a_out_of_stock: ProductSignal[];
+  top_a_low_margin: ProductSignal[];
+  top_a_discounted: ProductSignal[];
+};
+
 function toNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -67,6 +105,10 @@ function toNumber(value: unknown, fallback = 0): number {
 
 function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function brl(value: number): string {
+  return round2(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function brDateParts(date = new Date()) {
@@ -418,6 +460,123 @@ function factorStatus(gap: number): "ok" | "warning" | "critical" {
   return "critical";
 }
 
+function normalizeMarginPct(value: unknown): number {
+  const raw = toNumber(value);
+  return raw <= 1 ? raw * 100 : raw;
+}
+
+function productNames(rows: ProductSignal[], limit = 3): string {
+  return rows.slice(0, limit).map((row) => row.name || row.sku).join("; ");
+}
+
+function emptyOperationalContext(): OperationalContext {
+  return {
+    abc_computed_at: null,
+    abc_coverage_pct: null,
+    top_a_count: 0,
+    a_revenue_share_pct: 0,
+    top_a_ready: [],
+    top_a_out_of_stock: [],
+    top_a_low_margin: [],
+    top_a_discounted: [],
+  };
+}
+
+async function fetchOperationalContext(
+  admin: ReturnType<typeof createAdminClient>,
+  workspaceId: string
+): Promise<OperationalContext> {
+  try {
+    const { data, error } = await admin
+      .from("crm_abc_snapshots")
+      .select("summary, products, computed_at")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle<{
+        summary: Record<string, unknown> | null;
+        products: Array<Record<string, unknown>> | null;
+        computed_at: string | null;
+      }>();
+
+    if (error || !data?.products?.length) return emptyOperationalContext();
+
+    const products = data.products;
+    const topA = products
+      .filter((product) => String(product.abc_class || "").toUpperCase() === "A")
+      .sort((a, b) => toNumber(b.revenue) - toNumber(a.revenue))
+      .slice(0, 60);
+    const skus = [...new Set(topA.map((product) => String(product.sku || "")).filter(Boolean))];
+
+    const catalogBySku = new Map<string, {
+      sku: string | null;
+      product_id: string | null;
+      name: string | null;
+      in_stock: boolean | null;
+      active: boolean | null;
+      price: number | null;
+      sale_price: number | null;
+      category: string | null;
+    }>();
+
+    if (skus.length > 0) {
+      const { data: catalog } = await admin
+        .from("shelf_products")
+        .select("sku, product_id, name, in_stock, active, price, sale_price, category")
+        .eq("workspace_id", workspaceId)
+        .in("sku", skus) as unknown as {
+          data: Array<{
+            sku: string | null;
+            product_id: string | null;
+            name: string | null;
+            in_stock: boolean | null;
+            active: boolean | null;
+            price: number | null;
+            sale_price: number | null;
+            category: string | null;
+          }> | null;
+        };
+
+      for (const item of catalog || []) {
+        if (item.sku) catalogBySku.set(item.sku, item);
+      }
+    }
+
+    const signals: ProductSignal[] = topA.map((product) => {
+      const sku = String(product.sku || "");
+      const catalog = catalogBySku.get(sku);
+      return {
+        sku,
+        name: String(catalog?.name || product.name || sku || "Produto"),
+        revenue: round2(toNumber(product.revenue)),
+        qty_sold: toNumber(product.qty_sold),
+        margin_pct: round2(normalizeMarginPct(product.margin_pct)),
+        abc_class: String(product.abc_class || "A"),
+        in_stock: catalog?.in_stock ?? null,
+        active: catalog?.active ?? null,
+        price: catalog?.price ?? null,
+        sale_price: catalog?.sale_price ?? null,
+        category: catalog?.category ?? null,
+      };
+    });
+
+    const totalRevenue = toNumber(data.summary?.total_revenue);
+    const aRevenue = topA.reduce((sum, product) => sum + toNumber(product.revenue), 0);
+
+    return {
+      abc_computed_at: data.computed_at,
+      abc_coverage_pct: data.summary?.coverage_pct == null ? null : round2(toNumber(data.summary.coverage_pct)),
+      top_a_count: signals.length,
+      a_revenue_share_pct: totalRevenue > 0 ? round2((aRevenue / totalRevenue) * 100) : 0,
+      top_a_ready: signals.filter((product) => product.in_stock !== false && product.active !== false && product.margin_pct >= 45),
+      top_a_out_of_stock: signals.filter((product) => product.in_stock === false || product.active === false).slice(0, 8),
+      top_a_low_margin: signals.filter((product) => product.margin_pct > 0 && product.margin_pct < 45).slice(0, 8),
+      top_a_discounted: signals.filter((product) => product.price != null && product.sale_price != null && product.sale_price < product.price).slice(0, 8),
+    };
+  } catch (err) {
+    console.error("[Cockpit Caixa] Operational context failed:", err instanceof Error ? err.message : err);
+    return emptyOperationalContext();
+  }
+}
+
 function buildDiagnosis(args: {
   dailyFloor: number;
   monthTarget: number;
@@ -425,12 +584,19 @@ function buildDiagnosis(args: {
   currentDay: number;
   rows: DailyRow[];
   completedRows: DailyRow[];
+  patterns: BehaviorPatterns;
+  operational: OperationalContext;
 }) {
   const totals = sumRows(args.rows);
   const basis = args.completedRows.length > 0 ? args.completedRows : args.rows;
   const avg = avgRows(basis);
+  const recentRows = basis.slice(-7);
+  const previousRows = basis.slice(Math.max(0, basis.length - 14), Math.max(0, basis.length - 7));
+  const recentAvg = avgRows(recentRows.length > 0 ? recentRows : basis);
+  const previousAvg = avgRows(previousRows.length > 0 ? previousRows : recentRows.length > 0 ? recentRows : basis);
   const remainingDays = Math.max(1, args.daysInMonth - args.currentDay + 1);
   const monthlyCashTarget = args.dailyFloor * args.daysInMonth;
+  const elapsedCashTarget = monthlyCashTarget * (args.currentDay / args.daysInMonth);
   const seasonalGap = Math.max(0, args.monthTarget - totals.revenue);
   const cashGap = Math.max(0, monthlyCashTarget - totals.cash);
   const requiredRevenueDaily = round2(seasonalGap / remainingDays);
@@ -438,30 +604,57 @@ function buildDiagnosis(args: {
   const requiredRevenueFromCash = requiredCashDaily + avg.ads;
   const revenueNeeded = Math.max(requiredRevenueDaily, requiredRevenueFromCash, avg.revenue);
   const ordersNeeded = avg.avg_ticket > 0 ? revenueNeeded / avg.avg_ticket : 0;
-  const sessionsNeeded = avg.conversion_rate > 0 ? ordersNeeded / (avg.conversion_rate / 100) : 0;
   const conversionNeeded = avg.sessions > 0 && avg.avg_ticket > 0
     ? (ordersNeeded / avg.sessions) * 100
     : 0;
   const ticketNeeded = avg.orders > 0 ? revenueNeeded / avg.orders : 0;
   const adsCeiling = Math.max(0, avg.revenue - args.dailyFloor);
   const merNeeded = avg.ads > 0 ? revenueNeeded / avg.ads : null;
+  const adsShare = avg.revenue > 0 ? avg.ads / avg.revenue : 0;
+  const conversionDropOnScale =
+    previousRows.length >= 3 &&
+    recentAvg.ads > previousAvg.ads * 1.1 &&
+    recentAvg.conversion_rate > 0 &&
+    previousAvg.conversion_rate > 0 &&
+    recentAvg.conversion_rate < previousAvg.conversion_rate * 0.92;
+  const conversionWeak = conversionNeeded > 0 && avg.conversion_rate < conversionNeeded * 0.9;
+  const ticketWeak = ticketNeeded > 0 && avg.avg_ticket < ticketNeeded * 0.9;
+  const inventoryBlocked = args.operational.top_a_out_of_stock.length > 0;
+  const marginPressure = args.operational.top_a_low_margin.length > 0 || adsShare > 0.18;
+  const merActual = avg.mer ?? 0;
+  const merTarget = merNeeded ?? (avg.ads > 0 ? Math.max(merActual, 1) : 0);
+  const mediaScaleRisk =
+    conversionDropOnScale ||
+    (cashGap > 0 && avg.ads > 0 && merNeeded != null && merActual < merNeeded) ||
+    (cashGap > 0 && adsShare > 0.18);
 
-  const factors = [
+  const rawFactors: Array<{
+    key: string;
+    label: string;
+    actual: number;
+    target: number;
+    unit: "currency" | "number" | "percent" | "ratio";
+    gap_pct: number;
+    detail: string;
+    status?: "ok" | "warning" | "critical";
+  }> = [
     {
-      key: "receita",
-      label: "Receita",
-      actual: avg.revenue,
-      target: revenueNeeded,
+      key: "caixa",
+      label: "Caixa liquido",
+      actual: avg.cash,
+      target: args.dailyFloor,
       unit: "currency",
-      gap_pct: gapPct(avg.revenue, revenueNeeded),
+      gap_pct: gapPct(avg.cash, args.dailyFloor),
+      detail: "E a metrica principal: receita menos ads. Se isso nao passa do piso, o resto e meio, nao fim.",
     },
     {
-      key: "trafego",
-      label: "Trafego",
-      actual: avg.sessions,
-      target: sessionsNeeded,
-      unit: "number",
-      gap_pct: gapPct(avg.sessions, sessionsNeeded),
+      key: "midia",
+      label: "Eficiencia de midia",
+      actual: merActual,
+      target: merTarget,
+      unit: "ratio",
+      gap_pct: merTarget > 0 ? gapPct(merActual, merTarget) : 0,
+      detail: "Mais budget so ajuda se o MER sustenta caixa; quando conversao cai junto, escala vira vazamento.",
     },
     {
       key: "conversao",
@@ -470,92 +663,145 @@ function buildDiagnosis(args: {
       target: conversionNeeded,
       unit: "percent",
       gap_pct: gapPct(avg.conversion_rate, conversionNeeded),
+      detail: "Nao e uma chave isolada. Trafego mais frio normalmente derruba esse numero, entao escala sem oferta forte piora.",
     },
     {
       key: "ticket",
-      label: "Ticket",
+      label: "Ticket / mix",
       actual: avg.avg_ticket,
       target: ticketNeeded,
       unit: "currency",
       gap_pct: gapPct(avg.avg_ticket, ticketNeeded),
+      detail: "Mostra se cada pedido esta carregando caixa suficiente sem depender de volume comprado.",
     },
     {
-      key: "ads",
-      label: "Ads",
-      actual: avg.ads,
-      target: adsCeiling,
-      unit: "currency",
-      gap_pct: adsCeiling > 0 ? gapPct(adsCeiling, avg.ads) : (avg.ads > 0 ? -100 : 0),
+      key: "estoque",
+      label: "Produtos A prontos",
+      actual: args.operational.top_a_ready.length,
+      target: args.operational.top_a_count,
+      unit: "number",
+      gap_pct: args.operational.top_a_count > 0
+        ? gapPct(args.operational.top_a_ready.length, args.operational.top_a_count)
+        : 0,
+      detail: args.operational.top_a_count > 0
+        ? "Confere se os campeoes da curva ABC estao ativos, em estoque e com margem minima para receber demanda."
+        : "Sem snapshot ABC suficiente para avaliar produto/estoque.",
     },
-  ].map((factor) => ({ ...factor, status: factorStatus(factor.gap_pct) }));
+  ];
+  const factors = rawFactors.map((factor) => ({ ...factor, status: factorStatus(factor.gap_pct) }));
 
-  const isCashOk = totals.cash >= monthlyCashTarget * (args.currentDay / args.daysInMonth);
+  const isCashOk = totals.cash >= elapsedCashTarget;
   const projectedRevenue = avg.revenue * args.daysInMonth;
   const projectedCash = avg.cash * args.daysInMonth;
   const isSeasonalOk = projectedRevenue >= args.monthTarget;
-  const ranked = [...factors].sort((a, b) => a.gap_pct - b.gap_pct);
-  let primary = ranked[0]?.key || "caixa";
-  let title = "Manter o ritmo";
-  let summary = "Caixa e meta estao dentro do ritmo esperado.";
+  let primary = "caixa";
+  if (inventoryBlocked) primary = "estoque";
+  else if (mediaScaleRisk) primary = "midia";
+  else if (conversionWeak) primary = "conversao";
+  else if (ticketWeak) primary = "ticket";
 
+  let title = "Manter o ritmo com travas";
+  let summary = "Caixa e meta estao dentro do ritmo esperado. A decisao nao e escalar por escalar; e manter margem, estoque e MER.";
   if (!isCashOk || !isSeasonalOk) {
-    primary = ranked[0]?.key || "caixa";
-    if (primary === "trafego") {
-      title = "Falta volume de trafego";
-      summary = "A conversao e o ticket nao explicam todo o gap; o gargalo principal e trazer mais demanda qualificada.";
+    if (primary === "estoque") {
+      title = "Produto pode estar travando caixa";
+      summary = "Antes de comprar mais trafego, garanta que os produtos A estejam disponiveis, ativos e com margem para receber demanda.";
+    } else if (primary === "midia") {
+      title = "Escala de midia esta arriscada";
+      summary = conversionDropOnScale
+        ? "Nos ultimos dias, ads subiu e conversao caiu. Isso e sinal classico de publico mais frio: aumentar verba tende a reduzir eficiencia."
+        : "O caixa nao sustenta uma leitura simples de aumentar ads. Primeiro proteja MER, margem e mix.";
     } else if (primary === "conversao") {
-      title = "Conversao esta travando";
-      summary = "As sessoes existem, mas nao viram pedidos no nivel necessario.";
+      title = "O gargalo nao e simplesmente trafego";
+      summary = "Aumentar sessoes agora pode derrubar conversao. A prioridade e oferta, produtos anunciados, PDP, frete e checkout.";
     } else if (primary === "ticket") {
-      title = "Ticket ou mix esta baixo";
-      summary = "O volume de pedidos nao esta gerando receita suficiente por compra.";
-    } else if (primary === "ads") {
-      title = "Ads esta consumindo caixa";
-      summary = "O investimento esta alto para o caixa gerado; a prioridade e proteger liquidez.";
+      title = "Cada pedido gera pouco caixa";
+      summary = "O problema parece mais mix/ticket/margem do que volume. Escalar compra de publico sem melhorar pedido medio pode piorar caixa.";
     } else {
-      title = "Receita abaixo do necessario";
-      summary = "O gap aparece na receita total; olhar oferta, calendario comercial, CRM e produtos com estoque.";
+      title = "Caixa abaixo do piso";
+      summary = "A leitura principal e financeira: falta caixa liquido. A resposta deve priorizar canais baratos e produtos com margem antes de trafego frio.";
     }
   }
 
-  const actions: Array<{ title: string; detail: string; tone: "positive" | "warning" | "danger" | "neutral" }> = [];
-  if (primary === "trafego") {
-    actions.push({
-      title: avg.cash >= args.dailyFloor ? "Aumentar volume com teto" : "Buscar volume barato primeiro",
-      detail: avg.cash >= args.dailyFloor
-        ? `Pode testar mais trafego mantendo ads perto de ${round2(adsCeiling).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia e monitorando MER.`
-        : "Antes de escalar midia, acione CRM/WhatsApp/email e campanhas de alta intencao para gerar caixa com baixo custo.",
-      tone: avg.cash >= args.dailyFloor ? "positive" : "warning",
-    });
+  let scaleRule: {
+    mode: "blocked" | "limited" | "allowed";
+    label: string;
+    detail: string;
+    max_increase_pct: number;
+    stop_loss: string;
+  };
+  if (mediaScaleRisk || conversionWeak || inventoryBlocked || !isCashOk) {
+    scaleRule = {
+      mode: "blocked",
+      label: "Nao escalar ads",
+      detail: "Budget novo fica bloqueado ate caixa, conversao/MER e produto mostrarem que conseguem absorver demanda.",
+      max_increase_pct: 0,
+      stop_loss: "Se precisar testar, cortar no mesmo dia se MER ficar abaixo do necessario ou conversao cair mais de 8%.",
+    };
+  } else if (isSeasonalOk && projectedCash >= monthlyCashTarget) {
+    scaleRule = {
+      mode: "allowed",
+      label: "Escala permitida com trava",
+      detail: "Pode aumentar so campanhas com MER acima da necessidade e produto A em estoque; escala gradual, nao salto de budget.",
+      max_increase_pct: 15,
+      stop_loss: "Parar aumento se conversao cair mais de 8% ou caixa diario ficar abaixo do piso.",
+    };
+  } else {
+    scaleRule = {
+      mode: "limited",
+      label: "Teste pequeno, nao escala",
+      detail: "O cenario pede teste controlado, preferindo remarketing, campanha de alta intencao e CRM antes de publico frio.",
+      max_increase_pct: 10,
+      stop_loss: "Parar se MER ficar abaixo do necessario ou se a venda adicional nao virar caixa liquido.",
+    };
   }
-  if (primary === "conversao") {
+
+  const patternHint = args.patterns.best_weekday || args.patterns.best_hour
+    ? ` Historico (${args.patterns.confidence}) sugere melhor janela: ${[args.patterns.best_weekday?.label, args.patterns.best_hour?.label].filter(Boolean).join(" / ")}.`
+    : "";
+  const actions: Array<{ title: string; detail: string; tone: "positive" | "warning" | "danger" | "neutral" }> = [];
+  actions.push({
+    title: scaleRule.label,
+    detail: `${scaleRule.detail} Teto operacional estimado: ${brl(adsCeiling)}/dia, mas isso nao e convite para gastar; e limite de seguranca.`,
+    tone: scaleRule.mode === "allowed" ? "positive" : scaleRule.mode === "limited" ? "warning" : "danger",
+  });
+
+  if (inventoryBlocked) {
     actions.push({
-      title: "Nao aumentar budget agora",
-      detail: "Priorize oferta, PDP, checkout, frete e produtos de maior giro; aumentar trafego tende a comprar mais abandono.",
+      title: "Arrumar produto antes de midia",
+      detail: `Produtos A com restricao: ${productNames(args.operational.top_a_out_of_stock)}. Troque criativos/prateleiras para campeoes em estoque antes de comprar demanda.`,
       tone: "danger",
     });
   }
-  if (primary === "ticket") {
+  if (conversionWeak || conversionDropOnScale) {
     actions.push({
-      title: "Subir ticket antes de escalar",
-      detail: "Puxe combos, brinde/frete progressivo e produtos A com estoque. Cuidado com cupom que melhora venda e piora caixa.",
+      title: "Investigar oferta e friccao",
+      detail: "Olhar produtos anunciados, preco real, frete, PDP e checkout. Se a conversao ja esta fragil, mais sessao tende a vir mais fria e piorar o indicador.",
       tone: "warning",
     });
   }
-  if (primary === "ads") {
+  if (ticketWeak || marginPressure) {
     actions.push({
-      title: "Reduzir ou redistribuir ads",
-      detail: `Teto operacional estimado: ${round2(adsCeiling).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia para cobrir caixa no ritmo atual.`,
-      tone: "danger",
+      title: "Aumentar caixa por pedido",
+      detail: args.operational.top_a_ready.length > 0
+        ? `Use kits, frete/brinde progressivo e vitrines com A em estoque: ${productNames(args.operational.top_a_ready)}. Evite cupom puro se ele derrubar margem.`
+        : "Use kits, frete/brinde progressivo e mix de maior margem. Evite cupom puro se ele melhora faturamento e piora caixa.",
+      tone: "warning",
     });
   }
-  actions.push({
-    title: cashGap > 0 ? "Fechar o gap de caixa" : "Proteger o ganho",
-    detail: cashGap > 0
-      ? `Faltam ${round2(cashGap).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} de caixa no mes; necessario gerar ${round2(requiredCashDaily).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}/dia liquido daqui para frente.`
-      : "Caixa acumulado acima do piso; so escale mantendo margem e estoque dos campeoes.",
-    tone: cashGap > 0 ? "warning" : "positive",
-  });
+  if (cashGap > 0) {
+    actions.push({
+      title: "Gerar caixa sem comprar publico frio",
+      detail: `Priorize CRM, WhatsApp, email, recompra e ofertas para clientes quentes antes de abrir escala. Falta ${brl(cashGap)} de caixa no mes; precisa de ${brl(requiredCashDaily)}/dia liquido.${patternHint}`,
+      tone: "warning",
+    });
+  } else {
+    actions.push({
+      title: "Proteger o ganho",
+      detail: "Caixa acumulado acima do piso. Reinvestir so o excedente, com stop por MER/conversao e sem comprometer estoque dos campeoes.",
+      tone: "positive",
+    });
+  }
 
   return {
     status: isCashOk && isSeasonalOk ? "ok" : isCashOk ? "attention" : "critical",
@@ -564,6 +810,7 @@ function buildDiagnosis(args: {
     primary_factor: primary,
     factors,
     actions,
+    scale_rule: scaleRule,
     averages: avg,
     requirements: {
       monthly_cash_target: round2(monthlyCashTarget),
@@ -593,7 +840,7 @@ async function fetchBehaviorPatterns(
   admin: ReturnType<typeof createAdminClient>,
   workspaceId: string,
   today: string
-) {
+): Promise<BehaviorPatterns> {
   const start = addDays(today, -90);
   const sales = await fetchPaged<{ data_compra: string | null; valor: number | null }>(() =>
     admin
@@ -669,7 +916,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
     const settings = mergeSettings((settingsData || null) as Record<string, unknown> | null);
 
-    const [revenueResult, metaSpend, googleSpend, ga4Report, patterns] = await Promise.all([
+    const [revenueResult, metaSpend, googleSpend, ga4Report, patterns, operational] = await Promise.all([
       fetchRevenue(admin, workspaceId, start, end),
       fetchMetaDailySpend(request, admin, workspaceId, start, end),
       fetchGoogleDailySpend(start, end),
@@ -677,6 +924,7 @@ export async function GET(request: NextRequest) {
         ? getGA4DailyReport({ startDate: start, endDate: end }).catch(() => null)
         : Promise.resolve(null),
       fetchBehaviorPatterns(admin, workspaceId, today),
+      fetchOperationalContext(admin, workspaceId),
     ]);
 
     const ga4Rows = new Map<string, { sessions: number; transactions: number }>();
@@ -708,6 +956,8 @@ export async function GET(request: NextRequest) {
       currentDay,
       rows: daily,
       completedRows,
+      patterns,
+      operational,
     });
 
     return NextResponse.json({
@@ -738,6 +988,7 @@ export async function GET(request: NextRequest) {
       daily,
       diagnosis,
       patterns,
+      operational,
     }, {
       headers: { "Cache-Control": "private, max-age=180" },
     });

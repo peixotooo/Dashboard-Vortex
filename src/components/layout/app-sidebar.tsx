@@ -197,7 +197,6 @@ const navGroups: NavGroup[] = [
   {
     label: "Financeiro",
     items: [
-      { title: "Cockpit de Caixa", href: "/simulador/controle", icon: Banknote },
       {
         title: "Curva ABC",
         href: "/financeiro",
@@ -212,10 +211,11 @@ const navGroups: NavGroup[] = [
         ],
       },
       {
-        title: "Planejamento",
+        title: "Financeiro",
         href: "/simulador",
         icon: Landmark,
         items: [
+          { title: "Cockpit de Caixa", href: "/simulador/controle", icon: Banknote },
           { title: "Simulador", href: "/simulador", icon: Calculator },
           { title: "Diagnostico", href: "/simulador/diagnostico", icon: Search },
           { title: "Escala", href: "/simulador/escala", icon: TrendingUp },

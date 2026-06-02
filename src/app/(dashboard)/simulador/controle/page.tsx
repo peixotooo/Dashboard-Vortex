@@ -54,9 +54,10 @@ type Factor = {
   label: string;
   actual: number;
   target: number;
-  unit: "currency" | "number" | "percent";
+  unit: "currency" | "number" | "percent" | "ratio";
   gap_pct: number;
   status: "ok" | "warning" | "critical";
+  detail?: string;
 };
 
 type Action = {
@@ -114,6 +115,13 @@ type CockpitData = {
     primary_factor: string;
     factors: Factor[];
     actions: Action[];
+    scale_rule: {
+      mode: "blocked" | "limited" | "allowed";
+      label: string;
+      detail: string;
+      max_increase_pct: number;
+      stop_loss: string;
+    };
     averages: {
       revenue: number;
       ads: number;
@@ -196,6 +204,7 @@ function statusMeta(status: Status) {
 function factorValue(factor: Factor, value: number) {
   if (factor.unit === "currency") return formatCurrency(value);
   if (factor.unit === "percent") return `${value.toFixed(2)}%`;
+  if (factor.unit === "ratio") return value > 0 ? `${value.toFixed(2)}x` : "-";
   return formatNumber(Math.round(value));
 }
 
@@ -389,7 +398,7 @@ export default function CashCockpitPage() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Gauge className="h-4 w-4 text-primary" />
-              Acoes recomendadas
+              Leitura operacional
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -425,16 +434,28 @@ export default function CashCockpitPage() {
           <p className="mt-1 text-xs text-muted-foreground">Receita / ads</p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Teto ads/dia</p>
-          <p className="mt-2 text-2xl font-bold text-primary">{formatCurrency(data.diagnosis.requirements.suggested_ads_ceiling_per_day)}</p>
-          <p className="mt-1 text-xs text-muted-foreground">para proteger caixa no ritmo atual</p>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Regra ads</p>
+          <p className={`mt-2 text-xl font-bold ${
+            data.diagnosis.scale_rule.mode === "allowed"
+              ? "text-emerald-500"
+              : data.diagnosis.scale_rule.mode === "limited"
+                ? "text-amber-500"
+                : "text-red-500"
+          }`}>
+            {data.diagnosis.scale_rule.label}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {data.diagnosis.scale_rule.max_increase_pct > 0
+              ? `max +${data.diagnosis.scale_rule.max_increase_pct}% com trava`
+              : "budget novo bloqueado"}
+          </p>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Onde apertar</CardTitle>
+            <CardTitle className="text-base">Gargalos reais</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {data.diagnosis.factors.map((factor) => {
@@ -446,6 +467,11 @@ export default function CashCockpitPage() {
                     <p className="text-xs text-muted-foreground">
                       Atual {factorValue(factor, factor.actual)} · Necessario {factorValue(factor, factor.target)}
                     </p>
+                    {factor.detail && (
+                      <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+                        {factor.detail}
+                      </p>
+                    )}
                   </div>
                   <span className={`flex items-center gap-1 rounded border px-2 py-1 text-xs font-semibold ${factorClass(factor.status)}`}>
                     <GapIcon className="h-3 w-3" />
