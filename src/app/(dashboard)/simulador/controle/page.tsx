@@ -29,8 +29,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace-context";
+import { MetricInfo, MetricLabel } from "@/components/dashboard/metric-info";
 
 type Status = "ok" | "attention" | "critical";
+type Reliability = "alta" | "media" | "baixa";
 
 type DailyRow = {
   date: string;
@@ -41,6 +43,8 @@ type DailyRow = {
   meta_spend: number;
   google_spend: number;
   cash: number;
+  variable_costs: number;
+  gross_cash: number;
   sessions: number;
   conversion_rate: number;
   avg_ticket: number;
@@ -100,11 +104,21 @@ type CockpitData = {
     revenue: number;
     ads: number;
     cash: number;
+    variable_costs: number;
+    gross_cash: number;
     orders: number;
     sessions: number;
     avg_ticket: number;
     conversion_rate: number;
     mer: number | null;
+  };
+  reliability?: {
+    margin: Reliability | null;
+    coverage_pct: number | null;
+    revenue_source: "vnda" | "crm" | "ga4" | "none";
+    revenue_configured: { vnda: boolean; ga4: boolean; crm: boolean };
+    cash_basis: string;
+    note: string;
   };
   today: DailyRow | null;
   daily: DailyRow[];
@@ -142,6 +156,10 @@ type CockpitData = {
       effective_revenue_needed_per_day: number;
       suggested_ads_ceiling_per_day: number;
       mer_needed: number | null;
+      mer_needed_post_scale?: number | null;
+      mer_actual?: number;
+      cash_trend_ok?: boolean;
+      recent_cash_avg?: number;
       projected_revenue: number;
       projected_cash: number;
     };
@@ -219,6 +237,32 @@ function actionClass(tone: Action["tone"]) {
   if (tone === "warning") return "border-amber-500/25 bg-amber-500/10";
   if (tone === "danger") return "border-red-500/25 bg-red-500/10";
   return "border-border bg-muted/20";
+}
+
+/** Badge de confiabilidade da margem/caixa, conforme a cobertura de custo
+ *  real (coverage_pct). Avisa quando o caixa é mais estimativa que fato. */
+function ReliabilityBadge({
+  margin,
+  coveragePct,
+}: {
+  margin: Reliability | null;
+  coveragePct: number | null;
+}) {
+  if (!margin) return null;
+  const map: Record<Reliability, { label: string; cls: string }> = {
+    alta: { label: "Confiável", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500" },
+    media: { label: "Parcial", cls: "border-amber-500/30 bg-amber-500/10 text-amber-500" },
+    baixa: { label: "Estimativa", cls: "border-red-500/30 bg-red-500/10 text-red-500" },
+  };
+  const m = map[margin];
+  const pct = coveragePct == null ? null : Math.round(coveragePct * 100);
+  return (
+    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${m.cls}`}>
+      {m.label}
+      {pct != null && <span className="opacity-70">· {pct}% custo real</span>}
+      <MetricInfo k="coverage_pct" />
+    </span>
+  );
 }
 
 function PatternCard({ title, best, worst }: { title: string; best: PatternRow | null; worst: PatternRow | null }) {
@@ -368,9 +412,17 @@ export default function CashCockpitPage() {
               </div>
               <StatusIcon className={`h-8 w-8 ${meta.text}`} />
             </div>
+            {data.reliability?.margin && (
+              <div className="mt-3 flex items-center gap-2">
+                <ReliabilityBadge margin={data.reliability.margin} coveragePct={data.reliability.coverage_pct} />
+                <span className="text-[11px] text-muted-foreground">{data.reliability.note}</span>
+              </div>
+            )}
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <p className="text-xs text-muted-foreground">Caixa hoje</p>
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  Caixa hoje <MetricInfo k="caixa_real" />
+                </p>
                 <p className={`text-xl font-bold ${todayBalance >= 0 ? "text-emerald-500" : "text-red-500"}`}>
                   {data.today ? formatCurrency(data.today.cash) : "-"}
                 </p>
@@ -414,7 +466,9 @@ export default function CashCockpitPage() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Card className="p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Receita MTD</p>
+          <p className="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+            <MetricLabel k="meta_sazonalizada">Receita MTD</MetricLabel>
+          </p>
           <p className="mt-2 text-2xl font-bold text-foreground">{formatCurrency(data.totals.revenue)}</p>
           <p className="mt-1 text-xs text-muted-foreground">{seasonalProgress.toFixed(0)}% da meta sazonal</p>
         </Card>
@@ -424,17 +478,25 @@ export default function CashCockpitPage() {
           <p className="mt-1 text-xs text-muted-foreground">Meta {formatCurrency(data.daily?.reduce((s, r) => s + r.meta_spend, 0) || 0)} · Google {formatCurrency(data.daily?.reduce((s, r) => s + r.google_spend, 0) || 0)}</p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Caixa MTD</p>
+          <p className="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+            <MetricLabel k="caixa_real">Caixa MTD</MetricLabel>
+          </p>
           <p className={`mt-2 text-2xl font-bold ${data.totals.cash >= 0 ? "text-emerald-500" : "text-red-500"}`}>{formatCurrency(data.totals.cash)}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{monthlyCashProgress.toFixed(0)}% do piso mensal</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {monthlyCashProgress.toFixed(0)}% do piso · custos var. {formatCurrency(data.totals.variable_costs)}
+          </p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">MER</p>
+          <p className="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+            <MetricLabel k="mer_blended">MER</MetricLabel>
+          </p>
           <p className="mt-2 text-2xl font-bold text-foreground">{data.totals.mer ? `${data.totals.mer.toFixed(2)}x` : "-"}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Receita / ads</p>
+          <p className="mt-1 text-xs text-muted-foreground">Receita real / ads total</p>
         </Card>
         <Card className="p-5">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Regra ads</p>
+          <p className="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+            Regra ads <MetricInfo k="ponto_otimo_escala" />
+          </p>
           <p className={`mt-2 text-xl font-bold ${
             data.diagnosis.scale_rule.mode === "allowed"
               ? "text-emerald-500"
@@ -502,8 +564,9 @@ export default function CashCockpitPage() {
                         <div className="rounded-md border border-border bg-background p-3 text-xs shadow-lg">
                           <p className="font-semibold">{row.label}{row.is_today ? " · hoje parcial" : ""}</p>
                           <p>Receita: {formatCurrency(row.revenue)}</p>
+                          <p>Custos var.: {formatCurrency(row.variable_costs)}</p>
                           <p>Ads: {formatCurrency(row.ads)}</p>
-                          <p>Caixa: {formatCurrency(row.cash)}</p>
+                          <p>Caixa (contrib.): {formatCurrency(row.cash)}</p>
                           <p>Pedidos: {formatNumber(row.orders)}</p>
                         </div>
                       );
@@ -579,13 +642,18 @@ export default function CashCockpitPage() {
               <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-3 py-2 text-left">Data</th>
                 <th className="px-3 py-2 text-right">Receita</th>
+                <th className="px-3 py-2 text-right">Custos var.</th>
                 <th className="px-3 py-2 text-right">Ads</th>
-                <th className="px-3 py-2 text-right">Caixa</th>
+                <th className="px-3 py-2 text-right">
+                  <span className="inline-flex items-center gap-1">Caixa <MetricInfo k="caixa_real" /></span>
+                </th>
                 <th className="px-3 py-2 text-right">Saldo piso</th>
                 <th className="px-3 py-2 text-right">Pedidos</th>
                 <th className="px-3 py-2 text-right">Conv.</th>
                 <th className="px-3 py-2 text-right">Ticket</th>
-                <th className="px-3 py-2 text-right">MER</th>
+                <th className="px-3 py-2 text-right">
+                  <span className="inline-flex items-center gap-1">MER <MetricInfo k="mer_blended" /></span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -595,6 +663,7 @@ export default function CashCockpitPage() {
                   <tr key={row.date} className="border-b border-border/50 last:border-0">
                     <td className="px-3 py-2 font-medium">{row.label}{row.is_today ? " · hoje" : ""}</td>
                     <td className="px-3 py-2 text-right">{formatCurrency(row.revenue)}</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{formatCurrency(row.variable_costs)}</td>
                     <td className="px-3 py-2 text-right">{formatCurrency(row.ads)}</td>
                     <td className={`px-3 py-2 text-right font-semibold ${row.cash >= 0 ? "text-emerald-500" : "text-red-500"}`}>{formatCurrency(row.cash)}</td>
                     <td className={`px-3 py-2 text-right font-semibold ${balance >= 0 ? "text-emerald-500" : "text-red-500"}`}>{signedCurrency(balance)}</td>

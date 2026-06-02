@@ -22,6 +22,7 @@ const FINANCIAL_DEFAULTS = {
   other_expenses_pct: 5,
   monthly_fixed_costs: 160000,
   annual_revenue_target: 8000000,
+  safety_margin_pct: 5,
 };
 
 interface FinancialSettings {
@@ -32,6 +33,7 @@ interface FinancialSettings {
   other_expenses_pct: number;
   monthly_fixed_costs: number;
   annual_revenue_target: number;
+  safety_margin_pct?: number;
 }
 
 function classifyCampaigns(
@@ -48,8 +50,10 @@ function classifyCampaigns(
   const fixedCostPct = monthlyRevenue > 0 ? (fs.monthly_fixed_costs / monthlyRevenue) * 100 : 0;
   const availableForAds = mc - fixedCostPct;
 
+  // Margem de segurança configurável (substitui o antigo número mágico "-8").
+  const safetyMargin = fs.safety_margin_pct ?? FINANCIAL_DEFAULTS.safety_margin_pct;
   const breakevenRoas = availableForAds > 0 ? 100 / availableForAds : 3;
-  const healthyRoas = (availableForAds - 8) > 0 ? 100 / (availableForAds - 8) : breakevenRoas * 1.3;
+  const healthyRoas = (availableForAds - safetyMargin) > 0 ? 100 / (availableForAds - safetyMargin) : breakevenRoas * 1.3;
 
   // Portfolio metrics (for volume classification)
   const avgSpend = withSpend.reduce((s, c) => s + c.spend, 0) / withSpend.length;
@@ -114,7 +118,7 @@ export async function GET(request: NextRequest) {
         workspaceId && supabase
           ? supabase
               .from("workspace_financial_settings")
-              .select("frete_pct,desconto_pct,tax_pct,product_cost_pct,other_expenses_pct,monthly_fixed_costs,annual_revenue_target")
+              .select("frete_pct,desconto_pct,tax_pct,product_cost_pct,other_expenses_pct,monthly_fixed_costs,annual_revenue_target,safety_margin_pct")
               .eq("workspace_id", workspaceId)
               .maybeSingle()
               .then(({ data }) => data as FinancialSettings | null)

@@ -18,6 +18,16 @@ import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
 import type { DatePreset } from "@/lib/types";
+import { MetricInfo } from "@/components/dashboard/metric-info";
+import { breakevenMer } from "@/lib/financeiro/metrics";
+import { GLOSSARY } from "@/lib/financeiro/glossary";
+
+// Ao escalar investimento, o tráfego fica mais frio: o ticket médio tende a
+// cair (mix shift) e os custos fixos sobem em degraus (headcount/CS/armazém).
+// Congelar os dois — como a versão antiga fazia — superestima o EBITDA
+// justamente no cenário de escala, onde mais se precisa de cautela.
+const TICKET_DECAY_PER_SCALE_PT = 0.15; // fração do crescimento de invest que vira queda de ticket
+const FIXED_STEPUP_PER_DOUBLING = 0.1; // +10% de custo fixo a cada vez que o invest dobra
 
 // --- Types ---
 
@@ -275,12 +285,19 @@ export default function SimuladorPage() {
 
     for (let i = 1; i <= meses; i++) {
       const monthIndex = (now.getMonth() + i) % 12;
-      const invest =
-        baseData.investmentPerMonth * Math.pow(1 + crescInvest / 100, i);
-      const roas = baseData.roas * Math.pow(1 + varRoas / 100, i);
-      const receita = invest * roas;
-      const pedidos =
-        baseData.ticketMedio > 0 ? receita / baseData.ticketMedio : 0;
+      const investGrowth = Math.pow(1 + crescInvest / 100, i);
+      const invest = baseData.investmentPerMonth * investGrowth;
+      // baseData.roas aqui é o MER blended (receita real / spend total), não
+      // ROAS de plataforma. A "deterioração" modela a saturação de mídia.
+      const mer = baseData.roas * Math.pow(1 + varRoas / 100, i);
+      const receita = invest * mer;
+      // Ticket decai conforme escalamos (tráfego mais frio / mix shift).
+      const ticketDecay =
+        crescInvest > 0
+          ? Math.pow(1 - (crescInvest / 100) * TICKET_DECAY_PER_SCALE_PT, i)
+          : 1;
+      const ticketMedioMes = baseData.ticketMedio * ticketDecay;
+      const pedidos = ticketMedioMes > 0 ? receita / ticketMedioMes : 0;
       const frete = receita * (baseData.fretePerc / 100);
       const desconto = receita * (baseData.descontoPerc / 100);
       const impostos = receita * (impostosPerc / 100);
@@ -290,16 +307,19 @@ export default function SimuladorPage() {
         invest + frete + desconto + impostos + custoProduto + outrasDesp;
       const margem = receita - totalCustosVar;
       const margemPerc = receita > 0 ? (margem / receita) * 100 : 0;
-      const ebitda = margem - custosFixos;
+      // Custos fixos sobem em degraus conforme o invest dobra (estrutura).
+      const doublings = investGrowth > 1 ? Math.log2(investGrowth) : 0;
+      const custosFixosMes = custosFixos * (1 + FIXED_STEPUP_PER_DOUBLING * doublings);
+      const ebitda = margem - custosFixosMes;
       const ebitdaPerc = receita > 0 ? (ebitda / receita) * 100 : 0;
 
       rows.push({
         monthLabel: MONTH_NAMES[monthIndex],
         invest,
-        roas,
+        roas: mer,
         receita,
         pedidos,
-        ticketMedio: baseData.ticketMedio,
+        ticketMedio: ticketMedioMes,
         frete,
         desconto,
         impostos,
@@ -308,7 +328,7 @@ export default function SimuladorPage() {
         totalCustosVar,
         margem,
         margemPerc,
-        custosFixos,
+        custosFixos: custosFixosMes,
         ebitda,
         ebitdaPerc,
       });
@@ -330,42 +350,55 @@ export default function SimuladorPage() {
     const totalReceita = projection.reduce((s, r) => s + r.receita, 0);
     const totalInvest = projection.reduce((s, r) => s + r.invest, 0);
     const totalEbitda = projection.reduce((s, r) => s + r.ebitda, 0);
-    const avgEbitdaPerc =
-      projection.length > 0
-        ? projection.reduce((s, r) => s + r.ebitdaPerc, 0) / projection.length
-        : 0;
+    // EBITDA% AGREGADO (total/total). Média aritmética de percentuais sobre
+    // receitas diferentes engana e esconde o mês ruim — não usar.
+    const ebitdaPercAggregate =
+      totalReceita > 0 ? (totalEbitda / totalReceita) * 100 : 0;
     const mesesLucrativos = projection.filter((r) => r.ebitda > 0).length;
     const roasFirst = projection[0]?.roas || 0;
     const roasLast = projection[projection.length - 1]?.roas || 0;
 
+    // MER de breakeven REAL (em vez do "ROAS < 2x" mágico): a partir da
+    // margem de contribuição e dos custos fixos diluídos na receita mensal.
+    const cmPreAdsPct =
+      100 -
+      baseData.fretePerc -
+      baseData.descontoPerc -
+      impostosPerc -
+      custoProdPerc -
+      outrasDespPerc;
+    const beMer = breakevenMer(cmPreAdsPct, custosFixos, baseData.revenuePerMonth);
+
     // Recommendations
     const recs: string[] = [];
-    const roasBelow2 = projection.findIndex((r) => r.roas < 2);
-    if (roasBelow2 >= 0) {
+    const merBelowBreakeven =
+      beMer != null ? projection.findIndex((r) => r.roas < beMer) : -1;
+    if (merBelowBreakeven >= 0 && beMer != null) {
       recs.push(
-        `ROAS cai abaixo de 2x no mês ${roasBelow2 + 1} (${projection[roasBelow2].monthLabel}) — considere reduzir escala de investimento`
+        `MER cai abaixo do breakeven (${beMer.toFixed(2)}x) no mês ${merBelowBreakeven + 1} (${projection[merBelowBreakeven].monthLabel}) — escalar a partir daí queima caixa.`
       );
     }
-    if (avgEbitdaPerc < 5) {
+    if (ebitdaPercAggregate < 5) {
       recs.push(
-        "EBITDA % médio abaixo de 5% — revise custos variáveis ou aumente ticket médio"
+        "EBITDA agregado abaixo de 5% — revise custos variáveis, ticket ou eficiência de mídia. Confirme antes a cobertura de custo real (margem pode estar estimada)."
       );
     }
     if (mesesLucrativos < projection.length && projection.length > 0) {
+      const piorMes = projection.reduce((a, b) => (b.ebitda < a.ebitda ? b : a));
       recs.push(
-        `${projection.length - mesesLucrativos} mês(es) com EBITDA negativo — atenção ao ponto de equilíbrio`
+        `${projection.length - mesesLucrativos} mês(es) com EBITDA negativo — pior caso ${formatCurrency(piorMes.ebitda)} em ${piorMes.monthLabel}. Veja se é prejuízo ou aquisição com payback (separe novo vs recompra).`
       );
     }
     const investPercReceita =
       totalReceita > 0 ? (totalInvest / totalReceita) * 100 : 0;
     if (investPercReceita > 30) {
       recs.push(
-        `Investimento em ads representa ${investPercReceita.toFixed(0)}% da receita — considere otimizar CAC`
+        `Investimento em ads representa ${investPercReceita.toFixed(0)}% da receita — verifique o nCAC e o payback antes de manter esse nível.`
       );
     }
     if (recs.length === 0) {
       recs.push(
-        "Cenário saudável — ROAS estável e margens positivas em todos os meses"
+        "Cenário dentro do esperado — MER acima do breakeven e EBITDA agregado positivo. Trate como sensibilidade, não previsão."
       );
     }
 
@@ -373,25 +406,26 @@ export default function SimuladorPage() {
       totalReceita,
       totalInvest,
       totalEbitda,
-      avgEbitdaPerc,
+      ebitdaPercAggregate,
+      breakevenMer: beMer,
       mesesLucrativos,
       roasFirst,
       roasLast,
       recs,
     };
-  }, [projection]);
+  }, [projection, baseData, impostosPerc, custoProdPerc, outrasDespPerc, custosFixos]);
 
-  // Health color
+  // Health color (baseado no EBITDA AGREGADO, não na média de percentuais)
   const healthColor =
-    summary.avgEbitdaPerc > 15
+    summary.ebitdaPercAggregate > 15
       ? "text-success"
-      : summary.avgEbitdaPerc > 5
+      : summary.ebitdaPercAggregate > 5
         ? "text-warning"
         : "text-destructive";
   const healthLabel =
-    summary.avgEbitdaPerc > 15
+    summary.ebitdaPercAggregate > 15
       ? "Saudável"
-      : summary.avgEbitdaPerc > 5
+      : summary.ebitdaPercAggregate > 5
         ? "Atenção"
         : "Crítico";
 
@@ -432,13 +466,14 @@ export default function SimuladorPage() {
           badgeColor="#3b82f6"
         />
         <KpiCard
-          title="ROAS Atual"
+          title="MER (blended)"
           value={`${baseData.roas.toFixed(2)}x`}
           icon={Target}
           iconColor="text-purple-400"
           loading={loading}
           badge="Base"
           badgeColor="#8b5cf6"
+          info={GLOSSARY.mer_blended.full}
         />
         <KpiCard
           title="Ticket Médio"
@@ -448,13 +483,14 @@ export default function SimuladorPage() {
           loading={loading}
           badge="Base"
           badgeColor="#f59e0b"
+          info={GLOSSARY.ticket_medio.full}
         />
       </div>
 
       {/* Scenario Buttons */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">
-          Cenário:
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+          Cenário (sensibilidade) <MetricInfo k="ponto_otimo_escala" />
         </span>
         {Object.entries(SCENARIOS).map(([key, s]) => (
           <button
@@ -502,7 +538,7 @@ export default function SimuladorPage() {
                 suffix="%"
               />
               <InputField
-                label="Var. ROAS/mês (%)"
+                label="Var. MER/mês (%)"
                 value={varRoas}
                 onChange={(v) => {
                   setVarRoas(v);
@@ -736,7 +772,7 @@ export default function SimuladorPage() {
                   hideTotal
                 />
                 <DreRow
-                  label="ROAS"
+                  label="MER (blended)"
                   values={projection.map((r) => r.roas)}
                   format="roas"
                   hideTotal
@@ -785,8 +821,8 @@ export default function SimuladorPage() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">
-                Rentabilidade
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                Rentabilidade <MetricInfo k="ebitda" />
               </span>
               <span className="text-sm font-semibold">
                 {summary.mesesLucrativos}/{projection.length} meses lucrativos
@@ -799,7 +835,7 @@ export default function SimuladorPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              {summary.avgEbitdaPerc > 15 ? (
+              {summary.ebitdaPercAggregate > 15 ? (
                 <CheckCircle className="h-4 w-4 text-success" />
               ) : (
                 <AlertTriangle className={`h-4 w-4 ${healthColor}`} />
@@ -817,33 +853,43 @@ export default function SimuladorPage() {
             <div className="w-full bg-muted rounded-full h-2">
               <div
                 className={`h-2 rounded-full transition-all ${
-                  summary.avgEbitdaPerc > 15
+                  summary.ebitdaPercAggregate > 15
                     ? "bg-success"
-                    : summary.avgEbitdaPerc > 5
+                    : summary.ebitdaPercAggregate > 5
                       ? "bg-warning"
                       : "bg-destructive"
                 }`}
                 style={{
-                  width: `${Math.max(0, Math.min(100, summary.avgEbitdaPerc * 3))}%`,
+                  width: `${Math.max(0, Math.min(100, summary.ebitdaPercAggregate * 3))}%`,
                 }}
               />
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">
-                EBITDA % médio
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                EBITDA % agregado <MetricInfo k="ebitda" />
               </span>
               <span className={`text-sm font-bold ${healthColor}`}>
-                {formatPercent(summary.avgEbitdaPerc)}
+                {formatPercent(summary.ebitdaPercAggregate)}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">
-                ROAS: início → fim
+              <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                MER: início → fim <MetricInfo k="mer_blended" />
               </span>
               <span className="text-sm font-semibold">
                 {summary.roasFirst.toFixed(2)}x → {summary.roasLast.toFixed(2)}x
               </span>
             </div>
+            {summary.breakevenMer != null && (
+              <div className="flex justify-between">
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                  MER de breakeven <MetricInfo k="breakeven_mer" />
+                </span>
+                <span className="text-sm font-semibold">
+                  {summary.breakevenMer.toFixed(2)}x
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import { formatCurrency, formatNumber, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -528,7 +529,13 @@ export default function DiagnosticoPage() {
       {/* Daily Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Controle Diario — Esperado vs Realizado</CardTitle>
+          <CardTitle className="text-base flex items-center gap-1">
+            Controle Diario — Esperado vs Realizado
+            <MetricInfo k="meta_sazonalizada" />
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            O &quot;Esperado&quot; vem da meta anual distribuída pela sazonalidade (estática) — não da receita realizada YTD. Trate desvios pequenos como ruído.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -542,7 +549,9 @@ export default function DiagnosticoPage() {
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Pedidos</th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Ticket Medio</th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>Receita</th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>ROAS</th>
+                  <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>
+                    <span className="inline-flex items-center gap-1">MER <MetricInfo k="mer_blended" /></span>
+                  </th>
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground" colSpan={2}>CPS</th>
                 </tr>
                 <tr className="border-b border-border">

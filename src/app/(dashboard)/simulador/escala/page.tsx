@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TrendingUp, CheckCircle2, Target } from "lucide-react";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 import {
   BarChart,
   Bar,
@@ -520,11 +521,15 @@ export default function EscalaPage() {
         <h1 className="text-xl font-extrabold text-foreground">
           Painel de Caixa — {calc.monthName} {new Date().getFullYear()}
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-xs text-muted-foreground mt-1 inline-flex items-center gap-1 flex-wrap">
           Objetivo: maximizar receita mantendo EBITDA entre 8% e 10%
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-2" style={{ color: revenueColor, backgroundColor: `${revenueColor}15` }}>
+          <MetricInfo k="ponto_otimo_escala" />
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded ml-1" style={{ color: revenueColor, backgroundColor: `${revenueColor}15` }}>
             Receita: {revenueSource}
           </span>
+        </p>
+        <p className="text-[11px] text-amber-500 mt-1">
+          A curva de saturação é uma hipótese (sliders), não calibrada do histórico — trate como sensibilidade. O ótimo real é onde o MER marginal cruza o breakeven, não &quot;EBITDA ≥ 8%&quot;.
         </p>
       </div>
 
@@ -540,8 +545,8 @@ export default function EscalaPage() {
 
         <Card className={calc.ebitdaPctGlobal >= EBITDA_MIN ? "border-success/20 bg-gradient-to-br from-success/10 to-success/[0.02]" : "border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/[0.02]"}>
           <CardContent className="pt-5 pb-4">
-            <p className={`text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
-              EBITDA % Periodo
+            <p className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+              EBITDA % Periodo <MetricInfo k="ebitda" />
             </p>
             <p className={`text-2xl font-black leading-none ${calc.ebitdaPctGlobal >= EBITDA_IDEAL ? "text-success" : calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
               {pct(calc.ebitdaPctGlobal)}
