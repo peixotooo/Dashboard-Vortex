@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfigField } from "@/components/dashboard/config-field";
 import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/utils";
+import { MetricInfo } from "@/components/dashboard/metric-info";
 
 const MONTH_LABELS = [
   "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
@@ -319,7 +320,7 @@ export default function FinancialConfigPage() {
                 onChange={setSafetyMarginPct}
                 step={0.5}
                 suffix="%"
-                hint="Folga adicional sobre a meta"
+                hint="Folga (em p.p.) sobre o breakeven no MER saudável. Substitui o antigo número mágico '-8' e é usada para classificar campanhas (champion/scale)."
               />
             </div>
           </CardContent>
@@ -329,7 +330,7 @@ export default function FinancialConfigPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
-              <span>Sazonalidade Mensal</span>
+              <span className="flex items-center gap-1">Sazonalidade Mensal <MetricInfo k="sazonalidade" /></span>
               <span className={`text-xs font-normal ${Math.abs(seasonalityTotal - 100) > 0.5 ? "text-destructive" : "text-muted-foreground"}`}>
                 Total: {seasonalityTotal.toFixed(2)}%
                 {Math.abs(seasonalityTotal - 100) > 0.5 && " (deveria somar ~100%)"}
@@ -338,7 +339,7 @@ export default function FinancialConfigPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Peso de cada mês no faturamento anual. Baseado em dados históricos 2017-2025.
+              Peso de cada mês no faturamento anual. <span className="text-amber-500">Atenção:</span> é um vetor estático (base 2017-2025), não derivado das vendas reais — governa metas e a regra de escala, então vale validar contra o histórico antes de cravar.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {MONTH_LABELS.map((month, i) => (
