@@ -152,11 +152,12 @@ function currentHourBRT(): number {
  * across users for the same product (no wild swings between sessions).
  */
 function productSeed(productId: string): number {
-  let h = 5381;
+  let h = 2166136261;
   for (let i = 0; i < productId.length; i++) {
-    h = ((h << 5) + h + productId.charCodeAt(i)) | 0;
+    h ^= productId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  return ((h >>> 0) % 1000) / 1000; // 0..1
+  return (h >>> 0) / 4294967296; // 0..1
 }
 
 /**
@@ -165,12 +166,13 @@ function productSeed(productId: string): number {
  * same baseline today vs tomorrow.
  */
 function combinedSeed(productId: string, salt: string): number {
-  let h = 5381;
+  let h = 2166136261;
   const s = productId + "|" + salt;
   for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  return ((h >>> 0) % 1000) / 1000;
+  return (h >>> 0) / 4294967296;
 }
 
 /**
@@ -189,6 +191,20 @@ function dayShift(): number {
   return (((h >>> 0) % 2000) / 1000) - 1; // -1..+1
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function brtDateKey(): string {
+  const d = new Date();
+  const brt = new Date(d.getTime() - 3 * 3600 * 1000);
+  return brt.toISOString().slice(0, 10);
+}
+
 function computeViewersBaseline(
   product: ShelfProductRow,
   min: number,
@@ -203,7 +219,10 @@ function computeViewersBaseline(
     const tagsArr =
       (product.tags as { vnda_tags?: Array<{ name?: string } | string> })?.vnda_tags ||
       (Array.isArray(product.tags) ? product.tags : []);
-    rankWeight = 0.30;
+    // Unknown GA4 rows used to collapse into one middle-ish value, which made
+    // PDPs look cloned. Use tags as a hint, then add a deterministic product
+    // proxy so unknown products still spread across the range.
+    rankWeight = 0.16 + productSeed(product.product_id) * 0.50;
     if (Array.isArray(tagsArr)) {
       const names = tagsArr.map((t) =>
         typeof t === "string" ? t.toLowerCase() : (t as { name?: string })?.name?.toLowerCase() || ""
@@ -217,29 +236,36 @@ function computeViewersBaseline(
   }
 
   const seed = productSeed(product.product_id);
-  // Per-day per-product seed — different number every day for the same SKU
-  const todaySeed = combinedSeed(product.product_id, new Date().toISOString().slice(0, 10));
+  // Per-day per-product seed — different number every day for the same SKU.
+  const todaySeed = combinedSeed(product.product_id, brtDateKey());
   // Global day shift — moves the whole store up/down on a given day
   const dayJitter = dayShift();
+  const volatilitySeed = combinedSeed(product.product_id, "viewer-volatility");
 
-  // Mix the four signals:
-  //   30% popularity rank (real GA4 percentile)
-  //   25% hour-of-day curve (Brasília)
-  //   25% per-product stable seed
-  //   12% per-day per-product variation
-  //    8% global daily shift
-  const factor =
-    rankWeight * 0.30 +
-    hourMult * 0.25 +
-    (seed - 0.5) * 0.50 +              // ±25%
-    (todaySeed - 0.5) * 0.24 +          // ±12%
-    dayJitter * 0.16;                    // ±8%
+  const safeMin = Math.max(1, Math.floor(min));
+  const safeMax = Math.max(safeMin + 1, Math.floor(max));
+  const range = safeMax - safeMin;
 
-  // Wider output range — top products near max, bottom near min, but never exact
-  const compressed = Math.max(0, Math.min(1, factor + 0.5));
-  const ratio = 0.05 + compressed * 0.90;
-  const range = Math.max(0, max - min);
-  return Math.max(min, Math.min(max, Math.round(min + range * ratio)));
+  // Shape demand so the long tail stays visibly lower while best sellers can
+  // reach the top end. Hour changes scale demand without flattening all SKUs
+  // into the same middle band.
+  const demand = Math.pow(clamp01(rankWeight), 1.9);
+  const traffic = Math.pow(clamp(hourMult, 0.14, 1), 0.82);
+  const productPersonality = (seed - 0.5) * 0.12;      // ±6%
+  const dailyProductMove = (todaySeed - 0.5) * 0.10;   // ±5%
+  const globalMove = dayJitter * 0.06;                 // ±6%
+  const volatilityMove = (volatilitySeed - 0.5) * 0.06;// ±3%
+
+  const ratio = clamp01(
+    0.03 +
+      (0.05 + demand * 0.78) * traffic +
+      productPersonality +
+      dailyProductMove +
+      globalMove +
+      volatilityMove
+  );
+
+  return clamp(Math.round(safeMin + range * ratio), safeMin, safeMax);
 }
 
 function productMatchesTag(product: ShelfProductRow, tagName: string): boolean {

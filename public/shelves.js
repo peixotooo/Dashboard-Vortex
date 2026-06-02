@@ -1936,37 +1936,87 @@
     return badge;
   }
 
-  function createViewersBadge(rule) {
+  function vtxHashString(input) {
+    var h = 2166136261;
+    var s = String(input || "");
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return h >>> 0;
+  }
+
+  function createSeededRandom(seed) {
+    var state = vtxHashString(seed) || 1;
+    return function () {
+      state += 0x6D2B79F5;
+      var t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function brtDayKey() {
+    return new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+
+  function createViewersBadge(rule, productId) {
     var badge = document.createElement("div");
     badge.className = "vtx-promo-tag vtx-promo-tag--viewers";
     var min = Number(rule.viewers_min) || 6;
     var max = Number(rule.viewers_max) || 42;
+    if (max <= min) max = min + 1;
     var baseline = Number(rule.viewers_baseline) || Math.round((min + max) / 2);
-    // Drift state: each product gets its own random starting offset so multiple
-    // PDPs open in adjacent tabs don't all show the same number ticking together
-    var startOffset = Math.round((Math.random() - 0.5) * Math.max(2, baseline * 0.20));
+    baseline = Math.max(min, Math.min(max, baseline));
+
+    var sessionKey = "vtx-viewers-session";
+    var sessionSeed = "";
+    try {
+      sessionSeed = sessionStorage.getItem(sessionKey);
+      if (!sessionSeed) {
+        sessionSeed = String(Date.now()) + "-" + String(Math.random()).slice(2);
+        sessionStorage.setItem(sessionKey, sessionSeed);
+      }
+    } catch (err) {
+      sessionSeed = String(Math.random()).slice(2);
+    }
+
+    var random = createSeededRandom([
+      "viewers",
+      productId || rule.product_id || "",
+      brtDayKey(),
+      sessionSeed,
+      baseline,
+    ].join("|"));
+
+    var range = Math.max(1, max - min);
+    var volatility = 0.10 + random() * 0.18; // product/session-specific 10-28%
+    var startOffset = Math.round((random() - 0.5) * Math.max(3, range * volatility));
     var current = Math.max(min, Math.min(max, baseline + startOffset));
+    var trend = random() < 0.5 ? -1 : 1;
+    var calmTicks = 0;
 
     function pickValue() {
-      // Spread is wider (~30% of baseline, min 2, max 7) and drift bounds
-      // ±2× spread — gives the count enough room to feel alive between ticks.
-      var spread = Math.max(2, Math.min(7, Math.round(baseline * 0.30)));
+      var spread = Math.max(2, Math.min(Math.max(4, Math.round(range * 0.24)), Math.round(range * (0.08 + volatility))));
       var delta;
-      var roll = Math.random();
-      if (roll < 0.55) {
-        // Free random walk
-        delta = Math.round((Math.random() - 0.5) * 2 * spread);
-      } else if (roll < 0.85) {
-        // Mild step ±1..±2 (small breathing)
-        delta = (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.6 ? 1 : 2);
+      var roll = random();
+      if (roll < 0.50) {
+        // Free random walk, with a weak per-product trend so counts do not all
+        // bounce symmetrically around the same midpoint.
+        delta = Math.round((random() - 0.5) * 2 * spread + trend * random() * 1.4);
+      } else if (roll < 0.80) {
+        delta = (random() < 0.5 ? -1 : 1) * (random() < 0.70 ? 1 : 2);
+      } else if (roll < 0.93) {
+        // Occasional spike/drop feels more like live traffic, but remains bounded.
+        delta = (random() < 0.58 ? trend : -trend) * Math.max(2, Math.round(spread * (0.8 + random())));
       } else {
-        // Pull back toward baseline (rare, prevents permanent drift)
+        trend = trend * -1;
         var pull = Math.sign(baseline - current) * Math.min(2, Math.abs(baseline - current));
-        delta = pull || (Math.random() < 0.5 ? -1 : 1);
+        delta = pull || (random() < 0.5 ? -1 : 1);
       }
       current = current + delta;
-      // Allow drift up to ±2× spread of baseline before the pull-back kicks harder
-      var maxDrift = Math.round(spread * 2);
+      var maxDrift = Math.max(3, Math.round(range * (0.16 + volatility)));
       if (current > baseline + maxDrift) current = baseline + maxDrift;
       if (current < baseline - maxDrift) current = baseline - maxDrift;
       if (current < min) current = min;
@@ -1982,10 +2032,21 @@
     }
 
     render(pickValue());
-    // Update every 8-16s so visitors actually see the count moving
-    setInterval(function () {
+
+    function scheduleNextTick() {
+      var delay = 5500 + Math.floor(random() * 13500);
+      if (calmTicks > 0) {
+        delay += 5000 + Math.floor(random() * 9000);
+        calmTicks--;
+      } else if (random() < 0.16) {
+        calmTicks = 1 + Math.floor(random() * 2);
+      }
+      setTimeout(function () {
       render(pickValue());
-    }, 8000 + Math.floor(Math.random() * 8000));
+        scheduleNextTick();
+      }, delay);
+    }
+    scheduleNextTick();
 
     applyRuleColors(badge, rule, "rgba(244,63,94,.08)", "#be123c");
     return badge;
@@ -2201,7 +2262,7 @@
       if (badgeType === "cashback") {
         badge = createCashbackBadge(rule, fallbackCashbackPct);
       } else if (badgeType === "viewers") {
-        badge = createViewersBadge(rule);
+        badge = createViewersBadge(rule, productId);
       } else if (badgeType === "coupon_countdown") {
         badge = createCouponCountdownBadge(rule);
       } else {

@@ -76,8 +76,8 @@ const EMPTY_RULE: PromoTagRule = {
   show_on_pages: ["all"],
   badge_type: "static",
   badge_placement: "auto",
-  viewers_min: 6,
-  viewers_max: 42,
+  viewers_min: 3,
+  viewers_max: 56,
 };
 
 const BADGE_TYPE_LABELS: Record<string, string> = {
@@ -91,7 +91,7 @@ const BADGE_TYPE_HELP: Record<string, string> = {
   cashback:
     "Aparece somente na página do produto, próximo ao preço. Use {cashback} no texto pra ser substituído pelo valor (ex: Ganhe {cashback} em cashback).",
   viewers:
-    "Aparece somente na PDP. Use {viewers} no texto pra ser substituído pelo número (ex: {viewers} pessoas vendo este produto). O valor varia por horário/popularidade do produto.",
+    "Aparece somente na PDP. Use {viewers} no texto pra ser substituído pelo número. O valor varia por horário, popularidade e perfil do produto.",
 };
 
 /** ISO string → "YYYY-MM-DDTHH:mm" usable by <input type="datetime-local"> in local TZ */
@@ -720,7 +720,7 @@ export default function PromoTagsPage() {
                   <Input
                     type="number"
                     min={1}
-                    value={editingRule.viewers_min ?? 6}
+                    value={editingRule.viewers_min ?? 3}
                     onChange={(e) =>
                       updateEditing({
                         viewers_min: Math.max(1, parseInt(e.target.value) || 1),
@@ -733,7 +733,7 @@ export default function PromoTagsPage() {
                   <Input
                     type="number"
                     min={1}
-                    value={editingRule.viewers_max ?? 42}
+                    value={editingRule.viewers_max ?? 56}
                     onChange={(e) =>
                       updateEditing({
                         viewers_max: Math.max(1, parseInt(e.target.value) || 1),
@@ -741,7 +741,7 @@ export default function PromoTagsPage() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    Sugestão: 6–42 evita parecer fake; o servidor calibra pelo horário e popularidade do produto.
+                    Sugestão: 3–56 dá mais contraste sem exagerar; o servidor calibra pelo horário, popularidade e perfil do produto.
                   </p>
                 </div>
               </div>

@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
         show_on_pages: body.show_on_pages || ["all"],
         badge_type: body.badge_type || "static",
         badge_placement: body.badge_placement || "auto",
-        viewers_min: body.viewers_min ?? 6,
-        viewers_max: body.viewers_max ?? 42,
+        viewers_min: body.viewers_min ?? 3,
+        viewers_max: body.viewers_max ?? 56,
         starts_at: body.starts_at || null,
         ends_at: body.ends_at || null,
       })
