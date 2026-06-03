@@ -385,6 +385,22 @@ export async function syncGiftRequestConversions(
 
   if (error) throw new Error(error.message);
 
+  const { data: convertedRows, error: convertedError } = await admin
+    .from("gift_requests")
+    .select("converted_order_id")
+    .eq("workspace_id", workspaceId)
+    .not("converted_at", "is", null)
+    .not("converted_order_id", "is", null)
+    .gte("created_at", cutoff);
+
+  if (convertedError) throw new Error(convertedError.message);
+
+  const previouslyUsedOrderCodes = new Set(
+    ((convertedRows || []) as Array<{ converted_order_id: string | null }>)
+      .map((row) => row.converted_order_id)
+      .filter((code): code is string => Boolean(code))
+  );
+
   const requests = ((data || []) as GiftRequestRow[]).filter(
     (request) => request.status !== "failed"
   );
@@ -442,7 +458,7 @@ export async function syncGiftRequestConversions(
   let updated = 0;
   let totalRevenue = 0;
   const matches: GiftRequestConversionMatch[] = [];
-  const usedOrderCodes = new Set<string>();
+  const usedOrderCodes = new Set<string>(previouslyUsedOrderCodes);
   const usedRequestIds = new Set<string>();
 
   for (const candidate of candidates) {
