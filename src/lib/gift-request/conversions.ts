@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cancelPendingGiftRequestFollowups } from "./followups";
 
 const DEFAULT_WINDOW_DAYS = 14;
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -494,6 +495,16 @@ export async function syncGiftRequestConversions(
       .is("converted_at", null);
 
     if (updateError) throw new Error(updateError.message);
+    await cancelPendingGiftRequestFollowups({
+      admin,
+      workspaceId,
+      requestIds: [candidate.request.id],
+    }).catch((err) => {
+      console.warn(
+        `[GiftRequestConversions] failed to cancel pending follow-up for request ${candidate.request.id}:`,
+        err
+      );
+    });
     updated++;
   }
 

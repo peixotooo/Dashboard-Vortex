@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { syncGiftRequestConversions } from "@/lib/gift-request/conversions";
+import { enqueueGiftRequestFollowups } from "@/lib/gift-request/followups";
 
 export const maxDuration = 300;
 
@@ -51,20 +52,22 @@ export async function GET(request: NextRequest) {
   const summary = [];
   for (const workspaceId of workspaceIds) {
     try {
-      const result = await syncGiftRequestConversions({ admin, workspaceId });
-      summary.push(result);
+      const conversions = await syncGiftRequestConversions({
+        admin,
+        workspaceId,
+      });
+      const followups = await enqueueGiftRequestFollowups({
+        admin,
+        workspaceId,
+      });
+      summary.push({ workspaceId, conversions, followups });
       console.log(
-        `[GiftRequestConversions] ws=${workspaceId} scanned=${result.scanned} matched=${result.matched} updated=${result.updated} revenue=${result.totalRevenue}`
+        `[GiftRequestConversions] ws=${workspaceId} scanned=${conversions.scanned} matched=${conversions.matched} updated=${conversions.updated} revenue=${conversions.totalRevenue} followupsQueued=${followups.queued} followupsSkipped=${followups.skipped} followupsCanceled=${followups.canceled}`
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       summary.push({
         workspaceId,
-        scanned: 0,
-        matched: 0,
-        updated: 0,
-        skipped: 0,
-        totalRevenue: 0,
         error: message,
       });
       console.error(`[GiftRequestConversions] ws=${workspaceId} failed:`, err);
