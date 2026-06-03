@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getWapiConfig, getQrCode } from "@/lib/wapi-api";
+import { getWapiConfig, getQrCode, updateWapiConnected } from "@/lib/wapi-api";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -41,9 +41,15 @@ export async function GET(request: NextRequest) {
       );
 
     const qr = await getQrCode(config);
+    if (typeof qr.connected === "boolean") {
+      await updateWapiConnected(workspaceId, qr.connected);
+    }
 
     return NextResponse.json({
       qrcode: qr.qrcode,
+      connected: qr.connected ?? false,
+      instanceId: qr.instanceId || config.instanceId,
+      message: qr.message || null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

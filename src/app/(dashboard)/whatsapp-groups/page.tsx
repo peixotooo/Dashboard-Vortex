@@ -160,27 +160,36 @@ export default function WhatsAppGroupsPage() {
     setConfigLoading(false);
   }, [workspace?.id, wsHeaders]);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (options?: { silent?: boolean }) => {
     if (!workspace?.id || !configured) return;
-    setStatusLoading(true);
-    setErrorMsg(null);
+    if (!options?.silent) {
+      setStatusLoading(true);
+      setErrorMsg(null);
+    }
     try {
       const res = await fetch("/api/whatsapp-groups/status", {
         headers: wsHeaders(),
       });
       const data = await res.json();
       if (data.error) {
-        setErrorMsg(data.error);
+        if (!options?.silent) setErrorMsg(data.error);
       } else {
+        if (data.connected) {
+          setQrCode(null);
+          if (!connected) setSuccessMsg("WhatsApp conectado com sucesso!");
+        }
         setConnected(data.connected);
       }
     } catch (err) {
-      setErrorMsg(
-        `Erro ao verificar status: ${err instanceof Error ? err.message : "desconhecido"}`
-      );
+      if (!options?.silent) {
+        setErrorMsg(
+          `Erro ao verificar status: ${err instanceof Error ? err.message : "desconhecido"}`
+        );
+      }
+    } finally {
+      if (!options?.silent) setStatusLoading(false);
     }
-    setStatusLoading(false);
-  }, [workspace?.id, configured, wsHeaders]);
+  }, [workspace?.id, configured, connected, wsHeaders]);
 
   const fetchQrCode = useCallback(async () => {
     if (!workspace?.id || !configured) return;
@@ -194,8 +203,19 @@ export default function WhatsAppGroupsPage() {
       const data = await res.json();
       if (data.error) {
         setErrorMsg(data.error);
+      } else if (data.connected) {
+        setConnected(true);
+        setQrCode(null);
+        setSuccessMsg("WhatsApp ja esta conectado.");
       } else {
-        setQrCode(data.qrcode || null);
+        const nextQr = data.qrcode || null;
+        setQrCode(nextQr);
+        if (!nextQr) {
+          setErrorMsg(
+            data.message ||
+              "A W-API nao retornou QR Code. Aguarde alguns segundos e tente novamente."
+          );
+        }
       }
     } catch (err) {
       setErrorMsg(
@@ -251,6 +271,28 @@ export default function WhatsAppGroupsPage() {
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  // Mantem o status real sincronizado ao abrir a tela; o banco pode estar
+  // defasado se a conexao foi feita direto no painel da W-API.
+  useEffect(() => {
+    if (configured) fetchStatus({ silent: true });
+  }, [configured, fetchStatus]);
+
+  // Depois que o QR aparece, a W-API costuma mudar para connected alguns
+  // segundos apos o scan. Polling curto evita a sensacao de que "nao conectou".
+  useEffect(() => {
+    if (!configured || connected || !qrCode) return;
+    const statusTimer = window.setInterval(() => {
+      fetchStatus({ silent: true });
+    }, 3000);
+    const qrTimer = window.setInterval(() => {
+      fetchQrCode();
+    }, 20000);
+    return () => {
+      window.clearInterval(statusTimer);
+      window.clearInterval(qrTimer);
+    };
+  }, [configured, connected, qrCode, fetchQrCode, fetchStatus]);
 
   // Auto-load cached groups when configured
   useEffect(() => {
@@ -650,7 +692,7 @@ export default function WhatsAppGroupsPage() {
 
                   <div className="flex gap-2">
                     <Button
-                      onClick={fetchStatus}
+                      onClick={() => fetchStatus()}
                       disabled={statusLoading}
                       variant="outline"
                       size="sm"
@@ -732,7 +774,7 @@ export default function WhatsAppGroupsPage() {
                           Renovar QR Code
                         </Button>
                         <Button
-                          onClick={fetchStatus}
+                          onClick={() => fetchStatus()}
                           disabled={statusLoading}
                           variant="outline"
                           size="sm"

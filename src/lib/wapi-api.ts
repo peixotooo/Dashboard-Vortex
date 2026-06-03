@@ -126,7 +126,12 @@ export async function getInstanceStatus(
 
 export async function getQrCode(
   config: WapiConfig
-): Promise<{ qrcode: string }> {
+): Promise<{
+  qrcode?: string;
+  connected?: boolean;
+  instanceId?: string;
+  message?: string;
+}> {
   const params = new URLSearchParams({
     instanceId: config.instanceId,
     image: "enable",
@@ -141,10 +146,32 @@ export async function getQrCode(
     throw new Error(`W-API ${res.status}: ${text.slice(0, 300)}`);
   }
 
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const rawQr = (json.qrcode || json.qr) as string | undefined;
+    const qrcode = rawQr
+      ? rawQr.startsWith("data:image/")
+        ? rawQr
+        : `data:image/png;base64,${rawQr}`
+      : undefined;
+
+    return {
+      qrcode,
+      connected: json.connected === true,
+      instanceId: (json.instanceId as string) || config.instanceId,
+      message: (json.message as string) || undefined,
+    };
+  }
+
   // image=enable retorna PNG binario - converter para data URI base64
   const buffer = await res.arrayBuffer();
   const base64 = Buffer.from(buffer).toString("base64");
-  return { qrcode: `data:image/png;base64,${base64}` };
+  return {
+    qrcode: `data:image/png;base64,${base64}`,
+    connected: false,
+    instanceId: config.instanceId,
+  };
 }
 
 export async function listGroups(config: WapiConfig): Promise<unknown> {
