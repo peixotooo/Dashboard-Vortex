@@ -1,6 +1,7 @@
 import { decrypt } from "@/lib/encryption";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // --- Types ---
 
@@ -75,6 +76,33 @@ export async function getApifyConfig(workspaceId?: string): Promise<ApifyConfig 
   }
 
   return null;
+}
+
+// Same as getApifyConfig but reads the workspace token through a service-role
+// admin client (bypasses RLS, no cookies). Use from crons / background jobs
+// where there is no authenticated session.
+export async function getApifyConfigAdmin(
+  admin: SupabaseClient,
+  workspaceId: string
+): Promise<ApifyConfig | null> {
+  try {
+    const { data } = await admin
+      .from("apify_connections")
+      .select("api_token")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (data?.api_token) {
+      return { apiToken: decrypt(data.api_token) };
+    }
+  } catch {
+    // Fall through to env var
+  }
+
+  const token = process.env.APIFY_API_TOKEN;
+  return token ? { apiToken: token } : null;
 }
 
 // --- Apify API ---
