@@ -118,6 +118,12 @@ export const FEATURES: Feature[] = [
     description: "Dados do GA4",
     routes: ["/ga4"],
   },
+  {
+    id: "instagram",
+    label: "Instagram",
+    description: "Crescimento de seguidores e engajamento do perfil",
+    routes: ["/instagram"],
+  },
 
   // ===== Loja =====
   {

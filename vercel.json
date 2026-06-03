@@ -91,6 +91,14 @@
     {
       "path": "/api/cron/cart-recovery-import",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/instagram-snapshot",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-group-snapshot",
+      "schedule": "30 7 * * *"
     }
   ]
 }

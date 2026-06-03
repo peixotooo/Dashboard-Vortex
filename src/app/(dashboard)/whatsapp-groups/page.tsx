@@ -39,12 +39,14 @@ import {
   Image as ImageLucide,
   History,
   FileEdit,
+  TrendingUp,
 } from "lucide-react";
 import { FormattingToolbar } from "@/components/whatsapp/formatting-toolbar";
 import { EmojiPicker } from "@/components/whatsapp/emoji-picker";
 import { SchedulePicker } from "@/components/whatsapp/schedule-picker";
 import { PresetManager, type Preset } from "@/components/whatsapp/preset-manager";
 import { DispatchLog } from "@/components/whatsapp/dispatch-log";
+import { GroupMembersDashboard } from "@/components/whatsapp/group-members-dashboard";
 import { GalleryPicker, type MediaItem } from "@/components/gallery-picker";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -584,6 +586,9 @@ export default function WhatsAppGroupsPage() {
                 {selectedGroups.size}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="growth" className="gap-1.5">
+            <TrendingUp className="h-4 w-4" /> Crescimento
           </TabsTrigger>
           <TabsTrigger value="send" className="gap-1.5">
             <Send className="h-4 w-4" /> Enviar
@@ -1413,6 +1418,11 @@ export default function WhatsAppGroupsPage() {
               <DispatchLog workspaceId={workspace?.id || ""} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ==================== GROWTH TAB ==================== */}
+        <TabsContent value="growth" className="space-y-4">
+          <GroupMembersDashboard />
         </TabsContent>
 
         {/* ==================== CONFIG TAB ==================== */}
