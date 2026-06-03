@@ -40,6 +40,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (!result.connected) {
+      return NextResponse.json(
+        { error: "W-API desconectada. Reconecte a instância em WhatsApp Grupos." },
+        { status: 400 }
+      );
+    }
+    if (result.groupsCaptured === 0 && result.errors.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Não foi possível capturar os grupos: ${result.errors[0].error}`,
+          result,
+        },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json(result);
   } catch (error) {

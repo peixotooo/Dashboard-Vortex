@@ -309,6 +309,8 @@ export function GroupMembersDashboard({
 
   const initialLoading = loading && !data;
   const notConfigured = !initialLoading && data && !data.configured;
+  const disconnected =
+    !initialLoading && data?.configured && !data.connected && !data.hasData;
   const noData = !initialLoading && data?.configured && !data.hasData;
   const totals = data?.totals;
 
@@ -395,7 +397,24 @@ export function GroupMembersDashboard({
         </Card>
       )}
 
-      {noData && (
+      {disconnected && (
+        <Card>
+          <CardContent className="space-y-4 py-10 text-center">
+            <Settings className="mx-auto h-10 w-10 text-emerald-500" />
+            <div>
+              <p className="font-medium">W-API desconectada</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Reconecte a instância para capturar a contagem de membros dos grupos.
+              </p>
+            </div>
+            <Button asChild className="mx-auto">
+              <Link href="/whatsapp-groups">Reconectar instância</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {noData && !disconnected && (
         <Card>
           <CardContent className="space-y-4 py-10 text-center">
             <UsersRound className="mx-auto h-10 w-10 text-emerald-500" />

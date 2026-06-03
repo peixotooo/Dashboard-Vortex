@@ -10,8 +10,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getWapiConfig,
+  getInstanceStatus,
   listGroups,
   getGroupMetadata,
+  updateWapiConnected,
   type WapiConfig,
 } from "@/lib/wapi-api";
 import { spDateString } from "@/lib/series-utils";
@@ -20,6 +22,7 @@ export type GroupSnapshotSource = "cron" | "manual";
 
 export interface GroupSnapshotResult {
   configured: boolean;
+  connected: boolean;
   groupsCaptured: number;
   totalMembers: number;
   errors: Array<{ groupJid: string; error: string }>;
@@ -89,7 +92,44 @@ export async function captureGroupSnapshots(
 
   const config = await getWapiConfig(workspaceId);
   if (!config) {
-    return { configured: false, groupsCaptured: 0, totalMembers: 0, errors: [] };
+    return {
+      configured: false,
+      connected: false,
+      groupsCaptured: 0,
+      totalMembers: 0,
+      errors: [],
+    };
+  }
+
+  try {
+    const status = await getInstanceStatus(config);
+    const connected = status.connected === true;
+    if (connected !== config.connected) {
+      await updateWapiConnected(workspaceId, connected);
+    }
+    if (!connected) {
+      return {
+        configured: true,
+        connected: false,
+        groupsCaptured: 0,
+        totalMembers: 0,
+        errors: [],
+      };
+    }
+  } catch (err) {
+    await updateWapiConnected(workspaceId, false);
+    return {
+      configured: true,
+      connected: false,
+      groupsCaptured: 0,
+      totalMembers: 0,
+      errors: [
+        {
+          groupJid: "*",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      ],
+    };
   }
 
   const groups = await getGroupJids(db, workspaceId, config);
@@ -136,5 +176,5 @@ export async function captureGroupSnapshots(
     if (i < groups.length - 1 && throttleMs > 0) await sleep(throttleMs);
   }
 
-  return { configured: true, groupsCaptured, totalMembers, errors };
+  return { configured: true, connected: true, groupsCaptured, totalMembers, errors };
 }

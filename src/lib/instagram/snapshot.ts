@@ -107,7 +107,7 @@ export async function persistSnapshot(
   const now = new Date().toISOString();
 
   // 1. Cache do perfil (último estado conhecido).
-  await db.from("instagram_profiles").upsert(
+  const { error: profileError } = await db.from("instagram_profiles").upsert(
     {
       workspace_id: workspaceId,
       username: profile.username,
@@ -123,6 +123,7 @@ export async function persistSnapshot(
     },
     { onConflict: "workspace_id,username" }
   );
+  if (profileError) throw new Error(`instagram_profiles: ${profileError.message}`);
 
   // 2. Posts recentes (alimentam o ranking de engajamento na view).
   if (posts.length > 0) {
@@ -142,11 +143,14 @@ export async function persistSnapshot(
       posted_at: p.timestamp,
       scraped_at: now,
     }));
-    await db.from("instagram_posts").upsert(rows, { onConflict: "workspace_id,post_id" });
+    const { error: postsError } = await db
+      .from("instagram_posts")
+      .upsert(rows, { onConflict: "workspace_id,post_id" });
+    if (postsError) throw new Error(`instagram_posts: ${postsError.message}`);
   }
 
   // 3. Ponto do dia na série temporal (1 por dia — re-rodar vira UPDATE).
-  await db.from("instagram_snapshots").upsert(
+  const { error: snapshotError } = await db.from("instagram_snapshots").upsert(
     {
       workspace_id: workspaceId,
       username,
@@ -163,6 +167,9 @@ export async function persistSnapshot(
     },
     { onConflict: "workspace_id,username,captured_on" }
   );
+  if (snapshotError) {
+    throw new Error(`instagram_snapshots: ${snapshotError.message}`);
+  }
 }
 
 /** Scrape + grava em um passo. Retorna o snapshot capturado. */
