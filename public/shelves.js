@@ -1996,27 +1996,52 @@
     var current = Math.max(min, Math.min(max, baseline + startOffset));
     var trend = random() < 0.5 ? -1 : 1;
     var calmTicks = 0;
+    var tickCount = 0;
+    var driftBasis = Math.max(2, baseline - min + 2);
+    var maxDrift = Math.max(
+      2,
+      Math.min(
+        Math.round(range * (0.18 + volatility)),
+        Math.round(driftBasis * (1.6 + volatility * 2))
+      )
+    );
+    var target = baseline + Math.round((random() - 0.5) * maxDrift);
+    target = Math.max(min, Math.min(max, target));
 
     function pickValue() {
-      var spread = Math.max(2, Math.min(Math.max(4, Math.round(range * 0.24)), Math.round(range * (0.08 + volatility))));
+      tickCount++;
+      if (tickCount % (7 + Math.floor(random() * 5)) === 0) {
+        target = baseline + Math.round((random() - 0.5) * 2 * maxDrift);
+        target = Math.max(min, Math.min(max, target));
+        trend = target >= current ? 1 : -1;
+      }
+
+      var spread = Math.max(
+        1,
+        Math.min(
+          Math.max(3, Math.round(range * 0.24)),
+          Math.round(Math.max(3, baseline) * (0.16 + volatility))
+        )
+      );
       var delta;
       var roll = random();
-      if (roll < 0.50) {
-        // Free random walk, with a weak per-product trend so counts do not all
-        // bounce symmetrically around the same midpoint.
-        delta = Math.round((random() - 0.5) * 2 * spread + trend * random() * 1.4);
-      } else if (roll < 0.80) {
+      if (roll < 0.46) {
+        // Free random walk, with a weak pull toward the current target so long
+        // sessions visibly move instead of hovering around the initial baseline.
+        var targetPull = Math.sign(target - current) * Math.min(spread, Math.ceil(Math.abs(target - current) / 3));
+        delta = Math.round((random() - 0.5) * 2 * spread + targetPull + trend * random() * 1.6);
+      } else if (roll < 0.74) {
         delta = (random() < 0.5 ? -1 : 1) * (random() < 0.70 ? 1 : 2);
-      } else if (roll < 0.93) {
+      } else if (roll < 0.94) {
         // Occasional spike/drop feels more like live traffic, but remains bounded.
         delta = (random() < 0.58 ? trend : -trend) * Math.max(2, Math.round(spread * (0.8 + random())));
       } else {
         trend = trend * -1;
-        var pull = Math.sign(baseline - current) * Math.min(2, Math.abs(baseline - current));
+        var pull = Math.sign(target - current) * Math.min(3, Math.abs(target - current));
         delta = pull || (random() < 0.5 ? -1 : 1);
       }
+      if (delta === 0 && max > min) delta = current <= min ? 1 : current >= max ? -1 : (random() < 0.5 ? -1 : 1);
       current = current + delta;
-      var maxDrift = Math.max(3, Math.round(range * (0.16 + volatility)));
       if (current > baseline + maxDrift) current = baseline + maxDrift;
       if (current < baseline - maxDrift) current = baseline - maxDrift;
       if (current < min) current = min;
@@ -2034,15 +2059,15 @@
     render(pickValue());
 
     function scheduleNextTick() {
-      var delay = 5500 + Math.floor(random() * 13500);
+      var delay = 4000 + Math.floor(random() * 11000);
       if (calmTicks > 0) {
-        delay += 5000 + Math.floor(random() * 9000);
+        delay += 3500 + Math.floor(random() * 7000);
         calmTicks--;
       } else if (random() < 0.16) {
         calmTicks = 1 + Math.floor(random() * 2);
       }
       setTimeout(function () {
-      render(pickValue());
+        render(pickValue());
         scheduleNextTick();
       }, delay);
     }

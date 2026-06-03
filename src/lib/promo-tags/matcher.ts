@@ -3,6 +3,13 @@ import { getGA4Report } from "@/lib/ga4-api";
 
 // --- Popularity cache: GA4 itemsViewed last 30d, normalized 0-1 (per workspace) ---
 
+interface SalesSignal {
+  units: number;
+  revenue: number;
+  salesScore: number; // 0..1 percentile by recent revenue
+  abcTier: "A" | "B" | "C";
+}
+
 interface PopularityCacheEntry {
   scores: Map<string, number>; // product_id → 0..1 (log-scaled)
   scoresByName: Map<string, number>; // normalized name → 0..1 (fallback when itemId is missing)
@@ -88,6 +95,124 @@ function lookupPopularity(
   return -1; // unknown — caller falls back to tag heuristic
 }
 
+interface SalesSignalCacheEntry {
+  signals: Map<string, SalesSignal>;
+  expiresAt: number;
+}
+
+const SALES_SIGNAL_CACHE = new Map<string, SalesSignalCacheEntry>();
+const SALES_SIGNAL_TTL_MS = 60 * 60 * 1000; // 1h
+
+function normalizeSku(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function getRecentSalesSignals(
+  workspaceId: string,
+  products: ShelfProductRow[]
+): Promise<Map<string, SalesSignal>> {
+  const cached = SALES_SIGNAL_CACHE.get(workspaceId);
+  if (cached && cached.expiresAt > Date.now()) return cached.signals;
+
+  const byId = new Map<string, ShelfProductRow>();
+  const bySku = new Map<string, ShelfProductRow>();
+  const byName = new Map<string, ShelfProductRow>();
+  for (const p of products) {
+    byId.set(p.product_id, p);
+    if (p.sku) bySku.set(normalizeSku(p.sku), p);
+    byName.set(normalizeName(p.name), p);
+  }
+
+  const agg = new Map<string, { units: number; revenue: number }>();
+  for (const p of products) agg.set(p.product_id, { units: 0, revenue: 0 });
+
+  const admin = createAdminClient();
+  const since = new Date();
+  since.setUTCDate(since.getUTCDate() - 30);
+
+  const PAGE = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from("crm_vendas")
+      .select("items")
+      .eq("workspace_id", workspaceId)
+      .gte("data_compra", since.toISOString())
+      .not("items", "is", null)
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      console.error("[PromoTags] recent sales signal fetch failed:", error.message);
+      break;
+    }
+    if (!data || data.length === 0) break;
+
+    for (const row of data as Array<{ items: unknown }>) {
+      const items = Array.isArray(row.items) ? row.items : [];
+      for (const item of items as Array<Record<string, unknown>>) {
+        const reference = normalizeSku(item.reference);
+        const sku = normalizeSku(item.sku);
+        const baseSku = sku.split(/[-_]/)[0] || "";
+        const name = normalizeName(String(item.name || item.product_name || ""));
+        const product =
+          (reference && bySku.get(reference)) ||
+          (reference && byId.get(reference)) ||
+          (sku && bySku.get(sku)) ||
+          (baseSku && bySku.get(baseSku)) ||
+          (baseSku && byId.get(baseSku)) ||
+          (name && byName.get(name));
+        if (!product) continue;
+
+        const quantity = Math.max(1, Number(item.quantity ?? 1) || 1);
+        const revenue = Math.max(0, Number(item.total ?? item.price ?? 0) || 0);
+        const current = agg.get(product.product_id) || { units: 0, revenue: 0 };
+        current.units += quantity;
+        current.revenue += revenue;
+        agg.set(product.product_id, current);
+      }
+    }
+
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  const sorted = Array.from(agg.entries()).sort((a, b) => a[1].revenue - b[1].revenue);
+  const revenuePct = new Map<string, number>();
+  sorted.forEach(([pid], i) => {
+    revenuePct.set(pid, sorted.length > 1 ? i / (sorted.length - 1) : 0.5);
+  });
+
+  const byRevenueDesc = Array.from(agg.entries()).sort((a, b) => b[1].revenue - a[1].revenue);
+  const totalRevenue = byRevenueDesc.reduce((sum, [, row]) => sum + row.revenue, 0);
+  const tierByProduct = new Map<string, "A" | "B" | "C">();
+  let cumulative = 0;
+  for (const [pid, row] of byRevenueDesc) {
+    if (totalRevenue <= 0) {
+      tierByProduct.set(pid, "C");
+      continue;
+    }
+    cumulative += row.revenue;
+    const pct = cumulative / totalRevenue;
+    tierByProduct.set(pid, pct <= 0.5 ? "A" : pct <= 0.8 ? "B" : "C");
+  }
+
+  const signals = new Map<string, SalesSignal>();
+  for (const [pid, row] of agg.entries()) {
+    signals.set(pid, {
+      units: row.units,
+      revenue: row.revenue,
+      salesScore: revenuePct.get(pid) ?? 0,
+      abcTier: tierByProduct.get(pid) || "C",
+    });
+  }
+
+  SALES_SIGNAL_CACHE.set(workspaceId, {
+    signals,
+    expiresAt: Date.now() + SALES_SIGNAL_TTL_MS,
+  });
+  return signals;
+}
+
 export type BadgeType = "static" | "cashback" | "viewers" | "coupon_countdown";
 export type BadgePlacement = "auto" | "pdp_price" | "pdp_above_buy" | "card_overlay";
 
@@ -115,6 +240,7 @@ export interface PromoTagRule {
 
 interface ShelfProductRow {
   product_id: string;
+  sku: string | null;
   tags: unknown;
   category: string | null;
   name: string;
@@ -133,10 +259,10 @@ interface MatchesPayload {
  */
 function hourMultiplier(hourBRT: number): number {
   const curve = [
-    0.30, 0.20, 0.18, 0.15, 0.15, 0.20,  // 0-5
-    0.30, 0.45, 0.60, 0.75, 0.85, 0.85,  // 6-11
-    0.90, 0.85, 0.80, 0.85, 0.90, 0.95,  // 12-17
-    1.00, 1.00, 1.00, 0.95, 0.80, 0.55,  // 18-23
+    0.12, 0.08, 0.06, 0.04, 0.04, 0.07,  // 0-5
+    0.12, 0.22, 0.35, 0.50, 0.62, 0.68,  // 6-11
+    0.72, 0.68, 0.62, 0.68, 0.76, 0.84,  // 12-17
+    0.94, 1.00, 0.96, 0.86, 0.62, 0.35,  // 18-23
   ];
   return curve[hourBRT] ?? 0.5;
 }
@@ -210,7 +336,8 @@ function computeViewersBaseline(
   min: number,
   max: number,
   hourMult: number,
-  popularityScore: number // -1 if unknown, else 0..1 percentile rank from GA4
+  popularityScore: number, // -1 if unknown, else 0..1 percentile rank from GA4
+  salesSignal?: SalesSignal
 ): number {
   let rankWeight: number;
   if (popularityScore >= 0) {
@@ -235,6 +362,21 @@ function computeViewersBaseline(
     }
   }
 
+  if (salesSignal) {
+    const salesScore = clamp01(salesSignal.salesScore);
+    rankWeight = popularityScore >= 0
+      ? popularityScore * 0.35 + salesScore * 0.65
+      : rankWeight * 0.25 + salesScore * 0.75;
+
+    if (salesSignal.units <= 0) {
+      rankWeight = Math.min(rankWeight, 0.06);
+    } else if (salesSignal.abcTier === "C") {
+      rankWeight = Math.min(rankWeight, 0.20 + salesScore * 0.18);
+    } else if (salesSignal.abcTier === "B") {
+      rankWeight = Math.min(rankWeight, 0.52 + salesScore * 0.12);
+    }
+  }
+
   const seed = productSeed(product.product_id);
   // Per-day per-product seed — different number every day for the same SKU.
   const todaySeed = combinedSeed(product.product_id, brtDateKey());
@@ -256,7 +398,7 @@ function computeViewersBaseline(
   const globalMove = dayJitter * 0.06;                 // ±6%
   const volatilityMove = (volatilitySeed - 0.5) * 0.06;// ±3%
 
-  const ratio = clamp01(
+  let ratio = clamp01(
     0.03 +
       (0.05 + demand * 0.78) * traffic +
       productPersonality +
@@ -264,6 +406,17 @@ function computeViewersBaseline(
       globalMove +
       volatilityMove
   );
+
+  if (salesSignal) {
+    const salesCap = salesSignal.units <= 0
+      ? 0.18
+      : salesSignal.abcTier === "C"
+      ? 0.30
+      : salesSignal.abcTier === "B"
+      ? 0.56
+      : 0.92;
+    ratio = Math.min(ratio, salesCap);
+  }
 
   return clamp(Math.round(safeMin + range * ratio), safeMin, safeMax);
 }
@@ -339,7 +492,7 @@ export async function computePromoTagMatches(
     while (true) {
       const { data: page } = await admin
         .from("shelf_products")
-        .select("product_id, tags, category, name, price, sale_price")
+        .select("product_id, sku, tags, category, name, price, sale_price")
         .eq("workspace_id", workspaceId)
         .eq("active", true)
         .eq("in_stock", true)
@@ -358,6 +511,9 @@ export async function computePromoTagMatches(
   const hourMult = hourMultiplier(currentHourBRT());
   // Fetch GA4-derived popularity once per request (cached 1h in-memory)
   const popularity = await getPopularityScores(workspaceId);
+  const salesSignals = needProductRows
+    ? await getRecentSalesSignals(workspaceId, productCache)
+    : new Map<string, SalesSignal>();
 
   for (const rule of rules) {
     let productIds: string[] = [];
@@ -433,7 +589,14 @@ export async function computePromoTagMatches(
         const p = productById.get(pid);
         if (p) {
           const score = lookupPopularity(p, popularity);
-          baseRule.viewers_baseline = computeViewersBaseline(p, viewersMin, viewersMax, hourMult, score);
+          baseRule.viewers_baseline = computeViewersBaseline(
+            p,
+            viewersMin,
+            viewersMax,
+            hourMult,
+            score,
+            salesSignals.get(pid)
+          );
           baseRule.viewers_min = viewersMin;
           baseRule.viewers_max = viewersMax;
         }
