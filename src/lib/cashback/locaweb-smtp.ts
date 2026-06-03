@@ -109,8 +109,13 @@ export async function sendEmail(
       return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
     }
 
-    const json = (await res.json().catch(() => ({}))) as { id?: string };
-    return { ok: true, messageId: json.id };
+    const json = (await res.json().catch(() => ({}))) as {
+      id?: string | number;
+      data?: { id?: string | number };
+    };
+    const locationId = res.headers.get("location")?.match(/\/messages\/([^/?#]+)/)?.[1];
+    const messageId = json.id ?? json.data?.id ?? locationId;
+    return { ok: true, messageId: messageId ? String(messageId) : undefined };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "network_error" };
   }
