@@ -43,7 +43,9 @@ export async function GET(request: NextRequest) {
     if (error)
       return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ presets: data || [] });
+    return NextResponse.json({
+      presets: (data || []).filter((preset) => !String(preset.name || "").startsWith("__pool__:")),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
