@@ -264,7 +264,7 @@ export async function sendTemplateMessage(
                 type: "body",
                 parameters: Object.values(variables).map((val) => ({
                   type: "text",
-                  text: val,
+                  text: sanitizeTemplateParameter(val),
                 })),
               },
             ],
@@ -300,6 +300,16 @@ export async function sendTemplateMessage(
       error: err instanceof Error ? err.message : "Unknown error",
     };
   }
+}
+
+function sanitizeTemplateParameter(value: string): string {
+  // Meta rejects template variable text containing line breaks/tabs or more
+  // than 4 consecutive spaces. Keep this at the final API boundary so every
+  // caller benefits without having to duplicate provider-specific rules.
+  return String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
 }
 
 // --- Template management ---
