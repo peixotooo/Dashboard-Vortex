@@ -10,7 +10,7 @@ const FOLLOWUP_MIN_AGE_HOURS = 24;
 const FOLLOWUP_MAX_AGE_DAYS = 14;
 const FOLLOWUP_LIMIT = 100;
 const FOLLOWUP_INTRO =
-  "Passando pra lembrar com carinho: {{requester_name}} tinha pedido esse produto de presente. Se ainda estiver em dúvida, essa pode ser uma forma simples de mostrar que você lembrou.";
+  "Passando pra lembrar: {{requester_name}} tinha pedido esse produto de presente. Se você ainda está decidindo, dar algo que a pessoa já queria é um jeito simples de acertar.";
 
 interface GiftRequestWithId extends GiftRequestRow {
   id: string;
