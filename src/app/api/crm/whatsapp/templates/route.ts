@@ -77,12 +77,40 @@ export async function POST(request: NextRequest) {
         synced_at: new Date().toISOString(),
       }));
 
-      const { error: upsertError } = await admin
+      const metaIds = rows.map((r) => r.meta_id).filter(Boolean);
+      const { data: existing, error: existingError } = await admin
         .from("wa_templates")
-        .upsert(rows, { onConflict: "workspace_id,meta_id" });
-      if (upsertError) {
-        console.error("[WA Templates] Upsert error:", upsertError.message);
-        throw new Error(`Erro ao salvar templates: ${upsertError.message}`);
+        .select("meta_id")
+        .eq("workspace_id", workspaceId)
+        .in("meta_id", metaIds);
+      if (existingError) {
+        console.error("[WA Templates] Existing lookup error:", existingError.message);
+        throw new Error(`Erro ao buscar templates existentes: ${existingError.message}`);
+      }
+
+      const existingMetaIds = new Set((existing || []).map((t) => t.meta_id));
+      const toInsert = rows.filter((row) => !existingMetaIds.has(row.meta_id));
+      const toUpdate = rows.filter((row) => existingMetaIds.has(row.meta_id));
+
+      for (const row of toUpdate) {
+        const { workspace_id: _workspaceId, meta_id: _metaId, ...patch } = row;
+        const { error: updateError } = await admin
+          .from("wa_templates")
+          .update(patch)
+          .eq("workspace_id", workspaceId)
+          .eq("meta_id", row.meta_id);
+        if (updateError) {
+          console.error("[WA Templates] Update error:", updateError.message);
+          throw new Error(`Erro ao atualizar template ${row.name}: ${updateError.message}`);
+        }
+      }
+
+      if (toInsert.length > 0) {
+        const { error: insertError } = await admin.from("wa_templates").insert(toInsert);
+        if (insertError) {
+          console.error("[WA Templates] Insert error:", insertError.message);
+          throw new Error(`Erro ao inserir templates: ${insertError.message}`);
+        }
       }
     }
 
