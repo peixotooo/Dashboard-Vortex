@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { syncGiftRequestConversions } from "@/lib/gift-request/conversions";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -41,6 +42,15 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10), 500);
 
   const admin = createAdminClient();
+
+  try {
+    await syncGiftRequestConversions({
+      admin,
+      workspaceId: auth.workspaceId,
+    });
+  } catch (err) {
+    console.error("[GiftRequest Requests] conversion sync failed:", err);
+  }
 
   // Pega gift_requests + JOIN com wa_messages pra status real do envio
   // (status do gift_requests segue o da fila; mas se quisermos enriquecer

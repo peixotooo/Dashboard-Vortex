@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { syncGiftRequestConversions } from "@/lib/gift-request/conversions";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -37,6 +38,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const admin = createAdminClient();
+
+  try {
+    await syncGiftRequestConversions({
+      admin,
+      workspaceId: auth.workspaceId,
+    });
+  } catch (err) {
+    console.error("[GiftRequest Stats] conversion sync failed:", err);
+  }
 
   const { data, error } = await admin
     .from("gift_requests")

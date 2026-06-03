@@ -1471,7 +1471,7 @@ export default function GiftRequestPage() {
                     <tr>
                       <th className="text-left p-3">Quando</th>
                       <th className="text-left p-3">Solicitante</th>
-                      <th className="text-left p-3">Presenteado</th>
+                      <th className="text-left p-3">Presenteador</th>
                       <th className="text-left p-3">Produto</th>
                       <th className="text-left p-3">Status</th>
                       <th className="text-left p-3">Entregue</th>
@@ -1481,7 +1481,9 @@ export default function GiftRequestPage() {
                   </thead>
                   <tbody>
                     {requests.map((r) => {
-                      const status = r.wa_status || r.status;
+                      const status = r.converted_at
+                        ? "converted"
+                        : r.wa_status || r.status;
                       const meta = STATUS_META[status] || STATUS_META.queued;
                       const Icon = meta.Icon;
                       return (
@@ -1539,6 +1541,11 @@ export default function GiftRequestPage() {
                             {r.wa_error && (
                               <div className="text-[10px] text-red-600 mt-1">
                                 {r.wa_error}
+                              </div>
+                            )}
+                            {r.converted_order_id && (
+                              <div className="text-[10px] text-emerald-700 mt-1">
+                                Pedido {r.converted_order_id}
                               </div>
                             )}
                           </td>
