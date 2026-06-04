@@ -83,8 +83,8 @@ const DEFAULTS: Omit<CashbackConfigRow, "workspace_id"> = {
   deposit_delay_days: 15,
   validity_days: 30,
   reminder_1_day: 15,
-  reminder_2_day: 25,
-  reminder_3_day: 29,
+  reminder_2_day: 5,
+  reminder_3_day: 3,
   reactivation_days: 15,
   reactivation_reminder_day: 13,
   whatsapp_min_value: 10,
@@ -112,7 +112,27 @@ export async function getOrCreateConfig(
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (existing) return existing as CashbackConfigRow;
+  if (existing) {
+    const current = existing as CashbackConfigRow;
+    const legacyPatch: Partial<CashbackConfigRow> & { updated_at?: string } = {};
+
+    // One-time compatibility migration for the first cashback rollout:
+    // old production values were WA R$20, e-mail R$10, L2 on order day 25
+    // and L3 on order day 29. New strategy is WA R$10, e-mail R$5,
+    // L2 D+5 after deposit and L3 D-3 before expiration.
+    if (Number(current.whatsapp_min_value) === 20) legacyPatch.whatsapp_min_value = 10;
+    if (Number(current.email_min_value) === 10) legacyPatch.email_min_value = 5;
+    if (Number(current.reminder_2_day) === 25) legacyPatch.reminder_2_day = 5;
+    if (Number(current.reminder_3_day) === 29) legacyPatch.reminder_3_day = 3;
+
+    if (Object.keys(legacyPatch).length > 0) {
+      legacyPatch.updated_at = new Date().toISOString();
+      await client.from("cashback_config").update(legacyPatch).eq("workspace_id", workspaceId);
+      return { ...current, ...legacyPatch } as CashbackConfigRow;
+    }
+
+    return current;
+  }
 
   const row = { workspace_id: workspaceId, ...DEFAULTS };
   await client.from("cashback_config").insert(row);

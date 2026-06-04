@@ -8,6 +8,11 @@ import {
 } from "@/lib/cashback/api";
 import { sendReminderForStage } from "@/lib/cashback/reminders";
 import {
+  daysAheadIso,
+  secondReminderAfterDepositDays,
+  finalReminderBeforeExpiryDays,
+} from "@/lib/cashback/reminder-schedule";
+import {
   depositVndaCredit,
   refundVndaCredit,
   withdrawalVndaCredit,
@@ -42,7 +47,7 @@ function newTickSummary(workspaceId: string): TickSummary {
   };
 }
 
-const BATCH = 100;
+const BATCH = 500;
 
 function hoursAgo(h: number): string {
   const d = new Date();
@@ -53,12 +58,6 @@ function hoursAgo(h: number): string {
 function daysAgo(d: number): string {
   const out = new Date();
   out.setUTCDate(out.getUTCDate() - d);
-  return out.toISOString();
-}
-
-function daysAhead(d: number): string {
-  const out = new Date();
-  out.setUTCDate(out.getUTCDate() + d);
   return out.toISOString();
 }
 
@@ -197,7 +196,7 @@ async function runSecondReminder(
   cfg: CashbackConfigRow,
   summary: TickSummary
 ) {
-  const offset = Math.max(1, cfg.reminder_2_day - cfg.deposit_delay_days);
+  const offset = secondReminderAfterDepositDays(cfg);
   const threshold = daysAgo(offset);
   const { data: rows } = await admin
     .from("cashback_transactions")
@@ -221,7 +220,7 @@ async function runThirdReminder(
   cfg: CashbackConfigRow,
   summary: TickSummary
 ) {
-  const horizon = daysAhead(1); // expires within 24h
+  const horizon = daysAheadIso(finalReminderBeforeExpiryDays(cfg));
   const { data: rows } = await admin
     .from("cashback_transactions")
     .select("*")

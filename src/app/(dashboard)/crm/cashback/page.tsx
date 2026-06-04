@@ -34,6 +34,11 @@ import {
   TrendingUp,
   Wallet,
   Repeat,
+  BarChart3,
+  Clock,
+  Mail,
+  MessageCircle,
+  Target,
 } from "lucide-react";
 
 // --- Types ---
@@ -45,6 +50,13 @@ interface Metrics {
   counts: MetricsSummary["counts"];
   totals: MetricsSummary["totals"];
   ratios: MetricsSummary["ratios"];
+  adoption?: AdoptionMetrics;
+  reminderFunnel?: ReminderFunnelMetrics;
+  channelCoverage?: ChannelCoverageMetrics;
+  valueBands?: ValueBandMetric[];
+  activeRisk?: ActiveRiskMetrics;
+  usageAttribution?: UsageAttributionMetrics;
+  alerts?: OperationalAlert[];
 }
 
 interface MetricsSummary {
@@ -93,6 +105,108 @@ interface Transaction {
   lembrete1_enviado_em: string | null;
   lembrete2_enviado_em: string | null;
   lembrete3_enviado_em: string | null;
+}
+
+interface AdoptionMetrics {
+  depositedCount: number;
+  usedCount: number;
+  activeCount: number;
+  usageRate: number;
+  targetUsageRate: number;
+  usageGapToTarget: number;
+  depositedValue: number;
+  usedBalanceValue: number;
+  creditAppliedValue: number;
+  returnOrderValue: number;
+  activeValue: number;
+  valueUsageRate: number;
+}
+
+interface ReminderFunnelMetrics {
+  totalDeposited: number;
+  stages: Array<{ stage: string; label: string; sentCount: number; coverageRate: number }>;
+  backlog: {
+    l1Missing: number;
+    l2Due: number;
+    l2DueValue: number;
+    l3Due: number;
+    l3DueValue: number;
+  };
+  exposure: Array<{ key: string; label: string; count: number; usedCount: number; usageRate: number }>;
+}
+
+interface ChannelCoverageMetrics {
+  whatsapp: {
+    minValue: number;
+    eligible: number;
+    blockedByValue: number;
+    missingPhone: number;
+    potentialRate: number;
+  };
+  email: {
+    minValue: number;
+    eligible: number;
+    blockedByValue: number;
+    missingEmail: number;
+    potentialRate: number;
+  };
+  eventSkips: Array<{ stage: string; channel: string; reason: string; count: number }>;
+}
+
+interface ValueBandMetric {
+  label: string;
+  count: number;
+  usedCount: number;
+  activeCount: number;
+  value: number;
+  usedValue: number;
+  usageRate: number;
+}
+
+interface ActiveRiskMetrics {
+  activeCount: number;
+  activeValue: number;
+  oldNoUseCount: number;
+  oldNoUseValue: number;
+  noL2EligibleCount: number;
+  noL2EligibleValue: number;
+  expiring3dCount: number;
+  expiring3dValue: number;
+  expiring7dCount: number;
+  expiring7dValue: number;
+}
+
+interface UsageAttributionMetrics {
+  usedCount: number;
+  creditUsed: number;
+  returnOrderValue: number;
+  avgUseDelayDays: number;
+  usedWithin7d: number;
+  usedAfter20d: number;
+  lastReminderBeforeUse: Array<{ label: string; count: number; creditUsed: number; returnOrderValue: number }>;
+}
+
+interface OperationalAlert {
+  key: string;
+  label: string;
+  value: number;
+  amount: number;
+  severity: "ok" | "info" | "warning";
+  description: string;
+}
+
+interface ProcessDueResult {
+  ok?: boolean;
+  dryRun?: boolean;
+  results?: Array<{
+    stage: string;
+    label: string;
+    candidates: number;
+    processed: number;
+    sent: number;
+    skipped: number;
+    errors: number;
+  }>;
 }
 
 interface Config {
@@ -161,6 +275,8 @@ const BRL = (v: number) =>
 
 const PCT = (v: number) => `${(v * 100).toFixed(1)}%`;
 
+const INT = (v: number) => v.toLocaleString("pt-BR");
+
 const STATUS_COLORS: Record<string, string> = {
   AGUARDANDO_DEPOSITO: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   ATIVO: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -172,10 +288,38 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STAGE_LABEL: Record<string, string> = {
   LEMBRETE_1: "Lembrete 1 (depósito · automático)",
-  LEMBRETE_2: "Lembrete 2 (meio · automático)",
-  LEMBRETE_3: "Lembrete 3 (véspera · automático)",
+  LEMBRETE_2: "Lembrete 2 (D+5 pós-depósito)",
+  LEMBRETE_3: "Lembrete 3 (D-3 antes de expirar)",
   REATIVACAO: "Reativação (manual)",
   REATIVACAO_LEMBRETE: "Lembrete de reativação (campanha esporádica)",
+};
+
+const RECOMMENDED_EMAIL_COPY: Record<Template["estagio"], { subject: string; body: string }> = {
+  LEMBRETE_1: {
+    subject: "{{nome}}, seu cashback de {{valor}} já está disponível",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Seu cashback de <strong>{{valor}}</strong> do pedido {{pedido}} já está disponível na sua conta.</p><p>Para usar, entre na loja com o e-mail {{email}} e escolha o crédito no checkout antes de finalizar a compra.</p><p>Ele fica disponível até <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  LEMBRETE_2: {
+    subject: "{{nome}}, seu cashback de {{valor}} ainda está disponível",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Você ainda tem <strong>{{valor}}</strong> de cashback parado na sua conta.</p><p>Na próxima compra, acesse a loja com o e-mail {{email}} e aplique o crédito no checkout. É simples e o desconto aparece antes de fechar o pedido.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  LEMBRETE_3: {
+    subject: "Últimos dias para usar seu cashback de {{valor}}, {{nome}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Passando para lembrar que seu cashback de <strong>{{valor}}</strong> vence em poucos dias.</p><p>Se fizer sentido comprar agora, entre com o e-mail {{email}} e aplique o crédito no checkout antes de finalizar.</p><p>Válido até <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  REATIVACAO: {
+    subject: "{{nome}}, reativamos seu cashback de {{valor}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Reativamos <strong>{{valor}}</strong> de cashback na sua conta.</p><p>Para usar, entre na loja com o e-mail {{email}} e aplique o crédito no checkout antes de finalizar.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  REATIVACAO_LEMBRETE: {
+    subject: "Seu cashback reativado vence em breve, {{nome}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Seu cashback reativado de <strong>{{valor}}</strong> ainda está disponível, mas vence em breve.</p><p>Use o e-mail {{email}} no checkout para aplicar o crédito antes de finalizar a compra.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
 };
 
 function formatDate(s: string | null | undefined): string {
@@ -389,6 +533,335 @@ function DashboardTab({ workspaceId }: { workspaceId: string }) {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- Adoção Tab ---
+
+function AdoptionTab({ workspaceId }: { workspaceId: string }) {
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [processResult, setProcessResult] = useState<ProcessDueResult | null>(null);
+
+  const load = useCallback(async () => {
+    if (!workspaceId) return;
+    setLoading(true);
+    const res = await fetch("/api/cashback/metrics?days=365", {
+      headers: { "x-workspace-id": workspaceId },
+    });
+    if (res.ok) setMetrics(await res.json());
+    setLoading(false);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function processDue(dryRun: boolean) {
+    if (!dryRun && !confirm("Processar lembretes pendentes agora? Isso pode enviar WhatsApp/e-mail para clientes elegíveis.")) {
+      return;
+    }
+    setProcessing(true);
+    setProcessResult(null);
+    const res = await fetch("/api/cashback/reminders/process-due", {
+      method: "POST",
+      headers: { "x-workspace-id": workspaceId, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dryRun,
+        stages: ["LEMBRETE_1", "LEMBRETE_2", "LEMBRETE_3"],
+        limit: 500,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setProcessResult(json);
+    setProcessing(false);
+    if (!dryRun && res.ok) load();
+  }
+
+  if (loading || !metrics?.adoption || !metrics.reminderFunnel || !metrics.channelCoverage || !metrics.activeRisk || !metrics.usageAttribution) {
+    return (
+      <div className="flex items-center justify-center py-12 text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando adoção…
+      </div>
+    );
+  }
+
+  const adoption = metrics.adoption;
+  const funnel = metrics.reminderFunnel;
+  const coverage = metrics.channelCoverage;
+  const risk = metrics.activeRisk;
+  const attribution = metrics.usageAttribution;
+  const valueBands = metrics.valueBands ?? [];
+  const alerts = metrics.alerts ?? [];
+
+  const topCards = [
+    {
+      icon: <Target className="h-4 w-4 text-emerald-600" />,
+      label: "Adoção",
+      value: PCT(adoption.usageRate),
+      hint: `${INT(adoption.usedCount)} de ${INT(adoption.depositedCount)} cashbacks usados · meta ${PCT(adoption.targetUsageRate)}`,
+    },
+    {
+      icon: <Wallet className="h-4 w-4 text-cyan-600" />,
+      label: "Saldo ativo parado",
+      value: BRL(adoption.activeValue),
+      hint: `${INT(adoption.activeCount)} clientes ainda podem usar`,
+    },
+    {
+      icon: <Send className="h-4 w-4 text-violet-600" />,
+      label: "L2 pendente",
+      value: INT(funnel.backlog.l2Due),
+      hint: `${BRL(funnel.backlog.l2DueValue)} em cashbacks prontos para lembrete`,
+    },
+    {
+      icon: <Clock className="h-4 w-4 text-rose-600" />,
+      label: "Expira em 7 dias",
+      value: INT(risk.expiring7dCount),
+      hint: `${BRL(risk.expiring7dValue)} em risco de vencer`,
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Adoção do Cashback</h2>
+          <p className="text-sm text-muted-foreground">
+            Uso real, saldo parado, cobertura da régua e vazamentos operacionais.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={load}>
+            <RefreshCcw className="mr-2 h-3.5 w-3.5" /> Atualizar
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => processDue(true)} disabled={processing}>
+            {processing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="mr-2 h-3.5 w-3.5" />}
+            Simular pendentes
+          </Button>
+          <Button size="sm" onClick={() => processDue(false)} disabled={processing}>
+            {processing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-2 h-3.5 w-3.5" />}
+            Processar pendentes
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {topCards.map((card) => (
+          <Card key={card.label}>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                {card.icon} {card.label}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{card.value}</div>
+              <p className="mt-1 text-xs text-muted-foreground">{card.hint}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {processResult?.results && (
+        <Card className="border-emerald-200 bg-emerald-50/50">
+          <CardContent className="pt-4">
+            <div className="mb-2 text-sm font-semibold">
+              {processResult.dryRun ? "Simulação dos pendentes" : "Processamento executado"}
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {processResult.results.map((result) => (
+                <div key={result.stage} className="rounded-md border bg-background p-3 text-sm">
+                  <div className="font-medium">{result.stage.replace("LEMBRETE_", "L")}</div>
+                  <div className="text-xs text-muted-foreground">{result.label}</div>
+                  <div className="mt-2 text-xs">
+                    Candidatos: <strong>{INT(result.candidates)}</strong>
+                    {!processResult.dryRun && (
+                      <>
+                        {" "}· enviados: <strong>{INT(result.sent)}</strong> · pulados: <strong>{INT(result.skipped)}</strong>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {alerts.map((alert) => (
+          <Card key={alert.key} className={alert.severity === "warning" ? "border-orange-200 bg-orange-50/60" : ""}>
+            <CardContent className="pt-4">
+              <div className="text-xs font-medium uppercase text-muted-foreground">{alert.label}</div>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <div className="text-2xl font-bold">{INT(alert.value)}</div>
+                {alert.amount > 0 && <div className="text-sm font-semibold">{BRL(alert.amount)}</div>}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">{alert.description}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Régua L1/L2/L3</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {funnel.stages.map((stage) => (
+              <div key={stage.stage}>
+                <div className="mb-1 flex items-center justify-between text-sm">
+                  <span className="font-medium">{stage.label}</span>
+                  <span className="text-muted-foreground">{INT(stage.sentCount)} · {PCT(stage.coverageRate)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted">
+                  <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${Math.min(100, stage.coverageRate * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+            <div className="grid gap-2 pt-2 md:grid-cols-3">
+              <div className="rounded-md border p-3 text-sm">
+                <div className="text-xs text-muted-foreground">Sem L1</div>
+                <div className="text-lg font-bold">{INT(funnel.backlog.l1Missing)}</div>
+              </div>
+              <div className="rounded-md border p-3 text-sm">
+                <div className="text-xs text-muted-foreground">L2 atrasado</div>
+                <div className="text-lg font-bold">{INT(funnel.backlog.l2Due)}</div>
+              </div>
+              <div className="rounded-md border p-3 text-sm">
+                <div className="text-xs text-muted-foreground">L3 a vencer</div>
+                <div className="text-lg font-bold">{INT(funnel.backlog.l3Due)}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Cobertura por canal</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-md border p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <MessageCircle className="h-4 w-4" /> WhatsApp
+              </div>
+              <div className="mt-2 text-xl font-bold">{PCT(coverage.whatsapp.potentialRate)}</div>
+              <p className="text-xs text-muted-foreground">
+                {INT(coverage.whatsapp.eligible)} elegíveis · {INT(coverage.whatsapp.blockedByValue)} abaixo de {BRL(coverage.whatsapp.minValue)}
+              </p>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Mail className="h-4 w-4" /> E-mail
+              </div>
+              <div className="mt-2 text-xl font-bold">{PCT(coverage.email.potentialRate)}</div>
+              <p className="text-xs text-muted-foreground">
+                {INT(coverage.email.eligible)} elegíveis · {INT(coverage.email.blockedByValue)} abaixo de {BRL(coverage.email.minValue)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Uso por faixa de valor</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="px-4 py-2 text-left font-medium">Faixa</th>
+                  <th className="px-4 py-2 text-right font-medium">Depositados</th>
+                  <th className="px-4 py-2 text-right font-medium">Usados</th>
+                  <th className="px-4 py-2 text-right font-medium">Adoção</th>
+                  <th className="px-4 py-2 text-right font-medium">Saldo ativo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {valueBands.map((band) => (
+                  <tr key={band.label} className="border-b">
+                    <td className="px-4 py-2 font-medium">{band.label}</td>
+                    <td className="px-4 py-2 text-right">{INT(band.count)}</td>
+                    <td className="px-4 py-2 text-right">{INT(band.usedCount)}</td>
+                    <td className="px-4 py-2 text-right font-semibold">{PCT(band.usageRate)}</td>
+                    <td className="px-4 py-2 text-right">{INT(band.activeCount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Último lembrete antes do uso</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Tempo até uso</div>
+                <div className="text-lg font-bold">{attribution.avgUseDelayDays.toFixed(1)} dias</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Usou até 7d</div>
+                <div className="text-lg font-bold">{INT(attribution.usedWithin7d)}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Pedido retorno</div>
+                <div className="text-lg font-bold">{BRL(attribution.returnOrderValue)}</div>
+              </div>
+            </div>
+            {attribution.lastReminderBeforeUse.map((item) => (
+              <div key={item.label}>
+                <div className="mb-1 flex items-center justify-between text-sm">
+                  <span>{item.label}</span>
+                  <span className="font-semibold">{INT(item.count)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted">
+                  <div
+                    className="h-2 rounded-full bg-violet-500"
+                    style={{ width: `${Math.min(100, attribution.usedCount > 0 ? (item.count / attribution.usedCount) * 100 : 0)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      {coverage.eventSkips.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Skips registrados</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="px-4 py-2 text-left font-medium">Estágio</th>
+                  <th className="px-4 py-2 text-left font-medium">Canal</th>
+                  <th className="px-4 py-2 text-left font-medium">Motivo</th>
+                  <th className="px-4 py-2 text-right font-medium">Qtd.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coverage.eventSkips.map((skip) => (
+                  <tr key={`${skip.stage}-${skip.channel}-${skip.reason}`} className="border-b">
+                    <td className="px-4 py-2">{skip.stage}</td>
+                    <td className="px-4 py-2">{skip.channel}</td>
+                    <td className="px-4 py-2">{skip.reason}</td>
+                    <td className="px-4 py-2 text-right font-semibold">{INT(skip.count)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -1096,6 +1569,42 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
     setTemplates([...others, merged]);
   }
 
+  function applyRecommendedRules() {
+    setCfg({
+      ...cfg!,
+      whatsapp_min_value: 10,
+      email_min_value: 5,
+      reminder_2_day: 5,
+      reminder_3_day: 3,
+      channel_mode: "both",
+    });
+  }
+
+  function applyRecommendedEmailCopy() {
+    const next = new Map<string, Template>();
+    templates.forEach((t) => next.set(`${t.canal}|${t.estagio}`, t));
+    (Object.keys(RECOMMENDED_EMAIL_COPY) as Template["estagio"][]).forEach((estagio) => {
+      const key = `email|${estagio}`;
+      const existing = next.get(key) || {
+        canal: "email" as const,
+        estagio,
+        enabled: true,
+        wa_template_name: null,
+        wa_template_language: "pt_BR",
+        email_subject: null,
+        email_body_html: null,
+      };
+      const copy = RECOMMENDED_EMAIL_COPY[estagio];
+      next.set(key, {
+        ...existing,
+        email_subject: copy.subject,
+        email_body_html: copy.body,
+        enabled: true,
+      });
+    });
+    setTemplates(Array.from(next.values()));
+  }
+
   if (!cfg) return <div className="flex items-center justify-center py-12 text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando configuração…</div>;
 
   const STAGES: Template["estagio"][] = ["LEMBRETE_1", "LEMBRETE_2", "LEMBRETE_3", "REATIVACAO", "REATIVACAO_LEMBRETE"];
@@ -1109,6 +1618,12 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
       </TabsList>
 
       <TabsContent value="regras" className="space-y-4">
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={applyRecommendedRules}>
+            <Target className="mr-2 h-3.5 w-3.5" /> Aplicar régua recomendada
+          </Button>
+        </div>
+
         <Card>
           <CardHeader><CardTitle>Cálculo do cashback</CardTitle></CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-3">
@@ -1239,14 +1754,19 @@ function ConfigTab({ workspaceId }: { workspaceId: string }) {
         <Card>
           <CardHeader><CardTitle>Timing dos lembretes</CardTitle></CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-4">
-            <div className="grid gap-1"><Label>Lembrete 1 (dia)</Label><Input type="number" value={cfg.reminder_1_day} onChange={(e) => setCfg({ ...cfg, reminder_1_day: Number(e.target.value) })} /></div>
-            <div className="grid gap-1"><Label>Lembrete 2 (dia)</Label><Input type="number" value={cfg.reminder_2_day} onChange={(e) => setCfg({ ...cfg, reminder_2_day: Number(e.target.value) })} /></div>
-            <div className="grid gap-1"><Label>Lembrete 3 (dia)</Label><Input type="number" value={cfg.reminder_3_day} onChange={(e) => setCfg({ ...cfg, reminder_3_day: Number(e.target.value) })} /></div>
+            <div className="grid gap-1"><Label>L1 no depósito</Label><Input type="number" value={cfg.reminder_1_day} onChange={(e) => setCfg({ ...cfg, reminder_1_day: Number(e.target.value) })} /></div>
+            <div className="grid gap-1"><Label>L2 dias após depósito</Label><Input type="number" value={cfg.reminder_2_day} onChange={(e) => setCfg({ ...cfg, reminder_2_day: Number(e.target.value) })} /></div>
+            <div className="grid gap-1"><Label>L3 dias antes de expirar</Label><Input type="number" value={cfg.reminder_3_day} onChange={(e) => setCfg({ ...cfg, reminder_3_day: Number(e.target.value) })} /></div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Templates por estágio</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle>Templates por estágio</CardTitle>
+            <Button variant="outline" size="sm" onClick={applyRecommendedEmailCopy}>
+              <Mail className="mr-2 h-3.5 w-3.5" /> Aplicar copy de e-mail
+            </Button>
+          </CardHeader>
           <CardContent className="space-y-6">
             {STAGES.map((estagio) => {
               const wa = templateByKey.get(`whatsapp|${estagio}`);
@@ -1421,10 +1941,12 @@ export default function CashbackPage() {
       <Tabs defaultValue="dashboard" className="space-y-4">
         <TabsList>
           <TabsTrigger value="dashboard"><TrendingUp className="mr-2 h-3.5 w-3.5" /> Dashboard</TabsTrigger>
+          <TabsTrigger value="adocao"><Target className="mr-2 h-3.5 w-3.5" /> Adoção</TabsTrigger>
           <TabsTrigger value="clientes"><Users className="mr-2 h-3.5 w-3.5" /> Clientes</TabsTrigger>
           <TabsTrigger value="config"><Settings2 className="mr-2 h-3.5 w-3.5" /> Configurações</TabsTrigger>
         </TabsList>
         <TabsContent value="dashboard"><DashboardTab workspaceId={workspaceId} /></TabsContent>
+        <TabsContent value="adocao"><AdoptionTab workspaceId={workspaceId} /></TabsContent>
         <TabsContent value="clientes"><ClientesTab workspaceId={workspaceId} /></TabsContent>
         <TabsContent value="config"><ConfigTab workspaceId={workspaceId} /></TabsContent>
       </Tabs>

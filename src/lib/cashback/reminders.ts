@@ -41,12 +41,42 @@ export interface ReminderSendResult {
   messageId?: string;
 }
 
-const IDEMPOTENCY_COLUMN: Record<CashbackStage, keyof CashbackTransactionRow> = {
+export const IDEMPOTENCY_COLUMN: Record<CashbackStage, keyof CashbackTransactionRow> = {
   LEMBRETE_1: "lembrete1_enviado_em",
   LEMBRETE_2: "lembrete2_enviado_em",
   LEMBRETE_3: "lembrete3_enviado_em",
   REATIVACAO: "reativacao_enviado_em",
   REATIVACAO_LEMBRETE: "reativacao_lembrete2",
+};
+
+const REMINDER_VARIANT = "benefit_reward_urgency_v1";
+
+const RECOMMENDED_EMAIL_TEMPLATES: Partial<Record<CashbackStage, { subject: string; body: string }>> = {
+  LEMBRETE_1: {
+    subject: "{{nome}}, seu cashback de {{valor}} já está disponível",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Seu cashback de <strong>{{valor}}</strong> do pedido {{pedido}} já está disponível na sua conta.</p><p>Para usar, entre na loja com o e-mail {{email}} e escolha o crédito no checkout antes de finalizar a compra.</p><p>Ele fica disponível até <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  LEMBRETE_2: {
+    subject: "{{nome}}, seu cashback de {{valor}} ainda está disponível",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Você ainda tem <strong>{{valor}}</strong> de cashback parado na sua conta.</p><p>Na próxima compra, acesse a loja com o e-mail {{email}} e aplique o crédito no checkout. É simples e o desconto aparece antes de fechar o pedido.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  LEMBRETE_3: {
+    subject: "Últimos dias para usar seu cashback de {{valor}}, {{nome}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Passando para lembrar que seu cashback de <strong>{{valor}}</strong> vence em poucos dias.</p><p>Se fizer sentido comprar agora, entre com o e-mail {{email}} e aplique o crédito no checkout antes de finalizar.</p><p>Válido até <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  REATIVACAO: {
+    subject: "{{nome}}, reativamos seu cashback de {{valor}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Reativamos <strong>{{valor}}</strong> de cashback na sua conta.</p><p>Para usar, entre na loja com o e-mail {{email}} e aplique o crédito no checkout antes de finalizar.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
+  REATIVACAO_LEMBRETE: {
+    subject: "Seu cashback reativado vence em breve, {{nome}}",
+    body:
+      "<p>Oi {{nome}}, tudo bem?</p><p>Seu cashback reativado de <strong>{{valor}}</strong> ainda está disponível, mas vence em breve.</p><p>Use o e-mail {{email}} no checkout para aplicar o crédito antes de finalizar a compra.</p><p>Validade: <strong>{{expira_em_long}}</strong>.</p>",
+  },
 };
 
 function buildVars(cashback: CashbackTransactionRow): TemplateVars {
@@ -72,7 +102,61 @@ async function loadTemplate(
     .eq("canal", canal)
     .eq("estagio", estagio)
     .maybeSingle();
-  return (data as ReminderTemplateRow | null) ?? null;
+  const row = (data as ReminderTemplateRow | null) ?? null;
+
+  const recommended = RECOMMENDED_EMAIL_TEMPLATES[estagio];
+  if (!row && canal === "email" && recommended) {
+    const created: ReminderTemplateRow = {
+      canal,
+      estagio,
+      enabled: true,
+      wa_template_name: null,
+      wa_template_language: "pt_BR",
+      email_subject: recommended.subject,
+      email_body_html: recommended.body,
+    };
+    await admin
+      .from("cashback_reminder_templates")
+      .upsert({
+        workspace_id: workspaceId,
+        canal,
+        estagio,
+        enabled: true,
+        wa_template_name: null,
+        wa_template_language: "pt_BR",
+        email_subject: recommended.subject,
+        email_body_html: recommended.body,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "workspace_id, canal, estagio" });
+    return created;
+  }
+
+  const currentText = `${row?.email_subject || ""}\n${row?.email_body_html || ""}`;
+  const hasOldTone = /vira fuma|hoje ou nunca|desperd[ií]cio|amanh[aã] some/i.test(currentText);
+  if (row && canal === "email" && recommended && (!row.email_subject || !row.email_body_html || hasOldTone)) {
+    const updated = {
+      ...row,
+      email_subject: recommended.subject,
+      email_body_html: recommended.body,
+      enabled: true,
+    };
+    await admin
+      .from("cashback_reminder_templates")
+      .upsert({
+        workspace_id: workspaceId,
+        canal,
+        estagio,
+        enabled: true,
+        wa_template_name: row.wa_template_name,
+        wa_template_language: row.wa_template_language || "pt_BR",
+        email_subject: recommended.subject,
+        email_body_html: recommended.body,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "workspace_id, canal, estagio" });
+    return updated;
+  }
+
+  return row;
 }
 
 async function sendWhatsApp(
@@ -150,6 +234,53 @@ async function sendEmailChannel(
   };
 }
 
+function reminderPayload(
+  cashback: CashbackTransactionRow,
+  stage: CashbackStage,
+  cfg: CashbackConfigRow,
+  results: ReminderSendResult[],
+  options?: { variant?: string; holdout?: boolean }
+): Record<string, unknown> {
+  const cleanResults = results.map((r) => ({
+    channel: r.channel,
+    sent: r.sent,
+    skipped: r.skipped ?? null,
+    error: r.error ?? null,
+    message_id: r.messageId ?? null,
+  }));
+  return {
+    stage,
+    variant: options?.variant ?? REMINDER_VARIANT,
+    holdout: options?.holdout ?? false,
+    sent: cleanResults.some((r) => r.sent),
+    sent_channels: cleanResults.filter((r) => r.sent).map((r) => r.channel),
+    skipped_channels: cleanResults.filter((r) => !r.sent).map((r) => ({
+      channel: r.channel,
+      reason: r.skipped ?? r.error ?? "not_sent",
+    })),
+    results: cleanResults,
+    credit_used: null,
+    source_order_total: null,
+    valor_cashback: Number(cashback.valor_cashback),
+    gates: {
+      whatsapp_min_value: Number(cfg.whatsapp_min_value),
+      email_min_value: Number(cfg.email_min_value),
+    },
+  };
+}
+
+async function logReminderAttempt(
+  admin: SupabaseClient,
+  cashback: CashbackTransactionRow,
+  stage: CashbackStage,
+  cfg: CashbackConfigRow,
+  results: ReminderSendResult[],
+  options?: { variant?: string; holdout?: boolean; logAttempt?: boolean }
+) {
+  if (options?.logAttempt === false) return;
+  await logEvent(admin, cashback.workspace_id, cashback.id, stage, reminderPayload(cashback, stage, cfg, results, options));
+}
+
 /**
  * Sends reminder for (cashback × stage) across the channels enabled by config.
  * Idempotent via the per-stage timestamp column on cashback_transactions.
@@ -158,24 +289,32 @@ export async function sendReminderForStage(
   cashback: CashbackTransactionRow,
   stage: CashbackStage,
   cfg: CashbackConfigRow,
-  admin?: SupabaseClient
+  admin?: SupabaseClient,
+  options?: { variant?: string; holdout?: boolean; logAttempt?: boolean }
 ): Promise<ReminderSendResult[]> {
   const client = admin ?? createAdminClient();
   const results: ReminderSendResult[] = [];
 
   const col = IDEMPOTENCY_COLUMN[stage];
   if (cashback[col]) {
-    return [{ channel: "whatsapp", sent: false, skipped: "already_sent" }];
+    const already: ReminderSendResult[] = [
+      { channel: "whatsapp" as const, sent: false, skipped: "already_sent" },
+      { channel: "email" as const, sent: false, skipped: "already_sent" },
+    ];
+    await logReminderAttempt(client, cashback, stage, cfg, already, options);
+    return already;
   }
 
   // Hard stop: cashback already used, expired, or cancelled — no more comms.
   // The cron jobs filter by status upstream, this is a defensive guard for
   // the manual force-reminder route and any future caller.
   if (cashback.status === "USADO" || cashback.status === "EXPIRADO" || cashback.status === "CANCELADO") {
-    return [
+    const blocked: ReminderSendResult[] = [
       { channel: "whatsapp", sent: false, skipped: `cashback_${cashback.status.toLowerCase()}` },
       { channel: "email", sent: false, skipped: `cashback_${cashback.status.toLowerCase()}` },
     ];
+    await logReminderAttempt(client, cashback, stage, cfg, blocked, options);
+    return blocked;
   }
 
   const vars = buildVars(cashback);
@@ -220,11 +359,9 @@ export async function sendReminderForStage(
       updated_at: new Date().toISOString(),
     };
     await client.from("cashback_transactions").update(patch).eq("id", cashback.id);
-
-    await logEvent(client, cashback.workspace_id, cashback.id, stage, {
-      results: results.map((r) => ({ channel: r.channel, sent: r.sent, error: r.error, skipped: r.skipped })),
-    });
   }
+
+  await logReminderAttempt(client, cashback, stage, cfg, results, options);
 
   return results;
 }
