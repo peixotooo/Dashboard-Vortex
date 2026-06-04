@@ -1639,7 +1639,7 @@ function GoalResultPanel({ run }: { run: RunReport }) {
         <GoalStatusBadge status={result?.status} />
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <ForecastBar label="Pedidos" actual={actual.orders} target={target?.orders} format={NUMBER} />
+        <ForecastBar label="Pedidos incr." actual={actual.orders} target={target?.orders} format={NUMBER} />
         <ForecastBar label="Receita" actual={actual.revenue} target={target?.revenue} format={BRL} />
         <ForecastBar label="MC liquida" actual={actual.contribution} target={target?.contribution} format={BRL} />
       </div>
@@ -2728,9 +2728,36 @@ function OperationsBoard({
                       </Badge>
                     </div>
                     <div className="mt-3">
-                      <StatGrid cols={6}>
-                        <Stat label="Tratamento" term="tratamento" value={NUMBER(run.treatmentList.totalCount)} />
-                        <Stat label="Holdout" term="holdout" value={NUMBER(run.holdoutList?.totalCount ?? 0)} />
+                      <div className="mb-3 rounded-md bg-muted/35 p-3">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Pedidos brutos na janela
+                        </p>
+                        <StatGrid cols={4}>
+                          <Stat
+                            label="Tratamento"
+                            term="tratamento"
+                            value={`${NUMBER(run.metrics.treatment.orders)} pedidos`}
+                            hint={`${BRL(run.metrics.treatment.revenue)} de receita nos clientes que receberam o disparo.`}
+                          />
+                          <Stat
+                            label="Holdout"
+                            term="holdout"
+                            value={`${NUMBER(run.metrics.holdout.orders)} pedidos`}
+                            hint={`${BRL(run.metrics.holdout.revenue)} de receita nos clientes separados como controle.`}
+                          />
+                          <Stat
+                            label="Conv. tratamento"
+                            value={RATE(run.metrics.treatment.conversionRate)}
+                            hint={`${NUMBER(run.metrics.treatment.buyers)} compradores de ${NUMBER(run.treatmentList.totalCount)} contatos.`}
+                          />
+                          <Stat
+                            label="Conv. holdout"
+                            value={RATE(run.metrics.holdout.conversionRate)}
+                            hint={`${NUMBER(run.metrics.holdout.buyers)} compradores de ${NUMBER(run.holdoutList?.totalCount ?? 0)} contatos.`}
+                          />
+                        </StatGrid>
+                      </div>
+                      <StatGrid cols={4}>
                         <Stat
                           label="Lift"
                           term={hasHoldout ? "lift" : undefined}

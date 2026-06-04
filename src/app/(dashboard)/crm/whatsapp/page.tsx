@@ -466,9 +466,7 @@ export default function WhatsAppPage() {
   // Fetch attribution/performance for campaigns that already sent messages.
   useEffect(() => {
     if (campaigns.length === 0 || !workspace?.id) return;
-    const trackable = campaigns.filter((c) =>
-      ["completed", "sending", "failed"].includes(c.status) && (c.sent_count || 0) > 0
-    );
+    const trackable = campaigns.filter((c) => (c.sent_count || 0) > 0);
     if (trackable.length === 0) return;
 
     const newIds = trackable.filter((c) => !perfData[c.id]).map((c) => c.id);

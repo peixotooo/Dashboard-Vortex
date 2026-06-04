@@ -313,7 +313,7 @@ export async function GET(request: NextRequest) {
       .select("id, name, status, total_messages, sent_count, started_at, completed_at, created_at, attribution_window_days, message_cost_usd, exchange_rate, template_id, wa_templates(name, language)")
       .eq("workspace_id", workspaceId)
       .eq("kind", "campaign")
-      .in("status", ["completed", "sending", "failed"]);
+      .in("status", ["completed", "sending", "failed", "paused", "cancelled"]);
 
     if (days > 0) {
       const since = new Date();
