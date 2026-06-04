@@ -10,6 +10,8 @@ export const maxDuration = 30;
 const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
 
+const REABANDON_RESET_MS = 6 * 60 * 60 * 1000;
+
 // Mesmo padrão do webhook de orders: token via query, workspace via
 // vnda_connections.webhook_token, resposta 200 imediata em erros pra
 // evitar retries agressivos da VNDA.
@@ -84,38 +86,80 @@ export async function POST(request: NextRequest) {
   const cartId = normalized.vnda_cart_token || normalized.vnda_cart_id || "unknown";
 
   try {
-    // Upsert por (workspace_id, vnda_cart_token). Se o mesmo carrinho
-    // chegar de novo (cliente adicionou item), atualizamos items/total
-    // mas não resetamos a régua — abandoned_at fica o do primeiro evento.
+    const existingResult = normalized.vnda_cart_token
+      ? await withTimeout(
+          Promise.resolve(
+            admin
+              .from("abandoned_carts")
+              .select(
+                "id, abandoned_at, customer_phone, customer_name, customer_state, customer_region"
+              )
+              .eq("workspace_id", workspaceId)
+              .eq("vnda_cart_token", normalized.vnda_cart_token)
+              .maybeSingle()
+          ),
+          5000
+        )
+      : null;
+
+    if (!existingResult && normalized.vnda_cart_token) {
+      console.warn(`[VNDA Abandoned] DB timeout on existing lookup for cart ${cartId}`);
+      await logWebhook(admin, workspaceId, cartId, "error", null, "existing lookup timeout");
+      return NextResponse.json({ ok: false, reason: "db_timeout" });
+    }
+
+    const existingCart = existingResult?.data || null;
+    const incomingAbandonedAtMs = Date.parse(normalized.abandoned_at);
+    const previousAbandonedAtMs = existingCart?.abandoned_at
+      ? Date.parse(existingCart.abandoned_at)
+      : NaN;
+    const isReabandonment =
+      existingCart &&
+      Number.isFinite(incomingAbandonedAtMs) &&
+      Number.isFinite(previousAbandonedAtMs) &&
+      incomingAbandonedAtMs - previousAbandonedAtMs > REABANDON_RESET_MS;
+
+    // Upsert por (workspace_id, vnda_cart_token). Reeventos próximos do mesmo
+    // carrinho atualizam itens/total sem reiniciar a régua. Se a VNDA reutiliza
+    // o mesmo token horas depois, tratamos como novo abandono e limpamos os
+    // logs do ciclo anterior para a régua poder recomeçar.
+    const row = {
+      workspace_id: workspaceId,
+      vnda_cart_token: normalized.vnda_cart_token,
+      vnda_cart_id: normalized.vnda_cart_id,
+      vnda_client_id: normalized.vnda_client_id,
+      customer_email: normalized.customer_email,
+      customer_phone: normalized.customer_phone || existingCart?.customer_phone || null,
+      customer_name: normalized.customer_name || existingCart?.customer_name || null,
+      customer_state: normalized.customer_state || existingCart?.customer_state || null,
+      customer_region: normalized.customer_region || existingCart?.customer_region || null,
+      items: normalized.items,
+      cart_total: normalized.cart_total,
+      recovery_url: normalized.recovery_url,
+      coupon_code: normalized.coupon_code,
+      abandoned_at: normalized.abandoned_at,
+      raw_payload: JSON.parse(JSON.stringify(payload)),
+      updated_at: new Date().toISOString(),
+      ...(isReabandonment
+        ? {
+            status: "open",
+            recovered_at: null,
+            closed_at: null,
+            recovery_started_at: null,
+            enrichment_attempted_at: null,
+          }
+        : {}),
+    };
+
     const upsertResult = await withTimeout(
       Promise.resolve(
         normalized.vnda_cart_token
           ? admin
               .from("abandoned_carts")
-              .upsert(
-                {
-                  workspace_id: workspaceId,
-                  vnda_cart_token: normalized.vnda_cart_token,
-                  vnda_cart_id: normalized.vnda_cart_id,
-                  vnda_client_id: normalized.vnda_client_id,
-                  customer_email: normalized.customer_email,
-                  customer_phone: normalized.customer_phone,
-                  customer_name: normalized.customer_name,
-                  customer_state: normalized.customer_state,
-                  customer_region: normalized.customer_region,
-                  items: normalized.items,
-                  cart_total: normalized.cart_total,
-                  recovery_url: normalized.recovery_url,
-                  coupon_code: normalized.coupon_code,
-                  abandoned_at: normalized.abandoned_at,
-                  raw_payload: JSON.parse(JSON.stringify(payload)),
-                  updated_at: new Date().toISOString(),
-                },
-                {
-                  onConflict: "workspace_id,vnda_cart_token",
-                  ignoreDuplicates: false,
-                }
-              )
+              .upsert(row, {
+                onConflict: "workspace_id,vnda_cart_token",
+                ignoreDuplicates: false,
+              })
           : admin.from("abandoned_carts").insert({
               workspace_id: workspaceId,
               vnda_cart_id: normalized.vnda_cart_id,
@@ -145,8 +189,23 @@ export async function POST(request: NextRequest) {
     const { error: upsertError } = upsertResult;
     if (upsertError) throw upsertError;
 
+    if (isReabandonment && existingCart?.id) {
+      const { error: cleanupError } = await admin
+        .from("cart_recovery_messages")
+        .delete()
+        .eq("cart_id", existingCart.id);
+      if (cleanupError) {
+        console.warn(
+          `[VNDA Abandoned] Failed to cleanup previous recovery logs for cart ${cartId}:`,
+          cleanupError.message
+        );
+      }
+    }
+
     console.log(
-      `[VNDA Abandoned] Cart ${cartId} saved for workspace ${workspaceId}`
+      `[VNDA Abandoned] Cart ${cartId} saved for workspace ${workspaceId}${
+        isReabandonment ? " (reabandonment reset)" : ""
+      }`
     );
     await logWebhook(admin, workspaceId, cartId, "success", null, null);
 
