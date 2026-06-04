@@ -286,7 +286,8 @@ async function insertMessageLog(
     channel: params.channel,
     status: params.ok ? "sent" : params.error === "no_phone" ||
       params.error === "no_smtp_config" ||
-      params.error === "missing_email_content"
+      params.error === "missing_email_content" ||
+      params.error === "email_suppressed"
         ? "skipped"
         : "failed",
     external_id: params.externalId || null,

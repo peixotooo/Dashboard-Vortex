@@ -3,6 +3,12 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
 import { getSmtpConfig, sendEmail } from "./locaweb-smtp";
 import {
+  appendUnsubscribeFooter,
+  buildListUnsubscribeHeaders,
+  buildUnsubscribeUrl,
+  isEmailSuppressed,
+} from "@/lib/email-unsubscribe";
+import {
   buildVarMap,
   formatBRL,
   formatDateLong,
@@ -105,6 +111,7 @@ async function sendWhatsApp(
 }
 
 async function sendEmailChannel(
+  admin: SupabaseClient,
   workspaceId: string,
   email: string,
   template: ReminderTemplateRow,
@@ -115,12 +122,24 @@ async function sendEmailChannel(
   }
   const smtp = await getSmtpConfig(workspaceId);
   if (!smtp) return { channel: "email", sent: false, error: "no_smtp_config" };
+  if (await isEmailSuppressed(admin, workspaceId, email)) {
+    return { channel: "email", sent: false, skipped: "email_suppressed" };
+  }
 
   const map = buildVarMap(vars);
+  const unsubscribeUrl = buildUnsubscribeUrl({
+    workspaceId,
+    email,
+    source: "cashback",
+  });
   const result = await sendEmail(smtp, {
     to: email,
     subject: renderTemplate(template.email_subject, map),
-    bodyHtml: renderTemplate(template.email_body_html, map),
+    bodyHtml: appendUnsubscribeFooter(
+      renderTemplate(template.email_body_html, map),
+      unsubscribeUrl
+    ),
+    headers: buildListUnsubscribeHeaders(unsubscribeUrl),
   });
 
   return {
@@ -183,7 +202,7 @@ export async function sendReminderForStage(
   const emEnabled = shouldSendChannel(cfg, "email", emTemplate?.enabled ?? true);
   const meetsEmGate = Number(cashback.valor_cashback) >= Number(cfg.email_min_value);
   if (emEnabled && meetsEmGate && emTemplate) {
-    const res = await sendEmailChannel(cashback.workspace_id, cashback.email, emTemplate, vars);
+    const res = await sendEmailChannel(client, cashback.workspace_id, cashback.email, emTemplate, vars);
     results.push(res);
   } else if (emEnabled && !meetsEmGate) {
     results.push({ channel: "email", sent: false, skipped: "below_gate" });

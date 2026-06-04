@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
+import {
+  appendUnsubscribeFooter,
+  buildListUnsubscribeHeaders,
+  buildUnsubscribeUrl,
+  isEmailSuppressed,
+} from "@/lib/email-unsubscribe";
 import type { CartRecoveryStep } from "./types";
 import {
   buildRecoveryVariables,
@@ -160,15 +166,27 @@ export async function dispatchEmail(params: {
   if (!smtp) {
     return { ok: false, error: "no_smtp_config" };
   }
+  if (await isEmailSuppressed(admin, workspaceId, cart.customer_email)) {
+    return { ok: false, error: "email_suppressed" };
+  }
 
   const vars = buildRecoveryVariables(cart, { storeName });
   const subject = interpolate(step.email_subject, vars);
-  const bodyHtml = interpolate(step.email_body_html, vars);
+  const unsubscribeUrl = buildUnsubscribeUrl({
+    workspaceId,
+    email: cart.customer_email,
+    source: "cart_recovery",
+  });
+  const bodyHtml = appendUnsubscribeFooter(
+    interpolate(step.email_body_html, vars),
+    unsubscribeUrl
+  );
 
   const result = await sendEmail(smtp, {
     to: cart.customer_email,
     subject,
     bodyHtml,
+    headers: buildListUnsubscribeHeaders(unsubscribeUrl),
   });
 
   if (!result.ok) {
@@ -181,6 +199,7 @@ export async function dispatchEmail(params: {
       to: cart.customer_email,
       subject,
       body_html: bodyHtml,
+      unsubscribe_url: unsubscribeUrl,
     },
   };
 }

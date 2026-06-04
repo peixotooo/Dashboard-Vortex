@@ -14,6 +14,7 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   bodyHtml: string;
+  headers?: Record<string, string | undefined>;
 }
 
 export interface SendEmailResult {
@@ -84,16 +85,23 @@ export async function sendEmail(
   }
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "text/html",
+    };
+    if (cfg.replyTo) {
+      headers["Reply-To"] = cfg.replyTo;
+    }
+    for (const [key, value] of Object.entries(input.headers || {})) {
+      if (value) headers[key] = value;
+    }
+
     const body: Record<string, unknown> = {
       subject: input.subject,
       body: input.bodyHtml,
       from: cfg.fromName ? `${cfg.fromName} <${cfg.fromEmail}>` : cfg.fromEmail,
       to: input.to,
-      headers: { "Content-Type": "text/html" },
+      headers,
     };
-    if (cfg.replyTo) {
-      (body.headers as Record<string, string>)["Reply-To"] = cfg.replyTo;
-    }
 
     const res = await fetch("https://api.smtplw.com.br/v1/messages", {
       method: "POST",
