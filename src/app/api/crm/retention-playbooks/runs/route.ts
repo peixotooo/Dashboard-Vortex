@@ -85,6 +85,7 @@ interface WaCampaignRow {
     playbook_name?: string;
     contact_list_id?: string;
     desired_send_hour?: number | string;
+    manual_scheduled_at?: string;
     send_hour_source?: string;
     send_hour_reason?: string;
     paused_reason?: string;
@@ -1922,10 +1923,10 @@ async function fetchActiveCampaignForPlaybook(
 ) {
   const { data, error } = await admin
     .from("wa_campaigns")
-    .select("id, name, status, total_messages, sent_count, segment_filter")
+    .select("id, name, status, total_messages, sent_count, created_at, scheduled_at, completed_at, segment_filter")
     .eq("workspace_id", workspaceId)
     .eq("segment_filter->>playbook_id", playbookId)
-    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused"])
+    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused", "completed"])
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -1936,8 +1937,23 @@ async function fetchActiveCampaignForPlaybook(
     status: string;
     total_messages: number | string | null;
     sent_count: number | string | null;
-    segment_filter: { playbook_run_id?: string } | null;
-  }>).find((campaign) => campaign.segment_filter?.playbook_run_id !== excludeRunId) || null;
+    created_at: string | null;
+    scheduled_at: string | null;
+    completed_at: string | null;
+    segment_filter: { playbook_run_id?: string; attribution_window_days?: number | string } | null;
+  }>).find((campaign) => {
+    if (campaign.segment_filter?.playbook_run_id === excludeRunId) return false;
+    const status = String(campaign.status || "").toLowerCase();
+    if (["scheduled", "queued", "sending", "pending_template", "paused"].includes(status)) return true;
+    if (status !== "completed") return false;
+    const windowDays = Math.max(
+      1,
+      toNumber(campaign.segment_filter?.attribution_window_days) || playbookAttributionWindowDays(playbookId)
+    );
+    const anchor = parseDate(campaign.completed_at || campaign.scheduled_at || campaign.created_at);
+    if (!anchor) return false;
+    return Date.now() - anchor.getTime() < windowDays * DAY_MS;
+  }) || null;
 }
 
 async function fetchActiveCampaignForRun(admin: AdminClient, workspaceId: string, runId: string) {
@@ -1946,7 +1962,7 @@ async function fetchActiveCampaignForRun(admin: AdminClient, workspaceId: string
     .select("id, name, status, scheduled_at, total_messages, sent_count, template_name")
     .eq("workspace_id", workspaceId)
     .eq("segment_filter->>playbook_run_id", runId)
-    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused"])
+    .in("status", ["scheduled", "queued", "sending", "pending_template", "paused", "completed"])
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -1982,7 +1998,8 @@ async function buildSchedulePreview(params: {
   }
 
   const rawContacts = buildTemplateContacts(run.treatment.contacts || [], vars, variableValues);
-  const compliance = await filterContacts(params.workspaceId, rawContacts, 7);
+  const cooldownDays = Math.max(7, playbookAttributionWindowDays(run.playbookId));
+  const compliance = await filterContacts(params.workspaceId, rawContacts, cooldownDays);
   const sendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
   const body = getTemplateBodyText(template.components || []);
 
@@ -1997,6 +2014,7 @@ async function buildSchedulePreview(params: {
     recipients: compliance.allowed.length,
     cooldownCount: compliance.cooldownCount,
     blockedCount: compliance.blockedCount,
+    cooldownDays,
     templateId: template.id || null,
     templateName: template.name,
     templateLanguage: template.language,
@@ -2207,6 +2225,38 @@ async function inferBestSendWindow(admin: AdminClient, workspaceId: string) {
   };
 }
 
+function cleanScheduledAtOverride(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Horario manual invalido.");
+  }
+  if (date.getTime() <= Date.now() + 15 * 60 * 1000) {
+    throw new Error("Escolha um horario pelo menos 15 minutos no futuro.");
+  }
+  return date.toISOString();
+}
+
+function brtDayHourFromIso(iso: string): { day: number; hour: number } {
+  const date = new Date(iso);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "short",
+      hour: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  const hour = Number(parts.hour);
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(parts.weekday));
+  return {
+    day: weekday >= 0 ? weekday : date.getDay(),
+    hour: Number.isFinite(hour) ? hour : 10,
+  };
+}
+
 async function autoScheduleWhatsappRun(params: {
   admin: AdminClient;
   workspaceId: string;
@@ -2219,6 +2269,7 @@ async function autoScheduleWhatsappRun(params: {
   attributionWindowDays: number;
   templateId?: string | null;
   variableValues?: Record<string, string>;
+  scheduledAt?: string | null;
 }) {
   let template =
     (await fetchTemplateById(params.admin, params.workspaceId, params.templateId || "")) ||
@@ -2260,7 +2311,8 @@ async function autoScheduleWhatsappRun(params: {
     };
   }
 
-  const compliance = await filterContacts(params.workspaceId, rawContacts, 7);
+  const cooldownDays = Math.max(7, params.attributionWindowDays);
+  const compliance = await filterContacts(params.workspaceId, rawContacts, cooldownDays);
   if (compliance.allowed.length === 0) {
     return {
       status: "blocked" as const,
@@ -2274,7 +2326,18 @@ async function autoScheduleWhatsappRun(params: {
     };
   }
 
-  const sendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const inferredSendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const manualScheduledAt = params.scheduledAt || null;
+  const manualDayHour = manualScheduledAt ? brtDayHourFromIso(manualScheduledAt) : null;
+  const sendWindow = manualScheduledAt
+    ? {
+        hour: manualDayHour?.hour ?? inferredSendWindow.hour,
+        day: manualDayHour?.day ?? inferredSendWindow.day,
+        scheduledAt: manualScheduledAt,
+        source: "manual_review",
+        reason: "Horario ajustado manualmente no modal de conferencia.",
+      }
+    : inferredSendWindow;
   const scheduledAt = sendWindow.scheduledAt;
   const campaignName = `Auto Retencao ${params.playbookName} ${new Date().toISOString().slice(0, 10)}`;
   const templateApproved = template.status === "APPROVED" && template.category === "UTILITY";
@@ -2305,8 +2368,10 @@ async function autoScheduleWhatsappRun(params: {
         template_guardrail: WHATSAPP_PLAYBOOK_CONTEXT[params.playbookId]?.guardrail || null,
         desired_send_hour: sendWindow.hour,
         recommended_send_day: sendWindow.day,
+        manual_scheduled_at: manualScheduledAt,
         send_hour_source: sendWindow.source,
         send_hour_reason: sendWindow.reason,
+        cooldown_days: cooldownDays,
         recommendation_goal: params.treatmentList.auto_segment?.recommendation_goal || null,
       },
       variable_values: variableValues,
@@ -2351,6 +2416,7 @@ async function autoScheduleWhatsappRun(params: {
     originalContacts: rawContacts.length,
     cooldownCount: compliance.cooldownCount,
     blockedCount: compliance.blockedCount,
+    cooldownDays,
     sendHour: sendWindow.hour,
     sendHourSource: sendWindow.source,
     reason: templateApproved
@@ -2373,6 +2439,15 @@ export async function POST(request: NextRequest) {
       if (!runId) {
         return NextResponse.json({ error: "Run invalido para agendamento" }, { status: 400 });
       }
+      let scheduledAtOverride: string | null = null;
+      try {
+        scheduledAtOverride = cleanScheduledAtOverride(body.scheduledAt);
+      } catch (err) {
+        return NextResponse.json(
+          { error: err instanceof Error ? err.message : "Horario manual invalido." },
+          { status: 400 }
+        );
+      }
 
       const preview = await buildSchedulePreview({
         admin: auth!.admin,
@@ -2393,10 +2468,10 @@ export async function POST(request: NextRequest) {
       if (existingSameRun) {
         return NextResponse.json(
           {
-            error: `Este run ja tem campanha ativa (${existingSameRun.status}).`,
+            error: `Este run ja tem campanha vinculada (${existingSameRun.status}).`,
             automation: {
               status: "blocked",
-              reason: `Este run ja tem campanha ativa (${existingSameRun.status}).`,
+              reason: `Este run ja tem campanha vinculada (${existingSameRun.status}).`,
               campaignId: existingSameRun.id,
               campaignName: existingSameRun.name,
               templateName: existingSameRun.template_name,
@@ -2443,6 +2518,7 @@ export async function POST(request: NextRequest) {
         attributionWindowDays: playbookAttributionWindowDays(preview.playbookId),
         templateId: preview.templateId,
         variableValues: preview.variableValues,
+        scheduledAt: scheduledAtOverride,
       });
 
       return NextResponse.json({ preview, automation });

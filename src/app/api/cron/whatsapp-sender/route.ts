@@ -59,7 +59,12 @@ async function releaseApprovedPendingTemplates(admin: ReturnType<typeof createAd
     if (recheck.currentStatus === "APPROVED" && recheck.currentCategory === "UTILITY") {
       const filter = (campaign.segment_filter || {}) as Record<string, unknown>;
       const hour = Number(filter.desired_send_hour ?? 10);
-      const scheduledAt = nextBusinessSendAt(hour);
+      const manualDate =
+        typeof filter.manual_scheduled_at === "string" ? new Date(filter.manual_scheduled_at) : null;
+      const scheduledAt =
+        manualDate && Number.isFinite(manualDate.getTime()) && manualDate.getTime() > Date.now() + 30 * 60 * 1000
+          ? manualDate.toISOString()
+          : nextBusinessSendAt(hour);
       await admin
         .from("wa_campaigns")
         .update({

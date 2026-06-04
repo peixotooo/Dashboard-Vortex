@@ -358,6 +358,7 @@ interface SchedulePreview {
   recipients: number;
   cooldownCount: number;
   blockedCount: number;
+  cooldownDays: number;
   templateId: string | null;
   templateName: string;
   templateLanguage: string | null;
@@ -377,6 +378,14 @@ interface SchedulePreview {
 interface ScheduleReviewState {
   preview: SchedulePreview;
   variableValues: Record<string, string>;
+  scheduledDate: string;
+  scheduledTime: string;
+}
+
+interface CouponNotice {
+  tone: BannerTone;
+  title: string;
+  body?: string;
 }
 
 interface WhatsAppRunSummary {
@@ -865,6 +874,38 @@ function DATE_DAY(value?: string | null) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "sem data";
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function dateInputValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function timeInputValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+function scheduleReviewIso(review: ScheduleReviewState | null) {
+  if (!review) return null;
+  if (!review.scheduledDate || !review.scheduledTime) return review.preview.scheduledAt;
+  const date = new Date(`${review.scheduledDate}T${review.scheduledTime}:00`);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function scheduleReviewTooSoon(review: ScheduleReviewState | null) {
+  const iso = scheduleReviewIso(review);
+  if (!iso) return true;
+  return new Date(iso).getTime() <= Date.now() + 15 * 60 * 1000;
 }
 
 function goalStatusVariant(status?: GoalStatus | null): BadgeProps["variant"] {
@@ -2281,6 +2322,21 @@ function OperationsBoard({
             <Badge variant="secondary">{BRL(opportunityContribution)}</Badge>
           </div>
 
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded-md border bg-muted/25 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Regra anti-repeticao</p>
+              <p className="mt-1 text-sm font-semibold">Nao repete playbook em envio/leitura</p>
+            </div>
+            <div className="rounded-md border bg-muted/25 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Quem recebe</p>
+              <p className="mt-1 text-sm font-semibold">So tratamento liberado</p>
+            </div>
+            <div className="rounded-md border bg-muted/25 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Quem sai</p>
+              <p className="mt-1 text-sm font-semibold">Holdout, bloqueados e cooldown</p>
+            </div>
+          </div>
+
           {opportunities.length === 0 ? (
             <div className="mt-3 rounded-md bg-muted/35 p-3 text-sm text-muted-foreground">
               Nenhuma oportunidade acionavel agora.
@@ -2728,11 +2784,13 @@ function ExecuteRunDialog({
   couponRunningId,
   approvingCouponId,
   couponError,
+  couponNotice,
   onRunCoupon,
   onApproveCoupon,
   onApproveAll,
   onClose,
   onVariableChange,
+  onScheduleChange,
   onConfirm,
 }: {
   review: ScheduleReviewState | null;
@@ -2741,19 +2799,24 @@ function ExecuteRunDialog({
   couponRunningId: string | null;
   approvingCouponId: string | null;
   couponError: string | null;
+  couponNotice: CouponNotice | null;
   onRunCoupon: (run: RunReport) => void;
   onApproveCoupon: (couponId: string) => void;
   onApproveAll: (run: RunReport) => void;
   onClose: () => void;
   onVariableChange: (key: string, value: string) => void;
+  onScheduleChange: (field: "scheduledDate" | "scheduledTime", value: string) => void;
   onConfirm: () => void;
 }) {
   const preview = review?.preview || null;
   const variableValues = review?.variableValues || {};
+  const scheduledAtIso = scheduleReviewIso(review);
+  const scheduleTooSoon = scheduleReviewTooSoon(review);
   const renderedMessage = preview
     ? renderTemplatePreview(preview.templateBody, variableValues)
     : "";
   const missingValue = preview?.variables.some((variable) => !String(variableValues[variable.key] || "").trim());
+  const removedByCompliance = preview ? preview.cooldownCount + preview.blockedCount : 0;
 
   // Quem entra (janela de recencia do playbook) — resposta a "compraram quando?"
   const audienceInfo = playbookAudienceInfo(run?.playbookId);
@@ -2785,8 +2848,8 @@ function ExecuteRunDialog({
           <DialogTitle>{couponNeeded ? "Executar: cupom e mensagem" : "Revisar mensagem antes de agendar"}</DialogTitle>
           <DialogDescription>
             {couponNeeded
-              ? "Rode e aprove o cupom, revise a mensagem e confirme — tudo aqui, sem sair da pagina."
-              : "O envio so sera criado depois da confirmacao. Ajuste as variaveis de texto aqui."}
+              ? "Rode e aprove o cupom, revise texto/horario e confirme — tudo aqui, sem sair da pagina."
+              : "O envio so sera criado depois da confirmacao. Ajuste variaveis de texto e horario aqui."}
           </DialogDescription>
         </DialogHeader>
 
@@ -2809,6 +2872,15 @@ function ExecuteRunDialog({
                 )}
               </div>
             )}
+            <StatusBanner
+              tone="info"
+              icon={<ShieldCheck className="h-4 w-4" />}
+              title={`Vai enviar para ${NUMBER(preview.recipients)} contatos liberados`}
+            >
+              Usa somente a lista de tratamento deste run. Holdout nao recebe. Removidos antes do envio:{" "}
+              {NUMBER(preview.cooldownCount)} por cooldown de {NUMBER(preview.cooldownDays)} dias e{" "}
+              {NUMBER(preview.blockedCount)} por exclusao/bloqueio.
+            </StatusBanner>
             <div className="grid gap-2 md:grid-cols-4">
               <div className="rounded-md bg-muted/35 p-3">
                 <p className="text-xs text-muted-foreground">Run</p>
@@ -2816,10 +2888,10 @@ function ExecuteRunDialog({
                 <p className="mt-1 text-xs text-muted-foreground">{preview.runId.slice(0, 8)}</p>
               </div>
               <div className="rounded-md bg-muted/35 p-3">
-                <p className="text-xs text-muted-foreground">Publico</p>
+                <p className="text-xs text-muted-foreground">Recebem</p>
                 <p className="mt-1 text-sm font-semibold">{NUMBER(preview.recipients)} contatos</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {NUMBER(preview.cooldownCount + preview.blockedCount)} bloqueados/cooldown
+                  {NUMBER(removedByCompliance)} removidos
                 </p>
               </div>
               <div className="rounded-md bg-muted/35 p-3">
@@ -2832,8 +2904,10 @@ function ExecuteRunDialog({
               </div>
               <div className="rounded-md bg-muted/35 p-3">
                 <p className="text-xs text-muted-foreground">Horario</p>
-                <p className="mt-1 text-sm font-semibold">{DATE_TIME(preview.scheduledAt)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{preview.sendHourSource}</p>
+                <p className="mt-1 text-sm font-semibold">{DATE_TIME(scheduledAtIso)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {review?.scheduledDate || review?.scheduledTime ? "editavel" : preview.sendHourSource}
+                </p>
               </div>
             </div>
 
@@ -2918,6 +2992,23 @@ function ExecuteRunDialog({
                       icon={<AlertCircle className="h-4 w-4" />}
                       title={couponError}
                     />
+                  </div>
+                )}
+                {couponNotice && !couponError && (
+                  <div className="mt-3">
+                    <StatusBanner
+                      tone={couponNotice.tone}
+                      icon={
+                        couponNotice.tone === "success" ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4" />
+                        )
+                      }
+                      title={couponNotice.title}
+                    >
+                      {couponNotice.body}
+                    </StatusBanner>
                   </div>
                 )}
 
@@ -3052,12 +3143,49 @@ function ExecuteRunDialog({
               <p className="mt-2 text-xs text-muted-foreground">{preview.sendHourReason}</p>
             </div>
 
+            <div className="rounded-md border bg-background p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">Horario do envio</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Sugestao original: {DATE_TIME(preview.scheduledAt)}. Ajuste aqui se o time preferir outro horario.
+                  </p>
+                </div>
+                <Badge variant={scheduleTooSoon ? "warning" : "secondary"}>
+                  {scheduleTooSoon ? "ajustar horario" : "horario ok"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="retention-schedule-date">Data</Label>
+                  <Input
+                    id="retention-schedule-date"
+                    type="date"
+                    value={review?.scheduledDate || ""}
+                    onChange={(event) => onScheduleChange("scheduledDate", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="retention-schedule-time">Hora</Label>
+                  <Input
+                    id="retention-schedule-time"
+                    type="time"
+                    value={review?.scheduledTime || ""}
+                    onChange={(event) => onScheduleChange("scheduledTime", event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Se o template ainda estiver em analise, esse horario manual fica salvo e sera usado quando a Meta aprovar, desde que ainda esteja no futuro.
+              </p>
+            </div>
+
             <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm font-semibold">Variaveis editaveis</p>
+                  <p className="text-sm font-semibold">Texto editavel</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Tokens como {"{{nome}}"} usam o dado de cada cliente.
+                    O corpo aprovado pela Meta e fixo; o texto muda pelas variaveis abaixo. Tokens como {"{{nome}}"} usam o dado de cada cliente.
                   </p>
                 </div>
                 {preview.variables.map((variable) => {
@@ -3131,7 +3259,7 @@ function ExecuteRunDialog({
           <Button
             onClick={onConfirm}
             disabled={
-              confirming || Boolean(missingValue) || !preview || preview.recipients === 0 || couponBlocked
+              confirming || Boolean(missingValue) || scheduleTooSoon || !preview || preview.recipients === 0 || couponBlocked
             }
           >
             {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
@@ -3759,6 +3887,7 @@ export default function RetentionPlaybooksPage() {
   const [couponRunningId, setCouponRunningId] = useState<string | null>(null);
   const [approvingCouponId, setApprovingCouponId] = useState<string | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponNotice, setCouponNotice] = useState<CouponNotice | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
@@ -3905,9 +4034,12 @@ export default function RetentionPlaybooksPage() {
     if (!res.ok) throw new Error(payload.error || "Erro ao montar preview do agendamento");
     const preview = payload.preview as SchedulePreview;
     setCouponError(null);
+    setCouponNotice(null);
     setScheduleReview({
       preview,
       variableValues: { ...(preview.variableValues || {}) },
+      scheduledDate: dateInputValue(preview.scheduledAt),
+      scheduledTime: timeInputValue(preview.scheduledAt),
     });
   }
 
@@ -3940,6 +4072,11 @@ export default function RetentionPlaybooksPage() {
 
   async function confirmScheduleReview() {
     if (!workspaceId || !scheduleReview) return;
+    const scheduledAt = scheduleReviewIso(scheduleReview);
+    if (!scheduledAt || scheduleReviewTooSoon(scheduleReview)) {
+      setErrorMsg("Escolha um horario valido pelo menos 15 minutos no futuro.");
+      return;
+    }
     setConfirmingSchedule(true);
     setErrorMsg(null);
     try {
@@ -3954,6 +4091,7 @@ export default function RetentionPlaybooksPage() {
           runId: scheduleReview.preview.runId,
           templateId: scheduleReview.preview.templateId,
           variableValues: scheduleReview.variableValues,
+          scheduledAt,
         }),
       });
       const payload = await res.json();
@@ -3978,6 +4116,7 @@ export default function RetentionPlaybooksPage() {
   async function runCouponForRun(run: RunReport) {
     if (!workspaceId) return;
     setCouponError(null);
+    setCouponNotice(null);
     setCouponRunningId(run.id);
     try {
       const headers = { "x-workspace-id": workspaceId, "Content-Type": "application/json" };
@@ -4027,6 +4166,24 @@ export default function RetentionPlaybooksPage() {
       });
       const runPayload = await runRes.json();
       if (!runRes.ok) throw new Error(runPayload.error || "Erro ao rodar o cupom");
+      const proposed = Number(runPayload.proposed || 0);
+      const autoApproved = Number(runPayload.auto_approved || 0);
+      if (proposed <= 0 && autoApproved <= 0) {
+        setCouponNotice({
+          tone: "warning",
+          title: "Cupom VNDA rodou, mas nao encontrou produto elegivel",
+          body:
+            "Normalmente isso acontece por estoque, limite de produtos ativos, cupom recente/cooldown ou ausencia de candidato dentro do guardrail. Veja o modulo de cupons para os logs detalhados.",
+        });
+      } else {
+        setCouponNotice({
+          tone: "success",
+          title: `${NUMBER(proposed)} cupom(ns) gerado(s)`,
+          body: runPayload.require_manual_approval
+            ? "As sugestoes aparecem abaixo como pendentes para aprovacao antes do agendamento."
+            : `${NUMBER(autoApproved)} cupom(ns) foram aprovados automaticamente.`,
+        });
+      }
       await fetchRuns();
     } catch (err) {
       setCouponError(err instanceof Error ? err.message : "Erro de rede ao rodar o cupom");
@@ -4038,6 +4195,7 @@ export default function RetentionPlaybooksPage() {
   async function approveCoupon(couponId: string) {
     if (!workspaceId) return;
     setCouponError(null);
+    setCouponNotice(null);
     setApprovingCouponId(couponId);
     try {
       const res = await fetch(`/api/coupons/active/${couponId}`, {
@@ -4047,6 +4205,11 @@ export default function RetentionPlaybooksPage() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Erro ao aprovar o cupom");
+      setCouponNotice({
+        tone: "success",
+        title: "Cupom publicado na VNDA",
+        body: "Agora a mensagem pode ser agendada com a oferta ativa.",
+      });
       await fetchRuns();
     } catch (err) {
       setCouponError(err instanceof Error ? err.message : "Erro de rede ao aprovar o cupom");
@@ -4062,6 +4225,7 @@ export default function RetentionPlaybooksPage() {
     );
     if (pending.length === 0) return;
     setCouponError(null);
+    setCouponNotice(null);
     setApprovingCouponId("ALL");
     let failures = 0;
     let firstReason: string | null = null;
@@ -4091,6 +4255,12 @@ export default function RetentionPlaybooksPage() {
             ? `${failures} cupom(ns) nao puderam ser publicados (ex.: ${firstReason}). Veja no modulo de cupons.`
             : `${failures} cupom(ns) nao puderam ser publicados (sem estoque ou VNDA). Veja no modulo de cupons.`
         );
+      } else {
+        setCouponNotice({
+          tone: "success",
+          title: `${NUMBER(pending.length)} cupom(ns) publicados na VNDA`,
+          body: "A oferta ja esta ativa para seguir com o agendamento.",
+        });
       }
     } finally {
       // Sempre reidrata para refletir os cupons que ja foram ao ar, mesmo com falha parcial.
@@ -4800,12 +4970,14 @@ export default function RetentionPlaybooksPage() {
             couponRunningId={couponRunningId}
             approvingCouponId={approvingCouponId}
             couponError={couponError}
+            couponNotice={couponNotice}
             onRunCoupon={runCouponForRun}
             onApproveCoupon={approveCoupon}
             onApproveAll={approveAllPending}
             onClose={() => {
               setScheduleReview(null);
               setCouponError(null);
+              setCouponNotice(null);
             }}
             onVariableChange={(key, value) =>
               setScheduleReview((current) =>
@@ -4816,6 +4988,16 @@ export default function RetentionPlaybooksPage() {
                         ...current.variableValues,
                         [key]: value,
                       },
+                    }
+                  : current
+              )
+            }
+            onScheduleChange={(field, value) =>
+              setScheduleReview((current) =>
+                current
+                  ? {
+                      ...current,
+                      [field]: value,
                     }
                   : current
               )
