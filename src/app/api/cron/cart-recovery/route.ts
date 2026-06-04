@@ -120,13 +120,20 @@ export async function GET(request: NextRequest) {
       //    N queries no loop. Indexa por `${cart_id}:${step_id}:${channel}`.
       const { data: existingMessages } = await admin
         .from("cart_recovery_messages")
-        .select("cart_id, step_id, channel")
+        .select("cart_id, step_id, channel, status, error")
         .eq("workspace_id", workspaceId)
         .in("cart_id", activeCarts.map((c) => c.id));
       const sent = new Set(
-        (existingMessages || []).map(
-          (m) => `${m.cart_id}:${m.step_id}:${m.channel}`
-        )
+        (existingMessages || [])
+          .filter(
+            (m) =>
+              !(
+                m.channel === "whatsapp" &&
+                m.status === "skipped" &&
+                m.error === "no_phone"
+              )
+          )
+          .map((m) => `${m.cart_id}:${m.step_id}:${m.channel}`)
       );
 
       // 5. Para cada cart × step, dispara o que ainda falta.
@@ -286,6 +293,22 @@ async function insertMessageLog(
     error: params.error || null,
     rendered_payload: params.renderedPayload || null,
   });
+  if (error?.code === "23505" && params.ok) {
+    await admin
+      .from("cart_recovery_messages")
+      .update({
+        status: "sent",
+        external_id: params.externalId || null,
+        error: null,
+        rendered_payload: params.renderedPayload || null,
+        sent_at: new Date().toISOString(),
+      })
+      .eq("cart_id", params.cartId)
+      .eq("step_id", params.stepId)
+      .eq("channel", params.channel);
+    return;
+  }
+
   if (error && error.code !== "23505") {
     console.error(
       `[Cart Recovery] Failed to log message for cart ${params.cartId}:`,
