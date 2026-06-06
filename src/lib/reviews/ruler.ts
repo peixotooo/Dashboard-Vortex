@@ -387,26 +387,44 @@ export async function dispatchDueRequests(
     }
   }
 
-  // 2) Lembretes (se configurado).
-  if (settings.request_reminder_days && settings.request_reminder_days > 0) {
-    const reminderCutoff = new Date(Date.now() - settings.request_reminder_days * 86400_000).toISOString();
-    const { data: toRemind } = await admin
-      .from("review_requests")
-      .select("id, customer_name, customer_phone, customer_email, product_name, product_image, token")
-      .eq("workspace_id", workspaceId)
-      .eq("status", "sent")
-      .lte("sent_at", reminderCutoff)
-      .limit(100);
-
-    for (const req of toRemind || []) {
-      const out = await deliver(req);
-      if (out.ok) {
-        await admin.from("review_requests").update({ status: "reminded", reminded_at: nowIso, updated_at: nowIso }).eq("id", req.id);
-        result.reminded++;
-      } else {
-        result.failed++;
-      }
+  // 2) Régua de lembretes: até 2 lembretes (2-3 contatos no total). O envio
+  // respeita o mesmo guard anti-sobreposição; quem completa a avaliação sai
+  // da fila (status 'completed').
+  const reminderSelect = "id, customer_name, customer_phone, customer_email, product_name, product_image, token";
+  async function sendReminder(
+    req: { id: string; customer_name: string | null; customer_phone: string | null; customer_email: string | null; product_name: string | null; product_image: string | null; token: string },
+    stage: 1 | 2
+  ) {
+    const recent = await getRecentContacts(workspaceId, { email: req.customer_email, phone: req.customer_phone, withinHours: COMMS_COOLDOWN_HOURS }, admin);
+    if (recent.length > 0) return; // adia pro próximo tick
+    const out = await deliver(req);
+    if (out.ok) {
+      await admin.from("review_requests").update({ status: "reminded", reminder_count: stage, reminded_at: nowIso, updated_at: nowIso }).eq("id", req.id);
+      await logCommunication({ workspaceId, email: req.customer_email, phone: req.customer_phone, channel: settings.request_channel, source: "review", sourceId: req.id, status: "sent" }, admin);
+      result.reminded++;
+    } else {
+      result.failed++;
     }
+  }
+
+  // Lembrete 1: 1º contato ('sent') há >= request_reminder_days.
+  if (settings.request_reminder_days && settings.request_reminder_days > 0) {
+    const cutoff = new Date(Date.now() - settings.request_reminder_days * 86400_000).toISOString();
+    const { data: r1 } = await admin
+      .from("review_requests").select(reminderSelect)
+      .eq("workspace_id", workspaceId).eq("status", "sent").eq("reminder_count", 0)
+      .lte("sent_at", cutoff).limit(100);
+    for (const req of r1 || []) await sendReminder(req, 1);
+  }
+
+  // Lembrete 2: 1º lembrete há >= request_reminder_2_days.
+  if (settings.request_reminder_2_days && settings.request_reminder_2_days > 0) {
+    const cutoff = new Date(Date.now() - settings.request_reminder_2_days * 86400_000).toISOString();
+    const { data: r2 } = await admin
+      .from("review_requests").select(reminderSelect)
+      .eq("workspace_id", workspaceId).eq("status", "reminded").eq("reminder_count", 1)
+      .lte("reminded_at", cutoff).limit(100);
+    for (const req of r2 || []) await sendReminder(req, 2);
   }
 
   return result;
