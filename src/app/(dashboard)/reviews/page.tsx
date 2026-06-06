@@ -90,6 +90,7 @@ interface ReviewSettings {
   request_ask_media: boolean;
   request_reminder_days: number | null;
   request_message_template: string | null;
+  wa_template_id: string | null;
   rewards_enabled: boolean;
   reward_photo_amount: number;
   reward_video_amount: number;
@@ -224,6 +225,24 @@ export default function ReviewsPage() {
   async function setAds(id: string, ads_status: string) {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ ads_status }) });
     loadList();
+  }
+
+  const [creatingTpl, setCreatingTpl] = useState(false);
+  const [tplMsg, setTplMsg] = useState<string | null>(null);
+  async function createWaTemplate() {
+    if (!workspace?.id) return;
+    setCreatingTpl(true);
+    setTplMsg(null);
+    try {
+      const res = await fetch("/api/reviews/create-utility-template", { method: "POST", headers: headers() });
+      const d = await res.json();
+      setTplMsg(d.ok ? d.message : d.error || "Erro ao criar template");
+      if (d.ok) loadSettings();
+    } catch {
+      setTplMsg("Erro de conexão");
+    } finally {
+      setCreatingTpl(false);
+    }
   }
 
   async function remove(id: string) {
@@ -641,6 +660,33 @@ export default function ReviewsPage() {
                     rows={3}
                   />
                 </div>
+
+                {/* Template WhatsApp UTILITY */}
+                {settings.request_channel === "whatsapp" && (
+                  <div className="rounded-lg border p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label>Template WhatsApp (categoria UTILITY)</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Cria um template aprovado pela Meta (categoria <strong>utilidade</strong>, ~10x mais barato e compliant pra iniciar conversa). Enquanto não aprovar, a régua usa o WhatsApp legado.
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {settings.wa_template_id ? (
+                          <Badge variant="default" className="mb-1">Configurado</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="mb-1">Não criado</Badge>
+                        )}
+                        <div>
+                          <Button size="sm" variant="outline" onClick={createWaTemplate} disabled={creatingTpl}>
+                            {creatingTpl ? <Loader2 className="h-4 w-4 animate-spin" /> : (settings.wa_template_id ? "Recriar template" : "Criar template")}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    {tplMsg && <div className="text-xs text-muted-foreground border rounded-md p-2">{tplMsg}</div>}
+                  </div>
+                )}
 
                 {/* Gamificação / recompensas */}
                 <div className="rounded-lg border p-4 space-y-4">
