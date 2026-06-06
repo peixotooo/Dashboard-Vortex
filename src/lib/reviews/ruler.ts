@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReviewSettings, type ReviewSettings } from "@/lib/reviews/settings";
 import { getWapiConfig, sendText } from "@/lib/wapi-api";
+import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 import { getVndaConfig, getVndaOrderShipping } from "@/lib/vnda-api";
@@ -226,6 +227,22 @@ export async function dispatchDueRequests(
   const wapi = settings.request_channel === "whatsapp" ? await getWapiConfig(workspaceId) : null;
   const smtp = settings.request_channel === "email" ? await getSmtpConfig(workspaceId, admin) : null;
 
+  // Template WhatsApp UTILITY (Meta Cloud API) — preferido pra iniciar conversa
+  // de forma compliant/barata. Se não houver template aprovado, cai pro W-API.
+  let waConfig: Awaited<ReturnType<typeof getWaConfig>> = null;
+  let waTemplate: { name: string; language: string } | null = null;
+  if (settings.request_channel === "whatsapp" && settings.wa_template_id) {
+    waConfig = await getWaConfig(workspaceId);
+    if (waConfig) {
+      const { data: tpl } = await admin
+        .from("wa_templates")
+        .select("name, language, status, category")
+        .eq("id", settings.wa_template_id)
+        .maybeSingle();
+      if (tpl && tpl.status === "APPROVED") waTemplate = { name: tpl.name as string, language: (tpl.language as string) || "pt_BR" };
+    }
+  }
+
   async function deliver(req: {
     customer_name: string | null;
     customer_phone: string | null;
@@ -237,9 +254,19 @@ export async function dispatchDueRequests(
     const link = reviewLink(req.token);
     const product = req.product_name || "seu pedido";
     if (settings.request_channel === "whatsapp") {
-      if (!wapi) return { ok: false, error: "WhatsApp (W-API) não configurado" };
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };
+
+      // Preferência: template UTILITY aprovado (Meta Cloud API).
+      if (waTemplate && waConfig) {
+        const var1 = `Oi ${firstName(req.customer_name)}, tudo bem?`;
+        const var2 = `Você comprou ${product} com a gente. Conta o que achou? Sua avaliação (pode enviar foto/vídeo!) ajuda muita gente: ${link}`;
+        const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": var1, "2": var2 });
+        return r.error ? { ok: false, error: r.error } : { ok: true };
+      }
+
+      // Fallback: W-API (texto livre).
+      if (!wapi) return { ok: false, error: "WhatsApp não configurado" };
       const msg = fillTemplate(template, { nome: firstName(req.customer_name), produto: product, link });
       const r = await sendText(wapi, phone, msg);
       return r.error ? { ok: false, error: r.error } : { ok: true };
