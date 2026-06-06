@@ -7,6 +7,7 @@ import {
   type CashbackTransactionRow,
 } from "@/lib/cashback/api";
 import { sendReminderForStage } from "@/lib/cashback/reminders";
+import { orderDispatched, type VndaConfig } from "@/lib/vnda-api";
 import {
   depositVndaCredit,
   refundVndaCredit,
@@ -79,6 +80,7 @@ async function runDepositAndFirstReminder(
   cfg: CashbackConfigRow,
   vnda: VndaCreditsConfig | null,
   troque: TroqueConfig | null,
+  vndaOrderCfg: VndaConfig | null,
   summary: TickSummary
 ) {
   const threshold = daysAgo(cfg.deposit_delay_days);
@@ -184,7 +186,46 @@ async function runDepositAndFirstReminder(
         depositado_em: now.toISOString(),
         expira_em: expira.toISOString(),
       };
-      await sendReminderForStage(fresh, "LEMBRETE_1", cfg, admin);
+      // Gate de despacho: só comunica o cashback (LEMBRETE_1) depois que o
+      // pedido foi despachado (tem rastreio). Se não der pra checar (null),
+      // envia mesmo assim (fail-open) pra não travar o cashback. Se confirmado
+      // NÃO despachado (false), pula — o runDeferredFirstReminder envia quando despachar.
+      const disp = vndaOrderCfg && c.numero_pedido ? await orderDispatched(vndaOrderCfg, c.numero_pedido) : null;
+      if (disp === false) {
+        await logEvent(admin, workspaceId, c.id, "LEMBRETE_1", { deferred: "aguardando_despacho" });
+      } else {
+        await sendReminderForStage(fresh, "LEMBRETE_1", cfg, admin);
+        summary.reminder1.processed++;
+      }
+    }
+  }
+}
+
+// LEMBRETE_1 adiado: transações já depositadas (ATIVO) que tiveram o 1º lembrete
+// segurado por falta de despacho. A cada tick, rechecamos e enviamos quando o
+// pedido despachar (ou após 14 dias do depósito, fail-open, pra não perder o cliente).
+async function runDeferredFirstReminder(
+  admin: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  cfg: CashbackConfigRow,
+  vndaOrderCfg: VndaConfig | null,
+  summary: TickSummary
+) {
+  if (!vndaOrderCfg) return; // sem como checar despacho → não segura nada
+  const { data: rows } = await admin
+    .from("cashback_transactions")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "ATIVO")
+    .is("lembrete1_enviado_em", null)
+    .limit(40);
+
+  const failOpenCutoff = daysAgo(14);
+  for (const c of (rows || []) as CashbackTransactionRow[]) {
+    const disp = c.numero_pedido ? await orderDispatched(vndaOrderCfg, c.numero_pedido) : null;
+    const old = !!c.depositado_em && c.depositado_em <= failOpenCutoff;
+    if (disp === true || (disp === null && old)) {
+      await sendReminderForStage(c, "LEMBRETE_1", cfg, admin);
       summary.reminder1.processed++;
     }
   }
@@ -318,8 +359,13 @@ export async function GET(request: NextRequest) {
       const troque = cfg.enable_troquecommerce
         ? await getTroqueConfig(workspaceId, admin)
         : null;
+      // Config p/ consultar pedidos na VNDA (gate de despacho do LEMBRETE_1).
+      // Reaproveita o token das credenciais de cashback (admin-fetched, funciona
+      // no cron). Sem deposit/refund habilitado não há LEMBRETE_1, então é ok ser null.
+      const vndaOrderCfg: VndaConfig | null = vnda ? { apiToken: vnda.apiToken, storeHost: vnda.shopHost } : null;
 
-      await runDepositAndFirstReminder(admin, workspaceId, cfg, vnda, troque, summary);
+      await runDepositAndFirstReminder(admin, workspaceId, cfg, vnda, troque, vndaOrderCfg, summary);
+      await runDeferredFirstReminder(admin, workspaceId, cfg, vndaOrderCfg, summary);
       await runSecondReminder(admin, workspaceId, cfg, summary);
       await runThirdReminder(admin, workspaceId, cfg, summary);
       await runRefundExpired(admin, workspaceId, cfg, vnda, summary);
