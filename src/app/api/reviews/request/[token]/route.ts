@@ -82,8 +82,9 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
         .slice(0, 8)
     : [];
 
-  const settings = await getReviewSettings(req.workspace_id);
-  const status = settings.auto_publish ? "published" : "pending";
+  // Moderação obrigatória: TODA avaliação entra como 'pending' e só aparece na
+  // loja depois de aprovada no admin (mesmo vinda de um comprador verificado).
+  const status = "pending";
 
   const { data: review, error } = await admin
     .from("reviews")

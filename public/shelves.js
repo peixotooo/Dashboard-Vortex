@@ -3670,7 +3670,6 @@
               '<span class="vtx-rv-count">' + state.total + (state.total === 1 ? " avaliação" : " avaliações") + "</span>" +
             "</div>" +
           "</div>" +
-          '<button type="button" class="vtx-rv-cta" id="vtx-rv-write">Escrever avaliação</button>' +
         "</div>" +
         (topics ? '<div class="vtx-rv-topics">' + topics + "</div>" : "") +
         '<div class="vtx-rv-toolbar">' +
@@ -3701,9 +3700,8 @@
         });
       });
 
-      mount.querySelector("#vtx-rv-write").addEventListener("click", function () {
-        openWriteModal(productId, color);
-      });
+      // Avaliações só de quem comprou — a coleta acontece pela régua pós-compra
+      // (link tokenizado em /avaliar/<token>), não por um botão aberto na PDP.
 
       // Lightbox para mídia.
       mount.addEventListener("click", function (e) {
@@ -3745,81 +3743,6 @@
       : '<img src="' + safeUrl(url) + '" alt="">';
     box.addEventListener("click", function () { box.remove(); });
     document.body.appendChild(box);
-  }
-
-  function openWriteModal(productId, color) {
-    var rating = 0;
-    var modal = document.createElement("div");
-    modal.className = "vtx-rv-modal";
-    modal.innerHTML =
-      '<div class="vtx-rv-modal-box">' +
-        '<button class="vtx-rv-modal-close" type="button" aria-label="Fechar">&times;</button>' +
-        "<h3>Avaliar produto</h3>" +
-        '<p class="sub">Conte o que você achou. Sua opinião ajuda outros clientes.</p>' +
-        '<label>Sua nota</label>' +
-        '<div class="vtx-rv-rate" id="vtx-rv-rate"></div>' +
-        '<label>Título</label><input id="vtx-rv-f-title" maxlength="120" placeholder="Resuma sua experiência">' +
-        '<label>Avaliação</label><textarea id="vtx-rv-f-body" maxlength="4000" placeholder="O que você gostou? Como serviu?"></textarea>' +
-        '<label>Seu nome</label><input id="vtx-rv-f-name" maxlength="120" placeholder="Como quer aparecer">' +
-        '<label>E-mail (não será publicado)</label><input id="vtx-rv-f-email" type="email" maxlength="200" placeholder="voce@email.com">' +
-        '<button class="vtx-rv-submit" id="vtx-rv-send" type="button">Enviar avaliação</button>' +
-        '<div class="vtx-rv-msg" id="vtx-rv-msg"></div>' +
-      "</div>";
-    document.body.appendChild(modal);
-
-    var rateEl = modal.querySelector("#vtx-rv-rate");
-    function paint() { rateEl.innerHTML = rvStars(rating, color, 30); }
-    paint();
-    rateEl.addEventListener("click", function (e) {
-      var stars = rateEl.querySelectorAll(".vtx-rv-star");
-      for (var i = 0; i < stars.length; i++) {
-        if (stars[i] === e.target || stars[i].contains(e.target)) { rating = i + 1; break; }
-      }
-      paint();
-    });
-
-    function close() { modal.remove(); }
-    modal.querySelector(".vtx-rv-modal-close").addEventListener("click", close);
-    modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
-
-    modal.querySelector("#vtx-rv-send").addEventListener("click", function () {
-      var msg = modal.querySelector("#vtx-rv-msg");
-      var body = modal.querySelector("#vtx-rv-f-body").value.trim();
-      if (!rating) { msg.style.color = "#dc2626"; msg.textContent = "Escolha uma nota."; return; }
-      if (!body) { msg.style.color = "#dc2626"; msg.textContent = "Escreva sua avaliação."; return; }
-      var btn = modal.querySelector("#vtx-rv-send");
-      btn.disabled = true; btn.textContent = "Enviando...";
-      fetch(API_BASE + "/api/reviews/submit?key=" + encodeURIComponent(API_KEY), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_id: productId,
-          rating: rating,
-          title: modal.querySelector("#vtx-rv-f-title").value.trim(),
-          body: body,
-          author_name: modal.querySelector("#vtx-rv-f-name").value.trim(),
-          author_email: modal.querySelector("#vtx-rv-f-email").value.trim()
-        })
-      }).then(function (r) { return r.json(); }).then(function (res) {
-        if (res && res.ok) {
-          modal.querySelector(".vtx-rv-modal-box").innerHTML =
-            '<button class="vtx-rv-modal-close" type="button">&times;</button>' +
-            '<h3>Obrigado! 💛</h3><p class="sub">' +
-            (res.moderated ? "Sua avaliação foi enviada e será publicada após revisão." : "Sua avaliação foi publicada!") +
-            "</p>";
-          modal.querySelector(".vtx-rv-modal-close").addEventListener("click", close);
-          setTimeout(close, 2600);
-        } else {
-          msg.style.color = "#dc2626";
-          msg.textContent = (res && res.error) || "Não foi possível enviar. Tente novamente.";
-          btn.disabled = false; btn.textContent = "Enviar avaliação";
-        }
-      }).catch(function () {
-        msg.style.color = "#dc2626";
-        msg.textContent = "Erro de conexão. Tente novamente.";
-        btn.disabled = false; btn.textContent = "Enviar avaliação";
-      });
-    });
   }
 
   // Run when DOM is ready

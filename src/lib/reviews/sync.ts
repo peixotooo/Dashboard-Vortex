@@ -208,7 +208,11 @@ export async function syncYourViewsReviews(
 ): Promise<SyncResult> {
   const admin = createAdminClient();
   const onProgress = opts.onProgress ?? (() => {});
-  const filter: ProductFilter = opts.productFilter ?? "active";
+  // Default 'known': importa todo produto que EXISTE na VNDA (ativo OU inativo).
+  // Produtos ficam inativos quando esgota o estoque (ex.: Flexing Black) e
+  // voltam depois — então não descartamos por estar inativo; só descartamos o
+  // que não existe mais no catálogo. Use 'active' pra restringir aos ativos.
+  const filter: ProductFilter = opts.productFilter ?? "known";
   const result: SyncResult = {
     fetched: 0, inserted: 0, pages: 0, matched: 0,
     skipped_unknown: 0, skipped_inactive: 0, with_photos: 0, errors: [],
