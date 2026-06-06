@@ -15,6 +15,7 @@ import {
   Save,
   RefreshCw,
   KeyRound,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -312,10 +313,16 @@ export default function ReviewsPage() {
               <div className="text-xs text-muted-foreground mt-1">Publicadas</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => { setStatusFilter("pending"); setTab("moderation"); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { setStatusFilter("pending"); setTab("moderation"); } }}
+            className={`cursor-pointer transition-colors ${(stats.by_status?.pending || 0) > 0 ? "border-amber-400 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30" : "hover:bg-muted/50"}`}
+          >
             <CardContent className="pt-6">
-              <div className="text-3xl font-bold">{stats.by_status?.pending || 0}</div>
-              <div className="text-xs text-muted-foreground mt-1">Aguardando moderação</div>
+              <div className={`text-3xl font-bold ${(stats.by_status?.pending || 0) > 0 ? "text-amber-600" : ""}`}>{stats.by_status?.pending || 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">Aguardando aprovação →</div>
             </CardContent>
           </Card>
           <Card>
@@ -329,7 +336,14 @@ export default function ReviewsPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="moderation">Moderação</TabsTrigger>
+          <TabsTrigger value="moderation">
+            Moderação
+            {(stats?.by_status?.pending || 0) > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1.5 py-0.5 leading-none">
+                {stats?.by_status?.pending}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="import">Importar (Yourviews)</TabsTrigger>
           <TabsTrigger value="ruler">Régua de comunicação</TabsTrigger>
           <TabsTrigger value="settings">Configurações</TabsTrigger>
@@ -338,6 +352,17 @@ export default function ReviewsPage() {
 
         {/* ---------- Moderação ---------- */}
         <TabsContent value="moderation" className="space-y-4">
+          {(stats?.by_status?.pending || 0) > 0 && statusFilter !== "pending" && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                <span><strong>{stats?.by_status?.pending}</strong> avaliação(ões) aguardando sua aprovação.</span>
+              </div>
+              <Button size="sm" variant="outline" className="border-amber-500 text-amber-700 hover:bg-amber-100" onClick={() => setStatusFilter("pending")}>
+                Revisar pendentes
+              </Button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
@@ -367,7 +392,7 @@ export default function ReviewsPage() {
 
           <div className="space-y-3">
             {reviews.map((r) => (
-              <Card key={r.id}>
+              <Card key={r.id} className={r.status === "pending" ? "border-amber-400 border-l-4" : ""}>
                 <CardContent className="pt-6">
                   <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
@@ -418,7 +443,11 @@ export default function ReviewsPage() {
                       )}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
-                      {r.status !== "published" && (
+                      {r.status === "pending" ? (
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => moderate(r.id, "published")} title="Aprovar e publicar">
+                          <CheckCircle2 className="h-4 w-4 mr-1" /> Aprovar
+                        </Button>
+                      ) : r.status !== "published" && (
                         <Button size="sm" variant="outline" className="text-green-600" onClick={() => moderate(r.id, "published")} title="Publicar">
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>

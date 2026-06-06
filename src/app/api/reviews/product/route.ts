@@ -96,6 +96,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500, headers: CORS_HEADERS });
   }
 
+  // 3) Galeria: reúne TODAS as fotos/vídeos das avaliações publicadas do produto
+  // (não só da página atual) pra mostrar como galeria de clientes no topo.
+  const { data: galleryRows } = await admin
+    .from("reviews")
+    .select("id, media")
+    .eq("workspace_id", auth.workspaceId)
+    .eq("product_id", productId)
+    .eq("status", "published")
+    .not("media", "eq", "[]")
+    .order("reviewed_at", { ascending: false, nullsFirst: false })
+    .limit(80);
+
+  const gallery: { url: string; type: string; review_id: string }[] = [];
+  for (const r of (galleryRows || []) as { id: string; media: { url?: string; type?: string }[] }[]) {
+    for (const m of r.media || []) {
+      if (m?.url) gallery.push({ url: m.url, type: m.type === "video" ? "video" : "image", review_id: r.id });
+    }
+  }
+  const galleryCapped = gallery.slice(0, 48);
+
   const reviews = (pageRows || []).map((r) => ({
     id: r.id,
     rating: r.rating,
@@ -115,6 +135,8 @@ export async function GET(request: NextRequest) {
       enabled: true,
       summary: { average, count, distribution },
       topics,
+      gallery: galleryCapped,
+      gallery_total: gallery.length,
       reviews,
       offset,
       limit: perPage,

@@ -3513,6 +3513,15 @@
       ".vtx-rv-cta:hover{background:#111;color:#fff}" +
       ".vtx-rv-topics{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 4px}" +
       ".vtx-rv-topic{background:#f1f1f2;border-radius:999px;padding:7px 15px;font-size:13.5px;color:#333}" +
+      ".vtx-rv-gallery-wrap{margin:22px 0 6px}" +
+      ".vtx-rv-gallery-title{font-size:14px;font-weight:600;color:#374151;margin:0 0 10px}" +
+      ".vtx-rv-gallery{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}" +
+      ".vtx-rv-gallery::-webkit-scrollbar{height:6px}" +
+      ".vtx-rv-gallery::-webkit-scrollbar-thumb{background:#d4d4d8;border-radius:999px}" +
+      ".vtx-rv-gthumb{position:relative;flex:0 0 auto;width:92px;height:92px;border-radius:12px;overflow:hidden;cursor:pointer;border:1px solid #eee;background:#f3f3f3}" +
+      ".vtx-rv-gthumb img,.vtx-rv-gthumb video{width:100%;height:100%;object-fit:cover;display:block}" +
+      ".vtx-rv-gthumb .vtx-rv-gplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;text-shadow:0 1px 4px rgba(0,0,0,.5)}" +
+      ".vtx-rv-gmore{position:absolute;inset:0;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600}" +
       ".vtx-rv-toolbar{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ececec;margin-top:18px;padding-bottom:0}" +
       ".vtx-rv-tab{font-size:15px;font-weight:600;padding:12px 2px;border-bottom:2px solid #111;margin-bottom:-1px}" +
       ".vtx-rv-sort{position:relative}" +
@@ -3620,6 +3629,19 @@
     );
   }
 
+  // Galeria de fotos de TODOS os clientes, no topo dos reviews (strip rolável).
+  function rvGalleryHtml(gallery, total) {
+    if (!gallery || !gallery.length) return "";
+    var thumbs = gallery.map(function (g) {
+      var inner = g.type === "video"
+        ? '<video src="' + safeUrl(g.url) + '" muted preload="metadata"></video><span class="vtx-rv-gplay">▶</span>'
+        : '<img loading="lazy" src="' + safeUrl(g.url) + '" alt="">';
+      return '<div class="vtx-rv-gthumb" data-vtx-rv-media="' + safeUrl(g.url) + '" data-vtx-rv-type="' + escapeHtml(g.type || "image") + '">' + inner + "</div>";
+    }).join("");
+    var n = total || gallery.length;
+    return '<div class="vtx-rv-gallery-wrap"><p class="vtx-rv-gallery-title">Fotos dos clientes (' + n + ')</p><div class="vtx-rv-gallery">' + thumbs + "</div></div>";
+  }
+
   function initReviews() {
     if (!API_KEY || !API_BASE) return;
     if (detectPageType() !== "product") return;
@@ -3672,6 +3694,7 @@
           "</div>" +
         "</div>" +
         (topics ? '<div class="vtx-rv-topics">' + topics + "</div>" : "") +
+        rvGalleryHtml(data.gallery, data.gallery_total) +
         '<div class="vtx-rv-toolbar">' +
           '<div class="vtx-rv-tab">Avaliações (' + state.total + ")</div>" +
           '<div class="vtx-rv-sort"><select id="vtx-rv-sort">' +
@@ -3703,12 +3726,11 @@
       // Avaliações só de quem comprou — a coleta acontece pela régua pós-compra
       // (link tokenizado em /avaliar/<token>), não por um botão aberto na PDP.
 
-      // Lightbox para mídia.
+      // Lightbox para mídia (galeria do topo + foto por review). Usa closest
+      // pois na galeria o atributo fica no wrapper (img/video dentro).
       mount.addEventListener("click", function (e) {
-        var t = e.target;
-        if (t && t.getAttribute && t.getAttribute("data-vtx-rv-media")) {
-          openLightbox(t.getAttribute("data-vtx-rv-media"), t.getAttribute("data-vtx-rv-type"));
-        }
+        var t = e.target && e.target.closest ? e.target.closest("[data-vtx-rv-media]") : null;
+        if (t) openLightbox(t.getAttribute("data-vtx-rv-media"), t.getAttribute("data-vtx-rv-type"));
       });
 
       function renderInto(el, reviews, append) {
