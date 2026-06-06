@@ -1,0 +1,667 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Star,
+  Loader2,
+  Check,
+  Trash2,
+  Download,
+  Eye,
+  EyeOff,
+  XCircle,
+  CheckCircle2,
+  MessageSquareReply,
+  Save,
+  RefreshCw,
+  KeyRound,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useWorkspace } from "@/lib/workspace-context";
+
+// ---------- Tipos ----------
+
+interface Review {
+  id: string;
+  source: string;
+  product_id: string | null;
+  product_name: string | null;
+  product_image: string | null;
+  rating: number;
+  title: string | null;
+  body: string | null;
+  author_name: string | null;
+  author_email: string | null;
+  verified_buyer: boolean;
+  custom_fields: { name: string; values: string[] }[];
+  media: { url: string; type: string }[];
+  status: string;
+  reply_body: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+interface Stats {
+  total: number;
+  published_count: number;
+  average: number;
+  distribution: Record<string, number>;
+  by_status: Record<string, number>;
+  by_source: Record<string, number>;
+  top_products: { product_id: string; product_name: string | null; count: number; average: number }[];
+}
+
+interface ReviewSettings {
+  widget_enabled: boolean;
+  accent_color: string;
+  star_color: string;
+  anchor_selector: string | null;
+  show_verified_badge: boolean;
+  show_custom_fields: boolean;
+  reviews_per_page: number;
+  auto_publish: boolean;
+  request_enabled: boolean;
+  request_channel: "whatsapp" | "email";
+  request_trigger: "purchase" | "delivery";
+  request_delay_days: number;
+  request_ask_media: boolean;
+  request_reminder_days: number | null;
+  request_message_template: string | null;
+}
+
+interface Connection {
+  configured: boolean;
+  last_synced_at: string | null;
+  last_sync_status: string | null;
+  last_sync_message: string | null;
+  total_imported: number;
+}
+
+const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  published: { label: "Publicada", variant: "default" },
+  pending: { label: "Pendente", variant: "secondary" },
+  rejected: { label: "Rejeitada", variant: "destructive" },
+  hidden: { label: "Oculta", variant: "outline" },
+};
+
+function Stars({ n, size = 14 }: { n: number; size?: number }) {
+  return (
+    <span className="inline-flex">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star
+          key={i}
+          width={size}
+          height={size}
+          className={i <= n ? "fill-amber-400 text-amber-400" : "fill-muted text-muted-foreground/30"}
+        />
+      ))}
+    </span>
+  );
+}
+
+export default function ReviewsPage() {
+  const { workspace } = useWorkspace();
+  const [tab, setTab] = useState("moderation");
+
+  const headers = useCallback(
+    () => ({ "Content-Type": "application/json", "x-workspace-id": workspace?.id || "" }),
+    [workspace?.id]
+  );
+
+  // Stats
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  // Moderation
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [loadingList, setLoadingList] = useState(false);
+  const [replyingId, setReplyingId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+
+  // Connection / import
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [creds, setCreds] = useState({ store_key: "", api_username: "", api_password: "" });
+  const [savingCreds, setSavingCreds] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // Settings
+  const [settings, setSettings] = useState<ReviewSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savedSettings, setSavedSettings] = useState(false);
+
+  // Install
+  const [apiKey, setApiKey] = useState<string | null>(null);
+
+  const loadStats = useCallback(async () => {
+    if (!workspace?.id) return;
+    const s = await fetch("/api/reviews/stats", { headers: headers() }).then((r) => r.json());
+    if (!s.error) setStats(s);
+  }, [workspace?.id, headers]);
+
+  const loadList = useCallback(async () => {
+    if (!workspace?.id) return;
+    setLoadingList(true);
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (search) params.set("q", search);
+      const d = await fetch(`/api/reviews?${params.toString()}`, { headers: headers() }).then((r) => r.json());
+      setReviews(d.reviews || []);
+    } finally {
+      setLoadingList(false);
+    }
+  }, [workspace?.id, headers, statusFilter, search]);
+
+  const loadConnection = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/reviews/connection", { headers: headers() }).then((r) => r.json());
+    setConnection(d.connection);
+  }, [workspace?.id, headers]);
+
+  const loadSettings = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/reviews/settings", { headers: headers() }).then((r) => r.json());
+    if (d.settings) setSettings(d.settings);
+  }, [workspace?.id, headers]);
+
+  const loadKey = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/shelves/api-keys", { headers: headers() }).then((r) => r.json());
+    setApiKey((d.keys || [])[0]?.key || null);
+  }, [workspace?.id, headers]);
+
+  useEffect(() => {
+    if (workspace?.id) {
+      loadStats();
+      loadList();
+      loadConnection();
+      loadSettings();
+      loadKey();
+    }
+  }, [workspace?.id, loadStats, loadList, loadConnection, loadSettings, loadKey]);
+
+  useEffect(() => {
+    if (workspace?.id) loadList();
+  }, [statusFilter, loadList, workspace?.id]);
+
+  async function moderate(id: string, status: string) {
+    await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
+    loadList();
+    loadStats();
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Excluir esta avaliação permanentemente?")) return;
+    await fetch(`/api/reviews/${id}`, { method: "DELETE", headers: headers() });
+    loadList();
+    loadStats();
+  }
+
+  async function sendReply(id: string) {
+    await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ reply_body: replyText }) });
+    setReplyingId(null);
+    setReplyText("");
+    loadList();
+  }
+
+  async function saveCreds() {
+    if (!workspace?.id) return;
+    setSavingCreds(true);
+    try {
+      const res = await fetch("/api/reviews/connection", { method: "POST", headers: headers(), body: JSON.stringify(creds) });
+      const d = await res.json();
+      if (d.ok) {
+        setCreds({ store_key: "", api_username: "", api_password: "" });
+        loadConnection();
+      } else {
+        alert(d.error || "Erro ao salvar");
+      }
+    } finally {
+      setSavingCreds(false);
+    }
+  }
+
+  async function runSync() {
+    if (!workspace?.id) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/reviews/sync", { method: "POST", headers: headers(), body: JSON.stringify({}) });
+      const d = await res.json();
+      if (d.ok) {
+        setSyncMsg(
+          `Importadas ${d.result.inserted} novas avaliações (${d.result.fetched} lidas em ${d.result.pages} páginas).` +
+            (d.capped ? " Atingiu o limite por execução — rode novamente para continuar." : "")
+        );
+        loadConnection();
+        loadStats();
+        loadList();
+      } else {
+        setSyncMsg(d.error || "Erro na sincronização");
+      }
+    } catch {
+      setSyncMsg("Erro de conexão");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function saveSettings() {
+    if (!workspace?.id || !settings) return;
+    setSavingSettings(true);
+    setSavedSettings(false);
+    try {
+      const res = await fetch("/api/reviews/settings", { method: "PATCH", headers: headers(), body: JSON.stringify(settings) });
+      const d = await res.json();
+      if (d.settings) {
+        setSettings(d.settings);
+        setSavedSettings(true);
+        setTimeout(() => setSavedSettings(false), 2500);
+      }
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  const set = <K extends keyof ReviewSettings>(k: K, v: ReviewSettings[K]) =>
+    setSettings((s) => (s ? { ...s, [k]: v } : s));
+
+  return (
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Star className="h-6 w-6 text-amber-400 fill-amber-400" />
+          Avaliações
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Plataforma própria de avaliações de clientes — importe da Yourviews, modere, exiba na loja e colete novas no pós-compra.
+        </p>
+      </div>
+
+      {/* KPIs */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold flex items-center gap-2">
+                {stats.average.toFixed(1)}
+                <Stars n={Math.round(stats.average)} size={16} />
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Nota média (publicadas)</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold">{stats.published_count}</div>
+              <div className="text-xs text-muted-foreground mt-1">Publicadas</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold">{stats.by_status?.pending || 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">Aguardando moderação</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-3xl font-bold">{stats.total}</div>
+              <div className="text-xs text-muted-foreground mt-1">Total importadas + nativas</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="moderation">Moderação</TabsTrigger>
+          <TabsTrigger value="import">Importar (Yourviews)</TabsTrigger>
+          <TabsTrigger value="ruler">Régua de comunicação</TabsTrigger>
+          <TabsTrigger value="settings">Configurações</TabsTrigger>
+          <TabsTrigger value="install">Instalação</TabsTrigger>
+        </TabsList>
+
+        {/* ---------- Moderação ---------- */}
+        <TabsContent value="moderation" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os status</SelectItem>
+                <SelectItem value="published">Publicadas</SelectItem>
+                <SelectItem value="pending">Pendentes</SelectItem>
+                <SelectItem value="hidden">Ocultas</SelectItem>
+                <SelectItem value="rejected">Rejeitadas</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Buscar por texto, título ou autor…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadList()}
+              className="max-w-xs"
+            />
+            <Button variant="outline" size="sm" onClick={loadList} disabled={loadingList}>
+              {loadingList ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+          </div>
+
+          {reviews.length === 0 && !loadingList && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">Nenhuma avaliação encontrada.</CardContent></Card>
+          )}
+
+          <div className="space-y-3">
+            {reviews.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="pt-6">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Stars n={r.rating} />
+                        <span className="font-semibold text-sm">{r.author_name || "Cliente"}</span>
+                        {r.verified_buyer && <Badge variant="outline" className="text-[10px]">✓ Verificado</Badge>}
+                        <Badge variant={STATUS_LABELS[r.status]?.variant || "secondary"} className="text-[10px]">
+                          {STATUS_LABELS[r.status]?.label || r.status}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px] capitalize">{r.source}</Badge>
+                      </div>
+                      {r.product_name && (
+                        <div className="text-xs text-muted-foreground mt-1">Produto: {r.product_name}{r.product_id ? ` (${r.product_id})` : ""}</div>
+                      )}
+                      {r.title && <div className="font-semibold mt-2">{r.title}</div>}
+                      {r.body && <p className="text-sm mt-1 text-muted-foreground whitespace-pre-line">{r.body}</p>}
+                      {r.custom_fields?.length > 0 && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                          {r.custom_fields.map((f, i) => (
+                            <span key={i} className="text-xs text-muted-foreground">
+                              {f.name}: <span className="text-foreground font-medium">{f.values.join(", ")}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {r.media?.length > 0 && (
+                        <div className="flex gap-2 mt-2">
+                          {r.media.map((m, i) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={i} src={m.url} alt="" className="w-14 h-14 object-cover rounded-md border" />
+                          ))}
+                        </div>
+                      )}
+                      {r.reply_body && (
+                        <div className="mt-2 bg-muted rounded-md p-2 text-xs">
+                          <span className="font-semibold">Resposta da loja:</span> {r.reply_body}
+                        </div>
+                      )}
+                      {replyingId === r.id && (
+                        <div className="mt-3 flex gap-2">
+                          <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Resposta pública…" className="text-sm" />
+                          <div className="flex flex-col gap-1">
+                            <Button size="sm" onClick={() => sendReply(r.id)}>Enviar</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setReplyingId(null)}>Cancelar</Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      {r.status !== "published" && (
+                        <Button size="sm" variant="outline" className="text-green-600" onClick={() => moderate(r.id, "published")} title="Publicar">
+                          <CheckCircle2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {r.status !== "hidden" && (
+                        <Button size="sm" variant="outline" onClick={() => moderate(r.id, "hidden")} title="Ocultar">
+                          <EyeOff className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {r.status !== "rejected" && (
+                        <Button size="sm" variant="outline" onClick={() => moderate(r.id, "rejected")} title="Rejeitar">
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => { setReplyingId(r.id); setReplyText(r.reply_body || ""); }} title="Responder">
+                        <MessageSquareReply className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-destructive" onClick={() => remove(r.id)} title="Excluir">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* ---------- Importar (Yourviews) ---------- */}
+        <TabsContent value="import" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5" /> Importar avaliações da Yourviews</CardTitle>
+              <CardDescription>
+                Carga inicial: puxa todas as avaliações que você já tem na Yourviews (API V1, paginada) pra dentro da sua plataforma.
+                Idempotente — pode rodar de novo sem duplicar. Credenciais em <em>Conta &gt; Código da Loja &gt; Credencial de API</em>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {connection?.configured ? (
+                <div className="rounded-lg border p-4 bg-muted/40 space-y-1 text-sm">
+                  <div className="flex items-center gap-2 font-medium text-green-600"><Check className="h-4 w-4" /> Conexão configurada</div>
+                  {connection.last_synced_at && (
+                    <div className="text-muted-foreground">Última importação: {new Date(connection.last_synced_at).toLocaleString("pt-BR")}</div>
+                  )}
+                  {connection.last_sync_message && <div className="text-muted-foreground">{connection.last_sync_message}</div>}
+                  {connection.last_sync_status === "error" && <div className="text-destructive">Status: erro</div>}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">Nenhuma conexão configurada ainda.</div>
+              )}
+
+              <div className="grid gap-3">
+                <div>
+                  <Label>Store Key (Código da Loja / GUID)</Label>
+                  <Input value={creds.store_key} onChange={(e) => setCreds({ ...creds, store_key: e.target.value })} placeholder="00000000-0000-0000-0000-000000000000" />
+                </div>
+                <div>
+                  <Label>API Username</Label>
+                  <Input value={creds.api_username} onChange={(e) => setCreds({ ...creds, api_username: e.target.value })} autoComplete="off" />
+                </div>
+                <div>
+                  <Label>API Password</Label>
+                  <Input type="password" value={creds.api_password} onChange={(e) => setCreds({ ...creds, api_password: e.target.value })} autoComplete="off" />
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={saveCreds} disabled={savingCreds || !creds.store_key || !creds.api_username || !creds.api_password}>
+                    {savingCreds ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Salvar credenciais
+                  </Button>
+                  <Button variant="secondary" onClick={runSync} disabled={syncing || !connection?.configured}>
+                    {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+                    Importar agora
+                  </Button>
+                </div>
+                {syncMsg && <div className="text-sm text-muted-foreground border rounded-md p-3">{syncMsg}</div>}
+                <p className="text-xs text-muted-foreground">
+                  Para uma carga inicial muito grande, rode o script no servidor:&nbsp;
+                  <code className="bg-muted px-1 rounded">npx tsx scripts/sync-yourviews-reviews.ts --workspace={workspace?.id || "<uuid>"} --apply</code>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ---------- Régua de comunicação ---------- */}
+        <TabsContent value="ruler" className="space-y-4">
+          {settings && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Régua de comunicação pós-compra</CardTitle>
+                <CardDescription>
+                  Depois que o cliente compra, agende um convite automático pra avaliar o produto (com foto/vídeo). As avaliações coletadas entram aqui na sua plataforma.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Ativar régua automática</Label>
+                    <p className="text-xs text-muted-foreground">Cria pedidos de avaliação para novas compras.</p>
+                  </div>
+                  <Switch checked={settings.request_enabled} onCheckedChange={(v) => set("request_enabled", v)} />
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Canal</Label>
+                    <Select value={settings.request_channel} onValueChange={(v) => set("request_channel", v as "whatsapp" | "email")}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                        <SelectItem value="email">E-mail</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Disparar a partir de</Label>
+                    <Select value={settings.request_trigger} onValueChange={(v) => set("request_trigger", v as "purchase" | "delivery")}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="purchase">Compra confirmada</SelectItem>
+                        <SelectItem value="delivery">Entrega</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Enviar após (dias)</Label>
+                    <Input type="number" min={0} value={settings.request_delay_days} onChange={(e) => set("request_delay_days", Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label>Lembrete após (dias, opcional)</Label>
+                    <Input type="number" min={0} value={settings.request_reminder_days ?? ""} onChange={(e) => set("request_reminder_days", e.target.value === "" ? null : Number(e.target.value))} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Pedir foto/vídeo</Label>
+                    <p className="text-xs text-muted-foreground">Incentiva o cliente a enviar mídia na avaliação.</p>
+                  </div>
+                  <Switch checked={settings.request_ask_media} onCheckedChange={(v) => set("request_ask_media", v)} />
+                </div>
+                <div>
+                  <Label>Mensagem (use {"{nome}"}, {"{produto}"}, {"{link}"})</Label>
+                  <Textarea
+                    value={settings.request_message_template ?? ""}
+                    onChange={(e) => set("request_message_template", e.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <Button onClick={saveSettings} disabled={savingSettings}>
+                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Salvar régua
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ---------- Configurações do widget ---------- */}
+        <TabsContent value="settings" className="space-y-4">
+          {settings && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Widget na loja</CardTitle>
+                <CardDescription>Aparência e comportamento do bloco de avaliações injetado na página de produto.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <Label>Exibir widget na loja</Label>
+                  <Switch checked={settings.widget_enabled} onCheckedChange={(v) => set("widget_enabled", v)} />
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Cor das estrelas</Label>
+                    <div className="flex gap-2 items-center">
+                      <input type="color" value={settings.star_color} onChange={(e) => set("star_color", e.target.value)} className="h-9 w-12 rounded border" />
+                      <Input value={settings.star_color} onChange={(e) => set("star_color", e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Avaliações por página</Label>
+                    <Input type="number" min={1} max={50} value={settings.reviews_per_page} onChange={(e) => set("reviews_per_page", Number(e.target.value))} />
+                  </div>
+                </div>
+                <div>
+                  <Label>Seletor de âncora (CSS, opcional)</Label>
+                  <Input value={settings.anchor_selector ?? ""} onChange={(e) => set("anchor_selector", e.target.value || null)} placeholder="#yv-reviews (vazio = detecta automaticamente)" />
+                  <p className="text-xs text-muted-foreground mt-1">Onde o widget é inserido. Vazio: reaproveita o ponto da Yourviews ou insere antes do rodapé.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Mostrar selo &quot;Verificado&quot;</Label>
+                  <Switch checked={settings.show_verified_badge} onCheckedChange={(v) => set("show_verified_badge", v)} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label>Mostrar campos (Veste, Tamanho, etc.)</Label>
+                  <Switch checked={settings.show_custom_fields} onCheckedChange={(v) => set("show_custom_fields", v)} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Publicar avaliações novas automaticamente</Label>
+                    <p className="text-xs text-muted-foreground">Desligado: avaliações nativas entram como &quot;pendente&quot; para moderação.</p>
+                  </div>
+                  <Switch checked={settings.auto_publish} onCheckedChange={(v) => set("auto_publish", v)} />
+                </div>
+                <Button onClick={saveSettings} disabled={savingSettings}>
+                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Salvar configurações
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ---------- Instalação ---------- */}
+        <TabsContent value="install" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Instalação</CardTitle>
+              <CardDescription>
+                O widget de avaliações usa o <strong>mesmo script</strong> das prateleiras/cupons/topbar. Se você já instalou o snippet, não precisa fazer nada — o bloco aparece automaticamente nas páginas de produto.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {apiKey ? (
+                <>
+                  <p className="text-sm text-muted-foreground">Caso ainda não tenha instalado, cole este snippet no GTM (ou antes de <code>&lt;/head&gt;</code>):</p>
+                  <pre className="bg-muted rounded-lg p-4 text-xs overflow-auto">
+{`<script>
+  var _shelvesKey = "${apiKey}";
+  var _shelvesBase = "${typeof window !== "undefined" ? window.location.origin : "https://dash.bulking.com.br"}";
+  (function(){var s=document.createElement('script');s.async=true;
+  s.src=_shelvesBase+'/shelves.js';document.head.appendChild(s)})();
+</script>`}
+                  </pre>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma API key encontrada. Gere uma na página de <strong>Prateleiras → Instalação</strong> (a mesma chave serve para avaliações).
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

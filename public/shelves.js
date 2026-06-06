@@ -3464,6 +3464,364 @@
     });
   }
 
+  // ============================================================
+  // --- Reviews (Avaliações de Clientes) ---
+  // Plataforma própria de avaliações: substitui a Yourviews. Renderiza o
+  // bloco de avaliações na página de produto, lendo /api/reviews/product
+  // (público, validado por shelf_api_keys). Design clean e moderno.
+  // ============================================================
+
+  var VTX_RV_STAR =
+    "M12 2.2l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.27 6.1 20.37l1.13-6.57L2.45 9.14l6.6-.96z";
+
+  function rvStars(rating, color, size) {
+    var s = size || 16;
+    var full = Math.round(Number(rating) || 0);
+    var out = "";
+    for (var i = 1; i <= 5; i++) {
+      var fill = i <= full ? color : "#e2e2e2";
+      out +=
+        '<svg class="vtx-rv-star" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path fill="' + fill + '" d="' + VTX_RV_STAR + '"/></svg>';
+    }
+    return out;
+  }
+
+  function rvDate(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var dd = String(d.getDate()).padStart(2, "0");
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    return dd + "/" + mm + "/" + d.getFullYear();
+  }
+
+  function rvInjectStyles(accent) {
+    if (document.getElementById("vtx-rv-styles")) return;
+    var st = document.createElement("style");
+    st.id = "vtx-rv-styles";
+    st.textContent =
+      "#vtx-reviews{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a;max-width:1200px;margin:48px auto;padding:0 16px;box-sizing:border-box}" +
+      "#vtx-reviews *{box-sizing:border-box}" +
+      ".vtx-rv-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}" +
+      ".vtx-rv-title{font-size:26px;font-weight:700;margin:0 0 10px;letter-spacing:-.01em}" +
+      ".vtx-rv-summary{display:flex;align-items:center;gap:14px;flex-wrap:wrap}" +
+      ".vtx-rv-avg{font-size:30px;font-weight:700;line-height:1}" +
+      ".vtx-rv-avg-stars{display:inline-flex;gap:1px;vertical-align:middle}" +
+      ".vtx-rv-count{font-size:14px;color:#6b7280}" +
+      ".vtx-rv-cta{border:1px solid #111;background:#fff;color:#111;border-radius:999px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;transition:all .15s ease;white-space:nowrap}" +
+      ".vtx-rv-cta:hover{background:#111;color:#fff}" +
+      ".vtx-rv-topics{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 4px}" +
+      ".vtx-rv-topic{background:#f1f1f2;border-radius:999px;padding:7px 15px;font-size:13.5px;color:#333}" +
+      ".vtx-rv-toolbar{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ececec;margin-top:18px;padding-bottom:0}" +
+      ".vtx-rv-tab{font-size:15px;font-weight:600;padding:12px 2px;border-bottom:2px solid #111;margin-bottom:-1px}" +
+      ".vtx-rv-sort{position:relative}" +
+      ".vtx-rv-sort select{appearance:none;-webkit-appearance:none;border:1px solid #d6d6d6;border-radius:10px;background:#fff;padding:9px 34px 9px 14px;font-size:14px;font-weight:500;cursor:pointer;color:#111}" +
+      ".vtx-rv-sort:after{content:'';position:absolute;right:13px;top:50%;width:8px;height:8px;border-right:2px solid #555;border-bottom:2px solid #555;transform:translateY(-65%) rotate(45deg);pointer-events:none}" +
+      ".vtx-rv-list{margin-top:8px}" +
+      ".vtx-rv-item{padding:26px 0;border-bottom:1px solid #ececec}" +
+      ".vtx-rv-item-stars{display:flex;gap:1px;margin-bottom:12px}" +
+      ".vtx-rv-author{display:flex;align-items:center;gap:9px;flex-wrap:wrap}" +
+      ".vtx-rv-author-name{font-weight:700;font-size:15px}" +
+      ".vtx-rv-verified{display:inline-flex;align-items:center;gap:4px;border:1px solid #cfcfcf;border-radius:999px;padding:2px 10px;font-size:12px;color:#333}" +
+      ".vtx-rv-date{color:#9ca3af;font-size:13px;margin-top:3px}" +
+      ".vtx-rv-item-title{font-size:18px;font-weight:700;margin:14px 0 7px}" +
+      ".vtx-rv-body{font-size:15px;line-height:1.55;color:#1f2937;white-space:pre-line}" +
+      ".vtx-rv-media{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}" +
+      ".vtx-rv-media img{width:74px;height:74px;object-fit:cover;border-radius:10px;cursor:pointer;border:1px solid #eee}" +
+      ".vtx-rv-fields{margin-top:16px;display:grid;grid-template-columns:1fr;gap:8px;max-width:520px}" +
+      ".vtx-rv-field{font-size:14px;color:#6b7280}" +
+      ".vtx-rv-field b{color:#111;font-weight:600;margin-left:6px}" +
+      ".vtx-rv-reply{margin-top:14px;background:#f7f7f8;border-radius:12px;padding:13px 16px}" +
+      ".vtx-rv-reply-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin-bottom:4px}" +
+      ".vtx-rv-reply-body{font-size:14px;color:#374151;line-height:1.5}" +
+      ".vtx-rv-more{display:block;margin:28px auto 0;border:1px solid #d6d6d6;background:#fff;border-radius:999px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;color:#111}" +
+      ".vtx-rv-more:hover{background:#f5f5f5}" +
+      ".vtx-rv-empty{padding:40px 0;text-align:center;color:#9ca3af;font-size:15px}" +
+      ".vtx-rv-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out}" +
+      ".vtx-rv-lightbox img,.vtx-rv-lightbox video{max-width:92vw;max-height:88vh;border-radius:8px}" +
+      // modal de escrita
+      ".vtx-rv-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2147483641;display:flex;align-items:center;justify-content:center;padding:16px}" +
+      ".vtx-rv-modal-box{background:#fff;border-radius:18px;max-width:480px;width:100%;max-height:92vh;overflow:auto;padding:28px}" +
+      ".vtx-rv-modal-box h3{margin:0 0 4px;font-size:20px;font-weight:700}" +
+      ".vtx-rv-modal-box p.sub{margin:0 0 18px;font-size:14px;color:#6b7280}" +
+      ".vtx-rv-modal-box label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}" +
+      ".vtx-rv-modal-box input,.vtx-rv-modal-box textarea{width:100%;border:1px solid #d6d6d6;border-radius:10px;padding:11px 13px;font-size:15px;font-family:inherit}" +
+      ".vtx-rv-modal-box textarea{min-height:96px;resize:vertical}" +
+      ".vtx-rv-rate{display:flex;gap:4px}" +
+      ".vtx-rv-rate svg{cursor:pointer}" +
+      ".vtx-rv-submit{width:100%;margin-top:20px;background:#111;color:#fff;border:none;border-radius:999px;padding:14px;font-size:15px;font-weight:600;cursor:pointer}" +
+      ".vtx-rv-submit:disabled{opacity:.5;cursor:default}" +
+      ".vtx-rv-modal-close{float:right;border:none;background:none;font-size:24px;line-height:1;cursor:pointer;color:#9ca3af}" +
+      ".vtx-rv-msg{margin-top:12px;font-size:14px;text-align:center}" +
+      "@media(max-width:640px){.vtx-rv-title{font-size:22px}.vtx-rv-avg{font-size:26px}#vtx-reviews{margin:32px auto}}";
+    document.head.appendChild(st);
+  }
+
+  function rvFindAnchor(settings) {
+    var sel = settings && settings.anchor_selector;
+    if (sel) {
+      var el = document.querySelector(sel);
+      if (el) return el;
+    }
+    // Reaproveita o ponto onde ficava a Yourviews.
+    var legacy = document.querySelector("#yv-reviews, .yv-reviews, .product-reviews, [data-reviews]");
+    if (legacy) {
+      legacy.innerHTML = "";
+      return legacy;
+    }
+    // Cria uma âncora antes do footer.
+    var foot = document.querySelector("footer, .footer");
+    var host = document.createElement("div");
+    if (foot && foot.parentNode) {
+      foot.parentNode.insertBefore(host, foot);
+    } else {
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
+  function rvRenderItem(r, settings) {
+    var color = settings.star_color || settings.accent_color || "#e6b800";
+    var fields = "";
+    if (settings.show_custom_fields && r.custom_fields && r.custom_fields.length) {
+      fields = '<div class="vtx-rv-fields">' +
+        r.custom_fields.map(function (f) {
+          var vals = (f.values || []).join(", ");
+          return '<div class="vtx-rv-field">' + escapeHtml(f.name) + "<b>" + escapeHtml(vals) + "</b></div>";
+        }).join("") +
+        "</div>";
+    }
+    var media = "";
+    if (r.media && r.media.length) {
+      media = '<div class="vtx-rv-media">' +
+        r.media.map(function (m) {
+          return '<img loading="lazy" src="' + safeUrl(m.url) + '" data-vtx-rv-media="' + safeUrl(m.url) + '" data-vtx-rv-type="' + escapeHtml(m.type || "image") + '" alt="">';
+        }).join("") +
+        "</div>";
+    }
+    var verified = (settings.show_verified_badge && r.verified)
+      ? '<span class="vtx-rv-verified">✓ Verificado</span>'
+      : "";
+    var reply = r.reply
+      ? '<div class="vtx-rv-reply"><div class="vtx-rv-reply-label">Resposta da loja</div><div class="vtx-rv-reply-body">' + escapeHtml(r.reply.body) + "</div></div>"
+      : "";
+    return (
+      '<div class="vtx-rv-item">' +
+        '<div class="vtx-rv-item-stars">' + rvStars(r.rating, color, 16) + "</div>" +
+        '<div class="vtx-rv-author"><span class="vtx-rv-author-name">' + escapeHtml(r.author) + "</span>" + verified + "</div>" +
+        '<div class="vtx-rv-date">' + rvDate(r.date) + "</div>" +
+        (r.title ? '<div class="vtx-rv-item-title">' + escapeHtml(r.title) + "</div>" : "") +
+        (r.body ? '<div class="vtx-rv-body">' + escapeHtml(r.body) + "</div>" : "") +
+        media +
+        fields +
+        reply +
+      "</div>"
+    );
+  }
+
+  function initReviews() {
+    if (!API_KEY || !API_BASE) return;
+    if (detectPageType() !== "product") return;
+    var productId = extractProductId();
+    if (!productId) return;
+
+    var state = { sort: "recent", offset: 0, perPage: 10, total: 0, settings: null, mount: null };
+
+    function load(append) {
+      var url =
+        API_BASE + "/api/reviews/product?key=" + encodeURIComponent(API_KEY) +
+        "&product_id=" + encodeURIComponent(productId) +
+        "&sort=" + state.sort +
+        "&offset=" + state.offset +
+        "&limit=" + state.perPage;
+      return fetchJSON(url).then(function (data) {
+        if (!data || data.enabled === false) return null;
+        return data;
+      });
+    }
+
+    load(false).then(function (data) {
+      if (!data) return;
+      var s = data.settings || {};
+      state.settings = s;
+      state.perPage = s.reviews_per_page || 10;
+      state.total = (data.summary && data.summary.count) || 0;
+      if (state.total === 0) return; // sem avaliações publicadas: não renderiza nada
+
+      rvInjectStyles(s.accent_color);
+      var mount = rvFindAnchor(s);
+      mount.id = "vtx-reviews";
+      state.mount = mount;
+
+      var color = s.star_color || s.accent_color || "#e6b800";
+      var avg = data.summary.average || 0;
+      var topics = (data.topics || []).map(function (t) {
+        return '<span class="vtx-rv-topic">' + escapeHtml(t) + "</span>";
+      }).join("");
+
+      mount.innerHTML =
+        '<div class="vtx-rv-head">' +
+          "<div>" +
+            '<h2 class="vtx-rv-title">Avaliações de Clientes</h2>' +
+            '<div class="vtx-rv-summary">' +
+              '<span class="vtx-rv-avg">' + avg.toFixed(1).replace(".", ",") + "</span>" +
+              '<span class="vtx-rv-avg-stars">' + rvStars(avg, color, 18) + "</span>" +
+              '<span class="vtx-rv-count">' + state.total + (state.total === 1 ? " avaliação" : " avaliações") + "</span>" +
+            "</div>" +
+          "</div>" +
+          '<button type="button" class="vtx-rv-cta" id="vtx-rv-write">Escrever avaliação</button>' +
+        "</div>" +
+        (topics ? '<div class="vtx-rv-topics">' + topics + "</div>" : "") +
+        '<div class="vtx-rv-toolbar">' +
+          '<div class="vtx-rv-tab">Avaliações (' + state.total + ")</div>" +
+          '<div class="vtx-rv-sort"><select id="vtx-rv-sort">' +
+            '<option value="recent">Mais recentes</option>' +
+            '<option value="helpful">Mais úteis</option>' +
+            '<option value="rating_high">Maior nota</option>' +
+            '<option value="rating_low">Menor nota</option>' +
+          "</select></div>" +
+        "</div>" +
+        '<div class="vtx-rv-list" id="vtx-rv-list"></div>' +
+        '<div id="vtx-rv-more-wrap"></div>';
+
+      var listEl = mount.querySelector("#vtx-rv-list");
+      renderInto(listEl, data.reviews, false);
+      state.offset = data.reviews.length;
+      updateMore(data.has_more);
+
+      mount.querySelector("#vtx-rv-sort").addEventListener("change", function (e) {
+        state.sort = e.target.value;
+        state.offset = 0;
+        load(false).then(function (d) {
+          if (!d) return;
+          renderInto(listEl, d.reviews, false);
+          state.offset = d.reviews.length;
+          updateMore(d.has_more);
+        });
+      });
+
+      mount.querySelector("#vtx-rv-write").addEventListener("click", function () {
+        openWriteModal(productId, color);
+      });
+
+      // Lightbox para mídia.
+      mount.addEventListener("click", function (e) {
+        var t = e.target;
+        if (t && t.getAttribute && t.getAttribute("data-vtx-rv-media")) {
+          openLightbox(t.getAttribute("data-vtx-rv-media"), t.getAttribute("data-vtx-rv-type"));
+        }
+      });
+
+      function renderInto(el, reviews, append) {
+        var html = (reviews || []).map(function (r) { return rvRenderItem(r, s); }).join("");
+        if (append) el.insertAdjacentHTML("beforeend", html);
+        else el.innerHTML = html || '<div class="vtx-rv-empty">Seja o primeiro a avaliar.</div>';
+      }
+
+      function updateMore(hasMore) {
+        var wrap = mount.querySelector("#vtx-rv-more-wrap");
+        if (!hasMore) { wrap.innerHTML = ""; return; }
+        wrap.innerHTML = '<button type="button" class="vtx-rv-more" id="vtx-rv-more">Ver mais avaliações</button>';
+        wrap.querySelector("#vtx-rv-more").addEventListener("click", function () {
+          load(true).then(function (d) {
+            if (!d) return;
+            renderInto(listEl, d.reviews, true);
+            state.offset += d.reviews.length;
+            updateMore(d.has_more);
+          });
+        });
+      }
+    }).catch(function (err) {
+      console.warn("[Reviews] erro:", err);
+    });
+  }
+
+  function openLightbox(url, type) {
+    var box = document.createElement("div");
+    box.className = "vtx-rv-lightbox";
+    box.innerHTML = type === "video"
+      ? '<video src="' + safeUrl(url) + '" controls autoplay></video>'
+      : '<img src="' + safeUrl(url) + '" alt="">';
+    box.addEventListener("click", function () { box.remove(); });
+    document.body.appendChild(box);
+  }
+
+  function openWriteModal(productId, color) {
+    var rating = 0;
+    var modal = document.createElement("div");
+    modal.className = "vtx-rv-modal";
+    modal.innerHTML =
+      '<div class="vtx-rv-modal-box">' +
+        '<button class="vtx-rv-modal-close" type="button" aria-label="Fechar">&times;</button>' +
+        "<h3>Avaliar produto</h3>" +
+        '<p class="sub">Conte o que você achou. Sua opinião ajuda outros clientes.</p>' +
+        '<label>Sua nota</label>' +
+        '<div class="vtx-rv-rate" id="vtx-rv-rate"></div>' +
+        '<label>Título</label><input id="vtx-rv-f-title" maxlength="120" placeholder="Resuma sua experiência">' +
+        '<label>Avaliação</label><textarea id="vtx-rv-f-body" maxlength="4000" placeholder="O que você gostou? Como serviu?"></textarea>' +
+        '<label>Seu nome</label><input id="vtx-rv-f-name" maxlength="120" placeholder="Como quer aparecer">' +
+        '<label>E-mail (não será publicado)</label><input id="vtx-rv-f-email" type="email" maxlength="200" placeholder="voce@email.com">' +
+        '<button class="vtx-rv-submit" id="vtx-rv-send" type="button">Enviar avaliação</button>' +
+        '<div class="vtx-rv-msg" id="vtx-rv-msg"></div>' +
+      "</div>";
+    document.body.appendChild(modal);
+
+    var rateEl = modal.querySelector("#vtx-rv-rate");
+    function paint() { rateEl.innerHTML = rvStars(rating, color, 30); }
+    paint();
+    rateEl.addEventListener("click", function (e) {
+      var stars = rateEl.querySelectorAll(".vtx-rv-star");
+      for (var i = 0; i < stars.length; i++) {
+        if (stars[i] === e.target || stars[i].contains(e.target)) { rating = i + 1; break; }
+      }
+      paint();
+    });
+
+    function close() { modal.remove(); }
+    modal.querySelector(".vtx-rv-modal-close").addEventListener("click", close);
+    modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+
+    modal.querySelector("#vtx-rv-send").addEventListener("click", function () {
+      var msg = modal.querySelector("#vtx-rv-msg");
+      var body = modal.querySelector("#vtx-rv-f-body").value.trim();
+      if (!rating) { msg.style.color = "#dc2626"; msg.textContent = "Escolha uma nota."; return; }
+      if (!body) { msg.style.color = "#dc2626"; msg.textContent = "Escreva sua avaliação."; return; }
+      var btn = modal.querySelector("#vtx-rv-send");
+      btn.disabled = true; btn.textContent = "Enviando...";
+      fetch(API_BASE + "/api/reviews/submit?key=" + encodeURIComponent(API_KEY), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: productId,
+          rating: rating,
+          title: modal.querySelector("#vtx-rv-f-title").value.trim(),
+          body: body,
+          author_name: modal.querySelector("#vtx-rv-f-name").value.trim(),
+          author_email: modal.querySelector("#vtx-rv-f-email").value.trim()
+        })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res && res.ok) {
+          modal.querySelector(".vtx-rv-modal-box").innerHTML =
+            '<button class="vtx-rv-modal-close" type="button">&times;</button>' +
+            '<h3>Obrigado! 💛</h3><p class="sub">' +
+            (res.moderated ? "Sua avaliação foi enviada e será publicada após revisão." : "Sua avaliação foi publicada!") +
+            "</p>";
+          modal.querySelector(".vtx-rv-modal-close").addEventListener("click", close);
+          setTimeout(close, 2600);
+        } else {
+          msg.style.color = "#dc2626";
+          msg.textContent = (res && res.error) || "Não foi possível enviar. Tente novamente.";
+          btn.disabled = false; btn.textContent = "Enviar avaliação";
+        }
+      }).catch(function () {
+        msg.style.color = "#dc2626";
+        msg.textContent = "Erro de conexão. Tente novamente.";
+        btn.disabled = false; btn.textContent = "Enviar avaliação";
+      });
+    });
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
@@ -3473,6 +3831,7 @@
       initCAPI();
       initTopbar();
       initGiftRequest();
+      initReviews();
     });
   } else {
     init();
@@ -3481,5 +3840,6 @@
     initCAPI();
     initTopbar();
     initGiftRequest();
+    initReviews();
   }
 })();

@@ -49,6 +49,7 @@ import {
   Banknote,
   ListChecks,
   Instagram,
+  Star,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -166,6 +167,7 @@ const navGroups: NavGroup[] = [
           { title: "Topbar", href: "/topbar", icon: Megaphone },
           { title: "Etiquetas Promo", href: "/promo-tags", icon: Tag },
           { title: "Cupons Auto", href: "/coupons", icon: Tag },
+          { title: "Avaliações", href: "/reviews", icon: Star },
         ],
       },
       {
