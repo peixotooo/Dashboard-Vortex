@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     // --- Régua de reviews (conhecida) ---
     const { data: rs } = await admin
       .from("review_settings")
-      .select("request_enabled, request_channel, rewards_enabled")
+      .select("request_enabled, request_channel, rewards_enabled, request_delay_days, request_days_after_invoice, request_require_invoice, request_reminder_days")
       .eq("workspace_id", workspaceId)
       .maybeSingle();
 
@@ -67,7 +67,47 @@ export async function GET(request: NextRequest) {
       .order("sent_at", { ascending: false })
       .limit(50);
 
-    return NextResponse.json({ reguas, recent: recent || [], cooldown_hours: 18 });
+    // --- Plano (flow) das réguas: sequência planejada por régua ---
+    const reviewSteps: { label: string; when: string; kind: "event" | "gate" | "send" | "wait" }[] = [
+      { label: "Compra confirmada", when: "Dia 0", kind: "event" },
+    ];
+    if (rs?.request_require_invoice ?? true) {
+      reviewSteps.push({ label: "Pedido despachado", when: "espera o rastreio", kind: "gate" });
+      reviewSteps.push({ label: "Pedido de avaliação", when: `despacho + ${rs?.request_days_after_invoice ?? 9} dias`, kind: "send" });
+    } else {
+      reviewSteps.push({ label: "Pedido de avaliação", when: `compra + ${rs?.request_delay_days ?? 15} dias`, kind: "send" });
+    }
+    if (rs?.request_reminder_days) {
+      reviewSteps.push({ label: "Lembrete", when: `+ ${rs.request_reminder_days} dias`, kind: "send" });
+    }
+
+    const plan = {
+      cooldown_hours: 18,
+      lanes: [
+        {
+          key: "review",
+          label: "Avaliações (pós-compra)",
+          channel: rs?.request_channel ?? "whatsapp",
+          enabled: !!rs?.request_enabled,
+          steps: reviewSteps,
+        },
+        {
+          key: "cashback",
+          label: "Cashback (lembretes)",
+          channel: "whatsapp/email",
+          enabled: cashbackActive !== null && cashbackActive > 0,
+          steps: [
+            { label: "Crédito na carteira", when: "Dia 0", kind: "event" as const },
+            { label: "Pedido despachado", when: "espera o rastreio", kind: "gate" as const },
+            { label: "Lembrete 1", when: "após despacho", kind: "send" as const },
+            { label: "Lembrete 2", when: "+ 5 dias", kind: "send" as const },
+            { label: "Lembrete 3", when: "antes de expirar", kind: "send" as const },
+          ],
+        },
+      ],
+    };
+
+    return NextResponse.json({ reguas, recent: recent || [], cooldown_hours: 18, plan });
   } catch (e) {
     return handleAuthError(e);
   }

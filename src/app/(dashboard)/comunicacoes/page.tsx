@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader2, MessageCircle, Mail, CircleDot } from "lucide-react";
+import { Loader2, MessageCircle, Mail, CircleDot, Truck, ShoppingBag, ChevronRight, Send, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -21,6 +21,22 @@ interface Contact {
   status: string;
   sent_at: string;
 }
+interface Step {
+  label: string;
+  when: string;
+  kind: "event" | "gate" | "send" | "wait";
+}
+interface Lane {
+  key: string;
+  label: string;
+  channel: string;
+  enabled: boolean;
+  steps: Step[];
+}
+interface Plan {
+  cooldown_hours: number;
+  lanes: Lane[];
+}
 
 const SOURCE_LABEL: Record<string, string> = {
   review: "Avaliação",
@@ -31,10 +47,55 @@ const SOURCE_LABEL: Record<string, string> = {
   group: "Grupo",
 };
 
+function StepNode({ step }: { step: Step }) {
+  const styles: Record<Step["kind"], string> = {
+    event: "bg-neutral-100 border-neutral-200 text-neutral-700",
+    gate: "bg-amber-50 border-amber-300 text-amber-800",
+    send: "bg-neutral-900 border-neutral-900 text-white",
+    wait: "bg-neutral-50 border-dashed border-neutral-300 text-neutral-500",
+  };
+  const icon =
+    step.kind === "gate" ? <Truck className="h-3.5 w-3.5" /> :
+    step.kind === "send" ? <Send className="h-3.5 w-3.5" /> :
+    step.kind === "event" ? <ShoppingBag className="h-3.5 w-3.5" /> :
+    <Clock className="h-3.5 w-3.5" />;
+  return (
+    <div className={`shrink-0 rounded-xl border px-3 py-2 min-w-[150px] ${styles[step.kind]}`}>
+      <div className="flex items-center gap-1.5 text-[13px] font-semibold">{icon}{step.label}</div>
+      <div className={`text-[11px] mt-0.5 ${step.kind === "send" ? "text-neutral-300" : "text-muted-foreground"}`}>{step.when}</div>
+    </div>
+  );
+}
+
+function FlowLane({ lane }: { lane: Lane }) {
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <CircleDot className={`h-3.5 w-3.5 ${lane.enabled ? "text-green-500" : "text-neutral-300"}`} />
+        <span className="font-semibold text-sm">{lane.label}</span>
+        <Badge variant="outline" className="text-[10px] flex items-center gap-1">
+          {lane.channel.includes("email") ? <Mail className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
+          {lane.channel}
+        </Badge>
+        <Badge variant={lane.enabled ? "default" : "secondary"} className="text-[10px] ml-auto">{lane.enabled ? "Ativa" : "Inativa"}</Badge>
+      </div>
+      <div className="flex items-center gap-1 overflow-x-auto pb-2">
+        {lane.steps.map((s, i) => (
+          <React.Fragment key={i}>
+            <StepNode step={s} />
+            {i < lane.steps.length - 1 && <ChevronRight className="h-4 w-4 text-neutral-300 shrink-0" />}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ComunicacoesPage() {
   const { workspace } = useWorkspace();
   const [reguas, setReguas] = useState<Regua[]>([]);
   const [recent, setRecent] = useState<Contact[]>([]);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [cooldown, setCooldown] = useState(18);
   const [loading, setLoading] = useState(true);
 
@@ -45,6 +106,7 @@ export default function ComunicacoesPage() {
       const d = await fetch("/api/comms/overview", { headers: { "x-workspace-id": workspace.id } }).then((r) => r.json());
       setReguas(d.reguas || []);
       setRecent(d.recent || []);
+      setPlan(d.plan || null);
       if (d.cooldown_hours) setCooldown(d.cooldown_hours);
     } finally {
       setLoading(false);
@@ -65,6 +127,26 @@ export default function ComunicacoesPage() {
           campanha…) há pouco, o pedido de avaliação é adiado para não se sobrepor.
         </p>
       </div>
+
+      {/* Flow da régua planejada */}
+      {plan && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Régua planejada</CardTitle>
+            <CardDescription>
+              A sequência de cada comunicação. O bloco âmbar <Truck className="inline h-3.5 w-3.5 text-amber-600" /> é um portão:
+              só seguimos depois que o pedido é <strong>despachado</strong> (tem rastreio) — vale para avaliações e cashback.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {plan.lanes.map((lane) => <FlowLane key={lane.key} lane={lane} />)}
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              Carência entre réguas: <strong>{plan.cooldown_hours}h</strong> — uma régua não dispara se o cliente recebeu outra há menos que isso.
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {reguas.map((r) => (
