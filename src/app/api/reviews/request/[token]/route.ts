@@ -14,7 +14,7 @@ async function loadRequest(token: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("review_requests")
-    .select("id, workspace_id, product_id, product_name, product_image, product_url, customer_name, customer_email, status, review_id")
+    .select("id, workspace_id, order_id, order_code, product_id, product_name, product_image, product_url, customer_name, customer_email, status, review_id")
     .eq("token", token)
     .maybeSingle();
   return { admin, req: data };
@@ -41,6 +41,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
       },
       ask_media: settings.request_ask_media,
       ads_enabled: settings.ads_enabled,
+      collect_store_review: settings.collect_store_review,
       accent_color: settings.accent_color,
       star_color: settings.star_color,
       rewards: settings.rewards_enabled
@@ -122,6 +123,27 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+
+  // Avaliação da LOJA (experiência/entrega), separada da do produto. Mesma
+  // página, registro próprio em store_reviews. Uma por pedido (upsert).
+  const storeRating = Number(body.store_rating);
+  if (settings.collect_store_review && Number.isFinite(storeRating) && storeRating >= 1 && storeRating <= 5) {
+    await admin.from("store_reviews").upsert(
+      {
+        workspace_id: req.workspace_id,
+        order_id: req.order_id,
+        order_code: req.order_code,
+        rating: Math.round(storeRating),
+        comment: typeof body.store_comment === "string" ? body.store_comment.trim().slice(0, 2000) || null : null,
+        author_name: typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name,
+        author_email: req.customer_email,
+        status,
+        review_request_id: req.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "workspace_id,order_id" }
+    );
+  }
 
   await admin
     .from("review_requests")

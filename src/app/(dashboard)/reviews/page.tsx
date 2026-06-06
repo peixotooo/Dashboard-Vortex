@@ -166,6 +166,22 @@ export default function ReviewsPage() {
   // Install
   const [apiKey, setApiKey] = useState<string | null>(null);
 
+  // Store reviews (avaliações da loja)
+  const [storeReviews, setStoreReviews] = useState<{ id: string; rating: number; comment: string | null; author_name: string | null; status: string; order_code: string | null; created_at: string }[]>([]);
+  const [storeSummary, setStoreSummary] = useState<{ average: number; published: number } | null>(null);
+
+  const loadStore = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/reviews/store", { headers: headers() }).then((r) => r.json());
+    setStoreReviews(d.reviews || []);
+    setStoreSummary(d.summary || null);
+  }, [workspace?.id, headers]);
+
+  async function moderateStore(id: string, status: string) {
+    await fetch(`/api/reviews/store/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
+    loadStore();
+  }
+
   const loadStats = useCallback(async () => {
     if (!workspace?.id) return;
     const s = await fetch("/api/reviews/stats", { headers: headers() }).then((r) => r.json());
@@ -208,11 +224,12 @@ export default function ReviewsPage() {
     if (workspace?.id) {
       loadStats();
       loadList();
+      loadStore();
       loadConnection();
       loadSettings();
       loadKey();
     }
-  }, [workspace?.id, loadStats, loadList, loadConnection, loadSettings, loadKey]);
+  }, [workspace?.id, loadStats, loadList, loadStore, loadConnection, loadSettings, loadKey]);
 
   useEffect(() => {
     if (workspace?.id) loadList();
@@ -384,6 +401,12 @@ export default function ReviewsPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="store">
+            Avaliações da loja
+            {storeSummary && storeSummary.published > 0 && (
+              <span className="ml-1.5 text-[10px] text-muted-foreground">★ {storeSummary.average}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="import">Importar (Yourviews)</TabsTrigger>
           <TabsTrigger value="ruler">Régua de comunicação</TabsTrigger>
           <TabsTrigger value="settings">Configurações</TabsTrigger>
@@ -527,6 +550,40 @@ export default function ReviewsPage() {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        {/* ---------- Avaliações da loja ---------- */}
+        <TabsContent value="store" className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Avaliações da <strong>experiência com a loja</strong> (entrega, atendimento), coletadas na mesma página da avaliação do produto — mas separadas dela.
+          </p>
+          {storeReviews.length === 0 ? (
+            <Card><CardContent className="py-10 text-center text-muted-foreground">Nenhuma avaliação da loja ainda.</CardContent></Card>
+          ) : (
+            storeReviews.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="pt-6 flex justify-between items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Stars n={r.rating} />
+                      <span className="font-semibold text-sm">{r.author_name || "Cliente"}</span>
+                      <Badge variant={STATUS_LABELS[r.status]?.variant || "secondary"} className="text-[10px]">{STATUS_LABELS[r.status]?.label || r.status}</Badge>
+                      {r.order_code && <span className="text-[11px] text-muted-foreground">Pedido {r.order_code}</span>}
+                    </div>
+                    {r.comment && <p className="text-sm mt-1 text-muted-foreground">{r.comment}</p>}
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {r.status !== "published" && (
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => moderateStore(r.id, "published")}>
+                        <CheckCircle2 className="h-4 w-4 mr-1" /> Aprovar
+                      </Button>
+                    )}
+                    {r.status !== "hidden" && <Button size="sm" variant="outline" onClick={() => moderateStore(r.id, "hidden")}><EyeOff className="h-4 w-4" /></Button>}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </TabsContent>
 
         {/* ---------- Importar (Yourviews) ---------- */}
