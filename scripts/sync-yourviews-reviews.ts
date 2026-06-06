@@ -14,13 +14,15 @@ import {
 // ao catálogo VNDA (shelf_products).
 //
 //   Dry-run (não grava):     npx tsx scripts/sync-yourviews-reviews.ts --workspace=<uuid>
-//   Importar (ativos):       ... --apply
+//   Importar (default):      ... --apply
 //   Refazer do zero:         ... --apply --reset
-//   Incluir inativos (mas que existem na VNDA): ... --apply --include-inactive
+//   Só produtos ativos:      ... --apply --active-only
 //   Importar tudo (sem filtro VNDA):            ... --apply --all
 //   Só os novos desde data:  ... --apply --date-from=2026-01-01
 //
-// Por padrão importa SÓ produtos que existem na VNDA e estão ATIVOS.
+// Por padrão importa todo produto que EXISTE na VNDA (ativo ou inativo) — pois
+// produtos esgotados ficam inativos e voltam. Descarta só o que não existe mais
+// no catálogo. Use --active-only pra restringir aos ativos.
 
 type Args = {
   workspaceId?: string;
@@ -33,10 +35,11 @@ type Args = {
 };
 
 function readArgs(): Args {
-  const args: Args = { apply: false, reset: false, filter: "active", count: 50 };
+  const args: Args = { apply: false, reset: false, filter: "known", count: 50 };
   for (const arg of process.argv.slice(2)) {
     if (arg === "--apply") args.apply = true;
     else if (arg === "--reset") args.reset = true;
+    else if (arg === "--active-only") args.filter = "active";
     else if (arg === "--include-inactive") args.filter = "known";
     else if (arg === "--all") args.filter = "all";
     else if (arg.startsWith("--workspace=")) args.workspaceId = arg.slice("--workspace=".length);

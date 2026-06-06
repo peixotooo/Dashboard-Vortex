@@ -615,12 +615,10 @@ export default function ReviewsPage() {
                   <Label>Mostrar campos (Veste, Tamanho, etc.)</Label>
                   <Switch checked={settings.show_custom_fields} onCheckedChange={(v) => set("show_custom_fields", v)} />
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Publicar avaliações novas automaticamente</Label>
-                    <p className="text-xs text-muted-foreground">Desligado: avaliações nativas entram como &quot;pendente&quot; para moderação.</p>
-                  </div>
-                  <Switch checked={settings.auto_publish} onCheckedChange={(v) => set("auto_publish", v)} />
+                <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  Toda avaliação coletada (régua pós-compra) entra como <strong>pendente</strong> e só
+                  aparece na loja depois de você aprovar na aba <strong>Moderação</strong>. Avaliações
+                  só são coletadas de quem comprou o produto.
                 </div>
                 <Button onClick={saveSettings} disabled={savingSettings}>
                   {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
