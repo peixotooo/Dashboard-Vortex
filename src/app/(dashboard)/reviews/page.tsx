@@ -50,6 +50,12 @@ interface Review {
   verified_buyer: boolean;
   custom_fields: { name: string; values: string[] }[];
   media: { url: string; type: string }[];
+  media_kind?: string;
+  ads_consent?: boolean;
+  ads_status?: string;
+  reward_tier?: string | null;
+  reward_status?: string;
+  reward_amount?: number | null;
   status: string;
   reply_body: string | null;
   reviewed_at: string | null;
@@ -213,6 +219,11 @@ export default function ReviewsPage() {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
     loadList();
     loadStats();
+  }
+
+  async function setAds(id: string, ads_status: string) {
+    await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ ads_status }) });
+    loadList();
   }
 
   async function remove(id: string) {
@@ -412,7 +423,20 @@ export default function ReviewsPage() {
                           {STATUS_LABELS[r.status]?.label || r.status}
                         </Badge>
                         <Badge variant="outline" className="text-[10px] capitalize">{r.source}</Badge>
+                        {r.media_kind === "video" && <Badge variant="outline" className="text-[10px]">🎥 Vídeo</Badge>}
+                        {r.media_kind === "photo" && <Badge variant="outline" className="text-[10px]">📸 Foto</Badge>}
+                        {r.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
+                        {r.ads_status === "accepted" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS ✓</Badge>}
+                        {r.reward_status === "granted" && <Badge variant="outline" className="text-[10px] text-green-600 border-green-300">🎁 R$ {r.reward_amount}</Badge>}
+                        {r.reward_status === "failed" && <Badge variant="destructive" className="text-[10px]">recompensa falhou</Badge>}
                       </div>
+                      {r.ads_status === "pending" && (
+                        <div className="mt-2 flex items-center gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2">
+                          <span className="text-xs text-purple-800 flex-1">Cliente autorizou usar o vídeo em ADS. Aprovar concede o cashback máximo.</span>
+                          <Button size="sm" className="h-7 bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setAds(r.id, "accepted")}>Aceitar p/ ADS</Button>
+                          <Button size="sm" variant="outline" className="h-7" onClick={() => setAds(r.id, "rejected")}>Rejeitar</Button>
+                        </div>
+                      )}
                       {r.product_name && (
                         <div className="text-xs text-muted-foreground mt-1">Produto: {r.product_name}{r.product_id ? ` (${r.product_id})` : ""}</div>
                       )}
@@ -617,6 +641,45 @@ export default function ReviewsPage() {
                     rows={3}
                   />
                 </div>
+
+                {/* Gamificação / recompensas */}
+                <div className="rounded-lg border p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>Recompensar avaliações com mídia (cashback)</Label>
+                      <p className="text-xs text-muted-foreground">Concede cashback (VNDA) quando a avaliação é aprovada. Foto &lt; vídeo &lt; vídeo aceito p/ ADS.</p>
+                    </div>
+                    <Switch checked={settings.rewards_enabled} onCheckedChange={(v) => set("rewards_enabled", v)} />
+                  </div>
+                  {settings.rewards_enabled && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div>
+                        <Label className="text-xs">Foto (R$)</Label>
+                        <Input type="number" min={0} step="0.01" value={settings.reward_photo_amount} onChange={(e) => set("reward_photo_amount", Number(e.target.value))} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Vídeo (R$)</Label>
+                        <Input type="number" min={0} step="0.01" value={settings.reward_video_amount} onChange={(e) => set("reward_video_amount", Number(e.target.value))} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Vídeo + ADS (R$)</Label>
+                        <Input type="number" min={0} step="0.01" value={settings.reward_video_ads_amount} onChange={(e) => set("reward_video_ads_amount", Number(e.target.value))} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Validade (dias)</Label>
+                        <Input type="number" min={1} value={settings.reward_validity_days} onChange={(e) => set("reward_validity_days", Number(e.target.value))} />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>Pedir consentimento de uso em ADS (vídeos)</Label>
+                      <p className="text-xs text-muted-foreground">Na landing, quem envia vídeo pode autorizar uso em anúncios. Você aprova o vídeo na aba Moderação.</p>
+                    </div>
+                    <Switch checked={settings.ads_enabled} onCheckedChange={(v) => set("ads_enabled", v)} />
+                  </div>
+                </div>
+
                 <Button onClick={saveSettings} disabled={savingSettings}>
                   {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
                   Salvar régua
