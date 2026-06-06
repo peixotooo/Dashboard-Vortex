@@ -79,9 +79,17 @@ interface ReviewSettings {
   request_channel: "whatsapp" | "email";
   request_trigger: "purchase" | "delivery";
   request_delay_days: number;
+  request_require_invoice: boolean;
+  request_days_after_invoice: number;
   request_ask_media: boolean;
   request_reminder_days: number | null;
   request_message_template: string | null;
+  rewards_enabled: boolean;
+  reward_photo_amount: number;
+  reward_video_amount: number;
+  reward_video_ads_amount: number;
+  reward_validity_days: number;
+  ads_enabled: boolean;
 }
 
 interface Connection {
@@ -573,13 +581,26 @@ export default function ReviewsPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label>Enviar após (dias)</Label>
+                    <Label>Mín. de dias após a compra</Label>
                     <Input type="number" min={0} value={settings.request_delay_days} onChange={(e) => set("request_delay_days", Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <Label>Dias após o faturamento/envio</Label>
+                    <Input type="number" min={0} value={settings.request_days_after_invoice} onChange={(e) => set("request_days_after_invoice", Number(e.target.value))} />
                   </div>
                   <div>
                     <Label>Lembrete após (dias, opcional)</Label>
                     <Input type="number" min={0} value={settings.request_reminder_days ?? ""} onChange={(e) => set("request_reminder_days", e.target.value === "" ? null : Number(e.target.value))} />
                   </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Só pedir após o pedido ser enviado/faturado</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Consulta o pedido na VNDA e só fala com o cliente depois que ele foi despachado (<code>shipped_at</code>) — evita pedir avaliação de produto sob demanda que ainda nem saiu. A VNDA não expõe NF; usamos o envio como sinal de faturado.
+                    </p>
+                  </div>
+                  <Switch checked={settings.request_require_invoice} onCheckedChange={(v) => set("request_require_invoice", v)} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>

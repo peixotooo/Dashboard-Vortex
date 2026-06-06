@@ -16,10 +16,22 @@ export interface ReviewSettings {
   request_enabled: boolean;
   request_channel: "whatsapp" | "email";
   request_trigger: "purchase" | "delivery";
-  request_delay_days: number;
+  request_delay_days: number;              // mínimo de dias após a COMPRA confirmada
+  request_require_invoice: boolean;        // só após o pedido ser enviado (proxy de faturado)
+  request_days_after_invoice: number;      // dias após o envio/faturamento (shipped_at)
   request_ask_media: boolean;
   request_reminder_days: number | null;
   request_message_template: string | null;
+  // WhatsApp template (categoria UTILITY) usado na régua
+  wa_template_id: string | null;
+  wa_variable_mapping: Record<string, string>;
+  // Gamificação / recompensas (cashback por tier)
+  rewards_enabled: boolean;
+  reward_photo_amount: number;
+  reward_video_amount: number;
+  reward_video_ads_amount: number;
+  reward_validity_days: number;
+  ads_enabled: boolean;                    // pedir consentimento de uso em ADS para vídeos
 }
 
 export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
@@ -34,11 +46,21 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_enabled: false,
   request_channel: "whatsapp",
   request_trigger: "purchase",
-  request_delay_days: 7,
+  request_delay_days: 15,
+  request_require_invoice: true,
+  request_days_after_invoice: 9,
   request_ask_media: true,
   request_reminder_days: null,
   request_message_template:
     "Oi {nome}! Você comprou {produto} com a gente 💛 Conta pra gente o que achou? Sua avaliação (com foto ou vídeo!) ajuda muita gente: {link}",
+  wa_template_id: null,
+  wa_variable_mapping: {},
+  rewards_enabled: false,
+  reward_photo_amount: 10,
+  reward_video_amount: 30,
+  reward_video_ads_amount: 50,
+  reward_validity_days: 60,
+  ads_enabled: true,
 };
 
 // Campos editáveis pelo admin (whitelist contra mass-assignment).
@@ -55,9 +77,18 @@ const EDITABLE: (keyof Omit<ReviewSettings, "workspace_id">)[] = [
   "request_channel",
   "request_trigger",
   "request_delay_days",
+  "request_require_invoice",
+  "request_days_after_invoice",
   "request_ask_media",
   "request_reminder_days",
   "request_message_template",
+  "wa_variable_mapping",
+  "rewards_enabled",
+  "reward_photo_amount",
+  "reward_video_amount",
+  "reward_video_ads_amount",
+  "reward_validity_days",
+  "ads_enabled",
 ];
 
 export async function getReviewSettings(workspaceId: string): Promise<ReviewSettings> {
