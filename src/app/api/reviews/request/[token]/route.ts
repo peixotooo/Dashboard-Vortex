@@ -14,7 +14,7 @@ async function loadRequest(token: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("review_requests")
-    .select("id, workspace_id, product_id, product_name, product_image, product_url, customer_name, status, review_id")
+    .select("id, workspace_id, product_id, product_name, product_image, product_url, customer_name, customer_email, status, review_id")
     .eq("token", token)
     .maybeSingle();
   return { admin, req: data };
@@ -40,8 +40,12 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
         url: req.product_url,
       },
       ask_media: settings.request_ask_media,
+      ads_enabled: settings.ads_enabled,
       accent_color: settings.accent_color,
       star_color: settings.star_color,
+      rewards: settings.rewards_enabled
+        ? { photo: settings.reward_photo_amount, video: settings.reward_video_amount, video_ads: settings.reward_video_ads_amount }
+        : null,
     },
     { headers: CORS }
   );
@@ -86,6 +90,13 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   // loja depois de aprovada no admin (mesmo vinda de um comprador verificado).
   const status = "pending";
 
+  // Gamificação: classifica a mídia e consentimento de ADS (só pra vídeo).
+  const settings = await getReviewSettings(req.workspace_id);
+  const hasVideo = media.some((m) => m && (m as { type: string }).type === "video");
+  const mediaKind = hasVideo ? "video" : media.length > 0 ? "photo" : "none";
+  const adsConsent = mediaKind === "video" && body.ads_consent === true && settings.ads_enabled;
+  const adsStatus = adsConsent ? "pending" : "none";
+
   const { data: review, error } = await admin
     .from("reviews")
     .insert({
@@ -99,8 +110,12 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
       title: typeof body.title === "string" ? body.title.trim().slice(0, 120) || null : null,
       body: text.slice(0, 4000),
       author_name: typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name,
+      author_email: req.customer_email, // necessário pra creditar a recompensa
       verified_buyer: true, // veio de uma compra real (régua)
       media,
+      media_kind: mediaKind,
+      ads_consent: adsConsent,
+      ads_status: adsStatus,
       status,
     })
     .select("id")

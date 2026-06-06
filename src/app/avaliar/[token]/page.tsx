@@ -9,8 +9,10 @@ interface RequestData {
   customer_name: string | null;
   product: { id: string | null; name: string | null; image: string | null; url: string | null };
   ask_media: boolean;
+  ads_enabled: boolean;
   accent_color: string;
   star_color: string;
+  rewards: { photo: number; video: number; video_ads: number } | null;
 }
 
 interface MediaItem {
@@ -33,6 +35,7 @@ export default function AvaliarPage() {
   const [body, setBody] = useState("");
   const [name, setName] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [adsConsent, setAdsConsent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +93,7 @@ export default function AvaliarPage() {
       const res = await fetch(`/api/reviews/request/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating, title, body, author_name: name, media }),
+        body: JSON.stringify({ rating, title, body, author_name: name, media, ads_consent: adsConsent }),
       });
       const d = await res.json();
       if (d.ok) setDone({ moderated: !!d.moderated });
@@ -207,6 +210,16 @@ export default function AvaliarPage() {
                 />
               </div>
 
+              {/* Recompensas (gamificação) */}
+              {data?.rewards && (
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[13px] text-amber-900 space-y-0.5">
+                  <p className="font-semibold">Ganhe cashback pela sua avaliação 💛</p>
+                  <p>📸 Foto do unbox: <b>R$ {data.rewards.photo}</b></p>
+                  <p>🎥 Vídeo: <b>R$ {data.rewards.video}</b></p>
+                  <p>⭐ Vídeo aprovado para usarmos: <b>R$ {data.rewards.video_ads}</b></p>
+                </div>
+              )}
+
               {/* Mídia */}
               {data?.ask_media && (
                 <div>
@@ -248,6 +261,22 @@ export default function AvaliarPage() {
                     className="hidden"
                     onChange={(e) => handleFiles(e.target.files)}
                   />
+
+                  {/* Consentimento de uso em ADS — só quando há vídeo */}
+                  {data?.ads_enabled && media.some((m) => m.type === "video") && (
+                    <label className="mt-3 flex items-start gap-2 text-[13px] text-neutral-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={adsConsent}
+                        onChange={(e) => setAdsConsent(e.target.checked)}
+                        className="mt-0.5 h-4 w-4"
+                      />
+                      <span>
+                        Autorizo a marca a usar meu vídeo em anúncios e redes sociais.
+                        {data?.rewards ? ` Se aprovado, você ganha R$ ${data.rewards.video_ads} 🎁` : ""}
+                      </span>
+                    </label>
+                  )}
                 </div>
               )}
 
