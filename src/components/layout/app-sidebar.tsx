@@ -168,6 +168,7 @@ const navGroups: NavGroup[] = [
         icon: Contact,
         items: [
           { title: "CRM", href: "/crm", icon: Contact },
+          { title: "Comunicações", href: "/comunicacoes", icon: Inbox },
           { title: "Playbooks Retencao", href: "/crm/retention", icon: TrendingUp },
           { title: "Cashback", href: "/crm/cashback", icon: Coins },
           { title: "Listas", href: "/crm/listas", icon: ListChecks },

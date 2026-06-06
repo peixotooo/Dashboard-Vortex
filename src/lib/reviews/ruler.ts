@@ -6,10 +6,14 @@ import { getWapiConfig, sendText } from "@/lib/wapi-api";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
 import { getVndaConfig, getVndaOrderShipping } from "@/lib/vnda-api";
+import { logCommunication, getRecentContacts } from "@/lib/crm/message-log";
 
 // Quantas vezes adiamos esperando o pedido faturar/enviar antes de desistir
 // (cron roda a cada 30min; checagem real ~a cada 2 dias → ~60 dias de espera).
 const MAX_DEFERS = 30;
+// Não enviar review se o cliente recebeu OUTRA comunicação (cashback, campanha,
+// etc.) nas últimas N horas — evita sobreposição de réguas.
+const COMMS_COOLDOWN_HOURS = 18;
 
 // Régua de comunicação pós-compra: a fila vive em `review_requests`.
 //
@@ -317,9 +321,29 @@ export async function dispatchDueRequests(
       await admin.from("review_requests").update({ shipped_at: shippedAt, invoice_ok: true, last_checked_at: nowIso, updated_at: nowIso }).eq("id", req.id);
     }
 
+    // Anti-sobreposição: se o cliente recebeu outra comunicação (cashback,
+    // campanha, etc.) há pouco, adia o review pra não atropelar.
+    const recent = await getRecentContacts(
+      workspaceId,
+      { email: req.customer_email, phone: req.customer_phone, withinHours: COMMS_COOLDOWN_HOURS },
+      admin
+    );
+    if (recent.length > 0) {
+      await admin.from("review_requests").update({
+        scheduled_for: new Date(Date.now() + COMMS_COOLDOWN_HOURS * 3600_000).toISOString(),
+        last_checked_at: nowIso,
+        updated_at: nowIso,
+      }).eq("id", req.id);
+      continue;
+    }
+
     const out = await deliver(req);
     if (out.ok) {
       await admin.from("review_requests").update({ status: "sent", sent_at: nowIso, error_message: null, updated_at: nowIso }).eq("id", req.id);
+      await logCommunication({
+        workspaceId, email: req.customer_email, phone: req.customer_phone,
+        channel: settings.request_channel, source: "review", sourceId: req.id, status: "sent",
+      }, admin);
       result.sent++;
     } else {
       await admin.from("review_requests").update({ status: "failed", error_message: out.error?.slice(0, 300), updated_at: nowIso }).eq("id", req.id);
