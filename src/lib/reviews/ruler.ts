@@ -257,10 +257,11 @@ export async function dispatchDueRequests(
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };
 
-      // Preferência: template UTILITY aprovado (Meta Cloud API).
+      // Preferência: template UTILITY aprovado (Meta Cloud API). O body do
+      // template já tem "Olá {{1}}, tudo bem?" — então {{1}}=nome, {{2}}=conteúdo+link.
       if (waTemplate && waConfig) {
-        const var1 = `Oi ${firstName(req.customer_name)}, tudo bem?`;
-        const var2 = `Você comprou ${product} com a gente. Conta o que achou? Sua avaliação (pode enviar foto/vídeo!) ajuda muita gente: ${link}`;
+        const var1 = firstName(req.customer_name);
+        const var2 = `Sua ${product} já chegou? Conta pra gente o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo! Avalie aqui: ${link}`;
         const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": var1, "2": var2 });
         return r.error ? { ok: false, error: r.error } : { ok: true };
       }
@@ -288,9 +289,11 @@ export async function dispatchDueRequests(
     }
   }
 
-  // Gate de faturamento: só pede review depois que o pedido foi enviado
-  // (shipped_at, proxy de faturado) + days_after_invoice. A VNDA não expõe NF;
-  // shipped_at é o melhor sinal — e resolve o caso de produtos sob demanda.
+  // Gate de despacho: só pede review depois que o pedido foi DESPACHADO +
+  // days_after_invoice. A VNDA não expõe NF nem preenche shipped_at/delivered_at
+  // (testado: sempre null) — o sinal real de despacho é o `tracking_code`. Como
+  // não há data de despacho na VNDA, ancoramos os +9 dias na data em que
+  // DETECTAMOS o tracking (gravada em review_requests.shipped_at na 1ª vez).
   const requireInvoice = settings.request_require_invoice;
   const vndaConfig = requireInvoice ? await getVndaConfig(workspaceId) : null;
   const daysAfterInvoice = settings.request_days_after_invoice ?? 9;
@@ -298,7 +301,7 @@ export async function dispatchDueRequests(
   // 1) Pendentes vencidos.
   const { data: due } = await admin
     .from("review_requests")
-    .select("id, customer_name, customer_phone, customer_email, product_name, product_image, token, order_code, defer_count")
+    .select("id, customer_name, customer_phone, customer_email, product_name, product_image, token, order_code, defer_count, shipped_at")
     .eq("workspace_id", workspaceId)
     .eq("status", "pending")
     .lte("scheduled_for", nowIso)
@@ -306,7 +309,7 @@ export async function dispatchDueRequests(
     .limit(100);
 
   for (const req of due || []) {
-    // --- Checagem de faturamento/envio antes de qualquer disparo ---
+    // --- Checagem de despacho antes de qualquer disparo ---
     if (requireInvoice) {
       const order = vndaConfig && req.order_code
         ? await getVndaOrderShipping(vndaConfig, req.order_code)
@@ -318,10 +321,10 @@ export async function dispatchDueRequests(
         continue;
       }
 
-      const shippedAt = order?.shipped_at || order?.delivered_at || null;
-
-      // Ainda não enviado/faturado (ex.: produto sob demanda) → adia ~2 dias.
-      if (!shippedAt) {
+      // Despachado? Sinal real = tracking_code presente (shipped/delivered como bônus).
+      const dispatched = !!(order && (order.tracking_code || order.shipped_at || order.delivered_at));
+      if (!dispatched) {
+        // Ainda não despachado (ex.: produto sob demanda) → adia ~2 dias.
         const dc = (req.defer_count || 0) + 1;
         const patch: Record<string, unknown> = {
           last_checked_at: nowIso,
@@ -329,23 +332,31 @@ export async function dispatchDueRequests(
           scheduled_for: new Date(Date.now() + 2 * 86400_000).toISOString(),
           updated_at: nowIso,
         };
-        if (dc >= MAX_DEFERS) { patch.status = "cancelled"; patch.error_message = "sem faturamento/envio após várias tentativas"; }
+        if (dc >= MAX_DEFERS) { patch.status = "cancelled"; patch.error_message = "sem despacho após várias tentativas"; }
         await admin.from("review_requests").update(patch).eq("id", req.id);
         continue;
       }
 
-      // Enviado: garante shipped + days_after_invoice antes de disparar.
-      const eligibleAt = new Date(shippedAt).getTime() + daysAfterInvoice * 86400_000;
-      if (Date.now() < eligibleAt) {
+      // Data do despacho: real (se a VNDA preencher) ou a data em que detectamos.
+      const despachoDate = order!.shipped_at || order!.delivered_at || req.shipped_at || nowIso;
+      const eligibleAt = new Date(despachoDate).getTime() + daysAfterInvoice * 86400_000;
+
+      // 1ª detecção do despacho → registra a data-âncora.
+      if (!req.shipped_at) {
         await admin.from("review_requests").update({
-          shipped_at: shippedAt, invoice_ok: true, last_checked_at: nowIso,
-          scheduled_for: new Date(eligibleAt).toISOString(), updated_at: nowIso,
+          shipped_at: despachoDate, invoice_ok: true, last_checked_at: nowIso,
+          scheduled_for: new Date(Math.max(eligibleAt, Date.now())).toISOString(), updated_at: nowIso,
         }).eq("id", req.id);
+      }
+      // Ainda dentro da janela dos +N dias → adia até elegível.
+      if (Date.now() < eligibleAt) {
+        if (req.shipped_at) {
+          await admin.from("review_requests").update({ invoice_ok: true, last_checked_at: nowIso, scheduled_for: new Date(eligibleAt).toISOString(), updated_at: nowIso }).eq("id", req.id);
+        }
         continue;
       }
-
-      // Elegível: marca faturado e segue pro envio.
-      await admin.from("review_requests").update({ shipped_at: shippedAt, invoice_ok: true, last_checked_at: nowIso, updated_at: nowIso }).eq("id", req.id);
+      // Elegível → marca e segue pro envio.
+      await admin.from("review_requests").update({ invoice_ok: true, last_checked_at: nowIso, updated_at: nowIso }).eq("id", req.id);
     }
 
     // Anti-sobreposição: se o cliente recebeu outra comunicação (cashback,

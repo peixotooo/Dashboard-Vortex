@@ -25,14 +25,16 @@ export async function POST(request: NextRequest) {
     const name = `bkng_review_prompt_v${ts}`; // neutro — evita Meta classificar como MARKETING
     const language = "pt_BR";
     const category = "UTILITY";
+    // Mesmo padrão do template de carrinho abandonado (UTILITY-friendly): body
+    // genérico com saudação + {{2}} carregando o conteúdo + link no runtime.
     const components = [
       {
         type: "BODY",
-        text: "{{1}}\n\n{{2}}",
+        text: "Olá {{1}}, tudo bem?\n\n{{2}}\n\nQualquer coisa, é só responder.",
         example: {
           body_text: [[
-            "Oi João, tudo bem?",
-            "Você comprou com a gente recentemente. Conta pra gente o que achou? https://dash.bulking.com.br/avaliar/exemplo",
+            "João",
+            "Sua compra na Bulking já chegou? Conta o que você achou: https://dash.bulking.com.br/avaliar/exemplo",
           ]],
         },
       },

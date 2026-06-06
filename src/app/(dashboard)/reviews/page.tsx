@@ -638,9 +638,9 @@ export default function ReviewsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Só pedir após o pedido ser enviado/faturado</Label>
+                    <Label>Só pedir após o pedido ser despachado</Label>
                     <p className="text-xs text-muted-foreground">
-                      Consulta o pedido na VNDA e só fala com o cliente depois que ele foi despachado (<code>shipped_at</code>) — evita pedir avaliação de produto sob demanda que ainda nem saiu. A VNDA não expõe NF; usamos o envio como sinal de faturado.
+                      Consulta o pedido na VNDA e só fala com o cliente depois que ele tem <strong>código de rastreio</strong> (= despachado/faturado) — evita pedir avaliação de produto sob demanda que ainda nem saiu. A avaliação é disparada {settings.request_days_after_invoice} dias após o despacho.
                     </p>
                   </div>
                   <Switch checked={settings.request_require_invoice} onCheckedChange={(v) => set("request_require_invoice", v)} />
