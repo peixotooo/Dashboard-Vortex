@@ -3563,6 +3563,11 @@
       ".vtx-rv-submit:disabled{opacity:.5;cursor:default}" +
       ".vtx-rv-modal-close{float:right;border:none;background:none;font-size:24px;line-height:1;cursor:pointer;color:#9ca3af}" +
       ".vtx-rv-msg{margin-top:12px;font-size:14px;text-align:center}" +
+      // Resumo em destaque abaixo do nome do produto
+      ".vtx-rv-titlerate{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0 6px;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}" +
+      ".vtx-rv-tr-avg{font-weight:700;font-size:19px;color:#0a0a0a;line-height:1}" +
+      ".vtx-rv-tr-stars{display:inline-flex;gap:2px}" +
+      ".vtx-rv-tr-count{font-size:14.5px;color:#6b7280;text-decoration:underline;text-underline-offset:2px}" +
       // Carrossel compacto perto do comprar (clean/minimalista)
       "#vtx-rv-compact{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
       ".vtx-rv-c-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:0;cursor:pointer;color:#0a0a0a;font-family:inherit}" +
@@ -3644,6 +3649,36 @@
   function rvScrollToReviews() {
     var t = document.getElementById("vtx-reviews");
     if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Acha o título/nome do produto na PDP.
+  function rvFindTitleAnchor() {
+    var sels = [".product-section h1", ".main-product h1", ".main-product-container h1",
+      ".product-info h1", ".product-name", ".product-title", ".product__name", ".product__title",
+      "[data-product-name]", "h1.product", "h1.name", "h1"];
+    for (var i = 0; i < sels.length; i++) {
+      var el = document.querySelector(sels[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  // Resumo em destaque logo abaixo do nome do produto (clicável → rola pras
+  // avaliações).
+  function rvRenderTitleRating(data, color) {
+    if (!data || !data.summary || !data.summary.count) return;
+    if (document.getElementById("vtx-rv-titlerate")) return;
+    var title = rvFindTitleAnchor();
+    if (!title || !title.parentNode) return;
+    var el = document.createElement("div");
+    el.id = "vtx-rv-titlerate";
+    el.className = "vtx-rv-titlerate";
+    el.innerHTML =
+      '<span class="vtx-rv-tr-avg">' + data.summary.average.toFixed(1).replace(".", ",") + "</span>" +
+      '<span class="vtx-rv-tr-stars">' + rvStars(data.summary.average, color, 20) + "</span>" +
+      '<span class="vtx-rv-tr-count">(' + data.summary.count + " avaliações)</span>";
+    title.parentNode.insertBefore(el, title.nextSibling);
+    el.addEventListener("click", rvScrollToReviews);
   }
 
   // Carrossel compacto e minimalista perto do comprar: resumo (clicável → rola
@@ -3783,6 +3818,8 @@
 
       var color = s.star_color || s.accent_color || "#e6b800";
 
+      // Resumo em destaque logo abaixo do nome do produto.
+      rvRenderTitleRating(data, color);
       // Carrossel compacto perto do botão comprar (resumo clicável + snippets).
       rvRenderCompact(data, color);
       var avg = data.summary.average || 0;
