@@ -26,11 +26,9 @@ const COMMS_COOLDOWN_HOURS = 18;
 // Tudo idempotente via UNIQUE(workspace_id, order_id, product_id).
 
 function baseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    "https://dash.bulking.com.br"
-  ).replace(/\/$/, "");
+  // Domínio próprio das avaliações (review.bulking.com.br). Configurável por
+  // REVIEW_BASE_URL; precisa apontar pro app na Vercel (a rota /avaliar é pública).
+  return (process.env.REVIEW_BASE_URL || "https://review.bulking.com.br").replace(/\/$/, "");
 }
 
 export function reviewLink(token: string): string {

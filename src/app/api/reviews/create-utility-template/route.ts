@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
     const components = [
       {
         type: "BODY",
-        text: "Olá {{1}}, tudo bem?\n\n{{2}}\n\nQualquer coisa, é só responder.",
+        text: "Olá {{1}}, tudo bem?\n\n{{2}}",
         example: {
           body_text: [[
             "João",
-            "Sua compra na Bulking já chegou? Conta o que você achou: https://dash.bulking.com.br/avaliar/exemplo",
+            "Sua compra na Bulking já chegou? Conta o que você achou: https://review.bulking.com.br/avaliar/exemplo",
           ]],
         },
       },
