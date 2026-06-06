@@ -3569,7 +3569,7 @@
       ".vtx-rv-tr-stars{display:inline-flex;gap:2px}" +
       ".vtx-rv-tr-count{font-size:14.5px;color:#6b7280;text-decoration:underline;text-underline-offset:2px}" +
       // Carrossel compacto perto do comprar (clean/minimalista)
-      "#vtx-rv-compact{display:block;width:100%;box-sizing:border-box;clear:both;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
+      "#vtx-rv-compact{display:block;width:100%;box-sizing:border-box;clear:both;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
       ".vtx-rv-c-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:0;cursor:pointer;color:#0a0a0a;font-family:inherit}" +
       ".vtx-rv-c-avg{font-weight:700;font-size:15px}" +
       ".vtx-rv-c-hstars{display:inline-flex;gap:1px}" +
@@ -3715,6 +3715,7 @@
     if (!slot || !slot.parentNode) return;
 
     var snippets = (data.reviews || []).filter(function (r) { return r.body || r.title; }).slice(0, 8);
+    if (!snippets.length) return; // sem depoimentos com texto: não renderiza
     var slidesHtml = snippets.map(function (r) {
       var txt = String(r.body || r.title || "").trim();
       if (txt.length > 130) txt = txt.slice(0, 127) + "…";
@@ -3728,17 +3729,13 @@
     var box = document.createElement("div");
     box.id = "vtx-rv-compact";
     box.className = "vtx-rv-compact";
-    box.innerHTML =
-      '<button type="button" class="vtx-rv-c-head">' +
-        '<span class="vtx-rv-c-avg">' + data.summary.average.toFixed(1).replace(".", ",") + "</span>" +
-        '<span class="vtx-rv-c-hstars">' + rvStars(data.summary.average, color, 15) + "</span>" +
-        '<span class="vtx-rv-c-count">' + data.summary.count + " avaliações</span>" +
-        '<span class="vtx-rv-c-arrow" aria-hidden="true">›</span>' +
-      "</button>" +
-      (slidesHtml ? '<div class="vtx-rv-c-track">' + slidesHtml + "</div>" : "");
+    // Só os depoimentos girando — a nota+estrelas+qtd já aparece abaixo do nome
+    // do produto (rvRenderTitleRating), então não duplicamos aqui.
+    box.innerHTML = '<div class="vtx-rv-c-track">' + slidesHtml + "</div>";
 
     slot.parentNode.insertBefore(box, slot.nextSibling);
-    box.querySelector(".vtx-rv-c-head").addEventListener("click", rvScrollToReviews);
+    // Clicar no strip leva pras avaliações completas.
+    box.addEventListener("click", rvScrollToReviews);
 
     var slides = box.querySelectorAll(".vtx-rv-c-slide");
     if (slides.length) {
