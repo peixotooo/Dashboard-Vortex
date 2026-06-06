@@ -20,8 +20,10 @@ export interface ReviewSettings {
   request_require_invoice: boolean;        // só após o pedido ser enviado (proxy de faturado)
   request_days_after_invoice: number;      // dias após o envio/faturamento (shipped_at)
   request_ask_media: boolean;
-  request_reminder_days: number | null;
+  request_reminder_days: number | null;     // 1º lembrete (dias após o 1º contato)
+  request_reminder_2_days: number | null;   // 2º lembrete (dias após o 1º lembrete)
   request_message_template: string | null;
+  collect_store_review: boolean;            // coletar avaliação da loja na landing
   // WhatsApp template (categoria UTILITY) usado na régua
   wa_template_id: string | null;
   wa_variable_mapping: Record<string, string>;
@@ -50,7 +52,9 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_require_invoice: true,
   request_days_after_invoice: 9,
   request_ask_media: true,
-  request_reminder_days: null,
+  request_reminder_days: 4,
+  request_reminder_2_days: 5,
+  collect_store_review: true,
   request_message_template:
     "Oi {nome}, tudo bem? 💛 Sua {produto} já chegou? Conta pra gente o que achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! 👉 {link}",
   wa_template_id: null,
@@ -81,6 +85,8 @@ const EDITABLE: (keyof Omit<ReviewSettings, "workspace_id">)[] = [
   "request_days_after_invoice",
   "request_ask_media",
   "request_reminder_days",
+  "request_reminder_2_days",
+  "collect_store_review",
   "request_message_template",
   "wa_variable_mapping",
   "rewards_enabled",

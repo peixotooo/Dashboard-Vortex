@@ -89,6 +89,8 @@ interface ReviewSettings {
   request_days_after_invoice: number;
   request_ask_media: boolean;
   request_reminder_days: number | null;
+  request_reminder_2_days: number | null;
+  collect_store_review: boolean;
   request_message_template: string | null;
   wa_template_id: string | null;
   rewards_enabled: boolean;
@@ -632,9 +634,23 @@ export default function ReviewsPage() {
                     <Input type="number" min={0} value={settings.request_days_after_invoice} onChange={(e) => set("request_days_after_invoice", Number(e.target.value))} />
                   </div>
                   <div>
-                    <Label>Lembrete após (dias, opcional)</Label>
+                    <Label>1º lembrete após (dias)</Label>
                     <Input type="number" min={0} value={settings.request_reminder_days ?? ""} onChange={(e) => set("request_reminder_days", e.target.value === "" ? null : Number(e.target.value))} />
                   </div>
+                  <div>
+                    <Label>2º lembrete após (dias)</Label>
+                    <Input type="number" min={0} value={settings.request_reminder_2_days ?? ""} onChange={(e) => set("request_reminder_2_days", e.target.value === "" ? null : Number(e.target.value))} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2">
+                  A avaliação é uma <strong>régua de até 3 contatos</strong>: o pedido inicial + 2 lembretes (deixe um vazio para encurtar). Quem avalia sai da sequência automaticamente.
+                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Coletar também a avaliação da loja</Label>
+                    <p className="text-xs text-muted-foreground">Na mesma página, o cliente avalia o produto e a experiência com a loja (entrega, atendimento).</p>
+                  </div>
+                  <Switch checked={settings.collect_store_review} onCheckedChange={(v) => set("collect_store_review", v)} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
