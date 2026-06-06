@@ -181,7 +181,7 @@ export const FEATURES: Feature[] = [
     id: "crm",
     label: "CRM",
     description: "CRM, Cashback, WhatsApp, Email e Grupos",
-    routes: ["/crm", "/whatsapp-groups"],
+    routes: ["/crm", "/whatsapp-groups", "/comunicacoes"],
   },
   {
     id: "crm.dashboard",
