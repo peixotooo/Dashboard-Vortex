@@ -3569,7 +3569,7 @@
       ".vtx-rv-tr-stars{display:inline-flex;gap:2px}" +
       ".vtx-rv-tr-count{font-size:14.5px;color:#6b7280;text-decoration:underline;text-underline-offset:2px}" +
       // Carrossel compacto perto do comprar (clean/minimalista)
-      "#vtx-rv-compact{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
+      "#vtx-rv-compact{display:block;width:100%;box-sizing:border-box;clear:both;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
       ".vtx-rv-c-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:0;cursor:pointer;color:#0a0a0a;font-family:inherit}" +
       ".vtx-rv-c-avg{font-weight:700;font-size:15px}" +
       ".vtx-rv-c-hstars{display:inline-flex;gap:1px}" +
@@ -3681,13 +3681,38 @@
     el.addEventListener("click", rvScrollToReviews);
   }
 
+  // Slot full-width na coluna do produto pro carrossel — NUNCA dentro da linha
+  // flex do botão comprar (senão vira "irmão" do botão e quebra o layout).
+  // Prioriza a linha de promoções (#vtx-promo-tag-row), que já é um bloco na
+  // coluna; senão sobe a partir do comprar até um pai que não seja flex/grid.
+  function rvCompactSlot() {
+    var row = document.getElementById("vtx-promo-tag-row");
+    if (row && row.parentNode) return row;
+    if (typeof getOrCreatePromoTagRow === "function") {
+      var r = getOrCreatePromoTagRow();
+      if (r && r.parentNode) return r;
+    }
+    var start = rvFindBuyAnchor();
+    if (!start) return null;
+    var node = start;
+    for (var k = 0; k < 8; k++) {
+      var parent = node.parentNode;
+      if (!parent || parent === document.body) break;
+      var s = window.getComputedStyle ? window.getComputedStyle(parent) : null;
+      var d = s ? s.display : "";
+      if (d === "flex" || d === "inline-flex" || d === "grid" || d === "inline-grid") { node = parent; continue; }
+      break; // parent é bloco: 'node' é o ponto seguro pra inserir depois
+    }
+    return node;
+  }
+
   // Carrossel compacto e minimalista perto do comprar: resumo (clicável → rola
   // pras avaliações) + snippets girando.
   function rvRenderCompact(data, color) {
     if (!data || !data.summary || !data.summary.count) return;
     if (document.getElementById("vtx-rv-compact")) return;
-    var anchor = rvFindBuyAnchor();
-    if (!anchor || !anchor.parentNode) return;
+    var slot = rvCompactSlot();
+    if (!slot || !slot.parentNode) return;
 
     var snippets = (data.reviews || []).filter(function (r) { return r.body || r.title; }).slice(0, 8);
     var slidesHtml = snippets.map(function (r) {
@@ -3712,7 +3737,7 @@
       "</button>" +
       (slidesHtml ? '<div class="vtx-rv-c-track">' + slidesHtml + "</div>" : "");
 
-    anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    slot.parentNode.insertBefore(box, slot.nextSibling);
     box.querySelector(".vtx-rv-c-head").addEventListener("click", rvScrollToReviews);
 
     var slides = box.querySelectorAll(".vtx-rv-c-slide");
