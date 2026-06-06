@@ -5,6 +5,11 @@ import { getReviewSettings, type ReviewSettings } from "@/lib/reviews/settings";
 import { getWapiConfig, sendText } from "@/lib/wapi-api";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
+import { getVndaConfig, getVndaOrderShipping } from "@/lib/vnda-api";
+
+// Quantas vezes adiamos esperando o pedido faturar/enviar antes de desistir
+// (cron roda a cada 30min; checagem real ~a cada 2 dias → ~60 dias de espera).
+const MAX_DEFERS = 30;
 
 // Régua de comunicação pós-compra: a fila vive em `review_requests`.
 //
@@ -107,11 +112,13 @@ export async function enqueueReviewRequests(
     const productId = item.reference || item.sku || null;
     if (!productId) { result.skipped++; continue; }
 
-    // Agenda pra data_compra + delay. Pula pedidos velhos demais (evita
-    // back-spam ao ligar a régua) — só agenda se o disparo não passou +5 dias.
+    // Agenda a 1ª checagem pra data_compra + delay (mínimo de dias após compra).
+    // Com gate de faturamento ligado, o disparo real é controlado no dispatch
+    // (shipped + days_after_invoice), então NÃO pulamos por idade aqui — produtos
+    // sob demanda demoram a faturar. Sem o gate, pulamos pedidos velhos (anti back-spam).
     const purchased = o.data_compra ? new Date(o.data_compra).getTime() : now;
     const scheduledFor = purchased + settings.request_delay_days * 86400_000;
-    if (scheduledFor < now - 5 * 86400_000) { result.skipped++; continue; }
+    if (!settings.request_require_invoice && scheduledFor < now - 5 * 86400_000) { result.skipped++; continue; }
 
     // Enriquecer produto via shelf_products.
     let productName = item.name || null;
@@ -250,10 +257,17 @@ export async function dispatchDueRequests(
     }
   }
 
+  // Gate de faturamento: só pede review depois que o pedido foi enviado
+  // (shipped_at, proxy de faturado) + days_after_invoice. A VNDA não expõe NF;
+  // shipped_at é o melhor sinal — e resolve o caso de produtos sob demanda.
+  const requireInvoice = settings.request_require_invoice;
+  const vndaConfig = requireInvoice ? await getVndaConfig(workspaceId) : null;
+  const daysAfterInvoice = settings.request_days_after_invoice ?? 9;
+
   // 1) Pendentes vencidos.
   const { data: due } = await admin
     .from("review_requests")
-    .select("id, customer_name, customer_phone, customer_email, product_name, product_image, token")
+    .select("id, customer_name, customer_phone, customer_email, product_name, product_image, token, order_code, defer_count")
     .eq("workspace_id", workspaceId)
     .eq("status", "pending")
     .lte("scheduled_for", nowIso)
@@ -261,6 +275,48 @@ export async function dispatchDueRequests(
     .limit(100);
 
   for (const req of due || []) {
+    // --- Checagem de faturamento/envio antes de qualquer disparo ---
+    if (requireInvoice) {
+      const order = vndaConfig && req.order_code
+        ? await getVndaOrderShipping(vndaConfig, req.order_code)
+        : null;
+
+      // Pedido cancelado → cancela o pedido de avaliação.
+      if (order && (order.canceled_at || order.status === "canceled" || order.status === "cancelled")) {
+        await admin.from("review_requests").update({ status: "cancelled", error_message: "pedido cancelado", last_checked_at: nowIso, updated_at: nowIso }).eq("id", req.id);
+        continue;
+      }
+
+      const shippedAt = order?.shipped_at || order?.delivered_at || null;
+
+      // Ainda não enviado/faturado (ex.: produto sob demanda) → adia ~2 dias.
+      if (!shippedAt) {
+        const dc = (req.defer_count || 0) + 1;
+        const patch: Record<string, unknown> = {
+          last_checked_at: nowIso,
+          defer_count: dc,
+          scheduled_for: new Date(Date.now() + 2 * 86400_000).toISOString(),
+          updated_at: nowIso,
+        };
+        if (dc >= MAX_DEFERS) { patch.status = "cancelled"; patch.error_message = "sem faturamento/envio após várias tentativas"; }
+        await admin.from("review_requests").update(patch).eq("id", req.id);
+        continue;
+      }
+
+      // Enviado: garante shipped + days_after_invoice antes de disparar.
+      const eligibleAt = new Date(shippedAt).getTime() + daysAfterInvoice * 86400_000;
+      if (Date.now() < eligibleAt) {
+        await admin.from("review_requests").update({
+          shipped_at: shippedAt, invoice_ok: true, last_checked_at: nowIso,
+          scheduled_for: new Date(eligibleAt).toISOString(), updated_at: nowIso,
+        }).eq("id", req.id);
+        continue;
+      }
+
+      // Elegível: marca faturado e segue pro envio.
+      await admin.from("review_requests").update({ shipped_at: shippedAt, invoice_ok: true, last_checked_at: nowIso, updated_at: nowIso }).eq("id", req.id);
+    }
+
     const out = await deliver(req);
     if (out.ok) {
       await admin.from("review_requests").update({ status: "sent", sent_at: nowIso, error_message: null, updated_at: nowIso }).eq("id", req.id);

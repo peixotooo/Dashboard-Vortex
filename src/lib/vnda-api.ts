@@ -210,6 +210,51 @@ export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | 
   return null;
 }
 
+// Detalhe de envio/status de um pedido — usado pela régua de avaliações pra só
+// pedir review depois que o pedido foi enviado (proxy de "faturado"). A VNDA
+// NÃO expõe nota fiscal no pedido; shipped_at é o melhor sinal disponível.
+// IMPORTANTE: o endpoint funciona pelo CODE do pedido (numero_pedido), não pelo id numérico.
+export interface VndaOrderShipping {
+  status: string | null;
+  confirmed_at: string | null;
+  shipped_at: string | null;
+  delivered_at: string | null;
+  canceled_at: string | null;
+  tracking_code: string | null;
+  expected_delivery_date: string | null;
+}
+
+export async function getVndaOrderShipping(
+  config: VndaConfig,
+  orderCode: string
+): Promise<VndaOrderShipping | null> {
+  try {
+    const res = await fetch(
+      `https://api.vnda.com.br/api/v2/orders/${encodeURIComponent(orderCode)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          "X-Shop-Host": config.storeHost,
+          Accept: "application/json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as Record<string, unknown>;
+    return {
+      status: (j.status as string) ?? null,
+      confirmed_at: (j.confirmed_at as string) ?? null,
+      shipped_at: (j.shipped_at as string) ?? null,
+      delivered_at: (j.delivered_at as string) ?? null,
+      canceled_at: (j.canceled_at as string) ?? null,
+      tracking_code: (j.tracking_code as string) ?? null,
+      expected_delivery_date: (j.expected_delivery_date as string) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // --- API request ---
 
 async function vndaRequest<T>(
