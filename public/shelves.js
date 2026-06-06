@@ -3563,6 +3563,19 @@
       ".vtx-rv-submit:disabled{opacity:.5;cursor:default}" +
       ".vtx-rv-modal-close{float:right;border:none;background:none;font-size:24px;line-height:1;cursor:pointer;color:#9ca3af}" +
       ".vtx-rv-msg{margin-top:12px;font-size:14px;text-align:center}" +
+      // Carrossel compacto perto do comprar (clean/minimalista)
+      "#vtx-rv-compact{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:14px 0;padding:13px 0;border-top:1px solid #ececec;border-bottom:1px solid #ececec}" +
+      ".vtx-rv-c-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:0;cursor:pointer;color:#0a0a0a;font-family:inherit}" +
+      ".vtx-rv-c-avg{font-weight:700;font-size:15px}" +
+      ".vtx-rv-c-hstars{display:inline-flex;gap:1px}" +
+      ".vtx-rv-c-count{font-size:13px;color:#6b7280;text-decoration:underline;text-underline-offset:2px}" +
+      ".vtx-rv-c-arrow{margin-left:auto;color:#9ca3af;font-size:20px;line-height:1}" +
+      ".vtx-rv-c-track{position:relative;margin-top:9px;min-height:60px}" +
+      ".vtx-rv-c-slide{position:absolute;left:0;right:0;top:0;opacity:0;transition:opacity .5s ease;pointer-events:none}" +
+      ".vtx-rv-c-slide.vtx-rv-c-active{opacity:1;pointer-events:auto;position:relative}" +
+      ".vtx-rv-c-stars{margin-bottom:4px;display:flex;gap:1px}" +
+      ".vtx-rv-c-text{font-size:13.5px;color:#374151;line-height:1.45;margin:0 0 4px}" +
+      ".vtx-rv-c-author{font-size:12.5px;color:#6b7280;margin:0;font-weight:600}" +
       "@media(max-width:640px){.vtx-rv-title{font-size:22px}.vtx-rv-avg{font-size:26px}#vtx-reviews{margin:32px auto}}";
     document.head.appendChild(st);
   }
@@ -3579,15 +3592,106 @@
       legacy.innerHTML = "";
       return legacy;
     }
-    // Cria uma âncora antes do footer.
-    var foot = document.querySelector("footer, .footer");
     var host = document.createElement("div");
+    // Avaliações devem ficar ACIMA das prateleiras: se já existe uma prateleira,
+    // insere antes dela; senão antes do footer. (rvEnsureAboveShelves corrige
+    // prateleiras que aparecem depois, por causa do fetch assíncrono.)
+    var shelf = document.querySelector(".vtx-shelf-container, .vtx-shelf");
+    if (shelf && shelf.parentNode) {
+      shelf.parentNode.insertBefore(host, shelf);
+      return host;
+    }
+    var foot = document.querySelector("footer, .footer");
     if (foot && foot.parentNode) {
       foot.parentNode.insertBefore(host, foot);
     } else {
       document.body.appendChild(host);
     }
     return host;
+  }
+
+  // Mantém o bloco de avaliações ACIMA das prateleiras mesmo que elas só
+  // apareçam depois (a config das prateleiras é buscada de forma assíncrona).
+  function rvEnsureAboveShelves(mount) {
+    function reorder() {
+      var shelf = document.querySelector(".vtx-shelf-container, .vtx-shelf");
+      if (!shelf || !shelf.parentNode || !mount) return;
+      var shelfBeforeMount = mount.compareDocumentPosition(shelf) & Node.DOCUMENT_POSITION_PRECEDING;
+      if (mount.parentNode !== shelf.parentNode || shelfBeforeMount) {
+        try { shelf.parentNode.insertBefore(mount, shelf); } catch (e) { /* noop */ }
+      }
+    }
+    reorder();
+    setTimeout(reorder, 800);
+    setTimeout(reorder, 2200);
+    setTimeout(reorder, 4500);
+  }
+
+  // Âncora "perto do botão comprar" pro carrossel compacto.
+  function rvFindBuyAnchor() {
+    var promo = document.getElementById("vtx-promo-tag-row");
+    if (promo) return promo;
+    var sels = [".buy-button-container", ".product-buy", ".product-form", "[data-product-buy]",
+      "form[data-product-form]", ".product__buy", ".product-purchase", ".add-to-cart-button",
+      ".add-to-cart", ".actions-wrapper", ".product-info", ".product__details"];
+    for (var i = 0; i < sels.length; i++) {
+      var el = document.querySelector(sels[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function rvScrollToReviews() {
+    var t = document.getElementById("vtx-reviews");
+    if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // Carrossel compacto e minimalista perto do comprar: resumo (clicável → rola
+  // pras avaliações) + snippets girando.
+  function rvRenderCompact(data, color) {
+    if (!data || !data.summary || !data.summary.count) return;
+    if (document.getElementById("vtx-rv-compact")) return;
+    var anchor = rvFindBuyAnchor();
+    if (!anchor || !anchor.parentNode) return;
+
+    var snippets = (data.reviews || []).filter(function (r) { return r.body || r.title; }).slice(0, 8);
+    var slidesHtml = snippets.map(function (r) {
+      var txt = String(r.body || r.title || "").trim();
+      if (txt.length > 130) txt = txt.slice(0, 127) + "…";
+      return '<div class="vtx-rv-c-slide">' +
+          '<div class="vtx-rv-c-stars">' + rvStars(r.rating, color, 13) + "</div>" +
+          '<p class="vtx-rv-c-text">“' + escapeHtml(txt) + '”</p>' +
+          '<p class="vtx-rv-c-author">— ' + escapeHtml(r.author) + (r.verified ? " ✓" : "") + "</p>" +
+        "</div>";
+    }).join("");
+
+    var box = document.createElement("div");
+    box.id = "vtx-rv-compact";
+    box.className = "vtx-rv-compact";
+    box.innerHTML =
+      '<button type="button" class="vtx-rv-c-head">' +
+        '<span class="vtx-rv-c-avg">' + data.summary.average.toFixed(1).replace(".", ",") + "</span>" +
+        '<span class="vtx-rv-c-hstars">' + rvStars(data.summary.average, color, 15) + "</span>" +
+        '<span class="vtx-rv-c-count">' + data.summary.count + " avaliações</span>" +
+        '<span class="vtx-rv-c-arrow" aria-hidden="true">›</span>' +
+      "</button>" +
+      (slidesHtml ? '<div class="vtx-rv-c-track">' + slidesHtml + "</div>" : "");
+
+    anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    box.querySelector(".vtx-rv-c-head").addEventListener("click", rvScrollToReviews);
+
+    var slides = box.querySelectorAll(".vtx-rv-c-slide");
+    if (slides.length) {
+      slides[0].classList.add("vtx-rv-c-active");
+      if (slides.length > 1) {
+        var idx = 0;
+        setInterval(function () {
+          slides[idx].classList.remove("vtx-rv-c-active");
+          idx = (idx + 1) % slides.length;
+          slides[idx].classList.add("vtx-rv-c-active");
+        }, 4500);
+      }
+    }
   }
 
   function rvRenderItem(r, settings) {
@@ -3675,8 +3779,12 @@
       var mount = rvFindAnchor(s);
       mount.id = "vtx-reviews";
       state.mount = mount;
+      rvEnsureAboveShelves(mount);
 
       var color = s.star_color || s.accent_color || "#e6b800";
+
+      // Carrossel compacto perto do botão comprar (resumo clicável + snippets).
+      rvRenderCompact(data, color);
       var avg = data.summary.average || 0;
       var topics = (data.topics || []).map(function (t) {
         return '<span class="vtx-rv-topic">' + escapeHtml(t) + "</span>";
