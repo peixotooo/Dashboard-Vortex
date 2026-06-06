@@ -52,7 +52,7 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_ask_media: true,
   request_reminder_days: null,
   request_message_template:
-    "Oi {nome}! Você comprou {produto} com a gente 💛 Conta pra gente o que achou? Sua avaliação (com foto ou vídeo!) ajuda muita gente: {link}",
+    "Oi {nome}, tudo bem? 💛 Sua {produto} já chegou? Conta pra gente o que achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! 👉 {link}",
   wa_template_id: null,
   wa_variable_mapping: {},
   rewards_enabled: false,

@@ -241,13 +241,17 @@ export async function getVndaOrderShipping(
     );
     if (!res.ok) return null;
     const j = (await res.json()) as Record<string, unknown>;
+    // VNDA não popula shipped_at/delivered_at (sempre null) — o sinal real de
+    // "despachado" é o tracking_code (ou tracking_code_list).
+    const list = Array.isArray(j.tracking_code_list) ? (j.tracking_code_list as unknown[]) : [];
+    const tracking = (j.tracking_code as string) || (typeof list[0] === "string" ? (list[0] as string) : null) || null;
     return {
       status: (j.status as string) ?? null,
       confirmed_at: (j.confirmed_at as string) ?? null,
       shipped_at: (j.shipped_at as string) ?? null,
       delivered_at: (j.delivered_at as string) ?? null,
       canceled_at: (j.canceled_at as string) ?? null,
-      tracking_code: (j.tracking_code as string) ?? null,
+      tracking_code: tracking,
       expected_delivery_date: (j.expected_delivery_date as string) ?? null,
     };
   } catch {
