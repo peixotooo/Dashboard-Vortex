@@ -1,0 +1,272 @@
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import { Star, Loader2, ImagePlus, Check, X } from "lucide-react";
+
+interface RequestData {
+  already_completed: boolean;
+  customer_name: string | null;
+  product: { id: string | null; name: string | null; image: string | null; url: string | null };
+  ask_media: boolean;
+  accent_color: string;
+  star_color: string;
+}
+
+interface MediaItem {
+  url: string;
+  type: "image" | "video";
+}
+
+export default function AvaliarPage() {
+  const params = useParams<{ token: string }>();
+  const token = params?.token;
+
+  const [data, setData] = useState<RequestData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [done, setDone] = useState<null | { moderated: boolean }>(null);
+
+  const [rating, setRating] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [name, setName] = useState("");
+  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/reviews/request/${token}`);
+      if (res.status === 404) { setNotFound(true); return; }
+      const d: RequestData = await res.json();
+      setData(d);
+      if (d.customer_name) setName(d.customer_name);
+      if (d.already_completed) setDone({ moderated: false });
+    } catch {
+      setNotFound(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || !files.length || !token) return;
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(files).slice(0, 8 - media.length)) {
+        const presign = await fetch(`/api/reviews/request/${token}/upload-url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_type: file.type }),
+        }).then((r) => r.json());
+        if (!presign.upload_url) throw new Error(presign.error || "Falha no upload");
+        const put = await fetch(presign.upload_url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+        if (!put.ok) throw new Error("Falha ao enviar arquivo");
+        setMedia((m) => [...m, { url: presign.public_url, type: presign.type }]);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro no upload");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function submit() {
+    if (!token) return;
+    if (!rating) { setError("Escolha uma nota."); return; }
+    if (!body.trim()) { setError("Escreva sua avaliação."); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/reviews/request/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating, title, body, author_name: name, media }),
+      });
+      const d = await res.json();
+      if (d.ok) setDone({ moderated: !!d.moderated });
+      else setError(d.error || "Não foi possível enviar.");
+    } catch {
+      setError("Erro de conexão.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const accent = data?.star_color || data?.accent_color || "#e6b800";
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+        <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50 p-4">
+        <div className="text-center text-neutral-500">
+          <p className="text-lg font-medium">Link não encontrado</p>
+          <p className="text-sm mt-1">Este convite de avaliação não é válido ou expirou.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-50 flex items-start sm:items-center justify-center p-4 sm:py-12">
+      <div className="w-full max-w-lg bg-white rounded-3xl shadow-sm border border-neutral-100 p-6 sm:p-9">
+        {done ? (
+          <div className="text-center py-8">
+            <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
+              <Check className="h-7 w-7 text-green-500" />
+            </div>
+            <h1 className="text-2xl font-bold text-neutral-900">Obrigado! 💛</h1>
+            <p className="text-neutral-500 mt-2">
+              {done.moderated
+                ? "Sua avaliação foi enviada e será publicada após revisão."
+                : "Sua avaliação foi publicada. Você ajuda muita gente!"}
+            </p>
+          </div>
+        ) : (
+          <>
+            {data?.product?.image && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={data.product.image} alt="" className="mx-auto mb-5 h-28 w-28 object-cover rounded-2xl border border-neutral-100" />
+            )}
+            <h1 className="text-2xl font-bold text-neutral-900 text-center leading-tight">
+              {data?.customer_name ? `${data.customer_name}, o que você achou?` : "O que você achou?"}
+            </h1>
+            {data?.product?.name && (
+              <p className="text-center text-neutral-500 mt-1.5 text-sm">{data.product.name}</p>
+            )}
+
+            {/* Estrelas */}
+            <div className="flex justify-center gap-1.5 my-7">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseEnter={() => setHover(i)}
+                  onMouseLeave={() => setHover(0)}
+                  onClick={() => setRating(i)}
+                  className="transition-transform hover:scale-110"
+                  aria-label={`${i} estrelas`}
+                >
+                  <Star
+                    className="h-9 w-9"
+                    style={{
+                      fill: i <= (hover || rating) ? accent : "transparent",
+                      color: i <= (hover || rating) ? accent : "#d4d4d8",
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Título</label>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={120}
+                  placeholder="Resuma sua experiência"
+                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Sua avaliação</label>
+                <textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  maxLength={4000}
+                  rows={4}
+                  placeholder="O que você gostou? Como serviu? Recomendaria?"
+                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Seu nome</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={120}
+                  placeholder="Como quer aparecer"
+                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                />
+              </div>
+
+              {/* Mídia */}
+              {data?.ask_media && (
+                <div>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Fotos e vídeos (opcional)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {media.map((m, i) => (
+                      <div key={i} className="relative h-20 w-20 rounded-xl overflow-hidden border border-neutral-200">
+                        {m.type === "video" ? (
+                          <video src={m.url} className="h-full w-full object-cover" />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={m.url} alt="" className="h-full w-full object-cover" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setMedia((arr) => arr.filter((_, idx) => idx !== i))}
+                          className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white flex items-center justify-center"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {media.length < 8 && (
+                      <button
+                        type="button"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                        className="h-20 w-20 rounded-xl border-2 border-dashed border-neutral-300 flex items-center justify-center text-neutral-400 hover:border-neutral-400"
+                      >
+                        {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => handleFiles(e.target.files)}
+                  />
+                </div>
+              )}
+
+              {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+
+              <button
+                type="button"
+                onClick={submit}
+                disabled={submitting}
+                className="w-full bg-neutral-900 text-white rounded-full py-3.5 font-semibold text-[15px] hover:bg-neutral-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Enviar avaliação
+              </button>
+              <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

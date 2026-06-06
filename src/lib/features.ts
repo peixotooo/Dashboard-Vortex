@@ -124,7 +124,7 @@ export const FEATURES: Feature[] = [
     id: "loja",
     label: "Loja",
     description: "Produtos, Prateleiras, Régua de Brinde, Etiquetas e Cupons",
-    routes: ["/vnda", "/products", "/shelves", "/gift-bar", "/promo-tags", "/coupons"],
+    routes: ["/vnda", "/products", "/shelves", "/gift-bar", "/promo-tags", "/coupons", "/reviews"],
   },
   {
     id: "loja.vnda",
@@ -166,6 +166,13 @@ export const FEATURES: Feature[] = [
     label: "Cupons Auto",
     description: "Cupons automaticos",
     routes: ["/coupons"],
+    parent: "loja",
+  },
+  {
+    id: "loja.reviews",
+    label: "Avaliações",
+    description: "Avaliações de clientes",
+    routes: ["/reviews"],
     parent: "loja",
   },
 
