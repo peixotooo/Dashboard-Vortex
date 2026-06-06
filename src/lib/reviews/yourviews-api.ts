@@ -53,7 +53,13 @@ export interface YvPhoto {
   Original?: string | null;
   Thumbnail?: string | null;
   Thumb?: string | null;
+  ImageUrl?: string | null;
 }
+
+// CustomerPhotos costuma vir como array de STRINGS (URLs protocol-relative,
+// ex: "//uploadedfiles.yviews.com.br/imageupload/<guid>/<guid>"), mas alguns
+// retornos usam objetos. Cobrimos os dois.
+export type YvPhotoEntry = string | YvPhoto;
 
 export interface YvReview {
   ReviewId: number;
@@ -69,7 +75,7 @@ export interface YvReview {
   User?: YvUser | null;
   Product?: YvProduct | null;
   ReferenceOrder?: string | null;
-  CustomerPhotos?: YvPhoto[] | null;
+  CustomerPhotos?: YvPhotoEntry[] | null;
 }
 
 interface YvEnvelope {
