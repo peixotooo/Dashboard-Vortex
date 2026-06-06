@@ -259,6 +259,16 @@ export async function getVndaOrderShipping(
   }
 }
 
+// "O pedido já foi despachado?" — true (tem rastreio/enviado), false (cancelado
+// ou sem rastreio), null (não deu pra consultar → o chamador trata como unknown,
+// tipicamente fail-open pra não travar a régua quando a VNDA está fora).
+export async function orderDispatched(config: VndaConfig, orderCode: string): Promise<boolean | null> {
+  const o = await getVndaOrderShipping(config, orderCode);
+  if (!o) return null;
+  if (o.canceled_at) return false;
+  return !!(o.tracking_code || o.shipped_at || o.delivered_at);
+}
+
 // --- API request ---
 
 async function vndaRequest<T>(
