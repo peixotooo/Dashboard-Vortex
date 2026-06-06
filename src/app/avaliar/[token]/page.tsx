@@ -10,6 +10,7 @@ interface RequestData {
   product: { id: string | null; name: string | null; image: string | null; url: string | null };
   ask_media: boolean;
   ads_enabled: boolean;
+  collect_store_review: boolean;
   accent_color: string;
   star_color: string;
   rewards: { photo: number; video: number; video_ads: number } | null;
@@ -31,6 +32,9 @@ export default function AvaliarPage() {
 
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
+  const [storeRating, setStoreRating] = useState(0);
+  const [storeHover, setStoreHover] = useState(0);
+  const [storeComment, setStoreComment] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [name, setName] = useState("");
@@ -93,7 +97,7 @@ export default function AvaliarPage() {
       const res = await fetch(`/api/reviews/request/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating, title, body, author_name: name, media, ads_consent: adsConsent }),
+        body: JSON.stringify({ rating, title, body, author_name: name, media, ads_consent: adsConsent, store_rating: storeRating, store_comment: storeComment }),
       });
       const d = await res.json();
       if (d.ok) setDone({ moderated: !!d.moderated });
@@ -199,6 +203,37 @@ export default function AvaliarPage() {
                   className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                 />
               </div>
+              {/* Avaliação da LOJA (experiência), separada do produto */}
+              {data?.collect_store_review && (
+                <div className="rounded-2xl border border-neutral-200 p-4 bg-neutral-50/60">
+                  <p className="text-sm font-semibold text-neutral-800">E a experiência com a loja?</p>
+                  <p className="text-xs text-neutral-500 mb-2">Entrega, prazo, atendimento, embalagem.</p>
+                  <div className="flex gap-1.5 mb-2">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onMouseEnter={() => setStoreHover(i)}
+                        onMouseLeave={() => setStoreHover(0)}
+                        onClick={() => setStoreRating(i)}
+                        className="transition-transform hover:scale-110"
+                        aria-label={`${i} estrelas para a loja`}
+                      >
+                        <Star className="h-7 w-7" style={{ fill: i <= (storeHover || storeRating) ? accent : "transparent", color: i <= (storeHover || storeRating) ? accent : "#d4d4d8" }} />
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={storeComment}
+                    onChange={(e) => setStoreComment(e.target.value)}
+                    maxLength={2000}
+                    rows={2}
+                    placeholder="Como foi comprar com a gente? (opcional)"
+                    className="w-full rounded-xl border border-neutral-200 px-4 py-2.5 text-[14px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Seu nome</label>
                 <input
