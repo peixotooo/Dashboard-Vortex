@@ -17,6 +17,8 @@ import {
   KeyRound,
   AlertTriangle,
   Sparkles,
+  Film,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -187,6 +189,40 @@ export default function ReviewsPage() {
     setAiProductsLoaded(true);
   }, [workspace?.id, headers]);
 
+  // Galeria de mídias (fotos/vídeos dos clientes) — curadoria p/ ADS + download.
+  type MediaItem = {
+    review_id: string; index: number; url: string; type: "image" | "video";
+    product_id: string | null; product_name: string | null; author_name: string | null;
+    rating: number; review_status: string; body: string | null;
+    ads_consent: boolean; ads_status: string; reward_status: string; created_at: string;
+  };
+  type MediaSummary = { total: number; videos: number; photos: number; ads_pending: number; ads_accepted: number };
+  const [galleryItems, setGalleryItems] = useState<MediaItem[]>([]);
+  const [gallerySummary, setGallerySummary] = useState<MediaSummary | null>(null);
+  const [galleryType, setGalleryType] = useState<"all" | "video" | "photo">("all");
+  const [galleryAds, setGalleryAds] = useState<"all" | "consent" | "accepted">("all");
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [lightbox, setLightbox] = useState<MediaItem | null>(null);
+
+  const loadGallery = useCallback(async () => {
+    if (!workspace?.id) return;
+    setGalleryLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (galleryType !== "all") params.set("type", galleryType);
+      if (galleryAds !== "all") params.set("ads", galleryAds);
+      const d = await fetch(`/api/reviews/media?${params.toString()}`, { headers: headers() }).then((r) => r.json());
+      setGalleryItems(d.items || []);
+      setGallerySummary(d.summary || null);
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, [workspace?.id, headers, galleryType, galleryAds]);
+
+  function downloadUrl(m: MediaItem) {
+    return `/api/reviews/media/download?review_id=${m.review_id}&i=${m.index}&workspace_id=${workspace?.id || ""}`;
+  }
+
   async function generateAi() {
     if (!workspace?.id || !aiProduct) return;
     setAiGenerating(true);
@@ -301,6 +337,10 @@ export default function ReviewsPage() {
   useEffect(() => {
     if (tab === "ai" && workspace?.id && !aiProductsLoaded) loadAiProducts();
   }, [tab, workspace?.id, aiProductsLoaded, loadAiProducts]);
+
+  useEffect(() => {
+    if (tab === "gallery" && workspace?.id) loadGallery();
+  }, [tab, workspace?.id, loadGallery]);
 
   async function moderate(id: string, status: string) {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
@@ -488,6 +528,10 @@ export default function ReviewsPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="metrics">Métricas</TabsTrigger>
+          <TabsTrigger value="gallery">
+            <Film className="h-3.5 w-3.5 mr-1" />
+            Galeria de mídias
+          </TabsTrigger>
           <TabsTrigger value="store">
             Avaliações da loja
             {storeSummary && storeSummary.published > 0 && (
@@ -743,6 +787,91 @@ export default function ReviewsPage() {
               <p className="text-xs text-muted-foreground">O NPS é estimado pelas notas (5★ = promotor, 4★ = neutro, ≤3★ = detrator), já que coletamos nota de 1 a 5.</p>
             </>
           )}
+        </TabsContent>
+
+        {/* ---------- Galeria de mídias ---------- */}
+        <TabsContent value="gallery" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={galleryType} onValueChange={(v) => setGalleryType(v as "all" | "video" | "photo")}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Fotos e vídeos</SelectItem>
+                <SelectItem value="video">Só vídeos</SelectItem>
+                <SelectItem value="photo">Só fotos</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={galleryAds} onValueChange={(v) => setGalleryAds(v as "all" | "consent" | "accepted")}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Qualquer ADS</SelectItem>
+                <SelectItem value="consent">Com consentimento de ADS</SelectItem>
+                <SelectItem value="accepted">Aceitos p/ ADS</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              onClick={() => { setGalleryType("video"); setGalleryAds("consent"); }}
+            >
+              🎬 Vídeos p/ ADS
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadGallery} disabled={galleryLoading}>
+              {galleryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+            {gallerySummary && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                {gallerySummary.videos} vídeos · {gallerySummary.photos} fotos · {gallerySummary.ads_accepted} aceitos p/ ADS · {gallerySummary.ads_pending} a revisar
+              </span>
+            )}
+          </div>
+
+          {galleryItems.length === 0 && !galleryLoading ? (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">Nenhuma mídia encontrada com esses filtros. As mídias aparecem aqui conforme os clientes avaliam com foto/vídeo.</CardContent></Card>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {galleryItems.map((m) => (
+                <div key={`${m.review_id}-${m.index}`} className="rounded-xl overflow-hidden border bg-card flex flex-col">
+                  <button type="button" onClick={() => setLightbox(m)} className="relative block w-full bg-black/5">
+                    {m.type === "video" ? (
+                      <>
+                        <video src={m.url} className="w-full aspect-square object-cover bg-black" muted preload="metadata" />
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <span className="h-10 w-10 rounded-full bg-black/55 text-white flex items-center justify-center">▶</span>
+                        </span>
+                      </>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.url} alt="" className="w-full aspect-square object-cover" />
+                    )}
+                  </button>
+                  <div className="p-2.5 space-y-1.5 flex-1 flex flex-col">
+                    <div className="flex items-center justify-between gap-1">
+                      <Stars n={m.rating} size={11} />
+                      {m.type === "video" && <Film className="h-3.5 w-3.5 text-muted-foreground" />}
+                    </div>
+                    <div className="text-xs font-medium truncate" title={m.product_name || ""}>{m.product_name || "—"}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">{m.author_name || "Cliente"}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {m.type === "video" && m.ads_status === "accepted" && <Badge className="text-[10px] bg-green-600 hover:bg-green-600">ADS ✓</Badge>}
+                      {m.type === "video" && m.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
+                      {m.type === "video" && m.ads_consent && m.ads_status !== "accepted" && m.ads_status !== "pending" && <Badge variant="outline" className="text-[10px]">autorizou ADS</Badge>}
+                      <Badge variant={STATUS_LABELS[m.review_status]?.variant || "secondary"} className="text-[10px]">{STATUS_LABELS[m.review_status]?.label || m.review_status}</Badge>
+                    </div>
+                    <div className="mt-auto flex gap-1.5 pt-1">
+                      <a href={downloadUrl(m)} download className="flex-1 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs hover:bg-muted">
+                        <Download className="h-3.5 w-3.5" /> Baixar
+                      </a>
+                      <button type="button" onClick={() => setLightbox(m)} className="inline-flex items-center justify-center rounded-md border px-2 py-1.5 text-xs hover:bg-muted">
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Cada mídia está vinculada à avaliação que a originou — clique para ver a avaliação completa. Use “Vídeos p/ ADS” para curar os vídeos autorizados pelos clientes.</p>
         </TabsContent>
 
         {/* ---------- Avaliações da loja ---------- */}
@@ -1201,6 +1330,48 @@ export default function ReviewsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Lightbox da galeria — mídia grande + avaliação vinculada */}
+      {lightbox && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <div className="bg-card rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="relative bg-black flex items-center justify-center">
+              {lightbox.type === "video" ? (
+                <video src={lightbox.url} controls autoPlay className="max-h-[60vh] w-full object-contain bg-black" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={lightbox.url} alt="" className="max-h-[60vh] w-full object-contain bg-black" />
+              )}
+              <button type="button" onClick={() => setLightbox(null)} className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Stars n={lightbox.rating} />
+                <span className="font-semibold text-sm">{lightbox.author_name || "Cliente"}</span>
+                <Badge variant={STATUS_LABELS[lightbox.review_status]?.variant || "secondary"} className="text-[10px]">{STATUS_LABELS[lightbox.review_status]?.label || lightbox.review_status}</Badge>
+                {lightbox.type === "video" && lightbox.ads_status === "accepted" && <Badge className="text-[10px] bg-green-600 hover:bg-green-600">ADS ✓</Badge>}
+                {lightbox.type === "video" && lightbox.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
+                {lightbox.type === "video" && lightbox.ads_consent && lightbox.ads_status !== "accepted" && lightbox.ads_status !== "pending" && <Badge variant="outline" className="text-[10px]">autorizou ADS</Badge>}
+              </div>
+              {lightbox.product_name && <div className="text-xs text-muted-foreground">Produto: {lightbox.product_name}{lightbox.product_id ? ` (${lightbox.product_id})` : ""}</div>}
+              {lightbox.body && <p className="text-sm text-muted-foreground whitespace-pre-line">{lightbox.body}</p>}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <a href={downloadUrl(lightbox)} download className="inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm hover:opacity-90">
+                  <Download className="h-4 w-4" /> Baixar mídia
+                </a>
+                <a href={lightbox.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+                  Abrir em nova aba
+                </a>
+                <button type="button" onClick={() => { setTab("moderation"); setStatusFilter("all"); setSearch(lightbox.author_name || ""); setLightbox(null); }} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+                  <MessageSquareReply className="h-4 w-4" /> Moderar avaliação
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
