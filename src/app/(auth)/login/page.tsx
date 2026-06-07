@@ -16,25 +16,59 @@ export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
+  // Falhas passageiras (timeout/abort do nosso wrapper de fetch, rede instável,
+  // saturação 504/522 do Supabase) — vale uma nova tentativa automática.
+  function isTransient(message: string): boolean {
+    const m = (message || "").toLowerCase();
+    return (
+      m.includes("aborted") ||
+      m.includes("timeout") ||
+      m.includes("timed out") ||
+      m.includes("failed to fetch") ||
+      m.includes("load failed") ||
+      m.includes("networkerror") ||
+      m.includes("network error") ||
+      m.includes("502") ||
+      m.includes("503") ||
+      m.includes("504") ||
+      m.includes("522")
+    );
+  }
+
+  // Traduz o erro cru do Supabase para algo claro em português.
+  function friendlyError(message: string): string {
+    const m = (message || "").toLowerCase();
+    if (m.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
+    if (m.includes("email not confirmed")) return "E-mail ainda não confirmado.";
+    if (m.includes("too many requests") || m.includes("rate limit"))
+      return "Muitas tentativas. Aguarde um instante e tente de novo.";
+    if (isTransient(message))
+      return "Conexão lenta com o servidor. Tente entrar novamente em alguns segundos.";
+    return message || "Erro ao fazer login. Tente novamente.";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      let { error } = await supabase.auth.signInWithPassword({ email, password });
+
+      // Uma nova tentativa automática quando a 1ª falhou por motivo passageiro.
+      if (error && isTransient(error.message)) {
+        await new Promise((r) => setTimeout(r, 1200));
+        ({ error } = await supabase.auth.signInWithPassword({ email, password }));
+      }
 
       if (error) {
-        setError(error.message);
+        setError(friendlyError(error.message));
         return;
       }
 
       router.push("/");
-    } catch {
-      setError("Erro ao fazer login. Tente novamente.");
+    } catch (err) {
+      setError(friendlyError(err instanceof Error ? err.message : ""));
     } finally {
       setLoading(false);
     }
