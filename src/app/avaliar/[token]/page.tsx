@@ -209,7 +209,9 @@ export default function AvaliarPage() {
     setError(null);
     if (current.kind === "product") {
       const a = answers[productIdx];
-      if (!a?.rating) { setError("Toque nas estrelas pra avaliar este produto 🙂"); return; }
+      if (!a?.rating) { setError("Toque nas estrelas pra avaliar este produto."); return; }
+      const missing = (data?.form_fields || []).filter((f) => !fieldValue(productIdx, f.key));
+      if (missing.length) { setError("Preencha todos os campos abaixo. Eles ajudam quem vai comprar."); return; }
     }
     setStep((s) => Math.min(s + 1, lastStep));
   }
@@ -278,7 +280,7 @@ export default function AvaliarPage() {
   const bonusNote = data?.rewards ? (
     <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
       <p className="font-semibold">🎁 Tem um cashback surpresa pra você!</p>
-      <p className="text-amber-900">Avalie com <b>foto</b> e principalmente <b>vídeo</b> e descubra quanto ganha — liberado quando sua avaliação for confirmada.</p>
+      <p className="text-amber-900">Avalie com <b>foto</b> e principalmente <b>vídeo</b> e descubra quanto ganha. É liberado quando sua avaliação for confirmada.</p>
     </div>
   ) : null;
 
@@ -289,7 +291,7 @@ export default function AvaliarPage() {
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-sm border border-neutral-100 p-6 sm:p-9">
         {isPreview && (
           <div className="mb-5 rounded-xl bg-neutral-900 text-white text-center text-[13px] font-medium px-4 py-2.5">
-            👁️ Pré-visualização — nada é enviado. É assim que o cliente vê a página.
+            👁️ Pré-visualização. Nada é enviado. É assim que o cliente vê a página.
           </div>
         )}
 
@@ -298,7 +300,7 @@ export default function AvaliarPage() {
             <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
               <Check className="h-7 w-7 text-green-500" />
             </div>
-            <h1 className="text-2xl font-bold text-neutral-900">Obrigado! 💛</h1>
+            <h1 className="text-2xl font-bold text-neutral-900">Valeu!</h1>
             <p className="text-neutral-500 mt-2">
               {done.moderated
                 ? "Sua avaliação foi enviada e será publicada após revisão."
@@ -339,8 +341,8 @@ export default function AvaliarPage() {
                 </h1>
                 <p className="text-neutral-500 text-sm">
                   {products.length > 1
-                    ? `Você comprou ${products.length} itens. Vamos avaliar um por um — leva 1 minutinho e ajuda muita gente a comprar com confiança.`
-                    : "Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança."}
+                    ? `Você comprou ${products.length} itens. Vamos avaliar um por um. Leva 1 minutinho e ajuda muita gente a comprar com confiança.`
+                    : "Conta rapidinho o que você achou. Leva 1 minutinho e ajuda muita gente a comprar com confiança."}
                 </p>
                 {bonusNote}
                 <div className="text-left">
@@ -394,8 +396,8 @@ export default function AvaliarPage() {
                     <p className="text-sm font-semibold text-neutral-800 mb-0.5">Ajude quem vai comprar</p>
                     <p className="text-xs text-neutral-500 mb-3">
                       {productIdx > 0
-                        ? "Já preenchemos com o seu perfil — ajuste se for diferente neste produto."
-                        : "Suas medidas e perfil aparecem na avaliação (opcional)."}
+                        ? "Já preenchemos com o seu perfil. Confira e ajuste se for diferente neste produto."
+                        : "Preencha todos os campos. Eles aparecem na avaliação e ajudam quem vai comprar."}
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       {data.form_fields.map((f) => (
@@ -407,7 +409,7 @@ export default function AvaliarPage() {
                               onChange={(e) => setField(productIdx, f.key, e.target.value)}
                               className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             >
-                              <option value="">—</option>
+                              <option value="">Selecione</option>
                               {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
                             </select>
                           ) : (
@@ -423,10 +425,13 @@ export default function AvaliarPage() {
                   </div>
                 )}
 
-                {/* Fotos do produto (opcional) — o vídeo tem etapa própria adiante */}
+                {/* Fotos do produto. O vídeo tem etapa própria adiante. */}
                 {askMedia && (
                   <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Fotos do produto <span className="font-normal text-neutral-400">(opcional)</span></label>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Fotos do produto</label>
+                    <div className="mb-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-neutral-700">
+                      📸 Capriche nas fotos. Mostre a peça vestida e os detalhes. Quanto mais foto, mais cashback e mais você ajuda quem vai comprar.
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {(answers[productIdx]?.media || []).map((m, mi) => (
                         <div key={mi} className="relative h-20 w-20 rounded-xl overflow-hidden border border-neutral-200">
@@ -467,7 +472,7 @@ export default function AvaliarPage() {
                   </div>
                   <h2 className="text-xl font-bold text-neutral-900 leading-tight">Grave um vídeo e ganhe mais 🎬</h2>
                   <p className="text-sm text-neutral-500">
-                    Os melhores vídeos viram <b>propaganda da marca</b> — e rendem o <b>maior cashback</b>. Caprichou? Pode aparecer pra todo mundo.
+                    Os melhores vídeos viram <b>propaganda da marca</b> e rendem o <b>maior cashback</b>. Caprichou? Pode aparecer pra todo mundo.
                   </p>
                 </div>
 
@@ -475,11 +480,11 @@ export default function AvaliarPage() {
                 <div className="rounded-2xl border border-neutral-200 p-4">
                   <p className="text-sm font-semibold text-neutral-800 mb-2">Como gravar um vídeo top</p>
                   <ul className="space-y-1.5 text-[13px] text-neutral-600">
-                    <li className="flex gap-2"><span>💡</span> Local <b>bem iluminado</b> (luz natural cai super bem)</li>
-                    <li className="flex gap-2"><span>🧹</span> Fundo <b>arrumado e limpo</b>, sem bagunça</li>
-                    <li className="flex gap-2"><span>🔍</span> Mostre os <b>detalhes</b>: tecido, caimento, costura, estampa</li>
-                    <li className="flex gap-2"><span>🏋️</span> <b>Vista e use</b> a peça — conte como serviu no seu corpo</li>
-                    <li className="flex gap-2"><span>📱</span> Grave <b>na vertical</b>, de 15 a 40 segundos</li>
+                    <li className="flex gap-2"><span>💡</span><span>Local <b>bem iluminado</b> (luz natural cai super bem)</span></li>
+                    <li className="flex gap-2"><span>🧹</span><span>Fundo <b>arrumado e limpo</b>, sem bagunça</span></li>
+                    <li className="flex gap-2"><span>🔍</span><span>Mostre os <b>detalhes</b>: tecido, caimento, costura, estampa</span></li>
+                    <li className="flex gap-2"><span>🏋️</span><span><b>Vista e use</b> a peça e conte como serviu no seu corpo</span></li>
+                    <li className="flex gap-2"><span>📱</span><span>Grave <b>na vertical</b>, de 15 a 40 segundos</span></li>
                   </ul>
                 </div>
 
@@ -520,8 +525,8 @@ export default function AvaliarPage() {
 
                 {data?.rewards && (
                   <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
-                    <p className="font-semibold">O vídeo rende o maior cashback 💛</p>
-                    <p className="text-amber-900">Vídeo &gt; foto. E se ele virar anúncio, o cashback é o máximo. É opcional, mas super recomendado!</p>
+                    <p className="font-semibold">O vídeo rende o maior cashback</p>
+                    <p className="text-amber-900">Vídeo vale mais que foto. E se ele virar anúncio, o cashback é o máximo. É opcional, mas super recomendado.</p>
                   </div>
                 )}
               </div>
@@ -558,7 +563,7 @@ export default function AvaliarPage() {
                   {primaryLabel}
                 </button>
                 {current.kind === "video" && videoMedia.length === 0 && (
-                  <p className="text-center text-[12px] text-neutral-400">Sem vídeo agora? Tudo bem, é só continuar — mas é com vídeo que rende mais 💛</p>
+                  <p className="text-center text-[12px] text-neutral-400">Sem vídeo agora? Tudo bem, é só continuar. Mas é com vídeo que você ganha mais.</p>
                 )}
                 {step === lastStep && (
                   <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
