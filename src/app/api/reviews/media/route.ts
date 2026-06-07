@@ -21,14 +21,18 @@ export async function GET(request: NextRequest) {
       .from("reviews")
       .select("id, product_id, product_name, author_name, rating, status, body, media, media_kind, ads_consent, ads_status, reward_status, reward_amount, created_at, reviewed_at")
       .eq("workspace_id", workspaceId)
-      .neq("media_kind", "none")
+      // Tem mídia. NÃO filtra por media_kind: as avaliações importadas da
+      // Yourviews têm fotos em `media` mas media_kind='none' (não era setado na
+      // importação) — filtrar por media_kind escondia todas elas. Mesmo filtro
+      // jsonb usado na galeria pública do widget (/api/reviews/product).
+      .not("media", "eq", "[]")
       .order("created_at", { ascending: false })
       .limit(limit);
-    if (type === "video") q = q.eq("media_kind", "video");
-    if (type === "photo") q = q.eq("media_kind", "photo");
     if (productId) q = q.eq("product_id", productId);
     if (ads === "consent") q = q.eq("ads_consent", true);
     if (ads === "accepted") q = q.eq("ads_status", "accepted");
+    // O filtro por tipo (foto/vídeo) é aplicado por ITEM de mídia abaixo, porque
+    // media_kind não é confiável nas importadas.
 
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
