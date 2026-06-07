@@ -250,6 +250,8 @@ export default function ReviewsPage() {
 
   const [creatingTpl, setCreatingTpl] = useState(false);
   const [tplMsg, setTplMsg] = useState<string | null>(null);
+  const [tplStatus, setTplStatus] = useState<{ status: string | null; name: string | null } | null>(null);
+  const [checkingTpl, setCheckingTpl] = useState(false);
   async function createWaTemplate() {
     if (!workspace?.id) return;
     setCreatingTpl(true);
@@ -258,11 +260,25 @@ export default function ReviewsPage() {
       const res = await fetch("/api/reviews/create-utility-template", { method: "POST", headers: headers() });
       const d = await res.json();
       setTplMsg(d.ok ? d.message : d.error || "Erro ao criar template");
-      if (d.ok) loadSettings();
+      if (d.ok) { loadSettings(); checkTemplateStatus(); }
     } catch {
       setTplMsg("Erro de conexão");
     } finally {
       setCreatingTpl(false);
+    }
+  }
+  async function checkTemplateStatus() {
+    if (!workspace?.id) return;
+    setCheckingTpl(true);
+    try {
+      const res = await fetch("/api/reviews/template-status", { method: "POST", headers: headers() });
+      const d = await res.json();
+      if (d.error) { setTplMsg(d.error); setTplStatus(null); }
+      else setTplStatus({ status: d.status, name: d.name });
+    } catch {
+      setTplMsg("Erro ao consultar status");
+    } finally {
+      setCheckingTpl(false);
     }
   }
 
@@ -760,18 +776,29 @@ export default function ReviewsPage() {
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        {settings.wa_template_id ? (
+                        {tplStatus?.status ? (
+                          <Badge className={`mb-1 ${tplStatus.status === "APPROVED" ? "bg-green-600 hover:bg-green-600" : tplStatus.status === "REJECTED" ? "bg-destructive hover:bg-destructive" : "bg-amber-500 hover:bg-amber-500"}`}>
+                            {tplStatus.status === "APPROVED" ? "Aprovado" : tplStatus.status === "REJECTED" ? "Rejeitado" : "Aguardando Meta"}
+                          </Badge>
+                        ) : settings.wa_template_id ? (
                           <Badge variant="default" className="mb-1">Configurado</Badge>
                         ) : (
                           <Badge variant="secondary" className="mb-1">Não criado</Badge>
                         )}
-                        <div>
+                        <div className="flex flex-col gap-1">
+                          {settings.wa_template_id && (
+                            <Button size="sm" variant="outline" onClick={checkTemplateStatus} disabled={checkingTpl}>
+                              {checkingTpl ? <Loader2 className="h-4 w-4 animate-spin" /> : <><RefreshCw className="h-3.5 w-3.5 mr-1" /> Consultar status</>}
+                            </Button>
+                          )}
                           <Button size="sm" variant="outline" onClick={createWaTemplate} disabled={creatingTpl}>
                             {creatingTpl ? <Loader2 className="h-4 w-4 animate-spin" /> : (settings.wa_template_id ? "Recriar template" : "Criar template")}
                           </Button>
                         </div>
                       </div>
                     </div>
+                    {tplStatus?.status === "APPROVED" && <div className="text-xs text-green-600">✓ Template aprovado — a régua já pode disparar por WhatsApp.</div>}
+                    {tplStatus?.status && tplStatus.status !== "APPROVED" && <div className="text-xs text-amber-600">Template <strong>{tplStatus.status}</strong> na Meta. O WhatsApp da régua aguarda a aprovação.</div>}
                     {tplMsg && <div className="text-xs text-muted-foreground border rounded-md p-2">{tplMsg}</div>}
                   </div>
                 )}
