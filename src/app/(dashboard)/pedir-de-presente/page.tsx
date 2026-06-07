@@ -879,7 +879,7 @@ export default function GiftRequestPage() {
               )}
 
               {templates.length === 0 && !selectedTemplate ? (
-                <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 flex items-start gap-2">
+                <div className="rounded border border-amber-300 bg-amber-100 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 mt-0.5" />
                   <div>
                     Nenhum template encontrado ainda. Use o botão acima pra
