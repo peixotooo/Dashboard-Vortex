@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Star,
   Loader2,
@@ -196,28 +196,54 @@ export default function ReviewsPage() {
     rating: number; review_status: string; body: string | null;
     ads_consent: boolean; ads_status: string; reward_status: string; created_at: string;
   };
-  type MediaSummary = { total: number; videos: number; photos: number; ads_pending: number; ads_accepted: number };
+  type MediaSummary = { total_with_media: number; ads_pending: number; ads_accepted: number };
+  const GALLERY_PAGE = 24;
   const [galleryItems, setGalleryItems] = useState<MediaItem[]>([]);
   const [gallerySummary, setGallerySummary] = useState<MediaSummary | null>(null);
   const [galleryType, setGalleryType] = useState<"all" | "video" | "photo">("all");
   const [galleryAds, setGalleryAds] = useState<"all" | "consent" | "accepted">("all");
   const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryMore, setGalleryMore] = useState(false);
+  const [galleryOffset, setGalleryOffset] = useState(0);
+  const [galleryHasMore, setGalleryHasMore] = useState(false);
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const galleryQuery = useCallback((offset: number) => {
+    const params = new URLSearchParams();
+    if (galleryType !== "all") params.set("type", galleryType);
+    if (galleryAds !== "all") params.set("ads", galleryAds);
+    params.set("offset", String(offset));
+    params.set("limit", String(GALLERY_PAGE));
+    return params.toString();
+  }, [galleryType, galleryAds]);
 
   const loadGallery = useCallback(async () => {
     if (!workspace?.id) return;
     setGalleryLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (galleryType !== "all") params.set("type", galleryType);
-      if (galleryAds !== "all") params.set("ads", galleryAds);
-      const d = await fetch(`/api/reviews/media?${params.toString()}`, { headers: headers() }).then((r) => r.json());
+      const d = await fetch(`/api/reviews/media?${galleryQuery(0)}`, { headers: headers() }).then((r) => r.json());
       setGalleryItems(d.items || []);
       setGallerySummary(d.summary || null);
+      setGalleryOffset(d.next_offset || 0);
+      setGalleryHasMore(!!d.has_more);
     } finally {
       setGalleryLoading(false);
     }
-  }, [workspace?.id, headers, galleryType, galleryAds]);
+  }, [workspace?.id, headers, galleryQuery]);
+
+  const loadMoreGallery = useCallback(async () => {
+    if (!workspace?.id || galleryMore || galleryLoading || !galleryHasMore) return;
+    setGalleryMore(true);
+    try {
+      const d = await fetch(`/api/reviews/media?${galleryQuery(galleryOffset)}`, { headers: headers() }).then((r) => r.json());
+      setGalleryItems((prev) => [...prev, ...(d.items || [])]);
+      setGalleryOffset(d.next_offset || galleryOffset);
+      setGalleryHasMore(!!d.has_more);
+    } finally {
+      setGalleryMore(false);
+    }
+  }, [workspace?.id, headers, galleryQuery, galleryOffset, galleryMore, galleryLoading, galleryHasMore]);
 
   function downloadUrl(m: MediaItem) {
     return `/api/reviews/media/download?review_id=${m.review_id}&i=${m.index}&workspace_id=${workspace?.id || ""}`;
@@ -341,6 +367,18 @@ export default function ReviewsPage() {
   useEffect(() => {
     if (tab === "gallery" && workspace?.id) loadGallery();
   }, [tab, workspace?.id, loadGallery]);
+
+  // Infinite scroll da galeria: observa o sentinel no fim da grade.
+  useEffect(() => {
+    if (tab !== "gallery") return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) loadMoreGallery();
+    }, { rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [tab, loadMoreGallery]);
 
   async function moderate(id: string, status: string) {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
@@ -821,12 +859,14 @@ export default function ReviewsPage() {
             </Button>
             {gallerySummary && (
               <span className="text-xs text-muted-foreground ml-auto">
-                {gallerySummary.videos} vídeos · {gallerySummary.photos} fotos · {gallerySummary.ads_accepted} aceitos p/ ADS · {gallerySummary.ads_pending} a revisar
+                {gallerySummary.total_with_media} avaliações com mídia · {gallerySummary.ads_accepted} aceitos p/ ADS · {gallerySummary.ads_pending} a revisar
               </span>
             )}
           </div>
 
-          {galleryItems.length === 0 && !galleryLoading ? (
+          {galleryItems.length === 0 && galleryLoading ? (
+            <Card><CardContent className="py-12 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></CardContent></Card>
+          ) : galleryItems.length === 0 ? (
             <Card><CardContent className="py-12 text-center text-muted-foreground">Nenhuma mídia encontrada com esses filtros. As mídias aparecem aqui conforme os clientes avaliam com foto/vídeo.</CardContent></Card>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -871,7 +911,13 @@ export default function ReviewsPage() {
               ))}
             </div>
           )}
-          <p className="text-xs text-muted-foreground">Cada mídia está vinculada à avaliação que a originou — clique para ver a avaliação completa. Use “Vídeos p/ ADS” para curar os vídeos autorizados pelos clientes.</p>
+          {/* Sentinel do infinite scroll — carrega mais ao chegar perto do fim */}
+          {galleryHasMore && (
+            <div ref={sentinelRef} className="h-12 flex items-center justify-center">
+              {galleryMore && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Cada mídia está vinculada à avaliação que a originou — clique para ver a avaliação completa. Use “Vídeos p/ ADS” para curar os vídeos autorizados pelos clientes. Ordenado por mais recentes.</p>
         </TabsContent>
 
         {/* ---------- Avaliações da loja ---------- */}

@@ -15,7 +15,9 @@ export async function GET(request: NextRequest) {
     const type = url.searchParams.get("type"); // 'photo' | 'video' | null
     const ads = url.searchParams.get("ads"); // 'consent' | 'accepted' | null
     const productId = url.searchParams.get("product_id");
-    const limit = Math.min(Number(url.searchParams.get("limit")) || 400, 1000);
+    // Paginação por avaliação (infinite scroll) — mais recentes primeiro.
+    const pageSize = Math.min(Number(url.searchParams.get("limit")) || 24, 100);
+    const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
 
     let q = admin
       .from("reviews")
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
       // jsonb usado na galeria pública do widget (/api/reviews/product).
       .not("media", "eq", "[]")
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(offset, offset + pageSize - 1);
     if (productId) q = q.eq("product_id", productId);
     if (ads === "consent") q = q.eq("ads_consent", true);
     if (ads === "accepted") q = q.eq("ads_status", "accepted");
@@ -36,6 +38,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const reviewsReturned = (data || []).length;
 
     type MediaEntry = { url?: string; type?: string };
     const items: Record<string, unknown>[] = [];
@@ -66,16 +69,21 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Resumo rápido pra cabeçalho da aba.
-    const summary = {
-      total: items.length,
-      videos: items.filter((m) => m.type === "video").length,
-      photos: items.filter((m) => m.type === "image").length,
-      ads_pending: items.filter((m) => m.type === "video" && m.ads_status === "pending").length,
-      ads_accepted: items.filter((m) => m.type === "video" && m.ads_status === "accepted").length,
-    };
+    const has_more = reviewsReturned === pageSize;
+    const next_offset = offset + reviewsReturned;
 
-    return NextResponse.json({ items, summary });
+    // Resumo (contagens baratas, head:true) só na 1ª página.
+    let summary: { total_with_media: number; ads_pending: number; ads_accepted: number } | undefined;
+    if (offset === 0) {
+      const [tot, adsP, adsA] = await Promise.all([
+        admin.from("reviews").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).not("media", "eq", "[]"),
+        admin.from("reviews").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("ads_status", "pending"),
+        admin.from("reviews").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("ads_status", "accepted"),
+      ]);
+      summary = { total_with_media: tot.count || 0, ads_pending: adsP.count || 0, ads_accepted: adsA.count || 0 };
+    }
+
+    return NextResponse.json({ items, has_more, next_offset, summary });
   } catch (e) {
     return handleAuthError(e);
   }
