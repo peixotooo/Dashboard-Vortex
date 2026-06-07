@@ -3,6 +3,26 @@ import { createAdminClient } from "@/lib/supabase-admin";
 // Config do widget de avaliações + da régua de comunicação (1 linha por
 // workspace em review_settings). Server-only via admin client.
 
+export interface ReviewFormField {
+  key: string;
+  label: string;
+  type: "select" | "text";
+  options: string[];
+}
+
+// Campos padrão do formulário de avaliação (marca fitness/Bulking). O cliente
+// seleciona e isso vira custom_fields exibido na avaliação.
+export const DEFAULT_FORM_FIELDS: ReviewFormField[] = [
+  { key: "tamanho_comprado", label: "Tamanho comprado", type: "select", options: ["PP", "P", "M", "G", "GG", "XGG"] },
+  { key: "tamanho_usual", label: "Tamanho que costumo usar", type: "select", options: ["PP", "P", "M", "G", "GG", "XGG"] },
+  { key: "caimento", label: "Caimento", type: "select", options: ["Justo", "Perfeito", "Folgado"] },
+  { key: "altura", label: "Altura", type: "select", options: ["até 1,65m", "1,66m - 1,75m", "1,76m - 1,85m", "acima de 1,85m"] },
+  { key: "tipo_corpo", label: "Tipo de corpo", type: "select", options: ["Magro", "Atlético", "Musculoso", "Forte", "Plus"] },
+  { key: "atividade", label: "Atividade principal", type: "select", options: ["Musculação", "Crossfit", "Corrida", "Funcional", "Outro"] },
+  { key: "frequencia", label: "Frequência de treino", type: "select", options: ["1-2x por semana", "3-4x por semana", "5-6x por semana", "todo dia"] },
+  { key: "idade", label: "Idade", type: "select", options: ["18-24", "25-34", "35-44", "45+"] },
+];
+
 export interface ReviewSettings {
   workspace_id: string;
   widget_enabled: boolean;
@@ -27,6 +47,7 @@ export interface ReviewSettings {
   request_reminder_message: string | null;      // 1º lembrete
   request_reminder_2_message: string | null;    // 2º lembrete
   collect_store_review: boolean;            // coletar avaliação da loja na landing
+  form_fields: ReviewFormField[];           // campos estruturados do formulário
   // WhatsApp template (categoria UTILITY) usado na régua
   wa_template_id: string | null;
   wa_variable_mapping: Record<string, string>;
@@ -58,6 +79,7 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_reminder_days: 4,
   request_reminder_2_days: 5,
   collect_store_review: true,
+  form_fields: DEFAULT_FORM_FIELDS,
   request_message_template:
     "Sua {produto} já chegou? 💛 Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! Avalie aqui: {link}",
   request_reminder_message:
@@ -94,6 +116,7 @@ const EDITABLE: (keyof Omit<ReviewSettings, "workspace_id">)[] = [
   "request_reminder_days",
   "request_reminder_2_days",
   "collect_store_review",
+  "form_fields",
   "request_message_template",
   "request_reminder_message",
   "request_reminder_2_message",
@@ -125,6 +148,7 @@ export async function getReviewSettings(workspaceId: string): Promise<ReviewSett
     request_message_template: row.request_message_template ?? DEFAULT_REVIEW_SETTINGS.request_message_template,
     request_reminder_message: row.request_reminder_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_message,
     request_reminder_2_message: row.request_reminder_2_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_2_message,
+    form_fields: row.form_fields ?? DEFAULT_FORM_FIELDS,
   };
 }
 

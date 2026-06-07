@@ -4,6 +4,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Star, Loader2, ImagePlus, Check, X } from "lucide-react";
 
+interface FormField {
+  key: string;
+  label: string;
+  type: "select" | "text";
+  options: string[];
+}
 interface RequestData {
   already_completed: boolean;
   customer_name: string | null;
@@ -11,6 +17,7 @@ interface RequestData {
   ask_media: boolean;
   ads_enabled: boolean;
   collect_store_review: boolean;
+  form_fields: FormField[];
   accent_color: string;
   star_color: string;
   rewards: { photo: number; video: number; video_ads: number } | null;
@@ -35,6 +42,7 @@ export default function AvaliarPage() {
   const [storeRating, setStoreRating] = useState(0);
   const [storeHover, setStoreHover] = useState(0);
   const [storeComment, setStoreComment] = useState("");
+  const [formAnswers, setFormAnswers] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [name, setName] = useState("");
@@ -97,7 +105,13 @@ export default function AvaliarPage() {
       const res = await fetch(`/api/reviews/request/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating, title, body, author_name: name, media, ads_consent: adsConsent, store_rating: storeRating, store_comment: storeComment }),
+        body: JSON.stringify({
+          rating, title, body, author_name: name, media, ads_consent: adsConsent,
+          store_rating: storeRating, store_comment: storeComment,
+          custom_fields: (data?.form_fields || [])
+            .filter((f) => formAnswers[f.key])
+            .map((f) => ({ name: f.label, values: [formAnswers[f.key]] })),
+        }),
       });
       const d = await res.json();
       if (d.ok) setDone({ moderated: !!d.moderated, reward: d.reward || null });
@@ -212,6 +226,38 @@ export default function AvaliarPage() {
                   className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                 />
               </div>
+
+              {/* Campos estruturados — ajudam outros clientes a decidir */}
+              {data?.form_fields && data.form_fields.length > 0 && (
+                <div className="rounded-2xl border border-neutral-200 p-4">
+                  <p className="text-sm font-semibold text-neutral-800 mb-0.5">Ajude quem vai comprar</p>
+                  <p className="text-xs text-neutral-500 mb-3">Suas medidas e perfil aparecem na avaliação (opcional).</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {data.form_fields.map((f) => (
+                      <div key={f.key}>
+                        <label className="block text-[12px] font-medium text-neutral-600 mb-1">{f.label}</label>
+                        {f.type === "select" ? (
+                          <select
+                            value={formAnswers[f.key] || ""}
+                            onChange={(e) => setFormAnswers((a) => ({ ...a, [f.key]: e.target.value }))}
+                            className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-[14px] bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          >
+                            <option value="">—</option>
+                            {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            value={formAnswers[f.key] || ""}
+                            onChange={(e) => setFormAnswers((a) => ({ ...a, [f.key]: e.target.value }))}
+                            className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Avaliação da LOJA (experiência), separada do produto */}
               {data?.collect_store_review && (
                 <div className="rounded-2xl border border-neutral-200 p-4 bg-neutral-50/60">

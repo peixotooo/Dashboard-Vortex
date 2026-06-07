@@ -91,6 +91,7 @@ interface ReviewSettings {
   request_reminder_days: number | null;
   request_reminder_2_days: number | null;
   collect_store_review: boolean;
+  form_fields: { key: string; label: string; type: string; options: string[] }[];
   request_message_template: string | null;
   request_reminder_message: string | null;
   request_reminder_2_message: string | null;
@@ -848,6 +849,44 @@ export default function ReviewsPage() {
                     <p className="text-xs text-muted-foreground">Na mesma página, o cliente avalia o produto e a experiência com a loja (entrega, atendimento).</p>
                   </div>
                   <Switch checked={settings.collect_store_review} onCheckedChange={(v) => set("collect_store_review", v)} />
+                </div>
+
+                {/* Campos do formulário (tamanho, caimento, tipo de corpo, etc.) */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div>
+                    <Label className="text-sm font-semibold">Campos do formulário</Label>
+                    <p className="text-xs text-muted-foreground">O cliente seleciona (tamanho, caimento, tipo de corpo…) e isso aparece na avaliação, ajudando outros a decidir. Opções separadas por vírgula.</p>
+                  </div>
+                  {(settings.form_fields || []).map((f, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <Input
+                        className="w-44 shrink-0"
+                        placeholder="Pergunta (ex.: Tamanho)"
+                        value={f.label}
+                        onChange={(e) => {
+                          const ff = [...settings.form_fields];
+                          ff[i] = { ...ff[i], label: e.target.value, key: ff[i].key || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_") };
+                          set("form_fields", ff);
+                        }}
+                      />
+                      <Input
+                        className="flex-1"
+                        placeholder="Opções separadas por vírgula"
+                        value={(f.options || []).join(", ")}
+                        onChange={(e) => {
+                          const ff = [...settings.form_fields];
+                          ff[i] = { ...ff[i], type: "select", options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) };
+                          set("form_fields", ff);
+                        }}
+                      />
+                      <Button size="sm" variant="outline" className="text-destructive shrink-0" onClick={() => set("form_fields", settings.form_fields.filter((_, idx) => idx !== i))}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button size="sm" variant="outline" onClick={() => set("form_fields", [...(settings.form_fields || []), { key: `campo_${(settings.form_fields || []).length + 1}`, label: "", type: "select", options: [] }])}>
+                    + Adicionar campo
+                  </Button>
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
