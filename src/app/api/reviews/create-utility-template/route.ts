@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       message:
         (template?.status || metaResult.status) === "APPROVED"
           ? "Template criado e aprovado pela Meta. A régua já dispara via template UTILITY."
-          : "Template enviado pra Meta. A aprovação costuma sair em minutos; até lá a régua usa o WhatsApp legado (W-API).",
+          : "Template enviado pra Meta. A aprovação costuma sair em minutos; o WhatsApp da régua só dispara por este template oficial (aguarda a aprovação).",
     });
   } catch (e) {
     return handleAuthError(e);
