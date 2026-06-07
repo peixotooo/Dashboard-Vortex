@@ -38,7 +38,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
       {
         already_completed: false,
         preview: true,
-        customer_name: "Cliente",
+        customer_name: null,
         product: { id: null, name: "Produto de exemplo (pré-visualização)", image: null, url: null },
         products: [
           { id: "exemplo-1", name: "Camiseta Dry-Fit (exemplo)", image: null, url: null },
