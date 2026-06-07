@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getReviewSettings } from "@/lib/reviews/settings";
+import { getReviewSettings, DEFAULT_REVIEW_SETTINGS } from "@/lib/reviews/settings";
+
+// Token reservado: renderiza a landing com dados de exemplo (sem tocar no banco)
+// pra o admin pré-visualizar. As configs reais vêm via ?ws=<workspaceId>.
+const PREVIEW_TOKEN = "preview";
+async function previewSettings(reqUrl: string) {
+  const wsId = new URL(reqUrl).searchParams.get("ws");
+  return wsId ? await getReviewSettings(wsId) : { workspace_id: "", ...DEFAULT_REVIEW_SETTINGS };
+}
 
 export const runtime = "nodejs";
 
@@ -23,6 +31,29 @@ async function loadRequest(token: string) {
 // Dados da landing de coleta (público, identificado pelo token).
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
+
+  if (token === PREVIEW_TOKEN) {
+    const settings = await previewSettings(_req.url);
+    return NextResponse.json(
+      {
+        already_completed: false,
+        preview: true,
+        customer_name: "Cliente",
+        product: { id: null, name: "Produto de exemplo (pré-visualização)", image: null, url: null },
+        ask_media: settings.request_ask_media,
+        ads_enabled: settings.ads_enabled,
+        collect_store_review: settings.collect_store_review,
+        form_fields: settings.form_fields,
+        accent_color: settings.accent_color,
+        star_color: settings.star_color,
+        rewards: settings.rewards_enabled
+          ? { photo: settings.reward_photo_amount, video: settings.reward_video_amount, video_ads: settings.reward_video_ads_amount }
+          : null,
+      },
+      { headers: CORS }
+    );
+  }
+
   const { req } = await loadRequest(token);
   if (!req) return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
 
@@ -56,6 +87,28 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 // Submissão da avaliação pela landing (token-scoped — não precisa de API key).
 export async function POST(request: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
+
+  // Pré-visualização: calcula a recompensa de forma fiel (mesma regra do fluxo
+  // real) pra mostrar o estado de sucesso, mas NÃO grava nada no banco.
+  if (token === PREVIEW_TOKEN) {
+    const settings = await previewSettings(request.url);
+    let pbody: Record<string, unknown> = {};
+    try { pbody = await request.json(); } catch {}
+    const pmedia = Array.isArray(pbody.media) ? (pbody.media as { type?: string }[]) : [];
+    const pKind = pmedia.some((m) => m?.type === "video") ? "video" : pmedia.length ? "photo" : "none";
+    const pReward = settings.rewards_enabled
+      ? (pKind === "video" ? settings.reward_video_amount : pKind === "photo" ? settings.reward_photo_amount : 0)
+      : 0;
+    const pAdsMax =
+      settings.rewards_enabled && pKind === "video" && pbody.ads_consent === true && settings.reward_video_ads_amount > settings.reward_video_amount
+        ? settings.reward_video_ads_amount
+        : null;
+    return NextResponse.json(
+      { ok: true, moderated: true, preview: true, reward: pReward > 0 ? { amount: pReward, ads_max: pAdsMax } : null },
+      { headers: CORS }
+    );
+  }
+
   const { admin, req } = await loadRequest(token);
   if (!req) return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
   if (req.status === "completed" || req.review_id) {
