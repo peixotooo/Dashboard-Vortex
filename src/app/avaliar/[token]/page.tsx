@@ -31,6 +31,15 @@ interface MediaItem {
 export default function AvaliarPage() {
   const params = useParams<{ token: string }>();
   const token = params?.token;
+  // Modo pré-visualização: /avaliar/preview?ws=<id> — renderiza com dados de
+  // exemplo e configs reais, sem gravar nada. O ?ws é lido do window em runtime
+  // (client-only) pra evitar exigir Suspense com useSearchParams.
+  const isPreview = token === "preview";
+  const apiQs = useCallback(() => {
+    if (!isPreview || typeof window === "undefined") return "";
+    const ws = new URLSearchParams(window.location.search).get("ws");
+    return ws ? `?ws=${encodeURIComponent(ws)}` : "";
+  }, [isPreview]);
 
   const [data, setData] = useState<RequestData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +65,7 @@ export default function AvaliarPage() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`/api/reviews/request/${token}`);
+      const res = await fetch(`/api/reviews/request/${token}${apiQs()}`);
       if (res.status === 404) { setNotFound(true); return; }
       const d: RequestData = await res.json();
       setData(d);
@@ -67,12 +76,20 @@ export default function AvaliarPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, apiQs]);
 
   useEffect(() => { load(); }, [load]);
 
   async function handleFiles(files: FileList | null) {
     if (!files || !files.length || !token) return;
+    // Na pré-visualização não há upload real — mostra o arquivo localmente.
+    if (isPreview) {
+      for (const file of Array.from(files).slice(0, 8 - media.length)) {
+        setMedia((m) => [...m, { url: URL.createObjectURL(file), type: file.type.startsWith("video") ? "video" : "image" }]);
+      }
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -102,7 +119,7 @@ export default function AvaliarPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/reviews/request/${token}`, {
+      const res = await fetch(`/api/reviews/request/${token}${apiQs()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -147,6 +164,11 @@ export default function AvaliarPage() {
   return (
     <div className="min-h-screen bg-neutral-50 flex items-start sm:items-center justify-center p-4 sm:py-12">
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-sm border border-neutral-100 p-6 sm:p-9">
+        {isPreview && (
+          <div className="mb-5 rounded-xl bg-neutral-900 text-white text-center text-[13px] font-medium px-4 py-2.5">
+            👁️ Pré-visualização — nada é enviado. É assim que o cliente vê a página.
+          </div>
+        )}
         {done ? (
           <div className="text-center py-8">
             <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-green-50 flex items-center justify-center">
@@ -159,9 +181,9 @@ export default function AvaliarPage() {
                 : "Sua avaliação foi publicada. Você ajuda muita gente!"}
             </p>
             {done.reward && (
-              <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-4">
+              <div className="mt-4 rounded-2xl bg-amber-100 border border-amber-300 p-4">
                 <p className="text-lg font-bold text-amber-900">🎁 Você ganhou R$ {done.reward.amount} de cashback!</p>
-                <p className="text-[13px] text-amber-800 mt-0.5">
+                <p className="text-[13px] text-amber-900 mt-0.5">
                   Será creditado na sua carteira assim que sua avaliação for aprovada.
                   {done.reward.ads_max ? ` E pode chegar a R$ ${done.reward.ads_max} se a gente selecionar seu vídeo para anúncios! 🎬` : ""}
                 </p>
@@ -302,9 +324,9 @@ export default function AvaliarPage() {
 
               {/* Recompensa surpresa (sem revelar o valor antes) */}
               {data?.rewards && (
-                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[13px] text-amber-900">
+                <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
                   <p className="font-semibold">🎁 Tem um cashback surpresa pra você!</p>
-                  <p className="text-amber-800/90">Avalie com <b>foto</b> ou <b>vídeo</b> e descubra quanto você ganha — liberado assim que sua avaliação for confirmada.</p>
+                  <p className="text-amber-900">Avalie com <b>foto</b> ou <b>vídeo</b> e descubra quanto você ganha — liberado assim que sua avaliação for confirmada.</p>
                 </div>
               )}
 
@@ -361,7 +383,7 @@ export default function AvaliarPage() {
                       />
                       <span>
                         Autorizo a marca a usar meu vídeo em anúncios e redes sociais.
-                        {data?.rewards ? " Se aprovado, rola um bônus extra 🎁" : ""}
+                        {data?.rewards ? " Se a gente selecionar seu vídeo, seu cashback pode ser ainda maior 🎬" : ""}
                       </span>
                     </label>
                   )}
