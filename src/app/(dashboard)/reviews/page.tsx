@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Callout } from "@/components/ui/callout";
 import {
   Select,
   SelectContent,
@@ -825,9 +826,9 @@ export default function ReviewsPage() {
                 {aiGenerating && <span className="text-xs text-muted-foreground">A IA pode levar alguns segundos…</span>}
               </div>
               {aiMsg && <div className="text-sm border rounded-md p-3">{aiMsg}</div>}
-              <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 border-amber-200 p-3 text-xs text-amber-800 dark:text-amber-300">
+              <Callout tone="amber">
                 As avaliações geradas são marcadas como <code>source: ai</code> internamente. Revise antes de publicar — você pode editar, aprovar ou excluir cada uma na aba Moderação.
-              </div>
+              </Callout>
             </CardContent>
           </Card>
         </TabsContent>

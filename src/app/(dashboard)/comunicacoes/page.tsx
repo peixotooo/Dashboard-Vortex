@@ -50,7 +50,7 @@ const SOURCE_LABEL: Record<string, string> = {
 function StepNode({ step }: { step: Step }) {
   const styles: Record<Step["kind"], string> = {
     event: "bg-neutral-100 border-neutral-200 text-neutral-700",
-    gate: "bg-amber-50 border-amber-300 text-amber-800",
+    gate: "bg-amber-100 border-amber-400 text-amber-900",
     send: "bg-neutral-900 border-neutral-900 text-white",
     wait: "bg-neutral-50 border-dashed border-neutral-300 text-neutral-500",
   };
