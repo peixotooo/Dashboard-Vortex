@@ -14,6 +14,7 @@ interface ReviewRow {
   author_email: string | null;
   media_kind: string;
   status: string;
+  ads_status: string;
   reward_tier: string | null;
   reward_status: string;
   reward_amount: number | null;
@@ -39,7 +40,7 @@ export async function grantReviewReward(workspaceId: string, reviewId: string): 
 
   const { data } = await admin
     .from("reviews")
-    .select("id, workspace_id, author_email, media_kind, status, reward_tier, reward_status, reward_amount")
+    .select("id, workspace_id, author_email, media_kind, status, ads_status, reward_tier, reward_status, reward_amount")
     .eq("id", reviewId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -53,8 +54,15 @@ export async function grantReviewReward(workspaceId: string, reviewId: string): 
     return { granted: false, reason: "sem email" };
   }
 
-  const tier = review.media_kind; // 'photo' | 'video'
-  const amount = tier === "video" ? settings.reward_video_amount : settings.reward_photo_amount;
+  // UM único valor, conforme a decisão do admin na aprovação (não soma):
+  //   foto                          → reward_photo_amount
+  //   vídeo (não selecionado p/ ADS) → reward_video_amount
+  //   vídeo ACEITO p/ ADS            → reward_video_ads_amount (substitui o de vídeo)
+  const adsAccepted = review.media_kind === "video" && review.ads_status === "accepted";
+  const tier = review.media_kind === "photo" ? "photo" : adsAccepted ? "video_ads" : "video";
+  const amount = review.media_kind === "photo"
+    ? settings.reward_photo_amount
+    : adsAccepted ? settings.reward_video_ads_amount : settings.reward_video_amount;
   if (!amount || amount <= 0) return { granted: false, reason: "valor zero" };
 
   const reference = `REVIEW-${tier.toUpperCase()}-${reviewId}`;
@@ -67,49 +75,4 @@ export async function grantReviewReward(workspaceId: string, reviewId: string): 
   ).eq("id", reviewId);
 
   return r.ok ? { granted: true } : { granted: false, reason: r.error };
-}
-
-/**
- * Bônus de ADS: quando o admin ACEITA o vídeo para anúncios, concede o delta
- * (reward_video_ads_amount - reward_video_amount) por cima do que já foi dado.
- */
-export async function grantAdsBonus(workspaceId: string, reviewId: string): Promise<{ granted: boolean; reason?: string }> {
-  const admin = createAdminClient();
-  const settings = await getReviewSettings(workspaceId);
-  if (!settings.rewards_enabled) return { granted: false, reason: "rewards desligado" };
-
-  const { data } = await admin
-    .from("reviews")
-    .select("id, workspace_id, author_email, media_kind, status, reward_tier, reward_status, reward_amount")
-    .eq("id", reviewId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-  const review = data as ReviewRow | null;
-  if (!review) return { granted: false, reason: "review não encontrada" };
-  if (review.media_kind !== "video") return { granted: false, reason: "não é vídeo" };
-  if (review.reward_tier === "video_ads") return { granted: false, reason: "bônus já concedido" };
-  if (!review.author_email) return { granted: false, reason: "sem email" };
-
-  const delta = Math.max(0, settings.reward_video_ads_amount - settings.reward_video_amount);
-  if (delta <= 0) {
-    // Nada a creditar a mais, mas marca o tier como video_ads.
-    await admin.from("reviews").update({ reward_tier: "video_ads", updated_at: new Date().toISOString() }).eq("id", reviewId);
-    return { granted: false, reason: "delta zero" };
-  }
-
-  const reference = `REVIEW-VIDEOADS-${reviewId}`;
-  const r = await deposit(workspaceId, review.author_email, delta, reference, settings.reward_validity_days);
-  if (r.ok) {
-    await admin.from("reviews").update({
-      reward_tier: "video_ads",
-      reward_status: "granted",
-      reward_amount: (review.reward_amount || 0) + delta,
-      reward_granted_at: new Date().toISOString(),
-      reward_error: null,
-      updated_at: new Date().toISOString(),
-    }).eq("id", reviewId);
-    return { granted: true };
-  }
-  await admin.from("reviews").update({ reward_error: (r.error || "falha no bônus ADS").slice(0, 300), updated_at: new Date().toISOString() }).eq("id", reviewId);
-  return { granted: false, reason: r.error };
 }

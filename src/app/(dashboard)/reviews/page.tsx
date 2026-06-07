@@ -259,9 +259,12 @@ export default function ReviewsPage() {
     loadStats();
   }
 
-  async function setAds(id: string, ads_status: string) {
-    await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ ads_status }) });
+  // Aprova um vídeo decidindo, no mesmo ato, se serve para ADS (define o valor
+  // único do cashback). useAds=true → valor de ADS; false → valor de vídeo.
+  async function approveWithAds(id: string, useAds: boolean) {
+    await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status: "published", ads_status: useAds ? "accepted" : "rejected" }) });
     loadList();
+    loadStats();
   }
 
   const [creatingTpl, setCreatingTpl] = useState(false);
@@ -509,11 +512,19 @@ export default function ReviewsPage() {
                         {r.reward_status === "granted" && <Badge variant="outline" className="text-[10px] text-green-600 border-green-300">🎁 R$ {r.reward_amount}</Badge>}
                         {r.reward_status === "failed" && <Badge variant="destructive" className="text-[10px]">recompensa falhou</Badge>}
                       </div>
-                      {r.ads_status === "pending" && (
-                        <div className="mt-2 flex items-center gap-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2">
-                          <span className="text-xs text-purple-800 flex-1">Cliente autorizou usar o vídeo em ADS. Aprovar concede o cashback máximo.</span>
-                          <Button size="sm" className="h-7 bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setAds(r.id, "accepted")}>Aceitar p/ ADS</Button>
-                          <Button size="sm" variant="outline" className="h-7" onClick={() => setAds(r.id, "rejected")}>Rejeitar</Button>
+                      {r.status === "pending" && r.media_kind === "video" && r.ads_status === "pending" && (
+                        <div className="mt-2 rounded-md bg-purple-50 border border-purple-200 px-3 py-2">
+                          <p className="text-xs text-purple-800 mb-2">
+                            O cliente autorizou usar o vídeo em anúncios. <strong>Você decide se este vídeo serve</strong> — isso define o cashback (sem somar):
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button size="sm" className="h-7 bg-purple-600 hover:bg-purple-700 text-white" onClick={() => approveWithAds(r.id, true)}>
+                              ✓ Serve p/ ADS — aprovar{settings ? ` (R$ ${settings.reward_video_ads_amount})` : ""}
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7" onClick={() => approveWithAds(r.id, false)}>
+                              Não serve — aprovar{settings ? ` (R$ ${settings.reward_video_amount})` : ""}
+                            </Button>
+                          </div>
                         </div>
                       )}
                       {r.product_name && (
@@ -554,11 +565,12 @@ export default function ReviewsPage() {
                       )}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
-                      {r.status === "pending" ? (
+                      {/* Vídeo com consentimento de ADS é aprovado pelos 2 botões acima (decisão de ADS). */}
+                      {r.status === "pending" && !(r.media_kind === "video" && r.ads_status === "pending") ? (
                         <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => moderate(r.id, "published")} title="Aprovar e publicar">
                           <CheckCircle2 className="h-4 w-4 mr-1" /> Aprovar
                         </Button>
-                      ) : r.status !== "published" && (
+                      ) : r.status !== "published" && r.status !== "pending" && (
                         <Button size="sm" variant="outline" className="text-green-600" onClick={() => moderate(r.id, "published")} title="Publicar">
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>

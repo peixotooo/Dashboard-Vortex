@@ -28,7 +28,7 @@ export default function AvaliarPage() {
   const [data, setData] = useState<RequestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [done, setDone] = useState<null | { moderated: boolean; reward?: { amount: number; ads_bonus: number } | null }>(null);
+  const [done, setDone] = useState<null | { moderated: boolean; reward?: { amount: number; ads_max: number | null } | null }>(null);
 
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
@@ -149,7 +149,7 @@ export default function AvaliarPage() {
                 <p className="text-lg font-bold text-amber-900">🎁 Você ganhou R$ {done.reward.amount} de cashback!</p>
                 <p className="text-[13px] text-amber-800 mt-0.5">
                   Será creditado na sua carteira assim que sua avaliação for aprovada.
-                  {done.reward.ads_bonus > 0 ? ` E se aprovarmos seu vídeo para anúncios, você ganha +R$ ${done.reward.ads_bonus}!` : ""}
+                  {done.reward.ads_max ? ` E pode chegar a R$ ${done.reward.ads_max} se a gente selecionar seu vídeo para anúncios! 🎬` : ""}
                 </p>
               </div>
             )}
