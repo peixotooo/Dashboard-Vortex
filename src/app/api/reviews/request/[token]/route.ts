@@ -22,7 +22,7 @@ async function loadRequest(token: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("review_requests")
-    .select("id, workspace_id, order_id, order_code, product_id, product_name, product_image, product_url, customer_name, customer_email, status, review_id")
+    .select("id, workspace_id, order_id, order_code, product_id, product_name, product_image, product_url, products, customer_name, customer_email, status, review_id")
     .eq("token", token)
     .maybeSingle();
   return { admin, req: data };
@@ -40,6 +40,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
         preview: true,
         customer_name: "Cliente",
         product: { id: null, name: "Produto de exemplo (pré-visualização)", image: null, url: null },
+        products: [
+          { id: "exemplo-1", name: "Camiseta Dry-Fit (exemplo)", image: null, url: null },
+          { id: "exemplo-2", name: "Shorts de Treino (exemplo)", image: null, url: null },
+        ],
         ask_media: settings.request_ask_media,
         ads_enabled: settings.ads_enabled,
         collect_store_review: settings.collect_store_review,
@@ -60,6 +64,18 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
   const settings = await getReviewSettings(req.workspace_id);
   const firstName = (req.customer_name || "").trim().split(/\s+/)[0] || null;
 
+  // Todos os produtos do pedido (quiz por etapas). Pedidos antigos sem `products`
+  // caem no produto único das colunas legadas.
+  const rawProducts = Array.isArray(req.products) ? req.products : null;
+  const products = rawProducts && rawProducts.length
+    ? rawProducts.map((p: { product_id?: string; name?: string | null; image?: string | null; url?: string | null }) => ({
+        id: p.product_id ?? null,
+        name: p.name ?? null,
+        image: p.image ?? null,
+        url: p.url ?? null,
+      }))
+    : [{ id: req.product_id, name: req.product_name, image: req.product_image, url: req.product_url }];
+
   return NextResponse.json(
     {
       already_completed: req.status === "completed" || !!req.review_id,
@@ -70,6 +86,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
         image: req.product_image,
         url: req.product_url,
       },
+      products,
       ask_media: settings.request_ask_media,
       ads_enabled: settings.ads_enabled,
       collect_store_review: settings.collect_store_review,
@@ -94,13 +111,23 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     const settings = await previewSettings(request.url);
     let pbody: Record<string, unknown> = {};
     try { pbody = await request.json(); } catch {}
-    const pmedia = Array.isArray(pbody.media) ? (pbody.media as { type?: string }[]) : [];
-    const pKind = pmedia.some((m) => m?.type === "video") ? "video" : pmedia.length ? "photo" : "none";
+    // Melhor mídia entre os produtos avaliados (uma recompensa por pedido).
+    const plist = Array.isArray(pbody.reviews) && pbody.reviews.length
+      ? (pbody.reviews as { media?: { type?: string }[]; ads_consent?: boolean }[])
+      : [{ media: Array.isArray(pbody.media) ? (pbody.media as { type?: string }[]) : [], ads_consent: pbody.ads_consent === true }];
+    let bestRank = 0, bestKind = "none", bestAds = false;
+    for (const r of plist) {
+      const media = Array.isArray(r.media) ? r.media : [];
+      const kind = media.some((m) => m?.type === "video") ? "video" : media.length ? "photo" : "none";
+      const ads = kind === "video" && r.ads_consent === true;
+      const rank = kind === "video" && ads ? 3 : kind === "video" ? 2 : kind === "photo" ? 1 : 0;
+      if (rank > bestRank) { bestRank = rank; bestKind = kind; bestAds = ads; }
+    }
     const pReward = settings.rewards_enabled
-      ? (pKind === "video" ? settings.reward_video_amount : pKind === "photo" ? settings.reward_photo_amount : 0)
+      ? (bestKind === "video" ? settings.reward_video_amount : bestKind === "photo" ? settings.reward_photo_amount : 0)
       : 0;
     const pAdsMax =
-      settings.rewards_enabled && pKind === "video" && pbody.ads_consent === true && settings.reward_video_ads_amount > settings.reward_video_amount
+      settings.rewards_enabled && bestKind === "video" && bestAds && settings.reward_video_ads_amount > settings.reward_video_amount
         ? settings.reward_video_ads_amount
         : null;
     return NextResponse.json(
@@ -122,78 +149,101 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     return NextResponse.json({ error: "JSON inválido" }, { status: 400, headers: CORS });
   }
 
-  const rating = Number(body.rating);
-  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
-    return NextResponse.json({ error: "Escolha uma nota de 1 a 5." }, { status: 400, headers: CORS });
-  }
-  const text = typeof body.body === "string" ? body.body.trim() : "";
-  if (!text) return NextResponse.json({ error: "Escreva sua avaliação." }, { status: 400, headers: CORS });
-
-  const media = Array.isArray(body.media)
-    ? (body.media as unknown[])
-        .map((m) => {
-          const it = m as { url?: unknown; type?: unknown };
-          const url = typeof it?.url === "string" ? it.url : "";
-          if (!/^https?:\/\//i.test(url)) return null;
-          return { url, type: it?.type === "video" ? "video" : "image" };
-        })
-        .filter(Boolean)
-        .slice(0, 8)
-    : [];
-
-  // Moderação obrigatória: TODA avaliação entra como 'pending' e só aparece na
-  // loja depois de aprovada no admin (mesmo vinda de um comprador verificado).
-  const status = "pending";
-
-  // Gamificação: classifica a mídia e consentimento de ADS (só pra vídeo).
   const settings = await getReviewSettings(req.workspace_id);
-  const hasVideo = media.some((m) => m && (m as { type: string }).type === "video");
-  const mediaKind = hasVideo ? "video" : media.length > 0 ? "photo" : "none";
-  const adsConsent = mediaKind === "video" && body.ads_consent === true && settings.ads_enabled;
-  const adsStatus = adsConsent ? "pending" : "none";
 
-  // Campos estruturados (tamanho, caimento, tipo de corpo, etc.) — [{name, values}].
-  const customFields = Array.isArray(body.custom_fields)
-    ? (body.custom_fields as unknown[])
-        .map((f) => {
-          const it = f as { name?: unknown; values?: unknown };
-          const name = typeof it?.name === "string" ? it.name.slice(0, 60) : "";
-          const values = Array.isArray(it?.values) ? (it.values as unknown[]).filter((v) => typeof v === "string").map((v) => (v as string).slice(0, 80)) : [];
-          return name && values.length ? { name, values } : null;
-        })
-        .filter(Boolean)
-        .slice(0, 20)
-    : [];
+  // Normaliza pra uma lista de avaliações POR PRODUTO. Aceita o formato novo
+  // (reviews: [...]) do quiz e o legado (campos no topo = 1 produto só).
+  type InReview = { product_id?: unknown; rating?: unknown; body?: unknown; media?: unknown; ads_consent?: unknown; custom_fields?: unknown };
+  const inList: InReview[] = Array.isArray(body.reviews) && body.reviews.length
+    ? (body.reviews as InReview[])
+    : [{ product_id: req.product_id, rating: body.rating, body: body.body, media: body.media, ads_consent: body.ads_consent, custom_fields: body.custom_fields }];
 
-  const { data: review, error } = await admin
-    .from("reviews")
-    .insert({
+  // Produtos válidos do pedido (pra casar id/nome/imagem de cada avaliação).
+  const reqProducts = Array.isArray(req.products) && req.products.length
+    ? (req.products as { product_id?: string; name?: string | null; image?: string | null; url?: string | null }[])
+    : [{ product_id: req.product_id || undefined, name: req.product_name, image: req.product_image, url: req.product_url }];
+  const productById = new Map(reqProducts.map((p) => [String(p.product_id), p]));
+
+  function sanitizeMedia(raw: unknown) {
+    return Array.isArray(raw)
+      ? (raw as unknown[])
+          .map((m) => {
+            const it = m as { url?: unknown; type?: unknown };
+            const url = typeof it?.url === "string" ? it.url : "";
+            if (!/^https?:\/\//i.test(url)) return null;
+            return { url, type: it?.type === "video" ? "video" : "image" };
+          })
+          .filter(Boolean)
+          .slice(0, 8)
+      : [];
+  }
+  function sanitizeFields(raw: unknown) {
+    return Array.isArray(raw)
+      ? (raw as unknown[])
+          .map((f) => {
+            const it = f as { name?: unknown; values?: unknown };
+            const name = typeof it?.name === "string" ? it.name.slice(0, 60) : "";
+            const values = Array.isArray(it?.values) ? (it.values as unknown[]).filter((v) => typeof v === "string").map((v) => (v as string).slice(0, 80)) : [];
+            return name && values.length ? { name, values } : null;
+          })
+          .filter(Boolean)
+          .slice(0, 20)
+      : [];
+  }
+
+  // Moderação obrigatória: TODA avaliação entra como 'pending'.
+  const status = "pending";
+  const authorName = typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name;
+  // Chave do pedido — usada pra deduplicar a recompensa (uma por pedido).
+  const referenceOrder = req.order_code || req.order_id || null;
+
+  // Uma linha de review por produto avaliado (precisa de nota + texto).
+  const rows: Record<string, unknown>[] = [];
+  let bestRank = -1, bestKind = "none", bestAds = false;
+  for (const r of inList) {
+    const rating = Number(r.rating);
+    const text = typeof r.body === "string" ? r.body.trim() : "";
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5 || !text) continue; // pula produto não avaliado
+    const media = sanitizeMedia(r.media);
+    const hasVideo = media.some((m) => m && (m as { type: string }).type === "video");
+    const mediaKind = hasVideo ? "video" : media.length > 0 ? "photo" : "none";
+    const adsConsent = mediaKind === "video" && r.ads_consent === true && settings.ads_enabled;
+    const pid = r.product_id != null ? String(r.product_id) : (req.product_id || null);
+    const prod = (pid && productById.get(pid)) || reqProducts[0];
+    rows.push({
       workspace_id: req.workspace_id,
       source: "native",
-      product_id: req.product_id,
-      product_name: req.product_name,
-      product_image: req.product_image,
-      product_url: req.product_url,
+      product_id: pid,
+      product_name: prod?.name ?? req.product_name,
+      product_image: prod?.image ?? req.product_image,
+      product_url: prod?.url ?? req.product_url,
       rating: Math.round(rating),
-      title: typeof body.title === "string" ? body.title.trim().slice(0, 120) || null : null,
+      title: null,
       body: text.slice(0, 4000),
-      author_name: typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name,
+      author_name: authorName,
       author_email: req.customer_email, // necessário pra creditar a recompensa
       verified_buyer: true, // veio de uma compra real (régua)
-      custom_fields: customFields,
+      reference_order: referenceOrder, // dedup da recompensa por pedido
+      custom_fields: sanitizeFields(r.custom_fields),
       media,
       media_kind: mediaKind,
       ads_consent: adsConsent,
-      ads_status: adsStatus,
+      ads_status: adsConsent ? "pending" : "none",
       status,
-    })
-    .select("id")
-    .single();
+    });
+    // Melhor mídia do pedido (foto < vídeo < vídeo p/ ADS) — base da recompensa única.
+    const rank = mediaKind === "video" && adsConsent ? 3 : mediaKind === "video" ? 2 : mediaKind === "photo" ? 1 : 0;
+    if (rank > bestRank) { bestRank = rank; bestKind = mediaKind; bestAds = adsConsent; }
+  }
 
+  if (rows.length === 0) {
+    return NextResponse.json({ error: "Avalie ao menos um produto (nota e texto)." }, { status: 400, headers: CORS });
+  }
+
+  const { data: inserted, error } = await admin.from("reviews").insert(rows).select("id");
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
 
-  // Avaliação da LOJA (experiência/entrega), separada da do produto. Mesma
-  // página, registro próprio em store_reviews. Uma por pedido (upsert).
+  // Avaliação da LOJA (experiência/entrega), separada das de produto. Uma por pedido (upsert).
   const storeRating = Number(body.store_rating);
   if (settings.collect_store_review && Number.isFinite(storeRating) && storeRating >= 1 && storeRating <= 5) {
     await admin.from("store_reviews").upsert(
@@ -203,7 +253,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
         order_code: req.order_code,
         rating: Math.round(storeRating),
         comment: typeof body.store_comment === "string" ? body.store_comment.trim().slice(0, 2000) || null : null,
-        author_name: typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name,
+        author_name: authorName,
         author_email: req.customer_email,
         status,
         review_request_id: req.id,
@@ -215,16 +265,16 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
 
   await admin
     .from("review_requests")
-    .update({ status: "completed", completed_at: new Date().toISOString(), review_id: review.id, updated_at: new Date().toISOString() })
+    .update({ status: "completed", completed_at: new Date().toISOString(), review_id: inserted?.[0]?.id ?? null, updated_at: new Date().toISOString() })
     .eq("id", req.id);
 
-  // Revela a recompensa (surpresa) só agora, após confirmar a avaliação. O valor
-  // de vídeo pode subir pro de ADS se a loja selecionar o vídeo pra anúncios
+  // Revela a recompensa (surpresa) só agora — UMA por pedido, conforme a melhor
+  // mídia enviada. Pode subir pro valor de ADS se a loja selecionar o vídeo
   // (substitui, não soma) — mostramos como possibilidade, sem prometer.
   const rewardAmount = settings.rewards_enabled
-    ? (mediaKind === "video" ? settings.reward_video_amount : mediaKind === "photo" ? settings.reward_photo_amount : 0)
+    ? (bestKind === "video" ? settings.reward_video_amount : bestKind === "photo" ? settings.reward_photo_amount : 0)
     : 0;
-  const adsMax = settings.rewards_enabled && mediaKind === "video" && adsConsent && settings.reward_video_ads_amount > settings.reward_video_amount
+  const adsMax = settings.rewards_enabled && bestKind === "video" && bestAds && settings.reward_video_ads_amount > settings.reward_video_amount
     ? settings.reward_video_ads_amount
     : null;
 
