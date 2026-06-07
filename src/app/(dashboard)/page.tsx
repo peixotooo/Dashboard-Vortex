@@ -253,6 +253,7 @@ export default function OverviewPage() {
   const [datePreset, setDatePreset] = useState<DatePreset>("last_30d");
   const [customRange, setCustomRange] = useState<{ since: string; until: string } | undefined>();
   const [loading, setLoading] = useState(true);
+  const [pendingReviews, setPendingReviews] = useState<{ product: number; store: number; total: number } | null>(null);
   const [data, setData] = useState<OverviewData>({
     spend: 0,
     cpc: 0,
@@ -291,6 +292,15 @@ export default function OverviewPage() {
     datePreset === "custom" && customRange
       ? `${customRange.since}:${customRange.until}`
       : "";
+
+  // Avaliações pendentes de moderação (destaque na Overview).
+  useEffect(() => {
+    if (!workspace?.id) return;
+    fetch("/api/reviews/pending-count", { headers: { "x-workspace-id": workspace.id } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && !d.error) setPendingReviews(d); })
+      .catch(() => {});
+  }, [workspace?.id]);
 
   useEffect(() => {
     if (!accountId) {
@@ -733,6 +743,31 @@ export default function OverviewPage() {
         </div>
         <DateRangePicker value={datePreset} onChange={setDatePreset} customRange={customRange} onCustomRangeChange={setCustomRange} />
       </div>
+
+      {/* Destaque: avaliações pendentes de moderação */}
+      {pendingReviews && pendingReviews.total > 0 && (
+        <Link
+          href="/reviews"
+          className="flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/50"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white text-sm font-bold">
+              {pendingReviews.total}
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                {pendingReviews.total === 1 ? "1 avaliação aguardando sua aprovação" : `${pendingReviews.total} avaliações aguardando sua aprovação`}
+              </p>
+              <p className="text-xs text-amber-800/80 dark:text-amber-200/70">
+                {pendingReviews.product > 0 && `${pendingReviews.product} de produto`}
+                {pendingReviews.product > 0 && pendingReviews.store > 0 && " · "}
+                {pendingReviews.store > 0 && `${pendingReviews.store} da loja`} — revise e aprove para publicar.
+              </p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white">Revisar agora →</span>
+        </Link>
+      )}
 
       {/* KPI Cards - Row 1: Revenue metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
