@@ -16,6 +16,7 @@ import {
   RefreshCw,
   KeyRound,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -169,6 +170,48 @@ export default function ReviewsPage() {
   // Install
   const [apiKey, setApiKey] = useState<string | null>(null);
 
+  // Geração com IA
+  const [aiProducts, setAiProducts] = useState<{ product_id: string; name: string | null; review_count: number }[]>([]);
+  const [aiProduct, setAiProduct] = useState("");
+  const [aiCount, setAiCount] = useState(5);
+  const [aiAutoPublish, setAiAutoPublish] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
+  const [aiProductsLoaded, setAiProductsLoaded] = useState(false);
+
+  const loadAiProducts = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/reviews/products", { headers: headers() }).then((r) => r.json());
+    setAiProducts(d.products || []);
+    setAiProductsLoaded(true);
+  }, [workspace?.id, headers]);
+
+  async function generateAi() {
+    if (!workspace?.id || !aiProduct) return;
+    setAiGenerating(true);
+    setAiMsg(null);
+    try {
+      const res = await fetch("/api/reviews/ai-generate", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ product_id: aiProduct, count: aiCount, auto_publish: aiAutoPublish }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        setAiMsg(`✓ ${d.inserted} avaliação(ões) geradas para "${d.product_name}" — ${aiAutoPublish ? "publicadas" : "aguardando moderação"}.`);
+        loadList();
+        loadStats();
+        loadAiProducts();
+      } else {
+        setAiMsg(d.error || "Erro ao gerar avaliações.");
+      }
+    } catch {
+      setAiMsg("Erro de conexão.");
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
   // Store reviews (avaliações da loja)
   const [storeReviews, setStoreReviews] = useState<{ id: string; rating: number; comment: string | null; author_name: string | null; status: string; order_code: string | null; created_at: string }[]>([]);
   const [storeSummary, setStoreSummary] = useState<{ average: number; published: number } | null>(null);
@@ -253,6 +296,10 @@ export default function ReviewsPage() {
   useEffect(() => {
     if (workspace?.id) loadList();
   }, [statusFilter, loadList, workspace?.id]);
+
+  useEffect(() => {
+    if (tab === "ai" && workspace?.id && !aiProductsLoaded) loadAiProducts();
+  }, [tab, workspace?.id, aiProductsLoaded, loadAiProducts]);
 
   async function moderate(id: string, status: string) {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
@@ -445,6 +492,10 @@ export default function ReviewsPage() {
             {storeSummary && storeSummary.published > 0 && (
               <span className="ml-1.5 text-[10px] text-muted-foreground">★ {storeSummary.average}</span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="ai">
+            <Sparkles className="h-3.5 w-3.5 mr-1 text-amber-500" />
+            Gerar com IA
           </TabsTrigger>
           <TabsTrigger value="import">Importar (Yourviews)</TabsTrigger>
           <TabsTrigger value="ruler">Régua de comunicação</TabsTrigger>
@@ -725,6 +776,60 @@ export default function ReviewsPage() {
               </Card>
             ))
           )}
+        </TabsContent>
+
+        {/* ---------- Gerar com IA ---------- */}
+        <TabsContent value="ai" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-amber-500" /> Gerar avaliações com IA</CardTitle>
+              <CardDescription>
+                Gera avaliações no <strong>mesmo tom das suas avaliações reais</strong> (aprende com o que já está no banco) e com os campos estruturados do formulário (tamanho, caimento, tipo de corpo…). Útil para produtos novos, sem histórico, melhorando a conversão. Entram como <strong>pendentes</strong> para você revisar antes de publicar.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <Label>Produto</Label>
+                  <Select value={aiProduct} onValueChange={setAiProduct}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={aiProductsLoaded ? "Selecione um produto" : "Carregando produtos…"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {aiProducts.map((p) => (
+                        <SelectItem key={p.product_id} value={p.product_id}>
+                          {p.name || p.product_id} {p.review_count > 0 ? `· ${p.review_count} aval.` : "· sem avaliações"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">Produtos com menos avaliações aparecem primeiro.</p>
+                </div>
+                <div>
+                  <Label>Quantidade (máx. 15)</Label>
+                  <Input type="number" min={1} max={15} value={aiCount} onChange={(e) => setAiCount(Math.min(15, Math.max(1, Number(e.target.value))))} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <Label>Publicar automaticamente</Label>
+                  <p className="text-xs text-muted-foreground">Desligado (recomendado): entram como pendentes para você revisar na aba Moderação.</p>
+                </div>
+                <Switch checked={aiAutoPublish} onCheckedChange={setAiAutoPublish} />
+              </div>
+              <div className="flex items-center gap-3">
+                <Button onClick={generateAi} disabled={aiGenerating || !aiProduct}>
+                  {aiGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                  Gerar {aiCount} avaliações
+                </Button>
+                {aiGenerating && <span className="text-xs text-muted-foreground">A IA pode levar alguns segundos…</span>}
+              </div>
+              {aiMsg && <div className="text-sm border rounded-md p-3">{aiMsg}</div>}
+              <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 border-amber-200 p-3 text-xs text-amber-800 dark:text-amber-300">
+                As avaliações geradas são marcadas como <code>source: ai</code> internamente. Revise antes de publicar — você pode editar, aprovar ou excluir cada uma na aba Moderação.
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ---------- Importar (Yourviews) ---------- */}
