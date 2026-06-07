@@ -92,6 +92,8 @@ interface ReviewSettings {
   request_reminder_2_days: number | null;
   collect_store_review: boolean;
   request_message_template: string | null;
+  request_reminder_message: string | null;
+  request_reminder_2_message: string | null;
   wa_template_id: string | null;
   rewards_enabled: boolean;
   reward_photo_amount: number;
@@ -725,13 +727,26 @@ export default function ReviewsPage() {
                   </div>
                   <Switch checked={settings.request_ask_media} onCheckedChange={(v) => set("request_ask_media", v)} />
                 </div>
-                <div>
-                  <Label>Mensagem (use {"{nome}"}, {"{produto}"}, {"{link}"})</Label>
-                  <Textarea
-                    value={settings.request_message_template ?? ""}
-                    onChange={(e) => set("request_message_template", e.target.value)}
-                    rows={3}
-                  />
+                {/* Mensagens da régua (até 3 contatos) */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div>
+                    <Label className="text-sm font-semibold">Mensagens enviadas (já configuradas)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      A saudação <strong>“Olá {"{nome}"}, tudo bem?”</strong> é adicionada automaticamente. Use <code>{"{produto}"}</code> e <code>{"{link}"}</code>. Edite só se quiser.
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-xs">1️⃣ Pedido de avaliação</Label>
+                    <Textarea value={settings.request_message_template ?? ""} onChange={(e) => set("request_message_template", e.target.value)} rows={3} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">2️⃣ Lembrete (após {settings.request_reminder_days ?? "—"} dias)</Label>
+                    <Textarea value={settings.request_reminder_message ?? ""} onChange={(e) => set("request_reminder_message", e.target.value)} rows={2} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">3️⃣ Lembrete final (após +{settings.request_reminder_2_days ?? "—"} dias)</Label>
+                    <Textarea value={settings.request_reminder_2_message ?? ""} onChange={(e) => set("request_reminder_2_message", e.target.value)} rows={2} />
+                  </div>
                 </div>
 
                 {/* Template WhatsApp UTILITY */}

@@ -22,7 +22,10 @@ export interface ReviewSettings {
   request_ask_media: boolean;
   request_reminder_days: number | null;     // 1º lembrete (dias após o 1º contato)
   request_reminder_2_days: number | null;   // 2º lembrete (dias após o 1º lembrete)
-  request_message_template: string | null;
+  // Mensagens por etapa (substância, sem saudação — {produto} e {link}).
+  request_message_template: string | null;      // 1º contato (pedido)
+  request_reminder_message: string | null;      // 1º lembrete
+  request_reminder_2_message: string | null;    // 2º lembrete
   collect_store_review: boolean;            // coletar avaliação da loja na landing
   // WhatsApp template (categoria UTILITY) usado na régua
   wa_template_id: string | null;
@@ -56,7 +59,11 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_reminder_2_days: 5,
   collect_store_review: true,
   request_message_template:
-    "Oi {nome}, tudo bem? 💛 Sua {produto} já chegou? Conta pra gente o que achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! 👉 {link}",
+    "Sua {produto} já chegou? 💛 Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! Avalie aqui: {link}",
+  request_reminder_message:
+    "Passando só pra lembrar 😊 Sua opinião sobre a {produto} ajuda demais quem está pensando em comprar. É rapidinho: {link}",
+  request_reminder_2_message:
+    "Última chamada! 🙏 Conta o que você achou da {produto} e ajude outros clientes. Mandando foto ou vídeo você ainda ganha cashback: {link}",
   wa_template_id: null,
   wa_variable_mapping: {},
   rewards_enabled: false,
@@ -88,6 +95,8 @@ const EDITABLE: (keyof Omit<ReviewSettings, "workspace_id">)[] = [
   "request_reminder_2_days",
   "collect_store_review",
   "request_message_template",
+  "request_reminder_message",
+  "request_reminder_2_message",
   "wa_variable_mapping",
   "rewards_enabled",
   "reward_photo_amount",
@@ -108,7 +117,15 @@ export async function getReviewSettings(workspaceId: string): Promise<ReviewSett
   if (!data) {
     return { workspace_id: workspaceId, ...DEFAULT_REVIEW_SETTINGS };
   }
-  return data as ReviewSettings;
+  const row = data as ReviewSettings;
+  // Mensagens da régua: null = "usar a copy padrão". Coalesce pra que o admin
+  // mostre exatamente o que será enviado (e o ruler já usa o mesmo fallback).
+  return {
+    ...row,
+    request_message_template: row.request_message_template ?? DEFAULT_REVIEW_SETTINGS.request_message_template,
+    request_reminder_message: row.request_reminder_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_message,
+    request_reminder_2_message: row.request_reminder_2_message ?? DEFAULT_REVIEW_SETTINGS.request_reminder_2_message,
+  };
 }
 
 export async function upsertReviewSettings(

@@ -217,9 +217,13 @@ export async function dispatchDueRequests(
   const result: DispatchResult = { sent: 0, reminded: 0, failed: 0 };
   const nowIso = new Date().toISOString();
 
-  const template =
-    settings.request_message_template ||
-    "Oi {nome}! Conta pra gente o que achou de {produto}? Sua avaliação ajuda muita gente: {link}";
+  // Mensagens por etapa da régua (substância, sem saudação — {produto}/{link}).
+  const msgStep1 = settings.request_message_template ||
+    "Sua {produto} já chegou? 💛 Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente. Pode mandar foto ou vídeo! Avalie aqui: {link}";
+  const msgStep2 = settings.request_reminder_message ||
+    "Passando só pra lembrar 😊 Sua opinião sobre a {produto} ajuda demais quem está pensando em comprar. É rapidinho: {link}";
+  const msgStep3 = settings.request_reminder_2_message ||
+    "Última chamada! 🙏 Conta o que você achou da {produto} e ajude outros clientes: {link}";
 
   // Carrega config do canal uma vez.
   const wapi = settings.request_channel === "whatsapp" ? await getWapiConfig(workspaceId) : null;
@@ -241,16 +245,21 @@ export async function dispatchDueRequests(
     }
   }
 
-  async function deliver(req: {
-    customer_name: string | null;
-    customer_phone: string | null;
-    customer_email: string | null;
-    product_name: string | null;
-    product_image: string | null;
-    token: string;
-  }): Promise<{ ok: boolean; error?: string }> {
+  async function deliver(
+    req: {
+      customer_name: string | null;
+      customer_phone: string | null;
+      customer_email: string | null;
+      product_name: string | null;
+      product_image: string | null;
+      token: string;
+    },
+    substance: string
+  ): Promise<{ ok: boolean; error?: string }> {
     const link = reviewLink(req.token);
     const product = req.product_name || "seu pedido";
+    const nome = firstName(req.customer_name);
+    const body = fillTemplate(substance, { nome, produto: product, link });
     if (settings.request_channel === "whatsapp") {
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };
@@ -258,16 +267,13 @@ export async function dispatchDueRequests(
       // Preferência: template UTILITY aprovado (Meta Cloud API). O body do
       // template já tem "Olá {{1}}, tudo bem?" — então {{1}}=nome, {{2}}=conteúdo+link.
       if (waTemplate && waConfig) {
-        const var1 = firstName(req.customer_name);
-        const var2 = `Sua ${product} já chegou? Conta pra gente o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo! Avalie aqui: ${link}`;
-        const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": var1, "2": var2 });
+        const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": nome, "2": body });
         return r.error ? { ok: false, error: r.error } : { ok: true };
       }
 
-      // Fallback: W-API (texto livre).
+      // Fallback: W-API (texto livre) — adiciona a saudação que o template já teria.
       if (!wapi) return { ok: false, error: "WhatsApp não configurado" };
-      const msg = fillTemplate(template, { nome: firstName(req.customer_name), produto: product, link });
-      const r = await sendText(wapi, phone, msg);
+      const r = await sendText(wapi, phone, `Oi ${nome}, tudo bem? ${body}`);
       return r.error ? { ok: false, error: r.error } : { ok: true };
     } else {
       if (!smtp) return { ok: false, error: "SMTP não configurado" };
@@ -373,7 +379,7 @@ export async function dispatchDueRequests(
       continue;
     }
 
-    const out = await deliver(req);
+    const out = await deliver(req, msgStep1);
     if (out.ok) {
       await admin.from("review_requests").update({ status: "sent", sent_at: nowIso, error_message: null, updated_at: nowIso }).eq("id", req.id);
       await logCommunication({
@@ -397,7 +403,7 @@ export async function dispatchDueRequests(
   ) {
     const recent = await getRecentContacts(workspaceId, { email: req.customer_email, phone: req.customer_phone, withinHours: COMMS_COOLDOWN_HOURS }, admin);
     if (recent.length > 0) return; // adia pro próximo tick
-    const out = await deliver(req);
+    const out = await deliver(req, stage === 1 ? msgStep2 : msgStep3);
     if (out.ok) {
       await admin.from("review_requests").update({ status: "reminded", reminder_count: stage, reminded_at: nowIso, updated_at: nowIso }).eq("id", req.id);
       await logCommunication({ workspaceId, email: req.customer_email, phone: req.customer_phone, channel: settings.request_channel, source: "review", sourceId: req.id, status: "sent" }, admin);
