@@ -150,7 +150,18 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     .update({ status: "completed", completed_at: new Date().toISOString(), review_id: review.id, updated_at: new Date().toISOString() })
     .eq("id", req.id);
 
-  return NextResponse.json({ ok: true, moderated: status === "pending" }, { headers: CORS });
+  // Revela a recompensa (surpresa) só agora, após confirmar a avaliação.
+  const rewardAmount = settings.rewards_enabled
+    ? (mediaKind === "video" ? settings.reward_video_amount : mediaKind === "photo" ? settings.reward_photo_amount : 0)
+    : 0;
+  const adsBonus = settings.rewards_enabled && mediaKind === "video" && adsConsent
+    ? Math.max(0, settings.reward_video_ads_amount - settings.reward_video_amount)
+    : 0;
+
+  return NextResponse.json(
+    { ok: true, moderated: status === "pending", reward: rewardAmount > 0 ? { amount: rewardAmount, ads_bonus: adsBonus } : null },
+    { headers: CORS }
+  );
 }
 
 export async function OPTIONS() {
