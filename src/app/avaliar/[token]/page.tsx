@@ -93,6 +93,9 @@ export default function AvaliarPage() {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [answers, setAnswers] = useState<ProductAnswer[]>([]);
+  // Perfil do cliente (tamanho, idade, altura…). Preenchido uma vez e sugerido
+  // automaticamente nos próximos produtos — ele só precisa dar as estrelas.
+  const [profileFields, setProfileFields] = useState<Record<string, string>>({});
   const [storeRating, setStoreRating] = useState(0);
   const [storeComment, setStoreComment] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -130,6 +133,14 @@ export default function AvaliarPage() {
 
   const updateAnswer = (i: number, patch: Partial<ProductAnswer>) =>
     setAnswers((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
+
+  // Define um campo do produto atual E memoriza no perfil (sugestão p/ os próximos).
+  const setField = (i: number, key: string, value: string) => {
+    setAnswers((prev) => prev.map((a, idx) => (idx === i ? { ...a, fields: { ...a.fields, [key]: value } } : a)));
+    setProfileFields((p) => ({ ...p, [key]: value }));
+  };
+  // Valor efetivo: o que ele preencheu OU a sugestão herdada do perfil.
+  const fieldValue = (i: number, key: string) => answers[i]?.fields?.[key] ?? profileFields[key] ?? "";
 
   async function handleFiles(files: FileList | null, i: number) {
     if (!files || !files.length || !token) return;
@@ -170,11 +181,11 @@ export default function AvaliarPage() {
 
   function goNext() {
     setError(null);
-    // Validação suave: avaliação pela metade trava; produto vazio = pular.
+    // O texto é opcional — basta a nota das estrelas. Se escreveu algo mas
+    // esqueceu a nota, lembra. Produto sem nota = pular (segue em frente).
     if (isProductStep) {
       const a = answers[productIdx];
-      if (a?.rating && !a.body.trim()) { setError("Escreva uma frase pra completar — ou toque em “Pular este produto”."); return; }
-      if (a?.body.trim() && !a.rating) { setError("Dê uma nota — ou toque em “Pular este produto”."); return; }
+      if (a?.body.trim() && !a.rating) { setError("Toque nas estrelas pra dar sua nota 🙂"); return; }
     }
     setStep((s) => Math.min(s + 1, lastStep));
   }
@@ -194,11 +205,13 @@ export default function AvaliarPage() {
         body: answers[i]?.body || "",
         media: answers[i]?.media || [],
         ads_consent: answers[i]?.adsConsent || false,
+        // inclui as sugestões herdadas do perfil mesmo que ele não tenha mexido.
         custom_fields: (data.form_fields || [])
-          .filter((f) => answers[i]?.fields?.[f.key])
-          .map((f) => ({ name: f.label, values: [answers[i].fields[f.key]] })),
+          .map((f) => ({ f, v: fieldValue(i, f.key) }))
+          .filter(({ v }) => v)
+          .map(({ f, v }) => ({ name: f.label, values: [v] })),
       }))
-      .filter((r) => r.rating && r.body.trim());
+      .filter((r) => r.rating); // texto é opcional — basta a nota
 
     if (reviews.length === 0) { setError("Avalie ao menos um produto."); return; }
 
@@ -345,7 +358,7 @@ export default function AvaliarPage() {
                 <div className="py-1"><StarsInput value={answers[productIdx]?.rating || 0} onChange={(n) => updateAnswer(productIdx, { rating: n })} color={accent} /></div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Sua avaliação</label>
+                  <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Sua avaliação <span className="font-normal text-neutral-400">(opcional)</span></label>
                   <textarea
                     value={answers[productIdx]?.body || ""}
                     onChange={(e) => updateAnswer(productIdx, { body: e.target.value })}
@@ -360,15 +373,19 @@ export default function AvaliarPage() {
                 {data?.form_fields && data.form_fields.length > 0 && (
                   <div className="rounded-2xl border border-neutral-200 p-4">
                     <p className="text-sm font-semibold text-neutral-800 mb-0.5">Ajude quem vai comprar</p>
-                    <p className="text-xs text-neutral-500 mb-3">Suas medidas e perfil aparecem na avaliação (opcional).</p>
+                    <p className="text-xs text-neutral-500 mb-3">
+                      {productIdx > 0
+                        ? "Já preenchemos com o seu perfil — ajuste se for diferente neste produto."
+                        : "Suas medidas e perfil aparecem na avaliação (opcional)."}
+                    </p>
                     <div className="grid grid-cols-2 gap-3">
                       {data.form_fields.map((f) => (
                         <div key={f.key}>
                           <label className="block text-[12px] font-medium text-neutral-600 mb-1">{f.label}</label>
                           {f.type === "select" ? (
                             <select
-                              value={answers[productIdx]?.fields?.[f.key] || ""}
-                              onChange={(e) => updateAnswer(productIdx, { fields: { ...answers[productIdx].fields, [f.key]: e.target.value } })}
+                              value={fieldValue(productIdx, f.key)}
+                              onChange={(e) => setField(productIdx, f.key, e.target.value)}
                               className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             >
                               <option value="">—</option>
@@ -376,8 +393,8 @@ export default function AvaliarPage() {
                             </select>
                           ) : (
                             <input
-                              value={answers[productIdx]?.fields?.[f.key] || ""}
-                              onChange={(e) => updateAnswer(productIdx, { fields: { ...answers[productIdx].fields, [f.key]: e.target.value } })}
+                              value={fieldValue(productIdx, f.key)}
+                              onChange={(e) => setField(productIdx, f.key, e.target.value)}
                               className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             />
                           )}
@@ -447,35 +464,37 @@ export default function AvaliarPage() {
                   </div>
                 )}
 
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-
-                {step === lastStep ? (
-                  <button
-                    type="button"
-                    onClick={() => submit()}
-                    disabled={submitting}
-                    className="w-full bg-neutral-900 text-white rounded-full py-3.5 font-semibold text-[15px] hover:bg-neutral-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                  >
-                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Enviar avaliação
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    className="w-full bg-neutral-900 text-white rounded-full py-3.5 font-semibold text-[15px] hover:bg-neutral-800 transition-colors"
-                  >
-                    Continuar
-                  </button>
-                )}
-                {products.length > 1 && step < lastStep && (
-                  <button type="button" onClick={skipProduct} className="w-full text-center text-[13px] text-neutral-400 hover:text-neutral-600">
-                    Pular este produto
-                  </button>
-                )}
-                {step === lastStep && (
-                  <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
-                )}
+                {/* Ação fixa no rodapé (mobile-first): sempre ao alcance do polegar. */}
+                <div className="sticky bottom-0 z-10 -mx-6 sm:mx-0 px-6 sm:px-0 pt-3 pb-4 sm:pb-0 bg-white border-t border-neutral-100 sm:border-0 space-y-2">
+                  {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+                  {step === lastStep ? (
+                    <button
+                      type="button"
+                      onClick={() => submit()}
+                      disabled={submitting}
+                      className="w-full bg-neutral-900 text-white rounded-full py-4 sm:py-3.5 font-semibold text-[15px] hover:bg-neutral-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                    >
+                      {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Enviar avaliação
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      className="w-full bg-neutral-900 text-white rounded-full py-4 sm:py-3.5 font-semibold text-[15px] hover:bg-neutral-800 transition-colors"
+                    >
+                      Continuar
+                    </button>
+                  )}
+                  {products.length > 1 && step < lastStep && (
+                    <button type="button" onClick={skipProduct} className="w-full text-center text-[13px] text-neutral-400 hover:text-neutral-600 py-1">
+                      Pular este produto
+                    </button>
+                  )}
+                  {step === lastStep && (
+                    <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -493,17 +512,19 @@ export default function AvaliarPage() {
                   placeholder="Como foi comprar com a gente? (opcional)"
                   className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[14px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                 />
-                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
-                <button
-                  type="button"
-                  onClick={submit}
-                  disabled={submitting}
-                  className="w-full bg-neutral-900 text-white rounded-full py-3.5 font-semibold text-[15px] hover:bg-neutral-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                >
-                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Enviar avaliação
-                </button>
-                <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
+                <div className="sticky bottom-0 z-10 -mx-6 sm:mx-0 px-6 sm:px-0 pt-3 pb-4 sm:pb-0 bg-white border-t border-neutral-100 sm:border-0 space-y-2">
+                  {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+                  <button
+                    type="button"
+                    onClick={submit}
+                    disabled={submitting}
+                    className="w-full bg-neutral-900 text-white rounded-full py-4 sm:py-3.5 font-semibold text-[15px] hover:bg-neutral-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Enviar avaliação
+                  </button>
+                  <p className="text-center text-xs text-neutral-400">Seu nome poderá aparecer publicamente. Seu contato não será publicado.</p>
+                </div>
               </div>
             )}
 
