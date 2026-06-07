@@ -184,6 +184,21 @@ export default function ReviewsPage() {
     loadStore();
   }
 
+  // Métricas
+  type Metrics = {
+    product: { total: number; published: number; pending: number; average: number; distribution: Record<string, number>; nps: { nps: number; promoters: number; passives: number; detractors: number }; by_source: Record<string, number> };
+    funnel: { created: number; contacted: number; completed: number; conversion_rate: number; by_status: Record<string, number> };
+    store: { total: number; published: number; average: number; nps: { nps: number } };
+    rewards: { granted_count: number; total_amount: number; ads_pending: number; ads_accepted: number };
+    media: { with_photo: number; with_video: number; pct_with_media: number };
+  };
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const loadMetrics = useCallback(async () => {
+    if (!workspace?.id) return;
+    const d = await fetch("/api/reviews/metrics", { headers: headers() }).then((r) => r.json());
+    if (!d.error) setMetrics(d);
+  }, [workspace?.id, headers]);
+
   const loadStats = useCallback(async () => {
     if (!workspace?.id) return;
     const s = await fetch("/api/reviews/stats", { headers: headers() }).then((r) => r.json());
@@ -227,11 +242,12 @@ export default function ReviewsPage() {
       loadStats();
       loadList();
       loadStore();
+      loadMetrics();
       loadConnection();
       loadSettings();
       loadKey();
     }
-  }, [workspace?.id, loadStats, loadList, loadStore, loadConnection, loadSettings, loadKey]);
+  }, [workspace?.id, loadStats, loadList, loadStore, loadMetrics, loadConnection, loadSettings, loadKey]);
 
   useEffect(() => {
     if (workspace?.id) loadList();
@@ -419,6 +435,7 @@ export default function ReviewsPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="metrics">Métricas</TabsTrigger>
           <TabsTrigger value="store">
             Avaliações da loja
             {storeSummary && storeSummary.published > 0 && (
@@ -568,6 +585,99 @@ export default function ReviewsPage() {
               </Card>
             ))}
           </div>
+        </TabsContent>
+
+        {/* ---------- Métricas ---------- */}
+        <TabsContent value="metrics" className="space-y-4">
+          {!metrics ? (
+            <Card><CardContent className="py-12 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></CardContent></Card>
+          ) : (
+            <>
+              {/* KPIs principais */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card><CardContent className="pt-6">
+                  <div className="text-3xl font-bold">{metrics.product.nps.nps}</div>
+                  <div className="text-xs text-muted-foreground mt-1">NPS (estimado pelas notas)</div>
+                </CardContent></Card>
+                <Card><CardContent className="pt-6">
+                  <div className="text-3xl font-bold flex items-center gap-2">{metrics.product.average.toFixed(1)}<Stars n={Math.round(metrics.product.average)} size={15} /></div>
+                  <div className="text-xs text-muted-foreground mt-1">Nota média (produto)</div>
+                </CardContent></Card>
+                <Card><CardContent className="pt-6">
+                  <div className="text-3xl font-bold">{metrics.funnel.conversion_rate}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Conversão da régua</div>
+                </CardContent></Card>
+                <Card><CardContent className="pt-6">
+                  <div className="text-3xl font-bold">{metrics.product.published}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Avaliações publicadas</div>
+                </CardContent></Card>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Distribuição de notas */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Distribuição de notas</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    {[5, 4, 3, 2, 1].map((star) => {
+                      const n = metrics.product.distribution[String(star)] || 0;
+                      const tot = Object.values(metrics.product.distribution).reduce((a, b) => a + b, 0) || 1;
+                      const pct = Math.round((n / tot) * 100);
+                      return (
+                        <div key={star} className="flex items-center gap-2 text-sm">
+                          <span className="w-3">{star}</span>
+                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${pct}%` }} /></div>
+                          <span className="w-12 text-right text-muted-foreground">{n} ({pct}%)</span>
+                        </div>
+                      );
+                    })}
+                    <div className="text-xs text-muted-foreground pt-1">
+                      Promotores {metrics.product.nps.promoters} · Neutros {metrics.product.nps.passives} · Detratores {metrics.product.nps.detractors}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Funil da régua */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Funil da régua</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Pedidos criados</span><b>{metrics.funnel.created}</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Contatados</span><b>{metrics.funnel.contacted}</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Avaliaram (concluídos)</span><b>{metrics.funnel.completed}</b></div>
+                    <div className="flex justify-between border-t pt-2"><span className="text-muted-foreground">Taxa de conversão</span><b className="text-green-600">{metrics.funnel.conversion_rate}%</b></div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 text-xs text-muted-foreground">
+                      {Object.entries(metrics.funnel.by_status).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Recompensas + mídia */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Recompensas & mídia</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cashback concedido</span><b>R$ {metrics.rewards.total_amount} ({metrics.rewards.granted_count})</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Avaliações com mídia</span><b>{metrics.media.pct_with_media}%</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Fotos / Vídeos</span><b>{metrics.media.with_photo} / {metrics.media.with_video}</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Vídeos p/ ADS (aguardando / aceitos)</span><b>{metrics.rewards.ads_pending} / {metrics.rewards.ads_accepted}</b></div>
+                  </CardContent>
+                </Card>
+
+                {/* Loja */}
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Avaliação da loja</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Nota média (loja)</span><b className="flex items-center gap-1">{metrics.store.average.toFixed(1)} <Stars n={Math.round(metrics.store.average)} size={13} /></b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">NPS da loja</span><b>{metrics.store.nps.nps}</b></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Avaliações da loja</span><b>{metrics.store.published} publicadas / {metrics.store.total}</b></div>
+                    <div className="flex flex-wrap gap-x-3 pt-2 text-xs text-muted-foreground">
+                      {Object.entries(metrics.product.by_source).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              <p className="text-xs text-muted-foreground">O NPS é estimado pelas notas (5★ = promotor, 4★ = neutro, ≤3★ = detrator), já que coletamos nota de 1 a 5.</p>
+            </>
+          )}
         </TabsContent>
 
         {/* ---------- Avaliações da loja ---------- */}
