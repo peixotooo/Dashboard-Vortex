@@ -253,7 +253,7 @@ export default function AvaliarPage() {
   ) : null;
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex items-start sm:items-center justify-center p-4 sm:py-12">
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 [color-scheme:light] flex items-start sm:items-center justify-center p-4 sm:py-12">
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-sm border border-neutral-100 p-6 sm:p-9">
         {isPreview && (
           <div className="mb-5 rounded-xl bg-neutral-900 text-white text-center text-[13px] font-medium px-4 py-2.5">
@@ -318,7 +318,7 @@ export default function AvaliarPage() {
                     onChange={(e) => setName(e.target.value)}
                     maxLength={120}
                     placeholder="Como quer aparecer"
-                    className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                    className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                   />
                 </div>
                 <button
@@ -352,7 +352,7 @@ export default function AvaliarPage() {
                     maxLength={4000}
                     rows={4}
                     placeholder="O que você gostou? Como serviu? Recomendaria?"
-                    className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                    className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                   />
                 </div>
 
@@ -369,7 +369,7 @@ export default function AvaliarPage() {
                             <select
                               value={answers[productIdx]?.fields?.[f.key] || ""}
                               onChange={(e) => updateAnswer(productIdx, { fields: { ...answers[productIdx].fields, [f.key]: e.target.value } })}
-                              className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-[14px] bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                              className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] bg-white focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             >
                               <option value="">—</option>
                               {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -378,7 +378,7 @@ export default function AvaliarPage() {
                             <input
                               value={answers[productIdx]?.fields?.[f.key] || ""}
                               onChange={(e) => updateAnswer(productIdx, { fields: { ...answers[productIdx].fields, [f.key]: e.target.value } })}
-                              className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                              className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             />
                           )}
                         </div>
@@ -491,7 +491,7 @@ export default function AvaliarPage() {
                   maxLength={2000}
                   rows={3}
                   placeholder="Como foi comprar com a gente? (opcional)"
-                  className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-[14px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                  className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[14px] resize-none focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                 />
                 {error && <p className="text-sm text-red-600 text-center">{error}</p>}
                 <button
