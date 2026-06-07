@@ -355,9 +355,10 @@ export default function AvaliarPage() {
                     className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                   />
                 </div>
+                {error && <p className="text-sm text-red-600 text-center">{error}</p>}
                 <button
                   type="button"
-                  onClick={() => setStep(1)}
+                  onClick={() => { if (!name.trim()) { setError("Preencha seu nome pra começar."); return; } setError(null); setStep(1); }}
                   className="w-full bg-neutral-900 text-white rounded-full py-4 sm:py-3.5 font-semibold text-[15px] hover:bg-neutral-800 transition-colors"
                 >
                   Começar
@@ -430,7 +431,7 @@ export default function AvaliarPage() {
                   <div>
                     <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Fotos do produto</label>
                     <div className="mb-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-neutral-700">
-                      📸 Capriche nas fotos. Mostre a peça vestida e os detalhes. Quanto mais foto, mais cashback e mais você ajuda quem vai comprar.
+                      📸 Capriche nas fotos. Mostre a peça vestida e os detalhes. Ajuda demais quem vai comprar{data?.rewards ? ", e avaliar com foto ainda rende cashback." : "."}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(answers[productIdx]?.media || []).map((m, mi) => (
