@@ -264,7 +264,12 @@ export async function dispatchDueRequests(
     const link = reviewLink(req.token);
     const product = req.product_name || "seu pedido";
     const nome = firstName(req.customer_name);
-    const body = fillTemplate(substance, { nome, produto: product, link });
+    let body = fillTemplate(substance, { nome, produto: product, link });
+    // Com recompensa ativa, a copy foca no benefício — mas SEM revelar o valor
+    // (surpresa, liberada só após a avaliação). Foca em enviar foto/vídeo.
+    if (settings.rewards_enabled) {
+      body += "\n\n🎁 E tem um cashback surpresa pra você ao avaliar com foto ou vídeo!";
+    }
     if (settings.request_channel === "whatsapp") {
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };

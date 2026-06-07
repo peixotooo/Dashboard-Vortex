@@ -28,7 +28,7 @@ export default function AvaliarPage() {
   const [data, setData] = useState<RequestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [done, setDone] = useState<null | { moderated: boolean }>(null);
+  const [done, setDone] = useState<null | { moderated: boolean; reward?: { amount: number; ads_bonus: number } | null }>(null);
 
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
@@ -100,7 +100,7 @@ export default function AvaliarPage() {
         body: JSON.stringify({ rating, title, body, author_name: name, media, ads_consent: adsConsent, store_rating: storeRating, store_comment: storeComment }),
       });
       const d = await res.json();
-      if (d.ok) setDone({ moderated: !!d.moderated });
+      if (d.ok) setDone({ moderated: !!d.moderated, reward: d.reward || null });
       else setError(d.error || "Não foi possível enviar.");
     } catch {
       setError("Erro de conexão.");
@@ -144,6 +144,15 @@ export default function AvaliarPage() {
                 ? "Sua avaliação foi enviada e será publicada após revisão."
                 : "Sua avaliação foi publicada. Você ajuda muita gente!"}
             </p>
+            {done.reward && (
+              <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-4">
+                <p className="text-lg font-bold text-amber-900">🎁 Você ganhou R$ {done.reward.amount} de cashback!</p>
+                <p className="text-[13px] text-amber-800 mt-0.5">
+                  Será creditado na sua carteira assim que sua avaliação for aprovada.
+                  {done.reward.ads_bonus > 0 ? ` E se aprovarmos seu vídeo para anúncios, você ganha +R$ ${done.reward.ads_bonus}!` : ""}
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -245,13 +254,11 @@ export default function AvaliarPage() {
                 />
               </div>
 
-              {/* Recompensas (gamificação) */}
+              {/* Recompensa surpresa (sem revelar o valor antes) */}
               {data?.rewards && (
-                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[13px] text-amber-900 space-y-0.5">
-                  <p className="font-semibold">Ganhe cashback pela sua avaliação 💛</p>
-                  <p>📸 Foto do unbox: <b>R$ {data.rewards.photo}</b></p>
-                  <p>🎥 Vídeo: <b>R$ {data.rewards.video}</b></p>
-                  <p>⭐ Vídeo aprovado para usarmos: <b>R$ {data.rewards.video_ads}</b></p>
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-[13px] text-amber-900">
+                  <p className="font-semibold">🎁 Tem um cashback surpresa pra você!</p>
+                  <p className="text-amber-800/90">Avalie com <b>foto</b> ou <b>vídeo</b> e descubra quanto você ganha — liberado assim que sua avaliação for confirmada.</p>
                 </div>
               )}
 
@@ -308,7 +315,7 @@ export default function AvaliarPage() {
                       />
                       <span>
                         Autorizo a marca a usar meu vídeo em anúncios e redes sociais.
-                        {data?.rewards ? ` Se aprovado, você ganha R$ ${data.rewards.video_ads} 🎁` : ""}
+                        {data?.rewards ? " Se aprovado, rola um bônus extra 🎁" : ""}
                       </span>
                     </label>
                   )}
