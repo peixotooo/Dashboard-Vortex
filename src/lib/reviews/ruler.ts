@@ -18,11 +18,13 @@ const COMMS_COOLDOWN_HOURS = 18;
 // Régua de comunicação pós-compra: a fila vive em `review_requests`.
 //
 //   enqueue  — lê compras confirmadas (crm_vendas, já alimentada pelo webhook
-//              VNDA) e cria 1 pedido de avaliação por compra (item principal),
-//              agendado pra data_compra + delay_days.
+//              VNDA) e cria 1 pedido de avaliação por COMPRA, carregando TODOS
+//              os produtos comprados (coluna products); agendado pra data_compra
+//              + delay_days. A landing vira um quiz: 1 etapa por produto + loja.
 //   dispatch — envia os pedidos vencidos (WhatsApp/email) e lembretes.
 //
-// Tudo idempotente via UNIQUE(workspace_id, order_id, product_id).
+// Idempotente via UNIQUE(workspace_id, order_id, product_id) — product_id = item
+// principal do pedido, então fica 1 linha por pedido.
 
 function baseUrl(): string {
   // Domínio próprio das avaliações (review.bulking.com.br). Configurável por
@@ -109,10 +111,17 @@ export async function enqueueReviewRequests(
     if (settings.request_channel === "whatsapp" && !phone) { result.skipped++; continue; }
     if (settings.request_channel === "email" && !o.email) { result.skipped++; continue; }
 
-    const item = mainItem(o.items);
-    if (!item) { result.skipped++; continue; }
-    const productId = item.reference || item.sku || null;
-    if (!productId) { result.skipped++; continue; }
+    // Todos os produtos comprados (dedup por id) — cada um vira uma etapa do quiz.
+    const orderItems = (o.items || []).filter((it) => it.reference || it.sku);
+    if (orderItems.length === 0) { result.skipped++; continue; }
+    const seenPid = new Set<string>();
+    const uniqueItems: { pid: string; item: CrmItem }[] = [];
+    for (const it of orderItems) {
+      const pid = String(it.reference || it.sku);
+      if (seenPid.has(pid)) continue;
+      seenPid.add(pid);
+      uniqueItems.push({ pid, item: it });
+    }
 
     // Agenda a 1ª checagem pra data_compra + delay (mínimo de dias após compra).
     // Com gate de faturamento ligado, o disparo real é controlado no dispatch
@@ -122,22 +131,31 @@ export async function enqueueReviewRequests(
     const scheduledFor = purchased + settings.request_delay_days * 86400_000;
     if (!settings.request_require_invoice && scheduledFor < now - 5 * 86400_000) { result.skipped++; continue; }
 
-    // Enriquecer produto via shelf_products.
-    let productName = item.name || null;
-    let productImage: string | null = null;
-    let productUrl: string | null = null;
-    const { data: prod } = await admin
-      .from("shelf_products")
-      .select("product_id, name, image_url, product_url")
-      .eq("workspace_id", workspaceId)
-      .or(`product_id.eq.${productId},sku.eq.${item.sku || productId}`)
-      .limit(1)
-      .maybeSingle();
-    if (prod) {
-      productName = prod.name || productName;
-      productImage = prod.image_url || null;
-      productUrl = prod.product_url || null;
+    // Enriquecer TODOS os produtos via shelf_products (1 query por pedido).
+    const safeIds = uniqueItems.map((u) => u.pid).filter((id) => /^[\w.-]+$/.test(id));
+    const catalog = new Map<string, { name: string | null; image: string | null; url: string | null }>();
+    if (safeIds.length) {
+      const { data: prods } = await admin
+        .from("shelf_products")
+        .select("product_id, name, image_url, product_url, sku")
+        .eq("workspace_id", workspaceId)
+        .or(`product_id.in.(${safeIds.join(",")}),sku.in.(${safeIds.join(",")})`);
+      for (const p of prods || []) {
+        const entry = { name: (p.name as string) || null, image: (p.image_url as string) || null, url: (p.product_url as string) || null };
+        catalog.set(String(p.product_id), entry);
+        if (p.sku) catalog.set(String(p.sku), entry);
+      }
     }
+
+    const products = uniqueItems.map((u) => {
+      const c = catalog.get(u.pid);
+      return { product_id: u.pid, name: c?.name || u.item.name || null, image: c?.image || null, url: c?.url || null };
+    });
+
+    // Item principal (maior valor) = produto "primário" pra mensagem e colunas.
+    const main = mainItem(o.items);
+    const mainPid = main ? String(main.reference || main.sku || "") : products[0].product_id;
+    const primary = products.find((p) => p.product_id === mainPid) || products[0];
 
     toInsert.push({
       workspace_id: workspaceId,
@@ -146,10 +164,11 @@ export async function enqueueReviewRequests(
       customer_name: o.cliente,
       customer_email: o.email,
       customer_phone: phone,
-      product_id: String(productId),
-      product_name: productName,
-      product_image: productImage,
-      product_url: productUrl,
+      product_id: String(primary.product_id),
+      product_name: primary.name,
+      product_image: primary.image,
+      product_url: primary.url,
+      products,
       channel: settings.request_channel,
       scheduled_for: new Date(scheduledFor).toISOString(),
       status: "pending",
