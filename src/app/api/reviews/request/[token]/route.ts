@@ -42,6 +42,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
       ask_media: settings.request_ask_media,
       ads_enabled: settings.ads_enabled,
       collect_store_review: settings.collect_store_review,
+      form_fields: settings.form_fields,
       accent_color: settings.accent_color,
       star_color: settings.star_color,
       rewards: settings.rewards_enabled
@@ -98,6 +99,19 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   const adsConsent = mediaKind === "video" && body.ads_consent === true && settings.ads_enabled;
   const adsStatus = adsConsent ? "pending" : "none";
 
+  // Campos estruturados (tamanho, caimento, tipo de corpo, etc.) — [{name, values}].
+  const customFields = Array.isArray(body.custom_fields)
+    ? (body.custom_fields as unknown[])
+        .map((f) => {
+          const it = f as { name?: unknown; values?: unknown };
+          const name = typeof it?.name === "string" ? it.name.slice(0, 60) : "";
+          const values = Array.isArray(it?.values) ? (it.values as unknown[]).filter((v) => typeof v === "string").map((v) => (v as string).slice(0, 80)) : [];
+          return name && values.length ? { name, values } : null;
+        })
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+
   const { data: review, error } = await admin
     .from("reviews")
     .insert({
@@ -113,6 +127,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
       author_name: typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name,
       author_email: req.customer_email, // necessário pra creditar a recompensa
       verified_buyer: true, // veio de uma compra real (régua)
+      custom_fields: customFields,
       media,
       media_kind: mediaKind,
       ads_consent: adsConsent,
