@@ -756,7 +756,7 @@ export default function ReviewsPage() {
                       <div>
                         <Label>Template WhatsApp (categoria UTILITY)</Label>
                         <p className="text-xs text-muted-foreground">
-                          Cria um template aprovado pela Meta (categoria <strong>utilidade</strong>, ~10x mais barato e compliant pra iniciar conversa). Enquanto não aprovar, a régua usa o WhatsApp legado.
+                          O WhatsApp da régua é enviado <strong>sempre pela API oficial (Meta)</strong> com este template de utilidade. Enquanto a Meta não aprovar, a régua <strong>aguarda</strong> (não dispara por outro canal).
                         </p>
                       </div>
                       <div className="shrink-0 text-right">

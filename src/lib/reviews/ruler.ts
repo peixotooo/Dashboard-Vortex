@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReviewSettings, type ReviewSettings } from "@/lib/reviews/settings";
-import { getWapiConfig, sendText } from "@/lib/wapi-api";
 import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
@@ -226,11 +225,11 @@ export async function dispatchDueRequests(
     "Última chamada! 🙏 Conta o que você achou da {produto} e ajude outros clientes: {link}";
 
   // Carrega config do canal uma vez.
-  const wapi = settings.request_channel === "whatsapp" ? await getWapiConfig(workspaceId) : null;
   const smtp = settings.request_channel === "email" ? await getSmtpConfig(workspaceId, admin) : null;
 
-  // Template WhatsApp UTILITY (Meta Cloud API) — preferido pra iniciar conversa
-  // de forma compliant/barata. Se não houver template aprovado, cai pro W-API.
+  // WhatsApp SEMPRE via API oficial (Meta Cloud API) com template aprovado —
+  // nunca W-API. Se o template ainda não estiver aprovado, a régua AGUARDA
+  // (não dispara por outro canal).
   let waConfig: Awaited<ReturnType<typeof getWaConfig>> = null;
   let waTemplate: { name: string; language: string } | null = null;
   if (settings.request_channel === "whatsapp" && settings.wa_template_id) {
@@ -243,6 +242,12 @@ export async function dispatchDueRequests(
         .maybeSingle();
       if (tpl && tpl.status === "APPROVED") waTemplate = { name: tpl.name as string, language: (tpl.language as string) || "pt_BR" };
     }
+  }
+
+  // Sem template Meta aprovado, não enviamos por WhatsApp (e jamais por W-API):
+  // espera a aprovação. Os pedidos seguem pendentes e são repescados no próximo tick.
+  if (settings.request_channel === "whatsapp" && !(waTemplate && waConfig)) {
+    return result;
   }
 
   async function deliver(
@@ -263,17 +268,10 @@ export async function dispatchDueRequests(
     if (settings.request_channel === "whatsapp") {
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };
-
-      // Preferência: template UTILITY aprovado (Meta Cloud API). O body do
-      // template já tem "Olá {{1}}, tudo bem?" — então {{1}}=nome, {{2}}=conteúdo+link.
-      if (waTemplate && waConfig) {
-        const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": nome, "2": body });
-        return r.error ? { ok: false, error: r.error } : { ok: true };
-      }
-
-      // Fallback: W-API (texto livre) — adiciona a saudação que o template já teria.
-      if (!wapi) return { ok: false, error: "WhatsApp não configurado" };
-      const r = await sendText(wapi, phone, `Oi ${nome}, tudo bem? ${body}`);
+      if (!waTemplate || !waConfig) return { ok: false, error: "Template Meta não aprovado" };
+      // API oficial (Meta). O body do template tem "Olá {{1}}, tudo bem?" —
+      // {{1}}=nome, {{2}}=conteúdo+link.
+      const r = await sendTemplateMessage(waConfig, phone, waTemplate.name, waTemplate.language, { "1": nome, "2": body });
       return r.error ? { ok: false, error: r.error } : { ok: true };
     } else {
       if (!smtp) return { ok: false, error: "SMTP não configurado" };
