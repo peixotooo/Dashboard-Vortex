@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { grantReviewReward, grantAdsBonus } from "@/lib/reviews/rewards";
+import { grantReviewReward } from "@/lib/reviews/rewards";
 
 const ALLOWED_STATUS = ["published", "pending", "rejected", "hidden"];
 const ALLOWED_ADS = ["none", "pending", "accepted", "rejected"];
@@ -54,13 +54,11 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     // Gamificação (best-effort, não bloqueia a resposta de moderação):
-    // - ao PUBLICAR pela 1ª vez → concede recompensa de foto/vídeo.
-    // - ao ACEITAR o vídeo p/ ADS → concede o bônus de ADS.
+    // ao PUBLICAR pela 1ª vez, concede UM único cashback conforme a mídia e a
+    // decisão de ADS (ads_status), que o admin define no mesmo "aprovar".
+    // foto → valor de foto; vídeo → valor de vídeo; vídeo aceito p/ ADS → valor de ADS.
     if (body.status === "published" && prev?.status !== "published") {
       grantReviewReward(workspaceId, id).catch(() => {});
-    }
-    if (body.ads_status === "accepted" && prev?.ads_status !== "accepted") {
-      grantAdsBonus(workspaceId, id).catch(() => {});
     }
 
     return NextResponse.json({ review: data });
