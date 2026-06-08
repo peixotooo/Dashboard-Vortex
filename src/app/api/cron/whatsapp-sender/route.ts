@@ -9,9 +9,58 @@ const BATCH_SIZE = 200;
 const PARALLEL = 10;  // micro-batch size for Meta API calls
 const DELAY_MS = 50;  // between micro-batches (~20 msgs/sec per parallel slot)
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MANUAL_CAMPAIGN_LIMIT = 3;
+const AUTOMATION_CAMPAIGN_LIMIT = 50;
+const DUE_CAMPAIGN_FILTER =
+  "status.eq.queued,status.eq.sending,and(status.eq.scheduled,scheduled_at.lte.now())";
+const DUE_CAMPAIGN_SELECT =
+  "id, workspace_id, template_id, variable_values, status, scheduled_at, kind";
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+type DueCampaign = {
+  id: string;
+  workspace_id: string;
+  template_id: string | null;
+  variable_values: Record<string, string> | null;
+  status: string;
+  scheduled_at: string | null;
+  kind?: string | null;
+};
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchDueCampaigns(admin: AdminClient): Promise<DueCampaign[]> {
+  const [manual, automations] = await Promise.all([
+    admin
+      .from("wa_campaigns")
+      .select(DUE_CAMPAIGN_SELECT)
+      .eq("kind", "campaign")
+      .or(DUE_CAMPAIGN_FILTER)
+      .order("scheduled_at", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true })
+      .limit(MANUAL_CAMPAIGN_LIMIT),
+    admin
+      .from("wa_campaigns")
+      .select(DUE_CAMPAIGN_SELECT)
+      .in("kind", ["cart_recovery", "gift_request"])
+      .or(DUE_CAMPAIGN_FILTER)
+      .order("created_at", { ascending: true })
+      .limit(AUTOMATION_CAMPAIGN_LIMIT),
+  ]);
+
+  if (manual.error) throw manual.error;
+  if (automations.error) throw automations.error;
+
+  const seen = new Set<string>();
+  const rows: DueCampaign[] = [];
+  for (const campaign of [...(manual.data || []), ...(automations.data || [])] as DueCampaign[]) {
+    if (seen.has(campaign.id)) continue;
+    seen.add(campaign.id);
+    rows.push(campaign);
+  }
+  return rows;
 }
 
 function nextBusinessSendAt(hour: number) {
@@ -114,18 +163,17 @@ export async function GET(request: NextRequest) {
   try {
     await releaseApprovedPendingTemplates(admin);
 
-    // Find active campaigns (queued, sending, or scheduled and due)
-    const { data: campaigns } = await admin
-      .from("wa_campaigns")
-      .select("id, workspace_id, template_id, variable_values, status, scheduled_at")
-      .or("status.eq.queued,status.eq.sending,and(status.eq.scheduled,scheduled_at.lte.now())")
-      .limit(5);
+    // Find active campaigns (queued, sending, or scheduled and due).
+    // Manual campaigns get priority so high-volume commercial sends are not
+    // starved by thousands of one-message automation campaigns.
+    const campaigns = await fetchDueCampaigns(admin);
 
     if (!campaigns || campaigns.length === 0) {
       return NextResponse.json({ processed: 0, message: "No active campaigns" });
     }
 
     let totalProcessed = 0;
+    const recheckCache = new Map<string, Awaited<ReturnType<typeof recheckTemplateOnMeta>>>();
 
     for (const campaign of campaigns) {
       // Mark as sending (from queued or scheduled)
@@ -134,6 +182,15 @@ export async function GET(request: NextRequest) {
           .from("wa_campaigns")
           .update({ status: "sending", started_at: new Date().toISOString() })
           .eq("id", campaign.id);
+      }
+
+      if (!campaign.template_id) {
+        console.error(`[WA Sender] Campaign ${campaign.id} has no template_id`);
+        await admin
+          .from("wa_campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id);
+        continue;
       }
 
       // Get WA config for this workspace
@@ -166,7 +223,12 @@ export async function GET(request: NextRequest) {
       // Re-verify template category against Meta — Meta can reclassify
       // UTILITY/AUTHENTICATION templates as MARKETING (much higher per-msg cost).
       // We do this once per campaign per cron run to avoid hammering the API.
-      const recheck = await recheckTemplateOnMeta(campaign.workspace_id, campaign.template_id);
+      const recheckKey = `${campaign.workspace_id}:${campaign.template_id}`;
+      let recheck = recheckCache.get(recheckKey);
+      if (!recheck) {
+        recheck = await recheckTemplateOnMeta(campaign.workspace_id, campaign.template_id);
+        recheckCache.set(recheckKey, recheck);
+      }
       if (recheck.changed) {
         console.warn(
           `[WA Sender] Template category drift on "${template.name}": ${recheck.previousCategory} → ${recheck.currentCategory} (status: ${recheck.previousStatus} → ${recheck.currentStatus})`
@@ -207,13 +269,13 @@ export async function GET(request: NextRequest) {
 
       if (!messages || messages.length === 0) {
         // No more queued messages - check if campaign is done
-        const { data: remaining } = await admin
+        const { count: remainingQueued } = await admin
           .from("wa_messages")
           .select("id", { count: "exact", head: true })
           .eq("campaign_id", campaign.id)
           .eq("status", "queued");
 
-        if (!remaining || (remaining as unknown[]).length === 0) {
+        if ((remainingQueued ?? 0) === 0) {
           await admin
             .from("wa_campaigns")
             .update({ status: "completed", completed_at: new Date().toISOString() })

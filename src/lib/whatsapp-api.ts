@@ -43,6 +43,13 @@ export interface WaSendResult {
   error: string | null;
 }
 
+export function sanitizeTemplateTextParam(value: string): string {
+  return String(value ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {5,}/g, "    ")
+    .trim();
+}
+
 // --- Config helpers ---
 
 export async function getWaConfig(workspaceId: string): Promise<WaConfig | null> {
@@ -264,7 +271,7 @@ export async function sendTemplateMessage(
                 type: "body",
                 parameters: Object.values(variables).map((val) => ({
                   type: "text",
-                  text: val,
+                  text: sanitizeTemplateTextParam(val),
                 })),
               },
             ],
