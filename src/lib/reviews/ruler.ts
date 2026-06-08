@@ -106,6 +106,70 @@ async function loadRecentCrmOrders(admin: SupabaseClient, workspaceId: string, c
   return rows;
 }
 
+async function loadExistingReviewOrderIds(
+  admin: SupabaseClient,
+  workspaceId: string,
+  orderIds: string[]
+): Promise<Set<string>> {
+  const existing = new Set<string>();
+  const uniqueOrderIds = Array.from(new Set(orderIds.filter(Boolean).map(String)));
+
+  for (let i = 0; i < uniqueOrderIds.length; i += 500) {
+    const chunk = uniqueOrderIds.slice(i, i + 500);
+    const { data, error } = await admin
+      .from("review_requests")
+      .select("order_id")
+      .eq("workspace_id", workspaceId)
+      .in("order_id", chunk);
+
+    if (error) throw new Error(error.message);
+    for (const row of data || []) {
+      if (row.order_id) existing.add(String(row.order_id));
+    }
+  }
+
+  return existing;
+}
+
+interface CatalogEntry {
+  product_id: string;
+  name: string | null;
+  image: string | null;
+  url: string | null;
+}
+
+async function loadCatalogEntries(
+  admin: SupabaseClient,
+  workspaceId: string,
+  productIds: string[]
+): Promise<Map<string, CatalogEntry>> {
+  const catalog = new Map<string, CatalogEntry>();
+  const uniqueIds = Array.from(new Set(productIds.filter((id) => /^[\w.-]+$/.test(id))));
+
+  for (let i = 0; i < uniqueIds.length; i += 200) {
+    const chunk = uniqueIds.slice(i, i + 200);
+    const { data, error } = await admin
+      .from("shelf_products")
+      .select("product_id, name, image_url, product_url, sku")
+      .eq("workspace_id", workspaceId)
+      .or(`product_id.in.(${chunk.join(",")}),sku.in.(${chunk.join(",")})`);
+
+    if (error) throw new Error(error.message);
+    for (const p of data || []) {
+      const entry = {
+        product_id: String(p.product_id),
+        name: (p.name as string) || null,
+        image: (p.image_url as string) || null,
+        url: (p.product_url as string) || null,
+      };
+      catalog.set(String(p.product_id), entry);
+      if (p.sku) catalog.set(String(p.sku), entry);
+    }
+  }
+
+  return catalog;
+}
+
 // Escolhe o item "principal" do pedido (maior valor) pra não spammar 1 msg/produto.
 function mainItem(items: CrmItem[] | null): CrmItem | null {
   if (!items || items.length === 0) return null;
@@ -138,10 +202,24 @@ export async function enqueueReviewRequests(
   const rows = await loadRecentCrmOrders(admin, workspaceId, cutoffMs);
   result.scanned = rows.length;
 
+  const existingOrderIds = await loadExistingReviewOrderIds(
+    admin,
+    workspaceId,
+    rows.map((row) => row.source_order_id).filter(Boolean) as string[]
+  );
+
+  const candidates: {
+    order: CrmRow;
+    uniqueItems: { pid: string; item: CrmItem }[];
+    primaryPid: string;
+    scheduledFor: number;
+  }[] = [];
+  const catalogIds = new Set<string>();
   const toInsert: Record<string, unknown>[] = [];
   for (const o of rows) {
     const orderId = o.source_order_id;
     if (!orderId) { result.skipped++; continue; }
+    if (existingOrderIds.has(String(orderId))) { result.skipped++; continue; }
 
     // Contato necessário conforme o canal.
     const phone = normalizeBrazilianWhatsAppPhone(o.telefone);
@@ -168,51 +246,40 @@ export async function enqueueReviewRequests(
     const scheduledFor = purchased + settings.request_delay_days * 86400_000;
     if (!settings.request_require_invoice && scheduledFor < now - 5 * 86400_000) { result.skipped++; continue; }
 
-    // Enriquecer TODOS os produtos via shelf_products (1 query por pedido).
     const safeIds = uniqueItems.map((u) => u.pid).filter((id) => /^[\w.-]+$/.test(id));
-    const catalog = new Map<string, { product_id: string; name: string | null; image: string | null; url: string | null }>();
-    if (safeIds.length) {
-      const { data: prods } = await admin
-        .from("shelf_products")
-        .select("product_id, name, image_url, product_url, sku")
-        .eq("workspace_id", workspaceId)
-        .or(`product_id.in.(${safeIds.join(",")}),sku.in.(${safeIds.join(",")})`);
-      for (const p of prods || []) {
-        const entry = {
-          product_id: String(p.product_id),
-          name: (p.name as string) || null,
-          image: (p.image_url as string) || null,
-          url: (p.product_url as string) || null,
-        };
-        catalog.set(String(p.product_id), entry);
-        if (p.sku) catalog.set(String(p.sku), entry);
-      }
-    }
+    for (const id of safeIds) catalogIds.add(id);
 
-    const products = uniqueItems.map((u) => {
+    const main = mainItem(o.items);
+    const primaryPid = main ? String(main.reference || main.sku || "") : uniqueItems[0].pid;
+    candidates.push({ order: o, uniqueItems, primaryPid, scheduledFor });
+  }
+
+  const catalog = await loadCatalogEntries(admin, workspaceId, Array.from(catalogIds));
+
+  for (const candidate of candidates) {
+    const products = candidate.uniqueItems.map((u) => {
       const c = catalog.get(u.pid);
       return { product_id: c?.product_id || u.pid, name: c?.name || u.item.name || null, image: c?.image || null, url: c?.url || null };
     });
 
     // Item principal (maior valor) = produto "primário" pra mensagem e colunas.
-    const main = mainItem(o.items);
-    const mainPid = main ? String(main.reference || main.sku || "") : products[0].product_id;
-    const primary = products.find((p) => p.product_id === mainPid) || products[0];
+    const primaryCatalogId = catalog.get(candidate.primaryPid)?.product_id || candidate.primaryPid;
+    const primary = products.find((p) => p.product_id === primaryCatalogId) || products[0];
 
     toInsert.push({
       workspace_id: workspaceId,
-      order_id: orderId,
-      order_code: o.numero_pedido,
-      customer_name: o.cliente,
-      customer_email: o.email,
-      customer_phone: phone,
+      order_id: candidate.order.source_order_id,
+      order_code: candidate.order.numero_pedido,
+      customer_name: candidate.order.cliente,
+      customer_email: candidate.order.email,
+      customer_phone: normalizeBrazilianWhatsAppPhone(candidate.order.telefone),
       product_id: String(primary.product_id),
       product_name: primary.name,
       product_image: primary.image,
       product_url: primary.url,
       products,
       channel: settings.request_channel,
-      scheduled_for: new Date(scheduledFor).toISOString(),
+      scheduled_for: new Date(candidate.scheduledFor).toISOString(),
       status: "pending",
       token: randomUUID(),
     });

@@ -50,6 +50,7 @@ const SEND_RETRY_ATTEMPTS = numberEnv("WA_WORKER_SEND_RETRY_ATTEMPTS", 3);
 const STALE_SENDING_MINUTES = numberEnv("WA_WORKER_STALE_SENDING_MINUTES", 120);
 const STALE_SENDING_MS = STALE_SENDING_MINUTES * 60 * 1000;
 const RETRY_BASE_DELAY_MS = numberEnv("WA_WORKER_RETRY_BASE_DELAY_MS", 1500);
+const JOB_TIMEOUT_MS = numberEnv("WA_WORKER_JOB_TIMEOUT_MS", 10 * 60 * 1000);
 const MAINTENANCE_JOBS_ENABLED = env("WA_WORKER_MAINTENANCE_JOBS", "true") !== "false";
 const ENABLED_KINDS = new Set(
   env("WA_WORKER_KINDS", DEFAULT_KINDS.join(","))
@@ -510,10 +511,13 @@ async function triggerMaintenanceJob(job) {
 
   job.running = true;
   const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
 
   try {
     const res = await fetch(`${CRON_BASE_URL}${job.path}`, {
       headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      signal: controller.signal,
     });
     const text = await res.text().catch(() => "");
     let body = text;
@@ -528,12 +532,19 @@ async function triggerMaintenanceJob(job) {
       body: compactLogBody(body),
     });
   } catch (error) {
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? `timeout_after_${JOB_TIMEOUT_MS}ms`
+        : error instanceof Error
+          ? error.message
+          : String(error);
     log("maintenance job failed", {
       name: job.name,
       durationMs: Date.now() - startedAt,
-      message: error instanceof Error ? error.message : String(error),
+      message,
     });
   } finally {
+    globalThis.clearTimeout(timeout);
     job.running = false;
   }
 }
@@ -982,6 +993,7 @@ async function main() {
     parallel: PARALLEL,
     sendRetryAttempts: SEND_RETRY_ATTEMPTS,
     staleSendingMinutes: STALE_SENDING_MINUTES,
+    jobTimeoutMs: JOB_TIMEOUT_MS,
     maintenanceJobs: MAINTENANCE_JOBS_ENABLED && Boolean(CRON_BASE_URL && CRON_SECRET),
     maintenanceJobCount: maintenanceJobs.length,
   });
