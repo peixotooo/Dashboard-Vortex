@@ -147,6 +147,27 @@ const maintenanceJobs = [
     running: false,
   },
   {
+    name: "coupon-jobs",
+    path: "/api/cron/coupon-jobs",
+    intervalMs: numberEnv("WA_WORKER_COUPON_JOBS_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "coupon-refresh",
+    path: "/api/cron/coupon-refresh",
+    intervalMs: numberEnv("WA_WORKER_COUPON_REFRESH_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    nextRunAt: nextUtcDailyRun(9),
+    running: false,
+  },
+  {
+    name: "coupon-attribution",
+    path: "/api/cron/coupon-attribution",
+    intervalMs: numberEnv("WA_WORKER_COUPON_ATTRIBUTION_INTERVAL_MS", 6 * 60 * 60 * 1000),
+    nextRunAt: nextUtcEveryHoursRun(6),
+    running: false,
+  },
+  {
     name: "email-templates-refresh",
     path: "/api/cron/email-templates-refresh",
     intervalMs: numberEnv("WA_WORKER_EMAIL_REFRESH_INTERVAL_MS", 24 * 60 * 60 * 1000),

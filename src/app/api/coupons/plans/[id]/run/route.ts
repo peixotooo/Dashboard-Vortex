@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { proposeNewCoupons, autoApprovePendingForAutoPlans } from "@/lib/coupons/orchestrator";
+import { enqueueCouponPlanRunJob } from "@/lib/coupons/jobs";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -16,11 +16,10 @@ function createSupabase(request: NextRequest) {
   );
 }
 
-// POST /api/coupons/plans/[id]/run — runs the orchestrator immediately for
-// THIS plan only. Useful when you don't want to wait for the daily cron.
-// Respects the plan's require_manual_approval flag — pending rows still need
-// approval from the painel unless the plan is on auto-approve.
-export const maxDuration = 300;
+// POST /api/coupons/plans/[id]/run — queues the orchestrator for THIS plan.
+// The dedicated worker processes the job so coupon/VNDA mass actions never run
+// in the user request.
+export const maxDuration = 30;
 
 export async function POST(
   request: NextRequest,
@@ -53,25 +52,22 @@ export async function POST(
   if (!plan.enabled) return NextResponse.json({ error: "Plano desabilitado" }, { status: 400 });
 
   try {
-    const t0 = Date.now();
-    const results = await proposeNewCoupons(workspaceId, {
-      onlyPlanIds: [id],
+    const queued = await enqueueCouponPlanRunJob({
+      admin,
+      workspaceId,
+      planId: id,
+      requestedBy: user.id,
       ...(hasPlaybookContext ? { playbookContext } : {}),
     });
-    const proposed = results.reduce((s, r) => s + r.inserted, 0);
-    let autoApproved = 0;
-    // If the plan has auto-approve, run it now so user sees them as 'active'
-    if (!plan.require_manual_approval) {
-      autoApproved = await autoApprovePendingForAutoPlans(workspaceId);
-    }
     return NextResponse.json({
       ok: true,
+      queued: true,
+      job_id: queued.jobId,
+      job_status: queued.status,
+      already_queued: queued.alreadyQueued,
       plan_name: plan.name,
-      proposed,
-      auto_approved: autoApproved,
       require_manual_approval: plan.require_manual_approval,
       playbook_run_id: playbookContext.playbook_run_id,
-      elapsed_ms: Date.now() - t0,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

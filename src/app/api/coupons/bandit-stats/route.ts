@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getBanditStats, recomputeBanditStats } from "@/lib/coupons/bandit";
+import { getBanditStats } from "@/lib/coupons/bandit";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -33,6 +33,9 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const workspaceId = request.headers.get("x-workspace-id") || "";
   if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-  const stats = await recomputeBanditStats(workspaceId);
-  return NextResponse.json({ stats });
+  return NextResponse.json({
+    queued: true,
+    message:
+      "A recomputação do bandit roda pelo worker no ciclo de atribuição de cupons.",
+  });
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const apiRoot = path.join(root, "src/app/api");
+const vercelConfigPath = path.join(root, "vercel.json");
 
 function walk(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -74,6 +75,19 @@ const rules = [
     pattern: /\bsendTemplateMessage\s*\(/,
     allowed: [],
   },
+  {
+    name: "coupon lifecycle mass action",
+    pattern: /\b(proposeNewCoupons|autoApprovePendingForAutoPlans|expireOldCoupons|cancelStalePending)\s*\(/,
+    allowed: [
+      /^src\/app\/api\/cron\/coupon-refresh\/route\.ts$/,
+      /^src\/app\/api\/cron\/coupon-jobs\/route\.ts$/,
+    ],
+  },
+  {
+    name: "coupon attribution mass action",
+    pattern: /\b(syncAttributionForWorkspace|recomputeBanditStats)\s*\(/,
+    allowed: [/^src\/app\/api\/cron\/coupon-attribution\/route\.ts$/],
+  },
 ];
 
 const violations = [];
@@ -101,6 +115,37 @@ if (violations.length > 0) {
     console.error(`- ${violation}`);
   }
   process.exit(1);
+}
+
+if (fs.existsSync(vercelConfigPath)) {
+  const config = JSON.parse(fs.readFileSync(vercelConfigPath, "utf8"));
+  const workerOnlyCrons = new Set([
+    "/api/cron/cart-recovery",
+    "/api/cron/cart-recovery-import",
+    "/api/cron/cashback-tick",
+    "/api/cron/coupon-attribution",
+    "/api/cron/coupon-jobs",
+    "/api/cron/coupon-refresh",
+    "/api/cron/email-templates-refresh",
+    "/api/cron/email-templates-safety-net",
+    "/api/cron/email-templates-stats-sync",
+    "/api/cron/gift-request-conversions",
+    "/api/cron/iporto-dispatcher",
+    "/api/cron/iporto-dispatcher-2",
+    "/api/cron/iporto-dispatcher-3",
+    "/api/cron/review-requests",
+    "/api/cron/wapi-group-sender",
+    "/api/cron/whatsapp-sender",
+  ]);
+  const scheduled = Array.isArray(config.crons) ? config.crons : [];
+  const badCrons = scheduled
+    .map((cron) => cron?.path)
+    .filter((cronPath) => workerOnlyCrons.has(cronPath));
+  if (badCrons.length > 0) {
+    console.error("Worker-only crons must not be scheduled in vercel.json.");
+    for (const cronPath of badCrons) console.error(`- ${cronPath}`);
+    process.exit(1);
+  }
 }
 
 console.log("Worker-only mass action guard passed.");

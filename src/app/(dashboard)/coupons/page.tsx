@@ -247,6 +247,7 @@ export default function CouponsPage() {
       });
       const data = await res.json();
       if (data.error) setError(data.error);
+      else if (data.queued) setSuccessMsg(data.message || "Recalculo enfileirado no worker.");
       else setBanditStats(data.stats);
     } catch (e) {
       setError(e instanceof Error ? e.message : "erro");
@@ -423,6 +424,18 @@ export default function CouponsPage() {
       if (data.error) {
         setError(data.error);
       } else {
+        if (data.queued) {
+          const runSuffix = data.playbook_run_id ? ` Run ${String(data.playbook_run_id).slice(0, 8)} vinculado.` : "";
+          const prefix = data.already_queued
+            ? `O plano "${data.plan_name}" ja estava na fila.`
+            : `Plano "${data.plan_name}" enfileirado para o worker.`;
+          setTab("plans");
+          setError(null);
+          setSuccessMsg(`${prefix} Os cupons serao gerados em instantes.${runSuffix}`);
+          setCreatedPlaybookPlan((prev) => (prev?.planId === id ? null : prev));
+          await reload();
+          return;
+        }
         const runSuffix = data.playbook_run_id ? ` Run ${String(data.playbook_run_id).slice(0, 8)} vinculado.` : "";
         const msg = data.proposed === 0
           ? `Plano "${data.plan_name}" rodou, mas nao encontrou produtos elegiveis agora.`

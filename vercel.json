@@ -29,14 +29,6 @@
       "schedule": "0 6,18 * * *"
     },
     {
-      "path": "/api/cron/coupon-refresh",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/coupon-attribution",
-      "schedule": "0 */6 * * *"
-    },
-    {
       "path": "/api/cron/pricing-engine",
       "schedule": "0 5 * * *"
     },
