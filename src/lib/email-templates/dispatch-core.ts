@@ -1,17 +1,16 @@
 // src/lib/email-templates/dispatch-core.ts
 //
-// Função compartilhada que executa o disparo de um draft. Ramifica
-// pelo provider configurado no workspace (locaweb ou iporto).
+// Função compartilhada que enfileira o disparo de um draft. Disparo em massa
+// deve passar pelo provider iPORTO, processado pelo worker do Droplet.
 // Usada por:
 //   - POST /api/crm/email-templates/drafts/[id]/dispatch  (envio direto)
 //   - POST /api/crm/email-templates/drafts/[id]/approve    (envio após aprovação)
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getReadyCreds } from "@/lib/locaweb/settings";
-import { createMessage } from "@/lib/locaweb/email-marketing";
 import { getAudienceByLocawebListId } from "@/lib/email-templates/audiences";
 import { getIportoReadyCreds } from "@/lib/iporto/settings";
 import { getActiveProvider, getWorkspaceHomeUrl } from "@/lib/email-providers";
+import { massActionWorkerOnlyPayload } from "@/lib/mass-actions/policy";
 import { renderDraft } from "@/lib/email-templates/editor/render";
 import { renderTreeDraft } from "@/lib/email-templates/tree/render";
 import {
@@ -32,10 +31,9 @@ export interface DispatchRecipient {
 }
 
 export interface DispatchPayload {
-  /** Usado pelo provider Locaweb (fan-out lado-deles via list_ids). */
+  /** IDs de listas salvas no CRM; o iPORTO resolve os contatos via cópia local. */
   list_ids?: string[];
-  /** Usado pelo provider iPORTO (envio transacional 1-a-1). Se omitido
-   *  e o provider for iPORTO, a dispatch falha com erro claro. */
+  /** Destinatários explícitos para envio transacional 1-a-1 no iPORTO. */
   recipients?: DispatchRecipient[];
   /** YYYY-MM-DD ou ISO completo BRT. iPORTO ignora — envio imediato. */
   scheduled_to?: string;
@@ -57,8 +55,7 @@ export type DispatchResult =
   | {
       ok: true;
       dispatch_id: string | null;
-      /** Locaweb: id único da mensagem. iPORTO: csv dos message_ids
-       *  (um por destinatário) ou o primeiro. */
+      /** Mantido por compatibilidade do contrato; iPORTO retorna string vazia ao enfileirar. */
       locaweb_message_id: string;
       provider: "locaweb" | "iporto";
       status: "queued" | "scheduled";
@@ -151,11 +148,9 @@ export async function dispatchDraft(
   );
 
   const subject = draft.meta?.subject || draft.name || "Bulking";
-  const campaignName =
-    payload.campaign_name ?? `tpl_${draft.id.slice(0, 8)}_${draft.name.slice(0, 50)}`;
 
-  // Provider routing: workspace_email_marketing.provider decide qual
-  // cliente usar. Default 'locaweb' (mantém compat com tudo que existia).
+  // Provider routing: disparo em massa de CRM só pode enfileirar no iPORTO,
+  // que é processado pelo worker dedicado no Droplet.
   const { provider } = await getActiveProvider(workspaceId);
 
   if (provider === "iporto") {
@@ -171,17 +166,13 @@ export async function dispatchDraft(
     });
   }
 
-  return dispatchViaLocaweb({
-    sb,
-    workspaceId,
-    draft,
-    html,
-    subject,
-    campaignName,
-    payload,
-    dispatchId,
-    campaignSlug,
-  });
+  const workerOnly = massActionWorkerOnlyPayload("Disparo de CRM por e-mail");
+  return {
+    ok: false,
+    error: workerOnly.message,
+    statusCode: 409,
+    warn: workerOnly.error,
+  };
 }
 
 function retentionStats(
@@ -208,137 +199,6 @@ interface ProviderArgs {
   payload: DispatchPayload;
   dispatchId: string;
   campaignSlug: string;
-}
-
-async function dispatchViaLocaweb(
-  args: ProviderArgs & { campaignName: string }
-): Promise<DispatchResult> {
-  const {
-    sb,
-    workspaceId,
-    draft,
-    html,
-    subject,
-    campaignName,
-    payload,
-    dispatchId,
-    campaignSlug,
-  } = args;
-
-  if (!payload.list_ids || payload.list_ids.length === 0) {
-    return {
-      ok: false,
-      error: "Locaweb exige list_ids no payload.",
-      statusCode: 400,
-    };
-  }
-
-  let creds;
-  try {
-    creds = await getReadyCreds(workspaceId);
-  } catch (err) {
-    return { ok: false, error: (err as Error).message, statusCode: 400 };
-  }
-
-  // Locaweb leaves messages in "Rascunho" status when scheduled_to is
-  // missing — they then need manual approval in the panel. We always
-  // set scheduled_to (today BRT for "send now", future date for the
-  // schedule toggle) so dispatched campaigns actually fire without
-  // human intervention.
-  const todayBrt = (() => {
-    const d = new Date();
-    d.setUTCHours(d.getUTCHours() - 3);
-    return d.toISOString().slice(0, 10);
-  })();
-  const effectiveScheduledTo = payload.scheduled_to ?? todayBrt;
-
-  let messageRef;
-  try {
-    messageRef = await createMessage(creds.creds, {
-      name: campaignName,
-      subject,
-      sender: payload.sender_email ?? creds.sender_email,
-      sender_name: payload.sender_name ?? creds.sender_name,
-      domain_id: creds.domain_id,
-      html_body: html,
-      list_ids: payload.list_ids,
-      scheduled_to: effectiveScheduledTo,
-    });
-  } catch (err) {
-    const e = err as { status?: number; message?: string };
-    console.error("[dispatch] Locaweb createMessage failed:", e);
-    return {
-      ok: false,
-      error: `Locaweb rejeitou o envio: ${e.message ?? "erro desconhecido"}`,
-      status: e.status,
-      statusCode: 502,
-    };
-  }
-
-  const messageId =
-    messageRef.id ??
-    (typeof messageRef._location === "string"
-      ? messageRef._location.split("/").filter(Boolean).pop() ?? null
-      : null);
-  if (!messageId) {
-    return {
-      ok: false,
-      error: "Locaweb não retornou um message_id.",
-      statusCode: 502,
-    };
-  }
-
-  const initialStatus: "queued" | "scheduled" = payload.scheduled_to
-    ? "scheduled"
-    : "queued";
-  const { data: dispatchRow, error: insErr } = await sb
-    .from("email_template_dispatches")
-    .insert({
-      id: dispatchId,
-      workspace_id: workspaceId,
-      draft_id: draft.id,
-      suggestion_id: payload.suggestion_id ?? null,
-      provider: "locaweb",
-      locaweb_message_id: messageId,
-      locaweb_list_ids: payload.list_ids,
-      scheduled_to: payload.scheduled_to
-        ? new Date(
-            /T/.test(payload.scheduled_to)
-              ? payload.scheduled_to
-              : `${payload.scheduled_to}T00:00:00-03:00`
-          ).toISOString()
-        : null,
-      status: initialStatus,
-      stats: {
-        utm_campaign: campaignSlug,
-        utm_id: dispatchId,
-        utm_term: payload.utm_term ?? null,
-        ...retentionStats(draft, payload),
-      },
-    })
-    .select()
-    .single();
-  if (insErr) {
-    console.error("[dispatch] dispatch row insert failed:", insErr);
-    return {
-      ok: true,
-      dispatch_id: null,
-      locaweb_message_id: messageId,
-      provider: "locaweb",
-      status: initialStatus,
-      scheduled_to: payload.scheduled_to ?? null,
-      warn: `Email enviado pra Locaweb mas falhou ao registrar localmente: ${insErr.message}`,
-    };
-  }
-
-  return {
-    ok: true,
-    dispatch_id: dispatchRow.id,
-    locaweb_message_id: messageId,
-    provider: "locaweb",
-    status: initialStatus,
-    scheduled_to: payload.scheduled_to ?? null,
-  };
 }
 
 async function dispatchViaIporto(args: ProviderArgs): Promise<DispatchResult> {

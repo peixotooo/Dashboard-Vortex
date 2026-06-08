@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import {
-  getWapiConfig,
-  sendText,
-  sendImage,
-  sendVideo,
-  sendAudio,
-  sendDocument,
-  checkInstanceHealth,
-  WapiMessageType,
-} from "@/lib/wapi-api";
+import { getWapiConfig, WapiMessageType } from "@/lib/wapi-api";
 
 export const maxDuration = 120;
 
@@ -90,36 +81,18 @@ export async function POST(request: NextRequest) {
     // Decide o status inicial.
     // - draft: usuário ativa manualmente depois (cron já ignora).
     // - scheduled: data futura → cron dispara na data.
-    // - sending: envio imediato (síncrono nessa rota).
+    // - queued: envio imediato → worker do Droplet dispara no próximo tick.
     const isScheduled =
       !save_as_draft &&
       scheduled_at &&
       new Date(scheduled_at).getTime() > Date.now();
     const isDraft = !!save_as_draft;
-    const isImmediate = !isDraft && !isScheduled;
-
-    // Pra envio imediato, valida a sessão W-API antes de tudo. Pra
-    // rascunho/agendamento, pula — a saúde da sessão será verificada
-    // quando o cron rodar (ou quando o usuário ativar/o agendamento bater).
-    if (isImmediate) {
-      const health = await checkInstanceHealth(config);
-      if (!health.healthy) {
-        return NextResponse.json(
-          {
-            error:
-              health.reason ||
-              "Sessao W-API nao esta saudavel. Tente reconectar antes de enviar.",
-          },
-          { status: 409 }
-        );
-      }
-    }
 
     const initialStatus = isDraft
       ? "draft"
       : isScheduled
       ? "scheduled"
-      : "sending";
+      : "queued";
 
     const { data: dispatch, error: dispatchError } = await admin
       .from("wapi_group_dispatches")
@@ -134,8 +107,8 @@ export async function POST(request: NextRequest) {
         status: initialStatus,
         // Pra draft, persistimos scheduled_at mesmo se já passou — usuário
         // pode editar depois ou simplesmente ativar pra envio imediato.
-        scheduled_at: isImmediate ? null : scheduled_at || null,
-        started_at: isImmediate ? new Date().toISOString() : null,
+        scheduled_at: initialStatus === "queued" ? null : scheduled_at || null,
+        started_at: null,
         target_groups: groups.map((g) => ({
           jid: g.jid,
           name: g.name || null,
@@ -171,148 +144,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Send immediately
-    const results: Array<{
-      group: string;
-      name?: string;
-      sent: boolean;
-      error?: string;
-    }> = [];
-
-    for (const group of groups) {
-      try {
-        let sendResult;
-
-        switch (messageType) {
-          case "text":
-            sendResult = await sendText(
-              config,
-              group.jid,
-              message || "",
-              delay
-            );
-            break;
-          case "image":
-            sendResult = await sendImage(
-              config,
-              group.jid,
-              mediaUrl || "",
-              caption,
-              delay
-            );
-            break;
-          case "video":
-            sendResult = await sendVideo(
-              config,
-              group.jid,
-              mediaUrl || "",
-              caption,
-              delay
-            );
-            break;
-          case "audio":
-            sendResult = await sendAudio(
-              config,
-              group.jid,
-              mediaUrl || "",
-              delay
-            );
-            break;
-          case "document":
-            sendResult = await sendDocument(
-              config,
-              group.jid,
-              mediaUrl || "",
-              extension || "pdf",
-              fileName,
-              caption,
-              delay
-            );
-            break;
-          default:
-            throw new Error(`Unknown message type: ${messageType}`);
-        }
-
-        const sent = !sendResult.error && !!sendResult.messageId;
-        const errMsg = sendResult.error
-          ? sendResult.error
-          : !sendResult.messageId
-            ? "W-API aceitou a chamada mas nao retornou messageId (mensagem provavelmente nao foi entregue)"
-            : null;
-
-        try {
-          await admin.from("wapi_group_messages").insert({
-            workspace_id: workspaceId,
-            dispatch_id: dispatch.id,
-            group_jid: group.jid,
-            group_name: group.name || null,
-            message_type: messageType,
-            content: message || caption || null,
-            media_url: mediaUrl || null,
-            file_name: fileName || null,
-            status: sent ? "sent" : "failed",
-            error_message: errMsg,
-            sent_by: user.id,
-          });
-        } catch {
-          // ignore logging error
-        }
-
-        results.push({
-          group: group.jid,
-          name: group.name,
-          sent,
-          error: errMsg || undefined,
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : "Unknown error";
-
-        try {
-          await admin.from("wapi_group_messages").insert({
-            workspace_id: workspaceId,
-            dispatch_id: dispatch.id,
-            group_jid: group.jid,
-            group_name: group.name || null,
-            message_type: messageType,
-            content: message || caption || null,
-            media_url: mediaUrl || null,
-            file_name: fileName || null,
-            status: "failed",
-            error_message: errMsg,
-            sent_by: user.id,
-          });
-        } catch {
-          // ignore logging error
-        }
-
-        results.push({
-          group: group.jid,
-          name: group.name,
-          sent: false,
-          error: errMsg,
-        });
-      }
-    }
-
-    const sentCount = results.filter((r) => r.sent).length;
-
-    // Update dispatch with final counts
-    await admin
-      .from("wapi_group_dispatches")
-      .update({
-        status: "completed",
-        sent_count: sentCount,
-        failed_count: groups.length - sentCount,
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", dispatch.id);
-
     return NextResponse.json({
       dispatch_id: dispatch.id,
-      results,
+      status: "queued",
+      queued: true,
       total: groups.length,
-      sent: sentCount,
-      failed: groups.length - sentCount,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

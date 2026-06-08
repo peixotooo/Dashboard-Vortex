@@ -6,6 +6,7 @@ import {
   getVndaCreditsConfigFromDb,
 } from "@/lib/cashback/vnda-credits";
 import { sendReminderForStage } from "@/lib/cashback/reminders";
+import { massActionWorkerOnlyPayload } from "@/lib/mass-actions/policy";
 
 export const maxDuration = 60;
 
@@ -48,6 +49,13 @@ export async function POST(request: NextRequest) {
 
   if (body.dryRun) {
     return NextResponse.json({ dryRun: true, count: candidates?.length ?? 0, candidates });
+  }
+
+  if ((candidates?.length ?? 0) > 1) {
+    const workerOnly = massActionWorkerOnlyPayload(
+      "Reativação em massa de cashback"
+    );
+    return NextResponse.json(workerOnly, { status: 409 });
   }
 
   const vnda = cfg.enable_deposit

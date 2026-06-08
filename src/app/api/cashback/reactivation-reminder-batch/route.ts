@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authRoute } from "@/lib/cashback/route-helpers";
 import { getOrCreateConfig, type CashbackTransactionRow } from "@/lib/cashback/api";
 import { sendReminderForStage } from "@/lib/cashback/reminders";
+import { massActionWorkerOnlyPayload } from "@/lib/mass-actions/policy";
 
 export const maxDuration = 300;
 
@@ -82,6 +83,13 @@ export async function POST(request: NextRequest) {
         expira_em: c.expira_em,
       })),
     });
+  }
+
+  if ((candidates?.length ?? 0) > 1) {
+    const workerOnly = massActionWorkerOnlyPayload(
+      "Lembrete em massa de cashback reativado"
+    );
+    return NextResponse.json(workerOnly, { status: 409 });
   }
 
   let success = 0;

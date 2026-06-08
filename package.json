@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-worker-only-mass-actions.mjs && next build",
+    "check:mass-actions": "node scripts/check-worker-only-mass-actions.mjs",
     "start": "next start",
     "lint": "next lint",
     "worker:whatsapp": "node scripts/whatsapp-worker.mjs",
