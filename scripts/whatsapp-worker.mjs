@@ -68,6 +68,40 @@ const waConfigCache = new Map();
 const templateCache = new Map();
 const templateRecheckCache = new Map();
 const exclusionCache = new Map();
+
+function nextUtcDailyRun(hour, minute = 0) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+  return next.getTime();
+}
+
+function nextUtcHourlyRun(minute = 0) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCMinutes(minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+  return next.getTime();
+}
+
+function nextUtcEveryHoursRun(hours, minute = 0) {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCMinutes(minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+  while (next.getUTCHours() % hours !== 0) {
+    next.setUTCHours(next.getUTCHours() + 1);
+  }
+  return next.getTime();
+}
+
 const maintenanceJobs = [
   {
     name: "cart-recovery-import",
@@ -90,6 +124,69 @@ const maintenanceJobs = [
     nextRunAt: 0,
     running: false,
   },
+  {
+    name: "wapi-group-sender",
+    path: "/api/cron/wapi-group-sender",
+    intervalMs: numberEnv("WA_WORKER_WAPI_GROUP_INTERVAL_MS", 5 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "review-requests",
+    path: "/api/cron/review-requests",
+    intervalMs: numberEnv("WA_WORKER_REVIEW_REQUESTS_INTERVAL_MS", 30 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "cashback-tick",
+    path: "/api/cron/cashback-tick",
+    intervalMs: numberEnv("WA_WORKER_CASHBACK_TICK_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    nextRunAt: nextUtcDailyRun(12),
+    running: false,
+  },
+  {
+    name: "email-templates-refresh",
+    path: "/api/cron/email-templates-refresh",
+    intervalMs: numberEnv("WA_WORKER_EMAIL_REFRESH_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    nextRunAt: nextUtcDailyRun(9),
+    running: false,
+  },
+  {
+    name: "email-templates-safety-net",
+    path: "/api/cron/email-templates-safety-net",
+    intervalMs: numberEnv("WA_WORKER_EMAIL_SAFETY_INTERVAL_MS", 60 * 60 * 1000),
+    nextRunAt: nextUtcHourlyRun(30),
+    running: false,
+  },
+  {
+    name: "email-templates-stats-sync",
+    path: "/api/cron/email-templates-stats-sync",
+    intervalMs: numberEnv("WA_WORKER_EMAIL_STATS_INTERVAL_MS", 6 * 60 * 60 * 1000),
+    nextRunAt: nextUtcEveryHoursRun(6),
+    running: false,
+  },
+  {
+    name: "iporto-dispatcher-1",
+    path: "/api/cron/iporto-dispatcher",
+    intervalMs: numberEnv("WA_WORKER_IPORTO_DISPATCH_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "iporto-dispatcher-2",
+    path: "/api/cron/iporto-dispatcher-2",
+    intervalMs: numberEnv("WA_WORKER_IPORTO_DISPATCH_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "iporto-dispatcher-3",
+    path: "/api/cron/iporto-dispatcher-3",
+    intervalMs: numberEnv("WA_WORKER_IPORTO_DISPATCH_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
 ];
 
 process.on("SIGINT", () => {
@@ -102,6 +199,17 @@ process.on("SIGTERM", () => {
 function log(message, extra) {
   const suffix = extra == null ? "" : ` ${JSON.stringify(extra)}`;
   console.log(`[${new Date().toISOString()}] ${message}${suffix}`);
+}
+
+function compactLogBody(body) {
+  if (!body || typeof body !== "object") return body;
+
+  const json = JSON.stringify(body);
+  if (json.length <= 2000) return body;
+  return {
+    truncated: true,
+    preview: json.slice(0, 2000),
+  };
 }
 
 function decrypt(encryptedText) {
@@ -417,7 +525,7 @@ async function triggerMaintenanceJob(job) {
       name: job.name,
       status: res.status,
       durationMs: Date.now() - startedAt,
-      body,
+      body: compactLogBody(body),
     });
   } catch (error) {
     log("maintenance job failed", {
@@ -875,6 +983,7 @@ async function main() {
     sendRetryAttempts: SEND_RETRY_ATTEMPTS,
     staleSendingMinutes: STALE_SENDING_MINUTES,
     maintenanceJobs: MAINTENANCE_JOBS_ENABLED && Boolean(CRON_BASE_URL && CRON_SECRET),
+    maintenanceJobCount: maintenanceJobs.length,
   });
 
   if (MAINTENANCE_JOBS_ENABLED && (!CRON_BASE_URL || !CRON_SECRET)) {
