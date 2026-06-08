@@ -19,7 +19,7 @@ export interface DispatchResult {
 
 // ============================================================
 // WhatsApp — enfileira no canal existente (wa_campaigns + wa_messages).
-// O cron /api/cron/whatsapp-sender pega e entrega via Meta Cloud API.
+// O worker dedicado pega a fila e entrega via Meta Cloud API.
 // ============================================================
 // Criamos 1 wa_campaign por (cart, step) com 1 wa_message. Mantém o
 // histórico atômico, deduplica via cart_recovery_messages (UNIQUE), e

@@ -16,7 +16,7 @@ export interface GiftDispatchResult {
 }
 
 // Enfileira o WhatsApp do "Pedir de presente" no mesmo canal (wa_campaigns +
-// wa_messages, kind='gift_request'). O cron /api/cron/whatsapp-sender pega
+// wa_messages, kind='gift_request'). O worker dedicado pega
 // e entrega via Meta Cloud API. Status volta via webhook → wa_messages.
 //
 // gift_requests.wa_message_id linka de volta pra propagar status na UI

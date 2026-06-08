@@ -36,6 +36,16 @@ interface CartRow {
   recovery_coupon_expires_at: string | null;
 }
 
+interface ExistingMessageRow {
+  id: string;
+  cart_id: string;
+  step_id: string;
+  channel: "whatsapp" | "email";
+  status: string;
+  external_id: string | null;
+  sent_at: string;
+}
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -120,13 +130,33 @@ export async function GET(request: NextRequest) {
       //    N queries no loop. Indexa por `${cart_id}:${step_id}:${channel}`.
       const { data: existingMessages } = await admin
         .from("cart_recovery_messages")
-        .select("cart_id, step_id, channel")
+        .select("id, cart_id, step_id, channel, status, external_id, sent_at")
         .eq("workspace_id", workspaceId)
         .in("cart_id", activeCarts.map((c) => c.id));
-      const sent = new Set(
-        (existingMessages || []).map(
-          (m) => `${m.cart_id}:${m.step_id}:${m.channel}`
+      const staleReservationCutoff = new Date(
+        now.getTime() - 30 * 60 * 1000
+      );
+      const staleReservationIds = (
+        (existingMessages || []) as ExistingMessageRow[]
+      )
+        .filter(
+          (m) =>
+            m.status === "sending" &&
+            !m.external_id &&
+            new Date(m.sent_at) < staleReservationCutoff
         )
+        .map((m) => m.id);
+      if (staleReservationIds.length > 0) {
+        await admin
+          .from("cart_recovery_messages")
+          .delete()
+          .in("id", staleReservationIds);
+      }
+      const staleReservationSet = new Set(staleReservationIds);
+      const sent = new Set(
+        ((existingMessages || []) as ExistingMessageRow[])
+          .filter((m) => !staleReservationSet.has(m.id))
+          .map((m) => `${m.cart_id}:${m.step_id}:${m.channel}`)
       );
 
       // 5. Para cada cart × step, dispara o que ainda falta.
@@ -196,26 +226,38 @@ export async function GET(request: NextRequest) {
             step.whatsapp_enabled &&
             !sent.has(`${cart.id}:${step.id}:whatsapp`)
           ) {
+            const reservation = await reserveMessageLog(admin, {
+              workspaceId,
+              cartId: cart.id,
+              stepId: step.id,
+              channel: "whatsapp",
+            });
+            if (!reservation.reserved) {
+              sent.add(`${cart.id}:${step.id}:whatsapp`);
+              continue;
+            }
+
             const result = await dispatchWhatsApp({
               admin,
               workspaceId,
               cart: { ...cartForVars, items: cartForVars.items as never },
               step,
             });
+
             // template_pending = Meta ainda revisando — NÃO logamos pra
             // poder retentar quando aprovar. Qualquer outro erro vira row.
-            if (result.error !== "template_pending") {
-              await insertMessageLog(admin, {
-                workspaceId,
-                cartId: cart.id,
-                stepId: step.id,
-                channel: "whatsapp",
-                ok: result.ok,
-                externalId: result.externalId,
-                error: result.error,
-                renderedPayload: result.renderedPayload,
-              });
+            if (result.error === "template_pending") {
+              await deleteMessageLogReservation(admin, reservation.id);
+              continue;
             }
+
+            await finalizeMessageLog(admin, reservation.id, {
+              ok: result.ok,
+              externalId: result.externalId,
+              error: result.error,
+              renderedPayload: result.renderedPayload,
+            });
+            sent.add(`${cart.id}:${step.id}:whatsapp`);
             if (result.ok) totalDispatched++;
           }
 
@@ -224,22 +266,30 @@ export async function GET(request: NextRequest) {
             step.email_enabled &&
             !sent.has(`${cart.id}:${step.id}:email`)
           ) {
+            const reservation = await reserveMessageLog(admin, {
+              workspaceId,
+              cartId: cart.id,
+              stepId: step.id,
+              channel: "email",
+            });
+            if (!reservation.reserved) {
+              sent.add(`${cart.id}:${step.id}:email`);
+              continue;
+            }
+
             const result = await dispatchEmail({
               admin,
               workspaceId,
               cart: { ...cartForVars, items: cartForVars.items as never },
               step,
             });
-            await insertMessageLog(admin, {
-              workspaceId,
-              cartId: cart.id,
-              stepId: step.id,
-              channel: "email",
+            await finalizeMessageLog(admin, reservation.id, {
               ok: result.ok,
               externalId: result.externalId,
               error: result.error,
               renderedPayload: result.renderedPayload,
             });
+            sent.add(`${cart.id}:${step.id}:email`);
             if (result.ok) totalDispatched++;
           }
         }
@@ -257,38 +307,82 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function insertMessageLog(
+async function reserveMessageLog(
   admin: ReturnType<typeof createAdminClient>,
   params: {
     workspaceId: string;
     cartId: string;
     stepId: string;
     channel: "whatsapp" | "email";
+  }
+) {
+  // Reserva antes do dispatch: o índice UNIQUE vira a trava contra dois
+  // crons criando campanhas/mensagens para o mesmo cart+step+canal.
+  const { data, error } = await admin
+    .from("cart_recovery_messages")
+    .insert({
+      workspace_id: params.workspaceId,
+      cart_id: params.cartId,
+      step_id: params.stepId,
+      channel: params.channel,
+      status: "sending",
+    })
+    .select("id")
+    .single();
+
+  if (error?.code === "23505") {
+    return { reserved: false, id: "" };
+  }
+  if (error || !data?.id) {
+    console.error(
+      `[Cart Recovery] Failed to reserve message for cart ${params.cartId}:`,
+      error?.message || "missing reservation id"
+    );
+    return { reserved: false, id: "" };
+  }
+
+  return { reserved: true, id: data.id as string };
+}
+
+async function deleteMessageLogReservation(
+  admin: ReturnType<typeof createAdminClient>,
+  id: string
+) {
+  await admin.from("cart_recovery_messages").delete().eq("id", id);
+}
+
+function finalMessageStatus(params: { ok: boolean; error?: string }) {
+  if (params.ok) return "sent";
+  return params.error === "no_phone" ||
+    params.error === "no_smtp_config" ||
+    params.error === "missing_email_content"
+    ? "skipped"
+    : "failed";
+}
+
+async function finalizeMessageLog(
+  admin: ReturnType<typeof createAdminClient>,
+  id: string,
+  params: {
     ok: boolean;
     externalId?: string;
     error?: string;
     renderedPayload?: Record<string, unknown>;
   }
 ) {
-  // Insere com tolerância a corrida — UNIQUE (cart_id, step_id, channel)
-  // protege double-fire entre runs sobrepostos do cron.
-  const { error } = await admin.from("cart_recovery_messages").insert({
-    workspace_id: params.workspaceId,
-    cart_id: params.cartId,
-    step_id: params.stepId,
-    channel: params.channel,
-    status: params.ok ? "sent" : params.error === "no_phone" ||
-      params.error === "no_smtp_config" ||
-      params.error === "missing_email_content"
-        ? "skipped"
-        : "failed",
-    external_id: params.externalId || null,
-    error: params.error || null,
-    rendered_payload: params.renderedPayload || null,
-  });
-  if (error && error.code !== "23505") {
+  const { error } = await admin
+    .from("cart_recovery_messages")
+    .update({
+      status: finalMessageStatus(params),
+      external_id: params.externalId || null,
+      error: params.error || null,
+      rendered_payload: params.renderedPayload || null,
+    })
+    .eq("id", id);
+
+  if (error) {
     console.error(
-      `[Cart Recovery] Failed to log message for cart ${params.cartId}:`,
+      `[Cart Recovery] Failed to finalize message log ${id}:`,
       error.message
     );
   }

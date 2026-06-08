@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "worker:whatsapp": "node scripts/whatsapp-worker.mjs",
+    "cleanup:cart-recovery-wa": "node scripts/cleanup-stale-cart-recovery-wa.mjs",
     "email": "email dev --dir emails --port 3333"
   },
   "dependencies": {

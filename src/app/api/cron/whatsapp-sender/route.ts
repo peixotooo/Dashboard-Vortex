@@ -226,10 +226,21 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+  const forceLegacySend = request.nextUrl.searchParams.get("force") === "1";
+  const legacySenderEnabled =
+    process.env.WHATSAPP_SENDER_LEGACY_ENABLED === "true";
 
   try {
     await releaseApprovedPendingTemplates(admin);
     await cancelConvertedGiftRequestMessages(admin);
+
+    if (!legacySenderEnabled && !forceLegacySend) {
+      return NextResponse.json({
+        processed: 0,
+        skipped: true,
+        message: "WhatsApp delivery is handled by the dedicated worker.",
+      });
+    }
 
     // Find active campaigns (queued, sending, or scheduled and due).
     // Gift requests are transactional and must not be starved by high-volume

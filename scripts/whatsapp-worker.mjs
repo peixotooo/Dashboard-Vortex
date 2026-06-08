@@ -56,6 +56,7 @@ const CAMPAIGN_SELECT =
 let stopping = false;
 const waConfigCache = new Map();
 const templateCache = new Map();
+const templateRecheckCache = new Map();
 const exclusionCache = new Map();
 
 process.on("SIGINT", () => {
@@ -140,7 +141,7 @@ async function getTemplate(templateId) {
 
   const { data, error } = await db
     .from("wa_templates")
-    .select("id, name, language, status, category")
+    .select("id, meta_id, name, language, status, category")
     .eq("id", templateId)
     .single();
 
@@ -150,6 +151,82 @@ async function getTemplate(templateId) {
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
   return data;
+}
+
+async function recheckTemplateOnMeta(config, template) {
+  if (!template?.meta_id) {
+    return {
+      ok: false,
+      changed: false,
+      previousCategory: template?.category || null,
+      currentCategory: null,
+      previousStatus: template?.status || null,
+      currentStatus: null,
+      reason: "missing_meta_id",
+    };
+  }
+
+  const cacheKey = template.id;
+  const cached = templateRecheckCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const res = await fetch(
+    `https://graph.facebook.com/v21.0/${template.meta_id}?fields=id,name,language,category,status,components`,
+    {
+      headers: { Authorization: `Bearer ${config.accessToken}` },
+    }
+  );
+
+  if (!res.ok) {
+    const value = {
+      ok: false,
+      changed: false,
+      previousCategory: template.category || null,
+      currentCategory: null,
+      previousStatus: template.status || null,
+      currentStatus: null,
+      reason: `meta_fetch_failed_${res.status}`,
+    };
+    templateRecheckCache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + 2 * 60 * 1000,
+    });
+    return value;
+  }
+
+  const live = await res.json();
+  const changed =
+    live.category !== template.category || live.status !== template.status;
+  if (changed) {
+    await db
+      .from("wa_templates")
+      .update({
+        category: live.category,
+        status: live.status,
+        components: live.components || [],
+        synced_at: new Date().toISOString(),
+      })
+      .eq("id", template.id);
+  } else {
+    await db
+      .from("wa_templates")
+      .update({ synced_at: new Date().toISOString() })
+      .eq("id", template.id);
+  }
+
+  const value = {
+    ok: true,
+    changed,
+    previousCategory: template.category || null,
+    currentCategory: live.category || null,
+    previousStatus: template.status || null,
+    currentStatus: live.status || null,
+  };
+  templateRecheckCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+  return value;
 }
 
 async function getExcludedPhones(workspaceId) {
@@ -375,6 +452,18 @@ async function completeCampaignIfDone(campaignId) {
   }
 }
 
+async function updateCartRecoveryLogsByMessageIds(messageIds, patch) {
+  for (let i = 0; i < messageIds.length; i += 100) {
+    const chunk = messageIds.slice(i, i + 100).map(String);
+    if (chunk.length === 0) continue;
+    await db
+      .from("cart_recovery_messages")
+      .update(patch)
+      .eq("channel", "whatsapp")
+      .in("external_id", chunk);
+  }
+}
+
 async function incrementCampaignCounters(campaignId, sent, failed) {
   if (sent === 0 && failed === 0) return;
 
@@ -412,7 +501,36 @@ async function processCampaign(campaign) {
     return 0;
   }
 
-  if (template.status && template.status !== "APPROVED") {
+  const recheck = await recheckTemplateOnMeta(config, template);
+  if (
+    recheck.ok &&
+    recheck.previousCategory &&
+    recheck.previousCategory !== "MARKETING" &&
+    recheck.currentCategory === "MARKETING"
+  ) {
+    const reason = `Template ${template.name} was reclassified as MARKETING by Meta.`;
+    await db.from("wa_campaigns").update({ status: "failed" }).eq("id", campaign.id);
+    await db
+      .from("wa_messages")
+      .update({ status: "canceled", error_message: reason })
+      .eq("campaign_id", campaign.id)
+      .eq("status", "queued");
+    return 0;
+  }
+
+  if (recheck.ok && recheck.currentStatus && recheck.currentStatus !== "APPROVED") {
+    await db.from("wa_campaigns").update({ status: "failed" }).eq("id", campaign.id);
+    await db
+      .from("wa_messages")
+      .update({ status: "canceled", error_message: `template_${recheck.currentStatus}` })
+      .eq("campaign_id", campaign.id)
+      .eq("status", "queued");
+    return 0;
+  }
+
+  const effectiveTemplateStatus =
+    recheck.ok && recheck.currentStatus ? recheck.currentStatus : template.status;
+  if (effectiveTemplateStatus && effectiveTemplateStatus !== "APPROVED") {
     await db.from("wa_campaigns").update({ status: "failed" }).eq("id", campaign.id);
     return 0;
   }
@@ -438,6 +556,12 @@ async function processCampaign(campaign) {
       .from("wa_messages")
       .update({ status: "failed", error_message: "Blocked by exclusion list" })
       .in("id", blocked);
+    if (campaign.kind === "cart_recovery") {
+      await updateCartRecoveryLogsByMessageIds(blocked, {
+        status: "failed",
+        error: "Blocked by exclusion list",
+      });
+    }
   }
 
   const sentResults = [];
@@ -487,6 +611,13 @@ async function processCampaign(campaign) {
       .update({ status: "sent", sent_at: now })
       .in("id", sentResults.map((row) => row.id));
 
+    if (campaign.kind === "cart_recovery") {
+      await updateCartRecoveryLogsByMessageIds(
+        sentResults.map((row) => row.id),
+        { status: "sent", error: null }
+      );
+    }
+
     for (const row of sentResults) {
       await db
         .from("wa_messages")
@@ -504,6 +635,12 @@ async function processCampaign(campaign) {
     }
     for (const [error, ids] of byError.entries()) {
       await db.from("wa_messages").update({ status: "failed", error_message: error }).in("id", ids);
+      if (campaign.kind === "cart_recovery") {
+        await updateCartRecoveryLogsByMessageIds(ids, {
+          status: "failed",
+          error,
+        });
+      }
     }
   }
 
