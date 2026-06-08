@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { fetchAllSupabasePages } from "@/lib/reviews/pagination";
 import { createAdminClient } from "@/lib/supabase-admin";
+
+type ProductReviewCountRow = {
+  product_id: string | null;
+};
 
 // Lista produtos ativos do catálogo + nº de avaliações publicadas (pra escolher
 // na geração com IA — produtos com poucas avaliações aparecem primeiro).
@@ -23,14 +28,20 @@ export async function GET(request: NextRequest) {
       if (data.length < PAGE) break;
     }
 
-    const { data: revs } = await admin
-      .from("reviews")
-      .select("product_id")
-      .eq("workspace_id", workspaceId)
-      .eq("status", "published")
-      .limit(20000);
+    const revs = await fetchAllSupabasePages<ProductReviewCountRow>(async (from, to) => {
+      const { data, error } = await admin
+        .from("reviews")
+        .select("product_id")
+        .eq("workspace_id", workspaceId)
+        .eq("status", "published")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      return { data: data as ProductReviewCountRow[] | null, error };
+    });
     const counts: Record<string, number> = {};
-    for (const r of revs || []) if (r.product_id) counts[r.product_id] = (counts[r.product_id] || 0) + 1;
+    for (const r of revs) if (r.product_id) counts[r.product_id] = (counts[r.product_id] || 0) + 1;
 
     const products = all
       .map((p) => ({ product_id: String(p.product_id), name: p.name, review_count: counts[String(p.product_id)] || 0 }))

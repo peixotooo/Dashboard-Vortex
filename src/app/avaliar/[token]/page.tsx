@@ -219,6 +219,29 @@ export default function AvaliarPage() {
 
   async function submit() {
     if (!token || !data) return;
+    if (!name.trim()) {
+      setStep(0);
+      setError("Preencha seu nome pra começar.");
+      return;
+    }
+    for (let i = 0; i < products.length; i++) {
+      if (!answers[i]?.rating) {
+        setStep(i + 1);
+        setError("Toque nas estrelas pra avaliar este produto.");
+        return;
+      }
+      const missing = (data.form_fields || []).filter((f) => !fieldValue(i, f.key));
+      if (missing.length) {
+        setStep(i + 1);
+        setError("Preencha todos os campos abaixo. Eles ajudam quem vai comprar.");
+        return;
+      }
+    }
+    if (hasStore && !storeRating) {
+      setStep(lastStep);
+      setError("Avalie também a experiência com a loja.");
+      return;
+    }
     const reviews = products
       .map((p, i) => ({
         product_id: p.id,
@@ -231,7 +254,7 @@ export default function AvaliarPage() {
           .filter(({ v }) => v)
           .map(({ f, v }) => ({ name: f.label, values: [v] })),
       }))
-      .filter((r) => r.rating); // texto é opcional — basta a nota
+      .filter((r) => r.rating);
 
     if (reviews.length === 0) { setError("Dê as estrelas pra avaliar."); return; }
 
@@ -351,6 +374,7 @@ export default function AvaliarPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     maxLength={120}
+                    required
                     placeholder="Como quer aparecer"
                     className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                   />
@@ -408,6 +432,7 @@ export default function AvaliarPage() {
                             <select
                               value={fieldValue(productIdx, f.key)}
                               onChange={(e) => setField(productIdx, f.key, e.target.value)}
+                              required
                               className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             >
                               <option value="">Selecione</option>
@@ -417,6 +442,7 @@ export default function AvaliarPage() {
                             <input
                               value={fieldValue(productIdx, f.key)}
                               onChange={(e) => setField(productIdx, f.key, e.target.value)}
+                              required
                               className="w-full rounded-xl border border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 px-3 py-2.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
                             />
                           )}

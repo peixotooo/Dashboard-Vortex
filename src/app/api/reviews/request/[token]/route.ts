@@ -18,6 +18,43 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+type SubmittedReview = { product_id?: unknown; rating?: unknown; body?: unknown; media?: unknown; ads_consent?: unknown; custom_fields?: unknown };
+
+function fieldKey(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLocaleLowerCase("pt-BR") : "";
+}
+
+function requiredFieldLabels(settings: { form_fields?: { label?: string }[] }): string[] {
+  return Array.isArray(settings.form_fields)
+    ? settings.form_fields.map((f) => f.label).filter((label): label is string => typeof label === "string" && label.trim().length > 0)
+    : [];
+}
+
+function filledCustomFieldNames(raw: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!Array.isArray(raw)) return out;
+  for (const f of raw as unknown[]) {
+    const it = f as { name?: unknown; values?: unknown };
+    const name = fieldKey(it?.name);
+    const hasValue = Array.isArray(it?.values) && (it.values as unknown[]).some((v) => typeof v === "string" && v.trim().length > 0);
+    if (name && hasValue) out.add(name);
+  }
+  return out;
+}
+
+function validateRequiredFields(reviews: SubmittedReview[], settings: { form_fields?: { label?: string }[] }): string | null {
+  const labels = requiredFieldLabels(settings);
+  if (labels.length === 0) return null;
+  for (const r of reviews) {
+    const rating = Number(r.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) continue;
+    const present = filledCustomFieldNames(r.custom_fields);
+    const missing = labels.find((label) => !present.has(fieldKey(label)));
+    if (missing) return `Preencha o campo "${missing}" em todos os produtos avaliados.`;
+  }
+  return null;
+}
+
 async function loadRequest(token: string) {
   const admin = createAdminClient();
   const { data } = await admin
@@ -111,10 +148,26 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     const settings = await previewSettings(request.url);
     let pbody: Record<string, unknown> = {};
     try { pbody = await request.json(); } catch {}
+    const previewAuthorName = typeof pbody.author_name === "string" ? pbody.author_name.trim() : "";
+    if (!previewAuthorName) {
+      return NextResponse.json({ error: "Preencha seu nome." }, { status: 400, headers: CORS });
+    }
     // Melhor mídia entre os produtos avaliados (uma recompensa por pedido).
-    const plist = Array.isArray(pbody.reviews) && pbody.reviews.length
-      ? (pbody.reviews as { media?: { type?: string }[]; ads_consent?: boolean }[])
-      : [{ media: Array.isArray(pbody.media) ? (pbody.media as { type?: string }[]) : [], ads_consent: pbody.ads_consent === true }];
+    const plist: SubmittedReview[] = Array.isArray(pbody.reviews) && pbody.reviews.length
+      ? (pbody.reviews as SubmittedReview[])
+      : [{ rating: pbody.rating, body: pbody.body, media: pbody.media, ads_consent: pbody.ads_consent, custom_fields: pbody.custom_fields }];
+    if (!plist.some((r) => {
+      const rating = Number(r.rating);
+      return Number.isFinite(rating) && rating >= 1 && rating <= 5;
+    })) {
+      return NextResponse.json({ error: "Avalie ao menos um produto com estrelas." }, { status: 400, headers: CORS });
+    }
+    const missingFields = validateRequiredFields(plist, settings);
+    if (missingFields) return NextResponse.json({ error: missingFields }, { status: 400, headers: CORS });
+    const storeRating = Number(pbody.store_rating);
+    if (settings.collect_store_review && (!Number.isFinite(storeRating) || storeRating < 1 || storeRating > 5)) {
+      return NextResponse.json({ error: "Avalie também a experiência com a loja." }, { status: 400, headers: CORS });
+    }
     let bestRank = 0, bestKind = "none", bestAds = false;
     for (const r of plist) {
       const media = Array.isArray(r.media) ? r.media : [];
@@ -153,9 +206,8 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
 
   // Normaliza pra uma lista de avaliações POR PRODUTO. Aceita o formato novo
   // (reviews: [...]) do quiz e o legado (campos no topo = 1 produto só).
-  type InReview = { product_id?: unknown; rating?: unknown; body?: unknown; media?: unknown; ads_consent?: unknown; custom_fields?: unknown };
-  const inList: InReview[] = Array.isArray(body.reviews) && body.reviews.length
-    ? (body.reviews as InReview[])
+  const inList: SubmittedReview[] = Array.isArray(body.reviews) && body.reviews.length
+    ? (body.reviews as SubmittedReview[])
     : [{ product_id: req.product_id, rating: body.rating, body: body.body, media: body.media, ads_consent: body.ads_consent, custom_fields: body.custom_fields }];
 
   // Produtos válidos do pedido (pra casar id/nome/imagem de cada avaliação).
@@ -193,33 +245,40 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
 
   // Moderação obrigatória: TODA avaliação entra como 'pending'.
   const status = "pending";
-  const authorName = typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : req.customer_name;
+  const authorName = typeof body.author_name === "string" && body.author_name.trim() ? body.author_name.trim().slice(0, 120) : null;
+  if (!authorName) {
+    return NextResponse.json({ error: "Preencha seu nome." }, { status: 400, headers: CORS });
+  }
+  const missingFields = validateRequiredFields(inList, settings);
+  if (missingFields) return NextResponse.json({ error: missingFields }, { status: 400, headers: CORS });
   // Chave do pedido — usada pra deduplicar a recompensa (uma por pedido).
   const referenceOrder = req.order_code || req.order_id || null;
 
-  // Uma linha de review por produto avaliado (precisa de nota + texto).
+  // Uma linha de review por produto avaliado. O texto é opcional na landing:
+  // estrelas + campos estruturados já bastam para gerar prova social útil.
   const rows: Record<string, unknown>[] = [];
   let bestRank = -1, bestKind = "none", bestAds = false;
   for (const r of inList) {
     const rating = Number(r.rating);
     const text = typeof r.body === "string" ? r.body.trim() : "";
-    if (!Number.isFinite(rating) || rating < 1 || rating > 5 || !text) continue; // pula produto não avaliado
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) continue; // pula produto não avaliado
     const media = sanitizeMedia(r.media);
     const hasVideo = media.some((m) => m && (m as { type: string }).type === "video");
     const mediaKind = hasVideo ? "video" : media.length > 0 ? "photo" : "none";
     const adsConsent = mediaKind === "video" && r.ads_consent === true && settings.ads_enabled;
     const pid = r.product_id != null ? String(r.product_id) : (req.product_id || null);
     const prod = (pid && productById.get(pid)) || reqProducts[0];
+    const canonicalProductId = prod?.product_id ? String(prod.product_id) : pid;
     rows.push({
       workspace_id: req.workspace_id,
       source: "native",
-      product_id: pid,
+      product_id: canonicalProductId,
       product_name: prod?.name ?? req.product_name,
       product_image: prod?.image ?? req.product_image,
       product_url: prod?.url ?? req.product_url,
       rating: Math.round(rating),
       title: null,
-      body: text.slice(0, 4000),
+      body: text ? text.slice(0, 4000) : null,
       author_name: authorName,
       author_email: req.customer_email, // necessário pra creditar a recompensa
       verified_buyer: true, // veio de uma compra real (régua)
@@ -237,14 +296,28 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   }
 
   if (rows.length === 0) {
-    return NextResponse.json({ error: "Avalie ao menos um produto (nota e texto)." }, { status: 400, headers: CORS });
+    return NextResponse.json({ error: "Avalie ao menos um produto com estrelas." }, { status: 400, headers: CORS });
+  }
+  const requiredProductIds = reqProducts.map((p) => p.product_id).filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+  if (requiredProductIds.length > 0) {
+    const submittedIds = new Set(rows.map((r) => (typeof r.product_id === "string" ? r.product_id : "")).filter(Boolean));
+    const missingProduct = requiredProductIds.find((id) => !submittedIds.has(id));
+    if (missingProduct) {
+      return NextResponse.json({ error: "Avalie todos os produtos do pedido." }, { status: 400, headers: CORS });
+    }
+  } else if (rows.length < reqProducts.length) {
+    return NextResponse.json({ error: "Avalie todos os produtos do pedido." }, { status: 400, headers: CORS });
+  }
+
+  const storeRating = Number(body.store_rating);
+  if (settings.collect_store_review && (!Number.isFinite(storeRating) || storeRating < 1 || storeRating > 5)) {
+    return NextResponse.json({ error: "Avalie também a experiência com a loja." }, { status: 400, headers: CORS });
   }
 
   const { data: inserted, error } = await admin.from("reviews").insert(rows).select("id");
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
 
   // Avaliação da LOJA (experiência/entrega), separada das de produto. Uma por pedido (upsert).
-  const storeRating = Number(body.store_rating);
   if (settings.collect_store_review && Number.isFinite(storeRating) && storeRating >= 1 && storeRating <= 5) {
     await admin.from("store_reviews").upsert(
       {

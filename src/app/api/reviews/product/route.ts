@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
+import { fetchAllSupabasePages } from "@/lib/reviews/pagination";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getReviewSettings } from "@/lib/reviews/settings";
 
@@ -14,6 +15,10 @@ const PUBLIC_COLUMNS =
   "id, rating, title, body, author_name, verified_buyer, custom_fields, media, likes, reviewed_at, reply_body, reply_at, created_at";
 
 type SortKey = "recent" | "helpful" | "rating_high" | "rating_low";
+type ProductRatingRow = {
+  rating: number | string | null;
+  title: string | null;
+};
 
 // Abrevia o nome pra exibição: "Maria Silva Santos" -> "Maria S." (privacidade).
 function displayName(name: string | null): string {
@@ -48,14 +53,25 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
 
   // 1) Agregados (todas as publicadas do produto): média + distribuição + count.
-  const { data: allRatings } = await admin
-    .from("reviews")
-    .select("rating, title")
-    .eq("workspace_id", auth.workspaceId)
-    .eq("product_id", productId)
-    .eq("status", "published");
+  let ratings: ProductRatingRow[];
+  try {
+    ratings = await fetchAllSupabasePages<ProductRatingRow>(async (from, to) => {
+      const { data, error } = await admin
+        .from("reviews")
+        .select("rating, title")
+        .eq("workspace_id", auth.workspaceId)
+        .eq("product_id", productId)
+        .eq("status", "published")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
 
-  const ratings = allRatings || [];
+      return { data: data as ProductRatingRow[] | null, error };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load reviews";
+    return NextResponse.json({ error: message }, { status: 500, headers: CORS_HEADERS });
+  }
   const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let sum = 0;
   const titleFreq = new Map<string, number>();

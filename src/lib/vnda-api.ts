@@ -1,4 +1,5 @@
 import { decrypt } from "@/lib/encryption";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -201,6 +202,32 @@ export async function getVndaConfig(workspaceId?: string): Promise<VndaConfig | 
   }
 
   // Fallback to env vars
+  const token = process.env.VNDA_API_TOKEN;
+  const host = process.env.VNDA_STORE_HOST;
+  if (token && host) {
+    return { apiToken: token, storeHost: host };
+  }
+
+  return null;
+}
+
+export async function getVndaConfigAdmin(workspaceId: string): Promise<VndaConfig | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("vnda_connections")
+    .select("api_token, store_host")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (data?.api_token && data?.store_host) {
+    return {
+      apiToken: decrypt(data.api_token as string),
+      storeHost: data.store_host as string,
+    };
+  }
+
   const token = process.env.VNDA_API_TOKEN;
   const host = process.env.VNDA_STORE_HOST;
   if (token && host) {

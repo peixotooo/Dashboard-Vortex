@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
       // importação) — filtrar por media_kind escondia todas elas. Mesmo filtro
       // jsonb usado na galeria pública do widget (/api/reviews/product).
       .not("media", "eq", "[]")
+      // YourViews traz a data original em reviewed_at. created_at é só a data
+      // de importação e fazia fotos antigas aparecerem no topo da curadoria.
+      .order("reviewed_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
     if (productId) q = q.eq("product_id", productId);

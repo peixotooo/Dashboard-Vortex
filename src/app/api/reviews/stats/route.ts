@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { fetchAllSupabasePages } from "@/lib/reviews/pagination";
 import { createAdminClient } from "@/lib/supabase-admin";
+
+type ReviewStatsRow = {
+  rating: number | string | null;
+  status: string | null;
+  source: string | null;
+  product_id: string | null;
+  product_name: string | null;
+};
 
 // Resumo pro topo da página de admin: total, média, distribuição por nota,
 // contagem por status, e top produtos avaliados.
@@ -9,15 +18,17 @@ export async function GET(request: NextRequest) {
     const { workspaceId } = await getWorkspaceContext(request);
     const admin = createAdminClient();
 
-    // Puxa só as colunas necessárias pra agregar em memória (volume moderado).
-    const { data, error } = await admin
-      .from("reviews")
-      .select("rating, status, source, product_id, product_name")
-      .eq("workspace_id", workspaceId);
+    const rows = await fetchAllSupabasePages<ReviewStatsRow>(async (from, to) => {
+      const { data, error } = await admin
+        .from("reviews")
+        .select("rating, status, source, product_id, product_name")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    const rows = data || [];
+      return { data: data as ReviewStatsRow[] | null, error };
+    });
     const published = rows.filter((r) => r.status === "published");
 
     const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
@@ -33,8 +44,10 @@ export async function GET(request: NextRequest) {
     const byStatus: Record<string, number> = {};
     const bySource: Record<string, number> = {};
     for (const r of rows) {
-      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
-      bySource[r.source] = (bySource[r.source] || 0) + 1;
+      const status = r.status || "unknown";
+      const source = r.source || "unknown";
+      byStatus[status] = (byStatus[status] || 0) + 1;
+      bySource[source] = (bySource[source] || 0) + 1;
     }
 
     // Top produtos por nº de avaliações publicadas.

@@ -5,7 +5,7 @@ import { getReviewSettings, type ReviewSettings } from "@/lib/reviews/settings";
 import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
 import { getSmtpConfig, sendEmail } from "@/lib/cashback/locaweb-smtp";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
-import { getVndaConfig, getVndaOrderShipping } from "@/lib/vnda-api";
+import { getVndaConfigAdmin, getVndaOrderShipping } from "@/lib/vnda-api";
 import { logCommunication, getRecentContacts } from "@/lib/crm/message-log";
 
 // Quantas vezes adiamos esperando o pedido faturar/enviar antes de desistir
@@ -133,7 +133,7 @@ export async function enqueueReviewRequests(
 
     // Enriquecer TODOS os produtos via shelf_products (1 query por pedido).
     const safeIds = uniqueItems.map((u) => u.pid).filter((id) => /^[\w.-]+$/.test(id));
-    const catalog = new Map<string, { name: string | null; image: string | null; url: string | null }>();
+    const catalog = new Map<string, { product_id: string; name: string | null; image: string | null; url: string | null }>();
     if (safeIds.length) {
       const { data: prods } = await admin
         .from("shelf_products")
@@ -141,7 +141,12 @@ export async function enqueueReviewRequests(
         .eq("workspace_id", workspaceId)
         .or(`product_id.in.(${safeIds.join(",")}),sku.in.(${safeIds.join(",")})`);
       for (const p of prods || []) {
-        const entry = { name: (p.name as string) || null, image: (p.image_url as string) || null, url: (p.product_url as string) || null };
+        const entry = {
+          product_id: String(p.product_id),
+          name: (p.name as string) || null,
+          image: (p.image_url as string) || null,
+          url: (p.product_url as string) || null,
+        };
         catalog.set(String(p.product_id), entry);
         if (p.sku) catalog.set(String(p.sku), entry);
       }
@@ -149,7 +154,7 @@ export async function enqueueReviewRequests(
 
     const products = uniqueItems.map((u) => {
       const c = catalog.get(u.pid);
-      return { product_id: u.pid, name: c?.name || u.item.name || null, image: c?.image || null, url: c?.url || null };
+      return { product_id: c?.product_id || u.pid, name: c?.name || u.item.name || null, image: c?.image || null, url: c?.url || null };
     });
 
     // Item principal (maior valor) = produto "primário" pra mensagem e colunas.
@@ -321,7 +326,7 @@ export async function dispatchDueRequests(
   // não há data de despacho na VNDA, ancoramos os +9 dias na data em que
   // DETECTAMOS o tracking (gravada em review_requests.shipped_at na 1ª vez).
   const requireInvoice = settings.request_require_invoice;
-  const vndaConfig = requireInvoice ? await getVndaConfig(workspaceId) : null;
+  const vndaConfig = requireInvoice ? await getVndaConfigAdmin(workspaceId) : null;
   const daysAfterInvoice = settings.request_days_after_invoice ?? 9;
 
   // 1) Pendentes vencidos.
