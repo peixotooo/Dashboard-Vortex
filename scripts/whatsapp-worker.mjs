@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 dotenv.config({ path: process.env.WA_WORKER_ENV || ".env.worker" });
 dotenv.config({ path: ".env.local" });
 
-const DEFAULT_KINDS = ["gift_request", "campaign"];
+const DEFAULT_KINDS = ["gift_request", "campaign", "cart_recovery"];
 const ALGORITHM = "aes-256-gcm";
 
 const env = (name, fallback = "") => {
@@ -23,6 +23,11 @@ const numberEnv = (name, fallback) => {
 const SUPABASE_URL = env("NEXT_PUBLIC_SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = env("SUPABASE_SERVICE_ROLE_KEY");
 const ENCRYPTION_KEY = env("ENCRYPTION_KEY");
+const CRON_SECRET = env("CRON_SECRET");
+const CRON_BASE_URL = env(
+  "WA_WORKER_CRON_BASE_URL",
+  env("NEXT_PUBLIC_APP_URL")
+).replace(/\/+$/, "");
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ENCRYPTION_KEY) {
   throw new Error(
@@ -41,6 +46,11 @@ const ERROR_DELAY_MS = numberEnv("WA_WORKER_ERROR_DELAY_MS", 10000);
 const GIFT_LIMIT = numberEnv("WA_WORKER_GIFT_LIMIT", 50);
 const MANUAL_LIMIT = numberEnv("WA_WORKER_MANUAL_LIMIT", 3);
 const CART_LIMIT = numberEnv("WA_WORKER_CART_LIMIT", 25);
+const SEND_RETRY_ATTEMPTS = numberEnv("WA_WORKER_SEND_RETRY_ATTEMPTS", 3);
+const STALE_SENDING_MINUTES = numberEnv("WA_WORKER_STALE_SENDING_MINUTES", 120);
+const STALE_SENDING_MS = STALE_SENDING_MINUTES * 60 * 1000;
+const RETRY_BASE_DELAY_MS = numberEnv("WA_WORKER_RETRY_BASE_DELAY_MS", 1500);
+const MAINTENANCE_JOBS_ENABLED = env("WA_WORKER_MAINTENANCE_JOBS", "true") !== "false";
 const ENABLED_KINDS = new Set(
   env("WA_WORKER_KINDS", DEFAULT_KINDS.join(","))
     .split(",")
@@ -58,6 +68,29 @@ const waConfigCache = new Map();
 const templateCache = new Map();
 const templateRecheckCache = new Map();
 const exclusionCache = new Map();
+const maintenanceJobs = [
+  {
+    name: "cart-recovery-import",
+    path: "/api/cron/cart-recovery-import",
+    intervalMs: numberEnv("WA_WORKER_CART_IMPORT_INTERVAL_MS", 15 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "cart-recovery",
+    path: "/api/cron/cart-recovery",
+    intervalMs: numberEnv("WA_WORKER_CART_RECOVERY_INTERVAL_MS", 5 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "gift-request-conversions",
+    path: "/api/cron/gift-request-conversions",
+    intervalMs: numberEnv("WA_WORKER_GIFT_MAINTENANCE_INTERVAL_MS", 30 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+];
 
 process.on("SIGINT", () => {
   stopping = true;
@@ -312,6 +345,102 @@ async function sendTemplateMessage(config, phone, templateName, language, variab
   }
 }
 
+function isTransientSendError(error) {
+  const value = String(error || "").toLowerCase();
+  return (
+    value.includes("http 429") ||
+    value.includes("http 500") ||
+    value.includes("http 502") ||
+    value.includes("http 503") ||
+    value.includes("http 504") ||
+    value.includes("fetch failed") ||
+    value.includes("timeout") ||
+    value.includes("econnreset") ||
+    value.includes("etimedout") ||
+    value.includes("socket") ||
+    value.includes("temporar")
+  );
+}
+
+async function sendTemplateMessageWithRetries(
+  config,
+  phone,
+  templateName,
+  language,
+  variables
+) {
+  let lastResult = { messageId: null, error: "send_failed" };
+
+  for (let attempt = 1; attempt <= SEND_RETRY_ATTEMPTS && !stopping; attempt++) {
+    const result = await sendTemplateMessage(
+      config,
+      phone,
+      templateName,
+      language,
+      variables
+    );
+    if (result.messageId || !isTransientSendError(result.error)) {
+      return result;
+    }
+
+    lastResult = result;
+    if (attempt < SEND_RETRY_ATTEMPTS) {
+      await sleep(RETRY_BASE_DELAY_MS * attempt);
+    }
+  }
+
+  return {
+    messageId: null,
+    error: `${lastResult.error || "send_failed"} (retried ${SEND_RETRY_ATTEMPTS}x)`,
+  };
+}
+
+async function triggerMaintenanceJob(job) {
+  if (!MAINTENANCE_JOBS_ENABLED || !CRON_BASE_URL || !CRON_SECRET || job.running) {
+    return;
+  }
+
+  job.running = true;
+  const startedAt = Date.now();
+
+  try {
+    const res = await fetch(`${CRON_BASE_URL}${job.path}`, {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    const text = await res.text().catch(() => "");
+    let body = text;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {}
+
+    log("maintenance job finished", {
+      name: job.name,
+      status: res.status,
+      durationMs: Date.now() - startedAt,
+      body,
+    });
+  } catch (error) {
+    log("maintenance job failed", {
+      name: job.name,
+      durationMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    job.running = false;
+  }
+}
+
+function scheduleDueMaintenanceJobs() {
+  if (!MAINTENANCE_JOBS_ENABLED || !CRON_BASE_URL || !CRON_SECRET) return;
+
+  const now = Date.now();
+  for (const job of maintenanceJobs) {
+    if (job.running || job.nextRunAt > now) continue;
+    job.nextRunAt = now + job.intervalMs;
+    void triggerMaintenanceJob(job);
+  }
+}
+
 async function fetchCampaignsByKind(kind, limit) {
   const { data, error } = await db
     .from("wa_campaigns")
@@ -452,6 +581,69 @@ async function completeCampaignIfDone(campaignId) {
   }
 }
 
+async function recoverStaleSendingCampaigns() {
+  const cutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString();
+  const { data: campaigns, error } = await db
+    .from("wa_campaigns")
+    .select("id, kind, started_at")
+    .eq("status", "sending")
+    .lt("started_at", cutoff)
+    .limit(100);
+
+  if (error) throw error;
+  if (!campaigns || campaigns.length === 0) return 0;
+
+  let recoveredMessages = 0;
+  let recoveredCampaigns = 0;
+
+  for (const campaign of campaigns) {
+    const { data: messages, error: msgError } = await db
+      .from("wa_messages")
+      .update({
+        status: "queued",
+        error_message: `worker_recovered_stale_sending_after_${STALE_SENDING_MINUTES}m`,
+      })
+      .eq("campaign_id", campaign.id)
+      .eq("status", "sending")
+      .is("sent_at", null)
+      .select("id");
+
+    if (msgError) throw msgError;
+    recoveredMessages += messages?.length || 0;
+
+    const [{ count: queued }, { count: sending }] = await Promise.all([
+      db
+        .from("wa_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("status", "queued"),
+      db
+        .from("wa_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", campaign.id)
+        .eq("status", "sending"),
+    ]);
+
+    if ((queued || 0) > 0 && (sending || 0) === 0) {
+      await db
+        .from("wa_campaigns")
+        .update({ status: "queued" })
+        .eq("id", campaign.id)
+        .eq("status", "sending");
+      recoveredCampaigns++;
+    }
+  }
+
+  if (recoveredMessages > 0 || recoveredCampaigns > 0) {
+    log("recovered stale sending campaigns", {
+      campaigns: recoveredCampaigns,
+      messages: recoveredMessages,
+    });
+  }
+
+  return recoveredMessages;
+}
+
 async function updateCartRecoveryLogsByMessageIds(messageIds, patch) {
   for (let i = 0; i < messageIds.length; i += 100) {
     const chunk = messageIds.slice(i, i + 100).map(String);
@@ -575,7 +767,7 @@ async function processCampaign(campaign) {
           ...(campaign.variable_values || {}),
           ...(message.variable_values || {}),
         };
-        const result = await sendTemplateMessage(
+        const result = await sendTemplateMessageWithRetries(
           config,
           message.phone,
           template.name,
@@ -661,6 +853,8 @@ async function processCampaign(campaign) {
 }
 
 async function processOnce() {
+  scheduleDueMaintenanceJobs();
+  await recoverStaleSendingCampaigns();
   await cancelConvertedGiftRequestMessages();
   const campaigns = await fetchDueCampaigns();
   if (campaigns.length === 0) return 0;
@@ -678,7 +872,14 @@ async function main() {
     kinds: Array.from(ENABLED_KINDS),
     batchSize: BATCH_SIZE,
     parallel: PARALLEL,
+    sendRetryAttempts: SEND_RETRY_ATTEMPTS,
+    staleSendingMinutes: STALE_SENDING_MINUTES,
+    maintenanceJobs: MAINTENANCE_JOBS_ENABLED && Boolean(CRON_BASE_URL && CRON_SECRET),
   });
+
+  if (MAINTENANCE_JOBS_ENABLED && (!CRON_BASE_URL || !CRON_SECRET)) {
+    log("maintenance jobs disabled because CRON_SECRET or base URL is missing");
+  }
 
   while (!stopping) {
     try {

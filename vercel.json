@@ -5,10 +5,6 @@
       "schedule": "*/10 * * * *"
     },
     {
-      "path": "/api/cron/whatsapp-sender",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/crm-recompute",
       "schedule": "*/30 * * * *"
     },
@@ -49,10 +45,6 @@
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/gift-request-conversions",
-      "schedule": "*/30 * * * *"
-    },
-    {
       "path": "/api/cron/email-templates-refresh",
       "schedule": "0 9 * * *"
     },
@@ -83,14 +75,6 @@
     {
       "path": "/api/cron/topbar-regenerate",
       "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/cart-recovery",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/cart-recovery-import",
-      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/review-requests",
