@@ -9,8 +9,9 @@ const BATCH_SIZE = 200;
 const PARALLEL = 10;  // micro-batch size for Meta API calls
 const DELAY_MS = 50;  // between micro-batches (~20 msgs/sec per parallel slot)
 const DAY_MS = 24 * 60 * 60 * 1000;
+const GIFT_REQUEST_CAMPAIGN_LIMIT = 50;
 const MANUAL_CAMPAIGN_LIMIT = 3;
-const AUTOMATION_CAMPAIGN_LIMIT = 50;
+const CART_RECOVERY_CAMPAIGN_LIMIT = 50;
 const DUE_CAMPAIGN_FILTER =
   "status.eq.queued,status.eq.sending,and(status.eq.scheduled,scheduled_at.lte.now())";
 const DUE_CAMPAIGN_SELECT =
@@ -32,7 +33,15 @@ function sleep(ms: number) {
 }
 
 async function fetchDueCampaigns(admin: AdminClient): Promise<DueCampaign[]> {
-  const [manual, automations] = await Promise.all([
+  const [giftRequests, manual, cartRecovery] = await Promise.all([
+    admin
+      .from("wa_campaigns")
+      .select(DUE_CAMPAIGN_SELECT)
+      .eq("kind", "gift_request")
+      .or(DUE_CAMPAIGN_FILTER)
+      .order("scheduled_at", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true })
+      .limit(GIFT_REQUEST_CAMPAIGN_LIMIT),
     admin
       .from("wa_campaigns")
       .select(DUE_CAMPAIGN_SELECT)
@@ -44,23 +53,81 @@ async function fetchDueCampaigns(admin: AdminClient): Promise<DueCampaign[]> {
     admin
       .from("wa_campaigns")
       .select(DUE_CAMPAIGN_SELECT)
-      .in("kind", ["cart_recovery", "gift_request"])
+      .eq("kind", "cart_recovery")
       .or(DUE_CAMPAIGN_FILTER)
       .order("created_at", { ascending: true })
-      .limit(AUTOMATION_CAMPAIGN_LIMIT),
+      .limit(CART_RECOVERY_CAMPAIGN_LIMIT),
   ]);
 
+  if (giftRequests.error) throw giftRequests.error;
   if (manual.error) throw manual.error;
-  if (automations.error) throw automations.error;
+  if (cartRecovery.error) throw cartRecovery.error;
 
   const seen = new Set<string>();
   const rows: DueCampaign[] = [];
-  for (const campaign of [...(manual.data || []), ...(automations.data || [])] as DueCampaign[]) {
+  for (const campaign of [
+    ...(giftRequests.data || []),
+    ...(manual.data || []),
+    ...(cartRecovery.data || []),
+  ] as DueCampaign[]) {
     if (seen.has(campaign.id)) continue;
     seen.add(campaign.id);
     rows.push(campaign);
   }
   return rows;
+}
+
+async function cancelConvertedGiftRequestMessages(admin: AdminClient) {
+  const { data: requests, error } = await admin
+    .from("gift_requests")
+    .select("id, wa_message_id")
+    .eq("status", "converted")
+    .not("wa_message_id", "is", null)
+    .limit(200);
+
+  if (error) throw error;
+
+  const messageIds = ((requests || []) as Array<{ wa_message_id: string | null }>)
+    .map((request) => request.wa_message_id)
+    .filter((id): id is string => Boolean(id));
+  if (messageIds.length === 0) return;
+
+  const { data: messages, error: msgError } = await admin
+    .from("wa_messages")
+    .select("id, campaign_id")
+    .in("id", messageIds)
+    .in("status", ["queued", "sending"]);
+
+  if (msgError) throw msgError;
+  if (!messages || messages.length === 0) return;
+
+  const staleMessageIds = messages.map((message) => message.id as string);
+  const campaignIds = Array.from(
+    new Set(
+      messages
+        .map((message) => message.campaign_id as string | null)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  await admin
+    .from("wa_messages")
+    .update({
+      status: "canceled",
+      error_message: "gift_request_already_converted",
+    })
+    .in("id", staleMessageIds);
+
+  if (campaignIds.length > 0) {
+    await admin
+      .from("wa_campaigns")
+      .update({
+        status: "canceled",
+        completed_at: new Date().toISOString(),
+      })
+      .in("id", campaignIds)
+      .in("status", ["queued", "scheduled", "sending"]);
+  }
 }
 
 function nextBusinessSendAt(hour: number) {
@@ -162,10 +229,11 @@ export async function GET(request: NextRequest) {
 
   try {
     await releaseApprovedPendingTemplates(admin);
+    await cancelConvertedGiftRequestMessages(admin);
 
     // Find active campaigns (queued, sending, or scheduled and due).
-    // Manual campaigns get priority so high-volume commercial sends are not
-    // starved by thousands of one-message automation campaigns.
+    // Gift requests are transactional and must not be starved by high-volume
+    // manual sends or thousands of one-message cart recovery campaigns.
     const campaigns = await fetchDueCampaigns(admin);
 
     if (!campaigns || campaigns.length === 0) {

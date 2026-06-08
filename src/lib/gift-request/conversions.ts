@@ -16,6 +16,7 @@ interface GiftRequestRow {
   product_name: string | null;
   status: string | null;
   created_at: string;
+  wa_message_id: string | null;
 }
 
 interface ProductRow {
@@ -360,6 +361,41 @@ function candidateDelayMs(candidate: ConversionCandidate): number {
   return saleAt - requestAt;
 }
 
+async function cancelPendingInitialGiftRequestMessage(
+  admin: SupabaseClient,
+  request: GiftRequestRow
+) {
+  if (!request.wa_message_id) return;
+
+  const { data: message } = await admin
+    .from("wa_messages")
+    .select("id, campaign_id")
+    .eq("id", request.wa_message_id)
+    .in("status", ["queued", "sending"])
+    .maybeSingle();
+
+  if (!message) return;
+
+  await admin
+    .from("wa_messages")
+    .update({
+      status: "canceled",
+      error_message: "gift_request_already_converted",
+    })
+    .eq("id", message.id);
+
+  if (message.campaign_id) {
+    await admin
+      .from("wa_campaigns")
+      .update({
+        status: "canceled",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", message.campaign_id)
+      .in("status", ["queued", "scheduled", "sending"]);
+  }
+}
+
 export async function syncGiftRequestConversions(
   options: SyncGiftRequestConversionOptions
 ): Promise<GiftRequestConversionSyncResult> {
@@ -376,7 +412,7 @@ export async function syncGiftRequestConversions(
   const { data, error } = await admin
     .from("gift_requests")
     .select(
-      "id, workspace_id, requester_phone, recipient_phone, product_id, product_name, status, created_at"
+      "id, workspace_id, requester_phone, recipient_phone, product_id, product_name, status, created_at, wa_message_id"
     )
     .eq("workspace_id", workspaceId)
     .is("converted_at", null)
@@ -495,6 +531,15 @@ export async function syncGiftRequestConversions(
       .is("converted_at", null);
 
     if (updateError) throw new Error(updateError.message);
+    await cancelPendingInitialGiftRequestMessage(
+      admin,
+      candidate.request
+    ).catch((err) => {
+      console.warn(
+        `[GiftRequestConversions] failed to cancel pending initial message for request ${candidate.request.id}:`,
+        err
+      );
+    });
     await cancelPendingGiftRequestFollowups({
       admin,
       workspaceId,
