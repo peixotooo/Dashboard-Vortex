@@ -14,6 +14,8 @@ const MAX_DEFERS = 30;
 // Não enviar review se o cliente recebeu OUTRA comunicação (cashback, campanha,
 // etc.) nas últimas N horas — evita sobreposição de réguas.
 const COMMS_COOLDOWN_HOURS = 18;
+const CRM_ORDER_PAGE_SIZE = 1000;
+const MAX_CRM_ROWS_TO_SCAN = 10000;
 
 // Régua de comunicação pós-compra: a fila vive em `review_requests`.
 //
@@ -61,6 +63,49 @@ interface CrmRow {
   items: CrmItem[] | null;
 }
 
+function parsePurchaseTime(value: string | null): number | null {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+async function loadRecentCrmOrders(admin: SupabaseClient, workspaceId: string, cutoffMs: number): Promise<CrmRow[]> {
+  const rows: CrmRow[] = [];
+
+  for (let from = 0; from < MAX_CRM_ROWS_TO_SCAN; from += CRM_ORDER_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("crm_vendas")
+      .select("cliente, email, telefone, data_compra, numero_pedido, source_order_id, items")
+      .eq("workspace_id", workspaceId)
+      // A tabela também carrega linhas legadas com data textual ("Sep 9, 2025")
+      // e sem itens/order_id. Se elas entram no topo da ordenação textual, a
+      // régua escaneia 500 linhas inválidas e não enfileira ninguém.
+      .not("source_order_id", "is", null)
+      .not("items", "is", null)
+      .order("data_compra", { ascending: false })
+      .range(from, from + CRM_ORDER_PAGE_SIZE - 1);
+
+    if (error) throw new Error(error.message);
+    const page = (data || []) as CrmRow[];
+    if (page.length === 0) break;
+
+    let reachedCutoff = false;
+    for (const row of page) {
+      const purchasedAt = parsePurchaseTime(row.data_compra);
+      if (purchasedAt == null) continue;
+      if (purchasedAt < cutoffMs) {
+        reachedCutoff = true;
+        continue;
+      }
+      rows.push(row);
+    }
+
+    if (page.length < CRM_ORDER_PAGE_SIZE || reachedCutoff) break;
+  }
+
+  return rows;
+}
+
 // Escolhe o item "principal" do pedido (maior valor) pra não spammar 1 msg/produto.
 function mainItem(items: CrmItem[] | null): CrmItem | null {
   if (!items || items.length === 0) return null;
@@ -87,18 +132,10 @@ export async function enqueueReviewRequests(
   if (!settings.request_enabled) return result;
 
   const lookbackDays = opts.lookbackDays ?? settings.request_delay_days + 14;
-  const cutoff = new Date(Date.now() - lookbackDays * 86400_000).toISOString();
+  const cutoffMs = Date.now() - lookbackDays * 86400_000;
   const now = Date.now();
 
-  const { data: orders } = await admin
-    .from("crm_vendas")
-    .select("cliente, email, telefone, data_compra, numero_pedido, source_order_id, items")
-    .eq("workspace_id", workspaceId)
-    .gte("data_compra", cutoff)
-    .order("data_compra", { ascending: false })
-    .limit(500);
-
-  const rows = (orders || []) as CrmRow[];
+  const rows = await loadRecentCrmOrders(admin, workspaceId, cutoffMs);
   result.scanned = rows.length;
 
   const toInsert: Record<string, unknown>[] = [];
@@ -127,7 +164,7 @@ export async function enqueueReviewRequests(
     // Com gate de faturamento ligado, o disparo real é controlado no dispatch
     // (shipped + days_after_invoice), então NÃO pulamos por idade aqui — produtos
     // sob demanda demoram a faturar. Sem o gate, pulamos pedidos velhos (anti back-spam).
-    const purchased = o.data_compra ? new Date(o.data_compra).getTime() : now;
+    const purchased = parsePurchaseTime(o.data_compra) ?? now;
     const scheduledFor = purchased + settings.request_delay_days * 86400_000;
     if (!settings.request_require_invoice && scheduledFor < now - 5 * 86400_000) { result.skipped++; continue; }
 
@@ -325,7 +362,7 @@ export async function dispatchDueRequests(
   // (testado: sempre null) — o sinal real de despacho é o `tracking_code`. Como
   // não há data de despacho na VNDA, ancoramos os +9 dias na data em que
   // DETECTAMOS o tracking (gravada em review_requests.shipped_at na 1ª vez).
-  const requireInvoice = settings.request_require_invoice;
+  const requireInvoice = settings.request_require_invoice || settings.request_trigger === "delivery";
   const vndaConfig = requireInvoice ? await getVndaConfigAdmin(workspaceId) : null;
   const daysAfterInvoice = settings.request_days_after_invoice ?? 9;
 
