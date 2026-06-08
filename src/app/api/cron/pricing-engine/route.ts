@@ -1,14 +1,14 @@
 // Cron diário do engine de pricing.
 //
-// Schedule (vercel.json): "0 5 * * *" — 5h UTC, antes do shelf-catalog-sync 6h.
+// Schedule: Droplet worker, 5h UTC, antes do shelf-catalog-sync 6h.
 //
 // Para cada workspace com pricing_engine_settings.enabled=true:
 //   - Se cadencia='diaria', sempre roda.
 //   - Se cadencia='semanal', roda apenas no dia da semana configurado.
 //
 // O orchestrator gera linhas em sku_pricing_history (status='pending' por
-// default). Aplicação na VNDA acontece manualmente via /api/pricing/engine/apply
-// (mesmo padrão do promo_coupon_plans com require_manual_approval).
+// default). Aplicação na VNDA é enfileirada via /api/pricing/engine/apply e
+// executada pelo worker.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";

@@ -131,7 +131,9 @@ export default function PricingConfigPage() {
       const json = await res.json();
       if (res.ok) {
         alert(
-          `Engine processou ${json.evaluated} SKUs. ${json.decisions?.filter((d: { action: string }) => d.action !== "hold").length ?? 0} decisões geradas. Revise em "Decisões".`
+          json.already_queued
+            ? "O engine ja estava na fila do worker. As decisoes aparecem em instantes."
+            : "Engine enfileirado para o worker. As decisoes aparecem em instantes na tela de Decisoes."
         );
       } else {
         alert(`Erro: ${json.error}`);

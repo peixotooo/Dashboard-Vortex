@@ -254,9 +254,11 @@ export default function SkuPricingPage() {
       });
       const json = await res.json();
       alert(
-        `Aplicado: ${json.applied ?? 0} · Falhas: ${json.failed ?? 0}${
-          json.items?.[0]?.message ? `\n${json.items[0].message}` : ""
-        }`
+        json.queued
+          ? "Aplicacao enfileirada para o worker. A VNDA sera atualizada em instantes."
+          : `Aplicado: ${json.applied ?? 0} · Falhas: ${json.failed ?? 0}${
+              json.items?.[0]?.message ? `\n${json.items[0].message}` : ""
+            }`
       );
       await load();
     } finally {

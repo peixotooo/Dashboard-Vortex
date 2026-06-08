@@ -2275,7 +2275,14 @@ function BulkPriceSheet({
   const [value, setValue] = useState("");
   const [pushToMl, setPushToMl] = useState(true);
   const [applying, setApplying] = useState(false);
-  const [result, setResult] = useState<{ updated: number; ml_synced: number; errors: Array<{ sku: string; error: string }> } | null>(null);
+  const [result, setResult] = useState<{
+    updated: number;
+    ml_synced: number;
+    errors: Array<{ sku: string; error: string }>;
+    queued?: boolean;
+    matched?: number;
+    already_queued?: boolean;
+  } | null>(null);
 
   const numValue = parseFloat(value) || 0;
 
@@ -2450,8 +2457,11 @@ function BulkPriceSheet({
                 ) : (
                   <Check className="h-4 w-4 text-green-600" />
                 )}
-                {result.updated} atualizado(s)
-                {result.ml_synced > 0 && `, ${result.ml_synced} sincronizado(s) no ML`}
+                {result.queued
+                  ? `${result.matched ?? selectedIds.size} produto(s) enfileirado(s) para o worker`
+                  : `${result.updated} atualizado(s)`}
+                {!result.queued && result.ml_synced > 0 && `, ${result.ml_synced} sincronizado(s) no ML`}
+                {result.queued && result.already_queued && " (ja estava na fila)"}
               </div>
               {result.errors.length > 0 && (
                 <div className="mt-2 text-xs space-y-1">
@@ -2474,7 +2484,7 @@ function BulkPriceSheet({
             {applying ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Aplicando...
+                Enfileirando...
               </>
             ) : (
               <>

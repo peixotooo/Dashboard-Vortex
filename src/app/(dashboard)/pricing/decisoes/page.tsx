@@ -174,9 +174,11 @@ export default function DecisoesPage() {
       const json = await res.json();
       // Mostra resultado simples — futuro pode virar toast
       alert(
-        `Aplicado: ${json.applied ?? 0} · Falhas: ${json.failed ?? 0}${
-          json.error ? `\nErro: ${json.error}` : ""
-        }`
+        json.queued
+          ? `${json.matched ?? counts.approved} decisao(oes) enfileirada(s) para aplicar na VNDA pelo worker.`
+          : `Aplicado: ${json.applied ?? 0} · Falhas: ${json.failed ?? 0}${
+              json.error ? `\nErro: ${json.error}` : ""
+            }`
       );
       await load();
     } finally {

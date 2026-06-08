@@ -168,6 +168,20 @@ const maintenanceJobs = [
     running: false,
   },
   {
+    name: "pricing-jobs",
+    path: "/api/cron/pricing-jobs",
+    intervalMs: numberEnv("WA_WORKER_PRICING_JOBS_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
+    name: "pricing-engine",
+    path: "/api/cron/pricing-engine",
+    intervalMs: numberEnv("WA_WORKER_PRICING_ENGINE_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    nextRunAt: nextUtcDailyRun(5),
+    running: false,
+  },
+  {
     name: "email-templates-refresh",
     path: "/api/cron/email-templates-refresh",
     intervalMs: numberEnv("WA_WORKER_EMAIL_REFRESH_INTERVAL_MS", 24 * 60 * 60 * 1000),

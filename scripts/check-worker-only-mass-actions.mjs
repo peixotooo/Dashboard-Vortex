@@ -88,6 +88,19 @@ const rules = [
     pattern: /\b(syncAttributionForWorkspace|recomputeBanditStats)\s*\(/,
     allowed: [/^src\/app\/api\/cron\/coupon-attribution\/route\.ts$/],
   },
+  {
+    name: "pricing engine mass run",
+    pattern: /\brunOrchestrator\s*\(/,
+    allowed: [
+      /^src\/app\/api\/cron\/pricing-engine\/route\.ts$/,
+      /^src\/app\/api\/pricing\/engine\/preview\/route\.ts$/,
+    ],
+  },
+  {
+    name: "pricing VNDA price apply",
+    pattern: /\bupdateVndaSalePriceByReference\s*\(/,
+    allowed: [],
+  },
 ];
 
 const violations = [];
@@ -133,6 +146,8 @@ if (fs.existsSync(vercelConfigPath)) {
     "/api/cron/iporto-dispatcher",
     "/api/cron/iporto-dispatcher-2",
     "/api/cron/iporto-dispatcher-3",
+    "/api/cron/pricing-engine",
+    "/api/cron/pricing-jobs",
     "/api/cron/review-requests",
     "/api/cron/wapi-group-sender",
     "/api/cron/whatsapp-sender",
