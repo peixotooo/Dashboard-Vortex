@@ -11,6 +11,7 @@ import {
 } from "@/lib/wapi-api";
 
 export const maxDuration = 120;
+const STALE_SENDING_MS = 2 * 60 * 60 * 1000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,6 +27,19 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
 
   try {
+    const staleCutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString();
+    const { data: staleDispatches } = await admin
+      .from("wapi_group_dispatches")
+      .update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+      })
+      .eq("status", "sending")
+      .lt("started_at", staleCutoff)
+      .is("completed_at", null)
+      .select("id");
+    const recoveredStale = staleDispatches?.length || 0;
+
     const { data: dispatches } = await admin
       .from("wapi_group_dispatches")
       .select("*")
@@ -35,7 +49,7 @@ export async function GET(request: NextRequest) {
       .limit(3);
 
     if (!dispatches || dispatches.length === 0) {
-      return NextResponse.json({ processed: 0 });
+      return NextResponse.json({ processed: 0, recovered_stale: recoveredStale });
     }
 
     let totalProcessed = 0;
@@ -207,7 +221,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ processed: totalProcessed });
+    return NextResponse.json({
+      processed: totalProcessed,
+      recovered_stale: recoveredStale,
+    });
   } catch (error) {
     console.error(
       "[WAPI Group Sender]",

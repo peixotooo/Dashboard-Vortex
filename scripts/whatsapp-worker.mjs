@@ -763,6 +763,72 @@ async function recoverStaleSendingCampaigns() {
   return recoveredMessages;
 }
 
+async function recoverOrphanSendingMessages() {
+  const cutoff = new Date(Date.now() - STALE_SENDING_MS).toISOString();
+  const { data: messages, error } = await db
+    .from("wa_messages")
+    .select("id, campaign_id, sent_at, created_at")
+    .eq("status", "sending")
+    .lt("created_at", cutoff)
+    .limit(500);
+
+  if (error) throw error;
+  if (!messages || messages.length === 0) return 0;
+
+  const campaignIds = Array.from(
+    new Set(messages.map((row) => row.campaign_id).filter(Boolean))
+  );
+  const campaignStatus = new Map();
+
+  if (campaignIds.length > 0) {
+    const { data: campaigns, error: campaignError } = await db
+      .from("wa_campaigns")
+      .select("id, status")
+      .in("id", campaignIds);
+
+    if (campaignError) throw campaignError;
+    for (const campaign of campaigns || []) {
+      campaignStatus.set(campaign.id, campaign.status);
+    }
+  }
+
+  const sentIds = [];
+  const failedIds = [];
+  for (const message of messages) {
+    if (message.sent_at) {
+      sentIds.push(message.id);
+      continue;
+    }
+
+    if (campaignStatus.get(message.campaign_id) !== "sending") {
+      failedIds.push(message.id);
+    }
+  }
+
+  if (sentIds.length > 0) {
+    await db.from("wa_messages").update({ status: "sent" }).in("id", sentIds);
+  }
+
+  if (failedIds.length > 0) {
+    await db
+      .from("wa_messages")
+      .update({
+        status: "failed",
+        error_message: `worker_recovered_orphan_sending_after_${STALE_SENDING_MINUTES}m`,
+      })
+      .in("id", failedIds);
+  }
+
+  if (sentIds.length > 0 || failedIds.length > 0) {
+    log("recovered orphan sending messages", {
+      sent: sentIds.length,
+      failed: failedIds.length,
+    });
+  }
+
+  return sentIds.length + failedIds.length;
+}
+
 async function updateCartRecoveryLogsByMessageIds(messageIds, patch) {
   for (let i = 0; i < messageIds.length; i += 100) {
     const chunk = messageIds.slice(i, i + 100).map(String);
@@ -974,6 +1040,7 @@ async function processCampaign(campaign) {
 async function processOnce() {
   scheduleDueMaintenanceJobs();
   await recoverStaleSendingCampaigns();
+  await recoverOrphanSendingMessages();
   await cancelConvertedGiftRequestMessages();
   const campaigns = await fetchDueCampaigns();
   if (campaigns.length === 0) return 0;
