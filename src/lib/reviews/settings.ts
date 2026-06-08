@@ -165,12 +165,29 @@ export async function upsertReviewSettings(
   clean.workspace_id = workspaceId;
   clean.updated_at = new Date().toISOString();
 
-  const { data, error } = await admin
-    .from("review_settings")
-    .upsert(clean, { onConflict: "workspace_id" })
-    .select("*")
-    .single();
+  async function save(payload: Record<string, unknown>) {
+    return admin
+      .from("review_settings")
+      .upsert(payload, { onConflict: "workspace_id" })
+      .select("*")
+      .single();
+  }
+
+  let { data, error } = await save(clean);
+
+  // Produção pode estar um passo atrás da migration 113. Se a coluna ainda não
+  // existe, não podemos deixar o save inteiro falhar e perder request_enabled /
+  // copies da régua. O formulário cai no default do código até a migration rodar.
+  if (error && error.code === "PGRST204" && error.message.includes("'form_fields'")) {
+    delete clean.form_fields;
+    const retry = await save(clean);
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) throw new Error(error.message);
-  return data as ReviewSettings;
+  return {
+    ...(data as ReviewSettings),
+    form_fields: (data as ReviewSettings).form_fields ?? DEFAULT_FORM_FIELDS,
+  };
 }

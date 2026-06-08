@@ -169,6 +169,7 @@ export default function ReviewsPage() {
   const [settings, setSettings] = useState<ReviewSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettings, setSavedSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Install
   const [apiKey, setApiKey] = useState<string | null>(null);
@@ -488,14 +489,23 @@ export default function ReviewsPage() {
     if (!workspace?.id || !settings) return;
     setSavingSettings(true);
     setSavedSettings(false);
+    setSettingsError(null);
     try {
       const res = await fetch("/api/reviews/settings", { method: "PATCH", headers: headers(), body: JSON.stringify(settings) });
       const d = await res.json();
-      if (d.settings) {
-        setSettings(d.settings);
-        setSavedSettings(true);
-        setTimeout(() => setSavedSettings(false), 2500);
+      if (!res.ok || d.error) {
+        setSettingsError(d.error || "Erro ao salvar configurações.");
+        return;
       }
+      if (!d.settings) {
+        setSettingsError("A API não retornou as configurações salvas.");
+        return;
+      }
+      setSettings(d.settings);
+      setSavedSettings(true);
+      setTimeout(() => setSavedSettings(false), 2500);
+    } catch {
+      setSettingsError("Erro de conexão ao salvar configurações.");
     } finally {
       setSavingSettings(false);
     }
@@ -1283,10 +1293,14 @@ export default function ReviewsPage() {
                   </div>
                 </div>
 
-                <Button onClick={saveSettings} disabled={savingSettings}>
-                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Salvar régua
-                </Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={saveSettings} disabled={savingSettings}>
+                    {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Salvar régua
+                  </Button>
+                  {savedSettings && !settingsError && <span className="text-xs text-green-600">Configurações salvas.</span>}
+                  {settingsError && <span className="text-xs text-destructive">{settingsError}</span>}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -1336,10 +1350,14 @@ export default function ReviewsPage() {
                   aparece na loja depois de você aprovar na aba <strong>Moderação</strong>. Avaliações
                   só são coletadas de quem comprou o produto.
                 </div>
-                <Button onClick={saveSettings} disabled={savingSettings}>
-                  {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Salvar configurações
-                </Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={saveSettings} disabled={savingSettings}>
+                    {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Salvar configurações
+                  </Button>
+                  {savedSettings && !settingsError && <span className="text-xs text-green-600">Configurações salvas.</span>}
+                  {settingsError && <span className="text-xs text-destructive">{settingsError}</span>}
+                </div>
               </CardContent>
             </Card>
           )}
