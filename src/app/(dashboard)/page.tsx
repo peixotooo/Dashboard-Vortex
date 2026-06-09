@@ -1416,8 +1416,8 @@ const FASHION_FUNNEL_BENCHMARKS = {
   addToCartRate: 7.12,
   cartToCheckoutRate: 40,
   checkoutCompletionRate: 45,
-  fashionCvrConservative: 1.41,
-  fashionCvrUpper: 2.73,
+  fashionCvrGoodBrazil: 1.4,
+  fashionCvrExcellentBrazil: 2,
   cartAbandonmentGood: 70.22,
   cartAbandonmentWatch: 77.81,
 };
@@ -1452,6 +1452,37 @@ function benchmarkTone(rate: number | null, benchmark: number) {
     };
   }
   if (rate >= benchmark * 0.85) {
+    return {
+      label: "perto",
+      className: "border-warning/20 bg-warning/10 text-warning",
+    };
+  }
+  return {
+    label: "abaixo",
+    className: "border-destructive/20 bg-destructive/10 text-destructive",
+  };
+}
+
+function conversionTone(rate: number | null) {
+  if (rate == null) {
+    return {
+      label: "sem dado",
+      className: "border-border bg-muted text-muted-foreground",
+    };
+  }
+  if (rate >= FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil) {
+    return {
+      label: "excelente",
+      className: "border-success/20 bg-success/10 text-success",
+    };
+  }
+  if (rate >= FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil) {
+    return {
+      label: "bom",
+      className: "border-success/20 bg-success/10 text-success",
+    };
+  }
+  if (rate >= FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil * 0.85) {
     return {
       label: "perto",
       className: "border-warning/20 bg-warning/10 text-warning",
@@ -1560,14 +1591,14 @@ function FunnelSection({
   const targetCheckouts = addToCarts * (FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate / 100);
   const targetOrdersFromCheckout =
     checkouts * (FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate / 100);
-  const targetOrdersConservative =
-    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative / 100);
-  const targetOrdersUpper =
-    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper / 100);
-  const ordersToFashionMedian = targetGap(pedidos, targetOrdersConservative);
-  const ordersToFashionUpper = targetGap(pedidos, targetOrdersUpper);
+  const targetOrdersGoodBrazil =
+    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil / 100);
+  const targetOrdersExcellentBrazil =
+    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil / 100);
+  const ordersToFashionGoodBrazil = targetGap(pedidos, targetOrdersGoodBrazil);
+  const ordersToFashionExcellentBrazil = targetGap(pedidos, targetOrdersExcellentBrazil);
   const potentialRevenue =
-    ordersToFashionUpper * (ticketMedio || (pedidos > 0 ? revenue / pedidos : 0));
+    ordersToFashionGoodBrazil * (ticketMedio || (pedidos > 0 ? revenue / pedidos : 0));
 
   const diagnosticCandidates = [
     {
@@ -1641,7 +1672,7 @@ function FunnelSection({
   ];
 
   const maxValue = Math.max(visitorBase, ...volumeStages.map((stage) => stage.target), 1);
-  const cvrTone = benchmarkTone(siteConversionRate, FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper);
+  const cvrTone = conversionTone(siteConversionRate);
   const cartAbandonTone = abandonmentTone(cartAbandonmentRate);
 
   return (
@@ -1656,7 +1687,7 @@ function FunnelSection({
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
-              Moda CVR {FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative.toFixed(1)}–{FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%
+              Brasil CVR bom {FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente {FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%
             </Badge>
             <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
               Abandono mercado {FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–{FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%
@@ -1694,9 +1725,9 @@ function FunnelSection({
           <FunnelMetricTile
             label="Receita potencial"
             value={formatCurrency(Math.max(0, potentialRevenue))}
-            detail={`se CVR chegar a ${FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%`}
+            detail={`se CVR chegar a ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}%`}
             toneClass="border-primary/20 bg-primary/10 text-primary"
-            status={`${formatNumber(ordersToFashionUpper)} pedidos`}
+            status={`${formatNumber(ordersToFashionGoodBrazil)} pedidos`}
           />
         </div>
 
@@ -1795,7 +1826,7 @@ function FunnelSection({
                 <BenchmarkLine
                   label="Conversão site"
                   actual={siteConversionRate}
-                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative.toFixed(1)}–${FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%`}
+                  benchmark={`bom ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente ${FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%`}
                 />
                 <BenchmarkLine
                   label="Add-to-cart"
@@ -1822,12 +1853,12 @@ function FunnelSection({
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedidos adicionais</p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">até CVR 1,4%</p>
-                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionMedian)}</p>
+                  <p className="text-xs text-muted-foreground">até CVR bom 1,4%</p>
+                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionGoodBrazil)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">até CVR 2,7%</p>
-                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionUpper)}</p>
+                  <p className="text-xs text-muted-foreground">até CVR excelente 2,0%</p>
+                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionExcellentBrazil)}</p>
                 </div>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">
