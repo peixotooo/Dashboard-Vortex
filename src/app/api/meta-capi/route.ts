@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { buildCorsHeaders } from "@/lib/cors";
 import {
+  normalizeAttributionEmail,
+  upsertMetaAttributionSnapshot,
+} from "@/lib/meta-attribution";
+import {
   EVENT_MAP,
   isCapiConfigured,
+  normalizeFreshFbc,
   sendCapiEvent,
   type MetaStandardEvent,
 } from "@/lib/meta-capi";
@@ -38,6 +44,38 @@ interface CAPIBody {
   value?: number;
   currency?: string;
   order_id?: string;
+}
+
+async function snapshotAttribution(input: {
+  workspaceId: string;
+  email: string;
+  consumerId?: string;
+  fbc?: string;
+  fbp?: string;
+  clientIp?: string;
+  userAgent?: string;
+}) {
+  try {
+    const admin = createAdminClient();
+    const result = await upsertMetaAttributionSnapshot(admin, {
+      workspaceId: input.workspaceId,
+      email: input.email,
+      consumerId: input.consumerId,
+      fbc: input.fbc,
+      fbp: input.fbp,
+      clientIp: input.clientIp,
+      userAgent: input.userAgent,
+    });
+
+    if (!result.ok && !result.reason) {
+      console.warn("[CAPI] Attribution snapshot failed:", result.error);
+    }
+  } catch (error) {
+    console.warn(
+      "[CAPI] Attribution snapshot failed:",
+      error instanceof Error ? error.message : error
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -83,6 +121,19 @@ export async function POST(request: NextRequest) {
     undefined;
 
   const userAgent = body.user_agent || request.headers.get("user-agent") || undefined;
+  const email = normalizeAttributionEmail(body.email);
+  const fbc = normalizeFreshFbc(body.fbc);
+  const fbp = body.fbp?.trim() || undefined;
+
+  await snapshotAttribution({
+    workspaceId: auth.workspaceId,
+    email,
+    consumerId: body.external_id,
+    fbc,
+    fbp,
+    clientIp,
+    userAgent,
+  });
 
   const result = await sendCapiEvent({
     event_name: eventName,
@@ -94,8 +145,8 @@ export async function POST(request: NextRequest) {
     user: {
       client_ip_address: clientIp,
       client_user_agent: userAgent,
-      fbc: body.fbc,
-      fbp: body.fbp,
+      fbc,
+      fbp,
       external_id: body.external_id,
       email: body.email,
       phone: body.phone,

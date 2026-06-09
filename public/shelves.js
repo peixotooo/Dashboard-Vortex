@@ -2581,6 +2581,25 @@
     return getCookie("_vtx_ph") || "";
   }
 
+  function getOrCreateFbp() {
+    var fbp = getCookie("_fbp") || "";
+    if (/^fb\.\d+\.\d+\.[A-Za-z0-9_-]+$/.test(fbp)) return fbp;
+
+    var rand = "";
+    try {
+      if (window.crypto && window.crypto.getRandomValues) {
+        var arr = new Uint32Array(2);
+        window.crypto.getRandomValues(arr);
+        rand = String(arr[0]) + String(arr[1]);
+      }
+    } catch (e) { /* fallback below */ }
+    if (!rand) rand = String(Math.floor(Math.random() * 10000000000));
+
+    fbp = "fb.1." + Date.now() + "." + rand;
+    setCookie("_fbp", fbp, 90);
+    return fbp;
+  }
+
   function getFreshFbc() {
     var fbc = getCookie("_fbc") || "";
     if (!fbc) return "";
@@ -2600,7 +2619,7 @@
     setStoredEmail(normalized);
     if (attributionSent[normalized]) return;
     var fbc = getFreshFbc();
-    var fbp = getCookie("_fbp") || "";
+    var fbp = getOrCreateFbp();
     if (!fbc && !fbp) return; // nothing useful to capture
     attributionSent[normalized] = 1;
 
@@ -2643,6 +2662,15 @@
     function bindEmail(el) {
       if (el._vtxAttrBound) return;
       el._vtxAttrBound = 1;
+      var inputTimer = null;
+      el.addEventListener("input", function (e) {
+        if (!isEmailLike(e.target.value)) return;
+        setStoredEmail(e.target.value);
+        clearTimeout(inputTimer);
+        inputTimer = setTimeout(function () {
+          sendAttribution(e.target.value);
+        }, 350);
+      });
       el.addEventListener("blur", function (e) {
         if (isEmailLike(e.target.value)) sendAttribution(e.target.value);
       });
@@ -2655,6 +2683,9 @@
     function bindPhone(el) {
       if (el._vtxPhoneBound) return;
       el._vtxPhoneBound = 1;
+      el.addEventListener("input", function (e) {
+        if (isPhoneLike(e.target.value)) setStoredPhone(e.target.value);
+      });
       el.addEventListener("blur", function (e) {
         if (isPhoneLike(e.target.value)) setStoredPhone(e.target.value);
       });
@@ -2711,6 +2742,7 @@
     // types email/phone in any form on the site. Server hashes before send.
     var storedEmail = getStoredEmail();
     var storedPhone = getStoredPhone();
+    if (storedEmail) sendAttribution(storedEmail);
 
     var payload = {
       key: API_KEY,
@@ -2720,7 +2752,7 @@
       referrer: document.referrer || "",
       user_agent: navigator.userAgent,
       fbc: getFreshFbc(),
-      fbp: getCookie("_fbp") || "",
+      fbp: getOrCreateFbp(),
       external_id: consumerId || "",
       email: data.email || storedEmail || "",
       phone: data.phone || storedPhone || "",

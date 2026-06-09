@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { buildCorsHeaders } from "@/lib/cors";
-import { normalizeFreshFbc } from "@/lib/meta-capi";
+import {
+  normalizeAttributionEmail,
+  upsertMetaAttributionSnapshot,
+} from "@/lib/meta-attribution";
 
 // Captures Meta CAPI browser-side signals (fbc, fbp, client IP, user agent)
 // keyed by the email the customer typed in the storefront checkout form.
@@ -21,10 +24,6 @@ interface Body {
   fbp?: string;
   consumer_id?: string;
   user_agent?: string;
-}
-
-function normEmail(v: string): string {
-  return v.trim().toLowerCase();
 }
 
 export async function POST(request: NextRequest) {
@@ -48,22 +47,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const email = body.email ? normEmail(body.email) : "";
+  const email = normalizeAttributionEmail(body.email);
   if (!email || !email.includes("@")) {
     return NextResponse.json(
       { ok: false, reason: "missing_email" },
-      { headers: cors }
-    );
-  }
-
-  const fbc = normalizeFreshFbc(body.fbc) || null;
-  const fbp = body.fbp?.trim() || null;
-
-  // At least one of the browser signals must be present, otherwise the row
-  // adds no value to a future Purchase event.
-  if (!fbc && !fbp) {
-    return NextResponse.json(
-      { ok: false, reason: "no_signals" },
       { headers: cors }
     );
   }
@@ -75,24 +62,27 @@ export async function POST(request: NextRequest) {
   const userAgent = body.user_agent || request.headers.get("user-agent") || null;
 
   const admin = createAdminClient();
-  const { error } = await admin.from("meta_attribution").upsert(
-    {
-      workspace_id: auth.workspaceId,
-      email,
-      consumer_id: body.consumer_id || null,
-      fbc,
-      fbp,
-      client_ip: clientIp,
-      user_agent: userAgent,
-      captured_at: new Date().toISOString(),
-    },
-    { onConflict: "workspace_id,email" }
-  );
+  const result = await upsertMetaAttributionSnapshot(admin, {
+    workspaceId: auth.workspaceId,
+    email,
+    consumerId: body.consumer_id,
+    fbc: body.fbc,
+    fbp: body.fbp,
+    clientIp,
+    userAgent,
+  });
 
-  if (error) {
-    console.error("[MetaAttribution] upsert failed:", error.message);
+  if (result.reason === "no_signals") {
     return NextResponse.json(
-      { ok: false, error: error.message },
+      { ok: false, reason: "no_signals" },
+      { headers: cors }
+    );
+  }
+
+  if (!result.ok) {
+    console.error("[MetaAttribution] upsert failed:", result.error || result.reason);
+    return NextResponse.json(
+      { ok: false, error: result.error || result.reason },
       { status: 500, headers: cors }
     );
   }
