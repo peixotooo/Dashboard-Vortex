@@ -2470,15 +2470,32 @@
   //   - VNDA's native pixel + CAPI for 001BK stays 100% untouched
   //   - We NEVER call fbq("init") — avoids polluting VNDA's fbq instance
   //     which would cause their track() calls to fire on both pixels
-  //   - All BK COM events go server-side via /api/meta-capi
+  //   - All BK COM events go server-side via /api/meta-capi only when
+  //     enabled in Dashboard > Settings > Meta
   //   - _fbp and _fbc cookies (set by VNDA's pixel) are forwarded to CAPI
   //     for user matching — these are global, not pixel-specific
   //   - Meta attributes conversions based on ad click → _fbc match
   // =====================================================================
 
-  var VTX_CAPI_ENABLED = !!(window._vtxPixelId || window._vtxCapiEnabled);
+  var VTX_CAPI_ENABLED = false;
+  var VTX_CAPI_BOOTED = false;
 
   function initCAPI() {
+    if (!API_BASE || !API_KEY || VTX_CAPI_BOOTED) return;
+
+    fetchJSON(API_BASE + "/api/meta-capi/config?key=" + encodeURIComponent(API_KEY))
+      .then(function (config) {
+        if (!config || config.enabled !== true) return;
+        VTX_CAPI_ENABLED = true;
+        VTX_CAPI_BOOTED = true;
+        bootCAPI();
+      })
+      .catch(function (err) {
+        console.warn("[VtxCAPI] Config check failed; CAPI disabled:", err);
+      });
+  }
+
+  function bootCAPI() {
     if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
 
     // Run BEFORE any event dispatch so autofilled email/phone is in cookies

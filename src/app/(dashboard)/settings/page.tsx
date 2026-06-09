@@ -128,6 +128,10 @@ export default function SettingsPage() {
   const [tokenError, setTokenError] = useState("");
   const [hasConnection, setHasConnection] = useState(false);
   const [connectionInfo, setConnectionInfo] = useState<{ app_id?: string; created_at?: string } | null>(null);
+  const [metaCapiEnabled, setMetaCapiEnabled] = useState(false);
+  const [savingMetaCapi, setSavingMetaCapi] = useState(false);
+  const [metaCapiSaved, setMetaCapiSaved] = useState(false);
+  const [metaCapiError, setMetaCapiError] = useState("");
 
   // Account selection
   const [allAccounts, setAllAccounts] = useState<MetaAccount[]>([]);
@@ -246,6 +250,20 @@ export default function SettingsPage() {
       // Silent
     }
 
+    // Load Vortex Meta CAPI toggle. Defaults to off to avoid duplicates with
+    // VNDA native CAPI.
+    try {
+      const capiRes = await fetch("/api/meta-capi/settings", {
+        headers: { "x-workspace-id": workspace.id },
+      });
+      const capiData = await capiRes.json();
+      if (capiRes.ok && capiData.settings) {
+        setMetaCapiEnabled(capiData.settings.meta_capi_enabled === true);
+      }
+    } catch {
+      setMetaCapiEnabled(false);
+    }
+
     // Load Eccosys connection status (env-var based)
     try {
       const eccRes = await fetch("/api/eccosys/connections");
@@ -323,6 +341,38 @@ export default function SettingsPage() {
       setTokenError("Erro ao salvar conexão");
     } finally {
       setSavingToken(false);
+    }
+  }
+
+  async function handleToggleMetaCapi(enabled: boolean) {
+    if (!workspace) return;
+    const previous = metaCapiEnabled;
+    setMetaCapiEnabled(enabled);
+    setSavingMetaCapi(true);
+    setMetaCapiSaved(false);
+    setMetaCapiError("");
+
+    try {
+      const res = await fetch("/api/meta-capi/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({ meta_capi_enabled: enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Erro ao salvar Meta CAPI");
+      }
+      setMetaCapiEnabled(data.settings?.meta_capi_enabled === true);
+      setMetaCapiSaved(true);
+      setTimeout(() => setMetaCapiSaved(false), 2500);
+    } catch (error) {
+      setMetaCapiEnabled(previous);
+      setMetaCapiError(error instanceof Error ? error.message : "Erro ao salvar Meta CAPI");
+    } finally {
+      setSavingMetaCapi(false);
     }
   }
 
@@ -983,6 +1033,54 @@ export default function SettingsPage() {
 
         {/* ===== Meta Connection Tab ===== */}
         <TabsContent value="meta" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                Meta CAPI do Vortex
+              </CardTitle>
+              <CardDescription>
+                Controle se o Vortex envia eventos pela API de Conversões. Mantenha desligado quando a CAPI estiver configurada diretamente na VNDA.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Enviar eventos CAPI pelo Vortex</p>
+                    <Badge variant={metaCapiEnabled ? "default" : "secondary"}>
+                      {metaCapiEnabled ? "Ativo" : "Desligado"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Com a CAPI ativa na VNDA, deixe este controle desligado para evitar PageView, ViewContent, AddToCart e Purchase duplicados.
+                  </p>
+                </div>
+                <Switch
+                  checked={metaCapiEnabled}
+                  onCheckedChange={handleToggleMetaCapi}
+                  disabled={!isAdmin || savingMetaCapi}
+                />
+              </div>
+
+              {metaCapiSaved && (
+                <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg">
+                  <CheckCircle className="h-4 w-4 text-success" />
+                  <span className="text-sm text-success">
+                    Configuração da Meta CAPI salva.
+                  </span>
+                </div>
+              )}
+
+              {metaCapiError && (
+                <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                  <XCircle className="h-4 w-4 text-destructive" />
+                  <span className="text-sm text-destructive">{metaCapiError}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Token card */}
           <Card>
             <CardHeader>
@@ -2010,12 +2108,27 @@ export default function SettingsPage() {
                         .split("\n")
                         .map((s) => s.trim())
                         .filter(Boolean);
-                      const config = {
+                      let existingConfig: Record<string, unknown> = {};
+                      try {
+                        const existingRes = await fetch(`/api/agent/config?doc_type=provider_config`, {
+                          headers: { "x-workspace-id": workspace.id },
+                        });
+                        const existingData = await existingRes.json();
+                        if (existingData.document?.content) {
+                          existingConfig = JSON.parse(existingData.document.content);
+                        }
+                      } catch {
+                        existingConfig = {};
+                      }
+                      const config: Record<string, unknown> = {
+                        ...existingConfig,
                         provider: llmProvider,
-                        ...(llmProvider === "openrouter" && allowedList.length > 0
-                          ? { allowedModels: allowedList }
-                          : {}),
                       };
+                      if (llmProvider === "openrouter" && allowedList.length > 0) {
+                        config.allowedModels = allowedList;
+                      } else {
+                        delete config.allowedModels;
+                      }
                       const res = await fetch("/api/agent/config", {
                         method: "PUT",
                         headers: {
