@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { setContextToken } from "@/lib/meta-api";
 import { decrypt } from "@/lib/encryption";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 interface AuthResult {
   userId: string;
@@ -100,6 +101,84 @@ export async function getAuthenticatedContext(
     workspaceId,
     accessToken: decryptedToken,
   };
+}
+
+/**
+ * Resolve the Meta access token for a SPECIFIC ad account in a workspace.
+ *
+ * Multi-connection support: each `meta_accounts` row links to a `connection_id`,
+ * so an account from a different Meta app/business uses its own token. Falls
+ * back to the workspace's latest connection (legacy single-token behavior) so
+ * single-connection workspaces are unaffected. Returns null when no connection
+ * exists — callers keep the env/global fallback already set by requireAuth.
+ *
+ * Uses the admin client so it also works in crons/aggregators.
+ */
+export async function resolveTokenForAccount(
+  workspaceId: string,
+  accountId: string
+): Promise<string | null> {
+  if (!workspaceId || !accountId || accountId === "all") return null;
+  const admin = createAdminClient();
+
+  // account_id may be stored with or without the "act_" prefix
+  const variants = accountId.startsWith("act_")
+    ? [accountId, accountId.slice(4)]
+    : [accountId, `act_${accountId}`];
+
+  // 1) account -> its connection's token
+  const { data: acct } = await admin
+    .from("meta_accounts")
+    .select("connection_id, meta_connections(access_token)")
+    .eq("workspace_id", workspaceId)
+    .in("account_id", variants)
+    .limit(1)
+    .maybeSingle();
+  const mc = (acct as { meta_connections?: unknown } | null)?.meta_connections;
+  const enc = Array.isArray(mc)
+    ? (mc[0] as { access_token?: string } | undefined)?.access_token
+    : (mc as { access_token?: string } | undefined)?.access_token;
+  if (enc) {
+    try {
+      return decrypt(enc);
+    } catch {
+      /* fall through to workspace default */
+    }
+  }
+
+  // 2) fallback: workspace's latest connection (legacy single-token path)
+  const { data: conn } = await admin
+    .from("meta_connections")
+    .select("access_token")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (conn?.access_token) {
+    try {
+      return decrypt(conn.access_token);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve and set the global Meta context token for a specific account.
+ * Returns true if a token was resolved and applied. No-op (returns false)
+ * when no per-account/workspace token exists, leaving the existing context.
+ */
+export async function setTokenForAccount(
+  workspaceId: string,
+  accountId: string
+): Promise<boolean> {
+  const tok = await resolveTokenForAccount(workspaceId, accountId);
+  if (tok) {
+    setContextToken(tok);
+    return true;
+  }
+  return false;
 }
 
 /**

@@ -105,14 +105,25 @@ interface MetaAccount {
   id: string;
   name: string;
   account_id?: string;
+  connection_id?: string;
   selected?: boolean;
   is_default?: boolean;
 }
 
 interface SavedAccount {
+  id?: string;
   account_id: string;
   account_name: string;
   is_default: boolean;
+  connection_id?: string;
+}
+
+interface ConnectionInfo {
+  id: string;
+  app_id: string | null;
+  label: string | null;
+  created_at: string;
+  token_expires_at: string | null;
 }
 
 export default function SettingsPage() {
@@ -120,24 +131,35 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const isAdmin = userRole === "owner" || userRole === "admin";
 
-  // Meta Connection
-  const [metaToken, setMetaToken] = useState("");
-  const [metaAppId, setMetaAppId] = useState("");
-  const [savingToken, setSavingToken] = useState(false);
-  const [tokenSaved, setTokenSaved] = useState(false);
-  const [tokenError, setTokenError] = useState("");
-  const [hasConnection, setHasConnection] = useState(false);
-  const [connectionInfo, setConnectionInfo] = useState<{ app_id?: string; created_at?: string } | null>(null);
+  // Meta Connections (multi-connection)
+  const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const hasConnection = connections.length > 0;
 
-  // Account selection
-  const [allAccounts, setAllAccounts] = useState<MetaAccount[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // "Add connection" form
+  const [newMetaToken, setNewMetaToken] = useState("");
+  const [newMetaLabel, setNewMetaLabel] = useState("");
+  const [newMetaAppId, setNewMetaAppId] = useState("");
+  const [addingConnection, setAddingConnection] = useState(false);
+  const [addConnectionError, setAddConnectionError] = useState("");
+
+  // Per-connection token rotation: which card is showing the rotate input + its value
+  const [rotateTokenFor, setRotateTokenFor] = useState<string | null>(null);
+  const [rotateTokenValue, setRotateTokenValue] = useState("");
+  const [rotatingTokenId, setRotatingTokenId] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState("");
+  const [tokenSavedFor, setTokenSavedFor] = useState<string | null>(null);
+
+  // Account selection — scoped per connection
+  // accountsByConnection: fetched accounts grouped by connection_id
+  const [accountsByConnection, setAccountsByConnection] = useState<Record<string, MetaAccount[]>>({});
+  // selectedByConnection: selected account ids per connection
+  const [selectedByConnection, setSelectedByConnection] = useState<Record<string, Set<string>>>({});
   const [defaultAccountId, setDefaultAccountId] = useState<string>("");
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [savingAccounts, setSavingAccounts] = useState(false);
-  const [accountsMessage, setAccountsMessage] = useState("");
-  const [accountsError, setAccountsError] = useState("");
+  const [loadingAccountsFor, setLoadingAccountsFor] = useState<string | null>(null);
+  const [savingAccountsFor, setSavingAccountsFor] = useState<string | null>(null);
+  const [accountsMessageFor, setAccountsMessageFor] = useState<{ id: string; msg: string } | null>(null);
+  const [accountsErrorFor, setAccountsErrorFor] = useState<{ id: string; msg: string } | null>(null);
 
   // Health Check
   const [healthResult, setHealthResult] = useState<Record<string, unknown> | null>(null);
@@ -223,15 +245,12 @@ export default function SettingsPage() {
     try {
       const res = await fetch(`/api/workspaces?workspace_id=${workspace.id}`);
       const data = await res.json();
-      if (data.connection) {
-        setHasConnection(true);
-        setConnectionInfo(data.connection);
+      if (Array.isArray(data.connections)) {
+        setConnections(data.connections as ConnectionInfo[]);
       }
       if (data.accounts) {
-        setSavedAccounts(data.accounts);
-        const selected = new Set<string>(data.accounts.map((a: SavedAccount) => a.account_id));
-        setSelectedIds(selected);
-        const def = data.accounts.find((a: SavedAccount) => a.is_default);
+        setSavedAccounts(data.accounts as SavedAccount[]);
+        const def = (data.accounts as SavedAccount[]).find((a) => a.is_default);
         if (def) setDefaultAccountId(def.account_id);
       }
       if (data.vndaConnection) {
@@ -291,12 +310,11 @@ export default function SettingsPage() {
 
   // === Meta Connection handlers ===
 
-  async function handleSaveMetaConnection() {
-    if (!metaToken || !workspace) return;
-    setSavingToken(true);
-    setTokenError("");
-    setTokenSaved(false);
-
+  // Add a brand-new connection (no connection_id -> backend INSERTS).
+  async function handleAddMetaConnection() {
+    if (!newMetaToken || !workspace) return;
+    setAddingConnection(true);
+    setAddConnectionError("");
     try {
       const res = await fetch("/api/workspaces", {
         method: "POST",
@@ -304,32 +322,65 @@ export default function SettingsPage() {
         body: JSON.stringify({
           action: "save_meta_connection",
           workspace_id: workspace.id,
-          access_token: metaToken,
-          app_id: metaAppId,
+          access_token: newMetaToken,
+          app_id: newMetaAppId || undefined,
+          label: newMetaLabel || undefined,
         }),
       });
+      const data = await res.json();
+      if (data.error) {
+        setAddConnectionError(data.error);
+      } else {
+        setNewMetaToken("");
+        setNewMetaLabel("");
+        setNewMetaAppId("");
+        await loadWorkspaceData();
+      }
+    } catch {
+      setAddConnectionError("Erro ao adicionar conexão");
+    } finally {
+      setAddingConnection(false);
+    }
+  }
 
+  // Rotate the token of an existing connection (passes connection_id -> backend UPDATES).
+  async function handleRotateToken(connectionId: string) {
+    if (!rotateTokenValue || !workspace) return;
+    setRotatingTokenId(connectionId);
+    setTokenError("");
+    setTokenSavedFor(null);
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_meta_connection",
+          workspace_id: workspace.id,
+          access_token: rotateTokenValue,
+          connection_id: connectionId,
+        }),
+      });
       const data = await res.json();
       if (data.error) {
         setTokenError(data.error);
       } else {
-        setTokenSaved(true);
-        setMetaToken("");
-        setHasConnection(true);
-        // Auto-fetch accounts after saving token
-        await handleFetchAllAccounts();
+        setTokenSavedFor(connectionId);
+        setRotateTokenValue("");
+        setRotateTokenFor(null);
+        await loadWorkspaceData();
       }
     } catch {
-      setTokenError("Erro ao salvar conexão");
+      setTokenError("Erro ao atualizar token");
     } finally {
-      setSavingToken(false);
+      setRotatingTokenId(null);
     }
   }
 
-  async function handleFetchAllAccounts() {
+  // Fetch all ad accounts visible to a specific connection's token.
+  async function handleFetchAllAccounts(connectionId: string) {
     if (!workspace) return;
-    setLoadingAccounts(true);
-    setAccountsError("");
+    setLoadingAccountsFor(connectionId);
+    setAccountsErrorFor(null);
     try {
       const res = await fetch("/api/workspaces", {
         method: "POST",
@@ -337,52 +388,55 @@ export default function SettingsPage() {
         body: JSON.stringify({
           action: "fetch_all_meta_accounts",
           workspace_id: workspace.id,
+          connection_id: connectionId,
         }),
       });
       const data = await res.json();
       if (data.error) {
-        setAccountsError(data.error);
+        setAccountsErrorFor({ id: connectionId, msg: data.error });
       } else if (data.accounts) {
-        setAllAccounts(data.accounts);
-        // Pre-select already saved accounts
+        const accounts = data.accounts as MetaAccount[];
+        setAccountsByConnection((prev) => ({ ...prev, [connectionId]: accounts }));
+        // Pre-select already saved accounts for this connection.
         const selected = new Set<string>();
         let defId = "";
-        data.accounts.forEach((a: MetaAccount) => {
+        accounts.forEach((a) => {
           if (a.selected) selected.add(a.id);
           if (a.is_default) defId = a.id;
         });
-        setSelectedIds(selected);
+        setSelectedByConnection((prev) => ({ ...prev, [connectionId]: selected }));
         if (defId) setDefaultAccountId(defId);
       }
     } catch {
-      setAccountsError("Erro ao buscar contas da Meta");
+      setAccountsErrorFor({ id: connectionId, msg: "Erro ao buscar contas da Meta" });
     } finally {
-      setLoadingAccounts(false);
+      setLoadingAccountsFor(null);
     }
   }
 
-  function toggleAccountSelection(accountId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(accountId)) {
-        next.delete(accountId);
-        // If removing the default, clear default
+  function toggleAccountSelection(connectionId: string, accountId: string) {
+    setSelectedByConnection((prev) => {
+      const current = new Set(prev[connectionId] ?? []);
+      if (current.has(accountId)) {
+        current.delete(accountId);
         if (defaultAccountId === accountId) setDefaultAccountId("");
       } else {
-        next.add(accountId);
+        current.add(accountId);
       }
-      return next;
+      return { ...prev, [connectionId]: current };
     });
   }
 
-  async function handleSaveSelectedAccounts() {
+  async function handleSaveSelectedAccounts(connectionId: string) {
     if (!workspace) return;
-    setSavingAccounts(true);
-    setAccountsMessage("");
-    setAccountsError("");
+    setSavingAccountsFor(connectionId);
+    setAccountsMessageFor(null);
+    setAccountsErrorFor(null);
 
-    const selected = allAccounts
-      .filter((a) => selectedIds.has(a.id))
+    const accounts = accountsByConnection[connectionId] ?? [];
+    const selectedSet = selectedByConnection[connectionId] ?? new Set<string>();
+    const selected = accounts
+      .filter((a) => selectedSet.has(a.id))
       .map((a) => ({
         id: a.id,
         name: a.name,
@@ -396,20 +450,21 @@ export default function SettingsPage() {
         body: JSON.stringify({
           action: "save_selected_accounts",
           workspace_id: workspace.id,
+          connection_id: connectionId,
           accounts: selected,
         }),
       });
       const data = await res.json();
       if (data.error) {
-        setAccountsError(data.error);
+        setAccountsErrorFor({ id: connectionId, msg: data.error });
       } else {
-        setAccountsMessage("Contas salvas com sucesso!");
+        setAccountsMessageFor({ id: connectionId, msg: "Contas salvas com sucesso!" });
         await loadWorkspaceData();
       }
     } catch {
-      setAccountsError("Erro ao salvar contas");
+      setAccountsErrorFor({ id: connectionId, msg: "Erro ao salvar contas" });
     } finally {
-      setSavingAccounts(false);
+      setSavingAccountsFor(null);
     }
   }
 
@@ -983,220 +1038,312 @@ export default function SettingsPage() {
 
         {/* ===== Meta Connection Tab ===== */}
         <TabsContent value="meta" className="space-y-6 mt-6">
-          {/* Token card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5 text-primary" />
-                Token de Acesso Meta
-              </CardTitle>
-              <CardDescription>
-                {hasConnection
-                  ? "Conexão ativa. Insira um novo token para substituir."
-                  : "Configure o token de acesso da Meta API para este workspace."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {!isAdmin ? (
+          {!isAdmin ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  Conexões Meta
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
                 <p className="text-sm text-muted-foreground">
-                  Apenas administradores podem gerenciar a conexão Meta.
+                  Apenas administradores podem gerenciar conexões Meta.
                 </p>
-              ) : (
-                <>
-                  {hasConnection && connectionInfo && (
-                    <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg mb-2">
-                      <CheckCircle className="h-4 w-4 text-success" />
-                      <span className="text-sm text-success">
-                        Conexão ativa desde{" "}
-                        {new Date(connectionInfo.created_at!).toLocaleDateString("pt-BR")}
-                        {connectionInfo.app_id && ` (App: ${connectionInfo.app_id})`}
-                      </span>
-                    </div>
-                  )}
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {tokenError && (
+                <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                  <XCircle className="h-4 w-4 text-destructive" />
+                  <span className="text-sm text-destructive">{tokenError}</span>
+                </div>
+              )}
 
+              {/* One card per connection */}
+              {connections.map((conn) => {
+                const accounts = accountsByConnection[conn.id] ?? [];
+                const selectedSet = selectedByConnection[conn.id] ?? new Set<string>();
+                const savedForConn = savedAccounts.filter(
+                  (a) => a.connection_id === conn.id
+                );
+                const cardTitle =
+                  conn.label ||
+                  (conn.app_id ? `App ${conn.app_id}` : `Conexão ${conn.id.slice(0, 8)}`);
+                const isRotating = rotateTokenFor === conn.id;
+                const msg = accountsMessageFor?.id === conn.id ? accountsMessageFor.msg : "";
+                const err = accountsErrorFor?.id === conn.id ? accountsErrorFor.msg : "";
+                return (
+                  <Card key={conn.id}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-primary" />
+                        {cardTitle}
+                      </CardTitle>
+                      <CardDescription>
+                        Criada em{" "}
+                        {new Date(conn.created_at).toLocaleDateString("pt-BR")}
+                        {conn.app_id && ` · App: ${conn.app_id}`}
+                        {conn.token_expires_at &&
+                          ` · Token expira em ${new Date(
+                            conn.token_expires_at
+                          ).toLocaleDateString("pt-BR")}`}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Token rotation */}
+                      {isRotating ? (
+                        <div className="space-y-2">
+                          <Label>Novo Access Token</Label>
+                          <Input
+                            type="password"
+                            value={rotateTokenValue}
+                            onChange={(e) => setRotateTokenValue(e.target.value)}
+                            placeholder="EAA..."
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleRotateToken(conn.id)}
+                              disabled={!rotateTokenValue || rotatingTokenId === conn.id}
+                            >
+                              {rotatingTokenId === conn.id ? "Salvando..." : "Salvar token"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setRotateTokenFor(null);
+                                setRotateTokenValue("");
+                              }}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleFetchAllAccounts(conn.id)}
+                            disabled={loadingAccountsFor === conn.id}
+                          >
+                            {loadingAccountsFor === conn.id ? (
+                              <>
+                                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                                Buscando contas...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                {accounts.length > 0 ? "Atualizar lista" : "Buscar contas"}
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setRotateTokenFor(conn.id);
+                              setRotateTokenValue("");
+                              setTokenError("");
+                            }}
+                          >
+                            <Key className="h-4 w-4 mr-2" />
+                            Atualizar token
+                          </Button>
+                          {tokenSavedFor === conn.id && (
+                            <span className="text-xs text-success flex items-center gap-1">
+                              <CheckCircle className="h-3 w-3" /> Token atualizado
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Saved accounts summary (when not actively fetching) */}
+                      {savedForConn.length > 0 && accounts.length === 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">
+                            Contas ativas ({savedForConn.length})
+                          </p>
+                          {savedForConn.map((acc) => (
+                            <div
+                              key={acc.account_id}
+                              className="flex items-center justify-between p-3 rounded-lg border border-border"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">
+                                  {acc.account_name || acc.account_id}
+                                </span>
+                                {acc.is_default && (
+                                  <Badge variant="default" className="text-xs">
+                                    <Star className="h-3 w-3 mr-1" />
+                                    Padrão
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Fetched account list with checkboxes */}
+                      {accounts.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">
+                            {accounts.length} contas encontradas — selecione as que deseja usar:
+                          </p>
+                          <div className="space-y-1 max-h-80 overflow-y-auto">
+                            {accounts.map((acc) => {
+                              const isSelected = selectedSet.has(acc.id);
+                              const isDefault = acc.id === defaultAccountId;
+                              return (
+                                <div
+                                  key={acc.id}
+                                  className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
+                                    isSelected
+                                      ? "border-primary bg-primary/5"
+                                      : "border-border hover:bg-muted/50"
+                                  }`}
+                                  onClick={() => toggleAccountSelection(conn.id, acc.id)}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() =>
+                                        toggleAccountSelection(conn.id, acc.id)
+                                      }
+                                      className="h-4 w-4 rounded border-border accent-primary"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <div>
+                                      <p className="text-sm font-medium">{acc.name}</p>
+                                      <p className="text-xs text-muted-foreground">{acc.id}</p>
+                                    </div>
+                                  </div>
+                                  {isSelected && (
+                                    <Button
+                                      variant={isDefault ? "default" : "ghost"}
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSetDefault(acc.id);
+                                      }}
+                                      className="text-xs"
+                                    >
+                                      <Star
+                                        className={`h-3 w-3 mr-1 ${
+                                          isDefault ? "fill-current" : ""
+                                        }`}
+                                      />
+                                      {isDefault ? "Padrão" : "Definir padrão"}
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center gap-3 pt-3">
+                            <Button
+                              onClick={() => handleSaveSelectedAccounts(conn.id)}
+                              disabled={
+                                savingAccountsFor === conn.id || selectedSet.size === 0
+                              }
+                            >
+                              <Save className="h-4 w-4 mr-2" />
+                              {savingAccountsFor === conn.id
+                                ? "Salvando..."
+                                : `Salvar ${selectedSet.size} selecionada${
+                                    selectedSet.size !== 1 ? "s" : ""
+                                  }`}
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                              {selectedSet.size} selecionada
+                              {selectedSet.size !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {msg && (
+                        <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg">
+                          <CheckCircle className="h-4 w-4 text-success" />
+                          <span className="text-sm text-success">{msg}</span>
+                        </div>
+                      )}
+                      {err && (
+                        <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
+                          <XCircle className="h-4 w-4 text-destructive" />
+                          <span className="text-sm text-destructive">{err}</span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {/* Add new connection */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5 text-primary" />
+                    Adicionar conexão
+                  </CardTitle>
+                  <CardDescription>
+                    {hasConnection
+                      ? "Conecte um token adicional da Meta API para acessar mais contas de anúncio."
+                      : "Configure o token de acesso da Meta API para este workspace."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label>Access Token</Label>
                     <Input
                       type="password"
-                      value={metaToken}
-                      onChange={(e) => setMetaToken(e.target.value)}
-                      placeholder={hasConnection ? "Novo token (deixe vazio para manter)" : "EAA..."}
+                      value={newMetaToken}
+                      onChange={(e) => setNewMetaToken(e.target.value)}
+                      placeholder="EAA..."
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Nome / Rótulo (opcional)</Label>
+                    <Input
+                      value={newMetaLabel}
+                      onChange={(e) => setNewMetaLabel(e.target.value)}
+                      placeholder="Ex: Conta principal, Cliente X"
                     />
                   </div>
 
                   <div className="space-y-2">
                     <Label>App ID (opcional)</Label>
                     <Input
-                      value={metaAppId}
-                      onChange={(e) => setMetaAppId(e.target.value)}
+                      value={newMetaAppId}
+                      onChange={(e) => setNewMetaAppId(e.target.value)}
                       placeholder="ID do App Meta"
                     />
                   </div>
 
                   <Button
-                    onClick={handleSaveMetaConnection}
-                    disabled={!metaToken || savingToken}
+                    onClick={handleAddMetaConnection}
+                    disabled={!newMetaToken || addingConnection}
                   >
-                    {savingToken ? "Salvando..." : hasConnection ? "Atualizar Token" : "Salvar Conexão"}
+                    {addingConnection ? "Adicionando..." : "Adicionar conexão"}
                   </Button>
 
-                  {tokenSaved && (
-                    <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg">
-                      <CheckCircle className="h-4 w-4 text-success" />
-                      <span className="text-sm text-success">
-                        Token salvo! Selecione as contas abaixo.
-                      </span>
-                    </div>
-                  )}
-
-                  {tokenError && (
+                  {addConnectionError && (
                     <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
                       <XCircle className="h-4 w-4 text-destructive" />
-                      <span className="text-sm text-destructive">{tokenError}</span>
+                      <span className="text-sm text-destructive">{addConnectionError}</span>
                     </div>
                   )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Account selection card */}
-          {isAdmin && hasConnection && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  Contas de Anúncio
-                </CardTitle>
-                <CardDescription>
-                  Selecione quais contas o workspace terá acesso e defina a conta padrão
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Saved accounts summary */}
-                {savedAccounts.length > 0 && allAccounts.length === 0 && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Contas ativas ({savedAccounts.length})</p>
-                    {savedAccounts.map((acc) => (
-                      <div
-                        key={acc.account_id}
-                        className="flex items-center justify-between p-3 rounded-lg border border-border"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm">{acc.account_name || acc.account_id}</span>
-                          {acc.is_default && (
-                            <Badge variant="default" className="text-xs">
-                              <Star className="h-3 w-3 mr-1" />
-                              Padrão
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <Button
-                  variant="outline"
-                  onClick={handleFetchAllAccounts}
-                  disabled={loadingAccounts}
-                >
-                  {loadingAccounts ? (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                      Buscando contas...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      {allAccounts.length > 0 ? "Atualizar lista" : "Buscar contas da Meta"}
-                    </>
-                  )}
-                </Button>
-
-                {/* Full account list with checkboxes */}
-                {allAccounts.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">
-                      {allAccounts.length} contas encontradas — selecione as que deseja usar:
-                    </p>
-                    <div className="space-y-1 max-h-80 overflow-y-auto">
-                      {allAccounts.map((acc) => {
-                        const isSelected = selectedIds.has(acc.id);
-                        const isDefault = acc.id === defaultAccountId;
-                        return (
-                          <div
-                            key={acc.id}
-                            className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
-                              isSelected
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-muted/50"
-                            }`}
-                            onClick={() => toggleAccountSelection(acc.id)}
-                          >
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleAccountSelection(acc.id)}
-                                className="h-4 w-4 rounded border-border accent-primary"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div>
-                                <p className="text-sm font-medium">{acc.name}</p>
-                                <p className="text-xs text-muted-foreground">{acc.id}</p>
-                              </div>
-                            </div>
-                            {isSelected && (
-                              <Button
-                                variant={isDefault ? "default" : "ghost"}
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSetDefault(acc.id);
-                                }}
-                                className="text-xs"
-                              >
-                                <Star className={`h-3 w-3 mr-1 ${isDefault ? "fill-current" : ""}`} />
-                                {isDefault ? "Padrão" : "Definir padrão"}
-                              </Button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-3">
-                      <Button
-                        onClick={handleSaveSelectedAccounts}
-                        disabled={savingAccounts || selectedIds.size === 0}
-                      >
-                        <Save className="h-4 w-4 mr-2" />
-                        {savingAccounts
-                          ? "Salvando..."
-                          : `Salvar ${selectedIds.size} conta${selectedIds.size !== 1 ? "s" : ""}`}
-                      </Button>
-                      <span className="text-xs text-muted-foreground">
-                        {selectedIds.size} selecionada{selectedIds.size !== 1 ? "s" : ""}
-                        {defaultAccountId && ` · 1 padrão`}
-                      </span>
-                    </div>
-
-                    {accountsMessage && (
-                      <div className="flex items-center gap-2 p-3 bg-success/10 rounded-lg">
-                        <CheckCircle className="h-4 w-4 text-success" />
-                        <span className="text-sm text-success">{accountsMessage}</span>
-                      </div>
-                    )}
-                    {accountsError && (
-                      <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
-                        <XCircle className="h-4 w-4 text-destructive" />
-                        <span className="text-sm text-destructive">{accountsError}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </>
           )}
         </TabsContent>
 

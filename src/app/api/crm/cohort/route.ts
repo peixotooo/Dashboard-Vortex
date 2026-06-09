@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getInsights } from "@/lib/meta-api";
-import { getAuthenticatedContext } from "@/lib/api-auth";
+import { getInsights, setContextToken } from "@/lib/meta-api";
+import { getAuthenticatedContext, resolveTokenForAccount } from "@/lib/api-auth";
 
 export const maxDuration = 60;
 
@@ -184,6 +184,8 @@ async function fetchMetaMonthlySpend(
     const spend: Record<string, number> = {};
     for (const acc of linkedAccounts) {
       try {
+        const _tok = await resolveTokenForAccount(workspaceId, acc.account_id);
+        if (_tok) setContextToken(_tok);
         const result = await getInsights({
           object_id: acc.account_id,
           time_range: { since: startDate, until: endDate },

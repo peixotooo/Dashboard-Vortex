@@ -4,6 +4,7 @@ import {
   setContextToken,
   type MetaActivity,
 } from "@/lib/meta-api";
+import { setTokenForAccount } from "@/lib/api-auth";
 import type { ActivityEntry, ActivitySource } from "@/lib/types";
 
 const PERIOD_MS: Record<string, number> = {
@@ -74,14 +75,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const metaToken = process.env.META_ACCESS_TOKEN;
-    if (!metaToken) {
-      return NextResponse.json(
-        { error: "META_ACCESS_TOKEN not configured" },
-        { status: 500 }
-      );
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    const tokenSet = accountId && accountId !== "all"
+      ? await setTokenForAccount(workspaceId, accountId)
+      : false;
+    if (!tokenSet) {
+      const metaToken = process.env.META_ACCESS_TOKEN;
+      if (!metaToken) {
+        return NextResponse.json(
+          { error: "META_ACCESS_TOKEN not configured" },
+          { status: 500 }
+        );
+      }
+      setContextToken(metaToken);
     }
-    setContextToken(metaToken);
 
     let since: number | undefined;
     let until: number | undefined;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getCampaignsWithMetrics, setContextToken } from "@/lib/meta-api";
+import { resolveTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 
 export const maxDuration = 120;
@@ -27,16 +28,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: "No workspaces with Meta accounts", results: [] });
     }
 
-    const metaToken = process.env.META_ACCESS_TOKEN;
-    if (!metaToken) {
-      return NextResponse.json({ error: "META_ACCESS_TOKEN not configured" }, { status: 500 });
-    }
-    setContextToken(metaToken);
-
     const timeRange = datePresetToTimeRange("today");
 
     for (const { workspace_id: workspaceId, account_id: accountId } of metaAccounts) {
       try {
+        // Set the correct token for this specific ad account
+        const _tok = await resolveTokenForAccount(workspaceId, accountId);
+        if (_tok) setContextToken(_tok);
+
         // 1. Fetch current campaigns from Meta
         const { campaigns } = await getCampaignsWithMetrics({
           account_id: accountId,

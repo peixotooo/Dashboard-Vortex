@@ -11,6 +11,7 @@ import { runSpecialist } from "./claude-client";
 import type { AccountContext } from "./system-prompt";
 import { decrypt } from "@/lib/encryption";
 import { setContextToken } from "@/lib/meta-api";
+import { resolveTokenForAccount } from "@/lib/api-auth";
 
 // --- Types ---
 
@@ -310,20 +311,28 @@ async function resolveWorkspaceContext(
     }
   }
 
-  // Set Meta API token if available (for paid-ads specialist)
-  const { data: connection } = await supabase
-    .from("meta_connections")
-    .select("access_token")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Set Meta API token for the resolved account (multi-connection support)
+  if (accountId !== "none") {
+    const _tok = await resolveTokenForAccount(workspaceId, accountId);
+    if (_tok) {
+      setContextToken(_tok);
+    } else {
+      // Fallback: use latest connection token
+      const { data: connection } = await supabase
+        .from("meta_connections")
+        .select("access_token")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-  if (connection?.access_token) {
-    try {
-      setContextToken(decrypt(connection.access_token));
-    } catch {
-      // Continue without Meta API access
+      if (connection?.access_token) {
+        try {
+          setContextToken(decrypt(connection.access_token));
+        } catch {
+          // Continue without Meta API access
+        }
+      }
     }
   }
 

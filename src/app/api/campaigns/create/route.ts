@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
 import {
   createCampaign,
   createAdSet,
@@ -51,6 +51,11 @@ export async function POST(request: NextRequest) {
         { error: `Missing required fields: ${missing.join(", ")}` },
         { status: 400 }
       );
+    }
+
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (account_id && account_id !== "all") {
+      await setTokenForAccount(workspaceId, account_id);
     }
 
     // --- Optional fields with defaults ---

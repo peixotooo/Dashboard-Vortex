@@ -48,14 +48,13 @@ export async function GET(request: NextRequest) {
       .eq("workspace_id", workspaceId)
       .order("account_name", { ascending: true });
 
-    // Get connection status
-    const { data: connection } = await supabase
+    // Get connection status — all connections (multi-connection support)
+    const { data: connections } = await supabase
       .from("meta_connections")
-      .select("id, app_id, created_at, token_expires_at")
+      .select("id, app_id, label, created_at, token_expires_at")
       .eq("workspace_id", workspaceId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+      .order("created_at", { ascending: false });
+    const connection = connections?.[0] || null; // latest, kept for compat
 
     // Get VNDA connection status
     const { data: vndaConnection } = await supabase
@@ -86,6 +85,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       accounts: accounts || [],
       connection: connection || null,
+      connections: connections || [],
       vndaConnection: vndaConnection || null,
       customDomain: wsData?.custom_domain || null,
     });
@@ -324,47 +324,52 @@ export async function POST(request: NextRequest) {
       }
 
       case "save_meta_connection": {
-        const { access_token, app_id } = args;
+        // Multi-connection: with connection_id -> rotate that connection's token;
+        // without -> ADD a new connection (a workspace can hold several, e.g.
+        // tokens from different Meta apps/Businesses).
+        const { access_token, app_id, label, connection_id } = args;
         const encryptedToken = encrypt(access_token);
 
-        // Upsert connection
-        const { data: existing } = await supabase
-          .from("meta_connections")
-          .select("id")
-          .eq("workspace_id", workspace_id)
-          .limit(1)
-          .single();
-
-        if (existing) {
+        if (connection_id) {
           const { error } = await supabase
             .from("meta_connections")
-            .update({ access_token: encryptedToken, app_id, user_id: user.id })
-            .eq("id", existing.id);
+            .update({ access_token: encryptedToken, app_id, label, user_id: user.id })
+            .eq("id", connection_id)
+            .eq("workspace_id", workspace_id);
           if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from("meta_connections")
-            .insert({
-              workspace_id,
-              user_id: user.id,
-              access_token: encryptedToken,
-              app_id,
-            });
-          if (error) throw error;
+          return NextResponse.json({ success: true, connection_id });
         }
 
-        return NextResponse.json({ success: true });
+        const { data: inserted, error } = await supabase
+          .from("meta_connections")
+          .insert({
+            workspace_id,
+            user_id: user.id,
+            access_token: encryptedToken,
+            app_id,
+            label,
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        return NextResponse.json({ success: true, connection_id: inserted?.id });
       }
 
       case "fetch_all_meta_accounts": {
-        // Fetch ALL accounts from Meta API using workspace token
-        const { data: connection } = await supabase
+        // Fetch ALL accounts visible to a SPECIFIC connection's token (or the
+        // latest connection when none is specified). Returned accounts are
+        // tagged with their connection_id so the UI saves them correctly.
+        const { connection_id } = args;
+        let connQuery = supabase
           .from("meta_connections")
-          .select("access_token")
-          .eq("workspace_id", workspace_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+          .select("id, access_token")
+          .eq("workspace_id", workspace_id);
+        connQuery = connection_id
+          ? connQuery.eq("id", connection_id)
+          : connQuery.order("created_at", { ascending: false });
+        const { data: connection } = await connQuery.limit(1).single();
+
+        const usedConnectionId = connection?.id as string | undefined;
 
         if (!connection?.access_token) {
           // Fallback to env var
@@ -395,6 +400,7 @@ export async function POST(request: NextRequest) {
 
         const accountsWithStatus = accounts.map((acc: { id: string; name: string }) => ({
           ...acc,
+          connection_id: usedConnectionId,
           selected: savedMap.has(acc.id),
           is_default: savedMap.get(acc.id) || false,
         }));
@@ -403,36 +409,56 @@ export async function POST(request: NextRequest) {
       }
 
       case "save_selected_accounts": {
-        const { accounts } = args as {
+        // Multi-connection: the selection belongs to ONE connection. We replace
+        // only THAT connection's accounts, leaving accounts from other
+        // connections in the workspace untouched.
+        const { accounts, connection_id } = args as {
           accounts: Array<{ id: string; name: string; is_default?: boolean }>;
+          connection_id?: string;
         };
 
-        // Get connection id
-        const { data: conn } = await supabase
-          .from("meta_connections")
-          .select("id")
-          .eq("workspace_id", workspace_id)
-          .limit(1)
-          .single();
-
-        if (!conn) {
-          return NextResponse.json(
-            { error: "Nenhuma conexão Meta encontrada" },
-            { status: 400 }
-          );
+        let connId = connection_id;
+        if (connId) {
+          // validate the connection belongs to this workspace
+          const { data: conn } = await supabase
+            .from("meta_connections")
+            .select("id")
+            .eq("id", connId)
+            .eq("workspace_id", workspace_id)
+            .single();
+          if (!conn) {
+            return NextResponse.json({ error: "Conexão inválida" }, { status: 400 });
+          }
+        } else {
+          // legacy single-connection path: use the latest connection
+          const { data: conn } = await supabase
+            .from("meta_connections")
+            .select("id")
+            .eq("workspace_id", workspace_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+          if (!conn) {
+            return NextResponse.json(
+              { error: "Nenhuma conexão Meta encontrada" },
+              { status: 400 }
+            );
+          }
+          connId = conn.id;
         }
 
-        // Delete existing accounts for this workspace
+        // Replace only THIS connection's accounts (preserve other connections)
         await supabase
           .from("meta_accounts")
           .delete()
-          .eq("workspace_id", workspace_id);
+          .eq("workspace_id", workspace_id)
+          .eq("connection_id", connId);
 
         // Insert selected accounts
         if (accounts.length > 0) {
           const rows = accounts.map((acc) => ({
             workspace_id,
-            connection_id: conn.id,
+            connection_id: connId,
             account_id: acc.id,
             account_name: acc.name,
             is_default: acc.is_default || false,
