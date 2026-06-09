@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import {
   createCampaign,
   createAdSet,
   uploadAdImage,
   createAdCreative,
   createAd,
+  runWithToken,
 } from "@/lib/meta-api";
 
 export const maxDuration = 60;
@@ -54,9 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") {
-      await setTokenForAccount(workspaceId, account_id);
-    }
+    const _tok = await resolveTokenForAccount(workspaceId, account_id);
 
     // --- Optional fields with defaults ---
     const status = body.status || "PAUSED";
@@ -67,49 +66,13 @@ export async function POST(request: NextRequest) {
     const cta = body.cta || "SHOP_NOW";
     const url_tags = body.url_tags || DEFAULT_URL_TAGS;
 
-    // =========================================
-    // Step 1: Create Campaign
-    // =========================================
-    const campaignResult = (await createCampaign({
-      account_id,
-      name,
-      objective,
-      status,
-      special_ad_categories: [],
-    })) as { id: string };
-
-    campaignId = campaignResult.id;
-
-    // =========================================
-    // Step 2: Create Ad Set
-    // =========================================
-    const adSetArgs: Record<string, unknown> = {
-      account_id,
-      campaign_id: campaignId,
-      name: adset_name,
-      optimization_goal,
-      billing_event: "IMPRESSIONS",
-      status: "PAUSED",
-    };
-
-    if (daily_budget) {
-      adSetArgs.daily_budget = Math.round(daily_budget * 100); // BRL → cents
-    }
-
-    const adSetResult = (await createAdSet(adSetArgs)) as { id: string };
-    adSetId = adSetResult.id;
-
-    // =========================================
-    // Step 3: Download image & upload to Meta
-    // =========================================
+    // Step 3 image download happens outside the token scope (plain HTTP fetch)
     const imageRes = await fetch(creative_url);
     if (!imageRes.ok) {
       return NextResponse.json(
         {
           error: `Failed to download image from creative_url: ${imageRes.status} ${imageRes.statusText}`,
           step: "download_image",
-          campaign_id: campaignId,
-          adset_id: adSetId,
         },
         { status: 400 }
       );
@@ -124,62 +87,93 @@ export async function POST(request: NextRequest) {
     formData.set("filename", imageFile);
     formData.set("account_id", account_id);
 
-    const uploadResult = (await uploadAdImage(formData)) as {
-      images: Record<string, { hash: string }>;
-    };
+    // All Meta API calls run inside runWithToken for race-safe token scoping
+    const result = await runWithToken(_tok, async () => {
+      // =========================================
+      // Step 1: Create Campaign
+      // =========================================
+      const campaignResult = (await createCampaign({
+        account_id,
+        name,
+        objective,
+        status,
+        special_ad_categories: [],
+      })) as { id: string };
 
-    // Extract image hash from response (Meta returns { images: { [key]: { hash } } })
-    const imageKey = Object.keys(uploadResult.images || {})[0];
-    const imageHash = uploadResult.images?.[imageKey]?.hash;
+      campaignId = campaignResult.id;
 
-    if (!imageHash) {
-      return NextResponse.json(
-        {
-          error: "Image uploaded but no hash returned from Meta",
-          step: "upload_image",
-          campaign_id: campaignId,
-          adset_id: adSetId,
-        },
-        { status: 500 }
-      );
-    }
+      // =========================================
+      // Step 2: Create Ad Set
+      // =========================================
+      const adSetArgs: Record<string, unknown> = {
+        account_id,
+        campaign_id: campaignId,
+        name: adset_name,
+        optimization_goal,
+        billing_event: "IMPRESSIONS",
+        status: "PAUSED",
+      };
 
-    // =========================================
-    // Step 4: Create Creative
-    // =========================================
-    const creativeResult = (await createAdCreative({
-      account_id,
-      name: `${ad_name} - Creative`,
-      title: headline,
-      body: adBody,
-      image_hash: imageHash,
-      link: destination_url,
-      call_to_action: cta,
-    })) as { id: string };
+      if (daily_budget) {
+        adSetArgs.daily_budget = Math.round(daily_budget * 100); // BRL → cents
+      }
 
-    creativeId = creativeResult.id;
+      const adSetResult = (await createAdSet(adSetArgs)) as { id: string };
+      adSetId = adSetResult.id;
 
-    // =========================================
-    // Step 5: Create Ad
-    // =========================================
-    const adResult = (await createAd({
-      account_id,
-      adset_id: adSetId,
-      name: ad_name,
-      status: "PAUSED",
-      creative: { creative_id: creativeId },
-      url_tags,
-    })) as { id: string };
+      // =========================================
+      // Step 3: Upload image to Meta
+      // =========================================
+      const uploadResult = (await uploadAdImage(formData)) as {
+        images: Record<string, { hash: string }>;
+      };
 
-    adId = adResult.id;
+      // Extract image hash from response (Meta returns { images: { [key]: { hash } } })
+      const imageKey = Object.keys(uploadResult.images || {})[0];
+      const imageHash = uploadResult.images?.[imageKey]?.hash;
 
-    return NextResponse.json({
-      success: true,
-      campaign_id: campaignId,
-      adset_id: adSetId,
-      creative_id: creativeId,
-      ad_id: adId,
+      if (!imageHash) {
+        throw new Error("Image uploaded but no hash returned from Meta");
+      }
+
+      // =========================================
+      // Step 4: Create Creative
+      // =========================================
+      const creativeResult = (await createAdCreative({
+        account_id,
+        name: `${ad_name} - Creative`,
+        title: headline,
+        body: adBody,
+        image_hash: imageHash,
+        link: destination_url,
+        call_to_action: cta,
+      })) as { id: string };
+
+      creativeId = creativeResult.id;
+
+      // =========================================
+      // Step 5: Create Ad
+      // =========================================
+      const adResult = (await createAd({
+        account_id,
+        adset_id: adSetId,
+        name: ad_name,
+        status: "PAUSED",
+        creative: { creative_id: creativeId },
+        url_tags,
+      })) as { id: string };
+
+      adId = adResult.id;
+
+      return {
+        campaign_id: campaignId,
+        adset_id: adSetId,
+        creative_id: creativeId,
+        ad_id: adId,
+      };
     });
+
+    return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

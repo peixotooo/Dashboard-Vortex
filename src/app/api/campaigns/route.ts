@@ -8,8 +8,9 @@ import {
   resumeCampaign,
   deleteCampaign,
   updateCampaign,
+  runWithToken,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCampaigns } from "@/lib/agent/memory";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest) {
 
     // Multi-connection: query this account with the token of ITS connection.
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
+    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
 
     // If date_preset is present, fetch with metrics + classification
     const date_preset = searchParams.get("date_preset") as DatePreset | null;
@@ -113,11 +114,11 @@ export async function GET(request: NextRequest) {
         : null;
 
       const [result, financialSettings] = await Promise.all([
-        getCampaignsWithMetrics({
+        runWithToken(_tok, () => getCampaignsWithMetrics({
           account_id,
           time_range: timeRange,
           statuses,
-        }),
+        })),
         workspaceId && supabase
           ? supabase
               .from("workspace_financial_settings")
@@ -146,7 +147,7 @@ export async function GET(request: NextRequest) {
     // Legacy: simple list without metrics
     const status = searchParams.get("status") || "";
     const limit = parseInt(searchParams.get("limit") || "25");
-    const result = await listCampaigns({ account_id, status_filter: status, limit });
+    const result = await runWithToken(_tok, () => listCampaigns({ account_id, status_filter: status, limit }));
     return NextResponse.json(result);
   } catch (error) {
     return handleAuthError(error);
@@ -162,28 +163,28 @@ export async function POST(request: NextRequest) {
 
     // Multi-connection: mutate within the account's own connection token when known.
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (args.account_id && args.account_id !== "all") await setTokenForAccount(workspaceId, args.account_id);
+    const _tok = args.account_id && args.account_id !== "all" ? await resolveTokenForAccount(workspaceId, args.account_id) : null;
 
     let result;
     switch (action) {
       case "pause":
-        result = await pauseCampaign(args);
+        result = await runWithToken(_tok, () => pauseCampaign(args));
         break;
       case "resume":
-        result = await resumeCampaign(args);
+        result = await runWithToken(_tok, () => resumeCampaign(args));
         break;
       case "delete":
-        result = await deleteCampaign(args);
+        result = await runWithToken(_tok, () => deleteCampaign(args));
         break;
       case "update":
-        result = await updateCampaign(args);
+        result = await runWithToken(_tok, () => updateCampaign(args));
         break;
       case "update_budgets": {
         const updates = args.campaign_updates as Array<{ campaign_id: string; daily_budget: number }>;
         const results = [];
         for (const u of updates) {
           try {
-            await updateCampaign({ campaign_id: u.campaign_id, daily_budget: String(u.daily_budget) });
+            await runWithToken(_tok, () => updateCampaign({ campaign_id: u.campaign_id, daily_budget: String(u.daily_budget) }));
             results.push({ id: u.campaign_id, success: true });
           } catch (err) {
             results.push({ id: u.campaign_id, success: false, error: String(err) });
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
         break;
       }
       default:
-        result = await createCampaign(args);
+        result = await runWithToken(_tok, () => createCampaign(args));
     }
 
     return NextResponse.json(result);

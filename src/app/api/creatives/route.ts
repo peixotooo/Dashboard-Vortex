@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getActiveAdsWithCreatives, getCreativeDetails, createAdCreative } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { getActiveAdsWithCreatives, getCreativeDetails, createAdCreative, runWithToken } from "@/lib/meta-api";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCreatives } from "@/lib/agent/memory";
 import type { DatePreset, ActiveAdCreative } from "@/lib/types";
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     const timeRange = datePresetToTimeRange(date_preset);
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
+    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
 
     const supabase = workspaceId
       ? createServerClient(
@@ -99,11 +99,11 @@ export async function GET(request: NextRequest) {
       : null;
 
     const [result, financialSettings] = await Promise.all([
-      getActiveAdsWithCreatives({
+      runWithToken(_tok, () => getActiveAdsWithCreatives({
         account_id,
         time_range: timeRange,
         statuses,
-      }),
+      })),
       workspaceId && supabase
         ? supabase
             .from("workspace_financial_settings")
@@ -139,18 +139,18 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (body.account_id && body.account_id !== "all") await setTokenForAccount(workspaceId, body.account_id);
+    const _tok = body.account_id && body.account_id !== "all" ? await resolveTokenForAccount(workspaceId, body.account_id) : null;
 
     if (body.action === "details" && body.creative_id) {
-      const result = await getCreativeDetails({
+      const result = await runWithToken(_tok, () => getCreativeDetails({
         creative_id: body.creative_id,
         account_id: body.account_id,
-      });
+      }));
       return NextResponse.json(result);
     }
 
     if (body.action === "create" || Object.keys(body).length > 2) {
-      const result = await createAdCreative(body);
+      const result = await runWithToken(_tok, () => createAdCreative(body));
       return NextResponse.json(result);
     }
 

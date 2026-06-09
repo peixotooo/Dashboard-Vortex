@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getInsights, comparePerformance } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { getInsights, comparePerformance, runWithToken } from "@/lib/meta-api";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange, getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
@@ -22,26 +22,26 @@ export async function GET(request: NextRequest) {
 
     const workspaceId = request.headers.get("x-workspace-id") || "";
     const acctForToken = account_id || (object_id && object_id.startsWith("act_") ? object_id : "");
-    if (acctForToken) await setTokenForAccount(workspaceId, acctForToken);
+    const _tok = acctForToken ? await resolveTokenForAccount(workspaceId, acctForToken) : null;
 
     const timeRange = datePresetToTimeRange(date_preset, customRange);
-    const result = await getInsights({
+    const result = await runWithToken(_tok, () => getInsights({
       object_id,
       level,
       time_range: timeRange,
       breakdowns: breakdowns ? breakdowns.split(",") : undefined,
       fields: fields ? fields.split(",") : undefined,
-    });
+    }));
 
     if (include_comparison) {
       const prevDates = getPreviousPeriodDates(date_preset, customRange);
-      const prevResult = await getInsights({
+      const prevResult = await runWithToken(_tok, () => getInsights({
         object_id,
         level,
         time_range: prevDates,
         time_increment: "all_days",
         fields: fields ? fields.split(",") : undefined,
-      }) as { insights: Array<Record<string, string>> };
+      })) as { insights: Array<Record<string, string>> };
 
       const prevInsights = prevResult.insights || [];
       let prevSpend = 0, prevImpressions = 0, prevClicks = 0, prevReach = 0;
@@ -102,13 +102,13 @@ export async function POST(request: NextRequest) {
     const postAccountId = args.account_id || "";
     const postObjectId = args.object_id || "";
     const acctForToken = postAccountId || (postObjectId && postObjectId.startsWith("act_") ? postObjectId : "");
-    if (acctForToken) await setTokenForAccount(workspaceId, acctForToken);
+    const _tok = acctForToken ? await resolveTokenForAccount(workspaceId, acctForToken) : null;
 
     let result;
     if (action === "compare") {
-      result = await comparePerformance(args);
+      result = await runWithToken(_tok, () => comparePerformance(args));
     } else {
-      result = await getInsights(args);
+      result = await runWithToken(_tok, () => getInsights(args));
     }
 
     return NextResponse.json(result);
