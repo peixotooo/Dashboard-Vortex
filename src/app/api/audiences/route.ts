@@ -5,7 +5,7 @@ import {
   createLookalikeAudience,
   estimateAudienceSize,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
 
     const result = await listAudiences({ account_id });
     return NextResponse.json(result);
@@ -27,6 +29,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { type, ...args } = body;
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (args.account_id && args.account_id !== "all") await setTokenForAccount(workspaceId, args.account_id);
 
     let result;
     switch (type) {

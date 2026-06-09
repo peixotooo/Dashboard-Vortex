@@ -9,7 +9,7 @@ import {
   deleteCampaign,
   updateCampaign,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCampaigns } from "@/lib/agent/memory";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
@@ -84,6 +84,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
 
+    // Multi-connection: query this account with the token of ITS connection.
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
+
     // If date_preset is present, fetch with metrics + classification
     const date_preset = searchParams.get("date_preset") as DatePreset | null;
     if (date_preset) {
@@ -91,7 +95,6 @@ export async function GET(request: NextRequest) {
       const statuses = statusesParam ? statusesParam.split(",") : ["ACTIVE"];
       const timeRange = datePresetToTimeRange(date_preset);
 
-      const workspaceId = request.headers.get("x-workspace-id") || "";
 
       // Fetch campaigns + financial settings in parallel
       const supabase = workspaceId
@@ -156,6 +159,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { action, ...args } = body;
+
+    // Multi-connection: mutate within the account's own connection token when known.
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (args.account_id && args.account_id !== "all") await setTokenForAccount(workspaceId, args.account_id);
 
     let result;
     switch (action) {

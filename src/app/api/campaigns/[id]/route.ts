@@ -9,7 +9,7 @@ import {
   updateAd,
   createAdCreative,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
 
 export const maxDuration = 60;
 
@@ -21,6 +21,12 @@ export async function GET(
     await getAuthenticatedContext(request).catch(() => {});
 
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const accountIdParam = searchParams.get("account_id");
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (accountIdParam && accountIdParam !== "all") {
+      await setTokenForAccount(workspaceId, accountIdParam);
+    }
 
     // 1. Fetch campaign details
     const campaign = (await getCampaign({ campaign_id: id })) as Record<string, unknown>;
@@ -91,6 +97,11 @@ export async function PUT(
       creative: creativeUpdate,
       account_id,
     } = body;
+
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (account_id && account_id !== "all") {
+      await setTokenForAccount(workspaceId, account_id);
+    }
 
     // 1. Update campaign (name, status, daily_budget)
     if (campaignUpdate) {

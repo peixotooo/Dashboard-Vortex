@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getWorkspaceContext, getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
-import { getInsights } from "@/lib/meta-api";
+import { getWorkspaceContext, getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getInsights, setContextToken } from "@/lib/meta-api";
 import { getGA4DailyReport, getGA4GoogleAdsCost } from "@/lib/ga4-api";
 import { getVndaConfig, getVndaDailyReport } from "@/lib/vnda-api";
 import { FIN_DEFAULTS, type FinancialSettingsShape } from "@/lib/financeiro/defaults";
@@ -356,6 +356,8 @@ async function fetchMetaDailySpend(
 
   for (const account of accounts || []) {
     try {
+      const _tok = await resolveTokenForAccount(workspaceId, account.account_id);
+      if (_tok) setContextToken(_tok);
       const result = await getInsights({
         object_id: account.account_id,
         level: "account",

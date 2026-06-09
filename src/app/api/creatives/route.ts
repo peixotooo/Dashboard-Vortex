@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getActiveAdsWithCreatives, getCreativeDetails, createAdCreative } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCreatives } from "@/lib/agent/memory";
 import type { DatePreset, ActiveAdCreative } from "@/lib/types";
@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
 
     const timeRange = datePresetToTimeRange(date_preset);
     const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
 
     const supabase = workspaceId
       ? createServerClient(
@@ -137,6 +138,8 @@ export async function POST(request: NextRequest) {
     await getAuthenticatedContext(request).catch(() => {});
 
     const body = await request.json();
+    const workspaceId = request.headers.get("x-workspace-id") || "";
+    if (body.account_id && body.account_id !== "all") await setTokenForAccount(workspaceId, body.account_id);
 
     if (body.action === "details" && body.creative_id) {
       const result = await getCreativeDetails({
