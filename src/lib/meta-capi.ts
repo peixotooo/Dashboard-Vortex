@@ -11,6 +11,7 @@ function env(name: string, fallback = ""): string {
 const API_VERSION = env("META_CAPI_API_VERSION", "v23.0");
 const DEFAULT_PIXEL_ID = env("META_CAPI_PIXEL_ID");
 const DEFAULT_ACCESS_TOKEN = env("META_CAPI_ACCESS_TOKEN");
+const FBC_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 export type MetaStandardEvent =
   | "PageView"
@@ -87,6 +88,22 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function normalizeFreshFbc(value?: string | null, nowMs = Date.now()): string | undefined {
+  const fbc = value?.trim();
+  if (!fbc) return undefined;
+
+  const match = fbc.match(/^fb\.\d+\.(\d+)\..+$/);
+  if (!match) return undefined;
+
+  const timestamp = Number(match[1]);
+  if (!Number.isFinite(timestamp)) return undefined;
+
+  const ageMs = nowMs - timestamp;
+  if (ageMs < -5 * 60 * 1000 || ageMs > FBC_MAX_AGE_MS) return undefined;
+
+  return fbc;
+}
+
 // Meta requires emails lowercased, phone digits-only with country code, names
 // lowercased trimmed, state/country lowercased, zip first 5 chars / 8-digit BR
 // trimmed, birthdate as YYYYMMDD. Hashing is SHA-256 hex of the normalized
@@ -154,7 +171,8 @@ export function buildUserData(input: CapiUserInput): Record<string, unknown> {
 
   if (input.client_ip_address) ud.client_ip_address = input.client_ip_address;
   if (input.client_user_agent) ud.client_user_agent = input.client_user_agent;
-  if (input.fbc) ud.fbc = input.fbc;
+  const fbc = normalizeFreshFbc(input.fbc);
+  if (fbc) ud.fbc = fbc;
   if (input.fbp) ud.fbp = input.fbp;
 
   if (input.email) {

@@ -2581,13 +2581,25 @@
     return getCookie("_vtx_ph") || "";
   }
 
+  function getFreshFbc() {
+    var fbc = getCookie("_fbc") || "";
+    if (!fbc) return "";
+    var match = String(fbc).match(/^fb\.\d+\.(\d+)\..+$/);
+    if (!match) return "";
+    var ts = parseInt(match[1], 10);
+    if (!isFinite(ts)) return "";
+    var age = Date.now() - ts;
+    if (age < -5 * 60 * 1000 || age > 90 * 24 * 60 * 60 * 1000) return "";
+    return fbc;
+  }
+
   function sendAttribution(email) {
     if (!VTX_CAPI_ENABLED || !API_BASE || !API_KEY) return;
     if (!email || email.indexOf("@") === -1) return;
     var normalized = String(email).trim().toLowerCase();
     setStoredEmail(normalized);
     if (attributionSent[normalized]) return;
-    var fbc = getCookie("_fbc") || "";
+    var fbc = getFreshFbc();
     var fbp = getCookie("_fbp") || "";
     if (!fbc && !fbp) return; // nothing useful to capture
     attributionSent[normalized] = 1;
@@ -2707,7 +2719,7 @@
       url: window.location.href,
       referrer: document.referrer || "",
       user_agent: navigator.userAgent,
-      fbc: getCookie("_fbc") || "",
+      fbc: getFreshFbc(),
       fbp: getCookie("_fbp") || "",
       external_id: consumerId || "",
       email: data.email || storedEmail || "",

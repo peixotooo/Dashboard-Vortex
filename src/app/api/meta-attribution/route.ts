@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { buildCorsHeaders } from "@/lib/cors";
+import { normalizeFreshFbc } from "@/lib/meta-capi";
 
 // Captures Meta CAPI browser-side signals (fbc, fbp, client IP, user agent)
 // keyed by the email the customer typed in the storefront checkout form.
@@ -55,9 +56,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const fbc = normalizeFreshFbc(body.fbc) || null;
+  const fbp = body.fbp?.trim() || null;
+
   // At least one of the browser signals must be present, otherwise the row
   // adds no value to a future Purchase event.
-  if (!body.fbc && !body.fbp) {
+  if (!fbc && !fbp) {
     return NextResponse.json(
       { ok: false, reason: "no_signals" },
       { headers: cors }
@@ -76,8 +80,8 @@ export async function POST(request: NextRequest) {
       workspace_id: auth.workspaceId,
       email,
       consumer_id: body.consumer_id || null,
-      fbc: body.fbc || null,
-      fbp: body.fbp || null,
+      fbc,
+      fbp,
       client_ip: clientIp,
       user_agent: userAgent,
       captured_at: new Date().toISOString(),
