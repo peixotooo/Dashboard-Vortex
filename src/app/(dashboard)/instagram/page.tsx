@@ -101,6 +101,7 @@ interface IGPost {
   likesCount: number;
   commentsCount: number;
   displayUrl: string;
+  videoUrl?: string;
 }
 
 const RANGES = [
@@ -202,6 +203,20 @@ function PostTypeIcon({ type }: { type: IGPost["type"] }) {
   if (type === "Video") return <Video className="h-3 w-3" />;
   if (type === "Sidecar") return <Images className="h-3 w-3" />;
   return <ImageIcon className="h-3 w-3" />;
+}
+
+function mediaProxyUrl(url: string): string {
+  return `/api/instagram/media?url=${encodeURIComponent(url)}`;
+}
+
+function shortcodeMediaUrl(post: IGPost): string | null {
+  const shortcode =
+    post.shortCode ||
+    post.url.match(/instagram\.com\/(?:p|reel|tv)\/([^/?#]+)/)?.[1] ||
+    "";
+  return shortcode
+    ? `https://www.instagram.com/p/${shortcode}/media/?size=l`
+    : null;
 }
 
 function FollowerVerdict({
@@ -764,21 +779,57 @@ function ProfileHeader({
 }
 
 function PostThumb({ post }: { post: IGPost }) {
-  const [broken, setBroken] = useState(false);
-  if (!post.displayUrl || broken) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const [videoBroken, setVideoBroken] = useState(false);
+  const imageCandidates = [post.displayUrl, shortcodeMediaUrl(post)].filter(
+    (url): url is string => Boolean(url)
+  );
+  const imageUrl = imageCandidates[imageIndex] || null;
+  const showVideo = !imageUrl && post.videoUrl && !videoBroken;
+  const Icon = post.type === "Video" ? Video : post.type === "Sidecar" ? Images : ImageIcon;
+
+  if (!imageUrl && !showVideo) {
     return (
-      <div className="flex aspect-square items-center justify-center bg-muted">
-        <Instagram className="h-8 w-8 text-muted-foreground/40" />
+      <div className="flex aspect-square items-center justify-center bg-muted text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 text-xs">
+          <Instagram className="h-8 w-8 text-muted-foreground/40" />
+          <span>Abrir no Instagram</span>
+        </div>
       </div>
     );
   }
+
+  if (showVideo) {
+    return (
+      <div className="relative aspect-square overflow-hidden bg-muted">
+        <video
+          src={mediaProxyUrl(post.videoUrl!)}
+          className="h-full w-full object-cover"
+          muted
+          playsInline
+          preload="metadata"
+          onError={() => setVideoBroken(true)}
+        />
+        <span className="absolute right-2 top-2 rounded-full bg-background/90 p-1 text-foreground shadow-sm">
+          <Video className="h-3.5 w-3.5" />
+        </span>
+      </div>
+    );
+  }
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={post.displayUrl}
-      alt=""
-      className="aspect-square w-full object-cover"
-      onError={() => setBroken(true)}
-    />
+    <div className="relative aspect-square overflow-hidden bg-muted">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={mediaProxyUrl(imageUrl!)}
+        alt={post.caption || "Post do Instagram"}
+        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+        referrerPolicy="no-referrer"
+        onError={() => setImageIndex((current) => current + 1)}
+      />
+      <span className="absolute right-2 top-2 rounded-full bg-background/90 p-1 text-foreground shadow-sm">
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+    </div>
   );
 }
