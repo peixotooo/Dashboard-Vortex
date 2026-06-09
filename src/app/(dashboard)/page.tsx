@@ -33,6 +33,7 @@ import { PerformanceTable } from "@/components/dashboard/performance-table";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { OverviewSummary } from "@/components/dashboard/overview-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -222,6 +223,8 @@ interface OverviewData {
   totalInvestment: number;
   // GA4
   revenue: number;
+  users: number;
+  pageViews: number;
   sessions: number;
   pedidos: number;
   ticketMedio: number;
@@ -265,6 +268,8 @@ export default function OverviewPage() {
     gadsConfigured: false,
     totalInvestment: 0,
     revenue: 0,
+    users: 0,
+    pageViews: 0,
     sessions: 0,
     pedidos: 0,
     ticketMedio: 0,
@@ -309,7 +314,7 @@ export default function OverviewPage() {
     }
 
     const cacheKey = [
-      "overview",
+      "overview-v2",
       workspace?.id || "",
       accountId,
       accountId === "all" ? accountIdsKey : "",
@@ -635,6 +640,8 @@ export default function OverviewPage() {
           gadsConfigured,
           totalInvestment,
           revenue: totalRevenue,
+          users: ga4Configured ? ga4Totals.users : 0,
+          pageViews: ga4Configured ? ga4Totals.pageViews : 0,
           sessions: totalSessions,
           pedidos: totalPedidos,
           ticketMedio: totalTicketMedio,
@@ -927,9 +934,21 @@ export default function OverviewPage() {
       {/* Funnel E-commerce */}
       <FunnelSection
         sessions={data.sessions}
+        users={data.users}
+        pageViews={data.pageViews}
         addToCarts={data.addToCarts}
         checkouts={data.checkouts}
         pedidos={data.pedidos}
+        revenue={data.revenue}
+        ticketMedio={data.ticketMedio}
+        previous={{
+          users: gc?.users ?? 0,
+          pageViews: gc?.pageViews ?? 0,
+          sessions: gc?.sessions ?? 0,
+          addToCarts: gc?.addToCarts ?? 0,
+          checkouts: gc?.checkouts ?? 0,
+          pedidos: prevTxOrders ?? 0,
+        }}
         ga4Configured={data.ga4Configured}
         loading={loading}
       />
@@ -1393,18 +1412,115 @@ function CostCard({
 
 // --- Funnel E-commerce ---
 
+const FASHION_FUNNEL_BENCHMARKS = {
+  addToCartRate: 7.12,
+  cartToCheckoutRate: 40,
+  checkoutCompletionRate: 45,
+  fashionCvrConservative: 1.41,
+  fashionCvrUpper: 2.73,
+  cartAbandonmentGood: 70.22,
+  cartAbandonmentWatch: 77.81,
+};
+
+function safeRate(value: number, base: number): number | null {
+  if (!base || base <= 0) return null;
+  return (value / base) * 100;
+}
+
+function formatFunnelRate(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(1)}%`;
+}
+
+function formatPointDelta(current: number | null, previous: number | null): string {
+  if (current == null || previous == null) return "sem comparativo";
+  const delta = current - previous;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} p.p.`;
+}
+
+function benchmarkTone(rate: number | null, benchmark: number) {
+  if (rate == null) {
+    return {
+      label: "sem dado",
+      className: "border-border bg-muted text-muted-foreground",
+    };
+  }
+  if (rate >= benchmark) {
+    return {
+      label: "acima",
+      className: "border-success/20 bg-success/10 text-success",
+    };
+  }
+  if (rate >= benchmark * 0.85) {
+    return {
+      label: "perto",
+      className: "border-warning/20 bg-warning/10 text-warning",
+    };
+  }
+  return {
+    label: "abaixo",
+    className: "border-destructive/20 bg-destructive/10 text-destructive",
+  };
+}
+
+function abandonmentTone(rate: number | null) {
+  if (rate == null) {
+    return {
+      label: "sem dado",
+      className: "border-border bg-muted text-muted-foreground",
+    };
+  }
+  if (rate <= FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood) {
+    return {
+      label: "saudável",
+      className: "border-success/20 bg-success/10 text-success",
+    };
+  }
+  if (rate <= FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch) {
+    return {
+      label: "atenção",
+      className: "border-warning/20 bg-warning/10 text-warning",
+    };
+  }
+  return {
+    label: "crítico",
+    className: "border-destructive/20 bg-destructive/10 text-destructive",
+  };
+}
+
+function targetGap(value: number, target: number): number {
+  return Math.max(0, Math.round(target - value));
+}
+
 function FunnelSection({
   sessions,
+  users,
+  pageViews,
   addToCarts,
   checkouts,
   pedidos,
+  revenue,
+  ticketMedio,
+  previous,
   ga4Configured,
   loading,
 }: {
   sessions: number;
+  users: number;
+  pageViews: number;
   addToCarts: number;
   checkouts: number;
   pedidos: number;
+  revenue: number;
+  ticketMedio: number;
+  previous: {
+    users: number;
+    pageViews: number;
+    sessions: number;
+    addToCarts: number;
+    checkouts: number;
+    pedidos: number;
+  };
   ga4Configured: boolean;
   loading: boolean;
 }) {
@@ -1412,10 +1528,10 @@ function FunnelSection({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Funil E-commerce</CardTitle>
+          <CardTitle className="text-base">Funil de conversões</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-48 animate-pulse rounded bg-muted" />
+          <div className="h-80 animate-pulse rounded bg-muted" />
         </CardContent>
       </Card>
     );
@@ -1423,85 +1539,352 @@ function FunnelSection({
 
   if (!ga4Configured) return null;
 
-  const stages = [
-    { name: "Visitas", value: sessions, color: "#3b82f6" },
-    { name: "Carrinho", value: addToCarts, color: "#8b5cf6" },
-    { name: "Checkout", value: checkouts, color: "#f97316" },
-    { name: "Compra", value: pedidos, color: "#22c55e" },
+  const visitorBase = users > 0 ? users : sessions;
+  const previousVisitorBase = previous.users > 0 ? previous.users : previous.sessions;
+  const pagesPerUser = visitorBase > 0 ? pageViews / visitorBase : null;
+  const previousPagesPerUser =
+    previousVisitorBase > 0 ? previous.pageViews / previousVisitorBase : null;
+
+  const addToCartRate = safeRate(addToCarts, sessions);
+  const prevAddToCartRate = safeRate(previous.addToCarts, previous.sessions);
+  const cartToCheckoutRate = safeRate(checkouts, addToCarts);
+  const prevCartToCheckoutRate = safeRate(previous.checkouts, previous.addToCarts);
+  const checkoutCompletionRate = safeRate(pedidos, checkouts);
+  const prevCheckoutCompletionRate = safeRate(previous.pedidos, previous.checkouts);
+  const siteConversionRate = safeRate(pedidos, sessions);
+  const prevSiteConversionRate = safeRate(previous.pedidos, previous.sessions);
+  const cartAbandonmentRate =
+    addToCarts > 0 ? Math.max(0, (1 - pedidos / addToCarts) * 100) : null;
+
+  const targetCarts = sessions * (FASHION_FUNNEL_BENCHMARKS.addToCartRate / 100);
+  const targetCheckouts = addToCarts * (FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate / 100);
+  const targetOrdersFromCheckout =
+    checkouts * (FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate / 100);
+  const targetOrdersConservative =
+    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative / 100);
+  const targetOrdersUpper =
+    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper / 100);
+  const ordersToFashionMedian = targetGap(pedidos, targetOrdersConservative);
+  const ordersToFashionUpper = targetGap(pedidos, targetOrdersUpper);
+  const potentialRevenue =
+    ordersToFashionUpper * (ticketMedio || (pedidos > 0 ? revenue / pedidos : 0));
+
+  const diagnosticCandidates = [
+    {
+      label: "Produto/oferta até carrinho",
+      rate: addToCartRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.addToCartRate,
+      action: "Revisar PDP, grade/tamanho, preço percebido, frete no PDP e prova social.",
+    },
+    {
+      label: "Carrinho até checkout",
+      rate: cartToCheckoutRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate,
+      action: "Reduzir fricção no carrinho: frete, cupom, parcelamento e CTA de checkout.",
+    },
+    {
+      label: "Checkout até pedido",
+      rate: checkoutCompletionRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate,
+      action: "Atacar custos surpresa, meios de pagamento, erros de formulário e confiança.",
+    },
+  ].filter((item) => item.rate != null && item.benchmark > 0);
+
+  const mainLeak = diagnosticCandidates
+    .map((item) => ({
+      ...item,
+      score: (item.rate ?? 0) / item.benchmark,
+    }))
+    .sort((a, b) => a.score - b.score)[0];
+
+  const volumeStages = [
+    {
+      name: "Usuários",
+      detail: users > 0 ? `${formatNumber(sessions)} sessões` : "base por sessões",
+      value: visitorBase,
+      target: visitorBase,
+      color: "#14b8a6",
+    },
+    {
+      name: "Add to cart",
+      detail: "sessões → carrinho",
+      value: addToCarts,
+      target: targetCarts,
+      rate: addToCartRate,
+      previousRate: prevAddToCartRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.addToCartRate,
+      benchmarkLabel: "Moda 7,1%",
+      color: "#0ea5e9",
+    },
+    {
+      name: "Checkout",
+      detail: "carrinho → checkout",
+      value: checkouts,
+      target: targetCheckouts,
+      rate: cartToCheckoutRate,
+      previousRate: prevCartToCheckoutRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate,
+      benchmarkLabel: "Alvo 40%",
+      color: "#f59e0b",
+    },
+    {
+      name: "Pedidos",
+      detail: "checkout → compra",
+      value: pedidos,
+      target: targetOrdersFromCheckout,
+      rate: checkoutCompletionRate,
+      previousRate: prevCheckoutCompletionRate,
+      benchmark: FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate,
+      benchmarkLabel: "Checkout 45%",
+      color: "#22c55e",
+    },
   ];
 
-  const maxValue = stages[0].value || 1;
+  const maxValue = Math.max(visitorBase, ...volumeStages.map((stage) => stage.target), 1);
+  const cvrTone = benchmarkTone(siteConversionRate, FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper);
+  const cartAbandonTone = abandonmentTone(cartAbandonmentRate);
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Funil E-commerce</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {stages.map((stage, i) => {
-            const widthPercent = maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
-            const rateFromPrevious =
-              i > 0 && stages[i - 1].value > 0
-                ? (stage.value / stages[i - 1].value) * 100
-                : i === 0
-                  ? 100
-                  : 0;
-            const rateFromTop =
-              maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
-
-            return (
-              <div key={stage.name}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{stage.name}</span>
-                    {i > 0 && (
-                      <span className="text-xs text-muted-foreground">
-                        {rateFromPrevious.toFixed(1)}% da etapa anterior
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold">{formatNumber(stage.value)}</span>
-                    <span className="text-xs text-muted-foreground w-14 text-right">
-                      {rateFromTop.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-                <div className="h-8 rounded bg-muted/30 overflow-hidden flex items-center">
-                  <div
-                    className="h-full rounded transition-all duration-500 flex items-center justify-end pr-2"
-                    style={{
-                      width: `${Math.max(widthPercent, 2)}%`,
-                      backgroundColor: stage.color,
-                      opacity: 0.8,
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle className="text-base">Funil de conversões</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Realizado vs referências de e-commerce de moda, apparel e checkout.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
+              Moda CVR {FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative.toFixed(1)}–{FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%
+            </Badge>
+            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+              Abandono mercado {FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–{FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%
+            </Badge>
+          </div>
         </div>
-        {/* Conversion arrows */}
-        <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
-          {stages.slice(1).map((stage, i) => {
-            const rate =
-              stages[i].value > 0
-                ? (stage.value / stages[i].value) * 100
-                : 0;
-            return (
-              <div key={stage.name} className="flex items-center gap-1 text-xs text-muted-foreground">
-                <span>{stages[i].name}</span>
-                <span className="text-foreground font-medium">{rate.toFixed(1)}%</span>
-                <span>→</span>
-                <span>{stage.name}</span>
-                {i < stages.length - 2 && <span className="mx-2">|</span>}
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+          <FunnelMetricTile
+            label="CVR site"
+            value={formatFunnelRate(siteConversionRate)}
+            detail={`vs período anterior: ${formatPointDelta(siteConversionRate, prevSiteConversionRate)}`}
+            toneClass={cvrTone.className}
+            status={cvrTone.label}
+          />
+          <FunnelMetricTile
+            label="Abandono carrinho"
+            value={formatFunnelRate(cartAbandonmentRate)}
+            detail="carrinhos que não viraram pedido"
+            toneClass={cartAbandonTone.className}
+            status={cartAbandonTone.label}
+          />
+          <FunnelMetricTile
+            label="Páginas / usuário"
+            value={pagesPerUser == null ? "—" : pagesPerUser.toFixed(1)}
+            detail={`vs anterior: ${
+              pagesPerUser == null || previousPagesPerUser == null
+                ? "sem comparativo"
+                : `${pagesPerUser - previousPagesPerUser >= 0 ? "+" : ""}${(pagesPerUser - previousPagesPerUser).toFixed(1)}`
+            }`}
+            toneClass="border-border bg-muted/40 text-foreground"
+            status="engaj."
+          />
+          <FunnelMetricTile
+            label="Receita potencial"
+            value={formatCurrency(Math.max(0, potentialRevenue))}
+            detail={`se CVR chegar a ${FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%`}
+            toneClass="border-primary/20 bg-primary/10 text-primary"
+            status={`${formatNumber(ordersToFashionUpper)} pedidos`}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.9fr)]">
+          <div className="space-y-3">
+            <div className="grid grid-cols-12 gap-3 px-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span className="col-span-4">Etapa</span>
+              <span className="col-span-3 text-right">Realizado</span>
+              <span className="col-span-3 text-right">Referência</span>
+              <span className="col-span-2 text-right">Status</span>
+            </div>
+            {volumeStages.map((stage) => {
+              const realWidth = maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
+              const targetWidth = maxValue > 0 ? (stage.target / maxValue) * 100 : 0;
+              const tone =
+                stage.benchmark && stage.rate != null
+                  ? benchmarkTone(stage.rate, stage.benchmark)
+                  : { label: "base", className: "border-border bg-muted text-muted-foreground" };
+              return (
+                <div key={stage.name} className="rounded-lg border bg-background p-3">
+                  <div className="grid grid-cols-12 items-start gap-3">
+                    <div className="col-span-12 sm:col-span-4">
+                      <p className="font-medium">{stage.name}</p>
+                      <p className="text-xs text-muted-foreground">{stage.detail}</p>
+                    </div>
+                    <div className="col-span-6 text-right sm:col-span-3">
+                      <p className="font-semibold tabular-nums">{formatNumber(Math.round(stage.value))}</p>
+                      {stage.rate != null && (
+                        <p className="text-xs text-muted-foreground">
+                          {formatFunnelRate(stage.rate)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="col-span-4 text-right sm:col-span-3">
+                      <p className="font-semibold tabular-nums">
+                        {formatNumber(Math.round(stage.target))}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {stage.benchmarkLabel || "base real"}
+                      </p>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold ${tone.className}`}>
+                        {tone.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    <div className="h-7 overflow-hidden rounded bg-muted/40">
+                      <div
+                        className="flex h-full items-center justify-end rounded px-2 text-[10px] font-semibold text-white transition-all duration-500"
+                        style={{
+                          width: `${Math.max(realWidth, stage.value > 0 ? 3 : 0)}%`,
+                          backgroundColor: stage.color,
+                        }}
+                      >
+                        {realWidth > 18 ? "real" : ""}
+                      </div>
+                    </div>
+                    <div className="h-4 overflow-hidden rounded bg-muted/40">
+                      <div
+                        className="h-full rounded bg-foreground/25 transition-all duration-500"
+                        style={{ width: `${Math.max(targetWidth, stage.target > 0 ? 3 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                  {stage.rate != null && (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{formatPointDelta(stage.rate, stage.previousRate ?? null)} vs período anterior</span>
+                      <span>
+                        gap: {formatNumber(targetGap(stage.value, stage.target))} para referência
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Diagnóstico CRO</p>
+              <p className="mt-2 text-lg font-semibold">
+                {mainLeak ? mainLeak.label : "Sem gargalo claro ainda"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {mainLeak
+                  ? mainLeak.action
+                  : "Assim que houver volume em todas as etapas, o funil aponta a maior perda relativa."}
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Benchmark moda</p>
+              <div className="mt-3 space-y-2 text-sm">
+                <BenchmarkLine
+                  label="Conversão site"
+                  actual={siteConversionRate}
+                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.fashionCvrConservative.toFixed(1)}–${FASHION_FUNNEL_BENCHMARKS.fashionCvrUpper.toFixed(1)}%`}
+                />
+                <BenchmarkLine
+                  label="Add-to-cart"
+                  actual={addToCartRate}
+                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.addToCartRate.toFixed(1)}%`}
+                />
+                <BenchmarkLine
+                  label="Checkout completion"
+                  actual={checkoutCompletionRate}
+                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate.toFixed(0)}%`}
+                />
+                <BenchmarkLine
+                  label="Abandono carrinho"
+                  actual={cartAbandonmentRate}
+                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%`}
+                />
               </div>
-            );
-          })}
+              <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+                Referências: IRP Fashion Clothing & Accessories, Dynamic Yield e Baymard. Use como régua de contexto, não como meta cega.
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedidos adicionais</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">até CVR 1,4%</p>
+                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionMedian)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">até CVR 2,7%</p>
+                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionUpper)}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Projeção usa o ticket médio atual e não considera ruptura de estoque ou mix de canal.
+              </p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function FunnelMetricTile({
+  label,
+  value,
+  detail,
+  toneClass,
+  status,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  toneClass: string;
+  status: string;
+}) {
+  return (
+    <div className={`rounded-lg border p-3 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wider opacity-80">{label}</p>
+        <span className="rounded bg-background/60 px-1.5 py-0.5 text-[10px] font-semibold">
+          {status}
+        </span>
+      </div>
+      <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
+      <p className="mt-1 text-xs opacity-80">{detail}</p>
+    </div>
+  );
+}
+
+function BenchmarkLine({
+  label,
+  actual,
+  benchmark,
+}: {
+  label: string;
+  actual: number | null;
+  benchmark: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right">
+        <strong className="font-semibold">{formatFunnelRate(actual)}</strong>
+        <span className="ml-2 text-xs text-muted-foreground">ref. {benchmark}</span>
+      </span>
+    </div>
   );
 }
 
