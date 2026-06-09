@@ -4,8 +4,9 @@ import {
   createCustomAudience,
   createLookalikeAudience,
   estimateAudienceSize,
+  runWithToken,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,9 +15,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
+    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
 
-    const result = await listAudiences({ account_id });
+    const result = await runWithToken(_tok, () => listAudiences({ account_id }));
     return NextResponse.json(result);
   } catch (error) {
     return handleAuthError(error);
@@ -30,18 +31,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { type, ...args } = body;
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (args.account_id && args.account_id !== "all") await setTokenForAccount(workspaceId, args.account_id);
+    const _tok = args.account_id && args.account_id !== "all" ? await resolveTokenForAccount(workspaceId, args.account_id) : null;
 
     let result;
     switch (type) {
       case "lookalike":
-        result = await createLookalikeAudience(args);
+        result = await runWithToken(_tok, () => createLookalikeAudience(args));
         break;
       case "estimate":
-        result = await estimateAudienceSize(args);
+        result = await runWithToken(_tok, () => estimateAudienceSize(args));
         break;
       default:
-        result = await createCustomAudience(args);
+        result = await runWithToken(_tok, () => createCustomAudience(args));
     }
 
     return NextResponse.json(result);

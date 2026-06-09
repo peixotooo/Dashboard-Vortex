@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getAccountActivities,
   setContextToken,
+  runWithToken,
   type MetaActivity,
 } from "@/lib/meta-api";
-import { setTokenForAccount } from "@/lib/api-auth";
+import { resolveTokenForAccount } from "@/lib/api-auth";
 import type { ActivityEntry, ActivitySource } from "@/lib/types";
 
 const PERIOD_MS: Record<string, number> = {
@@ -76,10 +77,10 @@ export async function GET(request: NextRequest) {
     }
 
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    const tokenSet = accountId && accountId !== "all"
-      ? await setTokenForAccount(workspaceId, accountId)
-      : false;
-    if (!tokenSet) {
+    const _tok = accountId && accountId !== "all"
+      ? await resolveTokenForAccount(workspaceId, accountId)
+      : null;
+    if (!_tok) {
       const metaToken = process.env.META_ACCESS_TOKEN;
       if (!metaToken) {
         return NextResponse.json(
@@ -110,12 +111,9 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get("category") || undefined;
     const dashboardAppId = process.env.META_APP_ID || "";
 
-    const { activities: rawActivities } = await getAccountActivities({
-      account_id: accountId,
-      since,
-      until,
-      category,
-    });
+    const { activities: rawActivities } = await (_tok
+      ? runWithToken(_tok, () => getAccountActivities({ account_id: accountId, since, until, category }))
+      : getAccountActivities({ account_id: accountId, since, until, category }));
 
     const enriched: ActivityEntry[] = rawActivities.map((a) => {
       const extra = parseExtraData(a.extra_data);

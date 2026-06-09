@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getCampaignsWithMetrics, setContextToken } from "@/lib/meta-api";
+import { getCampaignsWithMetrics, runWithToken } from "@/lib/meta-api";
 import { resolveTokenForAccount } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 
@@ -34,14 +34,13 @@ export async function GET(request: NextRequest) {
       try {
         // Set the correct token for this specific ad account
         const _tok = await resolveTokenForAccount(workspaceId, accountId);
-        if (_tok) setContextToken(_tok);
 
         // 1. Fetch current campaigns from Meta
-        const { campaigns } = await getCampaignsWithMetrics({
+        const { campaigns } = await runWithToken(_tok, () => getCampaignsWithMetrics({
           account_id: accountId,
           time_range: timeRange,
           statuses: ["ACTIVE"],
-        });
+        }));
 
         if (campaigns.length === 0) {
           results.push({ workspaceId, detected: 0 });

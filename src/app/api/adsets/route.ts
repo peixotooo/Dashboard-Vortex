@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listAdSets, createAdSet } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, setTokenForAccount } from "@/lib/api-auth";
+import { listAdSets, createAdSet, runWithToken } from "@/lib/meta-api";
+import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,9 +12,9 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "25");
 
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
+    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
 
-    const result = await listAdSets({ campaign_id, account_id, limit });
+    const result = await runWithToken(_tok, () => listAdSets({ campaign_id, account_id, limit }));
     return NextResponse.json(result);
   } catch (error) {
     return handleAuthError(error);
@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const account_id = body.account_id || "";
     const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (account_id && account_id !== "all") await setTokenForAccount(workspaceId, account_id);
-    const result = await createAdSet(body);
+    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
+    const result = await runWithToken(_tok, () => createAdSet(body));
     return NextResponse.json(result);
   } catch (error) {
     return handleAuthError(error);
