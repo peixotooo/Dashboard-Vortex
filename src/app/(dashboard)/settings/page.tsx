@@ -471,6 +471,10 @@ export default function SettingsPage() {
   async function handleSetDefault(accountId: string) {
     if (!workspace) return;
     setDefaultAccountId(accountId);
+    // Reflect the new default immediately in the saved-accounts list
+    setSavedAccounts((prev) =>
+      prev.map((a) => ({ ...a, is_default: a.account_id === accountId }))
+    );
     try {
       await fetch("/api/workspaces", {
         method: "POST",
@@ -1173,17 +1177,25 @@ export default function SettingsPage() {
                               key={acc.account_id}
                               className="flex items-center justify-between p-3 rounded-lg border border-border"
                             >
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm">
-                                  {acc.account_name || acc.account_id}
-                                </span>
-                                {acc.is_default && (
-                                  <Badge variant="default" className="text-xs">
-                                    <Star className="h-3 w-3 mr-1" />
-                                    Padrão
-                                  </Badge>
-                                )}
-                              </div>
+                              <span className="text-sm">
+                                {acc.account_name || acc.account_id}
+                              </span>
+                              {acc.is_default ? (
+                                <Badge variant="default" className="text-xs">
+                                  <Star className="h-3 w-3 mr-1 fill-current" />
+                                  Padrão
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs"
+                                  onClick={() => handleSetDefault(acc.account_id)}
+                                >
+                                  <Star className="h-3 w-3 mr-1" />
+                                  Definir padrão
+                                </Button>
+                              )}
                             </div>
                           ))}
                         </div>
