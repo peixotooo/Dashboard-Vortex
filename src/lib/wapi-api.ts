@@ -151,6 +151,57 @@ export async function listGroups(config: WapiConfig): Promise<unknown> {
   return wapiRequest(config, "/group/get-all-groups");
 }
 
+export interface WapiGroupMetadata {
+  id: string;
+  name: string;
+  memberCount: number;
+  adminsCount: number;
+}
+
+/**
+ * Metadata de um grupo (contagem de membros incluida).
+ * GET /group/group-metadata?instanceId=...&groupId=<jid>
+ */
+export async function getGroupMetadata(
+  config: WapiConfig,
+  groupId: string
+): Promise<WapiGroupMetadata> {
+  const raw = await wapiRequest<Record<string, unknown>>(
+    config,
+    "/group/group-metadata",
+    { extraParams: { groupId } }
+  );
+  return extractGroupMetadata(raw, groupId);
+}
+
+export function extractGroupMetadata(
+  raw: Record<string, unknown>,
+  fallbackId: string
+): WapiGroupMetadata {
+  const g = ((raw?.group as Record<string, unknown>) || raw || {}) as Record<
+    string,
+    unknown
+  >;
+  const participants = Array.isArray(g.participants)
+    ? (g.participants as Array<Record<string, unknown>>)
+    : [];
+  const size =
+    typeof g.size === "number"
+      ? (g.size as number)
+      : typeof g.participantsCount === "number"
+        ? (g.participantsCount as number)
+        : participants.length;
+  const adminsCount = participants.filter((p) => Boolean(p?.admin)).length;
+  const name = (g.subject || g.name || g.groupName || "") as string;
+
+  return {
+    id: (g.id as string) || fallbackId,
+    name,
+    memberCount: size,
+    adminsCount,
+  };
+}
+
 export async function disconnectInstance(
   config: WapiConfig
 ): Promise<{ error?: boolean; message?: string; instanceId?: string }> {

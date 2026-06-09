@@ -49,6 +49,7 @@ import {
   Banknote,
   ListChecks,
   Star,
+  Instagram,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -142,6 +143,13 @@ const navGroups: NavGroup[] = [
       },
       { title: "Google Ads", href: "/google-ads", icon: CircleDollarSign },
       { title: "Google Analytics", href: "/ga4", icon: LineChart },
+    ],
+  },
+  {
+    label: "Canais",
+    items: [
+      { title: "Instagram", href: "/instagram", icon: Instagram },
+      { title: "Grupos WhatsApp", href: "/whatsapp-groups/membros", icon: Users },
     ],
   },
   {

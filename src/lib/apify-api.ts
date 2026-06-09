@@ -1,6 +1,7 @@
 import { decrypt } from "@/lib/encryption";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // --- Types ---
 
@@ -77,6 +78,32 @@ export async function getApifyConfig(workspaceId?: string): Promise<ApifyConfig 
   return null;
 }
 
+// Same as getApifyConfig but reads the workspace token through a service-role
+// admin client. Use from crons/background jobs where there is no session.
+export async function getApifyConfigAdmin(
+  admin: SupabaseClient,
+  workspaceId: string
+): Promise<ApifyConfig | null> {
+  try {
+    const { data } = await admin
+      .from("apify_connections")
+      .select("api_token")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (data?.api_token) {
+      return { apiToken: decrypt(data.api_token) };
+    }
+  } catch {
+    // Fall through to env var
+  }
+
+  const token = process.env.APIFY_API_TOKEN;
+  return token ? { apiToken: token } : null;
+}
+
 // --- Apify API ---
 
 const APIFY_BASE = "https://api.apify.com/v2";
@@ -145,13 +172,13 @@ export async function scrapeInstagramPosts(
   }
 
   return items.map((raw) => ({
-    id: raw.id || raw.pk || String(Date.now()),
+    id: raw.id || raw.pk || raw.shortCode || raw.code || String(Date.now()),
     shortCode: raw.shortCode || raw.code || "",
     url: raw.url || `https://www.instagram.com/p/${raw.shortCode || raw.code}/`,
     type: normalizePostType(raw.type || raw.productType || raw.mediaType),
-    timestamp: raw.timestamp || raw.taken_at || raw.takenAtTimestamp
-      ? new Date((raw.timestamp || raw.taken_at || raw.takenAtTimestamp) * (String(raw.timestamp || raw.taken_at || raw.takenAtTimestamp).length <= 10 ? 1000 : 1)).toISOString()
-      : new Date().toISOString(),
+    timestamp: parseInstagramTimestamp(
+      raw.timestamp ?? raw.taken_at ?? raw.takenAtTimestamp
+    ),
     caption: raw.caption || raw.text || "",
     hashtags: raw.hashtags || extractHashtags(raw.caption || raw.text || ""),
     likesCount: raw.likesCount ?? raw.likes ?? 0,
@@ -159,6 +186,29 @@ export async function scrapeInstagramPosts(
     displayUrl: raw.displayUrl || raw.display_url || raw.imageUrl || raw.thumbnailUrl || "",
     videoUrl: raw.videoUrl || raw.video_url || undefined,
   }));
+}
+
+function parseInstagramTimestamp(value: unknown): string {
+  if (value == null || value === "") return new Date().toISOString();
+
+  if (typeof value === "number") {
+    const millis = value < 10_000_000_000 ? value * 1000 : value;
+    const date = new Date(millis);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+  }
+
+  const raw = String(value).trim();
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && raw !== "") {
+    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+  }
+
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+
+  return new Date().toISOString();
 }
 
 function normalizePostType(type: string | number | undefined): "Image" | "Video" | "Sidecar" {
