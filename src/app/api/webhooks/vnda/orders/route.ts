@@ -224,7 +224,12 @@ export async function POST(request: NextRequest) {
         console.log(
           `[VNDA Webhook] CAPI Purchase forwarded for order ${orderId} (fbtrace=${capiRes.fbtrace_id || "n/a"})`
         );
-      } else if (capiRes.reason && capiRes.reason !== "workspace_not_allowed" && capiRes.reason !== "not_configured") {
+      } else if (
+        capiRes.reason &&
+        capiRes.reason !== "workspace_not_allowed" &&
+        capiRes.reason !== "not_configured" &&
+        capiRes.reason !== "disabled"
+      ) {
         console.warn(
           `[VNDA Webhook] CAPI Purchase skipped/failed for ${orderId}: ${capiRes.reason}`
         );

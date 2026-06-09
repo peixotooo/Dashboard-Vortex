@@ -6,6 +6,7 @@ import {
   normalizeAttributionEmail,
   upsertMetaAttributionSnapshot,
 } from "@/lib/meta-attribution";
+import { isMetaCapiEnabledForWorkspace } from "@/lib/workspace-integration-settings";
 import {
   EVENT_MAP,
   isCapiConfigured,
@@ -103,6 +104,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid API key" },
       { status: 401, headers: cors }
+    );
+  }
+
+  if (!(await isMetaCapiEnabledForWorkspace(auth.workspaceId))) {
+    return NextResponse.json(
+      { ok: false, reason: "disabled" },
+      { headers: cors }
     );
   }
 
