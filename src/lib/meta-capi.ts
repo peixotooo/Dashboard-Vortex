@@ -4,9 +4,13 @@ import { createHash } from "crypto";
 // the Graph API call so the public browser endpoint and server-side
 // integrations (VNDA webhook etc.) share the exact same matching contract.
 
-const API_VERSION = process.env.META_CAPI_API_VERSION || "v23.0";
-const DEFAULT_PIXEL_ID = process.env.META_CAPI_PIXEL_ID || "";
-const DEFAULT_ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN || "";
+function env(name: string, fallback = ""): string {
+  return (process.env[name] || fallback).trim();
+}
+
+const API_VERSION = env("META_CAPI_API_VERSION", "v23.0");
+const DEFAULT_PIXEL_ID = env("META_CAPI_PIXEL_ID");
+const DEFAULT_ACCESS_TOKEN = env("META_CAPI_ACCESS_TOKEN");
 
 export type MetaStandardEvent =
   | "PageView"
