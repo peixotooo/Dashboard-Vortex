@@ -213,6 +213,42 @@ export async function getGA4DailyReport(args: {
   return { insights, totals };
 }
 
+// --- Product viewers (users who fired the ecommerce "view_item" event) ---
+// Powers the "Produtos" funnel stage. We count USERS (not item impressions):
+// `itemsViewed` is item-scoped and routinely exceeds the user/session base,
+// which would invert the top of the funnel. `totalUsers` filtered by
+// eventName=view_item is a strict subset of total users, so it nests cleanly
+// under "Usuários". Isolated from getGA4DailyReport on purpose so a metric
+// incompatibility can never break the whole overview — wrap in `.catch(() => null)`.
+export async function getGA4ProductViewers(args: {
+  propertyId?: string;
+  datePreset?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ productViewers: number }> {
+  const client = getClient();
+  const propertyId = args.propertyId || getPropertyId();
+
+  const range = args.startDate && args.endDate
+    ? { startDate: args.startDate, endDate: args.endDate }
+    : datePresetToRange(args.datePreset || "last_30d");
+
+  const [response] = await client.runReport({
+    property: `properties/${propertyId}`,
+    metrics: [{ name: "totalUsers" }],
+    dimensionFilter: {
+      filter: {
+        fieldName: "eventName",
+        stringFilter: { matchType: "EXACT", value: "view_item" },
+      },
+    },
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+  });
+
+  const productViewers = parseInt(response.rows?.[0]?.metricValues?.[0]?.value || "0", 10);
+  return { productViewers };
+}
+
 // --- Google Ads cost via GA4 ---
 
 export async function getGA4GoogleAdsCost(args: {
