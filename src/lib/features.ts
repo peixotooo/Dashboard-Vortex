@@ -113,6 +113,12 @@ export const FEATURES: Feature[] = [
     routes: ["/google-ads"],
   },
   {
+    id: "tiktok_ads",
+    label: "TikTok Ads",
+    description: "Campanhas TikTok Ads",
+    routes: ["/tiktok-ads"],
+  },
+  {
     id: "ga4",
     label: "Google Analytics",
     description: "Dados do GA4",
