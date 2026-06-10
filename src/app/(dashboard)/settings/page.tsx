@@ -134,6 +134,14 @@ export default function SettingsPage() {
   // Meta Connections (multi-connection)
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
   const hasConnection = connections.length > 0;
+  const [capiEnabled, setCapiEnabled] = useState(true);
+  const [capiEnvConfigured, setCapiEnvConfigured] = useState(false);
+  const [capiVndaAllowed, setCapiVndaAllowed] = useState(false);
+  const [capiStorageReady, setCapiStorageReady] = useState(true);
+  const [loadingCapi, setLoadingCapi] = useState(false);
+  const [savingCapi, setSavingCapi] = useState(false);
+  const [capiMessage, setCapiMessage] = useState("");
+  const [capiError, setCapiError] = useState("");
 
   // "Add connection" form
   const [newMetaToken, setNewMetaToken] = useState("");
@@ -263,6 +271,24 @@ export default function SettingsPage() {
       }
     } catch {
       // Silent
+    }
+
+    try {
+      setLoadingCapi(true);
+      const capiRes = await fetch("/api/meta-capi/settings", {
+        headers: { "x-workspace-id": workspace.id },
+      });
+      const capiData = await capiRes.json();
+      if (capiData.settings) {
+        setCapiEnabled(capiData.settings.enabled !== false);
+        setCapiEnvConfigured(!!capiData.env_configured);
+        setCapiVndaAllowed(!!capiData.vnda_purchase_allowed);
+        setCapiStorageReady(capiData.settings_storage_ready !== false);
+      }
+    } catch {
+      // Silent
+    } finally {
+      setLoadingCapi(false);
     }
 
     // Load Eccosys connection status (env-var based)
@@ -487,6 +513,39 @@ export default function SettingsPage() {
       });
     } catch {
       // Silent
+    }
+  }
+
+  async function handleToggleCapi(enabled: boolean) {
+    if (!workspace) return;
+    const previous = capiEnabled;
+    setSavingCapi(true);
+    setCapiMessage("");
+    setCapiError("");
+    setCapiEnabled(enabled);
+    try {
+      const res = await fetch("/api/meta-capi/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Erro ao salvar CAPI");
+      }
+      setCapiEnabled(data.settings.enabled !== false);
+      setCapiEnvConfigured(!!data.env_configured);
+      setCapiVndaAllowed(!!data.vnda_purchase_allowed);
+      setCapiStorageReady(data.settings_storage_ready !== false);
+      setCapiMessage(data.settings.enabled ? "CAPI ativada." : "CAPI desativada.");
+    } catch (error) {
+      setCapiEnabled(previous);
+      setCapiError(error instanceof Error ? error.message : "Erro ao salvar CAPI");
+    } finally {
+      setSavingCapi(false);
     }
   }
 
@@ -1058,6 +1117,83 @@ export default function SettingsPage() {
             </Card>
           ) : (
             <>
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-primary" />
+                        Meta CAPI
+                      </CardTitle>
+                      <CardDescription>
+                        Controle o envio server-side de eventos para a Meta Conversions API.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={capiEnabled ? "success" : "secondary"}>
+                        {capiEnabled ? "Ativa" : "Desativada"}
+                      </Badge>
+                      <Switch
+                        checked={capiEnabled}
+                        onCheckedChange={handleToggleCapi}
+                        disabled={loadingCapi || savingCapi}
+                        aria-label="Ativar ou desativar Meta CAPI"
+                      />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Eventos browser</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {capiEnabled ? "Enviando" : "Pausados"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Credenciais</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {capiEnvConfigured ? "Configuradas" : "Pendentes"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Purchase VNDA</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {capiEnabled && capiVndaAllowed ? "Liberado" : "Pausado"}
+                      </p>
+                    </div>
+                  </div>
+                  {!capiEnvConfigured && (
+                    <div className="flex items-center gap-2 rounded-lg bg-warning/10 p-3">
+                      <XCircle className="h-4 w-4 text-warning" />
+                      <span className="text-sm text-warning">
+                        Defina META_CAPI_PIXEL_ID e META_CAPI_ACCESS_TOKEN no ambiente para enviar eventos.
+                      </span>
+                    </div>
+                  )}
+                  {!capiStorageReady && (
+                    <div className="flex items-center gap-2 rounded-lg bg-warning/10 p-3">
+                      <XCircle className="h-4 w-4 text-warning" />
+                      <span className="text-sm text-warning">
+                        A base de configuração da CAPI ainda não está criada no Supabase.
+                      </span>
+                    </div>
+                  )}
+                  {capiMessage && (
+                    <div className="flex items-center gap-2 rounded-lg bg-success/10 p-3">
+                      <CheckCircle className="h-4 w-4 text-success" />
+                      <span className="text-sm text-success">{capiMessage}</span>
+                    </div>
+                  )}
+                  {capiError && (
+                    <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3">
+                      <XCircle className="h-4 w-4 text-destructive" />
+                      <span className="text-sm text-destructive">{capiError}</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {tokenError && (
                 <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg">
                   <XCircle className="h-4 w-4 text-destructive" />

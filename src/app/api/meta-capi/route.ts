@@ -13,6 +13,7 @@ import {
   sendCapiEvent,
   type MetaStandardEvent,
 } from "@/lib/meta-capi";
+import { isWorkspaceCapiEnabled } from "@/lib/meta-capi-settings";
 
 interface CAPIBody {
   key: string;
@@ -103,6 +104,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid API key" },
       { status: 401, headers: cors }
+    );
+  }
+
+  const enabled = await isWorkspaceCapiEnabled(auth.workspaceId);
+  if (!enabled) {
+    return NextResponse.json(
+      { ok: false, skipped: true, reason: "CAPI disabled" },
+      { headers: cors }
     );
   }
 

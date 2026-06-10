@@ -1,6 +1,7 @@
 import { isCapiConfigured, sendCapiEvent } from "@/lib/meta-capi";
 import type { VndaWebhookPayload } from "@/lib/vnda-webhook";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { isWorkspaceCapiEnabled } from "@/lib/meta-capi-settings";
 
 // Workspace gate. The CAPI pixel/token in env vars points at the BK COM
 // pixel, so we MUST only fire Purchase events for the workspace that owns
@@ -73,6 +74,9 @@ export async function dispatchVndaPurchaseToCapi(
   input: DispatchVndaPurchaseInput
 ): Promise<{ ok: boolean; reason?: string; fbtrace_id?: string }> {
   if (!isCapiConfigured()) return { ok: false, reason: "not_configured" };
+  if (!(await isWorkspaceCapiEnabled(input.workspaceId))) {
+    return { ok: false, reason: "disabled" };
+  }
   if (!workspaceAllowed(input.workspaceId)) {
     return { ok: false, reason: "workspace_not_allowed" };
   }
