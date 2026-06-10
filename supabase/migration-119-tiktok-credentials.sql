@@ -44,10 +44,15 @@ CREATE POLICY "Admins can manage tiktok_credentials"
   ));
 
 -- Extend the migration-016 platform CHECK so saved_campaigns/saved_creatives accept 'tiktok'.
+-- Self-healing: ensure the `platform` column exists first. In this production DB the
+-- saved_creatives part of migration-016 never fully applied (the column is missing),
+-- so add it here (idempotent) before re-creating the CHECK.
+ALTER TABLE saved_campaigns ADD COLUMN IF NOT EXISTS platform text DEFAULT 'meta';
 ALTER TABLE saved_campaigns DROP CONSTRAINT IF EXISTS saved_campaigns_platform_check;
 ALTER TABLE saved_campaigns ADD CONSTRAINT saved_campaigns_platform_check
   CHECK (platform IN ('meta', 'google', 'tiktok'));
 
+ALTER TABLE saved_creatives ADD COLUMN IF NOT EXISTS platform text DEFAULT 'meta';
 ALTER TABLE saved_creatives DROP CONSTRAINT IF EXISTS saved_creatives_platform_check;
 ALTER TABLE saved_creatives ADD CONSTRAINT saved_creatives_platform_check
   CHECK (platform IN ('meta', 'google', 'tiktok'));
