@@ -10,7 +10,7 @@ import {
   createAdCreative,
   runWithToken,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, requireMetaTokenForRequest } from "@/lib/api-auth";
 
 export const maxDuration = 60;
 
@@ -19,15 +19,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const { id } = await params;
     const { searchParams } = new URL(request.url);
     const accountIdParam = searchParams.get("account_id");
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = accountIdParam && accountIdParam !== "all"
-      ? await resolveTokenForAccount(workspaceId, accountIdParam)
-      : null;
+    const _tok = await requireMetaTokenForRequest(
+      workspaceId,
+      accountIdParam,
+      accessToken
+    );
 
     const { campaign, adset, ad, creative } = await runWithToken(_tok, async () => {
       // 1. Fetch campaign details
@@ -81,7 +82,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const { id } = await params;
     const body = await request.json();
@@ -93,10 +94,11 @@ export async function PUT(
       account_id,
     } = body;
 
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = account_id && account_id !== "all"
-      ? await resolveTokenForAccount(workspaceId, account_id)
-      : null;
+    const _tok = await requireMetaTokenForRequest(
+      workspaceId,
+      account_id,
+      accessToken
+    );
 
     const newCreativeId = await runWithToken(_tok, async () => {
       // 1. Update campaign (name, status, daily_budget)

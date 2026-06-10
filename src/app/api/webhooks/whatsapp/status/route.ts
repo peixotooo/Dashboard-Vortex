@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 export const maxDuration = 30;
@@ -9,7 +10,10 @@ export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("hub.verify_token");
   const challenge = request.nextUrl.searchParams.get("hub.challenge");
 
-  const verifyToken = process.env.WA_WEBHOOK_VERIFY_TOKEN || "vortex_wa_verify";
+  const verifyToken = process.env.WA_WEBHOOK_VERIFY_TOKEN;
+  if (!verifyToken) {
+    return NextResponse.json({ error: "Webhook verify token not configured" }, { status: 503 });
+  }
 
   if (mode === "subscribe" && token === verifyToken) {
     return new NextResponse(challenge, { status: 200 });
@@ -18,10 +22,27 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
+function verifyMetaSignature(rawBody: string, signature: string | null): boolean {
+  const appSecret = process.env.WA_WEBHOOK_APP_SECRET || process.env.META_APP_SECRET;
+  if (!appSecret || !signature?.startsWith("sha256=")) return false;
+
+  const expected = `sha256=${createHmac("sha256", appSecret)
+    .update(rawBody, "utf8")
+    .digest("hex")}`;
+  const left = Buffer.from(signature);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
 // POST = Meta webhook status updates
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    if (!verifyMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody);
     const admin = createAdminClient();
 
     // Meta sends: { object: "whatsapp_business_account", entry: [...] }

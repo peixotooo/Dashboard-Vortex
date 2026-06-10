@@ -3,11 +3,11 @@ import { AsyncLocalStorage } from "async_hooks";
 const API_VERSION = process.env.META_API_VERSION || "v23.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
-// Token resolution order: request-scoped (AsyncLocalStorage) -> module global
-// -> env. The async-local store keeps per-account tokens isolated under
+// Token resolution order: request-scoped (AsyncLocalStorage) -> module global.
+// The async-local store keeps per-account tokens isolated under
 // concurrent requests (the dashboard fans out one insights request per account
 // in parallel, and different requests may share a serverless instance). The
-// module global remains as a simple per-request default/fallback.
+// module global remains only for legacy call sites that set it explicitly.
 const tokenStore = new AsyncLocalStorage<string>();
 let _contextToken: string | null = null;
 
@@ -31,9 +31,7 @@ function getToken(): string {
   const scoped = tokenStore.getStore();
   if (scoped) return scoped;
   if (_contextToken) return _contextToken;
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) throw new Error("META_ACCESS_TOKEN not configured");
-  return token;
+  throw new Error("No Meta access token configured for this request");
 }
 
 async function graphRequest(

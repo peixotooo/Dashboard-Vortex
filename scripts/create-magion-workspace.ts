@@ -29,9 +29,13 @@ const TARGET_EMAIL = "guilherme@bulking.com.br";
 const WORKSPACE_NAME = "Magion";
 const WORKSPACE_SLUG = "magion";
 const META_APP_ID = "1876707922982979"; // Magion Ai
-const META_ACCESS_TOKEN =
-  "EAAaq2x0YuEMBRaqZAfH4jBpEZBZAsH9N4BsitFcesReZCZBimq2YJqFXlrHR2hZBrLKTWQXAeb1v6331aqzm2O9Qonh2X05sjkrS3AZCZAWJjMjCdQsWT0YlLDWHBBn9bskeeundmQX0YNqHaAGZBd3bXr8XgpqcbXkaYhj1NZBslJ49oUEwY3BRPxBqPiNkST";
+const metaAccessToken = process.env.MAGION_META_ACCESS_TOKEN;
 const API_VERSION = process.env.META_API_VERSION || "v23.0";
+
+if (!metaAccessToken) {
+  throw new Error("MAGION_META_ACCESS_TOKEN is required");
+}
+const META_ACCESS_TOKEN = metaAccessToken;
 
 // ---- Encryption (mirrors src/lib/encryption.ts) ----
 function encrypt(text: string): string {

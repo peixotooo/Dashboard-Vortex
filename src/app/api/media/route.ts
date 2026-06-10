@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadAdImage, uploadAdVideo } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { runWithToken, uploadAdImage, uploadAdVideo } from "@/lib/meta-api";
+import { getWorkspaceContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey } from "@/lib/b2-storage";
 
 // Register file already in B2 — no Meta upload
-async function handleRegisterOnly(request: NextRequest, userId: string | null) {
+async function handleRegisterOnly(
+    request: NextRequest,
+    userId: string,
+    workspaceId: string
+) {
     const { storage_key, filename, mime_type, file_size, tags } = await request.json();
 
     if (!storage_key || !filename || !mime_type) {
@@ -16,12 +20,6 @@ async function handleRegisterOnly(request: NextRequest, userId: string | null) {
     }
 
     const imageUrl = getPublicUrl(storage_key);
-    const workspaceId = request.headers.get("x-workspace-id");
-
-    if (!workspaceId) {
-        return NextResponse.json({ error: "x-workspace-id header required" }, { status: 400 });
-    }
-
     const supabase = createAdminClient();
     const { data, error } = await supabase.from("workspace_media").insert({
         workspace_id: workspaceId,
@@ -32,7 +30,7 @@ async function handleRegisterOnly(request: NextRequest, userId: string | null) {
         file_size: file_size || null,
         mime_type,
         tags: tags || [],
-        uploaded_by: userId || null,
+        uploaded_by: userId,
     }).select("id").single();
 
     if (error) {
@@ -48,7 +46,11 @@ async function handleRegisterOnly(request: NextRequest, userId: string | null) {
     });
 }
 
-async function handlePreUploadedFile(request: NextRequest, userId: string | null) {
+async function handlePreUploadedFile(
+    request: NextRequest,
+    userId: string,
+    workspaceId: string
+) {
     const { storage_key, account_id, filename, mime_type, file_size } = await request.json();
 
     if (!storage_key || !account_id || !filename || !mime_type) {
@@ -60,6 +62,13 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
 
     const isVideo = mime_type.startsWith("video/");
     const imageUrl = getPublicUrl(storage_key);
+    const token = await resolveTokenForAccount(workspaceId, account_id);
+    if (!token) {
+        return NextResponse.json(
+            { error: "No Meta token configured for this account" },
+            { status: 400 }
+        );
+    }
 
     console.log(`[MediaAPI] Handling pre-uploaded file: ${filename}, type: ${mime_type}, isVideo: ${isVideo}`);
     console.log(`[MediaAPI] B2 Public URL: ${imageUrl}`);
@@ -70,7 +79,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
         videoMetaForm.set("account_id", account_id);
         videoMetaForm.set("file_url", imageUrl);
         try {
-            result = await uploadAdVideo(videoMetaForm);
+            result = await runWithToken(token, () => uploadAdVideo(videoMetaForm));
             console.log("[MediaAPI] uploadAdVideo result (Meta ID):", result.id);
         } catch (err: any) {
             console.error("[MediaAPI] uploadAdVideo error:", err.message);
@@ -85,7 +94,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
         imageMetaForm.set("account_id", account_id);
         imageMetaForm.set("filename", new File([new Uint8Array(buffer)], filename, { type: mime_type }));
         try {
-            result = await uploadAdImage(imageMetaForm);
+            result = await runWithToken(token, () => uploadAdImage(imageMetaForm));
             console.log("[MediaAPI] uploadAdImage result (Meta Hash):", result.images ? "Received" : "None");
         } catch (err: any) {
             console.error("[MediaAPI] uploadAdImage error:", err.message);
@@ -106,24 +115,21 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
         }
     }
 
-    const workspaceId = request.headers.get("x-workspace-id");
-    if (workspaceId) {
-        const supabase = createAdminClient();
-        try {
-            await supabase.from("workspace_media").insert({
-                workspace_id: workspaceId,
-                filename,
-                image_url: imageUrl,
-                image_hash: imageHash,
-                video_id: videoId,
-                storage_path: storage_key,
-                file_size: file_size || null,
-                mime_type,
-                uploaded_by: userId || null,
-            });
-        } catch (err) {
-            console.error("DB registration error:", err);
-        }
+    const supabase = createAdminClient();
+    try {
+        await supabase.from("workspace_media").insert({
+            workspace_id: workspaceId,
+            filename,
+            image_url: imageUrl,
+            image_hash: imageHash,
+            video_id: videoId,
+            storage_path: storage_key,
+            file_size: file_size || null,
+            mime_type,
+            uploaded_by: userId,
+        });
+    } catch (err) {
+        console.error("DB registration error:", err);
     }
 
     return NextResponse.json({
@@ -137,7 +143,7 @@ async function handlePreUploadedFile(request: NextRequest, userId: string | null
 
 export async function POST(request: NextRequest) {
     try {
-        const { userId } = await getAuthenticatedContext(request).catch(() => ({ userId: null })) as { userId: string | null };
+        const { userId, workspaceId } = await getWorkspaceContext(request);
 
         const contentType = request.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
@@ -145,10 +151,10 @@ export async function POST(request: NextRequest) {
             const cloned = request.clone();
             const body = await cloned.json();
             if (!body.account_id) {
-                return handleRegisterOnly(request, userId);
+                return handleRegisterOnly(request, userId, workspaceId);
             }
             // Pre-uploaded files with Meta integration
-            return handlePreUploadedFile(request, userId);
+            return handlePreUploadedFile(request, userId, workspaceId);
         }
 
         // Standard FormData upload (backward compat for small images)
@@ -158,6 +164,17 @@ export async function POST(request: NextRequest) {
 
         if (!file || !(file instanceof File)) {
             return NextResponse.json({ error: "No file provided" }, { status: 400 });
+        }
+        if (!accountId) {
+            return NextResponse.json({ error: "account_id is required" }, { status: 400 });
+        }
+
+        const token = await resolveTokenForAccount(workspaceId, accountId);
+        if (!token) {
+            return NextResponse.json(
+                { error: "No Meta token configured for this account" },
+                { status: 400 }
+            );
         }
 
         const fileBuffer = await file.arrayBuffer();
@@ -176,16 +193,13 @@ export async function POST(request: NextRequest) {
             const videoMetaForm = new FormData();
             videoMetaForm.set("account_id", accountId);
             videoMetaForm.set("file_url", imageUrl);
-            result = await uploadAdVideo(videoMetaForm);
+            result = await runWithToken(token, () => uploadAdVideo(videoMetaForm));
         } else {
             const imageMetaForm = new FormData();
             imageMetaForm.set("account_id", accountId);
             imageMetaForm.set("filename", new File([fileBuffer], fileName, { type: fileType }));
-            result = await uploadAdImage(imageMetaForm);
+            result = await runWithToken(token, () => uploadAdImage(imageMetaForm));
         }
-
-        // Auto-register in workspace_media
-        const workspaceId = request.headers.get("x-workspace-id");
 
         let imageHash = null;
         let videoId = null;
@@ -200,23 +214,21 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        if (workspaceId) {
-            const supabase = createAdminClient();
-            try {
-                await supabase.from("workspace_media").insert({
-                    workspace_id: workspaceId,
-                    filename: fileName,
-                    image_url: imageUrl,
-                    image_hash: imageHash,
-                    video_id: videoId,
-                    storage_path: key,
-                    file_size: fileSize || null,
-                    mime_type: fileType,
-                    uploaded_by: userId || null,
-                });
-            } catch (err) {
-                console.error("DB registration error:", err);
-            }
+        const supabase = createAdminClient();
+        try {
+            await supabase.from("workspace_media").insert({
+                workspace_id: workspaceId,
+                filename: fileName,
+                image_url: imageUrl,
+                image_hash: imageHash,
+                video_id: videoId,
+                storage_path: key,
+                file_size: fileSize || null,
+                mime_type: fileType,
+                uploaded_by: userId,
+            });
+        } catch (err) {
+            console.error("DB registration error:", err);
         }
 
         return NextResponse.json({
@@ -234,14 +246,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
     try {
-        await getAuthenticatedContext(request);
+        const { workspaceId } = await getWorkspaceContext(request);
 
         const { searchParams } = new URL(request.url);
-        const workspaceId = searchParams.get("workspace_id");
-        if (!workspaceId) {
-            return NextResponse.json({ error: "workspace_id required" }, { status: 400 });
-        }
-
         const search = searchParams.get("search") || "";
         const page = parseInt(searchParams.get("page") || "1", 10);
         const limit = parseInt(searchParams.get("limit") || "50", 10);
@@ -277,7 +284,7 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
     try {
-        await getAuthenticatedContext(request);
+        const { workspaceId } = await getWorkspaceContext(request);
 
         const { searchParams } = new URL(request.url);
         const id = searchParams.get("id");
@@ -292,7 +299,12 @@ export async function DELETE(request: NextRequest) {
             .from("workspace_media")
             .select("storage_path")
             .eq("id", id)
+            .eq("workspace_id", workspaceId)
             .single();
+
+        if (!media) {
+            return NextResponse.json({ error: "Media not found" }, { status: 404 });
+        }
 
         // Delete from B2 if key exists
         if (media?.storage_path) {
@@ -304,7 +316,11 @@ export async function DELETE(request: NextRequest) {
         }
 
         // Delete from DB
-        const { error } = await supabase.from("workspace_media").delete().eq("id", id);
+        const { error } = await supabase
+            .from("workspace_media")
+            .delete()
+            .eq("id", id)
+            .eq("workspace_id", workspaceId);
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }

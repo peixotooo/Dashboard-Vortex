@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInsights, comparePerformance, runWithToken } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, requireMetaTokenForRequest } from "@/lib/api-auth";
 import { datePresetToTimeRange, getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const { searchParams } = new URL(request.url);
     const object_id = searchParams.get("object_id") || "";
@@ -20,9 +20,8 @@ export async function GET(request: NextRequest) {
     const include_comparison = searchParams.get("include_comparison") === "true";
     const account_id = searchParams.get("account_id") || "";
 
-    const workspaceId = request.headers.get("x-workspace-id") || "";
     const acctForToken = account_id || (object_id && object_id.startsWith("act_") ? object_id : "");
-    const _tok = acctForToken ? await resolveTokenForAccount(workspaceId, acctForToken) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, acctForToken, accessToken);
 
     const timeRange = datePresetToTimeRange(date_preset, customRange);
     const result = await runWithToken(_tok, () => getInsights({
@@ -93,16 +92,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const body = await request.json();
     const { action, ...args } = body;
 
-    const workspaceId = request.headers.get("x-workspace-id") || "";
     const postAccountId = args.account_id || "";
     const postObjectId = args.object_id || "";
     const acctForToken = postAccountId || (postObjectId && postObjectId.startsWith("act_") ? postObjectId : "");
-    const _tok = acctForToken ? await resolveTokenForAccount(workspaceId, acctForToken) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, acctForToken, accessToken);
 
     let result;
     if (action === "compare") {

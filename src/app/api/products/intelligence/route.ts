@@ -3,12 +3,12 @@ import { getVndaConfig, getVndaProductReport } from "@/lib/vnda-api";
 import { getGA4Report } from "@/lib/ga4-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import { generateIntelligenceReport } from "@/lib/products-intelligence";
-import { getAuthenticatedContext, AuthError, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, AuthError, handleAuthError } from "@/lib/api-auth";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
-    const { workspaceId } = await getAuthenticatedContext(request);
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const { searchParams } = new URL(request.url);
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;

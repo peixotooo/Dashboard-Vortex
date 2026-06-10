@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getGoogleAdsCampaigns } from "@/lib/google-ads-api";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { syncSavedCampaigns } from "@/lib/agent/memory";
 import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
 
@@ -33,7 +33,7 @@ function classifyCampaigns(campaigns: CampaignWithMetrics[]): CampaignWithMetric
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const { searchParams } = new URL(request.url);
     const date_preset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
@@ -48,7 +48,6 @@ export async function GET(request: NextRequest) {
     const classified = classifyCampaigns(result.campaigns);
 
     // Auto-save classified campaigns to DB (fire-and-forget)
-    const workspaceId = request.headers.get("x-workspace-id") || "";
     if (workspaceId) {
       const toSave = classified.filter(
         (c) => c.tier === "champion" || c.tier === "potential" || c.tier === "scale"

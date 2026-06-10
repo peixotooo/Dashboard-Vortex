@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getInsights, runWithToken } from "@/lib/meta-api";
-import { getAuthenticatedContext, resolveTokenForAccount } from "@/lib/api-auth";
+import { resolveTokenForAccount } from "@/lib/api-auth";
 
 export const maxDuration = 60;
 
@@ -164,11 +164,6 @@ async function fetchMetaMonthlySpend(
   endDate: string
 ): Promise<Record<string, number> | null> {
   try {
-    await getAuthenticatedContext(request).catch((err: unknown) => {
-      console.log("[CRM Cohort] Meta auth context failed, using env fallback:", err instanceof Error ? err.message : err);
-      return null;
-    });
-
     const { data: linkedAccounts } = await supabase
       .from("meta_accounts")
       .select("account_id, account_name")
@@ -185,6 +180,10 @@ async function fetchMetaMonthlySpend(
     for (const acc of linkedAccounts) {
       try {
         const _tok = await resolveTokenForAccount(workspaceId, acc.account_id);
+        if (!_tok) {
+          console.warn(`[CRM Cohort] Skipping Meta spend for ${acc.account_id}: no workspace token`);
+          continue;
+        }
         const result = await runWithToken(_tok, () => getInsights({
           object_id: acc.account_id,
           time_range: { since: startDate, until: endDate },

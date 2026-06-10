@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAccountActivities,
-  setContextToken,
   runWithToken,
   type MetaActivity,
 } from "@/lib/meta-api";
-import { resolveTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, requireMetaTokenForRequest } from "@/lib/api-auth";
 import type { ActivityEntry, ActivitySource } from "@/lib/types";
 
 const PERIOD_MS: Record<string, number> = {
@@ -67,6 +66,8 @@ function buildChangeDescription(
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
+
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("account_id");
     if (!accountId) {
@@ -76,20 +77,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = accountId && accountId !== "all"
-      ? await resolveTokenForAccount(workspaceId, accountId)
-      : null;
-    if (!_tok) {
-      const metaToken = process.env.META_ACCESS_TOKEN;
-      if (!metaToken) {
-        return NextResponse.json(
-          { error: "META_ACCESS_TOKEN not configured" },
-          { status: 500 }
-        );
-      }
-      setContextToken(metaToken);
-    }
+    const _tok = await requireMetaTokenForRequest(workspaceId, accountId, accessToken);
 
     let since: number | undefined;
     let until: number | undefined;
@@ -111,9 +99,9 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get("category") || undefined;
     const dashboardAppId = process.env.META_APP_ID || "";
 
-    const { activities: rawActivities } = await (_tok
-      ? runWithToken(_tok, () => getAccountActivities({ account_id: accountId, since, until, category }))
-      : getAccountActivities({ account_id: accountId, since, until, category }));
+    const { activities: rawActivities } = await runWithToken(_tok, () =>
+      getAccountActivities({ account_id: accountId, since, until, category })
+    );
 
     const enriched: ActivityEntry[] = rawActivities.map((a) => {
       const extra = parseExtraData(a.extra_data);
@@ -145,8 +133,6 @@ export async function GET(request: NextRequest) {
       total: enriched.length,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

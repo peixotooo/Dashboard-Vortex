@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
-import { getAdAccounts, setContextToken } from "@/lib/meta-api";
+import { getAdAccounts, runWithToken } from "@/lib/meta-api";
 import { testVndaConnection } from "@/lib/vnda-api";
 import { generateWebhookToken } from "@/lib/vnda-webhook";
 import {
@@ -27,6 +28,46 @@ function getSupabase(request: NextRequest) {
   );
 }
 
+async function getWorkspaceRole(
+  workspaceId: string,
+  userId: string
+): Promise<"owner" | "admin" | "member" | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  return (data?.role as "owner" | "admin" | "member" | undefined) || null;
+}
+
+function isAdminRole(role: string | null): boolean {
+  return role === "owner" || role === "admin";
+}
+
+const ADMIN_ACTIONS = new Set([
+  "invite_member",
+  "cancel_invite",
+  "resend_invite",
+  "remove_member",
+  "update_role",
+  "update_workspace",
+  "save_meta_connection",
+  "fetch_all_meta_accounts",
+  "save_selected_accounts",
+  "set_default_account",
+  "save_vnda_connection",
+  "test_vnda_connection",
+  "delete_vnda_connection",
+  "regenerate_vnda_webhook_token",
+  "set_custom_domain",
+  "verify_domain",
+  "remove_domain",
+  "update_member_features",
+]);
+
 // GET — fetch workspace data (saved accounts, connection status)
 export async function GET(request: NextRequest) {
   try {
@@ -39,6 +80,11 @@ export async function GET(request: NextRequest) {
     const workspaceId = request.nextUrl.searchParams.get("workspace_id");
     if (!workspaceId) {
       return NextResponse.json({ error: "workspace_id required" }, { status: 400 });
+    }
+
+    const role = await getWorkspaceRole(workspaceId, user.id);
+    if (!role) {
+      return NextResponse.json({ error: "Not a workspace member" }, { status: 403 });
     }
 
     // Get saved accounts
@@ -107,6 +153,19 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { action, workspace_id, ...args } = body;
+
+    if (!workspace_id) {
+      return NextResponse.json({ error: "workspace_id required" }, { status: 400 });
+    }
+
+    const role = await getWorkspaceRole(workspace_id, user.id);
+    if (!role) {
+      return NextResponse.json({ error: "Not a workspace member" }, { status: 403 });
+    }
+
+    if (ADMIN_ACTIONS.has(action) && !isAdminRole(role)) {
+      return NextResponse.json({ error: "Admin role required" }, { status: 403 });
+    }
 
     switch (action) {
       case "invite_member": {
@@ -372,20 +431,16 @@ export async function POST(request: NextRequest) {
         const usedConnectionId = connection?.id as string | undefined;
 
         if (!connection?.access_token) {
-          // Fallback to env var
-          const envToken = process.env.META_ACCESS_TOKEN;
-          if (!envToken) {
-            return NextResponse.json(
-              { error: "Nenhuma conexão Meta configurada" },
-              { status: 400 }
-            );
-          }
-          setContextToken(envToken);
-        } else {
-          setContextToken(decrypt(connection.access_token));
+          return NextResponse.json(
+            { error: "Nenhuma conexão Meta configurada" },
+            { status: 400 }
+          );
         }
 
-        const result = await getAdAccounts();
+        const result = await runWithToken(
+          decrypt(connection.access_token),
+          () => getAdAccounts()
+        );
         const { accounts } = result as { accounts: Array<{ id: string; name: string }> };
 
         // Also get currently saved accounts to mark them

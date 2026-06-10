@@ -45,6 +45,18 @@ export async function requireAuth(
   if (!workspaceId) {
     return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
   }
+
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!membership) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   return { supabase, userId: user.id, workspaceId };
 }
 

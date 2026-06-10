@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getActiveAdsWithCreatives, getCreativeDetails, createAdCreative, runWithToken } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, requireMetaTokenForRequest } from "@/lib/api-auth";
 import { datePresetToTimeRange } from "@/lib/utils";
 import { syncSavedCreatives } from "@/lib/agent/memory";
 import type { DatePreset, ActiveAdCreative } from "@/lib/types";
@@ -71,7 +71,7 @@ function classifyCreatives(
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
@@ -80,8 +80,7 @@ export async function GET(request: NextRequest) {
     const statuses = statusesParam ? statusesParam.split(",") : ["ACTIVE"];
 
     const timeRange = datePresetToTimeRange(date_preset);
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, account_id, accessToken);
 
     const supabase = workspaceId
       ? createServerClient(
@@ -135,11 +134,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const body = await request.json();
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = body.account_id && body.account_id !== "all" ? await resolveTokenForAccount(workspaceId, body.account_id) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, body.account_id, accessToken);
 
     if (body.action === "details" && body.creative_id) {
       const result = await runWithToken(_tok, () => getCreativeDetails({

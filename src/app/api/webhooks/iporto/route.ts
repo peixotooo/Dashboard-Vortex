@@ -105,9 +105,16 @@ async function verifySecret(
     .select("iporto_webhook_secret")
     .eq("workspace_id", workspaceId)
     .maybeSingle();
-  const expectedSecret = (settings as { iporto_webhook_secret?: string } | null)
-    ?.iporto_webhook_secret;
-  if (!expectedSecret) return { ok: true };
+  const expectedSecret =
+    (settings as { iporto_webhook_secret?: string } | null)?.iporto_webhook_secret ||
+    process.env.IPORTO_WEBHOOK_SECRET ||
+    null;
+  if (!expectedSecret) {
+    return {
+      ok: false,
+      res: NextResponse.json({ error: "webhook secret not configured" }, { status: 503 }),
+    };
+  }
   const headerSecret = req.headers.get("x-webhook-secret");
   const querySecret = req.nextUrl.searchParams.get("secret");
   if (headerSecret === expectedSecret || querySecret === expectedSecret) {
@@ -122,14 +129,12 @@ async function verifySecret(
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as IportoEvent;
-    // Log do payload bruto pros primeiros dias em prod — assim conseguimos
-    // ver o formato real do webhook iPORTO se algum campo mudar.
-    console.log(
-      "[webhook/iporto] payload:",
-      JSON.stringify(body).slice(0, 800)
-    );
     const messageId = extractWebhookMessageId(body);
     const eventType = (body.event ?? body.type ?? body.status ?? "").toLowerCase();
+    console.log("[webhook/iporto] event received:", {
+      has_message_id: !!messageId,
+      event_type: eventType || null,
+    });
     if (!messageId || !eventType) {
       console.warn(
         "[webhook/iporto] ignored — missing fields. messageId=",

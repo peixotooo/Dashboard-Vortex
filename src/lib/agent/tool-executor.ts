@@ -11,8 +11,10 @@ import {
   createAd,
   getInsights,
   listAudiences,
+  runWithToken,
   uploadAdImage,
 } from "@/lib/meta-api";
+import { resolveTokenForAccount } from "@/lib/api-auth";
 import { getGoogleAdsCampaigns } from "@/lib/google-ads-api";
 import { getApifyConfig, scrapeInstagramProfile, scrapeInstagramPosts } from "@/lib/apify-api";
 import {
@@ -35,6 +37,24 @@ import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export async function executeToolCall(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  accountId: string,
+  workspaceId?: string,
+  supabase?: SupabaseClient,
+  agentId?: string
+): Promise<unknown> {
+  const metaToken =
+    workspaceId && accountId && accountId !== "none"
+      ? await resolveTokenForAccount(workspaceId, accountId)
+      : null;
+
+  return runWithToken(metaToken, () =>
+    executeToolCallInner(toolName, toolInput, accountId, workspaceId, supabase, agentId)
+  );
+}
+
+async function executeToolCallInner(
   toolName: string,
   toolInput: Record<string, unknown>,
   accountId: string,

@@ -29,7 +29,10 @@ async function createClient(): Promise<Client> {
     args: ["-y", "meta-ads-mcp"],
     env: {
       ...process.env,
-      META_ACCESS_TOKEN: process.env.META_ACCESS_TOKEN || "",
+      META_ACCESS_TOKEN:
+        process.env.ENABLE_META_MCP_API === "true"
+          ? process.env.META_ACCESS_TOKEN || ""
+          : "",
       META_APP_ID: process.env.META_APP_ID || "",
       META_APP_SECRET: process.env.META_APP_SECRET || "",
       META_BUSINESS_ID: process.env.META_BUSINESS_ID || "",

@@ -6,16 +6,15 @@ import {
   estimateAudienceSize,
   runWithToken,
 } from "@/lib/meta-api";
-import { getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getAuthenticatedContext, handleAuthError, requireMetaTokenForRequest } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const { searchParams } = new URL(request.url);
     const account_id = searchParams.get("account_id") || "";
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = account_id && account_id !== "all" ? await resolveTokenForAccount(workspaceId, account_id) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, account_id, accessToken);
 
     const result = await runWithToken(_tok, () => listAudiences({ account_id }));
     return NextResponse.json(result);
@@ -26,12 +25,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request).catch(() => {});
+    const { workspaceId, accessToken } = await getAuthenticatedContext(request);
 
     const body = await request.json();
     const { type, ...args } = body;
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    const _tok = args.account_id && args.account_id !== "all" ? await resolveTokenForAccount(workspaceId, args.account_id) : null;
+    const _tok = await requireMetaTokenForRequest(workspaceId, args.account_id, accessToken);
 
     let result;
     switch (type) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getWorkspaceContext, getAuthenticatedContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { getInsights, runWithToken } from "@/lib/meta-api";
 import { getGA4DailyReport, getGA4GoogleAdsCost } from "@/lib/ga4-api";
 import { getVndaConfig, getVndaDailyReport } from "@/lib/vnda-api";
@@ -334,20 +334,12 @@ async function fetchRevenue(
 }
 
 async function fetchMetaDailySpend(
-  request: NextRequest,
   admin: ReturnType<typeof createAdminClient>,
   workspaceId: string,
   start: string,
   end: string
 ): Promise<Map<string, { spend: number; clicks: number; impressions: number }>> {
   const out = new Map<string, { spend: number; clicks: number; impressions: number }>();
-
-  try {
-    await getAuthenticatedContext(request);
-  } catch (err) {
-    console.warn("[Cockpit Caixa] Meta auth unavailable:", err instanceof Error ? err.message : err);
-    return out;
-  }
 
   const { data: accounts } = await admin
     .from("meta_accounts")
@@ -357,6 +349,10 @@ async function fetchMetaDailySpend(
   for (const account of accounts || []) {
     try {
       const _tok = await resolveTokenForAccount(workspaceId, account.account_id);
+      if (!_tok) {
+        console.warn("[Cockpit Caixa] Meta token unavailable for account:", account.account_id);
+        continue;
+      }
       const result = await runWithToken(_tok, () => getInsights({
         object_id: account.account_id,
         level: "account",
@@ -1040,7 +1036,7 @@ export async function GET(request: NextRequest) {
 
     const [revenueResult, metaSpend, googleSpend, ga4Report, patterns, operational] = await Promise.all([
       fetchRevenue(admin, workspaceId, start, end),
-      fetchMetaDailySpend(request, admin, workspaceId, start, end),
+      fetchMetaDailySpend(admin, workspaceId, start, end),
       fetchGoogleDailySpend(start, end),
       process.env.GA4_PROPERTY_ID
         ? getGA4DailyReport({ startDate: start, endDate: end }).catch(() => null)

@@ -22,13 +22,11 @@ import {
   loadAgentDocument,
   loadProjectContext,
 } from "@/lib/agent/memory";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
-import { setContextToken } from "@/lib/meta-api";
+import { getAuthenticatedContext, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
-    // Try auth — falls back to env token
-    let accessToken: string | null = null;
+    // Try auth with a Meta token first; fall back to workspace-only auth for CRM-only agents.
     let workspaceId: string | null = null;
     let userId: string | null = null;
 
@@ -50,25 +48,14 @@ export async function POST(request: NextRequest) {
 
     try {
       const ctx = await getAuthenticatedContext(request);
-      accessToken = ctx.accessToken;
       workspaceId = ctx.workspaceId;
       userId = ctx.userId;
     } catch {
-      // Meta connection may not exist (e.g., CRM-only agents).
-      // Fallback: read workspace/user directly from request.
-    }
-
-    if (accessToken) {
-      setContextToken(accessToken);
-    }
-
-    // Ensure workspace and user are resolved even without Meta connection
-    if (!workspaceId) {
-      workspaceId = request.headers.get("x-workspace-id") || null;
-    }
-    if (!userId) {
-      const { data: { user } } = await supabase.auth.getUser();
-      userId = user?.id || null;
+      // Meta connection may not exist (e.g., CRM-only agents), but membership
+      // must still be verified before we trust the workspace id.
+      const ctx = await getWorkspaceContext(request);
+      workspaceId = ctx.workspaceId;
+      userId = ctx.userId;
     }
 
     const body = await request.json();

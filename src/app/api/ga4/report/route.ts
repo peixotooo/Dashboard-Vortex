@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGA4Report } from "@/lib/ga4-api";
-import { getAuthenticatedContext, AuthError, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, AuthError, handleAuthError } from "@/lib/api-auth";
 import type { DatePreset } from "@/lib/types";
 
 const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; orderBy?: { metric: string; desc: boolean } }> = {
@@ -58,7 +58,7 @@ const REPORT_CONFIGS: Record<string, { dimensions: string[]; metrics: string[]; 
 
 export async function GET(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request);
+    await getWorkspaceContext(request);
 
     const { searchParams } = new URL(request.url);
     const reportType = searchParams.get("report_type") || "";

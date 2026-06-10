@@ -34,6 +34,10 @@ export async function GET(request: NextRequest) {
       try {
         // Set the correct token for this specific ad account
         const _tok = await resolveTokenForAccount(workspaceId, accountId);
+        if (!_tok) {
+          results.push({ workspaceId, detected: 0, error: "No Meta token configured for account" });
+          continue;
+        }
 
         // 1. Fetch current campaigns from Meta
         const { campaigns } = await runWithToken(_tok, () => getCampaignsWithMetrics({

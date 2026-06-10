@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callTool } from "@/lib/mcp-client";
-import { getAuthenticatedContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 export async function POST(request: NextRequest) {
   try {
-    await getAuthenticatedContext(request);
+    await getWorkspaceContext(request);
+
+    if (process.env.ENABLE_META_MCP_API !== "true") {
+      return NextResponse.json(
+        { error: "MCP API is disabled" },
+        { status: 403 }
+      );
+    }
 
     const { tool, args } = await request.json();
 

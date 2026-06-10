@@ -85,17 +85,10 @@ export async function getAuthenticatedContext(
   const connection = (connectionResponse as any)?.data;
 
   if (!connection?.access_token) {
-    // Fallback to env var during migration
-    const envToken = process.env.META_ACCESS_TOKEN;
-    if (!envToken) {
-      throw new AuthError("No Meta connection configured for this workspace", 400);
-    }
-    setContextToken(envToken);
-    return { userId: user.id, workspaceId, accessToken: envToken };
+    throw new AuthError("No Meta connection configured for this workspace", 400);
   }
 
   const decryptedToken = decrypt(connection.access_token);
-  setContextToken(decryptedToken);
   return {
     userId: user.id,
     workspaceId,
@@ -162,6 +155,22 @@ export async function resolveTokenForAccount(
     }
   }
   return null;
+}
+
+export async function requireMetaTokenForRequest(
+  workspaceId: string,
+  accountId: string | null | undefined,
+  defaultAccessToken: string
+): Promise<string> {
+  if (accountId && accountId !== "all") {
+    const token = await resolveTokenForAccount(workspaceId, accountId);
+    if (!token) {
+      throw new AuthError("No Meta token configured for this account", 400);
+    }
+    return token;
+  }
+
+  return defaultAccessToken;
 }
 
 /**
