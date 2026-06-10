@@ -94,7 +94,9 @@ function serverTokens(): string[] {
   return [
     process.env.FINANCEIRO_ABC_API_TOKEN,
     process.env.ABC_API_TOKEN,
-  ].filter((token): token is string => Boolean(token?.trim()));
+  ]
+    .map((token) => token?.trim())
+    .filter((token): token is string => Boolean(token));
 }
 
 function safeTokenEquals(a: string, b: string): boolean {
