@@ -42,6 +42,7 @@ interface ExistingMessageRow {
   step_id: string;
   channel: "whatsapp" | "email";
   status: string;
+  error: string | null;
   external_id: string | null;
   sent_at: string;
 }
@@ -130,15 +131,16 @@ export async function GET(request: NextRequest) {
       //    N queries no loop. Indexa por `${cart_id}:${step_id}:${channel}`.
       const { data: existingMessages } = await admin
         .from("cart_recovery_messages")
-        .select("id, cart_id, step_id, channel, status, external_id, sent_at")
+        .select("id, cart_id, step_id, channel, status, error, external_id, sent_at")
         .eq("workspace_id", workspaceId)
         .in("cart_id", activeCarts.map((c) => c.id));
+      const existingRows = ((existingMessages || []) as ExistingMessageRow[]);
+      const cartById = new Map(activeCarts.map((c) => [c.id, c]));
+      const stepById = new Map(steps.map((s) => [s.id, s]));
       const staleReservationCutoff = new Date(
         now.getTime() - 30 * 60 * 1000
       );
-      const staleReservationIds = (
-        (existingMessages || []) as ExistingMessageRow[]
-      )
+      const staleReservationIds = existingRows
         .filter(
           (m) =>
             m.status === "sending" &&
@@ -146,18 +148,33 @@ export async function GET(request: NextRequest) {
             new Date(m.sent_at) < staleReservationCutoff
         )
         .map((m) => m.id);
-      if (staleReservationIds.length > 0) {
+
+      const retryableMessageIds = existingRows
+        .filter((m) =>
+          shouldResetExistingMessage(
+            m,
+            cartById.get(m.cart_id),
+            stepById.get(m.step_id)
+          )
+        )
+        .map((m) => m.id);
+
+      const resetMessageIds = Array.from(
+        new Set([...staleReservationIds, ...retryableMessageIds])
+      );
+      if (resetMessageIds.length > 0) {
         await admin
           .from("cart_recovery_messages")
           .delete()
-          .in("id", staleReservationIds);
+          .in("id", resetMessageIds);
       }
-      const staleReservationSet = new Set(staleReservationIds);
-      const sent = new Set(
-        ((existingMessages || []) as ExistingMessageRow[])
-          .filter((m) => !staleReservationSet.has(m.id))
-          .map((m) => `${m.cart_id}:${m.step_id}:${m.channel}`)
+      const resetMessageSet = new Set(resetMessageIds);
+      const messageByKey = new Map(
+        existingRows
+          .filter((m) => !resetMessageSet.has(m.id))
+          .map((m) => [`${m.cart_id}:${m.step_id}:${m.channel}`, m])
       );
+      const sent = new Set(messageByKey.keys());
 
       // 5. Para cada cart × step, dispara o que ainda falta.
       for (const cart of activeCarts) {
@@ -259,6 +276,46 @@ export async function GET(request: NextRequest) {
             });
             sent.add(`${cart.id}:${step.id}:whatsapp`);
             if (result.ok) totalDispatched++;
+          } else if (step.whatsapp_enabled && cartForVars.customer_phone) {
+            const key = `${cart.id}:${step.id}:whatsapp`;
+            const existing = messageByKey.get(key);
+            if (existing?.status === "skipped" && existing.error === "no_phone") {
+              await deleteMessageLogReservation(admin, existing.id);
+              sent.delete(key);
+              messageByKey.delete(key);
+
+              const reservation = await reserveMessageLog(admin, {
+                workspaceId,
+                cartId: cart.id,
+                stepId: step.id,
+                channel: "whatsapp",
+              });
+              if (!reservation.reserved) {
+                sent.add(key);
+                continue;
+              }
+
+              const result = await dispatchWhatsApp({
+                admin,
+                workspaceId,
+                cart: { ...cartForVars, items: cartForVars.items as never },
+                step,
+              });
+
+              if (result.error === "template_pending") {
+                await deleteMessageLogReservation(admin, reservation.id);
+                continue;
+              }
+
+              await finalizeMessageLog(admin, reservation.id, {
+                ok: result.ok,
+                externalId: result.externalId,
+                error: result.error,
+                renderedPayload: result.renderedPayload,
+              });
+              sent.add(key);
+              if (result.ok) totalDispatched++;
+            }
           }
 
           // Email.
@@ -305,6 +362,66 @@ export async function GET(request: NextRequest) {
     console.error("[Cart Recovery]", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+function shouldResetExistingMessage(
+  message: ExistingMessageRow,
+  cart: CartRow | undefined,
+  step: CartRecoveryStep | undefined
+) {
+  if (message.channel === "whatsapp" && step?.whatsapp_enabled) {
+    if (
+      message.status === "skipped" &&
+      message.error === "no_phone" &&
+      Boolean(cart?.customer_phone)
+    ) {
+      return true;
+    }
+
+    if (
+      message.status === "failed" &&
+      message.error?.startsWith("stale_cart_recovery_queue_expired")
+    ) {
+      return true;
+    }
+
+    if (
+      message.status === "failed" &&
+      message.error === "no_template" &&
+      Boolean(step?.whatsapp_template_id)
+    ) {
+      return true;
+    }
+  }
+
+  if (message.channel === "email" && step?.email_enabled) {
+    if (message.status === "failed" && isTransientEmailError(message.error)) {
+      return true;
+    }
+
+    if (
+      message.status === "skipped" &&
+      message.error === "missing_email_content" &&
+      Boolean(step?.email_subject && step.email_body_html)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isTransientEmailError(error: string | null | undefined) {
+  const value = String(error || "").toLowerCase();
+  return (
+    value === "fetch failed" ||
+    value === "network_error" ||
+    value.includes("timeout") ||
+    value.includes("econnreset") ||
+    value.includes("etimedout") ||
+    value.startsWith("http 429") ||
+    /^http 5\d\d/.test(value)
+  );
 }
 
 async function reserveMessageLog(
