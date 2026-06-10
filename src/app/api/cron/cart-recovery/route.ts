@@ -395,7 +395,7 @@ function shouldResetExistingMessage(
   }
 
   if (message.channel === "email" && step?.email_enabled) {
-    if (message.status === "failed" && isTransientEmailError(message.error)) {
+    if (message.status === "failed" && isRetryableEmailError(message)) {
       return true;
     }
 
@@ -411,17 +411,25 @@ function shouldResetExistingMessage(
   return false;
 }
 
-function isTransientEmailError(error: string | null | undefined) {
-  const value = String(error || "").toLowerCase();
-  return (
+function isRetryableEmailError(message: ExistingMessageRow) {
+  const value = String(message.error || "").toLowerCase();
+  const isRetryable =
     value === "fetch failed" ||
     value === "network_error" ||
     value.includes("timeout") ||
     value.includes("econnreset") ||
     value.includes("etimedout") ||
     value.startsWith("http 429") ||
-    /^http 5\d\d/.test(value)
-  );
+    /^http 5\d\d/.test(value) ||
+    (value.startsWith("http 403") && value.includes("remetente"));
+
+  if (!isRetryable) return false;
+
+  const sentAt = new Date(message.sent_at).getTime();
+  const retryDelayMs = value.startsWith("http 403")
+    ? 24 * 60 * 60 * 1000
+    : 15 * 60 * 1000;
+  return Number.isFinite(sentAt) && Date.now() - sentAt >= retryDelayMs;
 }
 
 async function reserveMessageLog(
