@@ -1,7 +1,10 @@
 import { isCapiConfigured, sendCapiEvent } from "@/lib/meta-capi";
 import type { VndaWebhookPayload } from "@/lib/vnda-webhook";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { isWorkspaceCapiEnabled } from "@/lib/meta-capi-settings";
+import {
+  getMetaCapiCredentials,
+  isWorkspaceCapiEnabled,
+} from "@/lib/meta-capi-settings";
 
 // Workspace gate. The CAPI pixel/token in env vars points at the BK COM
 // pixel, so we MUST only fire Purchase events for the workspace that owns
@@ -73,11 +76,14 @@ async function fetchAttribution(
 export async function dispatchVndaPurchaseToCapi(
   input: DispatchVndaPurchaseInput
 ): Promise<{ ok: boolean; reason?: string; fbtrace_id?: string }> {
-  if (!isCapiConfigured()) return { ok: false, reason: "not_configured" };
   if (!(await isWorkspaceCapiEnabled(input.workspaceId))) {
     return { ok: false, reason: "disabled" };
   }
-  if (!workspaceAllowed(input.workspaceId)) {
+  const credentials = await getMetaCapiCredentials(input.workspaceId);
+  if (!credentials && !isCapiConfigured()) {
+    return { ok: false, reason: "not_configured" };
+  }
+  if (!credentials && !workspaceAllowed(input.workspaceId)) {
     return { ok: false, reason: "workspace_not_allowed" };
   }
 
@@ -132,38 +138,41 @@ export async function dispatchVndaPurchaseToCapi(
     ? await fetchAttribution(input.workspaceId, payload.email)
     : null;
 
-  const result = await sendCapiEvent({
-    event_name: "Purchase",
-    event_id: purchaseEventId(code),
-    event_time: eventTime,
-    event_source_url: buildSourceUrl(input.storeHost ?? null, code),
-    action_source: "website",
-    user: {
-      email: payload.email,
-      phone,
-      first_name: firstName,
-      last_name: lastName,
-      city,
-      state,
-      zip,
-      country: "br",
-      birthdate: payload.birthdate,
-      external_id: externalId,
-      fbc: attribution?.fbc || undefined,
-      fbp: attribution?.fbp || undefined,
-      client_ip_address: attribution?.client_ip || undefined,
-      client_user_agent: attribution?.user_agent || undefined,
+  const result = await sendCapiEvent(
+    {
+      event_name: "Purchase",
+      event_id: purchaseEventId(code),
+      event_time: eventTime,
+      event_source_url: buildSourceUrl(input.storeHost ?? null, code),
+      action_source: "website",
+      user: {
+        email: payload.email,
+        phone,
+        first_name: firstName,
+        last_name: lastName,
+        city,
+        state,
+        zip,
+        country: "br",
+        birthdate: payload.birthdate,
+        external_id: externalId,
+        fbc: attribution?.fbc || undefined,
+        fbp: attribution?.fbp || undefined,
+        client_ip_address: attribution?.client_ip || undefined,
+        client_user_agent: attribution?.user_agent || undefined,
+      },
+      custom: {
+        content_ids: contentIds.length ? contentIds : undefined,
+        content_type: contentIds.length ? "product" : undefined,
+        contents: contents.length ? contents : undefined,
+        value: payload.total,
+        currency: "BRL",
+        num_items: numItems || undefined,
+        order_id: code,
+      },
     },
-    custom: {
-      content_ids: contentIds.length ? contentIds : undefined,
-      content_type: contentIds.length ? "product" : undefined,
-      contents: contents.length ? contents : undefined,
-      value: payload.total,
-      currency: "BRL",
-      num_items: numItems || undefined,
-      order_id: code,
-    },
-  });
+    credentials ?? {}
+  );
 
   if (!result.ok) {
     return { ok: false, reason: result.error, fbtrace_id: result.fbtrace_id };

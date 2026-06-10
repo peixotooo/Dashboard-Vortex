@@ -3,7 +3,8 @@ import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth"
 import { isCapiConfigured } from "@/lib/meta-capi";
 import {
   getMetaCapiSettings,
-  upsertMetaCapiSettings,
+  upsertMetaCapiCredentials,
+  type MetaCapiSettings,
 } from "@/lib/meta-capi-settings";
 import { createAdminClient } from "@/lib/supabase-admin";
 
@@ -14,13 +15,17 @@ function allowedWorkspaceIds(): string[] {
     .filter(Boolean);
 }
 
-function meta(settings: { workspace_id: string; storage_ready?: boolean }) {
+function meta(settings: MetaCapiSettings) {
   const allowed = allowedWorkspaceIds();
+  const workspaceConfigured = Boolean(settings.pixel_id && settings.has_access_token);
   return {
     env_configured: isCapiConfigured(),
+    workspace_credentials_configured: workspaceConfigured,
+    effective_configured: isCapiConfigured() || workspaceConfigured,
     settings_storage_ready: settings.storage_ready !== false,
     vnda_purchase_allowed:
-      allowed.length > 0 && allowed.includes(settings.workspace_id),
+      workspaceConfigured ||
+      (allowed.length > 0 && allowed.includes(settings.workspace_id)),
   };
 }
 
@@ -53,8 +58,11 @@ export async function PATCH(request: NextRequest) {
     const { userId, workspaceId } = await getWorkspaceContext(request);
     await assertAdmin(workspaceId, userId);
     const body = await request.json();
-    const settings = await upsertMetaCapiSettings(workspaceId, {
+    const settings = await upsertMetaCapiCredentials(workspaceId, {
       enabled: body.enabled,
+      pixel_id: body.pixel_id,
+      access_token: body.access_token,
+      clear_access_token: body.clear_access_token,
     });
     return NextResponse.json({ settings, ...meta(settings) });
   } catch (e) {

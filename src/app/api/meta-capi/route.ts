@@ -13,7 +13,10 @@ import {
   sendCapiEvent,
   type MetaStandardEvent,
 } from "@/lib/meta-capi";
-import { isWorkspaceCapiEnabled } from "@/lib/meta-capi-settings";
+import {
+  getMetaCapiCredentials,
+  isWorkspaceCapiEnabled,
+} from "@/lib/meta-capi-settings";
 
 interface CAPIBody {
   key: string;
@@ -82,13 +85,6 @@ async function snapshotAttribution(input: {
 export async function POST(request: NextRequest) {
   const cors = buildCorsHeaders(request);
 
-  if (!isCapiConfigured()) {
-    return NextResponse.json(
-      { error: "CAPI not configured" },
-      { status: 503, headers: cors }
-    );
-  }
-
   let body: CAPIBody;
   try {
     body = await request.json();
@@ -112,6 +108,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { ok: false, skipped: true, reason: "CAPI disabled" },
       { headers: cors }
+    );
+  }
+
+  const credentials = await getMetaCapiCredentials(auth.workspaceId);
+  if (!credentials && !isCapiConfigured()) {
+    return NextResponse.json(
+      { error: "CAPI not configured" },
+      { status: 503, headers: cors }
     );
   }
 
@@ -144,39 +148,42 @@ export async function POST(request: NextRequest) {
     userAgent,
   });
 
-  const result = await sendCapiEvent({
-    event_name: eventName,
-    event_id:
-      body.event_id ||
-      `vtx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    event_source_url: body.url,
-    action_source: "website",
-    user: {
-      client_ip_address: clientIp,
-      client_user_agent: userAgent,
-      fbc,
-      fbp,
-      external_id: body.external_id,
-      email: body.email,
-      phone: body.phone,
-      first_name: body.first_name,
-      last_name: body.last_name,
-      city: body.city,
-      state: body.state,
-      zip: body.zip,
-      country: body.country,
-      birthdate: body.birthdate,
-      gender: body.gender,
+  const result = await sendCapiEvent(
+    {
+      event_name: eventName,
+      event_id:
+        body.event_id ||
+        `vtx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      event_source_url: body.url,
+      action_source: "website",
+      user: {
+        client_ip_address: clientIp,
+        client_user_agent: userAgent,
+        fbc,
+        fbp,
+        external_id: body.external_id,
+        email: body.email,
+        phone: body.phone,
+        first_name: body.first_name,
+        last_name: body.last_name,
+        city: body.city,
+        state: body.state,
+        zip: body.zip,
+        country: body.country,
+        birthdate: body.birthdate,
+        gender: body.gender,
+      },
+      custom: {
+        content_ids: body.content_ids,
+        content_name: body.content_name,
+        content_type: body.content_type || (body.content_ids?.length ? "product" : undefined),
+        value: body.value,
+        currency: body.value ? body.currency || "BRL" : undefined,
+        order_id: body.order_id,
+      },
     },
-    custom: {
-      content_ids: body.content_ids,
-      content_name: body.content_name,
-      content_type: body.content_type || (body.content_ids?.length ? "product" : undefined),
-      value: body.value,
-      currency: body.value ? body.currency || "BRL" : undefined,
-      order_id: body.order_id,
-    },
-  });
+    credentials ?? {}
+  );
 
   if (!result.ok) {
     console.error("[CAPI] Send failed:", result.error, result.fbtrace_id);

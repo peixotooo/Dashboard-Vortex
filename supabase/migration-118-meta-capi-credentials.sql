@@ -1,8 +1,7 @@
--- Migration 117: workspace-level Meta CAPI toggle.
+-- Migration 118: per-workspace Meta CAPI credentials.
 --
--- The Meta CAPI credentials still live in server env vars, but operators need
--- a per-workspace kill switch from the dashboard so they can pause event
--- forwarding without a deploy.
+-- Allows each workspace to point CAPI at its own Meta Pixel without changing
+-- environment variables. Access tokens are encrypted by the app before storage.
 
 create table if not exists public.meta_capi_settings (
   workspace_id uuid primary key references public.workspaces(id) on delete cascade,
@@ -12,6 +11,12 @@ create table if not exists public.meta_capi_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.meta_capi_settings
+  add column if not exists pixel_id text;
+
+alter table public.meta_capi_settings
+  add column if not exists access_token_encrypted text;
 
 alter table public.meta_capi_settings enable row level security;
 

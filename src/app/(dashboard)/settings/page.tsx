@@ -135,11 +135,17 @@ export default function SettingsPage() {
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
   const hasConnection = connections.length > 0;
   const [capiEnabled, setCapiEnabled] = useState(true);
+  const [capiPixelId, setCapiPixelId] = useState("");
+  const [capiAccessToken, setCapiAccessToken] = useState("");
+  const [capiHasAccessToken, setCapiHasAccessToken] = useState(false);
   const [capiEnvConfigured, setCapiEnvConfigured] = useState(false);
+  const [capiEffectiveConfigured, setCapiEffectiveConfigured] = useState(false);
+  const [capiWorkspaceCredentialsConfigured, setCapiWorkspaceCredentialsConfigured] = useState(false);
   const [capiVndaAllowed, setCapiVndaAllowed] = useState(false);
   const [capiStorageReady, setCapiStorageReady] = useState(true);
   const [loadingCapi, setLoadingCapi] = useState(false);
   const [savingCapi, setSavingCapi] = useState(false);
+  const [savingCapiCredentials, setSavingCapiCredentials] = useState(false);
   const [capiMessage, setCapiMessage] = useState("");
   const [capiError, setCapiError] = useState("");
 
@@ -281,7 +287,12 @@ export default function SettingsPage() {
       const capiData = await capiRes.json();
       if (capiData.settings) {
         setCapiEnabled(capiData.settings.enabled !== false);
+        setCapiPixelId(capiData.settings.pixel_id ?? "");
+        setCapiHasAccessToken(!!capiData.settings.has_access_token);
+        setCapiAccessToken("");
         setCapiEnvConfigured(!!capiData.env_configured);
+        setCapiEffectiveConfigured(!!capiData.effective_configured);
+        setCapiWorkspaceCredentialsConfigured(!!capiData.workspace_credentials_configured);
         setCapiVndaAllowed(!!capiData.vnda_purchase_allowed);
         setCapiStorageReady(capiData.settings_storage_ready !== false);
       }
@@ -537,7 +548,12 @@ export default function SettingsPage() {
         throw new Error(data.error || "Erro ao salvar CAPI");
       }
       setCapiEnabled(data.settings.enabled !== false);
+      setCapiPixelId(data.settings.pixel_id ?? "");
+      setCapiHasAccessToken(!!data.settings.has_access_token);
+      setCapiAccessToken("");
       setCapiEnvConfigured(!!data.env_configured);
+      setCapiEffectiveConfigured(!!data.effective_configured);
+      setCapiWorkspaceCredentialsConfigured(!!data.workspace_credentials_configured);
       setCapiVndaAllowed(!!data.vnda_purchase_allowed);
       setCapiStorageReady(data.settings_storage_ready !== false);
       setCapiMessage(data.settings.enabled ? "CAPI ativada." : "CAPI desativada.");
@@ -546,6 +562,45 @@ export default function SettingsPage() {
       setCapiError(error instanceof Error ? error.message : "Erro ao salvar CAPI");
     } finally {
       setSavingCapi(false);
+    }
+  }
+
+  async function handleSaveCapiCredentials() {
+    if (!workspace) return;
+    setSavingCapiCredentials(true);
+    setCapiMessage("");
+    setCapiError("");
+    try {
+      const res = await fetch("/api/meta-capi/settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
+        body: JSON.stringify({
+          enabled: capiEnabled,
+          pixel_id: capiPixelId,
+          access_token: capiAccessToken || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Erro ao salvar credenciais da CAPI");
+      }
+      setCapiEnabled(data.settings.enabled !== false);
+      setCapiPixelId(data.settings.pixel_id ?? "");
+      setCapiHasAccessToken(!!data.settings.has_access_token);
+      setCapiAccessToken("");
+      setCapiEnvConfigured(!!data.env_configured);
+      setCapiEffectiveConfigured(!!data.effective_configured);
+      setCapiWorkspaceCredentialsConfigured(!!data.workspace_credentials_configured);
+      setCapiVndaAllowed(!!data.vnda_purchase_allowed);
+      setCapiStorageReady(data.settings_storage_ready !== false);
+      setCapiMessage("Credenciais da CAPI salvas.");
+    } catch (error) {
+      setCapiError(error instanceof Error ? error.message : "Erro ao salvar credenciais da CAPI");
+    } finally {
+      setSavingCapiCredentials(false);
     }
   }
 
@@ -1153,7 +1208,11 @@ export default function SettingsPage() {
                     <div className="rounded-lg border p-3">
                       <p className="text-xs text-muted-foreground">Credenciais</p>
                       <p className="mt-1 text-sm font-semibold">
-                        {capiEnvConfigured ? "Configuradas" : "Pendentes"}
+                        {capiEffectiveConfigured
+                          ? capiWorkspaceCredentialsConfigured
+                            ? "Workspace"
+                            : "Env padrão"
+                          : "Pendentes"}
                       </p>
                     </div>
                     <div className="rounded-lg border p-3">
@@ -1163,11 +1222,48 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  {!capiEnvConfigured && (
+
+                  <div className="grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end">
+                    <div className="space-y-2">
+                      <Label>Pixel ID</Label>
+                      <Input
+                        value={capiPixelId}
+                        onChange={(e) => setCapiPixelId(e.target.value)}
+                        placeholder="Ex: 123456789012345"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Access Token da CAPI</Label>
+                      <Input
+                        type="password"
+                        value={capiAccessToken}
+                        onChange={(e) => setCapiAccessToken(e.target.value)}
+                        placeholder={
+                          capiHasAccessToken
+                            ? "Token salvo — preencha apenas para trocar"
+                            : "EAAG..."
+                        }
+                      />
+                    </div>
+                    <Button
+                      onClick={handleSaveCapiCredentials}
+                      disabled={savingCapiCredentials || !capiPixelId.trim()}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      {savingCapiCredentials ? "Salvando..." : "Salvar"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    O token fica criptografado no Supabase. Quando essas credenciais estiverem salvas,
+                    elas substituem META_CAPI_PIXEL_ID e META_CAPI_ACCESS_TOKEN para este workspace.
+                  </p>
+
+                  {!capiEffectiveConfigured && (
                     <div className="flex items-center gap-2 rounded-lg bg-warning/10 p-3">
                       <XCircle className="h-4 w-4 text-warning" />
                       <span className="text-sm text-warning">
-                        Defina META_CAPI_PIXEL_ID e META_CAPI_ACCESS_TOKEN no ambiente para enviar eventos.
+                        Informe Pixel ID e Access Token da CAPI para enviar eventos.
                       </span>
                     </div>
                   )}
