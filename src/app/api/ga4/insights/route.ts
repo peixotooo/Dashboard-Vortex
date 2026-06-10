@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGA4DailyReport, getGA4GoogleAdsCost } from "@/lib/ga4-api";
+import { getGA4DailyReport, getGA4GoogleAdsCost, getGA4ProductViewers } from "@/lib/ga4-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
@@ -29,16 +29,20 @@ export async function GET(request: NextRequest) {
       ? { startDate, endDate }
       : { datePreset };
 
-    // Fetch GA4 daily report + Google Ads cost in parallel
-    const [result, googleAdsResult] = await Promise.all([
+    // Fetch GA4 daily report + Google Ads cost + product viewers in parallel.
+    // productViewers is isolated (catch) so it can never break the overview.
+    const [result, googleAdsResult, viewersResult] = await Promise.all([
       getGA4DailyReport({ propertyId, ...dateArgs }),
       getGA4GoogleAdsCost({ propertyId, ...dateArgs }).catch(() => null),
+      getGA4ProductViewers({ propertyId, ...dateArgs }).catch(() => null),
     ]);
+
+    const totals = { ...result.totals, productViewers: viewersResult?.productViewers ?? 0 };
 
     // Comparison: custom range gets previous period based on duration
     if (includeComparison && (!useCustomRange || datePreset === "custom")) {
       const prevDates = getPreviousPeriodDates(datePreset, customRange);
-      const [prevResult, prevGoogleAds] = await Promise.all([
+      const [prevResult, prevGoogleAds, prevViewers] = await Promise.all([
         getGA4DailyReport({
           propertyId,
           startDate: prevDates.since,
@@ -49,19 +53,26 @@ export async function GET(request: NextRequest) {
           startDate: prevDates.since,
           endDate: prevDates.until,
         }).catch(() => null),
+        getGA4ProductViewers({
+          propertyId,
+          startDate: prevDates.since,
+          endDate: prevDates.until,
+        }).catch(() => null),
       ]);
 
       return NextResponse.json({
         ...result,
+        totals,
         googleAds: googleAdsResult,
         configured: true,
-        comparison: prevResult.totals,
+        comparison: { ...prevResult.totals, productViewers: prevViewers?.productViewers ?? 0 },
         googleAdsComparison: prevGoogleAds?.totals || null,
       });
     }
 
     return NextResponse.json({
       ...result,
+      totals,
       googleAds: googleAdsResult,
       configured: true,
     });

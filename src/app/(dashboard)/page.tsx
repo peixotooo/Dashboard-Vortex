@@ -71,6 +71,7 @@ interface GA4Totals {
   pageViews: number;
   addToCarts: number;
   checkouts: number;
+  productViewers: number;
 }
 
 interface GA4DailyRow {
@@ -238,6 +239,8 @@ interface OverviewData {
   // Funnel
   addToCarts: number;
   checkouts: number;
+  productViewers: number;
+  ga4Transactions: number;
   // Combined
   trendData: DailyRow[];
   dailyData: DailyRow[];
@@ -281,6 +284,8 @@ export default function OverviewPage() {
     vndaDiscount: 0,
     addToCarts: 0,
     checkouts: 0,
+    productViewers: 0,
+    ga4Transactions: 0,
     trendData: [],
     dailyData: [],
     metaComparison: null,
@@ -503,6 +508,7 @@ export default function OverviewPage() {
           pageViews: 0,
           addToCarts: 0,
           checkouts: 0,
+          productViewers: 0,
         };
 
         // --- Process Google Ads data (from GA4 response) ---
@@ -653,6 +659,8 @@ export default function OverviewPage() {
           vndaDiscount: vndaTotals.discount,
           addToCarts: ga4Configured ? ga4Totals.addToCarts : 0,
           checkouts: ga4Configured ? ga4Totals.checkouts : 0,
+          productViewers: ga4Configured ? ga4Totals.productViewers : 0,
+          ga4Transactions: ga4Configured ? ga4Totals.transactions : 0,
           trendData,
           dailyData,
           metaComparison: aggComparison,
@@ -933,23 +941,33 @@ export default function OverviewPage() {
 
       {/* Funnel E-commerce */}
       <FunnelSection
+        workspaceId={workspace?.id}
         sessions={data.sessions}
         users={data.users}
         pageViews={data.pageViews}
+        produtos={data.productViewers}
         addToCarts={data.addToCarts}
         checkouts={data.checkouts}
+        finalizados={data.ga4Transactions}
+        faturados={data.vndaConfigured ? data.pedidos : null}
         pedidos={data.pedidos}
         revenue={data.revenue}
         ticketMedio={data.ticketMedio}
+        roas={data.roas}
+        investment={data.totalInvestment}
         previous={{
           users: gc?.users ?? 0,
           pageViews: gc?.pageViews ?? 0,
           sessions: gc?.sessions ?? 0,
+          produtos: gc?.productViewers ?? 0,
           addToCarts: gc?.addToCarts ?? 0,
           checkouts: gc?.checkouts ?? 0,
+          finalizados: gc?.transactions ?? 0,
+          faturados: data.vndaConfigured ? (vc?.orders ?? 0) : null,
           pedidos: prevTxOrders ?? 0,
         }}
         ga4Configured={data.ga4Configured}
+        vndaConfigured={data.vndaConfigured}
         loading={loading}
       />
 
@@ -1448,18 +1466,18 @@ function benchmarkTone(rate: number | null, benchmark: number) {
   if (rate >= benchmark) {
     return {
       label: "acima",
-      className: "border-success/20 bg-success/10 text-success",
+      className: "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
     };
   }
   if (rate >= benchmark * 0.85) {
     return {
       label: "perto",
-      className: "border-warning/20 bg-warning/10 text-warning",
+      className: "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300",
     };
   }
   return {
     label: "abaixo",
-    className: "border-destructive/20 bg-destructive/10 text-destructive",
+    className: "border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300",
   };
 }
 
@@ -1523,38 +1541,150 @@ function targetGap(value: number, target: number): number {
   return Math.max(0, Math.round(target - value));
 }
 
+const FUNNEL_TARGET_DEFAULTS = {
+  produtos: 60,
+  carrinho: 12,
+  checkout: 45,
+  finalizados: 70,
+  faturados: 90,
+};
+type FunnelTargetKey = keyof typeof FUNNEL_TARGET_DEFAULTS;
+
+function clampPct(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
+
+// Input de meta (%) com rascunho local: permite limpar/digitar decimais sem
+// "pular para 0", commita o número válido na hora (recalcula o Ideal) e
+// reverte para o último valor ao sair se o campo ficar vazio.
+function TargetInput({
+  value,
+  onCommit,
+  label,
+}: {
+  value: number;
+  onCommit: (v: number) => void;
+  label: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    // Só re-sincroniza quando o valor externo diverge do que está digitado,
+    // preservando estados intermediários como "12." enquanto o usuário digita.
+    setDraft((prev) => (parseFloat(prev) === value ? prev : String(value)));
+  }, [value]);
+  return (
+    <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-violet-400">
+      <input
+        type="number"
+        min={0}
+        max={100}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = parseFloat(e.target.value);
+          if (Number.isFinite(n)) onCommit(clampPct(n));
+        }}
+        onBlur={() => {
+          const n = parseFloat(draft);
+          const next = Number.isFinite(n) ? clampPct(n) : value;
+          setDraft(String(next));
+          onCommit(next);
+        }}
+        className="w-11 bg-transparent py-1 pl-2 text-right text-sm font-semibold tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+        aria-label={label}
+      />
+      <span className="pr-1.5 text-xs text-muted-foreground">%</span>
+    </div>
+  );
+}
+
+function volumeDelta(real: number | null, prev: number): number | null {
+  if (real == null || !prev || prev <= 0) return null;
+  return ((real - prev) / prev) * 100;
+}
+
 function FunnelSection({
+  workspaceId,
   sessions,
   users,
   pageViews,
+  produtos,
   addToCarts,
   checkouts,
+  finalizados,
+  faturados,
   pedidos,
   revenue,
   ticketMedio,
+  roas,
+  investment,
   previous,
   ga4Configured,
+  vndaConfigured,
   loading,
 }: {
+  workspaceId?: string;
   sessions: number;
   users: number;
   pageViews: number;
+  produtos: number;
   addToCarts: number;
   checkouts: number;
+  finalizados: number;
+  faturados: number | null;
   pedidos: number;
   revenue: number;
   ticketMedio: number;
+  roas: number;
+  investment: number;
   previous: {
     users: number;
     pageViews: number;
     sessions: number;
+    produtos: number;
     addToCarts: number;
     checkouts: number;
+    finalizados: number;
+    faturados: number | null;
     pedidos: number;
   };
   ga4Configured: boolean;
+  vndaConfigured: boolean;
   loading: boolean;
 }) {
+  // Metas editáveis do funil Ideal — persistidas por workspace no navegador.
+  const storageKey = `funnel-targets:${workspaceId || "default"}`;
+  const [targets, setTargets] = useState<Record<FunnelTargetKey, number>>(() => ({
+    ...FUNNEL_TARGET_DEFAULTS,
+  }));
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Record<FunnelTargetKey, number>>;
+        setTargets({ ...FUNNEL_TARGET_DEFAULTS, ...parsed });
+      } else {
+        setTargets({ ...FUNNEL_TARGET_DEFAULTS });
+      }
+    } catch {
+      setTargets({ ...FUNNEL_TARGET_DEFAULTS });
+    }
+  }, [storageKey]);
+
+  const updateTarget = (key: FunnelTargetKey, value: number) => {
+    setTargets((prev) => {
+      const next = { ...prev, [key]: clampPct(value) };
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // localStorage indisponível — ajuste segue valendo nesta sessão.
+      }
+      return next;
+    });
+  };
+
   if (loading) {
     return (
       <Card>
@@ -1576,29 +1706,23 @@ function FunnelSection({
   const previousPagesPerUser =
     previousVisitorBase > 0 ? previous.pageViews / previousVisitorBase : null;
 
+  // Taxas usadas pelos cards de contexto/benchmark (base em sessões/pedidos).
   const addToCartRate = safeRate(addToCarts, sessions);
-  const prevAddToCartRate = safeRate(previous.addToCarts, previous.sessions);
   const cartToCheckoutRate = safeRate(checkouts, addToCarts);
-  const prevCartToCheckoutRate = safeRate(previous.checkouts, previous.addToCarts);
   const checkoutCompletionRate = safeRate(pedidos, checkouts);
-  const prevCheckoutCompletionRate = safeRate(previous.pedidos, previous.checkouts);
   const siteConversionRate = safeRate(pedidos, sessions);
   const prevSiteConversionRate = safeRate(previous.pedidos, previous.sessions);
   const cartAbandonmentRate =
     addToCarts > 0 ? Math.max(0, (1 - pedidos / addToCarts) * 100) : null;
 
-  const targetCarts = sessions * (FASHION_FUNNEL_BENCHMARKS.addToCartRate / 100);
-  const targetCheckouts = addToCarts * (FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate / 100);
-  const targetOrdersFromCheckout =
-    checkouts * (FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate / 100);
   const targetOrdersGoodBrazil =
     sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil / 100);
   const targetOrdersExcellentBrazil =
     sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil / 100);
   const ordersToFashionGoodBrazil = targetGap(pedidos, targetOrdersGoodBrazil);
   const ordersToFashionExcellentBrazil = targetGap(pedidos, targetOrdersExcellentBrazil);
-  const potentialRevenue =
-    ordersToFashionGoodBrazil * (ticketMedio || (pedidos > 0 ? revenue / pedidos : 0));
+  const effectiveTicket = ticketMedio || (pedidos > 0 ? revenue / pedidos : 0);
+  const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
 
   const diagnosticCandidates = [
     {
@@ -1628,52 +1752,124 @@ function FunnelSection({
     }))
     .sort((a, b) => a.score - b.score)[0];
 
-  const volumeStages = [
+  const cvrTone = conversionTone(siteConversionRate);
+  const cartAbandonTone = abandonmentTone(cartAbandonmentRate);
+
+  // --- Funil duplo (Realizado vs Ideal) ---
+  // O Ideal cascateia a partir das metas (%) de cada transição.
+  const idealUsuarios = visitorBase;
+  const idealProdutos = idealUsuarios * (targets.produtos / 100);
+  const idealCarrinho = idealProdutos * (targets.carrinho / 100);
+  const idealCheckout = idealCarrinho * (targets.checkout / 100);
+  const idealFinalizados = idealCheckout * (targets.finalizados / 100);
+  const idealFaturados = idealFinalizados * (targets.faturados / 100);
+
+  const produtosReal = produtos > 0 ? produtos : null;
+  // Finalizados (pedido criado, GA4) deve conter Faturados (pago, VNDA). Como o
+  // GA4 costuma subnotificar compras (adblock/consent), usamos o maior dos dois
+  // para o funil nunca inverter nem a "Tx. Aprov." passar de 100%.
+  const finalizadosVal = Math.max(finalizados, faturados ?? 0);
+  const finalizadosPrev = Math.max(previous.finalizados, previous.faturados ?? 0);
+
+  const stageRows: {
+    key: string;
+    name: string;
+    sub: string;
+    real: number | null;
+    realPrev: number;
+    ideal: number;
+    rate: number | null;
+    prevRate: number | null;
+    targetKey: FunnelTargetKey | null;
+    targetPct: number | null;
+    rateLabel: string | null;
+  }[] = [
     {
+      key: "usuarios",
       name: "Usuários",
-      detail: users > 0 ? `${formatNumber(sessions)} sessões` : "base por sessões",
-      value: visitorBase,
-      target: visitorBase,
-      color: "#14b8a6",
+      sub: users > 0 ? `${formatNumber(Math.round(sessions))} sessões` : "base de sessões",
+      real: visitorBase,
+      realPrev: previousVisitorBase,
+      ideal: idealUsuarios,
+      rate: null,
+      prevRate: null,
+      targetKey: null,
+      targetPct: null,
+      rateLabel: null,
     },
     {
-      name: "Add to cart",
-      detail: "sessões → carrinho",
-      value: addToCarts,
-      target: targetCarts,
-      rate: addToCartRate,
-      previousRate: prevAddToCartRate,
-      benchmark: FASHION_FUNNEL_BENCHMARKS.addToCartRate,
-      benchmarkLabel: "Moda 7,1%",
-      color: "#0ea5e9",
+      key: "produtos",
+      name: "Produtos",
+      sub: "visualização de produto",
+      real: produtosReal,
+      realPrev: previous.produtos,
+      ideal: idealProdutos,
+      rate: produtosReal != null ? safeRate(produtosReal, visitorBase) : null,
+      prevRate: safeRate(previous.produtos, previousVisitorBase),
+      targetKey: "produtos",
+      targetPct: targets.produtos,
+      rateLabel: "Tx. Vis.",
     },
     {
+      key: "carrinho",
+      name: "Adição ao Carrinho",
+      sub: "produto → carrinho",
+      real: addToCarts,
+      realPrev: previous.addToCarts,
+      ideal: idealCarrinho,
+      rate: safeRate(addToCarts, produtos),
+      prevRate: safeRate(previous.addToCarts, previous.produtos),
+      targetKey: "carrinho",
+      targetPct: targets.carrinho,
+      rateLabel: "Tx. Adição",
+    },
+    {
+      key: "checkout",
       name: "Checkout",
-      detail: "carrinho → checkout",
-      value: checkouts,
-      target: targetCheckouts,
-      rate: cartToCheckoutRate,
-      previousRate: prevCartToCheckoutRate,
-      benchmark: FASHION_FUNNEL_BENCHMARKS.cartToCheckoutRate,
-      benchmarkLabel: "Alvo 40%",
-      color: "#f59e0b",
+      sub: "carrinho → checkout",
+      real: checkouts,
+      realPrev: previous.checkouts,
+      ideal: idealCheckout,
+      rate: safeRate(checkouts, addToCarts),
+      prevRate: safeRate(previous.checkouts, previous.addToCarts),
+      targetKey: "checkout",
+      targetPct: targets.checkout,
+      rateLabel: "Tx. Checkout",
     },
     {
-      name: "Pedidos",
-      detail: "checkout → compra",
-      value: pedidos,
-      target: targetOrdersFromCheckout,
-      rate: checkoutCompletionRate,
-      previousRate: prevCheckoutCompletionRate,
-      benchmark: FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate,
-      benchmarkLabel: "Checkout 45%",
-      color: "#22c55e",
+      key: "finalizados",
+      name: "Finalizados",
+      sub: finalizados > 0 ? "checkout → pedido (GA4)" : "pedido finalizado",
+      real: finalizadosVal,
+      realPrev: finalizadosPrev,
+      ideal: idealFinalizados,
+      rate: safeRate(finalizadosVal, checkouts),
+      prevRate: safeRate(finalizadosPrev, previous.checkouts),
+      targetKey: "finalizados",
+      targetPct: targets.finalizados,
+      rateLabel: "Tx. Finaliz.",
+    },
+    {
+      key: "faturados",
+      name: "Faturados",
+      sub: vndaConfigured ? "pedido → faturado (VNDA)" : "sem fonte de faturamento",
+      real: faturados,
+      realPrev: previous.faturados ?? 0,
+      ideal: idealFaturados,
+      rate: faturados != null ? safeRate(faturados, finalizadosVal) : null,
+      prevRate: previous.faturados != null ? safeRate(previous.faturados, finalizadosPrev) : null,
+      targetKey: "faturados",
+      targetPct: targets.faturados,
+      rateLabel: "Tx. Aprov.",
     },
   ];
 
-  const maxValue = Math.max(visitorBase, ...volumeStages.map((stage) => stage.target), 1);
-  const cvrTone = conversionTone(siteConversionRate);
-  const cartAbandonTone = abandonmentTone(cartAbandonmentRate);
+  // Projeção do Ideal: receita e ROAS se o funil bater as metas.
+  const idealOrdersForRevenue = faturados != null ? idealFaturados : idealFinalizados;
+  const idealRevenue = idealOrdersForRevenue * effectiveTicket;
+  const idealRoas = investment > 0 ? idealRevenue / investment : null;
+
+  const gridCols = "grid grid-cols-[1.1fr_4.25rem_4.25rem_1.1fr_5.5rem] gap-2";
 
   return (
     <Card>
@@ -1682,7 +1878,8 @@ function FunnelSection({
           <div>
             <CardTitle className="text-base">Funil de conversões</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Realizado vs referências de e-commerce de moda, apparel e checkout.
+              <span className="font-semibold text-violet-600 dark:text-violet-400">Realizado</span> vs{" "}
+              <span className="font-semibold text-zinc-500 dark:text-zinc-400">Ideal</span> — ajuste as metas (%) por etapa; ficam salvas neste navegador.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1695,7 +1892,7 @@ function FunnelSection({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-6">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
           <FunnelMetricTile
             label="CVR site"
@@ -1731,144 +1928,255 @@ function FunnelSection({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.9fr)]">
-          <div className="space-y-3">
-            <div className="grid grid-cols-12 gap-3 px-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-              <span className="col-span-4">Etapa</span>
-              <span className="col-span-3 text-right">Realizado</span>
-              <span className="col-span-3 text-right">Referência</span>
-              <span className="col-span-2 text-right">Status</span>
+        {/* Funil duplo: Realizado (roxo) vs Ideal (cinza) com conversões no meio */}
+        <div className="overflow-x-auto">
+          <div className="min-w-[680px]">
+            <div className={`${gridCols} px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider`}>
+              <span className="text-right text-violet-600 dark:text-violet-400">Realizado</span>
+              <span className="col-span-2 text-center text-muted-foreground">Conversão</span>
+              <span className="text-left text-zinc-500 dark:text-zinc-400">Ideal</span>
+              <span className="text-center leading-tight text-muted-foreground">Ajuste manual (%)</span>
             </div>
-            {volumeStages.map((stage) => {
-              const realWidth = maxValue > 0 ? (stage.value / maxValue) * 100 : 0;
-              const targetWidth = maxValue > 0 ? (stage.target / maxValue) * 100 : 0;
-              const tone =
-                stage.benchmark && stage.rate != null
-                  ? benchmarkTone(stage.rate, stage.benchmark)
-                  : { label: "base", className: "border-border bg-muted text-muted-foreground" };
-              return (
-                <div key={stage.name} className="rounded-lg border bg-background p-3">
-                  <div className="grid grid-cols-12 items-start gap-3">
-                    <div className="col-span-12 sm:col-span-4">
-                      <p className="font-medium">{stage.name}</p>
-                      <p className="text-xs text-muted-foreground">{stage.detail}</p>
-                    </div>
-                    <div className="col-span-6 text-right sm:col-span-3">
-                      <p className="font-semibold tabular-nums">{formatNumber(Math.round(stage.value))}</p>
-                      {stage.rate != null && (
-                        <p className="text-xs text-muted-foreground">
-                          {formatFunnelRate(stage.rate)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="col-span-4 text-right sm:col-span-3">
-                      <p className="font-semibold tabular-nums">
-                        {formatNumber(Math.round(stage.target))}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {stage.benchmarkLabel || "base real"}
-                      </p>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold ${tone.className}`}>
-                        {tone.label}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-1.5">
-                    <div className="h-7 overflow-hidden rounded bg-muted/40">
+
+            <div className="space-y-1.5">
+              {stageRows.map((row, index) => {
+                const barWidth = 100 - index * 8; // afunilamento decorativo
+                const delta = volumeDelta(row.real, row.realPrev);
+                const deltaUp = delta != null && delta >= 0;
+                const tone =
+                  row.rate != null && row.targetPct != null
+                    ? benchmarkTone(row.rate, row.targetPct)
+                    : null;
+                const ratePp =
+                  row.rate != null && row.prevRate != null ? row.rate - row.prevRate : null;
+                const gapToIdeal =
+                  row.real != null && row.ideal - row.real > 0.5
+                    ? Math.round(row.ideal - row.real)
+                    : null;
+                return (
+                  <div key={row.key} className={`${gridCols} items-center`}>
+                    {/* Realizado (roxo) */}
+                    <div className="flex min-w-0 flex-col items-end gap-1">
                       <div
-                        className="flex h-full items-center justify-end rounded px-2 text-[10px] font-semibold text-white transition-all duration-500"
-                        style={{
-                          width: `${Math.max(realWidth, stage.value > 0 ? 3 : 0)}%`,
-                          backgroundColor: stage.color,
-                        }}
+                        className="flex flex-col items-end rounded-md bg-violet-500 px-3 py-1.5 text-right text-white shadow-sm dark:bg-violet-600"
+                        style={{ width: `${barWidth}%` }}
                       >
-                        {realWidth > 18 ? "real" : ""}
+                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-violet-50/90">
+                          {row.name}
+                        </span>
+                        <span className="text-sm font-bold leading-tight tabular-nums">
+                          {row.real == null ? "—" : formatNumber(Math.round(row.real))}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {delta != null && (
+                          <span
+                            className={`text-[10px] font-semibold tabular-nums ${
+                              deltaUp ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                            }`}
+                          >
+                            {deltaUp ? "▲" : "▼"} {Math.abs(delta).toFixed(1)}%
+                          </span>
+                        )}
+                        {tone && (
+                          <span className={`rounded border px-1 text-[9px] font-semibold ${tone.className}`}>
+                            {tone.label}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="h-4 overflow-hidden rounded bg-muted/40">
+
+                    {/* Conversão realizada (teal) + tendência em p.p. vs período anterior */}
+                    <div className="flex flex-col items-center justify-center gap-0.5">
+                      {row.rateLabel && (
+                        <>
+                          <div className="flex w-full flex-col items-center justify-center rounded-md bg-teal-500 px-1 py-1.5 text-center text-white dark:bg-teal-600">
+                            <span className="text-[8px] font-medium uppercase leading-none text-teal-50/90">
+                              {row.rateLabel}
+                            </span>
+                            <span className="text-xs font-bold leading-tight tabular-nums">
+                              {row.rate == null ? "—" : `${row.rate.toFixed(row.rate < 10 ? 1 : 0)}%`}
+                            </span>
+                          </div>
+                          {ratePp != null && (
+                            <span
+                              className="text-[8px] font-medium tabular-nums text-muted-foreground"
+                              title="variação da taxa vs período anterior"
+                            >
+                              {ratePp >= 0 ? "+" : ""}
+                              {ratePp.toFixed(1)}pp
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Conversão ideal/meta (âmbar) */}
+                    <div className="flex items-center justify-center">
+                      {row.rateLabel && (
+                        <div className="flex w-full flex-col items-center justify-center rounded-md bg-amber-100 px-1 py-1.5 text-center dark:bg-amber-900/40">
+                          <span className="text-[8px] font-medium uppercase leading-none text-amber-800 dark:text-amber-300">
+                            {row.rateLabel}
+                          </span>
+                          <span className="text-xs font-bold leading-tight tabular-nums text-amber-900 dark:text-amber-100">
+                            {row.targetPct}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ideal (cinza) + quanto falta para a meta */}
+                    <div className="flex min-w-0 flex-col items-start gap-0.5">
                       <div
-                        className="h-full rounded bg-foreground/25 transition-all duration-500"
-                        style={{ width: `${Math.max(targetWidth, stage.target > 0 ? 3 : 0)}%` }}
-                      />
+                        className="flex flex-col items-start rounded-md bg-zinc-200 px-3 py-1.5 text-left text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100"
+                        style={{ width: `${barWidth}%` }}
+                      >
+                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                          {row.name}
+                        </span>
+                        <span className="text-sm font-bold leading-tight tabular-nums">
+                          {formatNumber(Math.round(row.ideal))}
+                        </span>
+                      </div>
+                      {gapToIdeal != null && (
+                        <span
+                          className="text-[9px] font-medium tabular-nums text-muted-foreground"
+                          title="quanto falta para atingir a meta"
+                        >
+                          faltam {formatNumber(gapToIdeal)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Ajuste manual (%) */}
+                    <div className="flex items-center justify-center">
+                      {row.targetKey ? (
+                        <TargetInput
+                          value={row.targetPct ?? 0}
+                          onCommit={(v) => updateTarget(row.targetKey!, v)}
+                          label={`Meta de conversão para ${row.name} (%)`}
+                        />
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">base</span>
+                      )}
                     </div>
                   </div>
-                  {stage.rate != null && (
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                      <span>{formatPointDelta(stage.rate, stage.previousRate ?? null)} vs período anterior</span>
-                      <span>
-                        gap: {formatNumber(targetGap(stage.value, stage.target))} para referência
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+
+            {/* Rodapé: ROAS / Faturado / TKM (realizado) + projeção ideal */}
+            <div className="mt-3 grid grid-cols-5 gap-2 border-t pt-3">
+              <FunnelSummaryTile tone="violet" label="ROAS" value={roas > 0 ? `${roas.toFixed(2)}x` : "—"} />
+              <FunnelSummaryTile
+                tone="violet"
+                label="Faturado"
+                value={revenue > 0 ? formatCurrency(revenue) : "—"}
+              />
+              <FunnelSummaryTile
+                tone="teal"
+                label="TKM"
+                value={ticketMedio > 0 ? formatCurrency(ticketMedio) : "—"}
+              />
+              <FunnelSummaryTile
+                tone="gray"
+                label="Faturado ideal"
+                value={idealRevenue > 0 ? formatCurrency(idealRevenue) : "—"}
+              />
+              <FunnelSummaryTile
+                tone="gray"
+                label="ROAS ideal"
+                value={idealRoas != null ? `${idealRoas.toFixed(2)}x` : "—"}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Diagnóstico CRO</p>
+            <p className="mt-2 text-lg font-semibold">
+              {mainLeak ? mainLeak.label : "Sem gargalo claro ainda"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {mainLeak
+                ? mainLeak.action
+                : "Assim que houver volume em todas as etapas, o funil aponta a maior perda relativa."}
+            </p>
           </div>
 
-          <div className="space-y-3">
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Diagnóstico CRO</p>
-              <p className="mt-2 text-lg font-semibold">
-                {mainLeak ? mainLeak.label : "Sem gargalo claro ainda"}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {mainLeak
-                  ? mainLeak.action
-                  : "Assim que houver volume em todas as etapas, o funil aponta a maior perda relativa."}
-              </p>
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Benchmark moda</p>
+            <div className="mt-3 space-y-2 text-sm">
+              <BenchmarkLine
+                label="Conversão site"
+                actual={siteConversionRate}
+                benchmark={`bom ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente ${FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%`}
+              />
+              <BenchmarkLine
+                label="Add-to-cart"
+                actual={addToCartRate}
+                benchmark={`${FASHION_FUNNEL_BENCHMARKS.addToCartRate.toFixed(1)}%`}
+              />
+              <BenchmarkLine
+                label="Checkout completion"
+                actual={checkoutCompletionRate}
+                benchmark={`${FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate.toFixed(0)}%`}
+              />
+              <BenchmarkLine
+                label="Abandono carrinho"
+                actual={cartAbandonmentRate}
+                benchmark={`${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%`}
+              />
             </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+              Referências: IRP Fashion Clothing & Accessories, Dynamic Yield e Baymard. Use como régua de contexto, não como meta cega.
+            </p>
+          </div>
 
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Benchmark moda</p>
-              <div className="mt-3 space-y-2 text-sm">
-                <BenchmarkLine
-                  label="Conversão site"
-                  actual={siteConversionRate}
-                  benchmark={`bom ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente ${FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%`}
-                />
-                <BenchmarkLine
-                  label="Add-to-cart"
-                  actual={addToCartRate}
-                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.addToCartRate.toFixed(1)}%`}
-                />
-                <BenchmarkLine
-                  label="Checkout completion"
-                  actual={checkoutCompletionRate}
-                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate.toFixed(0)}%`}
-                />
-                <BenchmarkLine
-                  label="Abandono carrinho"
-                  actual={cartAbandonmentRate}
-                  benchmark={`${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%`}
-                />
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedidos adicionais</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">até CVR bom 1,4%</p>
+                <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionGoodBrazil)}</p>
               </div>
-              <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-                Referências: IRP Fashion Clothing & Accessories, Dynamic Yield e Baymard. Use como régua de contexto, não como meta cega.
-              </p>
-            </div>
-
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedidos adicionais</p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">até CVR bom 1,4%</p>
-                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionGoodBrazil)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">até CVR excelente 2,0%</p>
-                  <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionExcellentBrazil)}</p>
-                </div>
+              <div>
+                <p className="text-xs text-muted-foreground">até CVR excelente 2,0%</p>
+                <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionExcellentBrazil)}</p>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Projeção usa o ticket médio atual e não considera ruptura de estoque ou mix de canal.
-              </p>
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Projeção usa o ticket médio atual e não considera ruptura de estoque ou mix de canal.
+            </p>
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function FunnelSummaryTile({
+  tone,
+  label,
+  value,
+}: {
+  tone: "violet" | "teal" | "gray";
+  label: string;
+  value: string;
+}) {
+  const toneClass =
+    tone === "violet"
+      ? "bg-violet-500 text-white dark:bg-violet-600"
+      : tone === "teal"
+        ? "bg-teal-500 text-white dark:bg-teal-600"
+        : "border bg-muted text-foreground";
+  const labelClass = tone === "gray" ? "text-muted-foreground" : "text-white/80";
+  return (
+    <div className={`min-w-0 rounded-md px-2.5 py-2 ${toneClass}`}>
+      <p className={`truncate text-[10px] font-medium uppercase tracking-wide ${labelClass}`}>{label}</p>
+      <p className="truncate text-sm font-bold leading-tight tabular-nums">{value}</p>
+    </div>
   );
 }
 
