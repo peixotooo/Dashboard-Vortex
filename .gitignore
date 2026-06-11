@@ -48,3 +48,4 @@ next-env.d.ts
 meta-mcp/node_modules
 meta-mcp/dist
 .env.cron
+scripts/.tiktok-create-state.json
