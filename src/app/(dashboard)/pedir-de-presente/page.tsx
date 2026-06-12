@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
+import { formatCurrency } from "@/lib/utils";
 import {
   GIFT_REQUEST_VARS,
   SAMPLE_GIFT_VARS,
@@ -112,6 +113,9 @@ interface Stats {
   read_rate: number;
   converted: number;
   conversion_rate: number;
+  converted_revenue: number;
+  converted_revenue_orders: number;
+  avg_converted_order_value: number;
   top_products: Array<{ product_id: string; count: number }>;
 }
 
@@ -1312,7 +1316,7 @@ export default function GiftRequestPage() {
         {/* ============================== DASHBOARD ============================== */}
         <TabsContent value="dashboard" className="space-y-5">
           {/* KPIs principais */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <Card>
               <CardContent className="p-4">
                 <div className="text-xs text-muted-foreground uppercase tracking-wider">
@@ -1349,6 +1353,21 @@ export default function GiftRequestPage() {
                 {stats && stats.total > 0 && (
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {fmtPercent(stats.conversion_rate)} de conversão
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Conversão (R$)
+                </div>
+                <div className="text-2xl font-bold mt-1">
+                  {stats ? formatCurrency(stats.converted_revenue) : "—"}
+                </div>
+                {stats && stats.converted_revenue_orders > 0 && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Ticket médio {formatCurrency(stats.avg_converted_order_value)}
                   </div>
                 )}
               </CardContent>

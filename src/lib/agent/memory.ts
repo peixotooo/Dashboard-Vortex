@@ -1347,7 +1347,7 @@ export async function syncSavedCampaigns(
     tier?: string | null;
   }>,
   dateRange: string,
-  platform: "meta" | "google" = "meta"
+  platform: "meta" | "google" | "tiktok" = "meta"
 ): Promise<void> {
   const rows = campaigns.map((c) => ({
     workspace_id: workspaceId,

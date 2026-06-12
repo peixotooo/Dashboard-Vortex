@@ -424,3 +424,156 @@ export async function listAccessibleCustomersDetailed(): Promise<GoogleAdsAccoun
 
   return accounts;
 }
+
+// --- Write operations (mutate) ---
+//
+// These change live campaigns and can affect real spend. Callers (CLI/UI) are
+// responsible for confirming intent before invoking them.
+
+async function mutateGoogleAds(
+  resource: string,
+  operations: unknown[],
+  customerId?: string
+): Promise<{ results?: Array<{ resourceName?: string }> }> {
+  const cid = (customerId || getCustomerId()).replace(/-/g, "");
+  const token = await getAccessToken();
+  const devToken = getDeveloperToken();
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "");
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "developer-token": devToken,
+    "Content-Type": "application/json",
+  };
+  if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
+
+  const res = await fetch(`${BASE_URL}/customers/${cid}/${resource}:mutate`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ operations }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(parseGoogleAdsError(res.status, errBody));
+  }
+  return res.json();
+}
+
+export type CampaignStatus = "ENABLED" | "PAUSED";
+
+export interface CampaignBasicInfo {
+  id: string;
+  name: string;
+  status: string; // normalized: ACTIVE / PAUSED / DELETED
+}
+
+/**
+ * Resolve a campaign by ID WITHOUT a segments.date join, so idle/paused
+ * campaigns (which have zero metrics in any date window and are dropped from
+ * segmented reports) are still found. Returns null if the ID doesn't exist in
+ * the account. Used to give the write CLI a reliable preview before mutating.
+ */
+export async function getCampaignBasicInfo(
+  campaignId: string,
+  customerId?: string
+): Promise<CampaignBasicInfo | null> {
+  if (!/^\d+$/.test(campaignId)) throw new Error("campaignId invalido (apenas digitos).");
+  const rows = await executeGaql<{ campaign?: { id?: string; name?: string; status?: string } }>(
+    `SELECT campaign.id, campaign.name, campaign.status FROM campaign WHERE campaign.id = ${campaignId}`,
+    customerId
+  );
+  const c = rows[0]?.campaign;
+  if (!c) return null;
+  return { id: c.id || campaignId, name: c.name || "", status: mapStatus(c.status) };
+}
+
+/** Pause or enable a campaign. Returns the mutated resource name. */
+export async function setCampaignStatus(
+  campaignId: string,
+  status: CampaignStatus,
+  customerId?: string
+): Promise<string> {
+  if (!/^\d+$/.test(campaignId)) throw new Error("campaignId invalido (apenas digitos).");
+  const cid = (customerId || getCustomerId()).replace(/-/g, "");
+  const result = await mutateGoogleAds(
+    "campaigns",
+    [
+      {
+        updateMask: "status",
+        update: {
+          resourceName: `customers/${cid}/campaigns/${campaignId}`,
+          status,
+        },
+      },
+    ],
+    customerId
+  );
+  return result?.results?.[0]?.resourceName || "";
+}
+
+export interface CampaignBudgetInfo {
+  campaignName: string;
+  campaignStatus: string;
+  budgetResourceName: string;
+  currentDailyAmount: number; // account currency units (e.g. BRL)
+  explicitlyShared: boolean;
+  referenceCount: number;
+}
+
+/** Look up a campaign's budget resource (and whether it is shared across campaigns). */
+export async function getCampaignBudgetInfo(
+  campaignId: string,
+  customerId?: string
+): Promise<CampaignBudgetInfo | null> {
+  if (!/^\d+$/.test(campaignId)) throw new Error("campaignId invalido (apenas digitos).");
+  const rows = await executeGaql<{
+    campaign?: { name?: string; status?: string };
+    campaignBudget?: {
+      resourceName?: string;
+      amountMicros?: string;
+      explicitlyShared?: boolean;
+      referenceCount?: number;
+    };
+  }>(
+    "SELECT campaign.name, campaign.status, campaign_budget.resource_name, " +
+      "campaign_budget.amount_micros, campaign_budget.explicitly_shared, " +
+      `campaign_budget.reference_count FROM campaign WHERE campaign.id = ${campaignId}`,
+    customerId
+  );
+  const row = rows[0];
+  if (!row?.campaignBudget?.resourceName) return null;
+  return {
+    campaignName: row.campaign?.name || "",
+    campaignStatus: mapStatus(row.campaign?.status),
+    budgetResourceName: row.campaignBudget.resourceName,
+    currentDailyAmount: micros(row.campaignBudget.amountMicros),
+    explicitlyShared: !!row.campaignBudget.explicitlyShared,
+    referenceCount: Number(row.campaignBudget.referenceCount ?? 1),
+  };
+}
+
+/** Set a campaign budget's daily amount (in account currency units, e.g. BRL). */
+export async function setCampaignDailyBudget(
+  budgetResourceName: string,
+  dailyAmount: number,
+  customerId?: string
+): Promise<string> {
+  if (!(dailyAmount > 0)) throw new Error("O orcamento diario precisa ser maior que zero.");
+  const amountMicros = Math.round(dailyAmount * 1_000_000).toString();
+  const result = await mutateGoogleAds(
+    "campaignBudgets",
+    [
+      {
+        // Google Ads REST updateMask uses snake_case field paths; camelCase
+        // ("amountMicros") silently no-ops for multi-word fields. ("status" is
+        // safe either way because it's a single word.) The body field below
+        // stays camelCase — only the mask is snake_case.
+        updateMask: "amount_micros",
+        update: { resourceName: budgetResourceName, amountMicros },
+      },
+    ],
+    customerId
+  );
+  return result?.results?.[0]?.resourceName || "";
+}
