@@ -3979,7 +3979,7 @@
   }
 
   // ============================================================
-  // --- Home: carrossel leve de avaliações 5 estrelas da loja ---
+  // --- Home: carrossel leve de avaliações positivas da loja ---
   // ============================================================
 
   function srvCount(n) {
@@ -4077,10 +4077,11 @@
   }
 
   function srvCard(review, color) {
+    var rating = Math.max(4, Math.min(Number(review.rating) || 5, 5));
     return (
       '<article class="vtx-srv-card">' +
         '<div>' +
-          '<div class="vtx-srv-card-stars">' + rvStars(5, color, 14) + "</div>" +
+          '<div class="vtx-srv-card-stars">' + rvStars(rating, color, 14) + "</div>" +
           '<p class="vtx-srv-quote">“' + escapeHtml(review.body) + '”</p>' +
         "</div>" +
         '<div class="vtx-srv-author">' +
@@ -4109,17 +4110,17 @@
       if (!anchor || !anchor.el) return;
 
       srvInjectStyles();
-      var fiveStarCount = data.summary && data.summary.total_5_star ? data.summary.total_5_star : data.reviews.length;
+      var positiveCount = data.summary && data.summary.total_positive ? data.summary.total_positive : data.reviews.length;
       anchor.el.innerHTML =
-        '<section id="vtx-store-reviews-home" aria-label="Avaliações 5 estrelas da loja">' +
+        '<section id="vtx-store-reviews-home" aria-label="Avaliações positivas da loja">' +
           '<div class="vtx-srv-head">' +
             '<div>' +
               '<p class="vtx-srv-kicker">Avaliações da loja</p>' +
               '<h2 class="vtx-srv-title">Quem comprou, aprovou</h2>' +
             "</div>" +
             '<div class="vtx-srv-summary">' +
-              '<div class="vtx-srv-score">5.0 <span class="vtx-srv-stars">' + rvStars(5, color, 16) + "</span></div>" +
-              '<p class="vtx-srv-count">' + srvCount(fiveStarCount) + " avaliações 5 estrelas</p>" +
+              '<div class="vtx-srv-score">4+ <span class="vtx-srv-stars">' + rvStars(4, color, 16) + "</span></div>" +
+              '<p class="vtx-srv-count">' + srvCount(positiveCount) + " avaliações positivas</p>" +
             "</div>" +
           "</div>" +
           '<div class="vtx-srv-shell">' +

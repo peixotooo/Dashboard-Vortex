@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const fetchLimit = Math.min(limit * 6, 80);
 
-  const [totalPublished, totalFiveStar, reviewsResult] = await Promise.all([
+  const [totalPublished, totalPositive, reviewsResult] = await Promise.all([
     admin
       .from("store_reviews")
       .select("*", { count: "exact", head: true })
@@ -83,13 +83,13 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact", head: true })
       .eq("workspace_id", auth.workspaceId)
       .eq("status", "published")
-      .eq("rating", 5),
+      .gte("rating", 4),
     admin
       .from("store_reviews")
       .select("rating, comment, author_name, created_at")
       .eq("workspace_id", auth.workspaceId)
       .eq("status", "published")
-      .eq("rating", 5)
+      .gte("rating", 4)
       .not("comment", "is", null)
       .order("created_at", { ascending: false, nullsFirst: false })
       .limit(fetchLimit),
@@ -98,8 +98,8 @@ export async function GET(request: NextRequest) {
   if (totalPublished.error) {
     return NextResponse.json({ error: totalPublished.error.message }, { status: 500, headers: CORS_HEADERS });
   }
-  if (totalFiveStar.error) {
-    return NextResponse.json({ error: totalFiveStar.error.message }, { status: 500, headers: CORS_HEADERS });
+  if (totalPositive.error) {
+    return NextResponse.json({ error: totalPositive.error.message }, { status: 500, headers: CORS_HEADERS });
   }
   if (reviewsResult.error) {
     return NextResponse.json({ error: reviewsResult.error.message }, { status: 500, headers: CORS_HEADERS });
@@ -120,7 +120,8 @@ export async function GET(request: NextRequest) {
       enabled: reviews.length > 0,
       summary: {
         total_published: totalPublished.count ?? 0,
-        total_5_star: totalFiveStar.count ?? 0,
+        total_positive: totalPositive.count ?? 0,
+        min_rating: 4,
       },
       reviews,
       settings: {
