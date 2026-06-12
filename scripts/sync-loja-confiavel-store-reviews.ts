@@ -83,7 +83,19 @@ function parseReviews(html: string, page: number): ParsedStoreReview[] {
       throw new Error(`Review sem rating/data na página ${page}, índice ${index + 1}`);
     }
 
-    const externalId = hashReview([date, author, location, rating, cleanBody, page, index + 1]);
+    const processRating = parseStars(block, "Processo de compra");
+    const deliveryRating = parseStars(block, "Entrega");
+    const serviceRating = parseStars(block, "Atendimento");
+    const externalId = hashReview([
+      date,
+      author,
+      location,
+      rating,
+      cleanBody,
+      processRating,
+      deliveryRating,
+      serviceRating,
+    ]);
     return {
       external_id: externalId,
       rating,
@@ -93,9 +105,9 @@ function parseReviews(html: string, page: number): ParsedStoreReview[] {
       reviewed_at: `${date}T12:00:00.000Z`,
       page,
       index: index + 1,
-      process_rating: parseStars(block, "Processo de compra"),
-      delivery_rating: parseStars(block, "Entrega"),
-      service_rating: parseStars(block, "Atendimento"),
+      process_rating: processRating,
+      delivery_rating: deliveryRating,
+      service_rating: serviceRating,
     };
   });
 }
@@ -121,6 +133,29 @@ async function scrapeAll(slug: string, maxPages?: number): Promise<ParsedStoreRe
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return all;
+}
+
+function disambiguateDuplicateIds(rows: ParsedStoreReview[]): {
+  rows: ParsedStoreReview[];
+  duplicateGroups: number;
+  duplicateRows: number;
+} {
+  const seen = new Map<string, number>();
+  let duplicateGroups = 0;
+  let duplicateRows = 0;
+
+  return {
+    rows: rows.map((row) => {
+      const count = seen.get(row.external_id) || 0;
+      seen.set(row.external_id, count + 1);
+      if (count === 0) return row;
+      if (count === 1) duplicateGroups++;
+      duplicateRows++;
+      return { ...row, external_id: `${row.external_id}-${count + 1}` };
+    }),
+    duplicateGroups,
+    duplicateRows,
+  };
 }
 
 function toDbRow(workspaceId: string, review: ParsedStoreReview) {
@@ -157,7 +192,12 @@ async function main() {
   const maxPages = argValue("--max-pages") ? Number(argValue("--max-pages")) : undefined;
   const apply = process.argv.includes("--apply");
 
-  const rows = await scrapeAll(slug, maxPages);
+  const scrapedRows = await scrapeAll(slug, maxPages);
+  const {
+    rows,
+    duplicateGroups,
+    duplicateRows,
+  } = disambiguateDuplicateIds(scrapedRows);
   const withComment = rows.filter((row) => row.comment).length;
   const byRating = rows.reduce<Record<number, number>>((acc, row) => {
     acc[row.rating] = (acc[row.rating] || 0) + 1;
@@ -170,6 +210,8 @@ async function main() {
     pages: rows.length ? rows[rows.length - 1].page : 0,
     total: rows.length,
     with_comment: withComment,
+    duplicate_groups: duplicateGroups,
+    duplicate_rows_disambiguated: duplicateRows,
     by_rating: byRating,
     sample: rows.slice(0, 5),
   }, null, 2));

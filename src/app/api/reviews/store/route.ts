@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { fetchAllSupabasePages } from "@/lib/reviews/pagination";
+
+type StoreReviewSummaryRow = {
+  rating: number | string | null;
+  status: string | null;
+};
 
 // Lista avaliações da LOJA (experiência), pro admin moderar. Separadas das
 // avaliações de produto (tabela store_reviews).
@@ -23,8 +29,20 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Resumo: média + distribuição das publicadas.
-    const published = (data || []).filter((r) => r.status === "published");
+    const summaryRows = await fetchAllSupabasePages<StoreReviewSummaryRow>(async (from, to) => {
+      const { data: rows, error: summaryError } = await admin
+        .from("store_reviews")
+        .select("rating, status")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      return { data: rows as StoreReviewSummaryRow[] | null, error: summaryError };
+    });
+
+    // Resumo global, não só da página atual.
+    const published = summaryRows.filter((r) => r.status === "published");
     const sum = published.reduce((s, r) => s + (Number(r.rating) || 0), 0);
     const average = published.length ? Number((sum / published.length).toFixed(1)) : 0;
 
