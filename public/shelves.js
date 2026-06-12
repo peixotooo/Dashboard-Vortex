@@ -4060,6 +4060,22 @@
     return { el: host, auto: false };
   }
 
+  function srvEnsureBeforeFirstShelf(mount) {
+    function reorder() {
+      if (!mount || !mount.parentNode) return;
+      var firstShelf = document.querySelector(".vtx-shelf-container, .vtx-shelf");
+      if (!firstShelf || !firstShelf.parentNode || firstShelf === mount || mount.contains(firstShelf)) return;
+      try {
+        if (mount.nextSibling !== firstShelf) firstShelf.parentNode.insertBefore(mount, firstShelf);
+      } catch (e) { /* noop */ }
+    }
+    reorder();
+    setTimeout(reorder, 700);
+    setTimeout(reorder, 1800);
+    setTimeout(reorder, 3800);
+    setTimeout(reorder, 7000);
+  }
+
   function srvCard(review, color) {
     return (
       '<article class="vtx-srv-card">' +
@@ -4114,6 +4130,8 @@
             "</div>" +
           "</div>" +
         "</section>";
+
+      srvEnsureBeforeFirstShelf(anchor.el);
 
       var track = anchor.el.querySelector(".vtx-srv-track");
       var prev = anchor.el.querySelector("[data-vtx-srv-prev]");
