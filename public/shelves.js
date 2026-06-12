@@ -4031,35 +4031,33 @@
     host.id = "vtx-store-reviews-home-anchor";
     host.setAttribute("data-vtx-auto-store-reviews", "true");
 
-    var shelves = document.querySelectorAll(".vtx-shelf-container, .vtx-shelf");
-    if (shelves.length) {
-      var last = shelves[shelves.length - 1];
-      if (last && last.parentNode) {
-        last.parentNode.insertBefore(host, last.nextSibling);
-        return { el: host, auto: true };
+    var preferredAnchors = [
+      "section.section-icons",
+      ".section-icons",
+      "section.banners-grid",
+      ".banners-grid",
+      ".fullbanner",
+      ".home-banner"
+    ];
+
+    for (var i = 0; i < preferredAnchors.length; i++) {
+      var preferred = document.querySelector(preferredAnchors[i]);
+      if (preferred && preferred.parentNode) {
+        preferred.parentNode.insertBefore(host, preferred.nextSibling);
+        return { el: host, auto: false };
       }
+    }
+
+    var firstShelf = document.querySelector(".vtx-shelf-container, .vtx-shelf");
+    if (firstShelf && firstShelf.parentNode) {
+      firstShelf.parentNode.insertBefore(host, firstShelf.nextSibling);
+      return { el: host, auto: false };
     }
 
     var foot = document.querySelector("footer, .footer");
     if (foot && foot.parentNode) foot.parentNode.insertBefore(host, foot);
     else (document.querySelector("main") || document.body).appendChild(host);
-    return { el: host, auto: true };
-  }
-
-  function srvEnsureAfterShelves(mount) {
-    function reorder() {
-      if (!mount || !mount.parentNode) return;
-      var shelves = document.querySelectorAll(".vtx-shelf-container, .vtx-shelf");
-      if (!shelves.length) return;
-      var last = shelves[shelves.length - 1];
-      if (!last || !last.parentNode || last === mount) return;
-      try {
-        if (last.nextSibling !== mount) last.parentNode.insertBefore(mount, last.nextSibling);
-      } catch (e) { /* noop */ }
-    }
-    setTimeout(reorder, 900);
-    setTimeout(reorder, 2400);
-    setTimeout(reorder, 5200);
+    return { el: host, auto: false };
   }
 
   function srvCard(review, color) {
@@ -4112,8 +4110,6 @@
             "</div>" +
           "</div>" +
         "</section>";
-
-      if (anchor.auto) srvEnsureAfterShelves(anchor.el);
 
       var track = anchor.el.querySelector(".vtx-srv-track");
       var prev = anchor.el.querySelector("[data-vtx-srv-prev]");
