@@ -99,6 +99,10 @@ function MLStatusBadge({ status }: { status: string | null }) {
   );
 }
 
+function uniqueNonEmpty(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.map((v) => v?.trim()).filter((v): v is string => Boolean(v))));
+}
+
 // -------------------------------------------------------------------
 // Main Page
 // -------------------------------------------------------------------
@@ -509,6 +513,14 @@ export default function HubPedidosPage() {
                       const first = packOrders[0];
                       const isExpanded = expandedPacks.has(packKey);
                       const packTotal = packOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+                      const packEccNumeros = uniqueNonEmpty(packOrders.map((o) => o.ecc_numero));
+                      const packEccPedidoIds = uniqueNonEmpty(packOrders.map((o) => o.ecc_pedido_id ? String(o.ecc_pedido_id) : null));
+                      const packNfeNumeros = uniqueNonEmpty(packOrders.map((o) => o.ecc_nfe_numero));
+                      const packRastreios = uniqueNonEmpty(packOrders.map((o) => o.ecc_rastreio));
+                      const packEccNumero = packEccNumeros.length === 1 ? packEccNumeros[0] : null;
+                      const packEccPedidoId = packEccPedidoIds.length === 1 ? packEccPedidoIds[0] : null;
+                      const packNfeNumero = packNfeNumeros.length === 1 ? packNfeNumeros[0] : null;
+                      const packRastreio = packRastreios.length === 1 ? packRastreios[0] : null;
 
                       // Single order (no pack) — render as before
                       if (!isPack) {
@@ -571,10 +583,31 @@ export default function HubPedidosPage() {
                             </td>
                             <td className="p-3 text-center"><MLStatusBadge status={first.ml_status} /></td>
                             <td className="p-3 text-center"><OrderStatusBadge status={first.sync_status} /></td>
-                            <td className="p-3 text-center"><span className="text-xs text-muted-foreground">-</span></td>
-                            <td className="p-3 text-center"><span className="text-xs text-muted-foreground">-</span></td>
                             <td className="p-3 text-center">
-                              {first.ecc_rastreio ? <span className="text-xs font-mono">{first.ecc_rastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
+                              {packEccNumero ? (
+                                <span className="text-xs font-mono">{packEccNumero}</span>
+                              ) : packEccPedidoId ? (
+                                <span className="text-xs font-mono">#{packEccPedidoId}</span>
+                              ) : packEccNumeros.length > 1 ? (
+                                <span className="text-xs text-muted-foreground">Varios</span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {packNfeNumero ? (
+                                <div>
+                                  <span className="text-xs font-mono">{packNfeNumero}</span>
+                                  {packOrders.some((o) => o.nfe_xml_sent_at) && (
+                                    <div className="text-[10px] text-green-600">enviada</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {packRastreio ? <span className="text-xs font-mono">{packRastreio}</span> : <span className="text-xs text-muted-foreground">-</span>}
                             </td>
                             <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1">
