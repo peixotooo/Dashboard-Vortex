@@ -9,6 +9,13 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+const CACHE_HEADERS = {
+  ...CORS_HEADERS,
+  "Cache-Control": "public, max-age=60",
+  "CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=1800",
+  "Vercel-CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=1800",
+};
+
 type StoreReviewHighlightRow = {
   rating: number | string | null;
   comment: string | null;
@@ -58,7 +65,7 @@ export async function GET(request: NextRequest) {
   if (!settings.widget_enabled) {
     return NextResponse.json(
       { enabled: false },
-      { headers: { ...CORS_HEADERS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=1800" } }
+      { headers: CACHE_HEADERS }
     );
   }
 
@@ -121,7 +128,7 @@ export async function GET(request: NextRequest) {
         accent_color: settings.accent_color,
       },
     },
-    { headers: { ...CORS_HEADERS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=1800" } }
+    { headers: CACHE_HEADERS }
   );
 }
 
