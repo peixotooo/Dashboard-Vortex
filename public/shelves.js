@@ -4050,7 +4050,7 @@
 
     var firstShelf = document.querySelector(".vtx-shelf-container, .vtx-shelf");
     if (firstShelf && firstShelf.parentNode) {
-      firstShelf.parentNode.insertBefore(host, firstShelf.nextSibling);
+      firstShelf.parentNode.insertBefore(host, firstShelf);
       return { el: host, auto: false };
     }
 
@@ -4079,6 +4079,10 @@
     if (!API_KEY || !API_BASE) return;
     if (detectPageType() !== "home") return;
     if (document.getElementById("vtx-store-reviews-home")) return;
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initStoreReviewsHome, { once: true });
+      return;
+    }
 
     var url = API_BASE + "/api/reviews/store-highlights?key=" + encodeURIComponent(API_KEY) + "&limit=12";
     fetchWithTimeout(fetchJSON(url), 5000).then(function (data) {
