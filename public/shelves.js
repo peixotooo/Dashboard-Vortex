@@ -3987,6 +3987,12 @@
     catch (e) { return String(n || 0); }
   }
 
+  function srvScore(summary) {
+    var raw = summary && Number(summary.positive_rating_average);
+    var score = raw && isFinite(raw) ? raw : 4.7;
+    return Math.max(4.7, Math.min(score, 5)).toFixed(1);
+  }
+
   function srvInjectStyles() {
     if (document.getElementById("vtx-store-rv-styles")) return;
     var st = document.createElement("style");
@@ -4111,6 +4117,8 @@
 
       srvInjectStyles();
       var positiveCount = data.summary && data.summary.total_positive ? data.summary.total_positive : data.reviews.length;
+      var positiveScore = srvScore(data.summary);
+      var positiveRating = Number(positiveScore) || 4.7;
       anchor.el.innerHTML =
         '<section id="vtx-store-reviews-home" aria-label="Avaliações positivas da loja">' +
           '<div class="vtx-srv-head">' +
@@ -4119,7 +4127,7 @@
               '<h2 class="vtx-srv-title">Quem comprou, aprovou</h2>' +
             "</div>" +
             '<div class="vtx-srv-summary">' +
-              '<div class="vtx-srv-score">4+ <span class="vtx-srv-stars">' + rvStars(4, color, 16) + "</span></div>" +
+              '<div class="vtx-srv-score">' + positiveScore + '+ <span class="vtx-srv-stars">' + rvStars(positiveRating, color, 16) + "</span></div>" +
               '<p class="vtx-srv-count">' + srvCount(positiveCount) + " avaliações positivas</p>" +
             "</div>" +
           "</div>" +

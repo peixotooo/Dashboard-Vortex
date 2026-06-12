@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const fetchLimit = Math.min(limit * 6, 80);
 
-  const [totalPublished, totalPositive, reviewsResult] = await Promise.all([
+  const [totalPublished, totalPositive, totalFiveStar, reviewsResult] = await Promise.all([
     admin
       .from("store_reviews")
       .select("*", { count: "exact", head: true })
@@ -84,6 +84,12 @@ export async function GET(request: NextRequest) {
       .eq("workspace_id", auth.workspaceId)
       .eq("status", "published")
       .gte("rating", 4),
+    admin
+      .from("store_reviews")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", auth.workspaceId)
+      .eq("status", "published")
+      .eq("rating", 5),
     admin
       .from("store_reviews")
       .select("rating, comment, author_name, created_at")
@@ -101,9 +107,18 @@ export async function GET(request: NextRequest) {
   if (totalPositive.error) {
     return NextResponse.json({ error: totalPositive.error.message }, { status: 500, headers: CORS_HEADERS });
   }
+  if (totalFiveStar.error) {
+    return NextResponse.json({ error: totalFiveStar.error.message }, { status: 500, headers: CORS_HEADERS });
+  }
   if (reviewsResult.error) {
     return NextResponse.json({ error: reviewsResult.error.message }, { status: 500, headers: CORS_HEADERS });
   }
+
+  const positiveCount = totalPositive.count ?? 0;
+  const fiveStarCount = totalFiveStar.count ?? 0;
+  const positiveRatingAverage = positiveCount > 0
+    ? Number((((fiveStarCount * 5) + ((positiveCount - fiveStarCount) * 4)) / positiveCount).toFixed(1))
+    : 4.7;
 
   const reviews = ((reviewsResult.data || []) as StoreReviewHighlightRow[])
     .map((review) => ({
@@ -120,7 +135,8 @@ export async function GET(request: NextRequest) {
       enabled: reviews.length > 0,
       summary: {
         total_published: totalPublished.count ?? 0,
-        total_positive: totalPositive.count ?? 0,
+        total_positive: positiveCount,
+        positive_rating_average: Math.max(4.7, Math.min(positiveRatingAverage, 5)),
         min_rating: 4,
       },
       reviews,
