@@ -3978,6 +3978,167 @@
     document.body.appendChild(box);
   }
 
+  // ============================================================
+  // --- Home: carrossel leve de avaliações 5 estrelas da loja ---
+  // ============================================================
+
+  function srvCount(n) {
+    try { return Number(n || 0).toLocaleString("pt-BR"); }
+    catch (e) { return String(n || 0); }
+  }
+
+  function srvInjectStyles() {
+    if (document.getElementById("vtx-store-rv-styles")) return;
+    var st = document.createElement("style");
+    st.id = "vtx-store-rv-styles";
+    st.textContent =
+      "#vtx-store-reviews-home{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a;max-width:1200px;margin:54px auto;padding:0 16px;box-sizing:border-box}" +
+      "#vtx-store-reviews-home *{box-sizing:border-box}" +
+      ".vtx-srv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}" +
+      ".vtx-srv-kicker{margin:0 0 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#737373}" +
+      ".vtx-srv-title{margin:0;font-size:28px;line-height:1.12;font-weight:900;text-transform:uppercase;color:#0a0a0a}" +
+      ".vtx-srv-summary{text-align:right;min-width:168px}" +
+      ".vtx-srv-score{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:22px;font-weight:900;line-height:1}" +
+      ".vtx-srv-stars{display:inline-flex;gap:1px}" +
+      ".vtx-srv-count{margin:6px 0 0;font-size:13px;color:#737373;font-weight:600}" +
+      ".vtx-srv-shell{position:relative}" +
+      ".vtx-srv-track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 1px 12px}" +
+      ".vtx-srv-track::-webkit-scrollbar{display:none}" +
+      ".vtx-srv-card{scroll-snap-align:start;flex:0 0 310px;min-height:205px;border:1px solid #e8e8e8;background:#fff;border-radius:8px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 5px rgba(0,0,0,.04)}" +
+      ".vtx-srv-card-stars{display:flex;gap:1px;margin-bottom:12px}" +
+      ".vtx-srv-quote{margin:0;color:#1f2937;font-size:15px;line-height:1.5}" +
+      ".vtx-srv-author{margin-top:18px;display:flex;justify-content:space-between;gap:12px;align-items:center;color:#737373;font-size:13px;font-weight:700}" +
+      ".vtx-srv-date{font-weight:600;color:#a3a3a3;white-space:nowrap}" +
+      ".vtx-srv-nav{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}" +
+      ".vtx-srv-btn{width:36px;height:36px;border:1px solid #d7d7d7;background:#fff;color:#111;border-radius:50%;font-size:21px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.06)}" +
+      ".vtx-srv-btn:hover{background:#111;color:#fff;border-color:#111}" +
+      "@media(max-width:760px){" +
+        "#vtx-store-reviews-home{margin:38px auto;padding:0 14px}" +
+        ".vtx-srv-head{align-items:flex-start;flex-direction:column;margin-bottom:14px}" +
+        ".vtx-srv-title{font-size:22px}" +
+        ".vtx-srv-summary{text-align:left;min-width:0}" +
+        ".vtx-srv-score{justify-content:flex-start}" +
+        ".vtx-srv-card{flex-basis:82vw;min-height:210px;padding:18px}" +
+      "}";
+    document.head.appendChild(st);
+  }
+
+  function srvFindHomeAnchor() {
+    var explicit = document.querySelector("[data-vtx-store-reviews-home], #vtx-store-reviews-home-anchor");
+    if (explicit) return { el: explicit, auto: false };
+
+    var host = document.createElement("div");
+    host.id = "vtx-store-reviews-home-anchor";
+    host.setAttribute("data-vtx-auto-store-reviews", "true");
+
+    var shelves = document.querySelectorAll(".vtx-shelf-container, .vtx-shelf");
+    if (shelves.length) {
+      var last = shelves[shelves.length - 1];
+      if (last && last.parentNode) {
+        last.parentNode.insertBefore(host, last.nextSibling);
+        return { el: host, auto: true };
+      }
+    }
+
+    var foot = document.querySelector("footer, .footer");
+    if (foot && foot.parentNode) foot.parentNode.insertBefore(host, foot);
+    else (document.querySelector("main") || document.body).appendChild(host);
+    return { el: host, auto: true };
+  }
+
+  function srvEnsureAfterShelves(mount) {
+    function reorder() {
+      if (!mount || !mount.parentNode) return;
+      var shelves = document.querySelectorAll(".vtx-shelf-container, .vtx-shelf");
+      if (!shelves.length) return;
+      var last = shelves[shelves.length - 1];
+      if (!last || !last.parentNode || last === mount) return;
+      try {
+        if (last.nextSibling !== mount) last.parentNode.insertBefore(mount, last.nextSibling);
+      } catch (e) { /* noop */ }
+    }
+    setTimeout(reorder, 900);
+    setTimeout(reorder, 2400);
+    setTimeout(reorder, 5200);
+  }
+
+  function srvCard(review, color) {
+    return (
+      '<article class="vtx-srv-card">' +
+        '<div>' +
+          '<div class="vtx-srv-card-stars">' + rvStars(5, color, 14) + "</div>" +
+          '<p class="vtx-srv-quote">“' + escapeHtml(review.body) + '”</p>' +
+        "</div>" +
+        '<div class="vtx-srv-author">' +
+          '<span>' + escapeHtml(review.author || "Cliente") + "</span>" +
+          '<span class="vtx-srv-date">' + escapeHtml(rvDate(review.date)) + "</span>" +
+        "</div>" +
+      "</article>"
+    );
+  }
+
+  function initStoreReviewsHome() {
+    if (!API_KEY || !API_BASE) return;
+    if (detectPageType() !== "home") return;
+    if (document.getElementById("vtx-store-reviews-home")) return;
+
+    var url = API_BASE + "/api/reviews/store-highlights?key=" + encodeURIComponent(API_KEY) + "&limit=12";
+    fetchWithTimeout(fetchJSON(url), 5000).then(function (data) {
+      if (!data || data.enabled === false || !data.reviews || !data.reviews.length) return;
+
+      var color = (data.settings && (data.settings.star_color || data.settings.accent_color)) || "#e6b800";
+      var anchor = srvFindHomeAnchor();
+      if (!anchor || !anchor.el) return;
+
+      srvInjectStyles();
+      var fiveStarCount = data.summary && data.summary.total_5_star ? data.summary.total_5_star : data.reviews.length;
+      anchor.el.innerHTML =
+        '<section id="vtx-store-reviews-home" aria-label="Avaliações 5 estrelas da loja">' +
+          '<div class="vtx-srv-head">' +
+            '<div>' +
+              '<p class="vtx-srv-kicker">Avaliações da loja</p>' +
+              '<h2 class="vtx-srv-title">Quem comprou, aprovou</h2>' +
+            "</div>" +
+            '<div class="vtx-srv-summary">' +
+              '<div class="vtx-srv-score">5.0 <span class="vtx-srv-stars">' + rvStars(5, color, 16) + "</span></div>" +
+              '<p class="vtx-srv-count">' + srvCount(fiveStarCount) + " avaliações 5 estrelas</p>" +
+            "</div>" +
+          "</div>" +
+          '<div class="vtx-srv-shell">' +
+            '<div class="vtx-srv-track">' + data.reviews.map(function (r) { return srvCard(r, color); }).join("") + "</div>" +
+            '<div class="vtx-srv-nav">' +
+              '<button class="vtx-srv-btn" type="button" data-vtx-srv-prev aria-label="Avaliação anterior">‹</button>' +
+              '<button class="vtx-srv-btn" type="button" data-vtx-srv-next aria-label="Próxima avaliação">›</button>' +
+            "</div>" +
+          "</div>" +
+        "</section>";
+
+      if (anchor.auto) srvEnsureAfterShelves(anchor.el);
+
+      var track = anchor.el.querySelector(".vtx-srv-track");
+      var prev = anchor.el.querySelector("[data-vtx-srv-prev]");
+      var next = anchor.el.querySelector("[data-vtx-srv-next]");
+      function move(dir) {
+        if (!track) return;
+        var card = track.querySelector(".vtx-srv-card");
+        var amount = card ? card.offsetWidth + 14 : 324;
+        try { track.scrollBy({ left: dir * amount, behavior: "smooth" }); }
+        catch (e) { track.scrollLeft += dir * amount; }
+      }
+      if (prev) prev.addEventListener("click", function () { move(-1); });
+      if (next) next.addEventListener("click", function () { move(1); });
+    }).catch(function (err) {
+      console.warn("[Store Reviews] erro:", err);
+    });
+  }
+
+  function scheduleStoreReviewsHome() {
+    if (detectPageType() !== "home") return;
+    var run = function () { initStoreReviewsHome(); };
+    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 1800 });
+    else setTimeout(run, 1000);
+  }
+
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
@@ -3988,6 +4149,7 @@
       initTopbar();
       initGiftRequest();
       initReviews();
+      scheduleStoreReviewsHome();
     });
   } else {
     init();
@@ -3997,5 +4159,6 @@
     initTopbar();
     initGiftRequest();
     initReviews();
+    scheduleStoreReviewsHome();
   }
 })();
