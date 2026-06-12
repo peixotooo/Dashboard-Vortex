@@ -577,3 +577,54 @@ export async function setCampaignDailyBudget(
   );
   return result?.results?.[0]?.resourceName || "";
 }
+
+// --- Conversion goals (what the account optimizes/bids toward) ---
+
+export interface ConversionGoal {
+  resourceName: string;
+  category: string; // PURCHASE, CONTACT, ADD_TO_CART, ...
+  origin: string; // WEBSITE, APP, ...
+  biddable: boolean; // true = counted in "Conversions" and used for bidding/optimization
+}
+
+/** List the account-default conversion goals (category/origin → biddable). */
+export async function listConversionGoals(customerId?: string): Promise<ConversionGoal[]> {
+  const rows = await executeGaql<{
+    customerConversionGoal?: { resourceName?: string; category?: string; origin?: string; biddable?: boolean };
+  }>(
+    "SELECT customer_conversion_goal.resource_name, customer_conversion_goal.category, " +
+      "customer_conversion_goal.origin, customer_conversion_goal.biddable FROM customer_conversion_goal",
+    customerId
+  );
+  return rows
+    .map((r) => r.customerConversionGoal)
+    .filter((g): g is NonNullable<typeof g> => !!g?.resourceName)
+    .map((g) => ({
+      resourceName: g.resourceName as string,
+      category: g.category || "",
+      origin: g.origin || "",
+      biddable: !!g.biddable,
+    }));
+}
+
+/**
+ * Set whether an account-default conversion goal is biddable (used for
+ * optimization/bidding). Takes the exact resourceName from listConversionGoals.
+ */
+export async function setConversionGoalBiddable(
+  resourceName: string,
+  biddable: boolean,
+  customerId?: string
+): Promise<string> {
+  const result = await mutateGoogleAds(
+    "customerConversionGoals",
+    [
+      {
+        updateMask: "biddable", // single word — case-insensitive either way
+        update: { resourceName, biddable },
+      },
+    ],
+    customerId
+  );
+  return result?.results?.[0]?.resourceName || "";
+}

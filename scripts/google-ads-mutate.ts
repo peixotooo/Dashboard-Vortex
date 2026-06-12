@@ -22,6 +22,8 @@ import {
   setCampaignStatus,
   getCampaignBudgetInfo,
   setCampaignDailyBudget,
+  listConversionGoals,
+  setConversionGoalBiddable,
   type CampaignStatus,
 } from "../src/lib/google-ads-api";
 
@@ -127,6 +129,49 @@ async function cmdBudget() {
   console.log(`\n✅ Feito: orcamento de "${info.campaignName}" agora e ${brl(amount)}/dia.\n`);
 }
 
+async function cmdGoals() {
+  const goals = await listConversionGoals();
+  console.log("\n=== Metas de conversao da conta (biddable = otimiza/lances) ===\n");
+  for (const g of goals.sort((a, b) => Number(b.biddable) - Number(a.biddable))) {
+    console.log(`   ${g.biddable ? "✅ ON " : "   off"}  ${g.category}~${g.origin}`);
+  }
+  console.log("\n  Mudar:  goal <CATEGORIA> <on|off>   (ex.: goal CONTACT off)   (+ --yes)\n");
+}
+
+async function cmdGoal() {
+  const cat = (pos[1] || "").toUpperCase();
+  const onoff = (pos[2] || "").toLowerCase();
+  if (!cat) bail("Informe a categoria. Ex.: npx tsx scripts/google-ads-mutate.ts goal CONTACT off");
+  if (onoff !== "on" && onoff !== "off") bail("Informe on|off. Ex.: goal CONTACT off");
+  const biddable = onoff === "on";
+
+  const goals = await listConversionGoals();
+  const matches = goals.filter((g) => g.category === cat);
+  if (!matches.length) bail(`Categoria "${cat}" nao encontrada. Rode 'goals' para ver as disponiveis.`);
+
+  console.log(`\n▶ META "${cat}" → biddable=${biddable ? "ON (otimiza)" : "OFF (nao otimiza)"}`);
+  for (const g of matches) {
+    const from = g.biddable ? "ON" : "off";
+    const to = biddable ? "ON" : "off";
+    console.log(`   ${g.category}~${g.origin}:  ${from} → ${to}${from === to ? "  (sem mudanca)" : ""}`);
+  }
+  // Safety: don't let the user disable the LAST biddable purchase goal by accident.
+  if (!biddable && cat === "PURCHASE") {
+    console.log("   ⚠️  Desligar PURCHASE remove a venda como meta de otimizacao — tem certeza?");
+  }
+  if (biddable && cat !== "PURCHASE") {
+    const purchaseOn = goals.some((g) => g.category === "PURCHASE" && g.biddable);
+    if (!purchaseOn) console.log("   ⚠️  PURCHASE nao esta biddable — considere ativar a venda como meta.");
+  }
+
+  if (!YES) {
+    console.log(DRY_NOTE);
+    return;
+  }
+  for (const g of matches) await setConversionGoalBiddable(g.resourceName, biddable);
+  console.log(`\n✅ Feito: meta ${cat} agora biddable=${biddable ? "ON" : "OFF"}.\n`);
+}
+
 async function main() {
   switch (cmd) {
     case "list":
@@ -137,8 +182,15 @@ async function main() {
       return cmdStatus("enable");
     case "budget":
       return cmdBudget();
+    case "goals":
+      return cmdGoals();
+    case "goal":
+      return cmdGoal();
     default:
-      bail("Comando desconhecido.\nUse: list | pause <id> | enable <id> | budget <id> <orcamentoDiario>   (+ --yes para executar)");
+      bail(
+        "Comando desconhecido.\nUse: list | pause <id> | enable <id> | budget <id> <orcamentoDiario> | " +
+          "goals | goal <CATEGORIA> <on|off>   (+ --yes para executar)"
+      );
   }
 }
 
