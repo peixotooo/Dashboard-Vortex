@@ -3992,33 +3992,33 @@
     var st = document.createElement("style");
     st.id = "vtx-store-rv-styles";
     st.textContent =
-      "#vtx-store-reviews-home{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a;max-width:1200px;margin:54px auto;padding:0 16px;box-sizing:border-box}" +
+      "#vtx-store-reviews-home{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a;max-width:1180px;margin:38px auto 46px;padding:0 16px;box-sizing:border-box}" +
       "#vtx-store-reviews-home *{box-sizing:border-box}" +
-      ".vtx-srv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:18px}" +
-      ".vtx-srv-kicker{margin:0 0 6px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#737373}" +
-      ".vtx-srv-title{margin:0;font-size:28px;line-height:1.12;font-weight:900;text-transform:uppercase;color:#0a0a0a}" +
-      ".vtx-srv-summary{text-align:right;min-width:168px}" +
-      ".vtx-srv-score{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:22px;font-weight:900;line-height:1}" +
+      ".vtx-srv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:12px}" +
+      ".vtx-srv-kicker{margin:0 0 4px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#858585}" +
+      ".vtx-srv-title{margin:0;font-size:22px;line-height:1.12;font-weight:900;text-transform:uppercase;color:#0a0a0a}" +
+      ".vtx-srv-summary{text-align:right;min-width:150px}" +
+      ".vtx-srv-score{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-size:18px;font-weight:900;line-height:1}" +
       ".vtx-srv-stars{display:inline-flex;gap:1px}" +
-      ".vtx-srv-count{margin:6px 0 0;font-size:13px;color:#737373;font-weight:600}" +
+      ".vtx-srv-count{margin:5px 0 0;font-size:12px;color:#858585;font-weight:600}" +
       ".vtx-srv-shell{position:relative}" +
-      ".vtx-srv-track{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 1px 12px}" +
+      ".vtx-srv-track{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:1px 1px 8px}" +
       ".vtx-srv-track::-webkit-scrollbar{display:none}" +
-      ".vtx-srv-card{scroll-snap-align:start;flex:0 0 310px;min-height:205px;border:1px solid #e8e8e8;background:#fff;border-radius:8px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 1px 5px rgba(0,0,0,.04)}" +
-      ".vtx-srv-card-stars{display:flex;gap:1px;margin-bottom:12px}" +
-      ".vtx-srv-quote{margin:0;color:#1f2937;font-size:15px;line-height:1.5}" +
-      ".vtx-srv-author{margin-top:18px;display:flex;justify-content:space-between;gap:12px;align-items:center;color:#737373;font-size:13px;font-weight:700}" +
+      ".vtx-srv-card{scroll-snap-align:start;flex:0 0 285px;min-height:150px;border:1px solid #ededed;background:#fff;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:none}" +
+      ".vtx-srv-card-stars{display:flex;gap:1px;margin-bottom:8px}" +
+      ".vtx-srv-quote{margin:0;color:#2f3337;font-size:13.5px;line-height:1.38;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}" +
+      ".vtx-srv-author{margin-top:12px;display:flex;justify-content:space-between;gap:10px;align-items:center;color:#737373;font-size:12px;font-weight:700}" +
       ".vtx-srv-date{font-weight:600;color:#a3a3a3;white-space:nowrap}" +
-      ".vtx-srv-nav{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}" +
-      ".vtx-srv-btn{width:36px;height:36px;border:1px solid #d7d7d7;background:#fff;color:#111;border-radius:50%;font-size:21px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.06)}" +
+      ".vtx-srv-nav{display:flex;gap:7px;justify-content:flex-end;margin-top:4px}" +
+      ".vtx-srv-btn{width:30px;height:30px;border:1px solid #dedede;background:#fff;color:#111;border-radius:50%;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:none}" +
       ".vtx-srv-btn:hover{background:#111;color:#fff;border-color:#111}" +
       "@media(max-width:760px){" +
-        "#vtx-store-reviews-home{margin:38px auto;padding:0 14px}" +
-        ".vtx-srv-head{align-items:flex-start;flex-direction:column;margin-bottom:14px}" +
-        ".vtx-srv-title{font-size:22px}" +
+        "#vtx-store-reviews-home{margin:30px auto 38px;padding:0 14px}" +
+        ".vtx-srv-head{align-items:flex-start;flex-direction:column;gap:8px;margin-bottom:12px}" +
+        ".vtx-srv-title{font-size:19px}" +
         ".vtx-srv-summary{text-align:left;min-width:0}" +
         ".vtx-srv-score{justify-content:flex-start}" +
-        ".vtx-srv-card{flex-basis:82vw;min-height:210px;padding:18px}" +
+        ".vtx-srv-card{flex-basis:78vw;min-height:146px;padding:14px 15px}" +
       "}";
     document.head.appendChild(st);
   }
@@ -4136,15 +4136,52 @@
       var track = anchor.el.querySelector(".vtx-srv-track");
       var prev = anchor.el.querySelector("[data-vtx-srv-prev]");
       var next = anchor.el.querySelector("[data-vtx-srv-next]");
-      function move(dir) {
+      var autoplayTimer = null;
+      var autoplayPaused = false;
+      function move(dir, loop) {
         if (!track) return;
         var card = track.querySelector(".vtx-srv-card");
-        var amount = card ? card.offsetWidth + 14 : 324;
-        try { track.scrollBy({ left: dir * amount, behavior: "smooth" }); }
-        catch (e) { track.scrollLeft += dir * amount; }
+        var amount = card ? card.offsetWidth + 12 : 297;
+        var maxLeft = Math.max(0, track.scrollWidth - track.clientWidth - 4);
+        var target = track.scrollLeft + (dir * amount);
+        if (loop && dir > 0 && target >= maxLeft) target = 0;
+        if (loop && dir < 0 && target <= 0) target = maxLeft;
+        try { track.scrollTo({ left: target, behavior: "smooth" }); }
+        catch (e) { track.scrollLeft = target; }
       }
-      if (prev) prev.addEventListener("click", function () { move(-1); });
-      if (next) next.addEventListener("click", function () { move(1); });
+      function stopAutoplay() {
+        if (!autoplayTimer) return;
+        clearInterval(autoplayTimer);
+        autoplayTimer = null;
+      }
+      function startAutoplay() {
+        if (!track || data.reviews.length < 2 || track.scrollWidth <= track.clientWidth + 12) return;
+        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        stopAutoplay();
+        autoplayTimer = setInterval(function () {
+          if (!autoplayPaused) move(1, true);
+        }, 4200);
+      }
+      function pauseAutoplay() { autoplayPaused = true; }
+      function resumeAutoplay() { autoplayPaused = false; }
+
+      if (prev) prev.addEventListener("click", function () { pauseAutoplay(); move(-1, true); setTimeout(resumeAutoplay, 5000); });
+      if (next) next.addEventListener("click", function () { pauseAutoplay(); move(1, true); setTimeout(resumeAutoplay, 5000); });
+      if (track) {
+        track.addEventListener("mouseenter", pauseAutoplay);
+        track.addEventListener("mouseleave", resumeAutoplay);
+        track.addEventListener("focusin", pauseAutoplay);
+        track.addEventListener("focusout", resumeAutoplay);
+        track.addEventListener("pointerdown", pauseAutoplay);
+        track.addEventListener("pointerup", function () { setTimeout(resumeAutoplay, 3500); });
+        track.addEventListener("touchstart", pauseAutoplay, { passive: true });
+        track.addEventListener("touchend", function () { setTimeout(resumeAutoplay, 3500); }, { passive: true });
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) pauseAutoplay();
+          else resumeAutoplay();
+        });
+        setTimeout(startAutoplay, 900);
+      }
     }).catch(function (err) {
       console.warn("[Store Reviews] erro:", err);
     });
