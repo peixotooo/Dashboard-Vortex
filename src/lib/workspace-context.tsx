@@ -9,6 +9,7 @@ interface Workspace {
   slug: string;
   owner_id: string;
   created_at: string;
+  custom_domain?: string | null;
 }
 
 interface WorkspaceMember {
@@ -30,6 +31,7 @@ interface WorkspaceContextType {
   userFeatures: string[] | null;
   canAccess: (featureId: string) => boolean;
   loading: boolean;
+  error: string | null;
   isDomainLocked: boolean;
   setWorkspaceId: (id: string) => void;
   refreshWorkspaces: () => Promise<void>;
@@ -44,6 +46,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   userFeatures: null,
   canAccess: () => true,
   loading: true,
+  error: null,
   isDomainLocked: false,
   setWorkspaceId: () => {},
   refreshWorkspaces: async () => {},
@@ -66,18 +69,25 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isDomainLocked, setIsDomainLocked] = useState(false);
   const workspaceIdRef = useRef("");
+  const workspacesRef = useRef<Workspace[]>([]);
 
   useEffect(() => {
     workspaceIdRef.current = workspaceId;
   }, [workspaceId]);
+
+  useEffect(() => {
+    workspacesRef.current = workspaces;
+  }, [workspaces]);
 
   const fetchWorkspaces = useCallback(async () => {
     if (!user || !isConfigured) {
       setWorkspaces([]);
       setWorkspaceId("");
       setMembers([]);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -91,14 +101,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
 
       const ws = (data.workspaces || []) as Workspace[];
+      const domainWorkspaceId = typeof data.domainWorkspaceId === "string" ? data.domainWorkspaceId : null;
       setWorkspaces(ws);
+      setError(null);
 
-      // Auto-select workspace: domain cookie > localStorage > first
+      // Auto-select workspace: resolved domain > domain cookie > current > localStorage > first
       if (ws.length > 0) {
         const currentId = workspaceIdRef.current;
         const domainWs = getCookie("vortex_domain_workspace");
-        if (domainWs && ws.find((w) => w.id === domainWs)) {
-          setWorkspaceId(domainWs);
+        const domainResolved = domainWorkspaceId && ws.find((w) => w.id === domainWorkspaceId)
+          ? domainWorkspaceId
+          : domainWs && ws.find((w) => w.id === domainWs)
+            ? domainWs
+            : null;
+
+        if (domainResolved) {
+          setWorkspaceId(domainResolved);
+          localStorage.setItem("vortex_workspace_id", domainResolved);
           setIsDomainLocked(true);
         } else if (currentId && ws.find((w) => w.id === currentId)) {
           setIsDomainLocked(false);
@@ -115,10 +134,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error("Workspace fetch exception:", err);
-      setWorkspaces([]);
-      setWorkspaceId("");
-      setMembers([]);
-      setIsDomainLocked(false);
+      setError(err instanceof Error ? err.message : "Falha ao carregar workspaces");
+      if (workspacesRef.current.length === 0 || !workspaceIdRef.current) {
+        setWorkspaces([]);
+        setWorkspaceId("");
+        setMembers([]);
+        setIsDomainLocked(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -178,6 +200,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         userFeatures,
         canAccess,
         loading,
+        error,
         isDomainLocked,
         setWorkspaceId,
         refreshWorkspaces: fetchWorkspaces,

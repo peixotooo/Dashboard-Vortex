@@ -731,11 +731,9 @@ export async function runVndaCrmImport(
 
   let snapshotInvalidated = false;
   if (!dryRun && upserted > 0) {
-    const { error } = await admin
-      .from("crm_rfm_snapshots")
-      .delete()
-      .eq("workspace_id", options.workspaceId);
-    if (error) throw new Error(`snapshot invalidation failed: ${error.message}`);
+    // Keep the last good snapshot available. The large Bulking recompute can
+    // hit transient Supabase 522/timeouts; deleting first makes the CRM render
+    // as zero until the recompute succeeds.
     snapshotInvalidated = true;
   }
 

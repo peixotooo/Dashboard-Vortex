@@ -150,11 +150,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Invalidate snapshot so CRM shows fresh data on next load
-    await admin
-      .from("crm_rfm_snapshots")
-      .delete()
-      .eq("workspace_id", workspaceId);
+    // Keep the last good CRM snapshot available. The scheduled/manual
+    // recompute will refresh it; deleting here can make the dashboard render
+    // as an empty CRM if Supabase has a transient timeout during recompute.
 
     // Cart recovery: fechar carts abertos do mesmo cliente — cliente
     // comprou, régua tem que parar. Match por email OU telefone

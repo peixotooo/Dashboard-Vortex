@@ -12,13 +12,22 @@ import {
 import { useWorkspace } from "@/lib/workspace-context";
 
 export function WorkspaceSelector() {
-  const { workspace, workspaces, setWorkspaceId, loading } = useWorkspace();
+  const { workspace, workspaces, setWorkspaceId, loading, error } = useWorkspace();
 
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Building2 className="h-4 w-4" />
-        <span>Carregando...</span>
+        <span>{workspace?.name || "Carregando..."}</span>
+      </div>
+    );
+  }
+
+  if (error && !workspace) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-destructive" title={error}>
+        <Building2 className="h-4 w-4" />
+        <span>Falha no workspace</span>
       </div>
     );
   }

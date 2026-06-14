@@ -7,6 +7,7 @@ export function createAdminClient(): SupabaseClient {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const fetchTimeoutMs = Number(process.env.SUPABASE_FETCH_TIMEOUT_MS || 30000);
 
   if (!url || !serviceKey) {
     throw new Error(
@@ -22,7 +23,7 @@ export function createAdminClient(): SupabaseClient {
     global: {
       fetch: (input, init) => {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
+        const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
         return fetch(input, { ...init, signal: controller.signal }).finally(() =>
           clearTimeout(timeout)
         );

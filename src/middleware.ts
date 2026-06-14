@@ -92,7 +92,7 @@ export async function middleware(request: NextRequest) {
         .limit(1)
         .single();
         
-      const workspaceResponse = await withTimeout(workspaceQuery, 600);
+      const workspaceResponse = await withTimeout(workspaceQuery, 2000);
 
       const ws = (workspaceResponse as any)?.data;
 

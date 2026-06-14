@@ -24,6 +24,7 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip as UITooltip,
@@ -594,9 +595,10 @@ function NumericRangeFilterPopover({
 // --- Page ---
 
 export default function CrmPage() {
-  const { workspace } = useWorkspace();
+  const { workspace, loading: workspaceLoading } = useWorkspace();
   const chart = useChartTheme();
   const [loading, setLoading] = useState(true);
+  const [crmError, setCrmError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   // "Inverter": quando true, mostra a base EXCETO o que os filtros pegam.
@@ -879,28 +881,40 @@ export default function CrmPage() {
 
   // Stage 1: summary only (mount) — ~5KB instead of 10-35MB
   const fetchSummary = useCallback(async () => {
+    if (!workspace?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar resumo do CRM.");
 
       // If snapshot is missing but data exists, auto-trigger compute and poll
       if (data.pending) {
         setComputing(true);
-        const compRes = await fetch("/api/crm/compute", {
-          method: "POST",
-          headers: wsHeaders(),
-        });
-        if (compRes.ok) {
+        try {
+          const compRes = await fetch("/api/crm/compute", {
+            method: "POST",
+            headers: wsHeaders(),
+          });
+          if (!compRes.ok) {
+            const compData = await compRes.json().catch(() => ({}));
+            throw new Error(compData.error || data.message || "Snapshot CRM em processamento.");
+          }
           // Snapshot ready — re-fetch summary
           const res2 = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
           const data2 = await res2.json();
+          if (!res2.ok) throw new Error(data2.message || data2.error || "Falha ao recarregar resumo do CRM.");
           setSnapshotSegments(data2.segments || []);
           setSnapshotSummary(data2.summary || emptySummary);
           setSnapshotDistributions(data2.distributions || emptyDistributions);
           setSnapshotBehavioral(data2.behavioralDistributions || emptyBehavioral);
+          setCrmError(null);
+        } finally {
+          setComputing(false);
         }
-        setComputing(false);
         return;
       }
 
@@ -908,12 +922,13 @@ export default function CrmPage() {
       setSnapshotSummary(data.summary || emptySummary);
       setSnapshotDistributions(data.distributions || emptyDistributions);
       setSnapshotBehavioral(data.behavioralDistributions || emptyBehavioral);
-    } catch {
-      // Keep empty state
+      setCrmError(null);
+    } catch (error) {
+      setCrmError(error instanceof Error ? error.message : "Falha ao carregar dados do CRM.");
     } finally {
       setLoading(false);
     }
-  }, [wsHeaders]);
+  }, [workspace?.id, wsHeaders]);
 
   // Stage 2: full customers (lazy, on Clientes tab)
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -925,6 +940,7 @@ export default function CrmPage() {
   const [customerTableError, setCustomerTableError] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async () => {
+    if (!workspace?.id) return;
     if (customersLoaded) return;
     setCustomersLoading(true);
     let customersTaskLoaded = false;
@@ -964,12 +980,13 @@ export default function CrmPage() {
     } finally {
       setCustomersLoading(false);
     }
-  }, [wsHeaders, customersLoaded]);
+  }, [workspace?.id, wsHeaders, customersLoaded]);
 
   // Same as fetchCustomers, but returns the list — used by the action bar
   // buttons that fire from the Métricas tab BEFORE the Clientes tab triggers
   // the lazy load.
   const ensureCustomersLoaded = useCallback(async (): Promise<RfmCustomer[]> => {
+    if (!workspace?.id) return [];
     if (customersLoaded) return customers;
     setCustomersLoading(true);
     try {
@@ -986,9 +1003,10 @@ export default function CrmPage() {
     } finally {
       setCustomersLoading(false);
     }
-  }, [wsHeaders, customersLoaded, customers]);
+  }, [workspace?.id, wsHeaders, customersLoaded, customers]);
 
   const fetchExportLogs = useCallback(async () => {
+    if (!workspace?.id) return;
     try {
       const res = await fetch("/api/crm/export-logs", { headers: wsHeaders() });
       if (res.ok) {
@@ -998,7 +1016,7 @@ export default function CrmPage() {
     } catch {
       // Silent — non-critical
     }
-  }, [wsHeaders]);
+  }, [workspace?.id, wsHeaders]);
 
   // Agent panel → apply suggested filters
   const handleAgentApplyFilters = useCallback((filters: CrmFilters) => {
@@ -1048,6 +1066,7 @@ export default function CrmPage() {
   // Fire-and-forget export log
   const logExport = useCallback(
     (exportType: string, filters: Record<string, string>, recordCount: number) => {
+      if (!workspace?.id) return;
       fetch("/api/crm/export-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...wsHeaders() },
@@ -1056,10 +1075,14 @@ export default function CrmPage() {
         .then(() => fetchExportLogs())
         .catch(() => {});
     },
-    [wsHeaders, fetchExportLogs]
+    [workspace?.id, wsHeaders, fetchExportLogs]
   );
 
   const fetchMetrics = useCallback(async (opts?: { bypassCache?: boolean }) => {
+    if (!workspace?.id) {
+      setMetricsLoading(false);
+      return;
+    }
     setMetricsLoading(true);
     try {
       const fetchInit: RequestInit = opts?.bypassCache
@@ -1071,6 +1094,8 @@ export default function CrmPage() {
       ]);
       const cohort = await cohortRes.json();
       const fin = await finRes.json();
+      if (!cohortRes.ok) throw new Error(cohort.message || cohort.error || "Falha ao carregar métricas do CRM.");
+      if (!finRes.ok) throw new Error(fin.error || "Falha ao carregar configurações financeiras.");
 
       setMetricsData(cohort.metrics || null);
       setMonthlyData(cohort.monthlyData || []);
@@ -1083,15 +1108,17 @@ export default function CrmPage() {
         other_expenses_pct: fin.other_expenses_pct ?? 5,
         invest_pct: fin.invest_pct ?? 12,
       });
-    } catch {
-      // Keep empty
+      setCrmError(null);
+    } catch (error) {
+      setCrmError(error instanceof Error ? error.message : "Falha ao carregar métricas do CRM.");
     } finally {
       setMetricsLoading(false);
     }
-  }, [wsHeaders, metricsPeriod]);
+  }, [workspace?.id, wsHeaders, metricsPeriod]);
 
   // Recompute RFM snapshot
   const handleRecompute = useCallback(async () => {
+    if (!workspace?.id) return;
     setComputing(true);
     try {
       const res = await fetch("/api/crm/compute", {
@@ -1113,10 +1140,11 @@ export default function CrmPage() {
     } finally {
       setComputing(false);
     }
-  }, [wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
+  }, [workspace?.id, wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
 
   // Sync orders from VNDA API (backfill)
   const handleVndaSync = useCallback(async () => {
+    if (!workspace?.id) return;
     setSyncing(true);
     setSyncResult(null);
     try {
@@ -1144,14 +1172,21 @@ export default function CrmPage() {
     } finally {
       setSyncing(false);
     }
-  }, [wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
+  }, [workspace?.id, wsHeaders, fetchSummary, fetchMetrics, fetchExportLogs]);
 
   // Stage 1: mount — summary + metrics (light payloads)
   useEffect(() => {
+    if (workspaceLoading) return;
+    if (!workspace?.id) {
+      setLoading(false);
+      setMetricsLoading(false);
+      setCrmError("Workspace ainda nao foi carregado. Recarregue a pagina em alguns segundos.");
+      return;
+    }
     fetchSummary();
     fetchMetrics();
     fetchExportLogs();
-  }, [fetchSummary, fetchMetrics, fetchExportLogs]);
+  }, [workspace?.id, workspaceLoading, fetchSummary, fetchMetrics, fetchExportLogs]);
 
   // Stage 2: lazy-load customers + state lookup quando Clientes ou Estados
   // for ativado — Estados tab também precisa de customers/customerStates
@@ -1374,6 +1409,7 @@ export default function CrmPage() {
   }, [workspace?.id, canUseServerCustomerTable, buildCustomerTableParams, wsHeaders]);
 
   const fetchAllServerFilteredCustomers = useCallback(async (): Promise<RfmCustomer[]> => {
+    if (!workspace?.id) return [];
     const params = buildCustomerTableParams(0);
     params.set("all", "1");
     params.set("limit", "100000");
@@ -1381,7 +1417,7 @@ export default function CrmPage() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
     return Array.isArray(data.customers) ? data.customers : [];
-  }, [buildCustomerTableParams, wsHeaders]);
+  }, [workspace?.id, buildCustomerTableParams, wsHeaders]);
 
   useEffect(() => {
     setCustomerTablePage(0);
@@ -1709,7 +1745,9 @@ export default function CrmPage() {
   const waPerfTargetPeriodLabel = formatWaPerformancePeriod(waPerfDays);
   const customerTableData = canUseServerCustomerTable ? customerTableRows : filteredCustomers;
   const customerTableCount = canUseServerCustomerTable ? customerTableTotal : filteredCustomers.length;
-  const customerTableIsLoading = canUseServerCustomerTable ? customerTableLoading : loading || customersLoading;
+  const crmPageLoading = loading || (workspaceLoading && !workspace);
+  const workspaceUnavailable = !workspaceLoading && !workspace?.id;
+  const customerTableIsLoading = canUseServerCustomerTable ? customerTableLoading : crmPageLoading || customersLoading;
 
   return (
     <TooltipProvider>
@@ -1728,7 +1766,7 @@ export default function CrmPage() {
             size="sm"
             className="gap-1.5 text-xs"
             onClick={handleVndaSync}
-            disabled={syncing || computing || loading}
+            disabled={syncing || computing || crmPageLoading || !workspace?.id}
             title="Importar historico de pedidos VNDA e medir cobertura da base de clientes"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
@@ -1742,7 +1780,7 @@ export default function CrmPage() {
             size="sm"
             className="gap-1.5 text-xs"
             onClick={handleRecompute}
-            disabled={computing || loading || syncing}
+            disabled={computing || crmPageLoading || syncing || !workspace?.id}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${computing ? "animate-spin" : ""}`} />
             {computing ? "Atualizando..." : "Atualizar dados"}
@@ -1765,6 +1803,15 @@ export default function CrmPage() {
         </div>
       </div>
 
+      {(crmError || workspaceUnavailable) && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {crmError || "Workspace nao carregado. Os dados do CRM nao foram consultados para evitar mostrar uma base zerada indevidamente."}
+          </span>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
@@ -1772,7 +1819,7 @@ export default function CrmPage() {
           value={formatNumber(displaySummary.totalCustomers)}
           icon={Users}
           iconColor="text-purple-400"
-          loading={loading}
+          loading={crmPageLoading}
           info={<>Quantidade total de emails únicos que já fizeram pelo menos 1 compra (lifetime). <br/><br/><b>Fonte:</b> snapshot RFM (crm_rfm_snapshots.summary) — base de pedidos VNDA.</>}
         />
         <KpiCard
@@ -1780,7 +1827,7 @@ export default function CrmPage() {
           value={formatCurrency(displaySummary.avgTicket)}
           icon={DollarSign}
           iconColor="text-success"
-          loading={loading}
+          loading={crmPageLoading}
           info={<><b>Fórmula:</b> receita total ÷ total de pedidos (lifetime). <br/><br/>É a média por <i>pedido</i>, não por cliente. <br/><br/><b>Fonte:</b> snapshot RFM.</>}
         />
         <KpiCard
@@ -1788,7 +1835,7 @@ export default function CrmPage() {
           value={formatCurrency(displaySummary.totalRevenue)}
           icon={CircleDollarSign}
           iconColor="text-blue-400"
-          loading={loading}
+          loading={crmPageLoading}
           info={<>Soma de todos os <code>valor</code> de pedidos da base (lifetime). <br/><br/><b>Fonte:</b> snapshot RFM, agregado de pedidos VNDA.</>}
         />
         <KpiCard
@@ -1796,7 +1843,7 @@ export default function CrmPage() {
           value={formatNumber(displaySummary.activeCustomers)}
           icon={UserCheck}
           iconColor="text-orange-400"
-          loading={loading}
+          loading={crmPageLoading}
           badge="90 dias"
           badgeColor="#f97316"
           info={<>Clientes que fizeram pelo menos 1 compra nos <b>últimos 90 dias</b>. <br/><br/>Métrica de saúde recorrente da base. Se cair, sinal de churn.</>}
@@ -2647,7 +2694,7 @@ export default function CrmPage() {
         <TabsContent value="overview" className="space-y-6">
           {activeTab === "overview" && (<>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Distribuicao por Segmento" loading={loading} isEmpty={segmentPieData.length === 0} height={300}>
+            <ChartCard title="Distribuicao por Segmento" loading={crmPageLoading} isEmpty={segmentPieData.length === 0} height={300}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart className="cursor-pointer">
                   <Pie data={segmentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={3}
@@ -2663,7 +2710,7 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Receita por Segmento" loading={loading} isEmpty={revenueBySegmentData.length === 0} height={300}>
+            <ChartCard title="Receita por Segmento" loading={crmPageLoading} isEmpty={revenueBySegmentData.length === 0} height={300}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenueBySegmentData} layout="vertical" className="cursor-pointer">
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2683,7 +2730,7 @@ export default function CrmPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Distribuicao de Recencia" loading={loading} isEmpty={distributions.recency.length === 0}>
+            <ChartCard title="Distribuicao de Recencia" loading={crmPageLoading} isEmpty={distributions.recency.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={distributions.recency}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2695,7 +2742,7 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Distribuicao de Frequencia" loading={loading} isEmpty={distributions.frequency.length === 0}>
+            <ChartCard title="Distribuicao de Frequencia" loading={crmPageLoading} isEmpty={distributions.frequency.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={distributions.frequency}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2806,7 +2853,7 @@ export default function CrmPage() {
         <TabsContent value="behavior" className="space-y-6">
           {activeTab === "behavior" && (<>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Preferencia de Dia do Mes" loading={loading} isEmpty={behavioral.dayOfMonth.length === 0}>
+            <ChartCard title="Preferencia de Dia do Mes" loading={crmPageLoading} isEmpty={behavioral.dayOfMonth.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.dayOfMonth} className="cursor-pointer">
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2822,7 +2869,7 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Turno Preferido" loading={loading} isEmpty={behavioral.hourOfDay.length === 0}>
+            <ChartCard title="Turno Preferido" loading={crmPageLoading} isEmpty={behavioral.hourOfDay.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.hourOfDay} className="cursor-pointer">
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2840,7 +2887,7 @@ export default function CrmPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ChartCard title="Sensibilidade a Cupom" loading={loading} isEmpty={behavioral.couponUsage.length === 0}>
+            <ChartCard title="Sensibilidade a Cupom" loading={crmPageLoading} isEmpty={behavioral.couponUsage.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart className="cursor-pointer">
                   <Pie data={behavioral.couponUsage} dataKey="count" nameKey="bucket" cx="50%" cy="50%" outerRadius={90} innerRadius={45} paddingAngle={3}
@@ -2856,7 +2903,7 @@ export default function CrmPage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Estagio do Ciclo de Vida" loading={loading} isEmpty={behavioral.lifecycle.length === 0}>
+            <ChartCard title="Estagio do Ciclo de Vida" loading={crmPageLoading} isEmpty={behavioral.lifecycle.length === 0}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={behavioral.lifecycle} className="cursor-pointer">
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
@@ -2875,7 +2922,7 @@ export default function CrmPage() {
             </ChartCard>
           </div>
 
-          <ChartCard title="Dia da Semana Preferido" loading={loading} isEmpty={behavioral.weekday.length === 0}>
+          <ChartCard title="Dia da Semana Preferido" loading={crmPageLoading} isEmpty={behavioral.weekday.length === 0}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={behavioral.weekday} className="cursor-pointer">
                 <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />

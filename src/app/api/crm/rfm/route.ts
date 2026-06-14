@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM RFM] Error:", message);
     return NextResponse.json(
-      { ...EMPTY_RESPONSE, error: message },
+      { error: message },
       { status: 500 }
     );
   }

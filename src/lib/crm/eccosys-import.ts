@@ -821,11 +821,9 @@ export async function runEccosysCrmImport(
 
   let snapshotInvalidated = false;
   if (!dryRun && upserted > 0) {
-    const { error } = await admin
-      .from("crm_rfm_snapshots")
-      .delete()
-      .eq("workspace_id", options.workspaceId);
-    if (error) throw new Error(`snapshot invalidation failed: ${error.message}`);
+    // Keep the last good snapshot available while the scheduled/manual
+    // recompute catches up. Deleting first can blank CRM during transient
+    // Supabase timeouts on large workspaces.
     snapshotInvalidated = true;
   }
 

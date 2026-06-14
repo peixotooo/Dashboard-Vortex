@@ -73,15 +73,29 @@ export async function GET(request: NextRequest) {
 
     const { data: workspaces, error: workspacesError } = await admin
       .from("workspaces")
-      .select("id, name, slug, owner_id, created_at")
+      .select("id, name, slug, owner_id, created_at, custom_domain")
       .in("id", workspaceIds)
       .order("created_at", { ascending: true });
 
     if (workspacesError) throw workspacesError;
 
+    const host = (
+      request.headers.get("x-forwarded-host") ||
+      request.headers.get("host") ||
+      ""
+    )
+      .split(",")[0]
+      .trim()
+      .toLowerCase()
+      .replace(/:\d+$/, "");
+    const domainWorkspace = host
+      ? (workspaces || []).find((workspace) => workspace.custom_domain?.toLowerCase() === host)
+      : null;
+
     return NextResponse.json({
       workspaces: workspaces || [],
       memberships: memberships || [],
+      domainWorkspaceId: domainWorkspace?.id || null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
