@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
     const sinceParam = searchParams.get("since") || "";
     const untilParam = searchParams.get("until") || "";
+    const includeStock = searchParams.get("include_stock") === "1";
     const customRange = sinceParam && untilParam ? { since: sinceParam, until: untilParam } : undefined;
 
     const period = customRange ?? datePresetToTimeRange(datePreset, customRange);
@@ -171,19 +172,54 @@ export async function GET(request: NextRequest) {
       return all;
     }
 
-    // Current window: need items, valor, email
-    const curOrders = await fetchAllInWindow(
-      cur.start.toISOString(),
-      cur.end.toISOString(),
-      "email, cliente, valor, data_compra, items"
-    );
+    const abcPeriodDays = customRange ? undefined : ABC_PRESET_DAYS[datePreset];
+    let snapshotTopProducts: ProductAgg[] | null = null;
 
-    // Previous window: only identifiers needed (for new/returning split)
-    const prevOrders = await fetchAllInWindow(
-      prevR.start.toISOString(),
-      prevR.end.toISOString(),
-      "email, cliente, valor, data_compra, items"
-    );
+    if (abcPeriodDays) {
+      try {
+        const { data: abcSnapshot, error: abcError } = await admin
+          .from("crm_abc_snapshots")
+          .select("products, period_days")
+          .eq("workspace_id", workspaceId)
+          .maybeSingle<AbcSnapshotSummary>();
+
+        if (!abcError && abcSnapshot?.period_days === abcPeriodDays) {
+          snapshotTopProducts = (abcSnapshot.products ?? []).slice(0, 5).map((p) => ({
+            parentSku: p.sku || p.product_id || "—",
+            name: p.name,
+            quantity: Number(p.qty_sold) || 0,
+            revenue: Number(p.revenue) || 0,
+            orders: null,
+            variants: 0,
+            stock: null,
+            stockAvailable: null,
+          }));
+        }
+      } catch (abcErr) {
+        console.warn(
+          "[CRM Overview Summary] ABC bestseller lookup skipped:",
+          abcErr instanceof Error ? abcErr.message : abcErr
+        );
+      }
+    }
+
+    const currentColumns = snapshotTopProducts
+      ? "email, valor, data_compra"
+      : "email, valor, data_compra, items";
+
+    const [curOrders, prevOrders] = await Promise.all([
+      fetchAllInWindow(
+        cur.start.toISOString(),
+        cur.end.toISOString(),
+        currentColumns
+      ),
+      // Previous window: only identifiers needed for the split.
+      fetchAllInWindow(
+        prevR.start.toISOString(),
+        prevR.end.toISOString(),
+        "email, data_compra"
+      ),
+    ]);
 
     if (curOrders.length === 0 && prevOrders.length === 0) {
       return NextResponse.json(
@@ -206,104 +242,67 @@ export async function GET(request: NextRequest) {
     }
 
     // --- Top products consolidated by parent SKU ---
-    const productMap = new Map<string, ProductAgg>();
-    const allVariantsByParent = new Map<string, Set<string>>();
-    for (const order of curOrders) {
-      const items = Array.isArray(order.items) ? order.items : [];
-      const seenInOrder = new Set<string>();
-      for (const it of items) {
-        const rawSku = (it.sku || "").trim();
-        const rawReference = (it.reference || "").trim();
-        const rawName = (it.name || rawSku || "Sem nome").trim();
-        if (!rawSku && !rawName) continue;
+    let topProducts = snapshotTopProducts ?? [];
+    if (!snapshotTopProducts) {
+      const productMap = new Map<string, ProductAgg>();
+      const allVariantsByParent = new Map<string, Set<string>>();
+      for (const order of curOrders) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const seenInOrder = new Set<string>();
+        for (const it of items) {
+          const rawSku = (it.sku || "").trim();
+          const rawReference = (it.reference || "").trim();
+          const rawName = (it.name || rawSku || "Sem nome").trim();
+          if (!rawSku && !rawName) continue;
 
-        const parentSku = rawReference || (rawSku ? getParentSku(rawSku) : "");
-        const parentName = getParentName(rawName);
-        const key = parentSku || parentName;
+          const parentSku = rawReference || (rawSku ? getParentSku(rawSku) : "");
+          const parentName = getParentName(rawName);
+          const key = parentSku || parentName;
 
-        const qty = Number(it.quantity) || 0;
-        const total = Number(it.total) || (Number(it.price) || 0) * qty;
+          const qty = Number(it.quantity) || 0;
+          const total = Number(it.total) || (Number(it.price) || 0) * qty;
 
-        const existing = productMap.get(key);
-        if (existing) {
-          existing.quantity += qty;
-          existing.revenue += total;
-          if (!seenInOrder.has(key)) existing.orders = (existing.orders ?? 0) + 1;
-        } else {
-          productMap.set(key, {
-            parentSku: parentSku || "—",
-            name: parentName,
-            quantity: qty,
-            revenue: total,
-            orders: 1,
-            variants: 0,
-            stock: null,
-            stockAvailable: null,
-          });
-        }
-        seenInOrder.add(key);
+          const existing = productMap.get(key);
+          if (existing) {
+            existing.quantity += qty;
+            existing.revenue += total;
+            if (!seenInOrder.has(key)) existing.orders = (existing.orders ?? 0) + 1;
+          } else {
+            productMap.set(key, {
+              parentSku: parentSku || "—",
+              name: parentName,
+              quantity: qty,
+              revenue: total,
+              orders: 1,
+              variants: 0,
+              stock: null,
+              stockAvailable: null,
+            });
+          }
+          seenInOrder.add(key);
 
-        if (rawSku && parentSku) {
-          const set = allVariantsByParent.get(parentSku) ?? new Set<string>();
-          set.add(rawSku);
-          allVariantsByParent.set(parentSku, set);
+          if (rawSku && parentSku) {
+            const set = allVariantsByParent.get(parentSku) ?? new Set<string>();
+            set.add(rawSku);
+            allVariantsByParent.set(parentSku, set);
+          }
         }
       }
-    }
-    for (const [key, agg] of productMap) {
-      if (agg.parentSku !== "—") {
-        const set = allVariantsByParent.get(agg.parentSku);
-        if (set) agg.variants = set.size;
-      }
-      productMap.set(key, agg);
-    }
-
-    const topProducts = [...productMap.values()]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
-
-    const abcPeriodDays = customRange ? undefined : ABC_PRESET_DAYS[datePreset];
-    if (abcPeriodDays) {
-      try {
-        const { data: abcSnapshot, error: abcError } = await admin
-          .from("crm_abc_snapshots")
-          .select("products, period_days")
-          .eq("workspace_id", workspaceId)
-          .maybeSingle<AbcSnapshotSummary>();
-
-        if (!abcError && abcSnapshot?.period_days === abcPeriodDays) {
-          const variantsByParent = new Map(
-            [...productMap.values()].map((p) => [p.parentSku, p.variants])
-          );
-
-          topProducts.splice(
-            0,
-            topProducts.length,
-            ...(abcSnapshot.products ?? []).slice(0, 5).map((p) => {
-              const parentSku = p.sku || p.product_id || "—";
-              return {
-                parentSku,
-                name: p.name,
-                quantity: Number(p.qty_sold) || 0,
-                revenue: Number(p.revenue) || 0,
-                orders: null,
-                variants: variantsByParent.get(parentSku) ?? 0,
-                stock: null,
-                stockAvailable: null,
-              } satisfies ProductAgg;
-            })
-          );
+      for (const [key, agg] of productMap) {
+        if (agg.parentSku !== "—") {
+          const set = allVariantsByParent.get(agg.parentSku);
+          if (set) agg.variants = set.size;
         }
-      } catch (abcErr) {
-        console.warn(
-          "[CRM Overview Summary] ABC bestseller lookup skipped:",
-          abcErr instanceof Error ? abcErr.message : abcErr
-        );
+        productMap.set(key, agg);
       }
+
+      topProducts = [...productMap.values()]
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 5);
     }
 
     // Fetch live stock from VNDA for the top 5 parent SKUs (parallel, best-effort).
-    try {
+    if (includeStock) try {
       const vndaConfig = await getVndaConfig(workspaceId);
       if (vndaConfig) {
         const refs = topProducts

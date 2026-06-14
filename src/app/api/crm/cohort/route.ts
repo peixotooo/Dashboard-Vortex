@@ -5,6 +5,7 @@ import { getInsights, runWithToken } from "@/lib/meta-api";
 import { resolveTokenForAccount } from "@/lib/api-auth";
 
 export const maxDuration = 60;
+const AD_SPEND_TIMEOUT_MS = 3500;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     const months = parseInt(request.nextUrl.searchParams.get("months") || "12");
+    const includeAdSpend = request.nextUrl.searchParams.get("include_ad_spend") !== "false";
 
     // Try snapshot first
     interface CohortSnapshot {
@@ -91,9 +93,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch ad spend from all sources (live — changes daily)
+    // Fetch ad spend from all sources (live — changes daily). This is useful
+    // for CAC/MEL, but external ad APIs must not hold the CRM page hostage.
     const monthKeys = (monthlyData as Array<{ monthKey: string }>).map((m) => m.monthKey);
-    const adSpend = await fetchCombinedAdSpend(request, supabase, workspaceId, monthKeys);
+    const adSpend = includeAdSpend
+      ? await withTimeout(
+          fetchCombinedAdSpend(request, supabase, workspaceId, monthKeys),
+          AD_SPEND_TIMEOUT_MS,
+          null,
+          "[CRM Cohort] Ad spend lookup timed out"
+        )
+      : null;
 
     return NextResponse.json({
       metrics,
@@ -114,6 +124,27 @@ export async function GET(request: NextRequest) {
 }
 
 // --- Ad Spend Helpers ---
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+  message: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => {
+      console.warn(message, { timeoutMs });
+      resolve(fallback);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 /**
  * Fetches ad spend from Meta and Google Ads, merging by month.

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { recomputeRfmSnapshot } from "@/lib/crm-compute";
 
-// Snapshot do Bulking já é grande e pode precisar ser reconstruído quando
-// uma importação invalida crm_rfm_snapshots. Mantemos folga para recompute
-// on-demand em vez de devolver cards zerados ao usuário.
-export const maxDuration = 120;
+// This route is on the interactive CRM path. It should only read the
+// precomputed snapshot; heavy rebuilds run through /api/cron/crm-recompute
+// or the explicit manual /api/crm/compute action.
+export const maxDuration = 15;
 
 const EMPTY_RESPONSE = {
   customers: [],
@@ -118,22 +117,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(EMPTY_RESPONSE);
     }
 
-    // No snapshot but there is data: rebuild it now and return the fresh
-    // values. This prevents the CRM dashboard from briefly rendering all
-    // zeros after a large import deletes the stale snapshot.
-    console.log("[CRM RFM] No snapshot found, recomputing on demand.");
-    await recomputeRfmSnapshot(admin, workspaceId);
-
-    const recomputedSnapshot = await readSnapshot();
-    if (recomputedSnapshot) {
-      return snapshotResponse(recomputedSnapshot);
-    }
-
-    return NextResponse.json({
-      ...EMPTY_RESPONSE,
-      pending: true,
-      message: "Dados sendo processados. Atualize em alguns minutos.",
-    });
+    console.log("[CRM RFM] No snapshot found; returning pending state.");
+    return NextResponse.json(
+      {
+        ...EMPTY_RESPONSE,
+        pending: true,
+        message: "Dados do CRM sendo processados pelo worker. Atualize em alguns minutos.",
+      },
+      {
+        status: 202,
+        headers: { "Cache-Control": "private, max-age=30" },
+      }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM RFM] Error:", message);

@@ -795,6 +795,7 @@ export default function CrmPage() {
   // VNDA order sync
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [crmStatusMessage, setCrmStatusMessage] = useState<string | null>(null);
 
   // Export logs
   interface ExportLog {
@@ -884,26 +885,16 @@ export default function CrmPage() {
       const res = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
       const data = await res.json();
 
-      // If snapshot is missing but data exists, auto-trigger compute and poll
       if (data.pending) {
-        setComputing(true);
-        const compRes = await fetch("/api/crm/compute", {
-          method: "POST",
-          headers: wsHeaders(),
-        });
-        if (compRes.ok) {
-          // Snapshot ready — re-fetch summary
-          const res2 = await fetch("/api/crm/rfm?fields=summary", { headers: wsHeaders() });
-          const data2 = await res2.json();
-          setSnapshotSegments(data2.segments || []);
-          setSnapshotSummary(data2.summary || emptySummary);
-          setSnapshotDistributions(data2.distributions || emptyDistributions);
-          setSnapshotBehavioral(data2.behavioralDistributions || emptyBehavioral);
-        }
-        setComputing(false);
+        setSnapshotSegments([]);
+        setSnapshotSummary(emptySummary);
+        setSnapshotDistributions(emptyDistributions);
+        setSnapshotBehavioral(emptyBehavioral);
+        setCrmStatusMessage(data.message || "Dados do CRM sendo processados pelo worker. Atualize em alguns minutos.");
         return;
       }
 
+      setCrmStatusMessage(null);
       setSnapshotSegments(data.segments || []);
       setSnapshotSummary(data.summary || emptySummary);
       setSnapshotDistributions(data.distributions || emptyDistributions);
@@ -922,6 +913,7 @@ export default function CrmPage() {
   const fetchCustomers = useCallback(async () => {
     if (customersLoaded) return;
     setCustomersLoading(true);
+    let fullSnapshotLoaded = false;
 
     // Snapshot completo + lookup email→UF rodam em paralelo, MAS
     // independentes: se o snapshot (26MB) der timeout, ainda assim
@@ -932,8 +924,14 @@ export default function CrmPage() {
         const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
         if (!res.ok) return;
         const data = await res.json();
-        if (Array.isArray(data.customers) && data.customers.length > 0) {
+        if (data.pending) {
+          setCrmStatusMessage(data.message || "Dados do CRM sendo processados pelo worker. Atualize em alguns minutos.");
+          return;
+        }
+        if (Array.isArray(data.customers)) {
           setCustomers(data.customers);
+          fullSnapshotLoaded = true;
+          setCrmStatusMessage(null);
         }
       } catch (e) {
         console.warn("[CRM] customers fetch failed:", e);
@@ -953,7 +951,7 @@ export default function CrmPage() {
 
     try {
       await Promise.allSettled([customersTask, statesTask]);
-      setCustomersLoaded(true);
+      if (fullSnapshotLoaded) setCustomersLoaded(true);
     } finally {
       setCustomersLoading(false);
     }
@@ -968,9 +966,14 @@ export default function CrmPage() {
     try {
       const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
       const data = await res.json();
+      if (data.pending) {
+        setCrmStatusMessage(data.message || "Dados do CRM sendo processados pelo worker. Atualize em alguns minutos.");
+        return [];
+      }
       const list: RfmCustomer[] = data.customers || [];
       setCustomers(list);
       setCustomersLoaded(true);
+      setCrmStatusMessage(null);
       return list;
     } catch {
       return [];
@@ -1097,10 +1100,12 @@ export default function CrmPage() {
         // pra ignorar Cache-Control: max-age=300 do /api/crm/cohort que
         // de outro modo serviria o response antigo sem retentionCurve etc.
         setCustomersLoaded(false);
+        setCrmStatusMessage(null);
         await Promise.all([fetchSummary(), fetchMetrics({ bypassCache: true }), fetchExportLogs()]);
       }
     } catch (err) {
       console.error("[CRM] Recompute error:", err);
+      setCrmStatusMessage("Nao foi possivel atualizar o snapshot agora. O worker vai tentar novamente no proximo ciclo.");
     } finally {
       setComputing(false);
     }
@@ -1676,6 +1681,14 @@ export default function CrmPage() {
           </div>
         </div>
       </div>
+
+      {crmStatusMessage && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardContent className="p-3 text-sm text-amber-700 dark:text-amber-300">
+            {crmStatusMessage}
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
