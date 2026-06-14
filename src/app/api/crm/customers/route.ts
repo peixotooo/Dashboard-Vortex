@@ -95,14 +95,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
     }
 
-    const limitParam = Number(request.nextUrl.searchParams.get("limit") || DEFAULT_LIMIT);
+    const limitParamRaw = request.nextUrl.searchParams.get("limit");
+    const pageParamRaw = request.nextUrl.searchParams.get("page");
+    const pageSizeParamRaw = request.nextUrl.searchParams.get("page_size");
+    const limitParam = Number(limitParamRaw || DEFAULT_LIMIT);
     const limit = Math.min(Math.max(1, Math.floor(limitParam)), MAX_LIMIT);
-    const page = Math.max(0, Number(request.nextUrl.searchParams.get("page") || 0));
+    const page = Math.max(0, Number(pageParamRaw || 0));
     const pageSize = Math.min(
-      Math.max(1, Number(request.nextUrl.searchParams.get("page_size") || DEFAULT_PAGE_SIZE)),
+      Math.max(1, Number(pageSizeParamRaw || DEFAULT_PAGE_SIZE)),
       MAX_PAGE_SIZE
     );
-    const fetchAll = request.nextUrl.searchParams.get("all") === "1";
+    const fetchAll =
+      request.nextUrl.searchParams.get("all") === "1" ||
+      (limitParamRaw !== null && pageParamRaw === null && pageSizeParamRaw === null);
 
     const admin = createAdminClient();
 

@@ -950,7 +950,7 @@ export default function CrmPage() {
     // baixar o JSONB gigante crm_rfm_snapshots.customers na aba Clientes.
     const customersTask = (async () => {
       try {
-        const res = await fetch("/api/crm/customers?limit=70000", { headers: wsHeaders() });
+        const res = await fetch("/api/crm/customers?all=1&limit=100000", { headers: wsHeaders() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
         if (Array.isArray(data.customers) && data.customers.length > 0) {
@@ -990,7 +990,7 @@ export default function CrmPage() {
     if (customersLoaded) return customers;
     setCustomersLoading(true);
     try {
-      const res = await fetch("/api/crm/customers?limit=70000", { headers: wsHeaders() });
+      const res = await fetch("/api/crm/customers?all=1&limit=100000", { headers: wsHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
       const list: RfmCustomer[] = data.customers || [];
