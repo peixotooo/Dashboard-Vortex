@@ -139,7 +139,6 @@ if (fs.existsSync(vercelConfigPath)) {
     "/api/cron/coupon-attribution",
     "/api/cron/coupon-jobs",
     "/api/cron/coupon-refresh",
-    "/api/cron/crm-recompute",
     "/api/cron/email-templates-refresh",
     "/api/cron/email-templates-safety-net",
     "/api/cron/email-templates-stats-sync",

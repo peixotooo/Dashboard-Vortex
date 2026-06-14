@@ -115,7 +115,7 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
     }
     let cancelled = false;
     const cacheKey = [
-      "overview-summary-v3",
+      "overview-summary-v2",
       workspace.id,
       datePreset,
       customRangeKey,
@@ -131,7 +131,6 @@ export function OverviewSummary({ datePreset, customRange }: Props) {
 
     const params = new URLSearchParams();
     params.set("date_preset", datePreset);
-    params.set("include_stock", "0");
     if (datePreset === "custom" && customRange) {
       params.set("since", customRange.since);
       params.set("until", customRange.until);

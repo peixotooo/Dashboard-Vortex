@@ -140,13 +140,6 @@ const maintenanceJobs = [
     running: false,
   },
   {
-    name: "crm-recompute",
-    path: "/api/cron/crm-recompute",
-    intervalMs: numberEnv("WA_WORKER_CRM_RECOMPUTE_INTERVAL_MS", 30 * 60 * 1000),
-    nextRunAt: 0,
-    running: false,
-  },
-  {
     name: "cashback-tick",
     path: "/api/cron/cashback-tick",
     intervalMs: numberEnv("WA_WORKER_CASHBACK_TICK_INTERVAL_MS", 24 * 60 * 60 * 1000),
