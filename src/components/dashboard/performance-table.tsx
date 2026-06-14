@@ -28,6 +28,10 @@ interface PerformanceTableProps {
   selectedKey?: string;
   sortable?: boolean;
   pageSize?: number;
+  totalRows?: number;
+  manualPagination?: boolean;
+  page?: number;
+  onPageChange?: (page: number) => void;
 }
 
 function formatCell(value: unknown, format?: string): React.ReactNode {
@@ -64,18 +68,25 @@ export function PerformanceTable({
   selectedKey,
   sortable = false,
   pageSize,
+  totalRows,
+  manualPagination = false,
+  page: controlledPage,
+  onPageChange,
 }: PerformanceTableProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [page, setPage] = useState(0);
+  const [internalPage, setInternalPage] = useState(0);
+  const page = controlledPage ?? internalPage;
+  const setPage = onPageChange ?? setInternalPage;
 
   // Reset to page 0 when data changes (filter/search applied)
   const dataLen = data.length;
   useEffect(() => {
     setPage(0);
-  }, [dataLen]);
+  }, [dataLen, setPage]);
 
   const sortedData = useMemo(() => {
+    if (manualPagination) return data;
     if (!sortable || !sortKey) return data;
     return [...data].sort((a, b) => {
       const aVal = a[sortKey] ?? 0;
@@ -84,10 +95,13 @@ export function PerformanceTable({
       const bNum = typeof bVal === "number" ? bVal : parseFloat(String(bVal)) || 0;
       return sortDir === "desc" ? bNum - aNum : aNum - bNum;
     });
-  }, [data, sortKey, sortDir, sortable]);
+  }, [data, sortKey, sortDir, sortable, manualPagination]);
 
-  const totalPages = pageSize ? Math.ceil(sortedData.length / pageSize) : 1;
-  const paginatedData = pageSize
+  const effectiveTotalRows = totalRows ?? sortedData.length;
+  const totalPages = pageSize ? Math.max(1, Math.ceil(effectiveTotalRows / pageSize)) : 1;
+  const paginatedData = manualPagination
+    ? sortedData
+    : pageSize
     ? sortedData.slice(page * pageSize, (page + 1) * pageSize)
     : sortedData;
 
@@ -213,16 +227,16 @@ export function PerformanceTable({
         </div>
 
         {/* Pagination footer */}
-        {pageSize && sortedData.length > pageSize && (
+        {pageSize && effectiveTotalRows > pageSize && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border text-sm text-muted-foreground">
             <span>
-              Mostrando {page * pageSize + 1}–{Math.min((page + 1) * pageSize, sortedData.length)} de{" "}
-              {sortedData.length.toLocaleString("pt-BR")}
+              Mostrando {page * pageSize + 1}–{Math.min((page + 1) * pageSize, effectiveTotalRows)} de{" "}
+              {effectiveTotalRows.toLocaleString("pt-BR")}
             </span>
             <div className="flex items-center gap-1">
               <button
                 disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
+                onClick={() => setPage(page - 1)}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -233,7 +247,7 @@ export function PerformanceTable({
               </span>
               <button
                 disabled={page >= totalPages - 1}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => setPage(page + 1)}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Proximo

@@ -1,6 +1,7 @@
 import { generateRfmReport, generateMonthlyCohort } from "@/lib/crm-rfm";
 import type { CrmVendaRow, RfmCustomer, PreferenceCount } from "@/lib/crm-rfm";
 import { recomputeAbcSnapshot } from "@/lib/financeiro/recompute";
+import { syncCrmCustomerSegments } from "@/lib/crm-customer-segments";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const PAGE_SIZE = 1000; // Supabase default max rows per request
@@ -132,6 +133,13 @@ export async function recomputeRfmSnapshot(
   if (upsertError) {
     throw new Error(`Snapshot upsert error: ${upsertError.message}`);
   }
+
+  await syncCrmCustomerSegments(client, workspaceId, report.customers).catch((err) => {
+    console.error(
+      `[crm-compute] Customer segments sync failed for workspace ${workspaceId}:`,
+      (err as Error).message
+    );
+  });
 
   return { rowCount: allRows.length, customerCount: report.customers.length };
 }

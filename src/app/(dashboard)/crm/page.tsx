@@ -918,25 +918,32 @@ export default function CrmPage() {
   // Stage 2: full customers (lazy, on Clientes tab)
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [customerTableRows, setCustomerTableRows] = useState<RfmCustomer[]>([]);
+  const [customerTableTotal, setCustomerTableTotal] = useState(0);
+  const [customerTablePage, setCustomerTablePage] = useState(0);
+  const [customerTableLoading, setCustomerTableLoading] = useState(false);
+  const [customerTableError, setCustomerTableError] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async () => {
     if (customersLoaded) return;
     setCustomersLoading(true);
+    let customersTaskLoaded = false;
 
-    // Snapshot completo + lookup email→UF rodam em paralelo, MAS
-    // independentes: se o snapshot (26MB) der timeout, ainda assim
-    // o customer-states (pequeno) preenche o mapa de UF e a aba
-    // Estados continua funcional.
+    // Base completa de clientes vem da tabela materializada
+    // crm_customer_segments, atualizada junto do snapshot RFM. Isso evita
+    // baixar o JSONB gigante crm_rfm_snapshots.customers na aba Clientes.
     const customersTask = (async () => {
       try {
-        const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
-        if (!res.ok) return;
+        const res = await fetch("/api/crm/customers?limit=70000", { headers: wsHeaders() });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
         if (Array.isArray(data.customers) && data.customers.length > 0) {
           setCustomers(data.customers);
+          customersTaskLoaded = true;
         }
       } catch (e) {
         console.warn("[CRM] customers fetch failed:", e);
+        setSyncResult(e instanceof Error ? e.message : "Falha ao carregar clientes.");
       }
     })();
 
@@ -953,7 +960,7 @@ export default function CrmPage() {
 
     try {
       await Promise.allSettled([customersTask, statesTask]);
-      setCustomersLoaded(true);
+      if (customersTaskLoaded) setCustomersLoaded(true);
     } finally {
       setCustomersLoading(false);
     }
@@ -966,13 +973,15 @@ export default function CrmPage() {
     if (customersLoaded) return customers;
     setCustomersLoading(true);
     try {
-      const res = await fetch("/api/crm/rfm", { headers: wsHeaders() });
+      const res = await fetch("/api/crm/customers?limit=70000", { headers: wsHeaders() });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
       const list: RfmCustomer[] = data.customers || [];
       setCustomers(list);
       setCustomersLoaded(true);
       return list;
-    } catch {
+    } catch (e) {
+      setSyncResult(e instanceof Error ? e.message : "Falha ao carregar clientes.");
       return [];
     } finally {
       setCustomersLoading(false);
@@ -1148,10 +1157,13 @@ export default function CrmPage() {
   // for ativado — Estados tab também precisa de customers/customerStates
   // pra montar o tilemap com contagens reais.
   useEffect(() => {
-    if ((activeTab === "customers" || activeTab === "states") && !customersLoaded) {
+    const needsFullCustomerBase =
+      activeTab === "states" ||
+      (activeTab === "customers" && (stateFilter.size > 0 || invertFilters));
+    if (needsFullCustomerBase && !customersLoaded) {
       fetchCustomers();
     }
-  }, [activeTab, customersLoaded, fetchCustomers]);
+  }, [activeTab, customersLoaded, fetchCustomers, stateFilter, invertFilters]);
 
   // Filtered customers — single-pass for performance (avoids 12+ intermediate arrays).
   // Quando invertFilters=true, retorna a base EXCETO o que os filtros pegariam
@@ -1238,10 +1250,10 @@ export default function CrmPage() {
   }, []);
 
   // Selected customers for campaign
-  const selectedCustomers = useMemo(() =>
-    filteredCustomers.filter((c) => selectedEmails.has(c.email)),
-    [filteredCustomers, selectedEmails]
-  );
+  const selectedCustomers = useMemo(() => {
+    const source = customersLoaded ? filteredCustomers : customerTableRows;
+    return source.filter((c) => selectedEmails.has(c.email));
+  }, [customersLoaded, filteredCustomers, customerTableRows, selectedEmails]);
 
   // Active filters for badge bar
   interface ActiveFilter {
@@ -1314,12 +1326,79 @@ export default function CrmPage() {
     return filters;
   }, [stateFilter, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
 
+  const canUseServerCustomerTable = stateFilter.size === 0 && !invertFilters;
+
+  const buildCustomerTableParams = useCallback((page: number) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: "50",
+    });
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (segmentFilter !== "all") params.set("segment", segmentFilter);
+    if (dayRangeFilter !== "all") params.set("day_range", dayRangeFilter);
+    if (lifecycleFilter !== "all") params.set("lifecycle", lifecycleFilter);
+    if (hourFilter !== "all") params.set("hour", hourFilter);
+    if (couponFilter !== "all") params.set("coupon", couponFilter);
+    if (weekdayFilter !== "all") params.set("weekday", weekdayFilter);
+    if (purchasedDateRange) {
+      params.set("purchased_from", purchasedDateRange.from);
+      params.set("purchased_to", purchasedDateRange.to);
+    }
+    if (inactiveDateRange) params.set("inactive_from", inactiveDateRange.from);
+    if (avgTicketRange.min !== null) params.set("avg_ticket_min", String(avgTicketRange.min));
+    if (avgTicketRange.max !== null) params.set("avg_ticket_max", String(avgTicketRange.max));
+    if (totalSpentRange.min !== null) params.set("total_spent_min", String(totalSpentRange.min));
+    if (totalSpentRange.max !== null) params.set("total_spent_max", String(totalSpentRange.max));
+    return params;
+  }, [debouncedSearch, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange]);
+
+  const fetchCustomerTablePage = useCallback(async (page: number) => {
+    if (!workspace?.id || !canUseServerCustomerTable) return;
+    setCustomerTableLoading(true);
+    setCustomerTableError(null);
+    try {
+      const params = buildCustomerTableParams(page);
+      const res = await fetch(`/api/crm/customers?${params.toString()}`, { headers: wsHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
+      setCustomerTableRows(Array.isArray(data.customers) ? data.customers : []);
+      setCustomerTableTotal(Number(data.total || 0));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Falha ao carregar clientes.";
+      setCustomerTableError(message);
+      setCustomerTableRows([]);
+      setCustomerTableTotal(0);
+    } finally {
+      setCustomerTableLoading(false);
+    }
+  }, [workspace?.id, canUseServerCustomerTable, buildCustomerTableParams, wsHeaders]);
+
+  const fetchAllServerFilteredCustomers = useCallback(async (): Promise<RfmCustomer[]> => {
+    const params = buildCustomerTableParams(0);
+    params.set("all", "1");
+    params.set("limit", "100000");
+    const res = await fetch(`/api/crm/customers?${params.toString()}`, { headers: wsHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || "Falha ao carregar clientes.");
+    return Array.isArray(data.customers) ? data.customers : [];
+  }, [buildCustomerTableParams, wsHeaders]);
+
+  useEffect(() => {
+    setCustomerTablePage(0);
+  }, [debouncedSearch, segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, stateFilter, invertFilters]);
+
+  useEffect(() => {
+    if (activeTab === "customers" && canUseServerCustomerTable) {
+      fetchCustomerTablePage(customerTablePage);
+    }
+  }, [activeTab, canUseServerCustomerTable, customerTablePage, fetchCustomerTablePage]);
+
   // Auto-load customers when any filter is applied
   useEffect(() => {
-    if (!customersLoaded && activeFilters.length > 0) {
+    if (!customersLoaded && activeFilters.length > 0 && !canUseServerCustomerTable) {
       fetchCustomers();
     }
-  }, [customersLoaded, activeFilters.length, fetchCustomers]);
+  }, [customersLoaded, activeFilters.length, fetchCustomers, canUseServerCustomerTable]);
 
   useEffect(() => {
     if (activeTab === "performance") {
@@ -1343,7 +1422,7 @@ export default function CrmPage() {
     setInvertFilters(false);
   }, []);
 
-  const handleGlobalExport = useCallback(() => {
+  const handleGlobalExport = useCallback(async () => {
     const filters: Record<string, string> = {};
     const parts: string[] = [];
     if (segmentFilter !== "all") { parts.push(SEGMENT_META[segmentFilter].label); filters.segmento = segmentFilter; }
@@ -1365,9 +1444,15 @@ export default function CrmPage() {
     const suffix = parts.length > 0
       ? parts.join("-").toLowerCase().replace(/[\s()]+/g, "").replace(/-+/g, "-")
       : "todos";
-    exportCustomersCsv(filteredCustomers, `crm-clientes-${suffix}`);
-    logExport("hypersegmentation", filters, filteredCustomers.length);
-  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, filteredCustomers, logExport]);
+    let exportList = filteredCustomers;
+    if (canUseServerCustomerTable) {
+      exportList = await fetchAllServerFilteredCustomers();
+    } else if (!customersLoaded) {
+      exportList = await ensureCustomersLoaded();
+    }
+    exportCustomersCsv(exportList, `crm-clientes-${suffix}`);
+    logExport("hypersegmentation", filters, exportList.length);
+  }, [segmentFilter, dayRangeFilter, lifecycleFilter, hourFilter, couponFilter, weekdayFilter, stateFilter, purchasedDateRange, inactiveDateRange, avgTicketRange, totalSpentRange, debouncedSearch, filteredCustomers, logExport, canUseServerCustomerTable, fetchAllServerFilteredCustomers, customersLoaded, ensureCustomersLoaded]);
 
   // KPI values — recalculate from filtered list when filters are active
   const hasActiveFilters = activeFilters.length > 0 || debouncedSearch.length > 0;
@@ -1622,6 +1707,9 @@ export default function CrmPage() {
   );
   const waPerfPeriodLabel = formatWaPerformancePeriod(waPerfLoadedDays ?? waPerfDays);
   const waPerfTargetPeriodLabel = formatWaPerformancePeriod(waPerfDays);
+  const customerTableData = canUseServerCustomerTable ? customerTableRows : filteredCustomers;
+  const customerTableCount = canUseServerCustomerTable ? customerTableTotal : filteredCustomers.length;
+  const customerTableIsLoading = canUseServerCustomerTable ? customerTableLoading : loading || customersLoading;
 
   return (
     <TooltipProvider>
@@ -1869,6 +1957,8 @@ export default function CrmPage() {
                 let source;
                 if (selectedEmails.size > 0) {
                   source = selectedCustomers;
+                } else if (canUseServerCustomerTable) {
+                  source = await fetchAllServerFilteredCustomers();
                 } else if (customersLoaded) {
                   source = filteredCustomers;
                 } else {
@@ -1891,7 +1981,7 @@ export default function CrmPage() {
               }}
             >
               <Mail className="h-4 w-4" />
-              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
+              Lista de email ({selectedEmails.size > 0 ? selectedEmails.size : (canUseServerCustomerTable ? customerTableCount : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers))})
             </Button>
             <Button
               variant="outline"
@@ -1902,6 +1992,8 @@ export default function CrmPage() {
                 let source;
                 if (selectedEmails.size > 0) {
                   source = selectedCustomers;
+                } else if (canUseServerCustomerTable) {
+                  source = await fetchAllServerFilteredCustomers();
                 } else if (customersLoaded) {
                   source = filteredCustomers;
                 } else {
@@ -1914,11 +2006,11 @@ export default function CrmPage() {
               }}
             >
               <MessageSquareMore className="h-4 w-4" />
-              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers)})
+              Campanha WhatsApp ({selectedEmails.size > 0 ? selectedEmails.size : (canUseServerCustomerTable ? customerTableCount : (customersLoaded ? filteredCustomers.length : displaySummary.totalCustomers))})
             </Button>
             <Button variant="default" size="sm" className="gap-1.5" onClick={handleGlobalExport}>
               <Download className="h-4 w-4" />
-              Exportar CSV ({filteredCustomers.length})
+              Exportar CSV ({canUseServerCustomerTable ? customerTableCount : filteredCustomers.length})
             </Button>
           </div>
         </div>
@@ -2948,8 +3040,16 @@ export default function CrmPage() {
             />
           </div>
 
+          {customerTableError && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardContent className="p-3 text-sm text-amber-700 dark:text-amber-300">
+                {customerTableError}
+              </CardContent>
+            </Card>
+          )}
+
           <PerformanceTable
-            title={`Clientes (${filteredCustomers.length})`}
+            title={`Clientes (${customerTableCount})`}
             sortable
             columns={[
               { key: "name", label: "Nome" },
@@ -2971,12 +3071,16 @@ export default function CrmPage() {
               { key: "lifecycleStage", label: "Ciclo", align: "center", render: (v) => <LifecycleBadge stage={v as LifecycleStage} /> },
               { key: "preferredDayRange", label: "Dia Mes", align: "center", render: (v) => <span className="text-xs text-muted-foreground">{String(v)}</span> },
             ]}
-            data={filteredCustomers as unknown as Record<string, unknown>[]}
-            loading={loading}
+            data={customerTableData as unknown as Record<string, unknown>[]}
+            loading={customerTableIsLoading}
             onRowClick={handleRowSelect}
             selectedSet={selectedEmails}
             selectedKey="email"
             pageSize={50}
+            manualPagination={canUseServerCustomerTable}
+            totalRows={canUseServerCustomerTable ? customerTableTotal : undefined}
+            page={canUseServerCustomerTable ? customerTablePage : undefined}
+            onPageChange={canUseServerCustomerTable ? setCustomerTablePage : undefined}
           />
           </>))}
         </TabsContent>
