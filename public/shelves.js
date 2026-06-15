@@ -459,6 +459,8 @@
         '</div>';
     }
 
+    var imgOriginal = normalizeUrl(product.image_url || "");
+    var imgOriginal2 = normalizeUrl(product.image_url_2 || "");
     var imgSrc = cleanUrl(product.image_url || "");
     var imgSrc2 = cleanUrl(product.image_url_2 || "");
     var hasHoverImage = !!(imgSrc2 && imgSrc2 !== imgSrc);
@@ -479,8 +481,8 @@
           (badgeLabel ? '<div class="vtx-badge">' + escapeHtml(badgeLabel) + '</div>' : '') +
           '<a href="' + safeUrl(link) + '">' +
             '<figure class="image' + (hasHoverImage ? " has-hover-image" : "") + '">' +
-              '<img alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" loading="lazy">' +
-              (hasHoverImage ? '<img alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc2) + '" loading="lazy">' : '') +
+              '<img class="vtx-product-img vtx-product-img-primary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal) + '" loading="lazy">' +
+              (hasHoverImage ? '<img class="vtx-product-img vtx-product-img-secondary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc2) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal2) + '" loading="lazy">' : '') +
             "</figure>" +
           "</a>" +
         "</div>" +
@@ -492,12 +494,18 @@
     );
   }
 
-  function cleanUrl(url) {
+  function normalizeUrl(url) {
     if (!url) return "";
     var u = url;
     if (u && u.indexOf("//") === 0) u = "https:" + u;
+    return u;
+  }
+
+  function cleanUrl(url) {
+    var u = normalizeUrl(url);
+    if (!u) return "";
     if (u.indexOf("cdn.vnda.com.br") !== -1) {
-      u = u.replace(/cdn\.vnda\.com\.br\/(\d+x\/)?/, "cdn.vnda.com.br/800x/");
+      u = u.replace(/cdn\.vnda\.com\.br\/(?:(?:\d+x(?:\d+)?|x\d+)\/)?/, "cdn.vnda.com.br/800x/");
     }
     return u;
   }
@@ -551,7 +559,8 @@
           },
           breakpoints: {
             660: { slidesPerView: 2, spaceBetween: 15 },
-            1030: { slidesPerView: 4, spaceBetween: 20 },
+            1030: { slidesPerView: 3, spaceBetween: 22 },
+            1280: { slidesPerView: 3.4, spaceBetween: 24 },
           },
         });
         console.log("[Shelves] Swiper initialized");
@@ -579,7 +588,7 @@
 
   function injectStyles() {
     var css =
-      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1202px; padding: 0 15px; box-sizing: border-box; }" +
+      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1320px; padding: 0 15px; box-sizing: border-box; }" +
       ".vtx-shelf .header { text-align: center; margin-bottom: 24px; position: relative; }" +
       ".vtx-shelf .header .title { font-size: 24px; font-weight: 900; color: #000; text-transform: uppercase; letter-spacing: 1px; margin: 0; }" +
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
@@ -610,7 +619,7 @@
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
       ".vtx-skel-title { width: 200px; height: 24px; background: #eee; border-radius: 4px; margin: 0 auto 24px; }" +
-      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 2 / 3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
+      ".vtx-skel-card { flex: 0 0 31%; aspect-ratio: 2 / 3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
       "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
@@ -625,11 +634,36 @@
     document.head.appendChild(style);
   }
 
+  function attachImageFallbacks(container) {
+    var imgs = container.querySelectorAll(".vtx-product-img");
+    for (var i = 0; i < imgs.length; i++) {
+      (function (img) {
+        if (img.getAttribute("data-vtx-fallback-bound") === "1") return;
+        img.setAttribute("data-vtx-fallback-bound", "1");
+        img.addEventListener("error", function () {
+          var fallback = img.getAttribute("data-vtx-fallback-src") || "";
+          if (fallback && img.src !== fallback && img.getAttribute("data-vtx-used-fallback") !== "1") {
+            img.setAttribute("data-vtx-used-fallback", "1");
+            img.src = fallback;
+            return;
+          }
+
+          if (img.classList.contains("vtx-product-img-secondary")) {
+            var figure = img.closest(".image");
+            if (figure) figure.classList.remove("has-hover-image");
+            img.remove();
+          }
+        });
+      })(imgs[i]);
+    }
+  }
+
   // --- Main ---
 
   function renderShelf(shelf, products, anchor) {
     var html = buildShelfHTML(shelf, products);
     anchor.innerHTML = html;
+    attachImageFallbacks(anchor);
 
     // Init Swiper carousel
     initSwiper(anchor);
