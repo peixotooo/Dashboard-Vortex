@@ -74,6 +74,74 @@ function normalizeProductName(name: string): string {
     .trim();
 }
 
+function getHtmlAttr(tag: string, attr: string): string | null {
+  const match = tag.match(new RegExp(`${attr}=["']([^"']+)["']`, "i"));
+  return match ? match[1] : null;
+}
+
+function imageKey(url: string | null): string {
+  if (!url) return "";
+  return url
+    .replace(/^https?:\/\//, "//")
+    .replace(/\/\/cdn\.vnda\.com\.br\/\d+x\//, "//cdn.vnda.com.br/")
+    .split("?")[0];
+}
+
+function normalizeImageUrl(url: string): string {
+  return url.startsWith("//") ? `https:${url}` : url;
+}
+
+function extractHoverImageFromProductHtml(
+  html: string,
+  productName: string,
+  primaryImage: string | null
+): string | null {
+  const targetName = normalizeProductName(productName);
+  const primaryKey = imageKey(primaryImage);
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const tags = html.match(/<img\b[^>]*>/gi) || [];
+
+  for (const tag of tags) {
+    const alt = getHtmlAttr(tag, "alt");
+    if (alt && normalizeProductName(alt) !== targetName) continue;
+
+    const src = getHtmlAttr(tag, "data-src") || getHtmlAttr(tag, "src");
+    if (!src || !src.includes("cdn.vnda.com.br") || src.includes(".svg")) continue;
+
+    const normalized = normalizeImageUrl(src);
+    const key = imageKey(normalized);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    candidates.push(normalized);
+  }
+
+  return candidates.find((url) => imageKey(url) !== primaryKey) || null;
+}
+
+async function fetchProductHoverImage(product: ShelfProduct): Promise<string | null> {
+  if (!product.product_url) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  try {
+    const res = await fetch(product.product_url, {
+      headers: { "User-Agent": "Mozilla/5.0 VortexShelves/1.0" },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+
+    const html = await res.text();
+    return extractHoverImageFromProductHtml(html, product.name, product.image_url);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function withCatalogImages(
   workspaceId: string,
   products: ShelfProduct[]
@@ -90,22 +158,22 @@ async function withCatalogImages(
     .eq("workspace_id", workspaceId)
     .in("product_id", ids);
 
-  if (error || !data || data.length === 0) return products;
+  const rows = error || !data ? [] : data;
 
-  const byId = new Map<string, typeof data[number]>();
-  const byName = new Map<string, typeof data[number]>();
-  for (const row of data) {
+  const byId = new Map<string, typeof rows[number]>();
+  const byName = new Map<string, typeof rows[number]>();
+  for (const row of rows) {
     byId.set(String(row.product_id), row);
     if (row.name) byName.set(normalizeProductName(String(row.name)), row);
   }
 
-  return products.map((product) => {
+  const enriched = products.map((product) => {
     const row = byId.get(product.product_id) || byName.get(normalizeProductName(product.name));
     if (!row) return product;
 
     const primaryImage = product.image_url || row.image_url || null;
     const hoverImage =
-      row.image_url_2 && row.image_url_2 !== primaryImage
+      row.image_url_2 && imageKey(row.image_url_2) !== imageKey(primaryImage)
         ? row.image_url_2
         : product.image_url_2;
 
@@ -115,6 +183,37 @@ async function withCatalogImages(
       image_url_2: hoverImage || null,
       product_url: product.product_url || row.product_url || null,
     };
+  });
+
+  const missingHover = enriched
+    .filter((product) => !product.image_url_2 && product.product_url)
+    .slice(0, 16);
+
+  if (missingHover.length === 0) return enriched;
+
+  const resolved = await Promise.all(
+    missingHover.map(async (product) => ({
+      product,
+      imageUrl2: await fetchProductHoverImage(product),
+    }))
+  );
+
+  const hoverById = new Map<string, string>();
+  for (const item of resolved) {
+    if (!item.imageUrl2) continue;
+    hoverById.set(item.product.product_id, item.imageUrl2);
+    await admin
+      .from("shelf_products")
+      .update({ image_url_2: item.imageUrl2 })
+      .eq("workspace_id", workspaceId)
+      .eq("product_id", item.product.product_id);
+  }
+
+  if (hoverById.size === 0) return enriched;
+
+  return enriched.map((product) => {
+    const imageUrl2 = hoverById.get(product.product_id);
+    return imageUrl2 ? { ...product, image_url_2: imageUrl2 } : product;
   });
 }
 
