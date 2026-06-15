@@ -588,7 +588,8 @@
 
   function injectStyles() {
     var css =
-      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: 100%; max-width: 1320px; padding: 0 15px; box-sizing: border-box; }" +
+      ".vtx-shelf-container { width: 100%; max-width: none; }" +
+      ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: calc(100% - clamp(24px, 3vw, 56px)); max-width: 1680px; padding: 0; box-sizing: border-box; }" +
       ".vtx-shelf .header { text-align: center; margin-bottom: 24px; position: relative; }" +
       ".vtx-shelf .header .title { font-size: 24px; font-weight: 900; color: #000; text-transform: uppercase; letter-spacing: 1px; margin: 0; }" +
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
@@ -596,11 +597,9 @@
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
       ".vtx-shelf .images .image { margin: 0; aspect-ratio: 2 / 3; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
-      ".vtx-shelf .images .image.has-hover-image img:nth-child(2) { opacity: 0; }" +
-      "@media (hover: hover) and (pointer: fine) {" +
-        ".vtx-shelf .images:hover .image.has-hover-image img:nth-child(1) { opacity: 0; }" +
-        ".vtx-shelf .images:hover .image.has-hover-image img:nth-child(2) { opacity: 1; }" +
-      "}" +
+      ".vtx-shelf .images .image.has-hover-image .vtx-product-img-secondary { opacity: 0 !important; }" +
+      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-primary, .vtx-shelf .image.has-hover-image.vtx-hovering .vtx-product-img-primary { opacity: 0 !important; }" +
+      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-secondary, .vtx-shelf .image.has-hover-image.vtx-hovering .vtx-product-img-secondary { opacity: 1 !important; }" +
       ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
       ".vtx-discount-circle { position: absolute; bottom: 10px; left: 10px; background: #ff0000; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; z-index: 10; }" +
       ".vtx-shelf .description { text-align: left; }" +
@@ -622,6 +621,7 @@
       ".vtx-skel-card { flex: 0 0 31%; aspect-ratio: 2 / 3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
       "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
       "@media (max-width: 768px) {" +
+        ".vtx-shelf { width: 100%; padding: 0 15px; }" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
         ".vtx-shelf .images .image { aspect-ratio: 9 / 16; }" +
         ".vtx-price-main { font-size: 18px; }" +
@@ -658,12 +658,33 @@
     }
   }
 
+  function attachProductImageHover(container) {
+    var figures = container.querySelectorAll(".image.has-hover-image");
+    for (var i = 0; i < figures.length; i++) {
+      (function (figure) {
+        if (figure.getAttribute("data-vtx-hover-bound") === "1") return;
+        figure.setAttribute("data-vtx-hover-bound", "1");
+
+        function on() { figure.classList.add("vtx-hovering"); }
+        function off() { figure.classList.remove("vtx-hovering"); }
+
+        figure.addEventListener("mouseenter", on);
+        figure.addEventListener("mouseleave", off);
+        figure.addEventListener("pointerenter", on);
+        figure.addEventListener("pointerleave", off);
+        figure.addEventListener("focusin", on);
+        figure.addEventListener("focusout", off);
+      })(figures[i]);
+    }
+  }
+
   // --- Main ---
 
   function renderShelf(shelf, products, anchor) {
     var html = buildShelfHTML(shelf, products);
     anchor.innerHTML = html;
     attachImageFallbacks(anchor);
+    attachProductImageHover(anchor);
 
     // Init Swiper carousel
     initSwiper(anchor);
