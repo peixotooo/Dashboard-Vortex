@@ -4107,16 +4107,18 @@
       return;
     }
 
-    var url = API_BASE + "/api/reviews/store-highlights?key=" + encodeURIComponent(API_KEY) + "&limit=12";
+    var rotationSeed = Math.floor(Date.now() / 300000) + "-" + Math.floor(Math.random() * 1000000).toString(36);
+    var url = API_BASE + "/api/reviews/store-highlights?key=" + encodeURIComponent(API_KEY) + "&limit=12&seed=" + encodeURIComponent(rotationSeed);
     fetchWithTimeout(fetchJSON(url), 5000).then(function (data) {
-      if (!data || data.enabled === false || !data.reviews || !data.reviews.length) return;
+      var reviews = data && data.reviews ? shuffle(data.reviews) : [];
+      if (!data || data.enabled === false || !reviews.length) return;
 
       var color = (data.settings && (data.settings.star_color || data.settings.accent_color)) || "#e6b800";
       var anchor = srvFindHomeAnchor();
       if (!anchor || !anchor.el) return;
 
       srvInjectStyles();
-      var positiveCount = data.summary && data.summary.total_positive ? data.summary.total_positive : data.reviews.length;
+      var positiveCount = data.summary && data.summary.total_positive ? data.summary.total_positive : reviews.length;
       var positiveScore = srvScore(data.summary);
       var positiveRating = Number(positiveScore) || 4.7;
       anchor.el.innerHTML =
@@ -4132,7 +4134,7 @@
             "</div>" +
           "</div>" +
           '<div class="vtx-srv-shell">' +
-            '<div class="vtx-srv-track">' + data.reviews.map(function (r) { return srvCard(r, color); }).join("") + "</div>" +
+            '<div class="vtx-srv-track">' + reviews.map(function (r) { return srvCard(r, color); }).join("") + "</div>" +
             '<div class="vtx-srv-nav">' +
               '<button class="vtx-srv-btn" type="button" data-vtx-srv-prev aria-label="Avaliação anterior">‹</button>' +
               '<button class="vtx-srv-btn" type="button" data-vtx-srv-next aria-label="Próxima avaliação">›</button>' +
@@ -4164,7 +4166,7 @@
         autoplayTimer = null;
       }
       function startAutoplay() {
-        if (!track || data.reviews.length < 2 || track.scrollWidth <= track.clientWidth + 12) return;
+        if (!track || reviews.length < 2 || track.scrollWidth <= track.clientWidth + 12) return;
         if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
         stopAutoplay();
         autoplayTimer = setInterval(function () {

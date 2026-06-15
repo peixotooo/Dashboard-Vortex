@@ -17,6 +17,7 @@ const CACHE_HEADERS = {
 };
 
 type StoreReviewHighlightRow = {
+  id: string;
   rating: number | string | null;
   comment: string | null;
   author_name: string | null;
@@ -50,11 +51,42 @@ function isGoodHomeHighlight(body: string): boolean {
   return !/\b(demorad[ao]?|atrasad[ao]?|atraso|falta|faltou|defeito|encolheu|problema|ruim|p[eé]ssim[ao]|por[eé]m|esticad[ao]?|poderia|mas|cr[ií]tica|esgotad[oa]|pequen[ao]|apertad[ao]|larg[ao])\b|\bmuito\s+grand[ea]\b/i.test(body);
 }
 
+function hashSeed(seed: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandom(seed: string): () => number {
+  let state = hashSeed(seed) || 1;
+  return () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWithSeed<T>(items: T[], seed: string): T[] {
+  const random = seededRandom(seed);
+  const shuffled = items.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
   const requestedLimit = Number(searchParams.get("limit")) || 12;
   const limit = Math.max(4, Math.min(requestedLimit, 16));
+  const seed = searchParams.get("seed") || `${Math.floor(Date.now() / 120_000)}`;
 
   const auth = await validateApiKey(key);
   if (!auth) {
@@ -70,9 +102,9 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const fetchLimit = Math.min(limit * 6, 80);
+  const windowSize = Math.min(Math.max(limit * 5, 48), 120);
 
-  const [totalPublished, totalPositive, totalFiveStar, reviewsResult] = await Promise.all([
+  const [totalPublished, totalPositive, totalFiveStar, eligibleReviews] = await Promise.all([
     admin
       .from("store_reviews")
       .select("*", { count: "exact", head: true })
@@ -92,13 +124,11 @@ export async function GET(request: NextRequest) {
       .eq("rating", 5),
     admin
       .from("store_reviews")
-      .select("rating, comment, author_name, created_at")
+      .select("*", { count: "exact", head: true })
       .eq("workspace_id", auth.workspaceId)
       .eq("status", "published")
       .gte("rating", 4)
       .not("comment", "is", null)
-      .order("created_at", { ascending: false, nullsFirst: false })
-      .limit(fetchLimit),
   ]);
 
   if (totalPublished.error) {
@@ -110,17 +140,52 @@ export async function GET(request: NextRequest) {
   if (totalFiveStar.error) {
     return NextResponse.json({ error: totalFiveStar.error.message }, { status: 500, headers: CORS_HEADERS });
   }
-  if (reviewsResult.error) {
-    return NextResponse.json({ error: reviewsResult.error.message }, { status: 500, headers: CORS_HEADERS });
+  if (eligibleReviews.error) {
+    return NextResponse.json({ error: eligibleReviews.error.message }, { status: 500, headers: CORS_HEADERS });
   }
 
   const positiveCount = totalPositive.count ?? 0;
   const fiveStarCount = totalFiveStar.count ?? 0;
+  const eligibleCount = eligibleReviews.count ?? 0;
   const positiveRatingAverage = positiveCount > 0
     ? Number((((fiveStarCount * 5) + ((positiveCount - fiveStarCount) * 4)) / positiveCount).toFixed(1))
     : 4.7;
 
-  const reviews = ((reviewsResult.data || []) as StoreReviewHighlightRow[])
+  const random = seededRandom(`${auth.workspaceId}:${seed}`);
+  const maxOffset = Math.max(0, eligibleCount - windowSize);
+  const offsets = new Set<number>();
+  if (eligibleCount > 0) {
+    offsets.add(0);
+    while (offsets.size < 3 && maxOffset > 0) {
+      offsets.add(Math.floor(random() * (maxOffset + 1)));
+    }
+  }
+
+  const seen = new Set<string>();
+  const candidates: StoreReviewHighlightRow[] = [];
+  for (const offset of offsets) {
+    const { data, error } = await admin
+      .from("store_reviews")
+      .select("id, rating, comment, author_name, created_at")
+      .eq("workspace_id", auth.workspaceId)
+      .eq("status", "published")
+      .gte("rating", 4)
+      .not("comment", "is", null)
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .range(offset, offset + windowSize - 1);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500, headers: CORS_HEADERS });
+    }
+
+    for (const row of (data || []) as StoreReviewHighlightRow[]) {
+      if (!row.id || seen.has(row.id)) continue;
+      seen.add(row.id);
+      candidates.push(row);
+    }
+  }
+
+  const reviews = shuffleWithSeed(candidates, `${seed}:display`)
     .map((review) => ({
       rating: Number(review.rating) || 5,
       body: truncate(cleanComment(review.comment)),
@@ -143,6 +208,10 @@ export async function GET(request: NextRequest) {
       settings: {
         star_color: settings.star_color,
         accent_color: settings.accent_color,
+      },
+      rotation: {
+        seed,
+        eligible_count: eligibleCount,
       },
     },
     { headers: CACHE_HEADERS }
