@@ -157,16 +157,15 @@ function renderBlockInner(b: BlockNode, mode: "light" | "dark"): string {
 </td></tr>`;
     }
     case "image": {
-      // Locked 3:4 frame, same treatment as the hero — keeps the layout
-      // stable regardless of source aspect ratio.
+      // Plain image with width/height attrs. Gmail/Outlook break the old
+      // padding-top + position:absolute ratio hack in real inboxes.
       const bg = mode === "dark" ? DARK.surfaceAlt : TOKENS.bgAlt;
-      const img = `<img src="${escapeHtml(b.image_url)}" alt="${escapeHtml(b.alt)}" width="600" height="800" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;" />`;
-      const inner = `<div style="position:relative;width:100%;max-width:600px;padding-top:133.33%;margin:0 auto;background:${bg};overflow:hidden;">${img}</div>`;
+      const img = `<img class="vtx-email-fluid" src="${escapeHtml(b.image_url)}" alt="${escapeHtml(b.alt)}" width="600" height="800" style="display:block;width:100%;max-width:600px;height:auto;margin:0 auto;background:${bg};" />`;
       const wrapped = b.href
-        ? `<a href="${escapeHtml(b.href)}" target="_blank" style="text-decoration:none;">${inner}</a>`
-        : inner;
+        ? `<a href="${escapeHtml(b.href)}" target="_blank" style="text-decoration:none;display:block;">${img}</a>`
+        : img;
       return `
-<tr><td style="padding:0;">${wrapped}</td></tr>`;
+<tr><td style="padding:0;background:${bg};">${wrapped}</td></tr>`;
     }
   }
 }

@@ -10,6 +10,7 @@ import { prepareSlowmovingCoupon } from "./coupon";
 import { buildCountdownUrl } from "./countdown";
 import { pickLayout } from "./layouts";
 import { ensureHero } from "./hero/generate";
+import { sanitizeEmailHtml } from "./tracking";
 import type { Slot, ProductSnapshot, EmailTemplateSettings, TemplateRenderContext } from "./types";
 
 interface SlotResult {
@@ -178,7 +179,7 @@ async function persistSuggestion(args: {
 
   let rendered_html: string;
   try {
-    rendered_html = layout.render({
+    rendered_html = sanitizeEmailHtml(layout.render({
       slot,
       product,
       related_products: related_products ?? [],
@@ -194,7 +195,7 @@ async function persistSuggestion(args: {
       workspace: { name: "Bulking" },
       hook,
       hero_url,
-    });
+    }));
   } catch (err) {
     const msg = String((err as Error).message);
     console.error(`[email-templates/orchestrator] slot ${slot} render_failed:`, msg, (err as Error).stack);

@@ -159,7 +159,7 @@ export function darkOpen(args: { subject: string; preview: string }): string {
 <![endif]-->
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <style>
-  /* Same dual-load strategy as htmlOpen — see comment there. */
+  /* Same dual-load strategy as htmlOpen. See comment there. */
   @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap');
   html, body { margin:0 !important; padding:0 !important; background:${DARK.bg}; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
   body { width:100% !important; min-width:100% !important; mso-line-height-rule:exactly; }

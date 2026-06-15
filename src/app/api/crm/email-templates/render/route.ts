@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { LAYOUTS } from "@/lib/email-templates/layouts";
+import { sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import type { LayoutId } from "@/lib/email-templates/layouts/types";
 import type { Slot, TemplateRenderContext, ProductSnapshot } from "@/lib/email-templates/types";
 
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
         : undefined,
     };
 
-    const html = layout.render(ctx);
+    const html = sanitizeEmailHtml(layout.render(ctx));
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);

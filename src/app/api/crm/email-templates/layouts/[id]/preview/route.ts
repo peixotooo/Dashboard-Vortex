@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { LAYOUTS } from "@/lib/email-templates/layouts";
+import { sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 import type { LayoutId } from "@/lib/email-templates/layouts/types";
 import { buildPreviewContext } from "@/lib/email-templates/preview-fixture";
 import { ensureHero } from "@/lib/email-templates/hero/generate";
@@ -104,7 +105,7 @@ export async function GET(
       }
     }
 
-    const html = layout.render(ctx);
+    const html = sanitizeEmailHtml(layout.render(ctx));
     return NextResponse.json({
       id: layout.id,
       slot,

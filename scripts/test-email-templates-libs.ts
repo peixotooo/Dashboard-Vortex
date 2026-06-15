@@ -16,7 +16,10 @@ import {
   buildCountdownUrl,
 } from "../src/lib/email-templates/countdown";
 import { LAYOUTS, LAYOUT_IDS, pickLayout } from "../src/lib/email-templates/layouts";
+import { sanitizeEmailHtml } from "../src/lib/email-templates/tracking";
+import { renderDraft } from "../src/lib/email-templates/editor/render";
 import type { TemplateRenderContext, Slot } from "../src/lib/email-templates/types";
+import type { Draft } from "../src/lib/email-templates/editor/schema";
 
 process.env.EMAIL_COUNTDOWN_SECRET = process.env.EMAIL_COUNTDOWN_SECRET || "test-secret";
 
@@ -26,6 +29,31 @@ function assert(cond: boolean, msg: string) {
     process.exit(1);
   }
   console.log(`  ✓ ${msg}`);
+}
+
+const PERCENT_WIDTH = String.raw`(?:[1-9](?:\.\d+)?|[1-9]\d(?:\.\d+)?)%`;
+
+function assertResponsiveSendHtml(html: string, label: string) {
+  assert(
+    html.includes("Vortex responsive email safety v2"),
+    `${label}: responsive safety css v2 present`
+  );
+  assert(!/position\s*:\s*absolute/i.test(html), `${label}: no absolute-position image hack`);
+  assert(!/padding-top\s*:\s*\d+(?:\.\d+)?%/i.test(html), `${label}: no padding-top ratio hack`);
+
+  const images = html.match(/<img\b[^>]*>/gi) ?? [];
+  for (const img of images) {
+    assert(/\bvtx-email-fluid\b/.test(img), `${label}: image has fluid class`);
+  }
+
+  const cellRe = new RegExp(
+    `<(?:td|th)\\b(?=[^>]*(?:\\bwidth=(["'])${PERCENT_WIDTH}\\1|\\bstyle=(["'])[^"']*\\bwidth\\s*:\\s*${PERCENT_WIDTH}[^"']*\\2))[^>]*>`,
+    "gi"
+  );
+  const percentCells = html.match(cellRe) ?? [];
+  for (const cell of percentCells) {
+    assert(/\bvtx-email-stack\b/.test(cell), `${label}: percent-width cell stacks on mobile`);
+  }
 }
 
 console.log("[countdown] sign + verify roundtrip");
@@ -86,6 +114,7 @@ for (const id of LAYOUT_IDS) {
     assert(!/—/.test(html), `${id} slot ${slot}: no em-dashes`);
     assert(!/49E472/i.test(html), `${id} slot ${slot}: no green accent`);
     assert(!/font-weight:(700|800)/.test(html), `${id} slot ${slot}: no font-weight 700/800`);
+    assertResponsiveSendHtml(sanitizeEmailHtml(html), `${id} slot ${slot}`);
     // Layouts that render a coupon block (currently `classic`) must surface
     // the coupon code under slot 2. Other layouts are free to omit it; the
     // coupon is still part of ctx for future use.
@@ -95,11 +124,42 @@ for (const id of LAYOUT_IDS) {
   }
 }
 
-console.log("\n[picker] pickLayout is deterministic");
-const a = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
-const b = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
-assert(a.id === b.id, "same triple picks same layout");
-const c = await pickLayout({ workspace_id: "ws-1", date: "2026-05-02", slot: 1 });
-assert(c.id !== a.id || LAYOUT_IDS.length === 1, "different date can pick different layout");
+console.log("\n[editor] block renderer avoids real-inbox image hacks");
+const imageDraft: Draft = {
+  id: "draft-img",
+  workspace_id: "ws-1",
+  name: "Image draft",
+  meta: {
+    subject: "Imagem",
+    preview: "Preview",
+    mode: "light",
+  },
+  blocks: [
+    {
+      id: "img-1",
+      type: "image",
+      image_url: "https://cdn.example.com/editor-image.jpg",
+      alt: "Imagem editorial",
+      href: "https://www.bulking.com.br/produto/x",
+    },
+  ],
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+assertResponsiveSendHtml(sanitizeEmailHtml(renderDraft(imageDraft)), "editor image block");
 
-console.log("\n✅ ALL SMOKE TESTS PASSED");
+async function runPickerSmoke() {
+  console.log("\n[picker] pickLayout is deterministic");
+  const a = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+  const b = await pickLayout({ workspace_id: "ws-1", date: "2026-05-01", slot: 1 });
+  assert(a.id === b.id, "same triple picks same layout");
+  const c = await pickLayout({ workspace_id: "ws-1", date: "2026-05-02", slot: 1 });
+  assert(c.id !== a.id || LAYOUT_IDS.length === 1, "different date can pick different layout");
+
+  console.log("\n✅ ALL SMOKE TESTS PASSED");
+}
+
+runPickerSmoke().catch((err) => {
+  console.error("✗ picker smoke failed:", err);
+  process.exit(1);
+});
