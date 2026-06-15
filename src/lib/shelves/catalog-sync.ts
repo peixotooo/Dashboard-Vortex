@@ -1,5 +1,11 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { decrypt } from "@/lib/encryption";
+import {
+  normalizeShelfImageUrl,
+  pickShelfImages,
+  shelfImageKey,
+  type VndaCatalogImage,
+} from "@/lib/shelves/image-utils";
 
 // --- Types ---
 
@@ -28,7 +34,9 @@ interface VndaProduct {
   }>;
   images?: Array<{
     url: string;
-    position: number;
+    position?: number | null;
+    id?: number | null;
+    updated_at?: string | null;
   }>;
   created_at?: string;
   updated_at?: string;
@@ -38,6 +46,11 @@ interface SyncResult {
   synced: number;
   errors: number;
   total: number;
+}
+
+interface ExistingShelfImages {
+  image_url: string | null;
+  image_url_2: string | null;
 }
 
 // --- Get VNDA config using admin client (no cookies needed) ---
@@ -120,6 +133,141 @@ async function fetchAllVndaProducts(
   return allProducts;
 }
 
+async function fetchVndaProductImages(
+  apiToken: string,
+  storeHost: string,
+  productId: number | string
+): Promise<VndaCatalogImage[]> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const res = await fetch(
+        `https://api.vnda.com.br/api/v2/products/${encodeURIComponent(String(productId))}/images`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            Accept: "application/json",
+            "X-Shop-Host": storeHost,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      if (res.status === 429) {
+        await sleep(1500 * (attempt + 1));
+        continue;
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.warn(
+          `[CatalogSync] Images API ${res.status} product ${productId}: ${text.slice(0, 120)}`
+        );
+        return [];
+      }
+
+      const data = (await res.json()) as unknown;
+      return Array.isArray(data) ? (data as VndaCatalogImage[]) : [];
+    } catch (err) {
+      console.warn(
+        `[CatalogSync] Images API failed product ${productId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      await sleep(600 * (attempt + 1));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  console.warn(`[CatalogSync] Images API rate-limited product ${productId}`);
+  return [];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasDistinctHoverImage(primaryImage: string | null | undefined, hoverImage: string | null | undefined): boolean {
+  return !!hoverImage && shelfImageKey(hoverImage) !== shelfImageKey(primaryImage);
+}
+
+function shouldFetchGalleryImages(product: VndaProduct, existing?: ExistingShelfImages): boolean {
+  if (product.available === false) return false;
+  const primaryImage = product.image_url || existing?.image_url || null;
+  if (hasDistinctHoverImage(primaryImage, existing?.image_url_2)) return false;
+  const picked = pickShelfImages({
+    primaryImage,
+    images: product.images || [],
+  });
+  if (hasDistinctHoverImage(picked.imageUrl, picked.imageUrl2)) return false;
+  return true;
+}
+
+async function loadExistingImages(
+  workspaceId: string,
+  productIds: string[]
+): Promise<Map<string, ExistingShelfImages>> {
+  if (productIds.length === 0) return new Map();
+
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("shelf_products")
+    .select("product_id, image_url, image_url_2")
+    .eq("workspace_id", workspaceId)
+    .in("product_id", productIds);
+
+  const map = new Map<string, ExistingShelfImages>();
+  for (const row of data ?? []) {
+    map.set(String(row.product_id), {
+      image_url: (row.image_url as string | null) ?? null,
+      image_url_2: (row.image_url_2 as string | null) ?? null,
+    });
+  }
+  return map;
+}
+
+async function mapProductsWithImages(
+  products: VndaProduct[],
+  workspaceId: string,
+  config: { apiToken: string; storeHost: string },
+  concurrency = 3
+) {
+  const rows: ReturnType<typeof mapVndaProduct>[] = new Array(products.length);
+  const existingById = await loadExistingImages(
+    workspaceId,
+    products.map((product) => String(product.id))
+  );
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < products.length) {
+      const index = cursor++;
+      const product = products[index];
+      const existing = existingById.get(String(product.id));
+      const galleryImages = shouldFetchGalleryImages(product, existing)
+        ? await fetchVndaProductImages(config.apiToken, config.storeHost, product.id)
+        : product.images;
+      rows[index] = mapVndaProduct(
+        product,
+        workspaceId,
+        config.storeHost,
+        galleryImages,
+        existing?.image_url_2
+      );
+      if (galleryImages && galleryImages.length > 0) await sleep(120);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, products.length) }, () => worker())
+  );
+
+  return rows;
+}
+
 // --- Main sync function ---
 
 export async function syncCatalog(workspaceId: string): Promise<SyncResult> {
@@ -154,7 +302,7 @@ export async function syncCatalog(workspaceId: string): Promise<SyncResult> {
     const batchSize = 50;
     for (let i = 0; i < vndaProducts.length; i += batchSize) {
       const batch = vndaProducts.slice(i, i + batchSize);
-      const rows = batch.map((p) => mapVndaProduct(p, workspaceId, config.storeHost));
+      const rows = await mapProductsWithImages(batch, workspaceId, config);
 
       const { error } = await admin.from("shelf_products").upsert(rows, {
         onConflict: "workspace_id,product_id",
@@ -204,7 +352,19 @@ export async function syncSingleProduct(
   storeHost: string
 ): Promise<void> {
   const admin = createAdminClient();
-  const row = mapVndaProduct(productData, workspaceId, storeHost);
+  const existingById = await loadExistingImages(workspaceId, [String(productData.id)]);
+  const existing = existingById.get(String(productData.id));
+  const config = await getVndaConfigAdmin(workspaceId);
+  const galleryImages = config && shouldFetchGalleryImages(productData, existing)
+    ? await fetchVndaProductImages(config.apiToken, config.storeHost || storeHost, productData.id)
+    : productData.images;
+  const row = mapVndaProduct(
+    productData,
+    workspaceId,
+    storeHost,
+    galleryImages,
+    existing?.image_url_2
+  );
 
   await admin.from("shelf_products").upsert(row, {
     onConflict: "workspace_id,product_id",
@@ -217,15 +377,17 @@ export async function syncSingleProduct(
 function mapVndaProduct(
   p: VndaProduct,
   workspaceId: string,
-  storeHost: string
+  storeHost: string,
+  galleryImages?: VndaCatalogImage[],
+  existingImageUrl2?: string | null
 ) {
-  // Get images sorted by position
-  const sortedImages = (p.images || []).sort(
-    (a, b) => a.position - b.position
-  );
-
-  const imageUrl = sortedImages[0]?.url || p.image_url || null;
-  const imageUrl2 = sortedImages[1]?.url || null;
+  const { imageUrl, imageUrl2 } = pickShelfImages({
+    primaryImage: p.image_url,
+    images: galleryImages || p.images || [],
+  });
+  const existingHover = hasDistinctHoverImage(imageUrl, existingImageUrl2)
+    ? normalizeShelfImageUrl(existingImageUrl2)
+    : null;
 
   // Determine stock status from variants
   const hasStock =
@@ -256,7 +418,7 @@ function mapVndaProduct(
     price: p.price,
     sale_price: p.on_sale && p.sale_price ? p.sale_price : null,
     image_url: imageUrl,
-    image_url_2: imageUrl2,
+    image_url_2: imageUrl2 || existingHover,
     product_url: `https://${storeHost}/produto/${p.slug}`,
     active: p.available !== false,
     in_stock: hasStock,
