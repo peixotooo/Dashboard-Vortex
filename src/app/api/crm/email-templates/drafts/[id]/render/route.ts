@@ -142,6 +142,7 @@ export async function POST(
       };
       html = renderDraft(draft, { editorMode });
     }
+    html = sanitizeEmailHtml(html);
     return NextResponse.json({ html });
   } catch (err) {
     return handleAuthError(err);

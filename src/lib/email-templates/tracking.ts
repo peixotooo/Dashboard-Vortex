@@ -36,15 +36,16 @@ const DEFAULT_TRACKED_HOSTS = [
  *  passar `home_url` na call de wrapUnlinkedImages. */
 const DEFAULT_HOME_URL = "https://www.bulking.com.br";
 
-const RESPONSIVE_EMAIL_SENTINEL = "Vortex responsive email safety";
+const RESPONSIVE_EMAIL_SENTINEL = "Vortex responsive email safety v2";
 
 export const RESPONSIVE_EMAIL_CSS = `
   /* ${RESPONSIVE_EMAIL_SENTINEL} */
-  .vtx-email-container { max-width: 600px; }
+  .vtx-email-container { width: 100%; max-width: 600px; }
   .vtx-email-fluid { max-width: 100%; height: auto; }
+  .vtx-email-button { box-sizing: border-box; }
   @media only screen and (max-width: 599px) {
     body { width: 100% !important; min-width: 100% !important; margin: 0 !important; padding: 0 !important; }
-    .vtx-email-container, .container { width: 100% !important; max-width: 100% !important; }
+    .vtx-email-container, .container { width: 100% !important; max-width: 100% !important; min-width: 0 !important; }
     .vtx-email-mobile-pad, .pad, .pad-l, .pad-xl { padding-left: 24px !important; padding-right: 24px !important; }
     .vtx-email-stack, .vtx-email-grid-cell, .related-cell {
       display: block !important;
@@ -52,6 +53,7 @@ export const RESPONSIVE_EMAIL_CSS = `
       max-width: 100% !important;
       box-sizing: border-box !important;
     }
+    .vtx-email-stack table, .vtx-email-grid-cell table { width: 100% !important; }
     .vtx-email-stack, .vtx-email-stack-tight, .vtx-email-grid-cell, .related-cell {
       padding-left: 0 !important;
       padding-right: 0 !important;
@@ -63,7 +65,7 @@ export const RESPONSIVE_EMAIL_CSS = `
     .vtx-email-fluid, img { max-width: 100% !important; height: auto !important; }
     .vtx-email-h1, .h1 { font-size: 30px !important; line-height: 1.15 !important; }
     .vtx-email-lead, .lead { font-size: 15px !important; line-height: 1.65 !important; }
-    .vtx-email-button { max-width: 100% !important; }
+    .vtx-email-button { max-width: 100% !important; box-sizing: border-box !important; white-space: normal !important; text-align: center !important; }
   }
 `.trim();
 
@@ -273,14 +275,15 @@ function addResponsiveEmailClasses(html: string): string {
         /<(td|th)\b(?=[^>]*\bclass=(["'])[^"']*\brelated-cell\b[^"']*\2)[^>]*>/gi,
         (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
       )
-      // React Email multi-column rows compile to table cells with percent
-      // widths. Stack only common campaign grid widths, not arbitrary tables.
+      // Campaign/layout columns use arbitrary percentage widths (42/58,
+      // 46/54, 60/40, etc.). Stack any non-100% percentage cell; 100%
+      // structural cells stay untouched.
       .replace(
-        /<(td|th)\b(?=[^>]*\bstyle=(["'])[^"']*\bwidth\s*:\s*(?:25|33(?:\.\d+)?|50)%[^"']*\2)[^>]*>/gi,
+        /<(td|th)\b(?=[^>]*\bstyle=(["'])[^"']*\bwidth\s*:\s*(?:[1-9](?:\.\d+)?|[1-9]\d(?:\.\d+)?)%[^"']*\2)[^>]*>/gi,
         (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
       )
       .replace(
-        /<(td|th)\b(?=[^>]*\bwidth=(["'])(?:25|33(?:\.\d+)?|50)%\1)[^>]*>/gi,
+        /<(td|th)\b(?=[^>]*\bwidth=(["'])(?:[1-9](?:\.\d+)?|[1-9]\d(?:\.\d+)?)%\1)[^>]*>/gi,
         (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
       )
       .replace(/<img\b[^>]*>/gi, (tag) => addClassesToTag(tag, ["vtx-email-fluid"]))
