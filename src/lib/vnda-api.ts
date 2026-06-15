@@ -99,6 +99,7 @@ export interface VndaSearchProduct {
   on_sale: boolean;
   sale_price: number | null;
   tags: Array<{ name: string; type: string }>;
+  images?: Array<{ url?: string; position?: number | null }>;
 }
 
 // --- Date helpers ---

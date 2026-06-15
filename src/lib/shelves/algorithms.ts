@@ -41,13 +41,22 @@ function mapVndaToShelf(
   p: VndaSearchProduct,
   storeHost: string
 ): ShelfProduct {
+  const images = Array.isArray(p.images)
+    ? p.images
+        .filter((img) => img?.url)
+        .slice()
+        .sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
+    : [];
+  const primaryImage = images[0]?.url || p.image_url || null;
+  const hoverImage = images.find((img) => img.url && img.url !== primaryImage)?.url || null;
+
   return {
     product_id: String(p.id),
     name: p.name,
     price: p.price,
     sale_price: p.sale_price ?? null,
-    image_url: p.image_url || null,
-    image_url_2: null,
+    image_url: primaryImage,
+    image_url_2: hoverImage,
     product_url: p.url?.startsWith("http")
       ? p.url
       : `https://${storeHost}${p.url}`,

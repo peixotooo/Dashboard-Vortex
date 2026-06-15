@@ -459,8 +459,9 @@
         '</div>';
     }
 
-    var imgSrc = product.image_url || "";
-    var imgSrc2 = product.image_url_2 || imgSrc;
+    var imgSrc = cleanUrl(product.image_url || "");
+    var imgSrc2 = cleanUrl(product.image_url_2 || "");
+    var hasHoverImage = !!(imgSrc2 && imgSrc2 !== imgSrc);
     var link = product.product_url || "#";
     
     // Fix link suffix if missing
@@ -477,9 +478,9 @@
         '<div class="images">' +
           (badgeLabel ? '<div class="vtx-badge">' + escapeHtml(badgeLabel) + '</div>' : '') +
           '<a href="' + safeUrl(link) + '">' +
-            '<figure class="image">' +
-              '<img alt="' + escapeHtml(product.name) + '" src="' + cleanUrl(imgSrc) + '" loading="lazy">' +
-              '<img alt="' + escapeHtml(product.name) + '" src="' + cleanUrl(imgSrc2) + '" loading="lazy">' +
+            '<figure class="image' + (hasHoverImage ? " has-hover-image" : "") + '">' +
+              '<img alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" loading="lazy">' +
+              (hasHoverImage ? '<img alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc2) + '" loading="lazy">' : '') +
             "</figure>" +
           "</a>" +
         "</div>" +
@@ -584,11 +585,13 @@
       ".vtx-shelf .header .view-all { display: block; font-size: 12px; color: #666; text-decoration: none; margin-top: 8px; text-transform: lowercase; }" +
       ".vtx-shelf .product-block { position: relative; padding: 0; transition: transform 0.2s; cursor: pointer; text-align: left; }" +
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
-      ".vtx-shelf .images .image { margin: 0; padding-bottom: 177.78%; position: relative; width: 100%; display: block; }" +
+      ".vtx-shelf .images .image { margin: 0; aspect-ratio: 2 / 3; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
-      ".vtx-shelf .images .image img:nth-child(2) { opacity: 0; }" +
-      ".vtx-shelf .product-block:hover .images .image img:nth-child(1) { opacity: 0; }" +
-      ".vtx-shelf .product-block:hover .images .image img:nth-child(2) { opacity: 1; }" +
+      ".vtx-shelf .images .image.has-hover-image img:nth-child(2) { opacity: 0; }" +
+      "@media (hover: hover) and (pointer: fine) {" +
+        ".vtx-shelf .images:hover .image.has-hover-image img:nth-child(1) { opacity: 0; }" +
+        ".vtx-shelf .images:hover .image.has-hover-image img:nth-child(2) { opacity: 1; }" +
+      "}" +
       ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
       ".vtx-discount-circle { position: absolute; bottom: 10px; left: 10px; background: #ff0000; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; z-index: 10; }" +
       ".vtx-shelf .description { text-align: left; }" +
@@ -607,12 +610,13 @@
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
       ".vtx-skel-title { width: 200px; height: 24px; background: #eee; border-radius: 4px; margin: 0 auto 24px; }" +
-      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 9/16; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
+      ".vtx-skel-card { flex: 0 0 23%; aspect-ratio: 2 / 3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
       "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
       "@media (max-width: 768px) {" +
         ".vtx-shelf .header .title { font-size: 18px; }" +
+        ".vtx-shelf .images .image { aspect-ratio: 9 / 16; }" +
         ".vtx-price-main { font-size: 18px; }" +
-        ".vtx-skel-card { flex: 0 0 47%; }" +
+        ".vtx-skel-card { flex: 0 0 47%; aspect-ratio: 9 / 16; }" +
       "}";
 
     var style = document.createElement("style");
