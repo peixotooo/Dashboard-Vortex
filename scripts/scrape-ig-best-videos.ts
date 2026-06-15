@@ -8,6 +8,7 @@
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "../src/lib/encryption";
+import { writeFileSync } from "fs";
 
 config({ path: ".env.local" });
 
@@ -58,9 +59,11 @@ const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
       const t = String(p.type || p.productType || p.mediaType || "").toLowerCase();
       return t.includes("video") || t.includes("reel") || p.videoUrl || p.videoPlayCount != null;
     })
+    .filter((p) => !/black\s*bulking|black\s*friday/i.test(String(p.caption || p.text || ""))) // sem Black Bulking
     .map((p) => ({
       url: p.url || `https://www.instagram.com/p/${p.shortCode || p.code}/`,
       videoUrl: p.videoUrl || p.video_url || "",
+      cover: p.displayUrl || p.imageUrl || "",
       views: n(p.videoPlayCount ?? p.videoViewCount ?? p.playCount ?? p.views),
       likes: n(p.likesCount ?? p.likes),
       comments: n(p.commentsCount ?? p.comments),
@@ -91,4 +94,9 @@ const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
   const withUrl = top.filter((v) => v.videoUrl).length;
   console.log(`\n\n${withUrl}/${top.length} têm URL de vídeo baixável (prontos pra re-upload no TikTok).`);
+
+  // dump pro consumo por create-meta-influencer-campaign.ts (sem credenciais lá)
+  const dump = top.filter((v) => v.videoUrl).map((v) => ({ url: v.url, videoUrl: v.videoUrl, cover: v.cover, views: v.views, caption: v.caption }));
+  writeFileSync("scripts/.ig-top-videos.json", JSON.stringify(dump, null, 2));
+  console.log(`\n💾 ${dump.length} vídeos salvos em scripts/.ig-top-videos.json`);
 })().catch((e) => { console.error("ERRO:", e.message); process.exit(1); });

@@ -8,6 +8,11 @@ import {
   type VndaConfig,
 } from "@/lib/vnda-api";
 import { getGA4Report } from "@/lib/ga4-api";
+import {
+  pickShelfImages,
+  shelfImageKey,
+  type VndaCatalogImage,
+} from "@/lib/shelves/image-utils";
 
 // --- Types ---
 
@@ -41,22 +46,18 @@ function mapVndaToShelf(
   p: VndaSearchProduct,
   storeHost: string
 ): ShelfProduct {
-  const images = Array.isArray(p.images)
-    ? p.images
-        .filter((img) => img?.url)
-        .slice()
-        .sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
-    : [];
-  const primaryImage = images[0]?.url || p.image_url || null;
-  const hoverImage = images.find((img) => img.url && img.url !== primaryImage)?.url || null;
+  const { imageUrl, imageUrl2 } = pickShelfImages({
+    primaryImage: p.image_url,
+    images: Array.isArray(p.images) ? p.images : [],
+  });
 
   return {
     product_id: String(p.id),
     name: p.name,
     price: p.price,
     sale_price: p.sale_price ?? null,
-    image_url: primaryImage,
-    image_url_2: hoverImage,
+    image_url: imageUrl,
+    image_url_2: imageUrl2,
     product_url: p.url?.startsWith("http")
       ? p.url
       : `https://${storeHost}${p.url}`,
@@ -80,11 +81,7 @@ function getHtmlAttr(tag: string, attr: string): string | null {
 }
 
 function imageKey(url: string | null): string {
-  if (!url) return "";
-  return url
-    .replace(/^https?:\/\//, "//")
-    .replace(/\/\/cdn\.vnda\.com\.br\/\d+x\//, "//cdn.vnda.com.br/")
-    .split("?")[0];
+  return shelfImageKey(url);
 }
 
 function normalizeImageUrl(url: string): string {
@@ -120,7 +117,38 @@ function extractHoverImageFromProductHtml(
   return candidates.find((url) => imageKey(url) !== primaryKey) || null;
 }
 
-async function fetchProductHoverImage(product: ShelfProduct): Promise<string | null> {
+async function fetchProductImagesFromVnda(
+  config: VndaConfig | null,
+  productId: string
+): Promise<VndaCatalogImage[]> {
+  if (!config || !productId) return [];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(
+      `https://api.vnda.com.br/api/v2/products/${encodeURIComponent(productId)}/images`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          Accept: "application/json",
+          "X-Shop-Host": config.storeHost,
+        },
+        signal: controller.signal,
+      }
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return Array.isArray(data) ? (data as VndaCatalogImage[]) : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchProductHoverImageFromHtml(product: ShelfProduct): Promise<string | null> {
   if (!product.product_url) return null;
 
   const controller = new AbortController();
@@ -140,6 +168,19 @@ async function fetchProductHoverImage(product: ShelfProduct): Promise<string | n
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchProductHoverImage(
+  config: VndaConfig | null,
+  product: ShelfProduct
+): Promise<string | null> {
+  const images = await fetchProductImagesFromVnda(config, product.product_id);
+  const { imageUrl2 } = pickShelfImages({
+    primaryImage: product.image_url,
+    images,
+  });
+  if (imageUrl2) return imageUrl2;
+  return fetchProductHoverImageFromHtml(product);
 }
 
 async function withCatalogImages(
@@ -172,10 +213,15 @@ async function withCatalogImages(
     if (!row) return product;
 
     const primaryImage = product.image_url || row.image_url || null;
-    const hoverImage =
+    const rowHover =
       row.image_url_2 && imageKey(row.image_url_2) !== imageKey(primaryImage)
         ? row.image_url_2
-        : product.image_url_2;
+        : null;
+    const productHover =
+      product.image_url_2 && imageKey(product.image_url_2) !== imageKey(primaryImage)
+        ? product.image_url_2
+        : null;
+    const hoverImage = rowHover || productHover;
 
     return {
       ...product,
@@ -191,10 +237,17 @@ async function withCatalogImages(
 
   if (missingHover.length === 0) return enriched;
 
+  let config: VndaConfig | null = null;
+  try {
+    config = await getCachedConfig(workspaceId);
+  } catch {
+    config = null;
+  }
+
   const resolved = await Promise.all(
     missingHover.map(async (product) => ({
       product,
-      imageUrl2: await fetchProductHoverImage(product),
+      imageUrl2: await fetchProductHoverImage(config, product),
     }))
   );
 
@@ -561,7 +614,7 @@ async function getPriceRange(
     .sort((a, b) => effective(a) - effective(b))
     .slice(0, params.limit);
 
-  return matched.map((p) => ({
+  const results = matched.map((p) => ({
     product_id: p.product_id,
     name: p.name,
     price: p.price,
@@ -573,6 +626,7 @@ async function getPriceRange(
     tags: p.tags,
     in_stock: p.in_stock,
   }));
+  return withCatalogImages(params.workspaceId, results);
 }
 
 /** LastViewed: Products viewed by consumer, most recent first */
@@ -728,7 +782,7 @@ async function getRelatedProducts(
     return getBestsellers(params);
   }
 
-  return relevant.slice(0, params.limit).map((p) => ({
+  const results = relevant.slice(0, params.limit).map((p) => ({
     product_id: p.product_id,
     name: p.name,
     price: Number(p.price),
@@ -740,4 +794,5 @@ async function getRelatedProducts(
     tags: { vnda_tags: p.tags || [] },
     in_stock: p.in_stock,
   }));
+  return withCatalogImages(params.workspaceId, results);
 }

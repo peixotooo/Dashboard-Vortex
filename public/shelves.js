@@ -463,7 +463,7 @@
     var imgOriginal2 = normalizeUrl(product.image_url_2 || "");
     var imgSrc = cleanUrl(product.image_url || "");
     var imgSrc2 = cleanUrl(product.image_url_2 || "");
-    var hasHoverImage = !!(imgSrc2 && imgSrc2 !== imgSrc);
+    var hasHoverImage = !!(imgSrc2 && imageKey(imgSrc2) !== imageKey(imgSrc));
     var link = product.product_url || "#";
     
     // Fix link suffix if missing
@@ -484,6 +484,9 @@
               '<img class="vtx-product-img vtx-product-img-primary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" data-vtx-primary-src="' + escapeHtml(imgSrc) + '" data-vtx-primary-fallback-src="' + escapeHtml(imgOriginal) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal) + '"' +
                 (hasHoverImage ? ' data-vtx-secondary-src="' + escapeHtml(imgSrc2) + '" data-vtx-secondary-fallback-src="' + escapeHtml(imgOriginal2) + '"' : '') +
                 ' loading="lazy">' +
+              (hasHoverImage
+                ? '<img class="vtx-product-img vtx-product-img-secondary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc2) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal2 || imgSrc2) + '" data-vtx-image-role="secondary" loading="lazy" aria-hidden="true">'
+                : '') +
             "</figure>" +
           "</a>" +
         "</div>" +
@@ -509,6 +512,23 @@
       u = u.replace(/cdn\.vnda\.com\.br\/(?:(?:\d+x(?:\d+)?|x\d+)\/)?/, "cdn.vnda.com.br/800x/");
     }
     return u;
+  }
+
+  function imageKey(url) {
+    var u = normalizeUrl(url);
+    if (!u) return "";
+    try {
+      var parsed = new URL(u, window.location.origin);
+      var path = parsed.pathname.replace(/^\/(?:\d+x(?:\d+)?|x\d+)\//i, "/");
+      return (parsed.hostname + path).toLowerCase();
+    } catch (e) {
+      return u
+        .replace(/^https?:\/\//i, "//")
+        .replace(/(\/\/cdn\.vnda\.com\.br\/)(?:(?:\d+x(?:\d+)?|x\d+)\/)/i, "$1")
+        .split("?")[0]
+        .split("#")[0]
+        .toLowerCase();
+    }
   }
 
   function getViewAllUrl(algorithm) {
@@ -598,7 +618,10 @@
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
       ".vtx-shelf .images .image { margin: 0; aspect-ratio: 2 / 3; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
-      ".vtx-shelf .images .image.has-hover-image .vtx-product-img-primary { backface-visibility: hidden; }" +
+      ".vtx-shelf .images .image.has-hover-image .vtx-product-img-primary { backface-visibility: hidden; opacity: 1; }" +
+      ".vtx-shelf .images .image .vtx-product-img-secondary { opacity: 0; z-index: 2; }" +
+      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-primary, .vtx-shelf .images .image.has-hover-image:hover .vtx-product-img-primary, .vtx-shelf .images .image.has-hover-image.vtx-hovering .vtx-product-img-primary { opacity: 0; }" +
+      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-secondary, .vtx-shelf .images .image.has-hover-image:hover .vtx-product-img-secondary, .vtx-shelf .images .image.has-hover-image.vtx-hovering .vtx-product-img-secondary { opacity: 1; }" +
       ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
       ".vtx-discount-circle { position: absolute; bottom: 10px; left: 10px; background: #ff0000; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; z-index: 10; }" +
       ".vtx-shelf .description { text-align: left; }" +
@@ -648,8 +671,8 @@
           }
 
           var figure = img.closest(".image");
-          if (figure && img.getAttribute("data-vtx-image-mode") === "secondary") {
-            disableProductImageHover(figure, img);
+          if (figure && (img.getAttribute("data-vtx-image-mode") === "secondary" || img.getAttribute("data-vtx-image-role") === "secondary")) {
+            disableProductImageHover(figure);
           }
         });
       })(imgs[i]);
@@ -675,11 +698,14 @@
     );
   }
 
-  function disableProductImageHover(figure, img) {
-    if (!figure || !img) return;
+  function disableProductImageHover(figure) {
+    if (!figure) return;
     figure.classList.remove("has-hover-image", "vtx-hovering");
     figure.setAttribute("data-vtx-hover-disabled", "1");
-    restoreProductPrimaryImage(figure, img);
+    var primary = figure.querySelector(".vtx-product-img-primary");
+    var secondary = figure.querySelector(".vtx-product-img-secondary");
+    if (secondary) secondary.style.display = "none";
+    if (primary) restoreProductPrimaryImage(figure, primary);
   }
 
   function attachProductImageHover(container) {
@@ -691,12 +717,13 @@
 
         var img = figure.querySelector(".vtx-product-img-primary");
         if (!img) return;
+        var secondaryImg = figure.querySelector(".vtx-product-img-secondary");
 
         var primarySrc = img.getAttribute("data-vtx-primary-src") || "";
         var primaryFallback = img.getAttribute("data-vtx-primary-fallback-src") || "";
         var secondarySrc = img.getAttribute("data-vtx-secondary-src") || "";
         var secondaryFallback = img.getAttribute("data-vtx-secondary-fallback-src") || "";
-        if (!secondarySrc || secondarySrc === primarySrc) {
+        if (!secondarySrc || imageKey(secondarySrc) === imageKey(primarySrc)) {
           figure.classList.remove("has-hover-image");
           return;
         }
@@ -707,22 +734,29 @@
         probe.onerror = function () {
           if (secondaryFallback && secondaryFallback !== secondarySrc) {
             var fallbackProbe = new Image();
-            fallbackProbe.onload = function () { activeSecondarySrc = secondaryFallback; };
-            fallbackProbe.onerror = function () { disableProductImageHover(figure, img); };
+            fallbackProbe.onload = function () {
+              activeSecondarySrc = secondaryFallback;
+              if (secondaryImg) secondaryImg.setAttribute("src", secondaryFallback);
+            };
+            fallbackProbe.onerror = function () { disableProductImageHover(figure); };
             fallbackProbe.src = secondaryFallback;
             return;
           }
-          disableProductImageHover(figure, img);
+          disableProductImageHover(figure);
         };
         probe.src = secondarySrc;
 
         function on() {
           if (figure.getAttribute("data-vtx-hover-disabled") === "1") return;
           figure.classList.add("vtx-hovering");
-          setProductImageSource(img, activeSecondarySrc, secondaryFallback || activeSecondarySrc, "secondary");
+          if (!secondaryImg) {
+            setProductImageSource(img, activeSecondarySrc, secondaryFallback || activeSecondarySrc, "secondary");
+          }
         }
         function off() {
-          setProductImageSource(img, primarySrc, primaryFallback || primarySrc, "primary");
+          if (!secondaryImg) {
+            setProductImageSource(img, primarySrc, primaryFallback || primarySrc, "primary");
+          }
           figure.classList.remove("vtx-hovering");
         }
 
