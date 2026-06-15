@@ -66,6 +66,58 @@ function mapVndaToShelf(
   };
 }
 
+function normalizeProductName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function withCatalogImages(
+  workspaceId: string,
+  products: ShelfProduct[]
+): Promise<ShelfProduct[]> {
+  if (products.length === 0) return products;
+
+  const admin = createAdminClient();
+  const ids = [...new Set(products.map((p) => p.product_id).filter(Boolean))];
+  if (ids.length === 0) return products;
+
+  const { data, error } = await admin
+    .from("shelf_products")
+    .select("product_id, name, image_url, image_url_2, product_url")
+    .eq("workspace_id", workspaceId)
+    .in("product_id", ids);
+
+  if (error || !data || data.length === 0) return products;
+
+  const byId = new Map<string, typeof data[number]>();
+  const byName = new Map<string, typeof data[number]>();
+  for (const row of data) {
+    byId.set(String(row.product_id), row);
+    if (row.name) byName.set(normalizeProductName(String(row.name)), row);
+  }
+
+  return products.map((product) => {
+    const row = byId.get(product.product_id) || byName.get(normalizeProductName(product.name));
+    if (!row) return product;
+
+    const primaryImage = product.image_url || row.image_url || null;
+    const hoverImage =
+      row.image_url_2 && row.image_url_2 !== primaryImage
+        ? row.image_url_2
+        : product.image_url_2;
+
+    return {
+      ...product,
+      image_url: primaryImage,
+      image_url_2: hoverImage || null,
+      product_url: product.product_url || row.product_url || null,
+    };
+  });
+}
+
 // --- Per-request memoization ---
 // Caches live for a single serverless invocation. Prevents duplicate API calls
 // when one algorithm falls back to another (e.g., most_popular -> bestsellers).
@@ -213,7 +265,7 @@ async function getBestsellers(
     }
   }
 
-  return results;
+  return withCatalogImages(params.workspaceId, results);
 }
 
 /** News: Most recent products from VNDA */
@@ -226,10 +278,12 @@ async function getNews(
     per_page: String(Math.max(params.limit * 2, 50)),
   });
 
-  return products
+  const results = products
     .filter((p) => p.available !== false)
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
+
+  return withCatalogImages(params.workspaceId, results);
 }
 
 /** Offers: Products currently on sale from VNDA */
@@ -240,10 +294,12 @@ async function getOffers(
 
   const products = await getCachedCatalog(config, { per_page: "50" });
 
-  return products
+  const results = products
     .filter((p) => p.on_sale && p.available !== false)
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
+
+  return withCatalogImages(params.workspaceId, results);
 }
 
 /** MostPopular: Most viewed products via GA4 analytics */
@@ -284,7 +340,7 @@ async function getMostPopular(
       }
 
       if (results.length >= Math.min(params.limit, 4)) {
-        return results;
+        return withCatalogImages(params.workspaceId, results);
       }
     }
   } catch {
@@ -320,9 +376,11 @@ async function getCustomTags(
       return targetTags.every((target) => productTagNames.includes(target));
     });
 
-    return matched
+    const results = matched
       .slice(0, params.limit)
       .map((p) => mapVndaToShelf(p, config.storeHost));
+
+    return withCatalogImages(params.workspaceId, results);
   }
 
   // Fallback: use /products endpoint + local tag filtering
@@ -337,9 +395,11 @@ async function getCustomTags(
     return targetTags.some((target) => productTagNames.includes(target));
   });
 
-  return fallback
+  const results = fallback
     .slice(0, params.limit)
     .map((p) => mapVndaToShelf(p, config.storeHost));
+
+  return withCatalogImages(params.workspaceId, results);
 }
 
 /** PriceRange: Products within a price band (uses sale_price when present, else price) */
@@ -442,13 +502,15 @@ async function getLastViewed(
       catalogById.set(String(p.id), p);
     }
 
-    return history
+    const results = history
       .map((h) => {
         const product = catalogById.get(h.product_id);
         if (!product) return null;
         return mapVndaToShelf(product, config.storeHost);
       })
       .filter((p): p is ShelfProduct => p != null);
+
+    return withCatalogImages(params.workspaceId, results);
   } catch {
     return [];
   }
