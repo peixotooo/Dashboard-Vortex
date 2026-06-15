@@ -481,8 +481,9 @@
           (badgeLabel ? '<div class="vtx-badge">' + escapeHtml(badgeLabel) + '</div>' : '') +
           '<a href="' + safeUrl(link) + '">' +
             '<figure class="image' + (hasHoverImage ? " has-hover-image" : "") + '">' +
-              '<img class="vtx-product-img vtx-product-img-primary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal) + '" loading="lazy">' +
-              (hasHoverImage ? '<img class="vtx-product-img vtx-product-img-secondary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc2) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal2) + '" loading="lazy">' : '') +
+              '<img class="vtx-product-img vtx-product-img-primary" alt="' + escapeHtml(product.name) + '" src="' + escapeHtml(imgSrc) + '" data-vtx-primary-src="' + escapeHtml(imgSrc) + '" data-vtx-primary-fallback-src="' + escapeHtml(imgOriginal) + '" data-vtx-fallback-src="' + escapeHtml(imgOriginal) + '"' +
+                (hasHoverImage ? ' data-vtx-secondary-src="' + escapeHtml(imgSrc2) + '" data-vtx-secondary-fallback-src="' + escapeHtml(imgOriginal2) + '"' : '') +
+                ' loading="lazy">' +
             "</figure>" +
           "</a>" +
         "</div>" +
@@ -597,9 +598,7 @@
       ".vtx-shelf .images { position: relative; margin-bottom: 12px; overflow: hidden; border-radius: 4px; background: #f5f5f5; width: 100%; }" +
       ".vtx-shelf .images .image { margin: 0; aspect-ratio: 2 / 3; position: relative; width: 100%; display: block; }" +
       ".vtx-shelf .images .image img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; }" +
-      ".vtx-shelf .images .image.has-hover-image .vtx-product-img-secondary { opacity: 0 !important; }" +
-      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-primary, .vtx-shelf .image.has-hover-image.vtx-hovering .vtx-product-img-primary { opacity: 0 !important; }" +
-      ".vtx-shelf .images:hover .image.has-hover-image .vtx-product-img-secondary, .vtx-shelf .image.has-hover-image.vtx-hovering .vtx-product-img-secondary { opacity: 1 !important; }" +
+      ".vtx-shelf .images .image.has-hover-image .vtx-product-img-primary { backface-visibility: hidden; }" +
       ".vtx-badge { position: absolute; top: 10px; right: 10px; background: #fff; color: #000; padding: 4px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; z-index: 10; border: 1px solid #eee; }" +
       ".vtx-discount-circle { position: absolute; bottom: 10px; left: 10px; background: #ff0000; color: #fff; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; z-index: 10; }" +
       ".vtx-shelf .description { text-align: left; }" +
@@ -648,14 +647,39 @@
             return;
           }
 
-          if (img.classList.contains("vtx-product-img-secondary")) {
-            var figure = img.closest(".image");
-            if (figure) figure.classList.remove("has-hover-image");
-            img.remove();
+          var figure = img.closest(".image");
+          if (figure && img.getAttribute("data-vtx-image-mode") === "secondary") {
+            disableProductImageHover(figure, img);
           }
         });
       })(imgs[i]);
     }
+  }
+
+  function setProductImageSource(img, src, fallback, mode) {
+    if (!img || !src) return;
+    img.removeAttribute("data-vtx-used-fallback");
+    img.setAttribute("data-vtx-image-mode", mode || "primary");
+    img.setAttribute("data-vtx-fallback-src", fallback || src);
+    if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+  }
+
+  function restoreProductPrimaryImage(figure, img) {
+    if (!img) return;
+    figure.classList.remove("vtx-hovering");
+    setProductImageSource(
+      img,
+      img.getAttribute("data-vtx-primary-src") || "",
+      img.getAttribute("data-vtx-primary-fallback-src") || "",
+      "primary"
+    );
+  }
+
+  function disableProductImageHover(figure, img) {
+    if (!figure || !img) return;
+    figure.classList.remove("has-hover-image", "vtx-hovering");
+    figure.setAttribute("data-vtx-hover-disabled", "1");
+    restoreProductPrimaryImage(figure, img);
   }
 
   function attachProductImageHover(container) {
@@ -665,13 +689,48 @@
         if (figure.getAttribute("data-vtx-hover-bound") === "1") return;
         figure.setAttribute("data-vtx-hover-bound", "1");
 
-        function on() { figure.classList.add("vtx-hovering"); }
-        function off() { figure.classList.remove("vtx-hovering"); }
+        var img = figure.querySelector(".vtx-product-img-primary");
+        if (!img) return;
 
-        figure.addEventListener("mouseenter", on);
-        figure.addEventListener("mouseleave", off);
-        figure.addEventListener("pointerenter", on);
-        figure.addEventListener("pointerleave", off);
+        var primarySrc = img.getAttribute("data-vtx-primary-src") || "";
+        var primaryFallback = img.getAttribute("data-vtx-primary-fallback-src") || "";
+        var secondarySrc = img.getAttribute("data-vtx-secondary-src") || "";
+        var secondaryFallback = img.getAttribute("data-vtx-secondary-fallback-src") || "";
+        if (!secondarySrc || secondarySrc === primarySrc) {
+          figure.classList.remove("has-hover-image");
+          return;
+        }
+
+        var activeSecondarySrc = secondarySrc;
+        var probe = new Image();
+        probe.onload = function () { activeSecondarySrc = secondarySrc; };
+        probe.onerror = function () {
+          if (secondaryFallback && secondaryFallback !== secondarySrc) {
+            var fallbackProbe = new Image();
+            fallbackProbe.onload = function () { activeSecondarySrc = secondaryFallback; };
+            fallbackProbe.onerror = function () { disableProductImageHover(figure, img); };
+            fallbackProbe.src = secondaryFallback;
+            return;
+          }
+          disableProductImageHover(figure, img);
+        };
+        probe.src = secondarySrc;
+
+        function on() {
+          if (figure.getAttribute("data-vtx-hover-disabled") === "1") return;
+          figure.classList.add("vtx-hovering");
+          setProductImageSource(img, activeSecondarySrc, secondaryFallback || activeSecondarySrc, "secondary");
+        }
+        function off() {
+          setProductImageSource(img, primarySrc, primaryFallback || primarySrc, "primary");
+          figure.classList.remove("vtx-hovering");
+        }
+
+        var trigger = figure.closest(".images") || figure;
+        trigger.addEventListener("mouseenter", on);
+        trigger.addEventListener("mouseleave", off);
+        trigger.addEventListener("pointerenter", on);
+        trigger.addEventListener("pointerleave", off);
         figure.addEventListener("focusin", on);
         figure.addEventListener("focusout", off);
       })(figures[i]);
