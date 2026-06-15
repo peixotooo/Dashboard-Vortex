@@ -36,6 +36,37 @@ const DEFAULT_TRACKED_HOSTS = [
  *  passar `home_url` na call de wrapUnlinkedImages. */
 const DEFAULT_HOME_URL = "https://www.bulking.com.br";
 
+const RESPONSIVE_EMAIL_SENTINEL = "Vortex responsive email safety";
+
+export const RESPONSIVE_EMAIL_CSS = `
+  /* ${RESPONSIVE_EMAIL_SENTINEL} */
+  .vtx-email-container { max-width: 600px; }
+  .vtx-email-fluid { max-width: 100%; height: auto; }
+  @media only screen and (max-width: 599px) {
+    body { width: 100% !important; min-width: 100% !important; margin: 0 !important; padding: 0 !important; }
+    .vtx-email-container, .container { width: 100% !important; max-width: 100% !important; }
+    .vtx-email-mobile-pad, .pad, .pad-l, .pad-xl { padding-left: 24px !important; padding-right: 24px !important; }
+    .vtx-email-stack, .vtx-email-grid-cell, .related-cell {
+      display: block !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    .vtx-email-stack, .vtx-email-stack-tight, .vtx-email-grid-cell, .related-cell {
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+    .vtx-email-stack-pad { padding-left: 24px !important; padding-right: 24px !important; }
+    .vtx-email-product-cell { padding-left: 24px !important; padding-right: 24px !important; }
+    .vtx-email-grid-cell, .related-cell { padding-bottom: 28px !important; }
+    .vtx-email-grid-spacer { display: none !important; }
+    .vtx-email-fluid, img { max-width: 100% !important; height: auto !important; }
+    .vtx-email-h1, .h1 { font-size: 30px !important; line-height: 1.15 !important; }
+    .vtx-email-lead, .lead { font-size: 15px !important; line-height: 1.65 !important; }
+    .vtx-email-button { max-width: 100% !important; }
+  }
+`.trim();
+
 export interface UtmContext {
   /** Fixed campaign identifier — propagated to GA4's sessionCampaignName. */
   campaign: string;
@@ -158,7 +189,7 @@ export function wrapUnlinkedImages(html: string, homeUrl?: string): string {
 }
 
 /**
- * Defensive HTML sanitization for email clients. Three transforms:
+ * Defensive HTML sanitization for email clients. Four transforms:
  *
  * 1. Protocol-relative URLs. Rewrites `src="//host/..."` and
  *    `href="//host/..."` → `https://host/...`. Gmail's image proxy and
@@ -180,19 +211,103 @@ export function wrapUnlinkedImages(html: string, homeUrl?: string): string {
  *    compliant unsubscribe footer below the body, so we strip the
  *    redundant line entirely at dispatch time.
  *
+ * 4. Responsiveness hardening. Real campaign providers and clients strip
+ *    or rewrite parts of modern HTML. We add email-safe mobile CSS plus
+ *    explicit classes on the 600px wrapper, multi-column cells and images
+ *    so campaign sends stack cleanly on narrow screens.
+ *
  * Each transform fixes pattern at the source (new renders avoid the
  * issue) AND in already-cached rendered_html on dispatch — older
  * suggestions in the DB benefit without needing to re-render.
  */
 export function sanitizeEmailHtml(html: string): string {
   if (!html) return html;
-  return stripBrokenUnsubscribe(
-    unwrapAspectRatioImages(
-      html
-        .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
-        .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://")
+  return applyResponsiveEmailSafety(
+    stripBrokenUnsubscribe(
+      unwrapAspectRatioImages(
+        html
+          .replace(/(\bsrc=)(["'])\/\//gi, "$1$2https://")
+          .replace(/(\bhref=)(["'])\/\//gi, "$1$2https://")
+      )
     )
   );
+}
+
+function applyResponsiveEmailSafety(html: string): string {
+  return injectResponsiveEmailCss(addResponsiveEmailClasses(html));
+}
+
+function injectResponsiveEmailCss(html: string): string {
+  if (html.includes(RESPONSIVE_EMAIL_SENTINEL)) return html;
+
+  const styleBlock = `<style>\n${RESPONSIVE_EMAIL_CSS}\n</style>`;
+  if (/<head[\s>]/i.test(html)) {
+    if (/<style\b[^>]*>[\s\S]*?<\/style>/i.test(html)) {
+      return html.replace(/<\/style>/i, `\n${RESPONSIVE_EMAIL_CSS}\n</style>`);
+    }
+    return html.replace(/<\/head>/i, `${styleBlock}\n</head>`);
+  }
+
+  if (/<body\b/i.test(html)) {
+    return html.replace(/<body\b/i, `<head>${styleBlock}</head>\n<body`);
+  }
+
+  return `${styleBlock}\n${html}`;
+}
+
+function addResponsiveEmailClasses(html: string): string {
+  return (
+    html
+      // Main 600px wrappers from the legacy renderer and react-email Container.
+      .replace(
+        /<table\b(?=[^>]*(?:\bwidth=(["'])600\1|\bstyle=(["'])[^"']*(?:width\s*:\s*600px|max-width\s*:\s*600px)[^"']*\2))[^>]*>/gi,
+        (tag) => addClassesToTag(tag, ["vtx-email-container"])
+      )
+      .replace(
+        /<div\b(?=[^>]*\bstyle=(["'])[^"']*(?:width\s*:\s*600px|max-width\s*:\s*600px)[^"']*\1)[^>]*>/gi,
+        (tag) => addClassesToTag(tag, ["vtx-email-container"])
+      )
+      // Legacy product cells already have related-cell; add the generic
+      // responsive classes so the same mobile CSS covers old and new renders.
+      .replace(
+        /<(td|th)\b(?=[^>]*\bclass=(["'])[^"']*\brelated-cell\b[^"']*\2)[^>]*>/gi,
+        (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
+      )
+      // React Email multi-column rows compile to table cells with percent
+      // widths. Stack only common campaign grid widths, not arbitrary tables.
+      .replace(
+        /<(td|th)\b(?=[^>]*\bstyle=(["'])[^"']*\bwidth\s*:\s*(?:25|33(?:\.\d+)?|50)%[^"']*\2)[^>]*>/gi,
+        (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
+      )
+      .replace(
+        /<(td|th)\b(?=[^>]*\bwidth=(["'])(?:25|33(?:\.\d+)?|50)%\1)[^>]*>/gi,
+        (tag) => addClassesToTag(tag, ["vtx-email-stack", "vtx-email-grid-cell"])
+      )
+      .replace(/<img\b[^>]*>/gi, (tag) => addClassesToTag(tag, ["vtx-email-fluid"]))
+  );
+}
+
+function addClassesToTag(tag: string, classNames: string[]): string {
+  return classNames.reduce((acc, className) => addClassToTag(acc, className), tag);
+}
+
+function addClassToTag(tag: string, className: string): string {
+  const classRe = new RegExp(`\\b${escapeRegExp(className)}\\b`);
+  if (classRe.test(tag)) return tag;
+
+  if (/\sclass=(["'])/i.test(tag)) {
+    return tag.replace(
+      /\sclass=(["'])([^"']*)\1/i,
+      (_m, quote: string, classes: string) =>
+        ` class=${quote}${`${classes} ${className}`.trim()}${quote}`
+    );
+  }
+
+  return tag.replace(/\s*\/?>$/, (end) => ` class="${className}"${end}`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function stripBrokenUnsubscribe(html: string): string {

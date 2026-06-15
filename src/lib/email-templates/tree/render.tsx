@@ -33,6 +33,7 @@ import type {
   Mode,
 } from "./schema";
 import { buildCountdownUrl } from "../countdown";
+import { RESPONSIVE_EMAIL_CSS } from "../tracking";
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://dash.bulking.com.br";
@@ -133,6 +134,7 @@ function LeafRenderer({
         <Heading
           {...tagAttr(node.id, editorMode)}
           as={(node.level === 2 ? "h2" : node.level === 3 ? "h3" : "h1") as "h1" | "h2" | "h3"}
+          className={node.level === 1 ? "vtx-email-h1" : undefined}
           style={{
             margin: "0 0 12px 0",
             fontFamily: FONTS.head,
@@ -180,6 +182,7 @@ function LeafRenderer({
       return (
         <Text
           {...tagAttr(node.id, editorMode)}
+          className="vtx-email-lead"
           style={{
             margin: "0 0 14px 0",
             fontFamily: FONTS.body,
@@ -197,6 +200,7 @@ function LeafRenderer({
       return (
         <Section {...tagAttr(node.id, editorMode)} style={{ textAlign: "center", padding: "8px 0 16px" }}>
           <Button
+            className="vtx-email-button"
             href={node.href}
             style={{
               backgroundColor: isPrimary ? c.text : "transparent",
@@ -234,6 +238,7 @@ function LeafRenderer({
       const baseH = ratio === "free" ? undefined : Math.round(baseW * (ratios[ratio] ?? 1));
       const img = (
         <Img
+          className="vtx-email-fluid"
           src={node.src}
           alt={node.alt}
           width={baseW}
@@ -286,6 +291,7 @@ function LeafRenderer({
       const cell = (item: { src: string; alt: string; href?: string }, i: number) => {
         const img = (
           <Img
+            className="vtx-email-fluid"
             src={item.src}
             alt={item.alt}
             width={cellWidth}
@@ -302,6 +308,7 @@ function LeafRenderer({
         return (
           <Column
             key={i}
+            className="vtx-email-stack vtx-email-grid-cell"
             align="center"
             valign="top"
             style={{ padding: "0 5px" }}
@@ -444,6 +451,7 @@ function LeafRenderer({
       return (
         <div {...tagAttr(node.id, editorMode)} style={{ background: c.text }}>
           <Img
+            className="vtx-email-fluid"
             src={url}
             alt="Última chance"
             width="600"
@@ -479,6 +487,7 @@ function LeafRenderer({
             style={{ textDecoration: "none", color: c.text, display: "block" }}
           >
             <Img
+              className="vtx-email-fluid"
               src={node.product.image_url}
               alt={node.product.name}
               width="180"
@@ -530,6 +539,7 @@ function LeafRenderer({
                 return (
                   <Column
                     key={p.vnda_id + idx}
+                    className="vtx-email-stack vtx-email-grid-cell vtx-email-product-cell"
                     style={{ width: `${Math.floor(100 / cols)}%`, padding: "0 8px 24px", verticalAlign: "top" }}
                   >
                     {/* Célula inteira clica pro produto (imagem + nome + preço). */}
@@ -543,6 +553,7 @@ function LeafRenderer({
                         </Text>
                       )}
                       <Img
+                        className="vtx-email-fluid"
                         src={p.image_url}
                         alt={p.name}
                         width="180"
@@ -562,7 +573,11 @@ function LeafRenderer({
               {/* Pad with empty columns so last row stays aligned */}
               {rowProducts.length < cols &&
                 Array.from({ length: cols - rowProducts.length }).map((_, i) => (
-                  <Column key={"pad" + i} style={{ width: `${Math.floor(100 / cols)}%` }}>
+                  <Column
+                    key={"pad" + i}
+                    className="vtx-email-stack vtx-email-grid-cell vtx-email-grid-spacer"
+                    style={{ width: `${Math.floor(100 / cols)}%` }}
+                  >
                     &nbsp;
                   </Column>
                 ))}
@@ -617,6 +632,7 @@ function LeafRenderer({
             </span>
           ) : (
             <Img
+              className="vtx-email-fluid"
               src={node.image_url}
               alt={node.alt ?? "BULKING"}
               width={w}
@@ -633,6 +649,7 @@ function ColumnRenderer({ node, mode, editorMode }: { node: ColumnNode; mode: Mo
   return (
     <Column
       {...tagAttr(node.id, editorMode)}
+      className="vtx-email-stack"
       style={{
         width: node.width_pct != null ? `${node.width_pct}%` : undefined,
         verticalAlign: node.v_align ?? "top",
@@ -694,14 +711,16 @@ function EmailShell({
           href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap"
           rel="stylesheet"
         />
+        <style>{RESPONSIVE_EMAIL_CSS}</style>
       </Head>
-      <Body style={{ margin: 0, padding: 0, background: c.canvas }}>
+      <Body style={{ margin: 0, padding: 0, background: c.canvas, width: "100%" }}>
         <div style={{ display: "none", maxHeight: 0, overflow: "hidden", color: c.canvas }}>
           {draft.meta.preview}
         </div>
         <Container
+          className="vtx-email-container"
           style={{
-            width: "600px",
+            width: "100%",
             maxWidth: "600px",
             background: c.bg,
             margin: "0 auto",

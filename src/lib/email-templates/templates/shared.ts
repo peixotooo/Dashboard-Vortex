@@ -7,6 +7,8 @@
 // weights cap at 600 (no 700/800) to keep the layout elegant rather than loud.
 // No em dashes anywhere in body copy or labels.
 
+import { RESPONSIVE_EMAIL_CSS } from "../tracking";
+
 export const TOKENS = {
   // Surfaces
   bg: "#FFFFFF",
@@ -97,6 +99,7 @@ export function htmlOpen(args: { subject: string; preview: string }): string {
     .pad-xl { padding: 40px 24px !important; }
     .related-cell { display:block !important; width:100% !important; padding:0 0 32px !important; }
   }
+  ${RESPONSIVE_EMAIL_CSS}
 </style>
 </head>
 <body id="body" style="margin:0;padding:0;background:${TOKENS.bgAlt};width:100%;">
@@ -104,7 +107,7 @@ export function htmlOpen(args: { subject: string; preview: string }): string {
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">&#847; &zwnj; &nbsp; &#8199; &#65279; &#847;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${TOKENS.bgAlt};width:100%;">
   <tr><td align="center" style="padding:0;">
-  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${TOKENS.bg};">`;
+  <table role="presentation" class="container vtx-email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${TOKENS.bg};">`;
 }
 
 export function htmlClose(): string {
@@ -118,7 +121,7 @@ export function header(): string {
   return `
 <tr><td align="center" class="pad-xl" style="padding:48px 32px 36px;border-bottom:1px solid ${TOKENS.border};">
   <a href="https://www.bulking.com.br" target="_blank" style="text-decoration:none;color:${TOKENS.text};">
-    <img src="${BULKING_LOGO_URL}" alt="BULKING" width="148" height="30" style="display:inline-block;width:148px;height:auto;max-width:148px;border:0;outline:none;" />
+    <img class="vtx-email-fluid" src="${BULKING_LOGO_URL}" alt="BULKING" width="148" height="30" style="display:inline-block;width:148px;height:auto;max-width:148px;border:0;outline:none;" />
   </a>
 </td></tr>`;
 }
@@ -175,6 +178,7 @@ export function darkOpen(args: { subject: string; preview: string }): string {
     .pad-xl { padding: 40px 24px !important; }
     .related-cell { display:block !important; width:100% !important; padding:0 0 32px !important; }
   }
+  ${RESPONSIVE_EMAIL_CSS}
 </style>
 </head>
 <body id="body" style="margin:0;padding:0;background:${DARK.bg};width:100%;">
@@ -182,7 +186,7 @@ export function darkOpen(args: { subject: string; preview: string }): string {
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">&#847; &zwnj; &nbsp; &#8199; &#65279; &#847;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${DARK.bg};width:100%;">
   <tr><td align="center" style="padding:0;">
-  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${DARK.bg};">`;
+  <table role="presentation" class="container vtx-email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:${DARK.bg};">`;
 }
 
 export const darkClose = htmlClose;
@@ -252,7 +256,7 @@ export function bulletproofButton(args: {
   return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse:separate;line-height:100%;">
   <tr>
     <td align="center" bgcolor="${bg}" role="presentation" valign="middle" style="border:none;border-radius:0;cursor:auto;mso-padding-alt:${py}px ${px}px;background:${bg};">
-      <a href="${escapeHtml(args.url)}" target="_blank"${utm} style="background:${bg};color:${fg};display:inline-block;font-family:${TOKENS.fontHead};font-size:13px;font-weight:600;line-height:100%;letter-spacing:0.28em;margin:0;mso-padding-alt:0;padding:${py}px ${px}px;text-decoration:none;text-transform:uppercase;text-underline-color:${bg};">${escapeHtml(args.text)}</a>
+      <a class="vtx-email-button" href="${escapeHtml(args.url)}" target="_blank"${utm} style="background:${bg};color:${fg};display:inline-block;font-family:${TOKENS.fontHead};font-size:13px;font-weight:600;line-height:100%;letter-spacing:0.28em;margin:0;mso-padding-alt:0;padding:${py}px ${px}px;text-decoration:none;text-transform:uppercase;text-underline-color:${bg};">${escapeHtml(args.text)}</a>
     </td>
   </tr>
 </table>`;
@@ -379,7 +383,7 @@ export function hero(args: {
   // breaks the 3:4 the height auto-adjusts instead of cropping.
   return `${badge}
 <tr><td style="padding:0;background:${TOKENS.bgAlt};">
-  <img src="${escapeHtml(args.image_url)}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="display:block;width:100%;max-width:600px;height:auto;margin:0 auto;background:${TOKENS.bgAlt};" />
+  <img class="vtx-email-fluid" src="${escapeHtml(args.image_url)}" alt="${escapeHtml(args.alt)}" width="600" height="800" style="display:block;width:100%;max-width:600px;height:auto;margin:0 auto;background:${TOKENS.bgAlt};" />
 </td></tr>`;
 }
 
@@ -451,7 +455,7 @@ export function topCountdownBlock(args: {
   const alt = staticTimerAlt(args.expires_at);
   return `
 <tr><td style="padding:0;background:${TOKENS.text};">
-  <img src="${escapeHtml(args.countdown_url)}" alt="${escapeHtml(alt)}" width="600" height="220" style="width:100%;max-width:600px;height:auto;display:block;border:0;outline:none;background:${TOKENS.text};" />
+  <img class="vtx-email-fluid" src="${escapeHtml(args.countdown_url)}" alt="${escapeHtml(alt)}" width="600" height="220" style="width:100%;max-width:600px;height:auto;display:block;border:0;outline:none;background:${TOKENS.text};" />
 </td></tr>`;
 }
 
@@ -531,9 +535,9 @@ export function relatedProductsGrid(
       // Email clients honor width/height attrs natively, which keeps the
       // intended ratio without the CSS hack.
       return `
-<td valign="top" align="center" width="${widthPct}" class="related-cell" style="width:${widthPct};padding:0 10px 40px;">
+<td valign="top" align="center" width="${widthPct}" class="related-cell vtx-email-stack vtx-email-grid-cell" style="width:${widthPct};padding:0 10px 40px;">
   <a href="${escapeHtml(p.url)}" target="_blank" style="text-decoration:none;color:${c.text};">
-    <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="180" height="225" style="display:block;width:100%;max-width:180px;height:auto;margin:0 auto 14px;background:${c.surfaceAlt};" />
+    <img class="vtx-email-fluid" src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" width="180" height="225" style="display:block;width:100%;max-width:180px;height:auto;margin:0 auto 14px;background:${c.surfaceAlt};" />
     <div style="font-family:${TOKENS.fontBody};font-weight:500;font-size:14px;color:${c.text};line-height:1.4;margin-bottom:8px;min-height:38px;">${escapeHtml(p.name)}</div>
     ${oldPrice}
     <div style="font-family:${TOKENS.fontHead};font-weight:500;font-size:16px;color:${c.text};margin-bottom:14px;">R$ ${p.price.toFixed(2)}</div>

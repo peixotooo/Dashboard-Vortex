@@ -13,6 +13,7 @@ import {
   type IportoError,
 } from "@/lib/iporto/email-marketing";
 import { getIportoSettings } from "@/lib/iporto/settings";
+import { sanitizeEmailHtml } from "@/lib/email-templates/tracking";
 
 const BATCH_SIZE = 1000;
 const CONCURRENCY = 20;
@@ -239,6 +240,7 @@ async function processOne(
   for (const [k, v] of Object.entries(vars)) {
     html = html.replaceAll(`{{${k}}}`, String(v));
   }
+  html = sanitizeEmailHtml(html);
 
   try {
     const result = await createDelivery(creds, {
