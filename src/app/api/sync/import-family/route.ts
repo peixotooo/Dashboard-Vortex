@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import { ml } from "@/lib/ml/client";
+import { DEFAULT_ML_CATEGORY } from "@/lib/ml/categories";
 import type {
   EccosysProduto,
   HubProduct,
@@ -332,6 +333,18 @@ export async function GET(req: NextRequest) {
     } catch {
       /* prediction may fail */
     }
+
+    // Bulking só vende vestuário (camisetas/regatas). O domain_discovery às vezes
+    // devolve a categoria-gêmea de merchandising (MLB439327) como 1ª predição, o
+    // que classifica o anúncio como brinde promocional. Forçamos a categoria de
+    // vestuário (MLB31447) como padrão e a colocamos no topo das predições,
+    // mantendo as demais disponíveis para override manual na UI.
+    predictions = [
+      DEFAULT_ML_CATEGORY,
+      ...predictions.filter(
+        (p) => p.category_id !== DEFAULT_ML_CATEGORY.category_id
+      ),
+    ];
 
     const topCategory = predictions[0] || null;
 

@@ -75,6 +75,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useWorkspace } from "@/lib/workspace-context";
+import { DEFAULT_ML_CATEGORY, DEFAULT_ML_CATEGORY_ID } from "@/lib/ml/categories";
 import type { HubProduct, MLData, MLEnrichment, MLEnrichmentAttr } from "@/types/hub";
 
 // -------------------------------------------------------------------
@@ -1270,21 +1271,23 @@ function PushMLModal({
   selectedSkus: string[];
   onDone: () => void;
 }) {
-  const [predictions, setPredictions] = useState<CategoryPrediction[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [predictions, setPredictions] = useState<CategoryPrediction[]>([DEFAULT_ML_CATEGORY]);
+  const [selectedCategory, setSelectedCategory] = useState(DEFAULT_ML_CATEGORY_ID);
   const [listingType, setListingType] = useState<"gold_special" | "gold_pro">("gold_special");
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [result, setResult] = useState<{
     published: number;
     errors: number;
+    reprocessed?: number;
+    skipped_live?: number;
   } | null>(null);
 
   // Reset when modal opens
   useEffect(() => {
     if (!open || selectedSkus.length === 0) return;
-    setPredictions([]);
-    setSelectedCategory("");
+    setPredictions([DEFAULT_ML_CATEGORY]);
+    setSelectedCategory(DEFAULT_ML_CATEGORY_ID);
     setListingType("gold_special");
     setResult(null);
   }, [open, selectedSkus]);
@@ -1299,10 +1302,16 @@ function PushMLModal({
       );
       if (res.ok) {
         const data = await res.json();
-        setPredictions(data.predictions || []);
-        if (data.predictions?.length > 0) {
-          setSelectedCategory(data.predictions[0].category_id);
-        }
+        const preds: CategoryPrediction[] = data.predictions || [];
+        // Mantém a categoria de vestuário (MLB31447) no topo e pré-selecionada;
+        // as predições do ML ficam disponíveis para override manual.
+        const withDefault = preds.some(
+          (p) => p.category_id === DEFAULT_ML_CATEGORY_ID
+        )
+          ? preds
+          : [DEFAULT_ML_CATEGORY, ...preds];
+        setPredictions(withDefault);
+        setSelectedCategory(DEFAULT_ML_CATEGORY_ID);
       }
     } finally {
       setLoading(false);
@@ -1327,7 +1336,12 @@ function PushMLModal({
       });
       if (res.ok) {
         const data = await res.json();
-        setResult({ published: data.published, errors: data.errors });
+        setResult({
+          published: data.published,
+          errors: data.errors,
+          reprocessed: data.reprocessed,
+          skipped_live: data.skipped_live,
+        });
         onDone();
       }
     } finally {
@@ -1353,6 +1367,23 @@ function PushMLModal({
                 {result.published} publicado(s)
               </span>
             </div>
+            {(result.reprocessed ?? 0) > 0 && (
+              <div className="flex items-center gap-2">
+                <Check className="h-5 w-5 text-green-500" />
+                <span className="text-sm text-muted-foreground">
+                  {result.reprocessed} reprocessado(s) como novo (anúncio estava
+                  excluído no ML)
+                </span>
+              </div>
+            )}
+            {(result.skipped_live ?? 0) > 0 && (
+              <div className="flex items-center gap-2">
+                <X className="h-5 w-5 text-amber-500" />
+                <span className="text-sm text-muted-foreground">
+                  {result.skipped_live} ignorado(s) — já ativo(s) no ML
+                </span>
+              </div>
+            )}
             {result.errors > 0 && (
               <div className="flex items-center gap-2">
                 <X className="h-5 w-5 text-destructive" />
