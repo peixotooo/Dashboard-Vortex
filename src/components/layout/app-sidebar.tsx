@@ -51,6 +51,7 @@ import {
   Star,
   Instagram,
   Music2,
+  Link2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -151,7 +152,16 @@ const navGroups: NavGroup[] = [
     label: "Canais",
     items: [
       { title: "Instagram", href: "/instagram", icon: Instagram },
-      { title: "Grupos WhatsApp", href: "/whatsapp-groups/membros", icon: Users },
+      {
+        title: "WhatsApp Grupos",
+        href: "/whatsapp-groups",
+        icon: Users,
+        items: [
+          { title: "Gestão e disparos", href: "/whatsapp-groups", icon: Users },
+          { title: "Link único", href: "/whatsapp-groups?tab=management", icon: Link2 },
+          { title: "Membros", href: "/whatsapp-groups/membros", icon: TrendingUp },
+        ],
+      },
     ],
   },
   {

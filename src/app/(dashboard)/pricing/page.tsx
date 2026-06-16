@@ -35,6 +35,10 @@ type Overview = {
   kpis: {
     total_skus: number;
     skus_com_pricing: number;
+    skus_com_composicao?: number;
+    skus_com_cmv?: number;
+    cost_coverage_pct?: number;
+    snapshot_sku_count?: number;
     pct_estoque_ate_120d: number;
     margem_media_ponderada_pct: number;
     desconto_medio_ponderado_pct: number;
@@ -56,6 +60,17 @@ type Overview = {
     label: string;
     sku_count: number;
   }>;
+  data_quality?: {
+    catalog_sku_count: number;
+    snapshot_sku_count: number;
+    latest_snapshot_date: string | null;
+    snapshot_age_days: number | null;
+    snapshot_stale: boolean;
+    cmv_tracked_skus: number;
+    cmv_coverage_pct: number;
+    manual_composition_skus: number;
+    warnings: string[];
+  };
 };
 
 type Pending = {
@@ -157,6 +172,22 @@ export default function PricingLandingPage() {
           </Link>
         </div>
       </div>
+
+      {overview?.data_quality?.warnings?.length ? (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+          <CardContent className="flex flex-col gap-2 p-4 text-sm text-amber-950 dark:text-amber-100 md:flex-row md:items-start">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-1">
+              <div className="font-medium">Atenção aos dados de pricing</div>
+              {overview.data_quality.warnings.slice(0, 3).map((warning) => (
+                <div key={warning} className="text-xs text-amber-900 dark:text-amber-200">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* META ESTRATÉGICA — norte do módulo (SDD G4) */}
       <Card
@@ -320,9 +351,9 @@ export default function PricingLandingPage() {
         />
         <Kpi
           icon={<Package className="h-4 w-4" />}
-          label="SKUs com composição"
-          value={`${overview?.kpis.skus_com_pricing ?? 0}`}
-          hint={`de ${overview?.kpis.total_skus ?? 0} ativos`}
+          label="SKUs com CMV"
+          value={`${overview?.kpis.skus_com_cmv ?? overview?.kpis.skus_com_pricing ?? 0}`}
+          hint={`${(overview?.kpis.cost_coverage_pct ?? 0).toFixed(0)}% de ${overview?.kpis.total_skus ?? 0} ativos`}
         />
       </div>
 

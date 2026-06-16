@@ -60,6 +60,23 @@ export async function PUT(request: NextRequest) {
         body.markup_reducao_pct ?? DEFAULT_ENGINE_SETTINGS.markup_reducao_pct,
       trava_margem_minima_pct:
         body.trava_margem_minima_pct ?? DEFAULT_ENGINE_SETTINGS.trava_margem_minima_pct,
+      trava_por_idade_enabled:
+        body.trava_por_idade_enabled ?? DEFAULT_ENGINE_SETTINGS.trava_por_idade_enabled,
+      trava_idade_1_30_pct:
+        body.trava_idade_1_30_pct ?? DEFAULT_ENGINE_SETTINGS.trava_idade_1_30_pct,
+      trava_idade_31_90_pct:
+        body.trava_idade_31_90_pct ?? DEFAULT_ENGINE_SETTINGS.trava_idade_31_90_pct,
+      trava_idade_91_120_pct:
+        body.trava_idade_91_120_pct ?? DEFAULT_ENGINE_SETTINGS.trava_idade_91_120_pct,
+      trava_idade_121_plus_pct:
+        body.trava_idade_121_plus_pct ?? DEFAULT_ENGINE_SETTINGS.trava_idade_121_plus_pct,
+      engine_excluded_tags: Array.isArray(body.engine_excluded_tags)
+        ? body.engine_excluded_tags
+        : DEFAULT_ENGINE_SETTINGS.engine_excluded_tags,
+      combo_tag: body.combo_tag ?? DEFAULT_ENGINE_SETTINGS.combo_tag,
+      combo_desconto_unitario_brl:
+        body.combo_desconto_unitario_brl ??
+        DEFAULT_ENGINE_SETTINGS.combo_desconto_unitario_brl,
       require_approval:
         body.require_approval ?? DEFAULT_ENGINE_SETTINGS.require_approval,
       enabled: body.enabled ?? DEFAULT_ENGINE_SETTINGS.enabled,

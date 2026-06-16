@@ -22,6 +22,7 @@ type SkuItem = {
   in_stock: boolean;
   created_at: string;
   has_pricing: boolean;
+  has_manual_composition?: boolean;
   cogs_tracked: boolean;
   cogs: number | null;
   preco_minimo_calc: number | null;
@@ -31,6 +32,13 @@ type SkuItem = {
 
 type StatusFilter = "all" | "configured" | "pending";
 
+type SkuSummary = {
+  total_matching: number;
+  configured_matching: number;
+  manual_composition_matching: number;
+  cogs_tracked_matching: number;
+};
+
 export default function PricingLandingPage() {
   const { workspace } = useWorkspace();
   const [items, setItems] = useState<SkuItem[]>([]);
@@ -39,6 +47,7 @@ export default function PricingLandingPage() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [apiSummary, setApiSummary] = useState<SkuSummary | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300);
@@ -64,9 +73,11 @@ export default function PricingLandingPage() {
         if (res.ok) {
           setItems(data.items ?? []);
           setCount(data.count ?? 0);
+          setApiSummary(data.summary ?? null);
         } else {
           setItems([]);
           setCount(0);
+          setApiSummary(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -79,28 +90,39 @@ export default function PricingLandingPage() {
   }, [workspace?.id, debouncedQuery, status]);
 
   const summary = useMemo(() => {
+    if (apiSummary) {
+      return {
+        configured: apiSummary.configured_matching,
+        tracked: apiSummary.cogs_tracked_matching,
+        manual: apiSummary.manual_composition_matching,
+        total: apiSummary.total_matching,
+      };
+    }
     const configured = items.filter((i) => i.has_pricing).length;
     const tracked = items.filter((i) => i.cogs_tracked).length;
-    return { configured, tracked, total: items.length };
-  }, [items]);
+    const manual = items.filter((i) => i.has_manual_composition).length;
+    return { configured, tracked, manual, total: items.length };
+  }, [apiSummary, items]);
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold">Pricing</h1>
         <p className="text-sm text-muted-foreground">
-          Composicao de preco por SKU, engine de markdown/markup e simulador de elasticidade.
+            Composicao de preco por SKU, engine de markdown/markup e simulador de elasticidade.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">SKUs com composicao</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">SKUs prontos para pricing</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{summary.configured}</div>
-            <div className="text-xs text-muted-foreground">de {summary.total} na pagina ({count} no total)</div>
+            <div className="text-xs text-muted-foreground">
+              de {summary.total} no filtro ({count} listados)
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -109,7 +131,9 @@ export default function PricingLandingPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{summary.tracked}</div>
-            <div className="text-xs text-muted-foreground">via product_costs</div>
+            <div className="text-xs text-muted-foreground">
+              via product_costs · {summary.manual} com composição manual
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -195,7 +219,7 @@ export default function PricingLandingPage() {
                   <div className="flex flex-col items-end gap-1">
                     {item.has_pricing ? (
                       <Badge variant="default" className="gap-1">
-                        <CheckCircle2 className="h-3 w-3" /> Configurado
+                        <CheckCircle2 className="h-3 w-3" /> Pronto
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="gap-1">
@@ -204,7 +228,7 @@ export default function PricingLandingPage() {
                     )}
                     {!item.cogs_tracked && (
                       <Badge variant="outline" className="text-[10px]">
-                        CMV estimado
+                        Sem CMV direto
                       </Badge>
                     )}
                   </div>

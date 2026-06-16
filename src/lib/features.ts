@@ -9,6 +9,12 @@ export interface Feature {
    * Granting a sub ID only grants that specific sub-feature.
    */
   parent?: string;
+  /**
+   * Compatibility parents that should also grant access to this feature.
+   * Useful when moving a feature between modules without breaking existing
+   * workspace permissions.
+   */
+  legacyParents?: string[];
 }
 
 export const FEATURES: Feature[] = [
@@ -125,10 +131,17 @@ export const FEATURES: Feature[] = [
     routes: ["/ga4"],
   },
   {
+    id: "canais",
+    label: "Canais",
+    description: "Instagram e grupos de WhatsApp",
+    routes: [],
+  },
+  {
     id: "instagram",
     label: "Instagram",
     description: "Crescimento de seguidores e engajamento do perfil",
     routes: ["/instagram"],
+    parent: "canais",
   },
 
   // ===== Loja =====
@@ -193,7 +206,7 @@ export const FEATURES: Feature[] = [
     id: "crm",
     label: "CRM",
     description: "CRM, Cashback, WhatsApp, Email e Grupos",
-    routes: ["/crm", "/whatsapp-groups", "/comunicacoes"],
+    routes: ["/crm", "/comunicacoes"],
   },
   {
     id: "crm.dashboard",
@@ -242,7 +255,8 @@ export const FEATURES: Feature[] = [
     label: "WhatsApp Grupos",
     description: "Disparos via grupos do WhatsApp",
     routes: ["/whatsapp-groups"],
-    parent: "crm",
+    parent: "canais",
+    legacyParents: ["crm"],
   },
 
   // ===== Hub ML =====
@@ -440,6 +454,9 @@ export function canAccessPath(
 
   const matched = FEATURE_BY_ID.get(matchedId);
   if (matched?.parent && features.includes(matched.parent)) return true;
+  if (matched?.legacyParents?.some((parentId) => features.includes(parentId))) {
+    return true;
+  }
 
   if (!matched?.parent) {
     // matched is a parent — allow if user has any sub under it

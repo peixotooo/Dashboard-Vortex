@@ -14,17 +14,17 @@
 // semana. Não é o preço de tabela, mas captura o preço efetivamente pago.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  fetchRecentCrmSalesWithItems,
+  parsePricingCrmDate,
+  saleItemBaseSku,
+  saleItemQuantity,
+  saleItemRevenue,
+} from "./crm-sales";
+import { baseSkuOf } from "./sku-utils";
 
 const FALLBACK_ELASTICITY = -1.2;
 const MIN_POINTS = 4;
-
-type VendaItem = {
-  sku?: string;
-  reference?: string;
-  quantity?: number;
-  price?: number;
-  total?: number;
-};
 
 type WeeklyPoint = {
   week: string;
@@ -84,13 +84,8 @@ export async function computeElasticityBySku(
   sku: string,
   days: number = 90
 ): Promise<{ channels: ChannelElasticity[]; points_used: WeeklyPoint[] }> {
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
-  const { data } = await client
-    .from("crm_vendas")
-    .select("data_compra, canal, items")
-    .eq("workspace_id", workspaceId)
-    .gte("data_compra", since);
+  const data = await fetchRecentCrmSalesWithItems(client, workspaceId, days);
+  const targetSku = baseSkuOf(sku);
 
   // Aggregate by (channel, week)
   const buckets = new Map<string, { channel: string; week: string; qty: number; revenue: number }>();
@@ -98,14 +93,14 @@ export async function computeElasticityBySku(
   for (const row of data ?? []) {
     const r = row as any;
     if (!r.data_compra || !Array.isArray(r.items)) continue;
-    const week = weekKey(r.data_compra);
-    const channel = (r.canal ?? "desconhecido").toString();
-    for (const item of r.items as VendaItem[]) {
-      const skuMatch = (item.sku ?? item.reference ?? "").toString();
-      if (skuMatch !== sku) continue;
-      const qty = Number(item.quantity ?? 0);
-      const price = Number(item.price ?? 0);
-      const total = Number(item.total ?? qty * price);
+    const purchasedAt = parsePricingCrmDate(r.data_compra);
+    if (!purchasedAt) continue;
+    const week = weekKey(purchasedAt.toISOString());
+    const channel = (r.channel ?? "ecommerce").toString();
+    for (const item of r.items) {
+      if (saleItemBaseSku(item) !== targetSku) continue;
+      const qty = saleItemQuantity(item);
+      const total = saleItemRevenue(item);
       if (qty <= 0 || total <= 0) continue;
       const key = `${channel}::${week}`;
       const cur = buckets.get(key) ?? { channel, week, qty: 0, revenue: 0 };

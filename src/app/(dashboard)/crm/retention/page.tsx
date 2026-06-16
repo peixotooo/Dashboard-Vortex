@@ -377,6 +377,7 @@ interface SchedulePreview {
 interface ScheduleReviewState {
   preview: SchedulePreview;
   variableValues: Record<string, string>;
+  scheduledAt: string | null;
 }
 
 interface WhatsAppRunSummary {
@@ -439,6 +440,11 @@ interface CouponRunSummary {
   planCount: number;
   planIds?: string[];
   couponCount: number;
+  lastRunStatus?: string | null;
+  lastRunReason?: string | null;
+  lastRunAt?: string | null;
+  lastRunProposed?: number;
+  lastRunAutoApproved?: number;
   attributedRevenue: number;
   attributedUnits: number;
   attributedDiscount: number;
@@ -858,6 +864,24 @@ function DATE_TIME(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDateTimeLocalValue(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function DATE_DAY(value?: string | null) {
@@ -2733,6 +2757,7 @@ function ExecuteRunDialog({
   onApproveAll,
   onClose,
   onVariableChange,
+  onScheduledAtChange,
   onConfirm,
 }: {
   review: ScheduleReviewState | null;
@@ -2746,14 +2771,17 @@ function ExecuteRunDialog({
   onApproveAll: (run: RunReport) => void;
   onClose: () => void;
   onVariableChange: (key: string, value: string) => void;
+  onScheduledAtChange: (value: string | null) => void;
   onConfirm: () => void;
 }) {
   const preview = review?.preview || null;
   const variableValues = review?.variableValues || {};
+  const scheduledAt = review ? review.scheduledAt : preview?.scheduledAt ?? null;
   const renderedMessage = preview
     ? renderTemplatePreview(preview.templateBody, variableValues)
     : "";
   const missingValue = preview?.variables.some((variable) => !String(variableValues[variable.key] || "").trim());
+  const missingSchedule = !scheduledAt;
 
   // Quem entra (janela de recencia do playbook) — resposta a "compraram quando?"
   const audienceInfo = playbookAudienceInfo(run?.playbookId);
@@ -2766,8 +2794,11 @@ function ExecuteRunDialog({
   const activeCoupons = couponRows.filter((coupon) => coupon.status === "active");
   const couponGenerated = (run?.channels?.coupons?.couponCount ?? 0) > 0;
   const couponReady = activeCoupons.length > 0;
+  const couponLastStatus = run?.channels?.coupons?.lastRunStatus || null;
+  const couponProcessing = couponLastStatus === "queued" || couponLastStatus === "running";
+  const couponNoCandidates = couponLastStatus === "no_candidates";
   const couponRunning = Boolean(run && couponRunningId === run.id);
-  const couponBlocked = couponNeeded && !couponReady;
+  const couponBlocked = couponNeeded && !couponReady && !couponNoCandidates;
   const anyApproving = approvingCouponId !== null;
   // Todos os cupons gerados terminaram (cancelados/falharam) e nenhum ficou ativo: oferece rodar de novo.
   const couponExhausted = couponGenerated && !couponReady && pendingCoupons.length === 0;
@@ -2832,8 +2863,16 @@ function ExecuteRunDialog({
               </div>
               <div className="rounded-md bg-muted/35 p-3">
                 <p className="text-xs text-muted-foreground">Horario</p>
-                <p className="mt-1 text-sm font-semibold">{DATE_TIME(preview.scheduledAt)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{preview.sendHourSource}</p>
+                <p className="mt-1 text-sm font-semibold">{DATE_TIME(scheduledAt)}</p>
+                <Input
+                  type="datetime-local"
+                  className="mt-2 h-8 text-xs"
+                  value={toDateTimeLocalValue(scheduledAt)}
+                  onChange={(event) => onScheduledAtChange(fromDateTimeLocalValue(event.target.value))}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {scheduledAt === preview.scheduledAt ? preview.sendHourSource : "manual"}
+                </p>
               </div>
             </div>
 
@@ -2892,12 +2931,24 @@ function ExecuteRunDialog({
                       Esse playbook usa cupom. Rode, revise as sugestoes e aprove — sem sair da pagina.
                     </p>
                   </div>
-                  <Badge variant={couponReady ? "success" : couponGenerated ? "warning" : "outline"}>
+                  <Badge
+                    variant={
+                      couponReady
+                        ? "success"
+                        : couponNoCandidates || couponProcessing || couponGenerated
+                          ? "warning"
+                          : "outline"
+                    }
+                  >
                     {couponReady
                       ? `${NUMBER(activeCoupons.length)} no ar`
-                      : couponGenerated
-                        ? `${NUMBER(pendingCoupons.length)} pendentes`
-                        : "sem cupom"}
+                      : couponNoCandidates
+                        ? "sem elegiveis"
+                        : couponProcessing
+                          ? "processando"
+                          : couponGenerated
+                            ? `${NUMBER(pendingCoupons.length)} pendentes`
+                            : "sem cupom"}
                   </Badge>
                 </div>
 
@@ -2921,10 +2972,37 @@ function ExecuteRunDialog({
                   </div>
                 )}
 
+                {couponProcessing && (
+                  <div className="mt-3">
+                    <StatusBanner
+                      tone="info"
+                      icon={<Loader2 className="h-4 w-4 animate-spin" />}
+                      title="Cupom em processamento no worker"
+                    >
+                      A fila do droplet recebeu o pedido. A tela atualiza quando surgirem sugestoes para aprovar.
+                    </StatusBanner>
+                  </div>
+                )}
+
+                {couponNoCandidates && !couponReady && (
+                  <div className="mt-3">
+                    <StatusBanner
+                      tone="warning"
+                      icon={<AlertCircle className="h-4 w-4" />}
+                      title="Sem produto elegivel para cupom agora"
+                    >
+                      O worker rodou o plano, mas nao encontrou produtos elegiveis dentro das regras de margem,
+                      estoque e cooldown. O agendamento foi liberado sem cupom para nao travar receita.
+                    </StatusBanner>
+                  </div>
+                )}
+
                 {!couponGenerated ? (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs text-muted-foreground">
-                      Gera sugestoes de cupom para esse run com base no guardrail do playbook.
+                      {couponNoCandidates
+                        ? "Voce pode tentar novamente depois ou seguir com a mensagem sem cupom."
+                        : "Gera sugestoes de cupom para esse run com base no guardrail do playbook."}
                     </p>
                     <Button size="sm" onClick={() => run && onRunCoupon(run)} disabled={couponRunning}>
                       {couponRunning ? (
@@ -3111,7 +3189,13 @@ function ExecuteRunDialog({
           {couponBlocked && (
             <p className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-500 sm:mr-auto">
               <AlertCircle className="h-3.5 w-3.5" />
-              Aprove ao menos um cupom antes de agendar.
+              {couponProcessing ? "Aguarde o worker concluir o cupom." : "Aprove ao menos um cupom antes de agendar."}
+            </p>
+          )}
+          {!couponBlocked && couponNeeded && couponNoCandidates && (
+            <p className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-500 sm:mr-auto">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Sem cupom elegivel, agendamento liberado.
             </p>
           )}
           {!couponBlocked && emailOnlyAudience && (
@@ -3131,7 +3215,12 @@ function ExecuteRunDialog({
           <Button
             onClick={onConfirm}
             disabled={
-              confirming || Boolean(missingValue) || !preview || preview.recipients === 0 || couponBlocked
+              confirming ||
+              Boolean(missingValue) ||
+              missingSchedule ||
+              !preview ||
+              preview.recipients === 0 ||
+              couponBlocked
             }
           >
             {confirming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
@@ -3771,6 +3860,14 @@ export default function RetentionPlaybooksPage() {
     setRuns(payload.runs || []);
   }, [workspaceId]);
 
+  const refreshRunsSoon = useCallback(() => {
+    [1500, 5000, 12000].forEach((delay) => {
+      window.setTimeout(() => {
+        void fetchRuns().catch(() => undefined);
+      }, delay);
+    });
+  }, [fetchRuns]);
+
   const load = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -3907,6 +4004,7 @@ export default function RetentionPlaybooksPage() {
     setCouponError(null);
     setScheduleReview({
       preview,
+      scheduledAt: preview.scheduledAt,
       variableValues: { ...(preview.variableValues || {}) },
     });
   }
@@ -3954,6 +4052,7 @@ export default function RetentionPlaybooksPage() {
           runId: scheduleReview.preview.runId,
           templateId: scheduleReview.preview.templateId,
           variableValues: scheduleReview.variableValues,
+          scheduledAt: scheduleReview.scheduledAt,
         }),
       });
       const payload = await res.json();
@@ -4028,6 +4127,7 @@ export default function RetentionPlaybooksPage() {
       const runPayload = await runRes.json();
       if (!runRes.ok) throw new Error(runPayload.error || "Erro ao rodar o cupom");
       await fetchRuns();
+      refreshRunsSoon();
     } catch (err) {
       setCouponError(err instanceof Error ? err.message : "Erro de rede ao rodar o cupom");
     } finally {
@@ -4816,6 +4916,16 @@ export default function RetentionPlaybooksPage() {
                         ...current.variableValues,
                         [key]: value,
                       },
+                    }
+                  : current
+              )
+            }
+            onScheduledAtChange={(value) =>
+              setScheduleReview((current) =>
+                current
+                  ? {
+                      ...current,
+                      scheduledAt: value,
                     }
                   : current
               )

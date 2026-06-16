@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import { applyPromoPrice } from "@/lib/ml/promo";
+import { resolveMlCategoryId } from "@/lib/ml/categories";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
@@ -212,7 +213,7 @@ function buildUPPayload(
 
   return {
     family_name: familyName,
-    category_id: enr?.category_id || categoryId,
+    category_id: resolveMlCategoryId(enr?.category_id || categoryId),
     price: Number(product.preco || parent.preco || 0),
     currency_id: "BRL",
     available_quantity: Math.max(product.estoque || 0, 1),
@@ -260,7 +261,7 @@ function buildSimpleUPPayload(
 
   return {
     family_name: familyName,
-    category_id: enr?.category_id || categoryId,
+    category_id: resolveMlCategoryId(enr?.category_id || categoryId),
     price: Number(product.preco),
     currency_id: "BRL",
     available_quantity: Math.max(product.estoque || 0, 1),
@@ -341,6 +342,58 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // -------------------------------------------------------------------
+  // Reprocesso de itens excluídos no ML.
+  // Se o produto tem ml_item_id mas o anúncio foi removido/encerrado lá no ML
+  // (404 ou status closed/inactive), limpamos o vínculo antigo para republicá-lo
+  // como NOVO. Itens ainda vivos (active/paused/under_review/...) continuam sendo
+  // pulados para não duplicar — mas agora retornamos quais foram ignorados em vez
+  // de sumir silenciosamente.
+  const skippedLive: string[] = [];
+  const reprocessedSkus: string[] = [];
+  for (const p of hubProducts) {
+    if (!p.ml_item_id) continue;
+    let gone = false;
+    try {
+      const item = await ml.get<{ status?: string }>(
+        `/items/${p.ml_item_id}?attributes=id,status`,
+        workspaceId
+      );
+      const st = item?.status || "";
+      gone = st === "closed" || st === "inactive";
+    } catch (err) {
+      // 404 = anúncio não existe mais no ML → tratar como excluído
+      if (err instanceof Error && /ML 404/.test(err.message)) gone = true;
+      // outros erros (rede/permissão): não arrisca, mantém o vínculo (será pulado)
+    }
+    if (gone) {
+      p.ml_item_id = null; // flui para o caminho de publicação como item novo
+      p.ml_variation_id = null;
+      reprocessedSkus.push(p.sku);
+    } else {
+      skippedLive.push(p.sku);
+    }
+  }
+
+  // Limpa em lote os vínculos antigos dos itens que serão republicados como novos
+  if (reprocessedSkus.length > 0 && !validateOnly) {
+    await supabase
+      .from("hub_products")
+      .update({
+        ml_item_id: null,
+        ml_permalink: null,
+        ml_status: null,
+        ml_variation_id: null,
+        ml_preco: null,
+        ml_estoque: null,
+        ml_data: null,
+        sync_status: "ready",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("workspace_id", workspaceId)
+      .in("sku", reprocessedSkus);
+  }
+
   // Group by ecc_pai_sku to identify variation families
   const variationGroups = new Map<string, HubProduct[]>();
   const potentialSimple: HubProduct[] = [];
@@ -390,7 +443,7 @@ export async function POST(req: NextRequest) {
           ml_item_id: result.id,
           ml_permalink: result.permalink,
           ml_status: result.status,
-          ml_category_id: categoryId || product.ml_enrichment?.category_id || null,
+          ml_category_id: resolveMlCategoryId(product.ml_enrichment?.category_id || categoryId),
           ml_preco: Number(product.preco),
           ml_estoque: product.estoque,
           sync_status: "synced",
@@ -534,7 +587,7 @@ export async function POST(req: NextRequest) {
               ml_item_id: result.id,
               ml_permalink: result.permalink,
               ml_status: result.status,
-              ml_category_id: categoryId || child.ml_enrichment?.category_id || null,
+              ml_category_id: resolveMlCategoryId(child.ml_enrichment?.category_id || categoryId),
               ml_preco: Number(child.preco),
               ml_estoque: child.estoque,
               sync_status: "synced",
@@ -598,7 +651,7 @@ export async function POST(req: NextRequest) {
             ml_item_id: firstSuccessSku.ml_item_id || null,
             ml_permalink: firstSuccessSku.ml_permalink || null,
             ml_status: "active",
-            ml_category_id: categoryId || parent!.ml_enrichment?.category_id || null,
+            ml_category_id: resolveMlCategoryId(parent!.ml_enrichment?.category_id || categoryId),
             sync_status: "synced",
             linked: true,
             last_ml_sync: new Date().toISOString(),
@@ -662,6 +715,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     published,
     errors,
+    reprocessed: reprocessedSkus.length,
+    skipped_live: skippedLive.length,
+    skipped_live_skus: skippedLive,
     validate_only: validateOnly,
     results,
   });

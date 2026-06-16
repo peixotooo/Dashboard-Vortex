@@ -46,6 +46,7 @@ function hasEffectiveFeature(features: string[], featureId: string): boolean {
   if (features.includes(featureId)) return true;
   const f = FEATURES.find((x) => x.id === featureId);
   if (f?.parent && features.includes(f.parent)) return true;
+  if (f?.legacyParents?.some((parentId) => features.includes(parentId))) return true;
   return false;
 }
 
