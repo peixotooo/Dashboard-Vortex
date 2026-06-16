@@ -133,6 +133,12 @@ interface CouponAuditRow {
     playbook_run_id?: string;
     playbook_id?: string;
     playbook_name?: string;
+    reason?: string;
+    job_status?: "queued" | "running" | "succeeded" | "failed";
+    result?: {
+      proposed?: number | string | null;
+      auto_approved?: number | string | null;
+    } | null;
   } | null;
 }
 
@@ -1368,7 +1374,7 @@ async function fetchCouponAuditsSince(
       .from("coupon_audit_log")
       .select("id, action, plan_id, active_coupon_id, created_at, details")
       .eq("workspace_id", workspaceId)
-      .in("action", ["plan_created", "cron_picked"])
+      .in("action", ["plan_created", "cron_picked", "cron_skipped"])
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
@@ -1416,16 +1422,31 @@ function summarizeCoupons(
   coupons: ActiveCouponRow[],
   sales: CrmOrderRow[]
 ) {
+  const runAudits = audits.filter((audit) => audit.details?.playbook_run_id === runId);
   const planIds = new Set(
-    audits
-      .filter((audit) => audit.details?.playbook_run_id === runId && audit.plan_id)
+    runAudits
+      .filter((audit) => audit.plan_id)
       .map((audit) => audit.plan_id as string)
   );
   const directCouponIds = new Set(
-    audits
-      .filter((audit) => audit.details?.playbook_run_id === runId && audit.active_coupon_id)
+    runAudits
+      .filter((audit) => audit.active_coupon_id)
       .map((audit) => audit.active_coupon_id as string)
   );
+  const latestRunAudit =
+    runAudits.find((audit) => audit.action === "cron_skipped") ||
+    runAudits.find((audit) => audit.action === "cron_picked") ||
+    null;
+  const latestResult = latestRunAudit?.details?.result || null;
+  const latestProposed = toNumber(latestResult?.proposed);
+  const latestAutoApproved = toNumber(latestResult?.auto_approved);
+  const latestReason = latestRunAudit?.details?.reason || null;
+  const latestJobStatus = latestRunAudit?.details?.job_status || null;
+  const latestRunStatus =
+    latestReason === "no_candidates" ||
+    (latestJobStatus === "succeeded" && latestRunAudit?.action === "cron_skipped" && latestProposed === 0)
+      ? "no_candidates"
+      : latestJobStatus || (latestRunAudit?.action === "cron_picked" ? "picked" : null);
   const rows =
     directCouponIds.size > 0
       ? coupons.filter((coupon) => directCouponIds.has(coupon.id))
@@ -1478,6 +1499,11 @@ function summarizeCoupons(
     planCount: planIds.size,
     planIds: Array.from(planIds),
     couponCount: rows.length,
+    lastRunStatus: latestRunStatus,
+    lastRunReason: latestReason,
+    lastRunAt: latestRunAudit?.created_at || null,
+    lastRunProposed: latestProposed,
+    lastRunAutoApproved: latestAutoApproved,
     ...totals,
     coupons: rows.slice(0, 20).map((coupon) => ({
       id: coupon.id,
@@ -2039,6 +2065,46 @@ function playbookRuntimeMessage(playbookId: string) {
   return "Sua conta segue ativa na Bulking. Temos uma comunicacao rapida para te ajudar na proxima compra.";
 }
 
+function cleanScheduledAtOverride(value: unknown): string | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Horario de agendamento invalido.");
+  }
+
+  const now = Date.now();
+  if (date.getTime() < now - 60_000) {
+    throw new Error("Escolha um horario atual ou futuro para agendar.");
+  }
+  if (date.getTime() > now + 30 * DAY_MS) {
+    throw new Error("Escolha um horario nos proximos 30 dias.");
+  }
+
+  return date.toISOString();
+}
+
+function brtScheduleParts(iso: string) {
+  const date = new Date(iso);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "short",
+      hour: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(parts.weekday));
+  const hour = Number(parts.hour);
+  return {
+    day: day >= 0 ? day : date.getUTCDay(),
+    hour: Number.isFinite(hour) ? hour : date.getUTCHours(),
+  };
+}
+
 function resolveTemplateValue(value: string, contact: Contact): string {
   let missingRequiredToken = false;
   const resolveToken = (token: string) => {
@@ -2219,6 +2285,7 @@ async function autoScheduleWhatsappRun(params: {
   attributionWindowDays: number;
   templateId?: string | null;
   variableValues?: Record<string, string>;
+  scheduledAt?: string | null;
 }) {
   let template =
     (await fetchTemplateById(params.admin, params.workspaceId, params.templateId || "")) ||
@@ -2274,7 +2341,19 @@ async function autoScheduleWhatsappRun(params: {
     };
   }
 
-  const sendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const inferredSendWindow = await inferBestSendWindow(params.admin, params.workspaceId);
+  const manualScheduledAt = cleanScheduledAtOverride(params.scheduledAt);
+  const manualParts = manualScheduledAt ? brtScheduleParts(manualScheduledAt) : null;
+  const sendWindow = manualScheduledAt
+    ? {
+        ...inferredSendWindow,
+        scheduledAt: manualScheduledAt,
+        day: manualParts!.day,
+        hour: manualParts!.hour,
+        source: "manual",
+        reason: "Horario editado manualmente antes do agendamento.",
+      }
+    : inferredSendWindow;
   const scheduledAt = sendWindow.scheduledAt;
   const campaignName = `Auto Retencao ${params.playbookName} ${new Date().toISOString().slice(0, 10)}`;
   const templateApproved = template.status === "APPROVED" && template.category === "UTILITY";
@@ -2443,6 +2522,7 @@ export async function POST(request: NextRequest) {
         attributionWindowDays: playbookAttributionWindowDays(preview.playbookId),
         templateId: preview.templateId,
         variableValues: preview.variableValues,
+        scheduledAt: typeof body.scheduledAt === "string" ? body.scheduledAt : null,
       });
 
       return NextResponse.json({ preview, automation });
