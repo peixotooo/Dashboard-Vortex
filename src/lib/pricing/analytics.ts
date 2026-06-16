@@ -32,6 +32,13 @@ type SnapshotRow = {
   vendas_dia_unidades: number;
 };
 
+type ShelfRow = {
+  sku: string | null;
+  price: number | null;
+  sale_price: number | null;
+  created_at: string | null;
+};
+
 export type IdadeMargemBucket = {
   label: string;
   margem_pct: number;
@@ -54,11 +61,28 @@ export type TravaDescontoCell = {
 export type OverviewKpis = {
   total_skus: number;
   skus_com_pricing: number;
+  skus_com_composicao: number;
+  skus_com_cmv: number;
+  cost_coverage_pct: number;
+  snapshot_sku_count: number;
   pct_estoque_ate_120d: number;
   margem_media_ponderada_pct: number;
   desconto_medio_ponderado_pct: number;
   skus_em_markdown: number;
   skus_em_markup: number;
+};
+
+export type PricingDataQuality = {
+  engine_enabled: boolean | null;
+  catalog_sku_count: number;
+  snapshot_sku_count: number;
+  latest_snapshot_date: string | null;
+  snapshot_age_days: number | null;
+  snapshot_stale: boolean;
+  cmv_tracked_skus: number;
+  cmv_coverage_pct: number;
+  manual_composition_skus: number;
+  warnings: string[];
 };
 
 // Conceito 6 — matriz 3×3 com health colorido.
@@ -99,19 +123,24 @@ export async function computeOverview(
   kpis: OverviewKpis;
   idade_margem: IdadeMargemBucket[];
   trava_desconto: TravaDescontoCell[];
+  data_quality: PricingDataQuality;
 }> {
-  // Mais recente snapshot por SKU (evento='baseline' garante 1/dia/SKU)
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { data: snapshots } = await client
-    .from("sku_pricing_history")
-    .select("sku, idade_dias, preco_de, preco_por, desconto_pct, margem_pct, stock_units, vendas_dia_unidades, snapshot_date, evento")
-    .eq("workspace_id", workspaceId)
-    .gte("snapshot_date", since)
-    .order("snapshot_date", { ascending: false });
+  const [shelf, snapshots, costsBySku, manualCompositionCount, engineEnabled] = await Promise.all([
+    loadActiveShelfRows(client, workspaceId),
+    loadPricingSnapshots(client, workspaceId),
+    loadProductCostSkus(client, workspaceId),
+    countManualCompositions(client, workspaceId),
+    loadEngineEnabled(client, workspaceId),
+  ]);
 
   // Reduz pra 1 row por SKU (mais recente)
   const latestBySku = new Map<string, SnapshotRow>();
-  for (const row of (snapshots ?? []) as any[]) {
+  let latestSnapshotDate: string | null = null;
+  for (const row of snapshots) {
+    const snapshotDate = String(row.snapshot_date ?? "");
+    if (snapshotDate && (!latestSnapshotDate || snapshotDate > latestSnapshotDate)) {
+      latestSnapshotDate = snapshotDate;
+    }
     if (!latestBySku.has(row.sku)) {
       latestBySku.set(row.sku, {
         sku: row.sku,
@@ -126,13 +155,43 @@ export async function computeOverview(
     }
   }
 
-  const rows = Array.from(latestBySku.values());
-  const totalSkus = rows.length;
+  const rows: SnapshotRow[] = [];
+  const activeSkus = new Set<string>();
+  for (const product of shelf) {
+    const sku = product.sku?.trim();
+    if (!sku) continue;
+    if (activeSkus.has(sku)) continue;
+    activeSkus.add(sku);
+    const snap = latestBySku.get(sku);
+    if (snap) {
+      rows.push(snap);
+      continue;
+    }
+    const precoDe = Number(product.price ?? 0);
+    const precoPor = product.sale_price != null ? Number(product.sale_price) : precoDe;
+    rows.push({
+      sku,
+      idade_dias: ageDays(product.created_at),
+      preco_de: precoDe,
+      preco_por: precoPor,
+      desconto_pct: precoDe > 0 ? Math.max(0, 1 - precoPor / precoDe) : 0,
+      margem_pct: null,
+      stock_units: 0,
+      vendas_dia_unidades: 0,
+    });
+  }
 
-  const { count: skusComPricing } = await client
-    .from("sku_pricing")
-    .select("*", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId);
+  const totalSkus = activeSkus.size;
+  const skusComCmv = [...activeSkus].filter((sku) => costsBySku.has(sku)).length;
+  const costCoveragePct = totalSkus > 0 ? (skusComCmv / totalSkus) * 100 : 0;
+  const snapshotSkuCount = [...activeSkus].filter((sku) => latestBySku.has(sku)).length;
+  const snapshotAgeDays = latestSnapshotDate
+    ? Math.floor(
+        (Date.now() - new Date(`${latestSnapshotDate}T00:00:00.000Z`).getTime()) /
+          (24 * 60 * 60 * 1000)
+      )
+    : null;
+  const snapshotStale = snapshotAgeDays == null || snapshotAgeDays > 2;
 
   // KPIs
   const totalEstoque = rows.reduce((a, r) => a + r.stock_units, 0);
@@ -161,8 +220,7 @@ export async function computeOverview(
   const { data: counts } = await client
     .from("sku_pricing_history")
     .select("evento, status")
-    .eq("workspace_id", workspaceId)
-    .gte("snapshot_date", since);
+    .eq("workspace_id", workspaceId);
 
   let markdowns = 0;
   let markups = 0;
@@ -173,7 +231,13 @@ export async function computeOverview(
 
   const kpis: OverviewKpis = {
     total_skus: totalSkus,
-    skus_com_pricing: skusComPricing ?? 0,
+    // Campo legado: a UI antiga lia "skus_com_pricing". Na prática,
+    // CMV cadastrado é o requisito que desbloqueia margem confiável.
+    skus_com_pricing: skusComCmv,
+    skus_com_composicao: manualCompositionCount,
+    skus_com_cmv: skusComCmv,
+    cost_coverage_pct: costCoveragePct,
+    snapshot_sku_count: snapshotSkuCount,
     pct_estoque_ate_120d:
       totalEstoque > 0 ? (totalEstoqueAte120 / totalEstoque) * 100 : 0,
     margem_media_ponderada_pct: pesoMargem > 0 ? (somaMargem / pesoMargem) * 100 : 0,
@@ -181,6 +245,41 @@ export async function computeOverview(
       pesoDesconto > 0 ? (somaDesconto / pesoDesconto) * 100 : 0,
     skus_em_markdown: markdowns,
     skus_em_markup: markups,
+  };
+
+  const warnings: string[] = [];
+  if (engineEnabled === false) {
+    warnings.push("Engine de pricing está desativado; o worker diário não gera novos snapshots.");
+  }
+  if (snapshotStale) {
+    warnings.push(
+      latestSnapshotDate
+        ? `Engine sem snapshot novo há ${snapshotAgeDays} dias (último: ${latestSnapshotDate}).`
+        : "Engine ainda não gerou snapshot de pricing."
+    );
+  }
+  if (snapshotSkuCount < totalSkus) {
+    warnings.push(
+      `Snapshot cobre ${snapshotSkuCount} de ${totalSkus} SKUs ativos; SKUs sem snapshot entram sem estoque/venda.`
+    );
+  }
+  if (costCoveragePct < 80) {
+    warnings.push(
+      `CMV rastreado cobre ${costCoveragePct.toFixed(0)}% dos SKUs ativos; margens restantes usam premissa/categoria.`
+    );
+  }
+
+  const dataQuality: PricingDataQuality = {
+    engine_enabled: engineEnabled,
+    catalog_sku_count: totalSkus,
+    snapshot_sku_count: snapshotSkuCount,
+    latest_snapshot_date: latestSnapshotDate,
+    snapshot_age_days: snapshotAgeDays,
+    snapshot_stale: snapshotStale,
+    cmv_tracked_skus: skusComCmv,
+    cmv_coverage_pct: costCoveragePct,
+    manual_composition_skus: manualCompositionCount,
+    warnings,
   };
 
   // Conceito 7 — Matriz Idade × Margem
@@ -239,5 +338,105 @@ export async function computeOverview(
     }
   }
 
-  return { kpis, idade_margem: idadeMargem, trava_desconto };
+  return { kpis, idade_margem: idadeMargem, trava_desconto, data_quality: dataQuality };
+}
+
+async function loadEngineEnabled(client: SupabaseClient, workspaceId: string) {
+  const { data, error } = await client
+    .from("pricing_engine_settings")
+    .select("enabled")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (error) throw new Error(`pricing_engine_settings load failed: ${error.message}`);
+  return data ? Boolean((data as { enabled?: boolean | null }).enabled) : null;
+}
+
+async function loadActiveShelfRows(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<ShelfRow[]> {
+  const rows: ShelfRow[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await client
+      .from("shelf_products")
+      .select("sku, price, sale_price, created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`shelf_products load failed: ${error.message}`);
+    const page = (data ?? []) as ShelfRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
+async function loadPricingSnapshots(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<any[]> {
+  const rows: any[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await client
+      .from("sku_pricing_history")
+      .select(
+        "sku, idade_dias, preco_de, preco_por, desconto_pct, margem_pct, stock_units, vendas_dia_unidades, snapshot_date, evento"
+      )
+      .eq("workspace_id", workspaceId)
+      .order("snapshot_date", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`sku_pricing_history load failed: ${error.message}`);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
+async function loadProductCostSkus(
+  client: SupabaseClient,
+  workspaceId: string
+): Promise<Set<string>> {
+  const skus = new Set<string>();
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await client
+      .from("product_costs")
+      .select("sku")
+      .eq("workspace_id", workspaceId)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`product_costs load failed: ${error.message}`);
+    const page = (data ?? []) as Array<{ sku: string | null }>;
+    for (const row of page) {
+      const sku = row.sku?.trim();
+      if (sku) skus.add(sku);
+    }
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  return skus;
+}
+
+async function countManualCompositions(client: SupabaseClient, workspaceId: string) {
+  const { count, error } = await client
+    .from("sku_pricing")
+    .select("*", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId);
+  if (error) throw new Error(`sku_pricing count failed: ${error.message}`);
+  return count ?? 0;
+}
+
+function ageDays(value: string | null | undefined): number {
+  if (!value) return 0;
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000)));
 }

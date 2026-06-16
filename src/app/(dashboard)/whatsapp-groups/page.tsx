@@ -40,6 +40,12 @@ import {
   History,
   FileEdit,
   TrendingUp,
+  Link2,
+  Copy,
+  ExternalLink,
+  AlertTriangle,
+  Plus,
+  Save,
 } from "lucide-react";
 import { FormattingToolbar } from "@/components/whatsapp/formatting-toolbar";
 import { EmojiPicker } from "@/components/whatsapp/emoji-picker";
@@ -56,6 +62,45 @@ import { ptBR } from "date-fns/locale";
 interface WapiGroup {
   id: string;
   name: string;
+}
+
+interface PoolGroup {
+  id: string;
+  groupJid: string;
+  groupName: string;
+  sequence: number | null;
+  inviteUrl: string | null;
+  status: "active" | "paused" | "full" | "archived";
+  redirectCount: number;
+  memberCount: number | null;
+  lastCapturedAt: string | null;
+  capacity: number;
+  fillPct: number | null;
+  isNearFull: boolean;
+  isFull: boolean;
+}
+
+interface GroupPool {
+  id: string;
+  name: string;
+  slug: string;
+  publicUrl: string;
+  matchPattern: string | null;
+  capacity: number;
+  nearFullThreshold: number;
+  active: boolean;
+  groups: PoolGroup[];
+  stats: {
+    totalGroups: number;
+    activeGroups: number;
+    routeableGroups: number;
+    openRouteableGroups: number;
+    nearFullGroups: number;
+    fullGroups: number;
+    missingInviteLinks: number;
+    totalMembers: number;
+    needsMoreGroups: boolean;
+  };
 }
 
 interface SendResult {
@@ -101,6 +146,18 @@ export default function WhatsAppGroupsPage() {
   const [groupSearch, setGroupSearch] = useState("");
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [groupsCached, setGroupsCached] = useState(false);
+
+  // Pool management state
+  const [pools, setPools] = useState<GroupPool[]>([]);
+  const [poolsLoading, setPoolsLoading] = useState(false);
+  const [poolSaving, setPoolSaving] = useState(false);
+  const [poolDraft, setPoolDraft] = useState({
+    name: "BULKING VIP",
+    slug: "vip",
+    matchPattern: "BULKING VIP",
+    capacity: 1024,
+    nearFullThreshold: 950,
+  });
 
   // Presets
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -248,15 +305,48 @@ export default function WhatsAppGroupsPage() {
     }
   }, [workspace?.id, wsHeaders]);
 
+  const fetchPools = useCallback(async () => {
+    if (!workspace?.id || !configured) return;
+    setPoolsLoading(true);
+    try {
+      const res = await fetch("/api/whatsapp-groups/pools", {
+        headers: wsHeaders(),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(data.error);
+      } else {
+        setPools(data.pools || []);
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao carregar gestao de grupos: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    } finally {
+      setPoolsLoading(false);
+    }
+  }, [workspace?.id, configured, wsHeaders]);
+
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (
+      tab &&
+      ["connection", "groups", "growth", "management", "send", "history", "config"].includes(tab)
+    ) {
+      setActiveTab(tab);
+    }
+  }, []);
 
   // Auto-load cached groups when configured
   useEffect(() => {
     if (configured) {
       fetchGroups(false);
       fetchPresets();
+      fetchPools();
     }
   }, [configured]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -289,6 +379,118 @@ export default function WhatsAppGroupsPage() {
       );
     }
     setSavingConfig(false);
+  }
+
+  function handleTabChange(tab: string) {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    if (tab === "connection") {
+      url.searchParams.delete("tab");
+    } else {
+      url.searchParams.set("tab", tab);
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  async function handleCreatePool() {
+    setPoolSaving(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch("/api/whatsapp-groups/pools", {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify(poolDraft),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao criar pool: ${data.error}`);
+      } else {
+        setPools(data.pools || []);
+        setSuccessMsg("Pool criado e grupos existentes sincronizados.");
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao criar pool: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    } finally {
+      setPoolSaving(false);
+    }
+  }
+
+  async function handleSavePool(pool: GroupPool, sync = false) {
+    setPoolSaving(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch(`/api/whatsapp-groups/pools/${pool.id}`, {
+        method: "PATCH",
+        headers: wsHeaders(),
+        body: JSON.stringify({
+          name: pool.name,
+          slug: pool.slug,
+          matchPattern: pool.matchPattern || "",
+          capacity: pool.capacity,
+          nearFullThreshold: pool.nearFullThreshold,
+          active: pool.active,
+          sync,
+          groups: pool.groups.map((g) => ({
+            id: g.id,
+            inviteUrl: g.inviteUrl || "",
+            status: g.status,
+            sequence: g.sequence,
+            redirectCount: g.redirectCount,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao salvar pool: ${data.error}`);
+      } else {
+        setPools(data.pools || []);
+        setSuccessMsg(sync ? "Pool sincronizado." : "Pool salvo.");
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao salvar pool: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    } finally {
+      setPoolSaving(false);
+    }
+  }
+
+  function updatePool(poolId: string, patch: Partial<GroupPool>) {
+    setPools((prev) =>
+      prev.map((pool) => (pool.id === poolId ? { ...pool, ...patch } : pool))
+    );
+  }
+
+  function updatePoolGroup(
+    poolId: string,
+    groupId: string,
+    patch: Partial<PoolGroup>
+  ) {
+    setPools((prev) =>
+      prev.map((pool) =>
+        pool.id === poolId
+          ? {
+              ...pool,
+              groups: pool.groups.map((group) =>
+                group.id === groupId ? { ...group, ...patch } : group
+              ),
+            }
+          : pool
+      )
+    );
+  }
+
+  async function copyPoolUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setSuccessMsg("Link copiado.");
+    } catch {
+      setErrorMsg("Nao consegui copiar o link automaticamente.");
+    }
   }
 
   async function handleRestart() {
@@ -569,7 +771,7 @@ export default function WhatsAppGroupsPage() {
         </div>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="connection" className="gap-1.5">
             {connected ? (
@@ -589,6 +791,9 @@ export default function WhatsAppGroupsPage() {
           </TabsTrigger>
           <TabsTrigger value="growth" className="gap-1.5">
             <TrendingUp className="h-4 w-4" /> Crescimento
+          </TabsTrigger>
+          <TabsTrigger value="management" className="gap-1.5">
+            <Link2 className="h-4 w-4" /> Link unico
           </TabsTrigger>
           <TabsTrigger value="send" className="gap-1.5">
             <Send className="h-4 w-4" /> Enviar
@@ -878,6 +1083,342 @@ export default function WhatsAppGroupsPage() {
                   </tbody>
                 </table>
               </div>
+            </>
+          )}
+        </TabsContent>
+
+        {/* ==================== MANAGEMENT TAB ==================== */}
+        <TabsContent value="management" className="space-y-4">
+          {!configured ? (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground">
+                Configure a W-API antes de gerenciar o link unico.
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Plus className="h-5 w-5" />
+                    Novo link unico de grupos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_1fr_0.6fr_0.6fr_auto] md:items-end">
+                  <div>
+                    <Label>Nome</Label>
+                    <Input
+                      value={poolDraft.name}
+                      onChange={(e) =>
+                        setPoolDraft((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Slug</Label>
+                    <Input
+                      value={poolDraft.slug}
+                      onChange={(e) =>
+                        setPoolDraft((prev) => ({ ...prev, slug: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Padrao no nome</Label>
+                    <Input
+                      value={poolDraft.matchPattern}
+                      onChange={(e) =>
+                        setPoolDraft((prev) => ({
+                          ...prev,
+                          matchPattern: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Capacidade</Label>
+                    <Input
+                      type="number"
+                      value={poolDraft.capacity}
+                      onChange={(e) =>
+                        setPoolDraft((prev) => ({
+                          ...prev,
+                          capacity: Number(e.target.value),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Alerta</Label>
+                    <Input
+                      type="number"
+                      value={poolDraft.nearFullThreshold}
+                      onChange={(e) =>
+                        setPoolDraft((prev) => ({
+                          ...prev,
+                          nearFullThreshold: Number(e.target.value),
+                        }))
+                      }
+                    />
+                  </div>
+                  <Button onClick={handleCreatePool} disabled={poolSaving} className="gap-1.5">
+                    {poolSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                    Criar
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {poolsLoading && (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                    Carregando links...
+                  </CardContent>
+                </Card>
+              )}
+
+              {!poolsLoading && pools.length === 0 && (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    Nenhum link unico criado ainda.
+                  </CardContent>
+                </Card>
+              )}
+
+              {pools.map((pool) => (
+                <Card key={pool.id}>
+                  <CardHeader className="space-y-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Link2 className="h-5 w-5" />
+                          {pool.name}
+                        </CardTitle>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <Badge variant={pool.active ? "default" : "secondary"}>
+                            {pool.active ? "Ativo" : "Pausado"}
+                          </Badge>
+                          <Badge variant="outline">{pool.stats.totalGroups} grupos</Badge>
+                          <Badge variant="outline">
+                            {pool.stats.routeableGroups} com link
+                          </Badge>
+                          <Badge variant="outline">
+                            {pool.stats.totalMembers} membros
+                          </Badge>
+                          <span className="font-mono text-xs">{pool.publicUrl}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyPoolUrl(pool.publicUrl)}
+                          className="gap-1.5"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Copiar link
+                        </Button>
+                        <Button size="sm" variant="outline" asChild className="gap-1.5">
+                          <a href={pool.publicUrl} target="_blank" rel="noreferrer">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir
+                          </a>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSavePool(pool, true)}
+                          disabled={poolSaving}
+                          className="gap-1.5"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Sincronizar
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSavePool(pool)}
+                          disabled={poolSaving}
+                          className="gap-1.5"
+                        >
+                          {poolSaving ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Save className="h-3.5 w-3.5" />
+                          )}
+                          Salvar
+                        </Button>
+                      </div>
+                    </div>
+
+                    {pool.stats.needsMoreGroups && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          Todos os grupos com link estao perto do limite. Crie mais grupos
+                          seguindo o padrao e clique em sincronizar.
+                        </span>
+                      </div>
+                    )}
+
+                    {pool.stats.missingInviteLinks > 0 && (
+                      <div className="flex items-start gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          {pool.stats.missingInviteLinks} grupo(s) ativo(s) ainda sem link de convite.
+                        </span>
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-[1fr_0.7fr_0.8fr_0.6fr_0.6fr_0.6fr]">
+                      <div>
+                        <Label>Nome</Label>
+                        <Input
+                          value={pool.name}
+                          onChange={(e) => updatePool(pool.id, { name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Slug</Label>
+                        <Input
+                          value={pool.slug}
+                          onChange={(e) => updatePool(pool.id, { slug: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Padrao no nome</Label>
+                        <Input
+                          value={pool.matchPattern || ""}
+                          onChange={(e) =>
+                            updatePool(pool.id, { matchPattern: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Capacidade</Label>
+                        <Input
+                          type="number"
+                          value={pool.capacity}
+                          onChange={(e) =>
+                            updatePool(pool.id, { capacity: Number(e.target.value) })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Alerta</Label>
+                        <Input
+                          type="number"
+                          value={pool.nearFullThreshold}
+                          onChange={(e) =>
+                            updatePool(pool.id, {
+                              nearFullThreshold: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Status</Label>
+                        <Select
+                          value={pool.active ? "active" : "paused"}
+                          onValueChange={(value) =>
+                            updatePool(pool.id, { active: value === "active" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">Ativo</SelectItem>
+                            <SelectItem value="paused">Pausado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium">Grupo</th>
+                            <th className="px-3 py-2 text-left font-medium">Membros</th>
+                            <th className="px-3 py-2 text-left font-medium">Status</th>
+                            <th className="px-3 py-2 text-left font-medium">Link de convite</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {pool.groups.map((group) => (
+                            <tr key={group.id} className={group.isNearFull ? "bg-amber-500/5" : ""}>
+                              <td className="px-3 py-3 align-top">
+                                <div className="font-medium">{group.groupName}</div>
+                                <div className="text-xs font-mono text-muted-foreground">
+                                  {group.groupJid}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 align-top">
+                                <div className="flex min-w-32 items-center gap-2">
+                                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                      className={`h-full ${
+                                        group.isFull
+                                          ? "bg-red-500"
+                                          : group.isNearFull
+                                            ? "bg-amber-500"
+                                            : "bg-green-500"
+                                      }`}
+                                      style={{ width: `${group.fillPct ?? 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="w-16 text-right text-xs text-muted-foreground">
+                                    {group.memberCount ?? "-"} / {group.capacity}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {group.redirectCount} clique(s)
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 align-top">
+                                <Select
+                                  value={group.status}
+                                  onValueChange={(value) =>
+                                    updatePoolGroup(pool.id, group.id, {
+                                      status: value as PoolGroup["status"],
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 w-32">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="active">Ativo</SelectItem>
+                                    <SelectItem value="paused">Pausado</SelectItem>
+                                    <SelectItem value="full">Cheio</SelectItem>
+                                    <SelectItem value="archived">Arquivado</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-3 py-3 align-top">
+                                <Input
+                                  value={group.inviteUrl || ""}
+                                  onChange={(e) =>
+                                    updatePoolGroup(pool.id, group.id, {
+                                      inviteUrl: e.target.value,
+                                    })
+                                  }
+                                  placeholder="https://chat.whatsapp.com/..."
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </>
           )}
         </TabsContent>

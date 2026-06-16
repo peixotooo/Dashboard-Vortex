@@ -19,6 +19,12 @@ import { computeMargin } from "./composition";
 import { buildCategoryAvgMap, type CategoryAvgMap } from "./category-cost";
 import { baseSkuOf } from "./sku-utils";
 import {
+  fetchRecentCrmSalesWithItems,
+  parsePricingCrmDate,
+  saleItemBaseSku,
+  saleItemQuantity,
+} from "./crm-sales";
+import {
   DEFAULT_ENGINE_SETTINGS,
   type CompositionInput,
   type EngineSettings,
@@ -44,6 +50,12 @@ type ShelfProductRow = {
   tags: unknown;
 };
 
+function chunks<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 // Extrai os nomes de tag de shelf_products.tags. A coluna tem mix de:
 //   - strings: "combos", "regatas"
 //   - objetos: { name: "combos", tag_type: "promo", ... }
@@ -59,17 +71,6 @@ function extractTagNames(tags: unknown): Set<string> {
   }
   return out;
 }
-
-type VendaItem = {
-  sku?: string;
-  reference?: string;
-  quantity?: number;
-};
-
-type CrmVendaRow = {
-  data_compra: string | null;
-  items: VendaItem[] | null;
-};
 
 type StockMap = Map<string, number>;
 
@@ -123,6 +124,9 @@ async function loadFinancialFallbacks(client: SupabaseClient, workspaceId: strin
     product_cost_pct:
       Number((data as any)?.product_cost_pct ?? FINANCIAL_DEFAULTS.product_cost_pct) / 100,
     tax_pct: Number((data as any)?.tax_pct ?? FINANCIAL_DEFAULTS.tax_pct) / 100,
+    other_expenses_pct:
+      Number((data as any)?.other_expenses_pct ?? FINANCIAL_DEFAULTS.other_expenses_pct) /
+      100,
     custo_frete_medio_brl: Number(
       (data as any)?.custo_frete_medio_brl ?? FINANCIAL_DEFAULTS.custo_frete_medio_brl
     ),
@@ -134,28 +138,53 @@ async function loadShelfProducts(
   workspaceId: string,
   filterSkus?: string[]
 ): Promise<ShelfProductRow[]> {
-  let query = client
-    .from("shelf_products")
-    .select("product_id, sku, name, category, price, sale_price, created_at, in_stock, tags")
-    .eq("workspace_id", workspaceId)
-    .eq("active", true);
+  const rows: ShelfProductRow[] = [];
+  const pageSize = 1000;
+
   if (filterSkus && filterSkus.length > 0) {
-    query = query.in("sku", filterSkus);
+    for (const chunk of chunks(filterSkus, 500)) {
+      const { data, error } = await client
+        .from("shelf_products")
+        .select("product_id, sku, name, category, price, sale_price, created_at, in_stock, tags")
+        .eq("workspace_id", workspaceId)
+        .eq("active", true)
+        .in("sku", chunk);
+      if (error) throw new Error(`shelf_products load failed: ${error.message}`);
+      rows.push(...((data ?? []) as ShelfProductRow[]));
+    }
+    return rows;
   }
-  const { data, error } = await query;
-  if (error) throw new Error(`shelf_products load failed: ${error.message}`);
-  return (data ?? []) as ShelfProductRow[];
+
+  let from = 0;
+  while (true) {
+    const { data, error } = await client
+      .from("shelf_products")
+      .select("product_id, sku, name, category, price, sale_price, created_at, in_stock, tags")
+      .eq("workspace_id", workspaceId)
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`shelf_products load failed: ${error.message}`);
+    const page = (data ?? []) as ShelfProductRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }
 
 async function loadSkuPricing(client: SupabaseClient, workspaceId: string, skus: string[]) {
   if (skus.length === 0) return new Map<string, any>();
-  const { data } = await client
-    .from("sku_pricing")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .in("sku", skus);
   const map = new Map<string, any>();
-  for (const row of data ?? []) map.set(row.sku, row);
+  for (const chunk of chunks(skus, 500)) {
+    const { data } = await client
+      .from("sku_pricing")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .in("sku", chunk);
+    for (const row of data ?? []) map.set(row.sku, row);
+  }
   return map;
 }
 
@@ -165,13 +194,15 @@ async function loadProductCosts(
   skus: string[]
 ) {
   if (skus.length === 0) return new Map<string, number>();
-  const { data } = await client
-    .from("product_costs")
-    .select("sku, cost")
-    .eq("workspace_id", workspaceId)
-    .in("sku", skus);
   const map = new Map<string, number>();
-  for (const row of data ?? []) map.set(row.sku, Number(row.cost));
+  for (const chunk of chunks(skus, 500)) {
+    const { data } = await client
+      .from("product_costs")
+      .select("sku, cost")
+      .eq("workspace_id", workspaceId)
+      .in("sku", chunk);
+    for (const row of data ?? []) map.set(row.sku, Number(row.cost));
+  }
   return map;
 }
 
@@ -183,22 +214,15 @@ async function loadVendasJanela(
   workspaceId: string,
   janelaDias: number
 ): Promise<Map<string, number>> {
-  const since = new Date(Date.now() - janelaDias * 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await client
-    .from("crm_vendas")
-    .select("data_compra, items")
-    .eq("workspace_id", workspaceId)
-    .gte("data_compra", since);
+  const sales = await fetchRecentCrmSalesWithItems(client, workspaceId, janelaDias);
 
   const totals = new Map<string, number>();
-  for (const row of (data ?? []) as CrmVendaRow[]) {
+  for (const row of sales) {
     if (!row.items || !Array.isArray(row.items)) continue;
     for (const item of row.items) {
-      const raw = (item.sku ?? item.reference ?? "").toString().trim();
-      if (!raw) continue;
-      const sku = baseSkuOf(raw);
-      const qty = Number(item.quantity ?? 0);
-      if (!Number.isFinite(qty) || qty <= 0) continue;
+      const sku = saleItemBaseSku(item);
+      const qty = saleItemQuantity(item);
+      if (!sku || qty <= 0) continue;
       totals.set(sku, (totals.get(sku) ?? 0) + qty);
     }
   }
@@ -286,23 +310,18 @@ async function loadFirstSaleBySku(
   client: SupabaseClient,
   workspaceId: string
 ): Promise<Map<string, Date>> {
-  const since = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await client
-    .from("crm_vendas")
-    .select("data_compra, items")
-    .eq("workspace_id", workspaceId)
-    .gte("data_compra", since)
-    .order("data_compra", { ascending: true });
+  const sales = await fetchRecentCrmSalesWithItems(client, workspaceId, 365);
 
   const firstByBase = new Map<string, Date>();
-  for (const row of (data ?? []) as CrmVendaRow[]) {
+  for (const row of sales) {
     if (!row.data_compra || !Array.isArray(row.items)) continue;
-    const d = new Date(row.data_compra);
+    const d = parsePricingCrmDate(row.data_compra);
+    if (!d) continue;
     for (const item of row.items) {
-      const raw = (item.sku ?? item.reference ?? "").toString().trim();
-      if (!raw) continue;
-      const sku = baseSkuOf(raw);
-      if (!firstByBase.has(sku)) firstByBase.set(sku, d);
+      const sku = saleItemBaseSku(item);
+      if (!sku) continue;
+      const current = firstByBase.get(sku);
+      if (!current || d < current) firstByBase.set(sku, d);
     }
   }
   return firstByBase;
@@ -475,7 +494,10 @@ export async function runOrchestrator(
           : fin.custo_frete_medio_brl,
       marketing_unitario: Number(pricingRow?.marketing_unitario ?? 0),
       rateio_fixo: Number(pricingRow?.rateio_fixo ?? 0),
-      taxas_comissoes_pct: Number(pricingRow?.taxas_comissoes_pct ?? 0),
+      taxas_comissoes_pct:
+        pricingRow?.taxas_comissoes_pct != null
+          ? Number(pricingRow.taxas_comissoes_pct)
+          : fin.other_expenses_pct,
       impostos_pct:
         pricingRow?.impostos_pct != null ? Number(pricingRow.impostos_pct) : fin.tax_pct,
       margem_alvo_pct: Number(pricingRow?.margem_alvo_pct ?? 0),

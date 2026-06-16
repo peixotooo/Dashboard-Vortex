@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
 type Kpis = {
   total_skus: number;
   skus_com_pricing: number;
+  skus_com_composicao?: number;
+  skus_com_cmv?: number;
+  cost_coverage_pct?: number;
+  snapshot_sku_count?: number;
   pct_estoque_ate_120d: number;
   margem_media_ponderada_pct: number;
   desconto_medio_ponderado_pct: number;
@@ -36,12 +40,25 @@ type TravaDesconto = {
   skus: string[];
 };
 
+type DataQuality = {
+  catalog_sku_count: number;
+  snapshot_sku_count: number;
+  latest_snapshot_date: string | null;
+  snapshot_age_days: number | null;
+  snapshot_stale: boolean;
+  cmv_tracked_skus: number;
+  cmv_coverage_pct: number;
+  manual_composition_skus: number;
+  warnings: string[];
+};
+
 export default function PricingVisaoGeralPage() {
   const { workspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [idadeMargem, setIdadeMargem] = useState<IdadeMargem[]>([]);
   const [travaDesconto, setTravaDesconto] = useState<TravaDesconto[]>([]);
+  const [dataQuality, setDataQuality] = useState<DataQuality | null>(null);
 
   useEffect(() => {
     if (!workspace?.id) return;
@@ -57,6 +74,7 @@ export default function PricingVisaoGeralPage() {
         setKpis(json.kpis);
         setIdadeMargem(json.idade_margem);
         setTravaDesconto(json.trava_desconto);
+        setDataQuality(json.data_quality ?? null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -96,6 +114,19 @@ export default function PricingVisaoGeralPage() {
         </p>
       </div>
 
+      {dataQuality?.warnings?.length ? (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+          <CardContent className="space-y-1 p-4 text-sm text-amber-950 dark:text-amber-100">
+            <div className="font-medium">Qualidade dos dados</div>
+            {dataQuality.warnings.map((warning) => (
+              <div key={warning} className="text-xs text-amber-900 dark:text-amber-200">
+                {warning}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Kpi
           icon={<Target className="h-4 w-4" />}
@@ -116,9 +147,9 @@ export default function PricingVisaoGeralPage() {
         />
         <Kpi
           icon={<TrendingUp className="h-4 w-4" />}
-          label="SKUs com composição"
-          value={`${kpis.skus_com_pricing}`}
-          hint={`de ${kpis.total_skus} ativos`}
+          label="SKUs com CMV"
+          value={`${kpis.skus_com_cmv ?? kpis.skus_com_pricing}`}
+          hint={`${(kpis.cost_coverage_pct ?? 0).toFixed(0)}% de ${kpis.total_skus} ativos`}
         />
       </div>
 

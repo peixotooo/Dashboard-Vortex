@@ -125,7 +125,10 @@ export async function GET(
         : Number(fin.custo_frete_medio_brl ?? 0),
       marketing_unitario: Number(pricing?.marketing_unitario ?? 0),
       rateio_fixo: Number(pricing?.rateio_fixo ?? 0),
-      taxas_comissoes_pct: Number(pricing?.taxas_comissoes_pct ?? 0),
+      taxas_comissoes_pct:
+        pricing?.taxas_comissoes_pct != null
+          ? Number(pricing.taxas_comissoes_pct)
+          : Number(fin.other_expenses_pct ?? 0) / 100,
       impostos_pct: pricing?.impostos_pct != null
         ? Number(pricing.impostos_pct)
         : Number(fin.tax_pct ?? 0) / 100,
