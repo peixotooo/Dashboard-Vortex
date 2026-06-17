@@ -85,7 +85,7 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   request_reminder_message:
     "Passando pra lembrar da {produto}: uma foto ou vídeo real vale muito pra quem está em dúvida de tamanho, tecido e caimento. Leva 1 minuto: {link}",
   request_reminder_2_message:
-    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe cashback quando a avaliação for aprovada: {link}",
+    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe 1 cashback na avaliação aprovada: {link}",
   wa_template_id: null,
   wa_variable_mapping: {},
   rewards_enabled: false,

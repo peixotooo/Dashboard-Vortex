@@ -325,7 +325,7 @@ function brl(value: number): string {
 
 function rewardText(settings: ReviewSettings): string {
   if (!settings.rewards_enabled) return "";
-  return `Ganhe ${brl(settings.reward_photo_amount)} com foto, ${brl(settings.reward_video_amount)} com vídeo e até ${brl(settings.reward_video_ads_amount)} se o vídeo for selecionado para anúncios.`;
+  return `A avaliação aprovada libera 1 cashback único: ${brl(settings.reward_photo_amount)} se tiver foto, ${brl(settings.reward_video_amount)} se tiver vídeo e até ${brl(settings.reward_video_ads_amount)} se o vídeo for selecionado para anúncios. Não é cumulativo por quantidade de fotos ou vídeos.`;
 }
 
 function emailHtml(opts: { name: string; product: string; image: string | null; link: string; askMedia: boolean; rewardLine: string }): string {
@@ -369,7 +369,7 @@ export async function dispatchDueRequests(
   const msgStep2 = settings.request_reminder_message ||
     "Passando pra lembrar da {produto}: uma foto ou vídeo real vale muito pra quem está em dúvida de tamanho, tecido e caimento. Leva 1 minuto: {link}";
   const msgStep3 = settings.request_reminder_2_message ||
-    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe cashback quando a avaliação for aprovada: {link}";
+    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe 1 cashback na avaliação aprovada: {link}";
   const rewardLine = rewardText(settings);
 
   // Carrega config do canal uma vez.

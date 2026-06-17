@@ -309,13 +309,13 @@ export default function AvaliarPage() {
   }
 
   const rewardSummary = data?.rewards
-    ? `${money(data.rewards.photo)} com foto, ${money(data.rewards.video)} com vídeo e até ${money(data.rewards.video_ads)} se o vídeo for selecionado para anúncios.`
+    ? `1 cashback único na avaliação: ${money(data.rewards.photo)} se tiver foto, ${money(data.rewards.video)} se tiver vídeo e até ${money(data.rewards.video_ads)} se o vídeo for selecionado para anúncios.`
     : "";
 
   const bonusNote = data?.rewards ? (
     <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
       <p className="font-semibold">🎁 Conteúdo vale cashback</p>
-      <p className="text-amber-900">Mande foto ou vídeo da peça no corpo: {rewardSummary} O crédito é liberado após aprovação.</p>
+      <p className="text-amber-900">Mande foto ou vídeo da peça no corpo: {rewardSummary} O crédito é liberado após aprovação e não acumula por quantidade de fotos/vídeos.</p>
     </div>
   ) : null;
 
@@ -433,7 +433,7 @@ export default function AvaliarPage() {
                     <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Foto da peça no corpo</label>
                     <div className="mb-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-950">
                       Mostre caimento, tecido e detalhes. Isso ajuda muito mais que texto
-                      {data?.rewards ? `, e foto aprovada libera ${money(data.rewards.photo)} de cashback.` : "."}
+                      {data?.rewards ? `, e avaliação aprovada com foto libera ${money(data.rewards.photo)} de cashback único.` : "."}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(answers[productIdx]?.media || []).map((m, mi) => (
@@ -512,8 +512,8 @@ export default function AvaliarPage() {
                   </div>
                   <h2 className="text-xl font-bold text-neutral-900 leading-tight">Vídeo vale mais cashback</h2>
                   <p className="text-sm text-neutral-500">
-                    Mostre a peça vestida por 15 a 40 segundos. Vídeo aprovado vale <b>{data?.rewards ? money(data.rewards.video) : "mais cashback"}</b>
-                    {data?.rewards ? ` e pode chegar a ${money(data.rewards.video_ads)} se for selecionado para anúncios.` : "."}
+                    Mostre a peça vestida por 15 a 40 segundos. Avaliação aprovada com vídeo libera <b>{data?.rewards ? money(data.rewards.video) : "mais cashback"}</b>
+                    {data?.rewards ? ` de cashback único e pode chegar a ${money(data.rewards.video_ads)} se o vídeo for selecionado para anúncios.` : "."}
                   </p>
                 </div>
 
@@ -568,7 +568,7 @@ export default function AvaliarPage() {
                   <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
                     <p className="font-semibold">O vídeo rende mais que foto</p>
                     <p className="text-amber-900">
-                      Foto aprovada: {money(data.rewards.photo)}. Vídeo aprovado: {money(data.rewards.video)}. Vídeo selecionado para ADS: até {money(data.rewards.video_ads)}.
+                      A avaliação gera 1 cashback, pelo melhor conteúdo enviado: {money(data.rewards.photo)} com foto, {money(data.rewards.video)} com vídeo ou até {money(data.rewards.video_ads)} se o vídeo for selecionado para ADS.
                     </p>
                   </div>
                 )}
