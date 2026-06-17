@@ -141,6 +141,21 @@ async function fetchSizeGridMap(
 }
 
 // -------------------------------------------------------------------
+// Define a descrição do anúncio. O ML (modelo UP) IGNORA o campo `description`
+// no corpo do POST /items — a descrição precisa de uma chamada SEPARADA para
+// POST /items/{id}/description. Sem isso o anúncio sobe sem descrição.
+// -------------------------------------------------------------------
+async function setItemDescription(
+  itemId: string,
+  text: string | null | undefined,
+  workspaceId: string
+): Promise<void> {
+  const plain = (text || "").trim();
+  if (!plain) return;
+  await ml.post(`/items/${itemId}/description`, { plain_text: plain }, workspaceId);
+}
+
+// -------------------------------------------------------------------
 // Build UP-model payload for a single product (no variations, has family_name)
 // Each child in a variation group gets its own POST /items call
 // -------------------------------------------------------------------
@@ -440,6 +455,14 @@ export async function POST(req: NextRequest) {
         status: string;
       }>("/items", payload, workspaceId);
 
+      // Descrição é uma chamada separada (o ML ignora `description` inline)
+      let descWarn: string | null = null;
+      try {
+        await setItemDescription(result.id, product.descricao || product.nome, workspaceId);
+      } catch (e) {
+        descWarn = `Publicado, mas descrição falhou: ${e instanceof Error ? e.message : "erro"}`;
+      }
+
       await supabase
         .from("hub_products")
         .update({
@@ -452,7 +475,7 @@ export async function POST(req: NextRequest) {
           sync_status: "synced",
           linked: true,
           last_ml_sync: new Date().toISOString(),
-          error_msg: null,
+          error_msg: descWarn,
           updated_at: new Date().toISOString(),
         })
         .eq("id", product.id);
@@ -575,6 +598,17 @@ export async function POST(req: NextRequest) {
             } else {
               throw firstErr;
             }
+          }
+
+          // Descrição é uma chamada separada (o ML ignora `description` inline)
+          try {
+            await setItemDescription(
+              result.id,
+              child.descricao || parent!.descricao || parent!.nome,
+              workspaceId
+            );
+          } catch {
+            /* descrição não-crítica; segue a publicação */
           }
 
           // Apply promotional price if set
