@@ -4,6 +4,7 @@ import { eccosys } from "@/lib/eccosys/client";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import { ml } from "@/lib/ml/client";
 import { DEFAULT_ML_CATEGORY } from "@/lib/ml/categories";
+import { sanitizeColorAttribute } from "@/lib/ml/attributes";
 import type {
   EccosysProduto,
   HubProduct,
@@ -466,7 +467,8 @@ export async function GET(req: NextRequest) {
       categoryAttrs,
       crossRef,
       sampleAtributos,
-      allEccAttrs
+      allEccAttrs,
+      parent.nome
     );
 
     // 8. Build warnings
@@ -553,7 +555,8 @@ function buildEnrichment(
   categoryAttrs: MLCategoryAttribute[],
   crossRef: { mlItem: MLItemFull; mlItemId: string } | null,
   sampleEccAttrs: Record<string, string>,
-  allEccAttrs: Record<string, string> = {}
+  allEccAttrs: Record<string, string> = {},
+  productName: string | null = null
 ): MLEnrichment {
   const mlItem = crossRef?.mlItem;
 
@@ -687,7 +690,8 @@ function buildEnrichment(
     listing_type_id: mlItem?.listing_type_id || "gold_special",
     condition: mlItem?.condition || "new",
     buying_mode: mlItem?.buying_mode || "buy_it_now",
-    attributes,
+    // Corrige a COR a partir do nome (o cross-ref costuma trazer cor errada)
+    attributes: sanitizeColorAttribute(attributes, productName),
     variation_attr_map: variationAttrMap,
     sale_terms: saleTerms,
     shipping,
@@ -1027,7 +1031,8 @@ export async function PATCH(req: NextRequest) {
     categoryAttrs,
     crossRef,
     sampleVariationAttrs,
-    allEccAttrs
+    allEccAttrs,
+    (body.product_name as string) ?? null
   );
 
   // 5. Build warnings

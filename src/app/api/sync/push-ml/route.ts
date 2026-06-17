@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import { applyPromoPrice } from "@/lib/ml/promo";
 import { resolveMlCategoryId } from "@/lib/ml/categories";
+import { sanitizeColorAttribute } from "@/lib/ml/attributes";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
@@ -223,13 +224,16 @@ function buildUPPayload(
     description: { plain_text: parent.descricao || parent.nome || "" },
     pictures,
     seller_custom_field: product.sku,
-    attributes: [
-      ...baseAttrs,
-      ...varAttrs,
-      ...gridAttrs,
-      ...buildPackageDimAttrs(parent),
-      ...gtinAttrs,
-    ],
+    attributes: sanitizeColorAttribute(
+      [
+        ...baseAttrs,
+        ...varAttrs,
+        ...gridAttrs,
+        ...buildPackageDimAttrs(parent),
+        ...gtinAttrs,
+      ],
+      parent.nome
+    ),
     shipping: {
       mode: enr?.shipping?.mode || "me2",
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
@@ -271,11 +275,10 @@ function buildSimpleUPPayload(
     description: { plain_text: product.descricao || product.nome || "" },
     pictures,
     seller_custom_field: product.sku,
-    attributes: [
-      ...baseAttrs,
-      ...buildPackageDimAttrs(product),
-      ...gtinAttrs,
-    ],
+    attributes: sanitizeColorAttribute(
+      [...baseAttrs, ...buildPackageDimAttrs(product), ...gtinAttrs],
+      product.nome
+    ),
     shipping: {
       mode: enr?.shipping?.mode || "me2",
       local_pick_up: enr?.shipping?.local_pick_up ?? false,
