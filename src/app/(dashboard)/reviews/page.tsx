@@ -153,6 +153,7 @@ export default function ReviewsPage() {
   // Moderation
   const [reviews, setReviews] = useState<Review[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [storeStatusFilter, setStoreStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [loadingList, setLoadingList] = useState(false);
   const [replyingId, setReplyingId] = useState<string | null>(null);
@@ -279,13 +280,17 @@ export default function ReviewsPage() {
   // Store reviews (avaliações da loja)
   const [storeReviews, setStoreReviews] = useState<{ id: string; rating: number; comment: string | null; author_name: string | null; status: string; order_code: string | null; created_at: string }[]>([]);
   const [storeSummary, setStoreSummary] = useState<{ average: number; published: number } | null>(null);
+  const [storeTotal, setStoreTotal] = useState(0);
 
   const loadStore = useCallback(async () => {
     if (!workspace?.id) return;
-    const d = await fetch("/api/reviews/store", { headers: headers() }).then((r) => r.json());
+    const params = new URLSearchParams({ limit: "100" });
+    if (storeStatusFilter !== "all") params.set("status", storeStatusFilter);
+    const d = await fetch(`/api/reviews/store?${params.toString()}`, { headers: headers() }).then((r) => r.json());
     setStoreReviews(d.reviews || []);
+    setStoreTotal(d.total || 0);
     setStoreSummary(d.summary || null);
-  }, [workspace?.id, headers]);
+  }, [workspace?.id, headers, storeStatusFilter]);
 
   async function moderateStore(id: string, status: string) {
     await fetch(`/api/reviews/store/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
@@ -349,17 +354,36 @@ export default function ReviewsPage() {
     if (workspace?.id) {
       loadStats();
       loadList();
-      loadStore();
       loadMetrics();
       loadConnection();
       loadSettings();
       loadKey();
     }
-  }, [workspace?.id, loadStats, loadList, loadStore, loadMetrics, loadConnection, loadSettings, loadKey]);
+  }, [workspace?.id, loadStats, loadList, loadMetrics, loadConnection, loadSettings, loadKey]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nextTab = params.get("tab");
+    const nextStatus = params.get("status");
+    if (
+      nextTab &&
+      ["moderation", "metrics", "gallery", "store", "ai", "import", "ruler", "settings", "install"].includes(nextTab)
+    ) {
+      setTab(nextTab);
+    }
+    if (nextStatus && ["all", "published", "pending", "hidden", "rejected"].includes(nextStatus)) {
+      if (nextTab === "store") setStoreStatusFilter(nextStatus);
+      else setStatusFilter(nextStatus);
+    }
+  }, []);
 
   useEffect(() => {
     if (workspace?.id) loadList();
   }, [statusFilter, loadList, workspace?.id]);
+
+  useEffect(() => {
+    if (workspace?.id) loadStore();
+  }, [storeStatusFilter, loadStore, workspace?.id]);
 
   useEffect(() => {
     if (tab === "ai" && workspace?.id && !aiProductsLoaded) loadAiProducts();
@@ -935,6 +959,21 @@ export default function ReviewsPage() {
           <p className="text-sm text-muted-foreground">
             Avaliações da <strong>experiência com a loja</strong> (entrega, atendimento), coletadas na mesma página da avaliação do produto — mas separadas dela.
           </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={storeStatusFilter} onValueChange={setStoreStatusFilter}>
+              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os status</SelectItem>
+                <SelectItem value="published">Publicadas</SelectItem>
+                <SelectItem value="pending">Pendentes</SelectItem>
+                <SelectItem value="hidden">Ocultas</SelectItem>
+                <SelectItem value="rejected">Rejeitadas</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              {storeTotal} avaliação(ões)
+            </span>
+          </div>
           {storeReviews.length === 0 ? (
             <Card><CardContent className="py-10 text-center text-muted-foreground">Nenhuma avaliação da loja ainda.</CardContent></Card>
           ) : (

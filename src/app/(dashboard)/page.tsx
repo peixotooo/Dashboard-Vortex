@@ -745,6 +745,10 @@ export default function OverviewPage() {
   if (data.vndaConfigured) roasSources.push("VNDA");
   else if (data.ga4Configured) roasSources.push("GA4");
   const roasBadge = roasSources.join(" / ");
+  const pendingReviewsHref =
+    pendingReviews && pendingReviews.product <= 0 && pendingReviews.store > 0
+      ? "/reviews?tab=store&status=pending"
+      : "/reviews?tab=moderation&status=pending";
 
   return (
     <div className="space-y-6">
@@ -762,7 +766,7 @@ export default function OverviewPage() {
       {/* Destaque: avaliações pendentes de moderação */}
       {pendingReviews && pendingReviews.total > 0 && (
         <Link
-          href="/reviews"
+          href={pendingReviewsHref}
           className="flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/50"
         >
           <div className="flex items-center gap-3">
