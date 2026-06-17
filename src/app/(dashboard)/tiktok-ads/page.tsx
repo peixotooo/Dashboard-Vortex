@@ -13,6 +13,7 @@ import {
   TrendingUp,
   AlertTriangle,
   OctagonX,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -77,7 +78,37 @@ export default function TikTokAdsPage() {
   const [sortKey, setSortKey] = useState("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [tierFilter, setTierFilter] = useState("all");
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
+  // "" = ainda resolvendo contas; "_default_" = usar a conta padrão da rota
+  const [advertiserId, setAdvertiserId] = useState<string>("");
   const abortRef = useRef<AbortController | null>(null);
+
+  // Carrega as contas de anúncio autorizadas e escolhe a conta ativa.
+  // Default vem do localStorage (escolha do usuário), NÃO da primeira da lista —
+  // senão a aba trava na primeira conta (que pode estar dormente/vazia).
+  useEffect(() => {
+    if (!workspace?.id) return;
+    let cancelled = false;
+    fetch("/api/tiktok-ads/accounts", { headers: { "x-workspace-id": workspace.id } })
+      .then((r) => (r.ok ? r.json() : { accounts: [] }))
+      .then((d) => {
+        if (cancelled) return;
+        const accs: { id: string; name: string }[] = d.accounts || [];
+        setAccounts(accs);
+        const saved = typeof window !== "undefined" ? localStorage.getItem("tiktok_advertiser_id") : null;
+        const valid = accs.find((a) => a.id === saved);
+        setAdvertiserId(valid ? saved! : accs[0]?.id || "_default_");
+      })
+      .catch(() => {
+        if (!cancelled) setAdvertiserId("_default_");
+      });
+    return () => { cancelled = true; };
+  }, [workspace?.id]);
+
+  const selectAdvertiser = useCallback((id: string) => {
+    setAdvertiserId(id);
+    if (typeof window !== "undefined") localStorage.setItem("tiktok_advertiser_id", id);
+  }, []);
 
   const fetchCampaigns = useCallback(async () => {
     abortRef.current?.abort();
@@ -94,9 +125,12 @@ export default function TikTokAdsPage() {
       headers["x-workspace-id"] = workspace.id;
     }
 
+    const advParam =
+      advertiserId && advertiserId !== "_default_" ? `&advertiser_id=${advertiserId}` : "";
+
     try {
       const res = await fetch(
-        `/api/tiktok-ads/campaigns?date_preset=${datePreset}`,
+        `/api/tiktok-ads/campaigns?date_preset=${datePreset}${advParam}`,
         { headers, signal: controller.signal }
       );
 
@@ -114,12 +148,13 @@ export default function TikTokAdsPage() {
     } finally {
       setLoading(false);
     }
-  }, [datePreset, workspace?.id]);
+  }, [datePreset, workspace?.id, advertiserId]);
 
   useEffect(() => {
+    if (!advertiserId) return; // espera resolver a conta antes de buscar (evita ler a conta errada)
     fetchCampaigns();
     return () => { abortRef.current?.abort(); };
-  }, [fetchCampaigns]);
+  }, [fetchCampaigns, advertiserId]);
 
   // Filter by name
   const filtered = useMemo(
@@ -166,6 +201,7 @@ export default function TikTokAdsPage() {
   const totalRevenue = filtered.reduce((s, c) => s + c.revenue, 0);
   const totalImpressions = filtered.reduce((s, c) => s + c.impressions, 0);
   const totalClicks = filtered.reduce((s, c) => s + c.clicks, 0);
+  const totalPurchases = filtered.reduce((s, c) => s + (c.purchases || 0), 0);
   const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
@@ -195,6 +231,7 @@ export default function TikTokAdsPage() {
     { key: "ctr", label: "CTR", format: "percent" as const, align: "right" as const },
     { key: "cpc", label: "CPC", format: "currency" as const, align: "right" as const },
     { key: "spend", label: "Investimento", format: "currency" as const, align: "right" as const },
+    { key: "purchases", label: "Conversões", format: "number" as const, align: "right" as const },
     { key: "revenue", label: "Receita", format: "currency" as const, align: "right" as const },
     {
       key: "roas",
@@ -217,7 +254,26 @@ export default function TikTokAdsPage() {
             Performance e classificacao de campanhas TikTok Ads
           </p>
         </div>
-        <DateRangePicker value={datePreset} onChange={setDatePreset} />
+        <div className="flex items-center gap-2 flex-wrap">
+          {accounts.length > 1 && (
+            <Select
+              value={advertiserId && advertiserId !== "_default_" ? advertiserId : undefined}
+              onValueChange={selectAdvertiser}
+            >
+              <SelectTrigger className="w-52 h-9 text-xs">
+                <SelectValue placeholder="Conta de anuncio" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <DateRangePicker value={datePreset} onChange={setDatePreset} />
+        </div>
       </div>
 
       {/* Error / not-connected state */}
@@ -244,7 +300,7 @@ export default function TikTokAdsPage() {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard
           title="Campanhas"
           value={formatNumber(totalCampaigns)}
@@ -260,6 +316,13 @@ export default function TikTokAdsPage() {
           loading={loading}
           badge="TikTok"
           badgeColor="#FE2C55"
+        />
+        <KpiCard
+          title="Conversões"
+          value={formatNumber(totalPurchases)}
+          icon={ShoppingCart}
+          iconColor="text-emerald-400"
+          loading={loading}
         />
         <KpiCard
           title="ROAS Medio"
@@ -295,6 +358,7 @@ export default function TikTokAdsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="spend">Investimento</SelectItem>
+            <SelectItem value="purchases">Conversões</SelectItem>
             <SelectItem value="roas">ROAS</SelectItem>
             <SelectItem value="revenue">Receita</SelectItem>
             <SelectItem value="ctr">CTR</SelectItem>
