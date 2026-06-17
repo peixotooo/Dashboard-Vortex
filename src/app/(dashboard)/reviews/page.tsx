@@ -196,6 +196,7 @@ export default function ReviewsPage() {
     review_id: string; index: number; url: string; type: "image" | "video";
     product_id: string | null; product_name: string | null; author_name: string | null;
     rating: number; review_status: string; body: string | null;
+    custom_fields?: { name: string; values: string[] }[];
     ads_consent: boolean; ads_status: string; reward_status: string; created_at: string;
   };
   type MediaSummary = { total_with_media: number; ads_pending: number; ads_accepted: number };
@@ -249,6 +250,26 @@ export default function ReviewsPage() {
 
   function downloadUrl(m: MediaItem) {
     return `/api/reviews/media/download?review_id=${m.review_id}&i=${m.index}&workspace_id=${workspace?.id || ""}`;
+  }
+
+  function mediaItemFromReview(r: Review, media: { url: string; type: string }, index: number): MediaItem {
+    return {
+      review_id: r.id,
+      index,
+      url: media.url,
+      type: media.type === "video" ? "video" : "image",
+      product_id: r.product_id,
+      product_name: r.product_name,
+      author_name: r.author_name,
+      rating: r.rating,
+      review_status: r.status,
+      body: r.body,
+      custom_fields: r.custom_fields || [],
+      ads_consent: !!r.ads_consent,
+      ads_status: r.ads_status || "",
+      reward_status: r.reward_status || "",
+      created_at: r.reviewed_at || r.created_at,
+    };
   }
 
   async function generateAi() {
@@ -711,11 +732,37 @@ export default function ReviewsPage() {
                         </div>
                       )}
                       {r.media?.length > 0 && (
-                        <div className="flex gap-2 mt-2">
-                          {r.media.map((m, i) => (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img key={i} src={m.url} alt="" className="w-14 h-14 object-cover rounded-md border" />
-                          ))}
+                        <div className="mt-2">
+                          <div className="flex flex-wrap gap-2">
+                            {r.media.map((m, i) => {
+                              const item = mediaItemFromReview(r, m, i);
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() => setLightbox(item)}
+                                  className="group relative h-16 w-16 overflow-hidden rounded-md border bg-black/5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                  title="Clique para ampliar a mídia e ver detalhes da avaliação"
+                                >
+                                  {item.type === "video" ? (
+                                    <>
+                                      <video src={item.url} className="h-full w-full object-cover bg-black" muted preload="metadata" />
+                                      <span className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/25 transition-colors">
+                                        <span className="h-7 w-7 rounded-full bg-black/60 text-white flex items-center justify-center text-[11px]">▶</span>
+                                      </span>
+                                    </>
+                                  ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={item.url} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                                  )}
+                                  <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Eye className="h-3 w-3" />
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-1 text-[11px] text-muted-foreground">Clique na mídia para ampliar e revisar os detalhes.</p>
                         </div>
                       )}
                       {r.reply_body && (
@@ -1460,6 +1507,15 @@ export default function ReviewsPage() {
               </div>
               {lightbox.product_name && <div className="text-xs text-muted-foreground">Produto: {lightbox.product_name}{lightbox.product_id ? ` (${lightbox.product_id})` : ""}</div>}
               {lightbox.body && <p className="text-sm text-muted-foreground whitespace-pre-line">{lightbox.body}</p>}
+              {lightbox.custom_fields && lightbox.custom_fields.length > 0 && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-muted/60 p-3">
+                  {lightbox.custom_fields.map((f, i) => (
+                    <span key={i} className="text-xs text-muted-foreground">
+                      {f.name}: <span className="text-foreground font-medium">{f.values.join(", ")}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2 pt-1">
                 <a href={downloadUrl(lightbox)} download className="inline-flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 py-2 text-sm hover:opacity-90">
                   <Download className="h-4 w-4" /> Baixar mídia
