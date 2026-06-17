@@ -44,6 +44,14 @@ interface ProductAnswer {
 
 type StepDesc = { kind: "intro" } | { kind: "product"; idx: number } | { kind: "video" } | { kind: "store" };
 
+function money(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
+
 function StarsInput({ value, onChange, color, size = 36 }: { value: number; onChange: (n: number) => void; color: string; size?: number }) {
   const [hover, setHover] = useState(0);
   return (
@@ -300,10 +308,14 @@ export default function AvaliarPage() {
     );
   }
 
+  const rewardSummary = data?.rewards
+    ? `${money(data.rewards.photo)} com foto, ${money(data.rewards.video)} com vídeo e até ${money(data.rewards.video_ads)} se o vídeo for selecionado para anúncios.`
+    : "";
+
   const bonusNote = data?.rewards ? (
     <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
-      <p className="font-semibold">🎁 Tem um cashback surpresa pra você!</p>
-      <p className="text-amber-900">Avalie com <b>foto</b> e principalmente <b>vídeo</b> e descubra quanto ganha. É liberado quando sua avaliação for confirmada.</p>
+      <p className="font-semibold">🎁 Conteúdo vale cashback</p>
+      <p className="text-amber-900">Mande foto ou vídeo da peça no corpo: {rewardSummary} O crédito é liberado após aprovação.</p>
     </div>
   ) : null;
 
@@ -364,8 +376,8 @@ export default function AvaliarPage() {
                 </h1>
                 <p className="text-neutral-500 text-sm">
                   {products.length > 1
-                    ? `Você comprou ${products.length} itens. Vamos avaliar um por um. Leva 1 minutinho e ajuda muita gente a comprar com confiança.`
-                    : "Conta rapidinho o que você achou. Leva 1 minutinho e ajuda muita gente a comprar com confiança."}
+                    ? `Você comprou ${products.length} itens. Vamos avaliar um por um. O mais importante é mostrar como a peça ficou no corpo.`
+                    : "Conta rapidinho como ficou no corpo, no tecido e no treino. Foto ou vídeo ajuda muito mais quem vai comprar."}
                 </p>
                 {bonusNote}
                 <div className="text-left">
@@ -415,6 +427,43 @@ export default function AvaliarPage() {
                   />
                 </div>
 
+                {/* Fotos do produto. O vídeo tem etapa própria adiante. */}
+                {askMedia && (
+                  <div>
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Foto da peça no corpo</label>
+                    <div className="mb-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-950">
+                      Mostre caimento, tecido e detalhes. Isso ajuda muito mais que texto
+                      {data?.rewards ? `, e foto aprovada libera ${money(data.rewards.photo)} de cashback.` : "."}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(answers[productIdx]?.media || []).map((m, mi) => (
+                        <div key={mi} className="relative h-20 w-20 rounded-xl overflow-hidden border border-neutral-200">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={m.url} alt="" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => updateAnswer(productIdx, { media: answers[productIdx].media.filter((_, idx) => idx !== mi) })}
+                            className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white flex items-center justify-center"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {(answers[productIdx]?.media || []).length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() => photoRef.current?.click()}
+                          disabled={uploading}
+                          className="h-20 w-20 rounded-xl border-2 border-dashed border-neutral-300 flex items-center justify-center text-neutral-400 hover:border-neutral-400"
+                        >
+                          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
+                        </button>
+                      )}
+                    </div>
+                    <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handlePhotoFiles(e.target.files, productIdx)} />
+                  </div>
+                )}
+
                 {/* Campos estruturados */}
                 {data?.form_fields && data.form_fields.length > 0 && (
                   <div className="rounded-2xl border border-neutral-200 p-4">
@@ -451,42 +500,6 @@ export default function AvaliarPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Fotos do produto. O vídeo tem etapa própria adiante. */}
-                {askMedia && (
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5">Fotos do produto</label>
-                    <div className="mb-2 rounded-lg bg-neutral-100 px-3 py-2 text-xs text-neutral-700">
-                      📸 Capriche nas fotos. Mostre a peça vestida e os detalhes. Ajuda demais quem vai comprar{data?.rewards ? ", e avaliar com foto ainda rende cashback." : "."}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(answers[productIdx]?.media || []).map((m, mi) => (
-                        <div key={mi} className="relative h-20 w-20 rounded-xl overflow-hidden border border-neutral-200">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={m.url} alt="" className="h-full w-full object-cover" />
-                          <button
-                            type="button"
-                            onClick={() => updateAnswer(productIdx, { media: answers[productIdx].media.filter((_, idx) => idx !== mi) })}
-                            className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white flex items-center justify-center"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                      {(answers[productIdx]?.media || []).length < 6 && (
-                        <button
-                          type="button"
-                          onClick={() => photoRef.current?.click()}
-                          disabled={uploading}
-                          className="h-20 w-20 rounded-xl border-2 border-dashed border-neutral-300 flex items-center justify-center text-neutral-400 hover:border-neutral-400"
-                        >
-                          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
-                        </button>
-                      )}
-                    </div>
-                    <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handlePhotoFiles(e.target.files, productIdx)} />
-                  </div>
-                )}
               </div>
             )}
 
@@ -497,9 +510,10 @@ export default function AvaliarPage() {
                   <div className="mx-auto h-12 w-12 rounded-2xl bg-neutral-900 text-white flex items-center justify-center">
                     <Video className="h-6 w-6" />
                   </div>
-                  <h2 className="text-xl font-bold text-neutral-900 leading-tight">Grave um vídeo e ganhe mais 🎬</h2>
+                  <h2 className="text-xl font-bold text-neutral-900 leading-tight">Vídeo vale mais cashback</h2>
                   <p className="text-sm text-neutral-500">
-                    Os melhores vídeos viram <b>propaganda da marca</b> e rendem o <b>maior cashback</b>. Caprichou? Pode aparecer pra todo mundo.
+                    Mostre a peça vestida por 15 a 40 segundos. Vídeo aprovado vale <b>{data?.rewards ? money(data.rewards.video) : "mais cashback"}</b>
+                    {data?.rewards ? ` e pode chegar a ${money(data.rewards.video_ads)} se for selecionado para anúncios.` : "."}
                   </p>
                 </div>
 
@@ -552,8 +566,10 @@ export default function AvaliarPage() {
 
                 {data?.rewards && (
                   <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
-                    <p className="font-semibold">O vídeo rende o maior cashback</p>
-                    <p className="text-amber-900">Vídeo vale mais que foto. E se ele virar anúncio, o cashback é o máximo. É opcional, mas super recomendado.</p>
+                    <p className="font-semibold">O vídeo rende mais que foto</p>
+                    <p className="text-amber-900">
+                      Foto aprovada: {money(data.rewards.photo)}. Vídeo aprovado: {money(data.rewards.video)}. Vídeo selecionado para ADS: até {money(data.rewards.video_ads)}.
+                    </p>
                   </div>
                 )}
               </div>

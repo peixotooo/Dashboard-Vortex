@@ -315,19 +315,38 @@ function firstName(name: string | null): string {
   return name.trim().split(/\s+/)[0];
 }
 
-function emailHtml(opts: { name: string; product: string; image: string | null; link: string; askMedia: boolean }): string {
+function brl(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
+
+function rewardText(settings: ReviewSettings): string {
+  if (!settings.rewards_enabled) return "";
+  return `Ganhe ${brl(settings.reward_photo_amount)} com foto, ${brl(settings.reward_video_amount)} com vídeo e até ${brl(settings.reward_video_ads_amount)} se o vídeo for selecionado para anúncios.`;
+}
+
+function emailHtml(opts: { name: string; product: string; image: string | null; link: string; askMedia: boolean; rewardLine: string }): string {
   const img = opts.image
     ? `<img src="${opts.image}" alt="" width="120" style="border-radius:12px;display:block;margin:0 auto 16px">`
     : "";
+  const mediaBlock = opts.askMedia
+    ? `<div style="background:#fff7d6;border:1px solid #f2d77a;border-radius:14px;padding:14px 16px;margin:18px 0 22px;text-align:left">
+<p style="font-size:14px;color:#171717;font-weight:700;margin:0 0 4px">Mande uma foto ou vídeo da peça no corpo</p>
+<p style="font-size:13px;color:#555;line-height:1.45;margin:0">Mostre caimento, tecido e detalhes. Isso ajuda outros clientes a escolherem certo.${opts.rewardLine ? ` ${escapeHtmlSrv(opts.rewardLine)}` : ""}</p>
+</div>`
+    : '<div style="height:16px"></div>';
   return `<!doctype html><html><body style="margin:0;background:#f6f6f7;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table width="480" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:18px;padding:32px;max-width:480px">
 <tr><td align="center">
 ${img}
-<h1 style="font-size:22px;margin:0 0 8px;color:#0a0a0a">${escapeHtmlSrv(opts.name)}, o que você achou?</h1>
-<p style="font-size:15px;color:#555;line-height:1.5;margin:0 0 4px">Sua opinião sobre <b>${escapeHtmlSrv(opts.product)}</b> ajuda muita gente a comprar com confiança.</p>
-${opts.askMedia ? '<p style="font-size:14px;color:#888;margin:0 0 20px">Pode mandar foto ou vídeo também! 📸</p>' : '<div style="height:16px"></div>'}
-<a href="${opts.link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:600;font-size:15px">Avaliar produto</a>
+<h1 style="font-size:22px;margin:0 0 8px;color:#0a0a0a">${escapeHtmlSrv(opts.name)}, mostra como ficou?</h1>
+<p style="font-size:15px;color:#555;line-height:1.5;margin:0">Sua avaliação sobre <b>${escapeHtmlSrv(opts.product)}</b> ajuda outras pessoas a ver tamanho, tecido e caimento na vida real.</p>
+${mediaBlock}
+<a href="${opts.link}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:600;font-size:15px">Enviar avaliação</a>
 </td></tr></table>
 </td></tr></table></body></html>`;
 }
@@ -346,11 +365,12 @@ export async function dispatchDueRequests(
 
   // Mensagens por etapa da régua (substância, sem saudação — {produto}/{link}).
   const msgStep1 = settings.request_message_template ||
-    "Sua {produto} já chegou? 💛 Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente. Pode mandar foto ou vídeo! Avalie aqui: {link}";
+    "Sua {produto} já chegou? Conta como ficou no corpo e no treino. Se puder, mande uma foto da peça vestida ou um vídeo curto — é isso que mais ajuda outras pessoas a escolherem certo. Avalie aqui: {link}";
   const msgStep2 = settings.request_reminder_message ||
-    "Passando só pra lembrar 😊 Sua opinião sobre a {produto} ajuda demais quem está pensando em comprar. É rapidinho: {link}";
+    "Passando pra lembrar da {produto}: uma foto ou vídeo real vale muito pra quem está em dúvida de tamanho, tecido e caimento. Leva 1 minuto: {link}";
   const msgStep3 = settings.request_reminder_2_message ||
-    "Última chamada! 🙏 Conta o que você achou da {produto} e ajude outros clientes: {link}";
+    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe cashback quando a avaliação for aprovada: {link}";
+  const rewardLine = rewardText(settings);
 
   // Carrega config do canal uma vez.
   const smtp = settings.request_channel === "email" ? await getSmtpConfig(workspaceId, admin) : null;
@@ -393,11 +413,7 @@ export async function dispatchDueRequests(
     const product = req.product_name || "seu pedido";
     const nome = firstName(req.customer_name);
     let body = fillTemplate(substance, { nome, produto: product, link });
-    // Com recompensa ativa, a copy foca no benefício — mas SEM revelar o valor
-    // (surpresa, liberada só após a avaliação). Foca em enviar foto/vídeo.
-    if (settings.rewards_enabled) {
-      body += "\n\n🎁 E tem um cashback surpresa pra você ao avaliar com foto ou vídeo!";
-    }
+    if (rewardLine) body += `\n\n🎁 ${rewardLine}`;
     if (settings.request_channel === "whatsapp") {
       const phone = normalizeBrazilianWhatsAppPhone(req.customer_phone);
       if (!phone) return { ok: false, error: "Telefone inválido" };
@@ -411,13 +427,14 @@ export async function dispatchDueRequests(
       if (!req.customer_email) return { ok: false, error: "Email ausente" };
       const r = await sendEmail(smtp, {
         to: req.customer_email,
-        subject: `${firstName(req.customer_name)}, o que você achou? 💛`,
+        subject: `${firstName(req.customer_name)}, mostra como ficou?`,
         bodyHtml: emailHtml({
           name: firstName(req.customer_name),
           product,
           image: req.product_image,
           link,
           askMedia: settings.request_ask_media,
+          rewardLine,
         }),
       });
       return r.ok ? { ok: true } : { ok: false, error: r.error };

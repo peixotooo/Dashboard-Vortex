@@ -81,11 +81,11 @@ export const DEFAULT_REVIEW_SETTINGS: Omit<ReviewSettings, "workspace_id"> = {
   collect_store_review: true,
   form_fields: DEFAULT_FORM_FIELDS,
   request_message_template:
-    "Sua {produto} já chegou? 💛 Conta rapidinho o que você achou — leva 1 minutinho e ajuda muita gente a comprar com confiança. Pode mandar foto ou vídeo também! Avalie aqui: {link}",
+    "Sua {produto} já chegou? Conta como ficou no corpo e no treino. Se puder, mande uma foto da peça vestida ou um vídeo curto — é isso que mais ajuda outras pessoas a escolherem certo. Avalie aqui: {link}",
   request_reminder_message:
-    "Passando só pra lembrar 😊 Sua opinião sobre a {produto} ajuda demais quem está pensando em comprar. É rapidinho: {link}",
+    "Passando pra lembrar da {produto}: uma foto ou vídeo real vale muito pra quem está em dúvida de tamanho, tecido e caimento. Leva 1 minuto: {link}",
   request_reminder_2_message:
-    "Última chamada! 🙏 Conta o que você achou da {produto} e ajude outros clientes. Mandando foto ou vídeo você ainda ganha cashback: {link}",
+    "Último lembrete sobre a {produto}. Se ela funcionou bem pra você, mostra pra comunidade com foto ou vídeo e ganhe cashback quando a avaliação for aprovada: {link}",
   wa_template_id: null,
   wa_variable_mapping: {},
   rewards_enabled: false,
