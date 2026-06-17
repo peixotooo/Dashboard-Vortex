@@ -2671,10 +2671,21 @@ export default function HubProdutosPage() {
         },
         body: JSON.stringify({ skus: allSkus, category_id: categoryId, listing_type_id: listingType }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        // push-ml retorna 200 mesmo com falhas por item — não atualize calado
+        const errs = (data.results || []).filter(
+          (r: { status: string }) => r.status === "error"
+        );
+        if (errs.length > 0) {
+          const first = errs[0]?.error || "erro desconhecido";
+          alert(
+            `${data.published || 0} publicado(s), ${errs.length} com erro.\n\n` +
+              `1º erro (${errs[0]?.sku}): ${String(first).slice(0, 300)}`
+          );
+        }
         fetchProducts();
       } else {
-        const data = await res.json().catch(() => ({}));
         alert(data.error || "Erro ao publicar no ML");
       }
     } catch {
