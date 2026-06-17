@@ -4,6 +4,7 @@ import { ml } from "@/lib/ml/client";
 import { applyPromoPrice } from "@/lib/ml/promo";
 import { resolveMlCategoryId } from "@/lib/ml/categories";
 import { sanitizeColorAttribute } from "@/lib/ml/attributes";
+import { buildMlDescription } from "@/lib/ml/description";
 import { resolveEccosysImageUrls } from "@/lib/eccosys/resolve-images";
 import type { HubProduct } from "@/types/hub";
 
@@ -455,10 +456,14 @@ export async function POST(req: NextRequest) {
         status: string;
       }>("/items", payload, workspaceId);
 
-      // Descrição é uma chamada separada (o ML ignora `description` inline)
+      // Descrição é uma chamada separada (o ML ignora `description` inline).
+      // Gerada no padrão Bulking a partir do nome (não da descrição crua do Eccosys).
       let descWarn: string | null = null;
       try {
-        await setItemDescription(result.id, product.descricao || product.nome, workspaceId);
+        const descText = buildMlDescription(product.nome || product.sku, {
+          composicao: product.atributos?.["Composição"],
+        });
+        await setItemDescription(result.id, descText, workspaceId);
       } catch (e) {
         descWarn = `Publicado, mas descrição falhou: ${e instanceof Error ? e.message : "erro"}`;
       }
@@ -600,11 +605,14 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Descrição é uma chamada separada (o ML ignora `description` inline)
+          // Descrição é uma chamada separada (o ML ignora `description` inline).
+          // Padrão Bulking gerado do nome da família (parent.nome).
           try {
             await setItemDescription(
               result.id,
-              child.descricao || parent!.descricao || parent!.nome,
+              buildMlDescription(parent!.nome || parent!.sku, {
+                composicao: parent!.atributos?.["Composição"],
+              }),
               workspaceId
             );
           } catch {
