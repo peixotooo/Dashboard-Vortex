@@ -6,6 +6,19 @@ import { grantReviewReward } from "@/lib/reviews/rewards";
 const ALLOWED_STATUS = ["published", "pending", "rejected", "hidden"];
 const ALLOWED_ADS = ["none", "pending", "accepted", "rejected"];
 
+type ReviewMedia = { url: string; type: "image" | "video" };
+
+function normalizeMedia(raw: unknown): ReviewMedia[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((m) => {
+      const it = m as { url?: unknown; type?: unknown };
+      if (typeof it.url !== "string" || !it.url) return null;
+      return { url: it.url, type: it.type === "video" ? "video" : "image" } as ReviewMedia;
+    })
+    .filter((m): m is ReviewMedia => !!m);
+}
+
 // Modera uma avaliação: muda status (publicar/ocultar/rejeitar) ou adiciona
 // resposta da loja.
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -15,6 +28,17 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     const body = await request.json();
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const admin = createAdminClient();
+
+    // Estado anterior pra detectar transições (publicação / aceite de ADS) e
+    // permitir ocultar uma mídia específica sem rejeitar a avaliação inteira.
+    const { data: prev } = await admin
+      .from("reviews")
+      .select("status, ads_status, ads_consent, media")
+      .eq("id", id)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
     if (body.status !== undefined) {
       if (!ALLOWED_STATUS.includes(body.status)) {
         return NextResponse.json({ error: "status inválido" }, { status: 400 });
@@ -33,15 +57,24 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       }
       patch.ads_status = body.ads_status;
     }
-
-    const admin = createAdminClient();
-    // Estado anterior pra detectar transições (publicação / aceite de ADS).
-    const { data: prev } = await admin
-      .from("reviews")
-      .select("status, ads_status")
-      .eq("id", id)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
+    if (body.hide_media_index !== undefined) {
+      const index = Number(body.hide_media_index);
+      const currentMedia = normalizeMedia(prev?.media);
+      if (!Number.isInteger(index) || index < 0 || index >= currentMedia.length) {
+        return NextResponse.json({ error: "mídia inválida" }, { status: 400 });
+      }
+      const nextMedia = currentMedia.filter((_, i) => i !== index);
+      const hasVideo = nextMedia.some((m) => m.type === "video");
+      patch.media = nextMedia;
+      patch.media_kind = hasVideo ? "video" : nextMedia.length > 0 ? "photo" : "none";
+      if (!hasVideo) {
+        patch.ads_consent = false;
+        patch.ads_status = "none";
+      } else {
+        patch.ads_consent = !!prev?.ads_consent;
+        if (patch.ads_status === undefined) patch.ads_status = prev?.ads_consent ? (prev?.ads_status || "pending") : "none";
+      }
+    }
 
     const { data, error } = await admin
       .from("reviews")

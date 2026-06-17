@@ -19,6 +19,7 @@ const CORS = {
 };
 
 type SubmittedReview = { product_id?: unknown; rating?: unknown; body?: unknown; media?: unknown; ads_consent?: unknown; custom_fields?: unknown };
+type RequestProduct = { product_id?: string | null; name?: string | null; image?: string | null; url?: string | null };
 
 function fieldKey(value: unknown): string {
   return typeof value === "string" ? value.trim().toLocaleLowerCase("pt-BR") : "";
@@ -65,6 +66,69 @@ async function loadRequest(token: string) {
   return { admin, req: data };
 }
 
+function safeCatalogKey(value: string | null | undefined): string | null {
+  const key = String(value || "").trim();
+  return key && /^[\w.-]+$/.test(key) ? key : null;
+}
+
+async function enrichProductsFromCatalog(
+  admin: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  products: RequestProduct[]
+): Promise<RequestProduct[]> {
+  if (products.length === 0 || products.every((p) => p.image)) return products;
+
+  const catalog = new Map<string, RequestProduct>();
+  const ids = Array.from(new Set(products.map((p) => safeCatalogKey(p.product_id)).filter((id): id is string => !!id)));
+
+  if (ids.length > 0) {
+    const { data } = await admin
+      .from("shelf_products")
+      .select("product_id, name, image_url, product_url, sku")
+      .eq("workspace_id", workspaceId)
+      .or(`product_id.in.(${ids.join(",")}),sku.in.(${ids.join(",")})`);
+    for (const p of data || []) {
+      const entry = {
+        product_id: String(p.product_id),
+        name: (p.name as string) || null,
+        image: (p.image_url as string) || null,
+        url: (p.product_url as string) || null,
+      };
+      catalog.set(String(p.product_id), entry);
+      if (p.sku) catalog.set(String(p.sku), entry);
+    }
+  }
+
+  const enriched = products.map((p) => {
+    const key = safeCatalogKey(p.product_id);
+    const c = key ? catalog.get(key) : null;
+    return c ? { product_id: c.product_id || p.product_id, name: c.name || p.name, image: c.image || p.image, url: c.url || p.url } : p;
+  });
+
+  // Fallback para convites antigos em que só sobrou o nome do produto.
+  for (let i = 0; i < enriched.length; i++) {
+    const p = enriched[i];
+    if (p.image || !p.name) continue;
+    const { data } = await admin
+      .from("shelf_products")
+      .select("product_id, name, image_url, product_url")
+      .eq("workspace_id", workspaceId)
+      .ilike("name", p.name)
+      .limit(1)
+      .maybeSingle();
+    if (data?.image_url) {
+      enriched[i] = {
+        product_id: String(data.product_id || p.product_id || ""),
+        name: (data.name as string) || p.name,
+        image: (data.image_url as string) || p.image,
+        url: (data.product_url as string) || p.url,
+      };
+    }
+  }
+
+  return enriched;
+}
+
 // Dados da landing de coleta (público, identificado pelo token).
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
@@ -95,7 +159,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
     );
   }
 
-  const { req } = await loadRequest(token);
+  const { admin, req } = await loadRequest(token);
   if (!req) return NextResponse.json({ error: "not_found" }, { status: 404, headers: CORS });
 
   const settings = await getReviewSettings(req.workspace_id);
@@ -104,24 +168,31 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
   // Todos os produtos do pedido (quiz por etapas). Pedidos antigos sem `products`
   // caem no produto único das colunas legadas.
   const rawProducts = Array.isArray(req.products) ? req.products : null;
-  const products = rawProducts && rawProducts.length
+  const productsBase = rawProducts && rawProducts.length
     ? rawProducts.map((p: { product_id?: string; name?: string | null; image?: string | null; url?: string | null }) => ({
-        id: p.product_id ?? null,
+        product_id: p.product_id ?? null,
         name: p.name ?? null,
         image: p.image ?? null,
         url: p.url ?? null,
       }))
-    : [{ id: req.product_id, name: req.product_name, image: req.product_image, url: req.product_url }];
+    : [{ product_id: req.product_id, name: req.product_name, image: req.product_image, url: req.product_url }];
+  const products = (await enrichProductsFromCatalog(admin, req.workspace_id, productsBase)).map((p) => ({
+    id: p.product_id ?? null,
+    name: p.name ?? null,
+    image: p.image ?? null,
+    url: p.url ?? null,
+  }));
+  const primaryProduct = products[0] || { id: req.product_id, name: req.product_name, image: req.product_image, url: req.product_url };
 
   return NextResponse.json(
     {
       already_completed: req.status === "completed" || !!req.review_id,
       customer_name: firstName,
       product: {
-        id: req.product_id,
-        name: req.product_name,
-        image: req.product_image,
-        url: req.product_url,
+        id: primaryProduct.id,
+        name: primaryProduct.name,
+        image: primaryProduct.image,
+        url: primaryProduct.url,
       },
       products,
       ask_media: settings.request_ask_media,
@@ -211,9 +282,10 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
     : [{ product_id: req.product_id, rating: body.rating, body: body.body, media: body.media, ads_consent: body.ads_consent, custom_fields: body.custom_fields }];
 
   // Produtos válidos do pedido (pra casar id/nome/imagem de cada avaliação).
-  const reqProducts = Array.isArray(req.products) && req.products.length
+  const reqProductsBase = Array.isArray(req.products) && req.products.length
     ? (req.products as { product_id?: string; name?: string | null; image?: string | null; url?: string | null }[])
     : [{ product_id: req.product_id || undefined, name: req.product_name, image: req.product_image, url: req.product_url }];
+  const reqProducts = await enrichProductsFromCatalog(admin, req.workspace_id, reqProductsBase);
   const productById = new Map(reqProducts.map((p) => [String(p.product_id), p]));
 
   function sanitizeMedia(raw: unknown) {

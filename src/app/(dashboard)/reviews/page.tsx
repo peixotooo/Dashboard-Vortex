@@ -210,6 +210,7 @@ export default function ReviewsPage() {
   const [galleryOffset, setGalleryOffset] = useState(0);
   const [galleryHasMore, setGalleryHasMore] = useState(false);
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
+  const [hidingMedia, setHidingMedia] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const galleryQuery = useCallback((offset: number) => {
@@ -430,6 +431,30 @@ export default function ReviewsPage() {
     await fetch(`/api/reviews/${id}`, { method: "PATCH", headers: headers(), body: JSON.stringify({ status }) });
     loadList();
     loadStats();
+  }
+
+  async function hideMedia(m: MediaItem) {
+    if (!window.confirm("Ocultar esta foto/vídeo desta avaliação? A avaliação continua existindo, mas essa mídia não aparece mais na loja nem na galeria.")) return;
+    setHidingMedia(true);
+    try {
+      const res = await fetch(`/api/reviews/${m.review_id}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ hide_media_index: m.index }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "Não foi possível ocultar a mídia.");
+        return;
+      }
+      setLightbox(null);
+      loadList();
+      loadStats();
+      loadMetrics();
+      if (tab === "gallery") loadGallery();
+    } finally {
+      setHidingMedia(false);
+    }
   }
 
   // Aprova um vídeo decidindo, no mesmo ato, se serve para ADS (define o valor
@@ -1523,6 +1548,9 @@ export default function ReviewsPage() {
                 <a href={lightbox.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm hover:bg-muted">
                   Abrir em nova aba
                 </a>
+                <button type="button" onClick={() => hideMedia(lightbox)} disabled={hidingMedia} className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50">
+                  {hidingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <EyeOff className="h-4 w-4" />} Ocultar mídia
+                </button>
                 <button type="button" onClick={() => { setTab("moderation"); setStatusFilter("all"); setSearch(lightbox.author_name || ""); setLightbox(null); }} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm hover:bg-muted">
                   <MessageSquareReply className="h-4 w-4" /> Moderar avaliação
                 </button>

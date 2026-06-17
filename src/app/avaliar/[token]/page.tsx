@@ -105,6 +105,7 @@ export default function AvaliarPage() {
   const [profileFields, setProfileFields] = useState<Record<string, string>>({});
   // Vídeo (um por pedido) — etapa exclusiva, vira material de anúncio.
   const [videoMedia, setVideoMedia] = useState<MediaItem[]>([]);
+  const [videoProductIdx, setVideoProductIdx] = useState(0);
   const [videoAdsConsent, setVideoAdsConsent] = useState(true);
   const [videoUploading, setVideoUploading] = useState(false);
   const [storeRating, setStoreRating] = useState(0);
@@ -124,6 +125,7 @@ export default function AvaliarPage() {
       setData(d);
       if (d.customer_name) setName(d.customer_name);
       setAnswers((d.products || []).map(() => ({ rating: 0, body: "", fields: {}, media: [] })));
+      setVideoProductIdx(0);
       if (d.already_completed) setDone({ moderated: false });
     } catch {
       setNotFound(true);
@@ -148,6 +150,8 @@ export default function AvaliarPage() {
   const totalSteps = stepList.length - 1; // exclui a abertura
   const current = stepList[Math.min(step, lastStep)] || stepList[0];
   const productIdx = current.kind === "product" ? current.idx : 0;
+  const currentProduct = products[productIdx];
+  const videoProduct = products[Math.min(videoProductIdx, Math.max(products.length - 1, 0))] || products[0];
 
   const updateAnswer = (i: number, patch: Partial<ProductAnswer>) =>
     setAnswers((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
@@ -266,9 +270,10 @@ export default function AvaliarPage() {
 
     if (reviews.length === 0) { setError("Dê as estrelas pra avaliar."); return; }
 
-    // O vídeo (um por pedido) é anexado à 1ª avaliação — é o material de anúncio.
+    // O vídeo é anexado ao produto que o cliente escolheu na etapa de vídeo.
     if (videoMedia.length) {
-      reviews[0] = { ...reviews[0], media: [...reviews[0].media, ...videoMedia], ads_consent: videoAdsConsent };
+      const targetIdx = Math.min(videoProductIdx, reviews.length - 1);
+      reviews[targetIdx] = { ...reviews[targetIdx], media: [...reviews[targetIdx].media, ...videoMedia], ads_consent: videoAdsConsent };
     }
 
     setSubmitting(true);
@@ -403,15 +408,27 @@ export default function AvaliarPage() {
             )}
 
             {/* ETAPAS DE PRODUTO */}
-            {current.kind === "product" && products[productIdx] && (
+            {current.kind === "product" && currentProduct && (
               <div className="space-y-4">
-                {products[productIdx].image && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={products[productIdx].image!} alt="" className="mx-auto h-24 w-24 object-cover rounded-2xl border border-neutral-100" />
-                )}
-                <h2 className="text-xl font-bold text-neutral-900 text-center leading-tight">
-                  {products[productIdx].name || "O que você achou?"}
-                </h2>
+                <div className="text-center space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
+                    Produto {productIdx + 1} de {products.length}
+                  </p>
+                  <div className="mx-auto w-full max-w-[210px] overflow-hidden rounded-2xl bg-neutral-100">
+                    {currentProduct.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={currentProduct.image} alt="" className="w-full aspect-[4/5] object-cover" />
+                    ) : (
+                      <div className="aspect-[4/5] flex items-center justify-center px-4 text-center text-sm text-neutral-400">
+                        Imagem do produto indisponível
+                      </div>
+                    )}
+                  </div>
+                  <h2 className="text-xl font-bold text-neutral-900 leading-tight">
+                    {currentProduct.name || "O que você achou deste produto?"}
+                  </h2>
+                  <p className="text-xs text-neutral-500">Envie fotos e comentários referentes a este produto.</p>
+                </div>
 
                 <div className="py-1"><StarsInput value={answers[productIdx]?.rating || 0} onChange={(n) => updateAnswer(productIdx, { rating: n })} color={accent} /></div>
 
@@ -517,6 +534,40 @@ export default function AvaliarPage() {
                   </p>
                 </div>
 
+                {products.length > 0 && (
+                  <div className="rounded-2xl border border-neutral-200 p-4">
+                    <p className="text-sm font-semibold text-neutral-800 mb-2">
+                      Qual produto aparece no vídeo?
+                    </p>
+                    <div className="space-y-2">
+                      {products.map((p, i) => (
+                        <button
+                          key={p.id || `${p.name}-${i}`}
+                          type="button"
+                          onClick={() => setVideoProductIdx(i)}
+                          className={`w-full flex items-center gap-3 rounded-xl border p-2.5 text-left transition-colors ${
+                            videoProductIdx === i ? "border-neutral-900 bg-neutral-50" : "border-neutral-200 hover:border-neutral-300"
+                          }`}
+                        >
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-neutral-100">
+                            {p.image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={p.image} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center text-[10px] text-neutral-400">sem foto</div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-neutral-900 truncate">{p.name || `Produto ${i + 1}`}</div>
+                            <div className="text-xs text-neutral-500">{videoProductIdx === i ? "Selecionado para este vídeo" : "Tocar para selecionar"}</div>
+                          </div>
+                          <span className={`h-4 w-4 rounded-full border ${videoProductIdx === i ? "border-neutral-900 bg-neutral-900" : "border-neutral-300"}`} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Dicas pra um vídeo bem feito */}
                 <div className="rounded-2xl border border-neutral-200 p-4">
                   <p className="text-sm font-semibold text-neutral-800 mb-2">Como gravar um vídeo top</p>
@@ -568,7 +619,7 @@ export default function AvaliarPage() {
                   <div className="rounded-xl bg-amber-100 border border-amber-300 p-3 text-[13px] text-amber-900">
                     <p className="font-semibold">O vídeo rende mais que foto</p>
                     <p className="text-amber-900">
-                      A avaliação gera 1 cashback, pelo melhor conteúdo enviado: {money(data.rewards.photo)} com foto, {money(data.rewards.video)} com vídeo ou até {money(data.rewards.video_ads)} se o vídeo for selecionado para ADS.
+                      O vídeo será vinculado a <b>{videoProduct?.name || "este produto"}</b>. A avaliação gera 1 cashback pelo melhor conteúdo enviado: {money(data.rewards.photo)} com foto, {money(data.rewards.video)} com vídeo ou até {money(data.rewards.video_ads)} se o vídeo for selecionado para ADS.
                     </p>
                   </div>
                 )}
