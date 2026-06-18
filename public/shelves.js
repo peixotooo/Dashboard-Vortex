@@ -1014,13 +1014,13 @@
   }
 
   function setupCartListeners(onUpdate) {
-    var CART_EVENTS = [
-      "vnda:cart-drawer-added-item",
-      "vnda:cart-drawer-deleted-item",
-      "vnda:cart-drawer-updated-item",
-      "vnda:cart-drawer-coupon-added",
-      "vnda:cart-drawer-coupon-removed",
-    ];
+    // The current store theme only dispatches `vnda:cart-drawer-loaded`
+    // (re-fired whenever the drawer re-renders after an add/remove/update).
+    // The old `vnda:cart-drawer-*-item` / `-coupon-*` names are no longer
+    // emitted, so those were dead no-op listeners. The fetch hook and the
+    // MutationObserver below remain the primary, theme-independent triggers;
+    // this just adds the lighter, direct signal the theme actually fires.
+    var CART_EVENTS = ["vnda:cart-drawer-loaded"];
 
     var debounceTimer = null;
     function debouncedUpdate() {
