@@ -2662,9 +2662,97 @@
     }
 
     // --- AddToCart ---
-    window.addEventListener("vnda:cart-drawer-added-item", function () {
-      sendCAPI("add_to_cart", {});
-    });
+    // The live VNDA theme adds items via `POST /carrinho/adicionar` (and
+    // `/carrinho/adicionar/kit` for kits) and does NOT dispatch a
+    // `vnda:cart-drawer-added-item` DOM event — so the old window listener
+    // never fired and AddToCart never reached the CAPI pixel. We hook the
+    // cart-add network request instead: robust to theme/drawer/event-name
+    // changes, same signal the native VNDA pixel uses.
+    if (!window.__vtxAtcHooked) {
+      window.__vtxAtcHooked = true;
+      var ATC_RE = /\/carrinho\/adicionar(\/kit)?($|[?#])/;
+      var lastAtc = 0;
+
+      var parseForm = function (str) {
+        var out = {};
+        if (typeof str !== "string" || !str) return out;
+        var pairs = str.split("&");
+        for (var i = 0; i < pairs.length; i++) {
+          var kv = pairs[i].split("=");
+          if (!kv[0]) continue;
+          try {
+            out[decodeURIComponent(kv[0].replace(/\+/g, " "))] =
+              decodeURIComponent((kv[1] || "").replace(/\+/g, " "));
+          } catch (e) {}
+        }
+        return out;
+      };
+
+      var fireAddToCart = function (reqBody) {
+        var now = Date.now();
+        if (now - lastAtc < 1500) return; // collapse duplicate signals for one add
+        lastAtc = now;
+        var data = { content_type: "product" };
+        var pid = extractProductId();
+        var form = parseForm(reqBody);
+        var qty = parseInt(form.quantity, 10) || 1;
+        if (!pid) pid = form.sku || form.variant_sku || null;
+        if (pid) data.content_ids = [pid];
+        var priceMeta = document.querySelector('meta[property="product:price:amount"]');
+        var unit = priceMeta ? parseFloat(priceMeta.getAttribute("content")) || 0 : 0;
+        if (unit > 0) data.value = unit * (qty > 0 ? qty : 1);
+        sendCAPI("add_to_cart", data);
+      };
+
+      // fetch — the theme's cart-add path
+      if (window.fetch) {
+        var _vtxFetch = window.fetch;
+        window.fetch = function (input, init) {
+          var url = typeof input === "string" ? input : (input && input.url) || "";
+          var method =
+            (init && init.method) ||
+            (typeof input === "object" && input && input.method) ||
+            "GET";
+          var body = init && typeof init.body === "string" ? init.body : "";
+          var isAtc = ATC_RE.test(url) && /post/i.test(method);
+          var ret = _vtxFetch.apply(this, arguments);
+          if (isAtc && ret && ret.then) {
+            ret
+              .then(function (res) {
+                if (res && res.ok) fireAddToCart(body);
+              })
+              .catch(function () {});
+          }
+          return ret;
+        };
+      }
+
+      // XHR fallback — jQuery-based add buttons, if any theme uses them
+      if (window.XMLHttpRequest && XMLHttpRequest.prototype) {
+        var _vtxOpen = XMLHttpRequest.prototype.open;
+        var _vtxSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (m, u) {
+          this.__vtxAtc = ATC_RE.test(u || "") && /post/i.test(m || "");
+          return _vtxOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function (b) {
+          if (this.__vtxAtc) {
+            var self = this;
+            var bodyStr = typeof b === "string" ? b : "";
+            this.addEventListener("load", function () {
+              if (self.status >= 200 && self.status < 300) fireAddToCart(bodyStr);
+            });
+          }
+          return _vtxSend.apply(this, arguments);
+        };
+      }
+
+      // Future-proof: if a theme ever starts emitting the drawer event, honor
+      // it too (the throttle dedups it against the network hook above).
+      window.addEventListener("vnda:cart-drawer-added-item", function () {
+        fireAddToCart("");
+      });
+    }
 
     // --- InitiateCheckout ---
     if (window.location.pathname.indexOf("/checkout") !== -1 &&
