@@ -11,6 +11,7 @@ const CORS_HEADERS = {
 // Cache durations per algorithm (seconds)
 const CACHE_TTL: Record<string, number> = {
   bestsellers: 300,
+  bestseller_camisetas: 300,
   news: 600,
   offers: 600,
   most_popular: 300,
