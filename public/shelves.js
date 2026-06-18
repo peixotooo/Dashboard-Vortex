@@ -895,7 +895,10 @@
 
           fetchWithTimeout(fetchRecommend(shelf, extraParams), 8000)
             .then(function (data) {
-              var products = shuffle(data.products || []);
+              // Algoritmos rankeados preservam a ordem do servidor; o resto embaralha p/ variedade.
+              var PRESERVE_ORDER = { bestseller_camisetas: 1 };
+              var raw = data.products || [];
+              var products = PRESERVE_ORDER[shelf.algorithm] ? raw : shuffle(raw);
               console.log("[Shelves] " + shelf.algorithm + " -> " + products.length + " products");
 
               if (products.length === 0) {

@@ -336,6 +336,8 @@ export async function getRecommendations(
   switch (params.algorithm) {
     case "bestsellers":
       return getBestsellers(params);
+    case "bestseller_camisetas":
+      return getBestsellerCamisetas(params);
     case "news":
       return getNews(params);
     case "offers":
@@ -416,6 +418,85 @@ async function getBestsellers(
       }
     }
   }
+
+  return withCatalogImages(params.workspaceId, results);
+}
+
+/**
+ * BestsellerCamisetas: camisetas de algodão MAIS VENDIDAS (unidades), em estoque,
+ * em ORDEM de vendas. Ranking vem do crm_abc_snapshots (janela ~30d, pré-computada,
+ * mais estável que os 7d do bestsellers); só camisetas (sem regata/bermuda/dry/etc).
+ * O shelves.js NÃO embaralha este algoritmo (preserva a ordem). Fallback: bestsellers.
+ */
+function isCamisetaName(name: string): boolean {
+  const n = normalizeProductName(name);
+  if (!/camiseta/.test(n)) return false;
+  if (/regata|bermuda|short|calca|tank|macaquinho|legging|cropped|\btop\b|blusao|moletom|jaqueta|corta vento/.test(n)) return false;
+  if (/dry|performance|rashguard|compression|running/.test(n)) return false;
+  return true;
+}
+
+async function getBestsellerCamisetas(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const admin = createAdminClient();
+
+  // 1) ranking por unidades vendidas (snapshot ABC mais recente)
+  const { data: snap } = await admin
+    .from("crm_abc_snapshots")
+    .select("products")
+    .eq("workspace_id", params.workspaceId)
+    .order("computed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const rankedNames: string[] = [];
+  const snapProducts = (snap?.products as Array<{ name?: string; qty_sold?: number; revenue?: number }> | undefined) || [];
+  for (const p of snapProducts
+    .filter((p) => p.name && isCamisetaName(p.name))
+    .sort((a, b) => (b.qty_sold ?? 0) - (a.qty_sold ?? 0) || (b.revenue ?? 0) - (a.revenue ?? 0))) {
+    rankedNames.push(normalizeProductName(p.name as string));
+  }
+
+  // 2) catálogo em estoque (shelf_products) indexado por nome normalizado
+  const PAGE = 1000;
+  const byName = new Map<string, ShelfProduct>();
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from("shelf_products")
+      .select("product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock")
+      .eq("workspace_id", params.workspaceId)
+      .eq("active", true)
+      .eq("in_stock", true)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    for (const p of data as ShelfProduct[]) {
+      const key = normalizeProductName(p.name);
+      if (!byName.has(key)) byName.set(key, p);
+    }
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  // 3) resultado na ordem de vendas; completa com outras camisetas em estoque se faltar
+  const results: ShelfProduct[] = [];
+  const used = new Set<string>();
+  for (const key of rankedNames) {
+    const p = byName.get(key);
+    if (p && !used.has(p.product_id)) { results.push(p); used.add(p.product_id); }
+    if (results.length >= params.limit) break;
+  }
+  if (results.length < params.limit) {
+    for (const p of byName.values()) {
+      if (results.length >= params.limit) break;
+      if (used.has(p.product_id) || !isCamisetaName(p.name)) continue;
+      results.push(p); used.add(p.product_id);
+    }
+  }
+
+  if (results.length === 0) return getBestsellers(params);
 
   return withCatalogImages(params.workspaceId, results);
 }
