@@ -63,19 +63,12 @@ export async function POST(
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (!config?.wa_template_id) {
-    return NextResponse.json(
-      { error: "Template não configurado." },
-      { status: 400 }
-    );
-  }
-
   const result = await dispatchGiftRequest({
     admin,
     workspaceId,
     request: gr,
-    templateId: config.wa_template_id,
-    variableMapping: config.wa_variable_mapping || {},
+    templateId: config?.wa_template_id,
+    variableMapping: config?.wa_variable_mapping || {},
   });
 
   if (!result.ok) {

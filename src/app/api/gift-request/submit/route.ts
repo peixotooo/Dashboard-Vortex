@@ -119,12 +119,6 @@ export async function POST(request: NextRequest) {
       { status: 403, headers: CORS_HEADERS }
     );
   }
-  if (!config.wa_template_id) {
-    return NextResponse.json(
-      { error: "no_template_configured" },
-      { status: 500, headers: CORS_HEADERS }
-    );
-  }
 
   // Rate limit por IP (anti-flood)
   const ip =

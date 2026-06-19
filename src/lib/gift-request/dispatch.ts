@@ -5,6 +5,8 @@ import {
   resolveWhatsAppVariables,
   type GiftRequestRow,
 } from "./variables";
+import { DEFAULT_VARIABLE_MAPPING } from "./recommended";
+import { resolveGiftRequestUtilityTemplate } from "./template-resolver";
 
 export interface GiftDispatchResult {
   ok: boolean;
@@ -25,7 +27,7 @@ export async function dispatchGiftRequest(params: {
   admin: SupabaseClient;
   workspaceId: string;
   request: GiftRequestRow & { id: string };
-  templateId: string;
+  templateId: string | null | undefined;
   variableMapping: Record<string, string>;
   storeName?: string;
 }): Promise<GiftDispatchResult> {
@@ -36,28 +38,25 @@ export async function dispatchGiftRequest(params: {
     return { ok: false, error: "no_recipient_phone" };
   }
 
-  // Confere se o template está APROVADO pela Meta antes de enfileirar.
-  const { data: tpl } = await admin
-    .from("wa_templates")
-    .select("name, language, status, category, components")
-    .eq("id", templateId)
-    .single();
-
-  if (!tpl) {
-    return { ok: false, error: "template_not_found" };
-  }
-  if (tpl.status !== "APPROVED") {
-    return { ok: false, error: "template_pending" };
-  }
-  if (tpl.category !== "UTILITY") {
-    return { ok: false, error: "template_not_utility" };
+  const templateResolution = await resolveGiftRequestUtilityTemplate({
+    admin,
+    workspaceId,
+    configuredTemplateId: templateId,
+    updateConfig: true,
+  });
+  if (!templateResolution.ok || !templateResolution.templateId || !templateResolution.template) {
+    return { ok: false, error: templateResolution.error || "template_not_ready" };
   }
 
   const vars = buildGiftRequestVariables(request, { storeName });
-  const positionalVars = resolveWhatsAppVariables(variableMapping || {}, vars);
+  const mapping =
+    Object.keys(variableMapping || {}).length > 0
+      ? variableMapping
+      : DEFAULT_VARIABLE_MAPPING;
+  const positionalVars = resolveWhatsAppVariables(mapping, vars);
 
   const templateBody = (() => {
-    const components = (tpl.components || []) as Array<{
+    const components = (templateResolution.template?.components || []) as Array<{
       type: string;
       text?: string;
     }>;
@@ -65,7 +64,7 @@ export async function dispatchGiftRequest(params: {
   })();
   const renderedBody = previewWhatsAppBody(
     templateBody,
-    variableMapping || {},
+    mapping,
     vars
   );
 
@@ -77,7 +76,7 @@ export async function dispatchGiftRequest(params: {
     .insert({
       workspace_id: workspaceId,
       name: campaignName,
-      template_id: templateId,
+      template_id: templateResolution.templateId,
       variable_values: positionalVars,
       status: "queued",
       total_messages: 1,

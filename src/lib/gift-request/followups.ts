@@ -5,6 +5,8 @@ import {
   resolveWhatsAppVariables,
   type GiftRequestRow,
 } from "./variables";
+import { DEFAULT_VARIABLE_MAPPING } from "./recommended";
+import { resolveGiftRequestUtilityTemplate } from "./template-resolver";
 
 const FOLLOWUP_MIN_AGE_HOURS = 24;
 const FOLLOWUP_MAX_AGE_DAYS = 14;
@@ -84,7 +86,7 @@ async function dispatchGiftRequestFollowup(params: {
   admin: SupabaseClient;
   workspaceId: string;
   request: GiftRequestWithId;
-  templateId: string;
+  templateId: string | null | undefined;
   variableMapping: Record<string, string>;
 }): Promise<FollowupDispatchResult> {
   const { admin, workspaceId, request, templateId, variableMapping } = params;
@@ -101,21 +103,25 @@ async function dispatchGiftRequestFollowup(params: {
     return { ok: true, skipped: true, campaignId: existing[0].id };
   }
 
-  const { data: tpl } = await admin
-    .from("wa_templates")
-    .select("name, language, status, category, components")
-    .eq("id", templateId)
-    .single();
-
-  if (!tpl) return { ok: false, error: "template_not_found" };
-  if (tpl.status !== "APPROVED") return { ok: false, error: "template_pending" };
-  if (tpl.category !== "UTILITY") return { ok: false, error: "template_not_utility" };
+  const templateResolution = await resolveGiftRequestUtilityTemplate({
+    admin,
+    workspaceId,
+    configuredTemplateId: templateId,
+    updateConfig: true,
+  });
+  if (!templateResolution.ok || !templateResolution.templateId || !templateResolution.template) {
+    return { ok: false, error: templateResolution.error || "template_not_ready" };
+  }
 
   const vars = buildGiftRequestVariables(request);
-  const mapping = followupMapping(variableMapping || {});
+  const baseMapping =
+    Object.keys(variableMapping || {}).length > 0
+      ? variableMapping
+      : DEFAULT_VARIABLE_MAPPING;
+  const mapping = followupMapping(baseMapping);
   const positionalVars = resolveWhatsAppVariables(mapping, vars);
   const templateBody = (() => {
-    const components = (tpl.components || []) as Array<{
+    const components = (templateResolution.template?.components || []) as Array<{
       type: string;
       text?: string;
     }>;
@@ -129,7 +135,7 @@ async function dispatchGiftRequestFollowup(params: {
     .insert({
       workspace_id: workspaceId,
       name: campaignName,
-      template_id: templateId,
+      template_id: templateResolution.templateId,
       variable_values: positionalVars,
       status: "scheduled",
       scheduled_at: scheduledAt,
@@ -232,7 +238,7 @@ export async function enqueueGiftRequestFollowups(params: {
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (!config?.enabled || !config.wa_template_id) {
+  if (!config?.enabled) {
     return {
       workspaceId,
       scanned: 0,
