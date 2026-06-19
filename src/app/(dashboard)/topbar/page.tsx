@@ -42,6 +42,10 @@ import {
   serializeTopbarSlides,
   type TopbarSlide,
 } from "@/lib/topbar/slides";
+import {
+  unpackCountdownSpacing,
+  unpackOptionalCountdownSpacing,
+} from "@/lib/topbar/countdown-spacing";
 
 // ---------- Tipos ----------
 
@@ -58,6 +62,7 @@ interface TopbarConfig {
   countdown_text_color: string;
   countdown_font_weight: string;
   countdown_padding: string;
+  countdown_margin: string;
   countdown_border_radius: string;
   sticky: boolean;
   position: "top" | "bottom";
@@ -103,6 +108,7 @@ interface Campaign {
   countdown_text_color: string | null;
   countdown_font_weight: string | null;
   countdown_padding: string | null;
+  countdown_margin: string | null;
   countdown_border_radius: string | null;
   show_on_pages: string[] | null;
   context_type: string | null;
@@ -160,6 +166,7 @@ const DEFAULT_CONFIG: TopbarConfig = {
   countdown_text_color: "",
   countdown_font_weight: "600",
   countdown_padding: "3px 10px",
+  countdown_margin: "0",
   countdown_border_radius: "999px",
   sticky: true,
   position: "top",
@@ -204,7 +211,7 @@ function emptyCampaign(): Partial<Campaign> {
     recurrence_window_end: null,
     title: "",
     message: "",
-    slides: [{ title: "", message: "" }],
+    slides: [{ title: "", message: "", link_url: "", link_label: "" }],
     link_url: "",
     link_label: "",
     countdown_enabled: false,
@@ -222,6 +229,7 @@ function emptyCampaign(): Partial<Campaign> {
     countdown_text_color: null,
     countdown_font_weight: null,
     countdown_padding: null,
+    countdown_margin: null,
     countdown_border_radius: null,
     show_on_pages: null,
     context_type: "launch",
@@ -232,11 +240,21 @@ function emptyCampaign(): Partial<Campaign> {
 }
 
 function withEditableSlides(campaign: Partial<Campaign>): Partial<Campaign> {
+  const countdownSpacing = campaign.countdown_margin
+    ? {
+        padding: campaign.countdown_padding || null,
+        margin: campaign.countdown_margin,
+      }
+    : unpackOptionalCountdownSpacing(campaign.countdown_padding);
   const slides = normalizeTopbarSlides(
     campaign.slides,
     campaign.title,
     campaign.message,
-    { keepEmpty: true }
+    {
+      keepEmpty: true,
+      fallbackLinkUrl: campaign.link_url,
+      fallbackLinkLabel: campaign.link_label,
+    }
   );
   const first = slides[0] || { title: "", message: "" };
   return {
@@ -244,6 +262,24 @@ function withEditableSlides(campaign: Partial<Campaign>): Partial<Campaign> {
     slides,
     title: first.title || "",
     message: first.message || "",
+    link_url: first.link_url || "",
+    link_label: first.link_label || "",
+    countdown_padding: countdownSpacing.padding,
+    countdown_margin: countdownSpacing.margin,
+  };
+}
+
+function withConfigSpacing(config: Partial<TopbarConfig> | null | undefined): TopbarConfig {
+  const base = { ...DEFAULT_CONFIG, ...(config || {}) };
+  const spacing = unpackCountdownSpacing(
+    base.countdown_padding,
+    DEFAULT_CONFIG.countdown_padding,
+    DEFAULT_CONFIG.countdown_margin
+  );
+  return {
+    ...base,
+    countdown_padding: spacing.padding,
+    countdown_margin: spacing.margin,
   };
 }
 
@@ -270,6 +306,7 @@ export default function TopbarPage() {
   const [variations, setVariations] = useState<Variation[]>([]);
   const [savingCampaign, setSavingCampaign] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [previewSlideIndex, setPreviewSlideIndex] = useState(0);
 
   const headers = useCallback(
     () => ({
@@ -287,8 +324,10 @@ export default function TopbarPage() {
         fetch("/api/topbar/campaigns", { headers: headers() }).then((r) => r.json()),
         fetch("/api/shelves/api-keys", { headers: headers() }).then((r) => r.json()),
       ]);
-      if (c?.config) setConfig({ ...DEFAULT_CONFIG, ...c.config });
-      setCampaigns(list?.campaigns || []);
+      if (c?.config) setConfig(withConfigSpacing(c.config));
+      setCampaigns(
+        (list?.campaigns || []).map((item: Campaign) => withEditableSlides(item) as Campaign)
+      );
       setHasApiKey((keys?.keys || []).length > 0);
     } catch (e) {
       console.error("topbar load:", e);
@@ -311,7 +350,7 @@ export default function TopbarPage() {
       });
       const data = await res.json();
       if (data.config) {
-        setConfig({ ...DEFAULT_CONFIG, ...data.config });
+        setConfig(withConfigSpacing(data.config));
         setSavedConfig(true);
         setTimeout(() => setSavedConfig(false), 2500);
       }
@@ -344,7 +383,13 @@ export default function TopbarPage() {
         ? "/api/topbar/campaigns"
         : `/api/topbar/campaigns/${editing.id}`;
       const method = isNew ? "POST" : "PATCH";
-      const content = serializeTopbarSlides(editing.slides, editing.title, editing.message);
+      const content = serializeTopbarSlides(
+        editing.slides,
+        editing.title,
+        editing.message,
+        editing.link_url,
+        editing.link_label
+      );
       const res = await fetch(url, {
         method,
         headers: headers(),
@@ -352,6 +397,8 @@ export default function TopbarPage() {
           ...editing,
           title: content.title || "",
           message: content.message,
+          link_url: content.link_url || "",
+          link_label: content.link_label || "",
           slides: content.slides,
         }),
       });
@@ -415,7 +462,15 @@ export default function TopbarPage() {
         ? {
             ...prev,
             message: v.message,
-            slides: [{ title: prev.title || "", message: v.message }],
+            slides: [
+              {
+                title: prev.title || "",
+                message: v.message,
+                link_url: prev.link_url || "",
+                link_label: v.link_label || prev.link_label || "",
+              },
+            ],
+            link_url: prev.link_url || "",
             link_label: v.link_label || prev.link_label,
           }
         : prev
@@ -457,18 +512,28 @@ export default function TopbarPage() {
     setVariations((prev) => prev.filter((x) => x.generated_by !== "llm"));
   }
 
-  const editingSlides = useMemo(
-    () =>
-      editing
-        ? normalizeTopbarSlides(editing.slides, editing.title, editing.message, {
-            keepEmpty: true,
-          })
-        : [],
-    [editing]
-  );
+  const editingSlides = useMemo(() => {
+    if (!editing) return [];
+    if (Array.isArray(editing.slides) && editing.slides.length > 0) {
+      return editing.slides.slice(0, 8).map((slide) => ({
+        title: typeof slide.title === "string" ? slide.title : "",
+        message: typeof slide.message === "string" ? slide.message : "",
+        link_url: typeof slide.link_url === "string" ? slide.link_url : "",
+        link_label: typeof slide.link_label === "string" ? slide.link_label : "",
+      }));
+    }
+
+    return normalizeTopbarSlides(editing.slides, editing.title, editing.message, {
+      keepEmpty: true,
+      fallbackLinkUrl: editing.link_url,
+      fallbackLinkLabel: editing.link_label,
+    });
+  }, [editing]);
 
   function updateEditingSlides(nextSlides: TopbarSlide[]) {
-    const slides = nextSlides.length ? nextSlides : [{ title: "", message: "" }];
+    const slides = nextSlides.length
+      ? nextSlides
+      : [{ title: "", message: "", link_url: "", link_label: "" }];
     const first = slides[0] || { title: "", message: "" };
     setEditing((prev) =>
       prev
@@ -477,6 +542,8 @@ export default function TopbarPage() {
             slides,
             title: first.title || "",
             message: first.message || "",
+            link_url: first.link_url || "",
+            link_label: first.link_label || "",
           }
         : prev
     );
@@ -498,10 +565,24 @@ export default function TopbarPage() {
     updateEditingSlides(next);
   }
 
-  const previewSlide =
-    editingSlides.find((slide) => slide.message.trim().length > 0) ||
-    editingSlides[0] ||
-    { title: "", message: "" };
+  const previewSlides = useMemo(() => {
+    const filled = editingSlides.filter((slide) => slide.message.trim().length > 0);
+    return filled.length
+      ? filled
+      : [{ title: "", message: "Sua mensagem aparece aqui", link_url: "", link_label: "" }];
+  }, [editingSlides]);
+
+  useEffect(() => {
+    setPreviewSlideIndex(0);
+    if (!editing || previewSlides.length <= 1) return;
+    const id = window.setInterval(() => {
+      setPreviewSlideIndex((current) => (current + 1) % previewSlides.length);
+    }, 2800);
+    return () => window.clearInterval(id);
+  }, [editing?.id, previewSlides.length]);
+
+  const currentPreviewSlide =
+    previewSlides[previewSlideIndex % previewSlides.length] || previewSlides[0];
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
@@ -540,6 +621,7 @@ export default function TopbarPage() {
   const effectiveCdWeight =
     editing?.countdown_font_weight || config.countdown_font_weight || "600";
   const effectiveCdPad = editing?.countdown_padding || config.countdown_padding || "3px 10px";
+  const effectiveCdMargin = editing?.countdown_margin || config.countdown_margin || "0";
   const effectiveCdRadius =
     editing?.countdown_border_radius || config.countdown_border_radius || "999px";
 
@@ -783,7 +865,17 @@ export default function TopbarPage() {
                       placeholder="3px 10px"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
+                    <Label>Margin</Label>
+                    <Input
+                      value={config.countdown_margin}
+                      onChange={(e) =>
+                        setConfig({ ...config, countdown_margin: e.target.value })
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
                     <Label>Border-radius</Label>
                     <Input
                       value={config.countdown_border_radius}
@@ -1059,7 +1151,10 @@ export default function TopbarPage() {
             </Card>
           ) : (
             campaigns.map((c) => {
-              const slides = normalizeTopbarSlides(c.slides, c.title, c.message);
+              const slides = normalizeTopbarSlides(c.slides, c.title, c.message, {
+                fallbackLinkUrl: c.link_url,
+                fallbackLinkLabel: c.link_label,
+              });
               const firstSlide = slides[0] || { title: c.title, message: c.message };
 
               return (
@@ -1183,7 +1278,10 @@ export default function TopbarPage() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        updateEditingSlides([...editingSlides, { title: "", message: "" }])
+                        updateEditingSlides([
+                          ...editingSlides,
+                          { title: "", message: "", link_url: "", link_label: "" },
+                        ])
                       }
                       disabled={editingSlides.length >= 8}
                     >
@@ -1257,39 +1355,39 @@ export default function TopbarPage() {
                             />
                           </div>
                         </div>
+                        <div className="rounded-md bg-muted/30 p-3">
+                          <Label className="font-medium flex items-center gap-2">
+                            <Link2 className="h-4 w-4" />
+                            Link desta mensagem
+                          </Label>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Opcional. Use CTAs diferentes quando cada mensagem levar para uma vitrine ou coleção específica.
+                          </p>
+                          <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                            <div className="lg:col-span-3">
+                              <Label>Link (URL)</Label>
+                              <Input
+                                value={slide.link_url || ""}
+                                onChange={(e) =>
+                                  updateEditingSlide(index, { link_url: e.target.value })
+                                }
+                                placeholder="https://..."
+                              />
+                            </div>
+                            <div className="lg:col-span-2">
+                              <Label>CTA label</Label>
+                              <Input
+                                value={slide.link_label || ""}
+                                onChange={(e) =>
+                                  updateEditingSlide(index, { link_label: e.target.value })
+                                }
+                                placeholder="Aproveitar"
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ))}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
-                  <div>
-                    <Label className="font-medium flex items-center gap-2">
-                      <Link2 className="h-4 w-4" />
-                      Link e chamada para ação
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Opcional. O mesmo CTA acompanha todas as mensagens desta campanha.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Link (URL)</Label>
-                      <Input
-                        value={editing.link_url || ""}
-                        onChange={(e) => setEditing({ ...editing, link_url: e.target.value })}
-                        placeholder="https://..."
-                      />
-                    </div>
-                    <div>
-                      <Label>CTA label</Label>
-                      <Input
-                        value={editing.link_label || ""}
-                        onChange={(e) => setEditing({ ...editing, link_label: e.target.value })}
-                        placeholder="Aproveitar"
-                      />
-                    </div>
                   </div>
                 </div>
 
@@ -1301,13 +1399,70 @@ export default function TopbarPage() {
                     )}
                   </div>
                   <div style={previewStyle}>
-                    {previewSlide.title && (
-                      <span style={{ fontWeight: effectiveTitleBold ? 700 : 400, letterSpacing: ".02em" }}>
-                        {previewSlide.title}
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minWidth: 0,
+                        maxWidth: "min(760px, 100%)",
+                        overflow: "hidden",
+                        height: previewSlides.length > 1 ? "1.3em" : undefined,
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: previewSlides.length > 1 ? "flex" : "inline-flex",
+                          flexDirection: previewSlides.length > 1 ? "column" : undefined,
+                          alignItems: "center",
+                          transition: "transform .48s cubic-bezier(.22,.61,.36,1)",
+                          transform:
+                            previewSlides.length > 1
+                              ? `translateY(-${
+                                  (previewSlideIndex % previewSlides.length) * 1.3
+                                }em)`
+                              : undefined,
+                        }}
+                      >
+                        {previewSlides.map((slide, index) => (
+                          <span
+                            key={`${index}-${slide.message}-${slide.link_label}`}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 8,
+                              height: "1.3em",
+                              minHeight: "1.3em",
+                              maxWidth: "100%",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {slide.title && (
+                              <span
+                                style={{
+                                  fontWeight: effectiveTitleBold ? 700 : 400,
+                                  letterSpacing: ".02em",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {slide.title}
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                fontWeight: effectiveMessageBold ? 700 : 400,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {slide.message}
+                            </span>
+                          </span>
+                        ))}
                       </span>
-                    )}
-                    <span style={{ fontWeight: effectiveMessageBold ? 700 : 400 }}>
-                      {previewSlide.message || "Sua mensagem aparece aqui"}
                     </span>
                     {editing.countdown_enabled && (
                       <span
@@ -1316,13 +1471,14 @@ export default function TopbarPage() {
                           color: effectiveCdColor,
                           borderRadius: effectiveCdRadius,
                           padding: effectiveCdPad,
+                          margin: effectiveCdMargin,
                           fontWeight: effectiveCdWeight,
                         }}
                       >
                         {editing.countdown_label || "Termina em"} 02:14:33
                       </span>
                     )}
-                    {editing.link_url && editing.link_label && (
+                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
                       <span
                         style={{
                           background: editing.accent_color || config.accent_color,
@@ -1331,9 +1487,10 @@ export default function TopbarPage() {
                           borderRadius: 999,
                           fontWeight: 600,
                           fontSize: 13,
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        {editing.link_label}
+                        {currentPreviewSlide.link_label}
                       </span>
                     )}
                   </div>
@@ -1579,6 +1736,19 @@ export default function TopbarPage() {
                               setEditing({
                                 ...editing,
                                 countdown_padding: e.target.value || null,
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label>Margin</Label>
+                          <Input
+                            value={editing.countdown_margin || ""}
+                            placeholder={config.countdown_margin}
+                            onChange={(e) =>
+                              setEditing({
+                                ...editing,
+                                countdown_margin: e.target.value || null,
                               })
                             }
                           />

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { packCountdownSpacing } from "@/lib/topbar/countdown-spacing";
 import { serializeTopbarSlides } from "@/lib/topbar/slides";
 
 function createSupabase(request: NextRequest) {
@@ -52,7 +53,13 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const content = serializeTopbarSlides(body.slides, body.title, body.message);
+  const content = serializeTopbarSlides(
+    body.slides,
+    body.title,
+    body.message,
+    body.link_url,
+    body.link_label
+  );
 
   if (!body.name || !content.message) {
     return NextResponse.json({ error: "name and message are required" }, { status: 400 });
@@ -79,8 +86,8 @@ export async function POST(request: NextRequest) {
       recurrence_window_start: body.recurrence_window_start || null,
       recurrence_window_end: body.recurrence_window_end || null,
       message: content.message,
-      link_url: body.link_url || null,
-      link_label: body.link_label || null,
+      link_url: content.link_url,
+      link_label: content.link_label,
       countdown_enabled: body.countdown_enabled ?? false,
       countdown_target: body.countdown_target || null,
       countdown_label: body.countdown_label || "Termina em",
@@ -95,7 +102,10 @@ export async function POST(request: NextRequest) {
       countdown_bg_color: body.countdown_bg_color || null,
       countdown_text_color: body.countdown_text_color || null,
       countdown_font_weight: body.countdown_font_weight || null,
-      countdown_padding: body.countdown_padding || null,
+      countdown_padding:
+        (body.countdown_padding || body.countdown_margin)
+          ? packCountdownSpacing(body.countdown_padding, body.countdown_margin, "")
+          : null,
       countdown_border_radius: body.countdown_border_radius || null,
       show_on_pages: body.show_on_pages || null,
       context_type: body.context_type || null,

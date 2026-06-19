@@ -89,7 +89,9 @@ export async function generateCampaignVariations(input: GenerateInput) {
   const currentSlide = primaryTopbarSlide(
     (campaign as { slides?: unknown }).slides,
     (campaign as { title?: string | null }).title || null,
-    campaign.message
+    campaign.message,
+    campaign.link_url,
+    campaign.link_label
   );
   const config = (configRes.data || {}) as {
     ai_context?: string | null;

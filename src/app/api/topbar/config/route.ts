@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { packCountdownSpacing } from "@/lib/topbar/countdown-spacing";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -72,7 +73,7 @@ export async function PUT(request: NextRequest) {
         countdown_bg_color: body.countdown_bg_color || "rgba(255,255,255,.14)",
         countdown_text_color: body.countdown_text_color || null,
         countdown_font_weight: body.countdown_font_weight || "600",
-        countdown_padding: body.countdown_padding || "3px 10px",
+        countdown_padding: packCountdownSpacing(body.countdown_padding, body.countdown_margin),
         countdown_border_radius: body.countdown_border_radius || "999px",
         sticky: body.sticky ?? true,
         position: body.position || "top",

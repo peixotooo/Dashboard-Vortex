@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { unpackCountdownSpacing } from "@/lib/topbar/countdown-spacing";
 import { resolveActiveCampaign } from "@/lib/topbar/resolve";
 import { normalizeTopbarSlides } from "@/lib/topbar/slides";
 
@@ -108,16 +109,35 @@ export async function GET(request: NextRequest) {
   const campaignSlides = normalizeTopbarSlides(
     (campaign as { slides?: unknown }).slides,
     (campaign as { title?: string | null }).title || null,
-    campaign.message
+    campaign.message,
+    {
+      fallbackLinkUrl: campaign.link_url,
+      fallbackLinkLabel: campaign.link_label,
+    }
   );
   const variationIsActive = Boolean(selectedVar && campaignSlides.length <= 1);
   const slides = variationIsActive
-    ? normalizeTopbarSlides(null, (campaign as { title?: string | null }).title || null, selectedVar?.message)
+    ? normalizeTopbarSlides(
+        null,
+        (campaign as { title?: string | null }).title || null,
+        selectedVar?.message,
+        {
+          fallbackLinkUrl: campaign.link_url,
+          fallbackLinkLabel: selectedVar?.link_label || campaign.link_label,
+        }
+      )
     : campaignSlides;
   const primarySlide = slides[0] || {
     title: (campaign as { title?: string | null }).title || null,
     message: selectedVar?.message || campaign.message,
+    link_url: campaign.link_url,
+    link_label: selectedVar?.link_label || campaign.link_label,
   };
+  const countdownSpacing = unpackCountdownSpacing(
+    pickStr("countdown_padding", "3px 10px"),
+    "3px 10px",
+    "0"
+  );
 
   return NextResponse.json(
     {
@@ -140,8 +160,8 @@ export async function GET(request: NextRequest) {
         title: primarySlide.title || null,
         message: primarySlide.message,
         slides,
-        link_url: campaign.link_url,
-        link_label: variationIsActive ? selectedVar?.link_label || campaign.link_label : campaign.link_label,
+        link_url: primarySlide.link_url || null,
+        link_label: primarySlide.link_label || null,
         // Countdown
         countdown_enabled: campaign.countdown_enabled,
         countdown_target: countdownTarget,
@@ -149,7 +169,8 @@ export async function GET(request: NextRequest) {
         countdown_bg_color: pickStr("countdown_bg_color", "rgba(255,255,255,.14)"),
         countdown_text_color: pickStr("countdown_text_color"), // null = herda text_color no front
         countdown_font_weight: pickStr("countdown_font_weight", "600"),
-        countdown_padding: pickStr("countdown_padding", "3px 10px"),
+        countdown_padding: countdownSpacing.padding,
+        countdown_margin: countdownSpacing.margin,
         countdown_border_radius: pickStr("countdown_border_radius", "999px"),
       },
     },

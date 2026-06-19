@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { packCountdownSpacing } from "@/lib/topbar/countdown-spacing";
 import { serializeTopbarSlides } from "@/lib/topbar/slides";
 
 function createSupabase(request: NextRequest) {
@@ -113,13 +114,28 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
     if (key in body) patch[key] = body[key];
   }
 
+  if ("countdown_padding" in body || "countdown_margin" in body) {
+    patch.countdown_padding =
+      (body.countdown_padding || body.countdown_margin)
+        ? packCountdownSpacing(body.countdown_padding, body.countdown_margin, "")
+        : null;
+  }
+
   if ("slides" in body) {
-    const content = serializeTopbarSlides(body.slides, body.title, body.message);
+    const content = serializeTopbarSlides(
+      body.slides,
+      body.title,
+      body.message,
+      body.link_url,
+      body.link_label
+    );
     if (!content.message) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
     patch.title = content.title;
     patch.message = content.message;
+    patch.link_url = content.link_url;
+    patch.link_label = content.link_label;
   }
 
   // Recalcula next_regenerate_at se auto_regenerate ou regenerate_every_hours mudou
