@@ -1,5 +1,6 @@
 import { callLLM } from "@/lib/agent/llm-provider";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { primaryTopbarSlide } from "@/lib/topbar/slides";
 
 // Emoji ranges (cobre símbolos, pictografia, "fire" 🔥, etc.)
 const EMOJI_RE =
@@ -85,6 +86,11 @@ export async function generateCampaignVariations(input: GenerateInput) {
   if (!campaignRes.data) throw new Error("Campaign not found");
 
   const campaign = campaignRes.data;
+  const currentSlide = primaryTopbarSlide(
+    (campaign as { slides?: unknown }).slides,
+    (campaign as { title?: string | null }).title || null,
+    campaign.message
+  );
   const config = (configRes.data || {}) as {
     ai_context?: string | null;
     ai_brand_voice?: string | null;
@@ -148,7 +154,7 @@ Gere exatamente ${count} variações distintas, variando apenas os ângulos supo
   const userPrompt = `BRIEF (única fonte de verdade):
 ${contextPieces.join("\n") || "(brief vazio — gere variações neutras de descoberta de marca)"}
 
-Mensagem atual (apenas referência de estilo, IGNORE números/produtos não presentes no Brief): "${campaign.message}"
+Mensagem atual (apenas referência de estilo, IGNORE números/produtos não presentes no Brief): "${currentSlide.message}"
 CTA atual: "${campaign.link_label || "(nenhum)"}"
 
 Gere ${count} variações novas seguindo as REGRAS DE CONTEÚDO. Responda APENAS o JSON.`;

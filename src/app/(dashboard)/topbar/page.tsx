@@ -15,6 +15,10 @@ import {
   Stethoscope,
   X,
   CheckCircle2,
+  ArrowUp,
+  ArrowDown,
+  Link2,
+  MessageSquareText,
 } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +37,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
+import {
+  normalizeTopbarSlides,
+  serializeTopbarSlides,
+  type TopbarSlide,
+} from "@/lib/topbar/slides";
 
 // ---------- Tipos ----------
 
@@ -76,6 +85,7 @@ interface Campaign {
   recurrence_window_end: string | null;
   title: string | null;
   message: string;
+  slides?: TopbarSlide[] | null;
   link_url: string | null;
   link_label: string | null;
   countdown_enabled: boolean;
@@ -194,6 +204,7 @@ function emptyCampaign(): Partial<Campaign> {
     recurrence_window_end: null,
     title: "",
     message: "",
+    slides: [{ title: "", message: "" }],
     link_url: "",
     link_label: "",
     countdown_enabled: false,
@@ -217,6 +228,22 @@ function emptyCampaign(): Partial<Campaign> {
     context_brief: "",
     auto_regenerate: false,
     regenerate_every_hours: 24,
+  };
+}
+
+function withEditableSlides(campaign: Partial<Campaign>): Partial<Campaign> {
+  const slides = normalizeTopbarSlides(
+    campaign.slides,
+    campaign.title,
+    campaign.message,
+    { keepEmpty: true }
+  );
+  const first = slides[0] || { title: "", message: "" };
+  return {
+    ...campaign,
+    slides,
+    title: first.title || "",
+    message: first.message || "",
   };
 }
 
@@ -294,15 +321,16 @@ export default function TopbarPage() {
   }
 
   async function openCampaign(c: Campaign) {
-    setEditing(c);
+    setEditing(withEditableSlides(c));
     const res = await fetch(`/api/topbar/campaigns/${c.id}`, { headers: headers() });
     const data = await res.json();
+    if (data.campaign) setEditing(withEditableSlides(data.campaign));
     setVariations(data.variations || []);
     setTab("edit");
   }
 
   function newCampaign() {
-    setEditing(emptyCampaign());
+    setEditing(withEditableSlides(emptyCampaign()));
     setVariations([]);
     setTab("edit");
   }
@@ -316,15 +344,21 @@ export default function TopbarPage() {
         ? "/api/topbar/campaigns"
         : `/api/topbar/campaigns/${editing.id}`;
       const method = isNew ? "POST" : "PATCH";
+      const content = serializeTopbarSlides(editing.slides, editing.title, editing.message);
       const res = await fetch(url, {
         method,
         headers: headers(),
-        body: JSON.stringify(editing),
+        body: JSON.stringify({
+          ...editing,
+          title: content.title || "",
+          message: content.message,
+          slides: content.slides,
+        }),
       });
       const data = await res.json();
       if (data.campaign) {
         await loadAll();
-        setEditing(data.campaign);
+        setEditing(withEditableSlides(data.campaign));
       }
     } finally {
       setSavingCampaign(false);
@@ -378,7 +412,12 @@ export default function TopbarPage() {
     );
     setEditing((prev) =>
       prev
-        ? { ...prev, message: v.message, link_label: v.link_label || prev.link_label }
+        ? {
+            ...prev,
+            message: v.message,
+            slides: [{ title: prev.title || "", message: v.message }],
+            link_label: v.link_label || prev.link_label,
+          }
         : prev
     );
   }
@@ -417,6 +456,52 @@ export default function TopbarPage() {
     );
     setVariations((prev) => prev.filter((x) => x.generated_by !== "llm"));
   }
+
+  const editingSlides = useMemo(
+    () =>
+      editing
+        ? normalizeTopbarSlides(editing.slides, editing.title, editing.message, {
+            keepEmpty: true,
+          })
+        : [],
+    [editing]
+  );
+
+  function updateEditingSlides(nextSlides: TopbarSlide[]) {
+    const slides = nextSlides.length ? nextSlides : [{ title: "", message: "" }];
+    const first = slides[0] || { title: "", message: "" };
+    setEditing((prev) =>
+      prev
+        ? {
+            ...prev,
+            slides,
+            title: first.title || "",
+            message: first.message || "",
+          }
+        : prev
+    );
+  }
+
+  function updateEditingSlide(index: number, patch: Partial<TopbarSlide>) {
+    const next = editingSlides.map((slide, i) =>
+      i === index ? { ...slide, ...patch } : slide
+    );
+    updateEditingSlides(next);
+  }
+
+  function moveEditingSlide(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= editingSlides.length) return;
+    const next = [...editingSlides];
+    const [slide] = next.splice(index, 1);
+    next.splice(target, 0, slide);
+    updateEditingSlides(next);
+  }
+
+  const previewSlide =
+    editingSlides.find((slide) => slide.message.trim().length > 0) ||
+    editingSlides[0] ||
+    { title: "", message: "" };
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
@@ -499,7 +584,7 @@ export default function TopbarPage() {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Estado global</CardTitle>
+              <CardTitle className="text-base">Aparência e comportamento global</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
@@ -643,9 +728,12 @@ export default function TopbarPage() {
                 </div>
               </div>
 
-              <div className="border-t pt-4 space-y-3">
+              <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
                 <div>
-                  <Label className="font-medium">Estilo do countdown (default)</Label>
+                  <Label className="font-medium flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Countdown default
+                  </Label>
                   <p className="text-xs text-muted-foreground">
                     Aplica-se a todas as campanhas com countdown. Cada campanha pode
                     sobrescrever individualmente.
@@ -970,46 +1058,54 @@ export default function TopbarPage() {
               </CardContent>
             </Card>
           ) : (
-            campaigns.map((c) => (
-              <Card
-                key={c.id}
-                className="cursor-pointer hover:bg-muted/30"
-                onClick={() => openCampaign(c)}
-              >
-                <CardContent className="p-4 flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{c.name}</span>
-                      {c.enabled ? (
-                        <Badge variant="default">Ativa</Badge>
-                      ) : (
-                        <Badge variant="secondary">Pausada</Badge>
-                      )}
-                      {c.countdown_enabled && (
-                        <Badge variant="outline">
-                          <Clock className="h-3 w-3 mr-1" /> Countdown
-                        </Badge>
-                      )}
-                      {c.auto_regenerate && (
-                        <Badge variant="outline">
-                          <Sparkles className="h-3 w-3 mr-1" /> Auto-IA
-                        </Badge>
-                      )}
-                      {c.recurrence !== "none" && (
-                        <Badge variant="outline">{c.recurrence}</Badge>
-                      )}
+            campaigns.map((c) => {
+              const slides = normalizeTopbarSlides(c.slides, c.title, c.message);
+              const firstSlide = slides[0] || { title: c.title, message: c.message };
+
+              return (
+                <Card
+                  key={c.id}
+                  className="cursor-pointer hover:bg-muted/30"
+                  onClick={() => openCampaign(c)}
+                >
+                  <CardContent className="p-4 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold">{c.name}</span>
+                        {c.enabled ? (
+                          <Badge variant="default">Ativa</Badge>
+                        ) : (
+                          <Badge variant="secondary">Pausada</Badge>
+                        )}
+                        {slides.length > 1 && (
+                          <Badge variant="outline">{slides.length} mensagens</Badge>
+                        )}
+                        {c.countdown_enabled && (
+                          <Badge variant="outline">
+                            <Clock className="h-3 w-3 mr-1" /> Countdown
+                          </Badge>
+                        )}
+                        {c.auto_regenerate && (
+                          <Badge variant="outline">
+                            <Sparkles className="h-3 w-3 mr-1" /> Auto-IA
+                          </Badge>
+                        )}
+                        {c.recurrence !== "none" && (
+                          <Badge variant="outline">{c.recurrence}</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm mt-1 truncate">
+                        {firstSlide.title && <b className="mr-1">{firstSlide.title}</b>}
+                        <span className="text-muted-foreground">{firstSlide.message}</span>
+                      </p>
                     </div>
-                    <p className="text-sm mt-1 truncate">
-                      {c.title && <b className="mr-1">{c.title}</b>}
-                      <span className="text-muted-foreground">{c.message}</span>
-                    </p>
-                  </div>
-                  <div className="text-xs text-muted-foreground text-right whitespace-nowrap">
-                    Prioridade {c.priority}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                    <div className="text-xs text-muted-foreground text-right whitespace-nowrap">
+                      Prioridade {c.priority}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
           )}
         </TabsContent>
 
@@ -1032,82 +1128,186 @@ export default function TopbarPage() {
                 )}
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Nome interno</Label>
-                    <Input
-                      value={editing.name || ""}
-                      onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                    />
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Label className="font-medium">Identificação da campanha</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Nome, prioridade e status. Isso não aparece para o cliente.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm">Ativa</Label>
+                      <Switch
+                        checked={editing.enabled ?? true}
+                        onCheckedChange={(v) => setEditing({ ...editing, enabled: v })}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label>Prioridade</Label>
-                    <Input
-                      type="number"
-                      value={editing.priority ?? 0}
-                      onChange={(e) =>
-                        setEditing({ ...editing, priority: Number(e.target.value) })
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Nome interno</Label>
+                      <Input
+                        value={editing.name || ""}
+                        onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                        placeholder="Ex.: Semana dos namorados"
+                      />
+                    </div>
+                    <div>
+                      <Label>Prioridade</Label>
+                      <Input
+                        type="number"
+                        value={editing.priority ?? 0}
+                        onChange={(e) =>
+                          setEditing({ ...editing, priority: Number(e.target.value) })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <Label className="font-medium flex items-center gap-2">
+                        <MessageSquareText className="h-4 w-4" />
+                        Mensagens do topbar
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Adicione mais de um título/texto para a loja alternar automaticamente com rolagem para cima.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        updateEditingSlides([...editingSlides, { title: "", message: "" }])
                       }
-                    />
+                      disabled={editingSlides.length >= 8}
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Adicionar
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {editingSlides.map((slide, index) => (
+                      <div key={index} className="rounded-lg border bg-background p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <Badge variant="secondary">Mensagem {index + 1}</Badge>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              disabled={index === 0}
+                              onClick={() => moveEditingSlide(index, -1)}
+                              title="Subir mensagem"
+                            >
+                              <ArrowUp className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              disabled={index === editingSlides.length - 1}
+                              onClick={() => moveEditingSlide(index, 1)}
+                              title="Descer mensagem"
+                            >
+                              <ArrowDown className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              disabled={editingSlides.length === 1}
+                              onClick={() =>
+                                updateEditingSlides(editingSlides.filter((_, i) => i !== index))
+                              }
+                              title="Remover mensagem"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                          <div className="lg:col-span-2">
+                            <Label>Título</Label>
+                            <Input
+                              placeholder='Ex.: "FRETE GRÁTIS"'
+                              value={slide.title || ""}
+                              onChange={(e) =>
+                                updateEditingSlide(index, { title: e.target.value })
+                              }
+                            />
+                          </div>
+                          <div className="lg:col-span-3">
+                            <Label>Texto</Label>
+                            <Textarea
+                              rows={2}
+                              placeholder="Texto principal que aparece ao lado do título"
+                              value={slide.message || ""}
+                              onChange={(e) =>
+                                updateEditingSlide(index, { message: e.target.value })
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <div>
-                  <Label>Título (opcional, exibido em bold)</Label>
-                  <Input
-                    placeholder='Ex.: "FRETE GRÁTIS" ou "ÚLTIMAS HORAS"'
-                    value={editing.title || ""}
-                    onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <Label>Mensagem / texto</Label>
-                  <Textarea
-                    rows={2}
-                    placeholder="Texto principal que aparece ao lado do título"
-                    value={editing.message || ""}
-                    onChange={(e) => setEditing({ ...editing, message: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                   <div>
-                    <Label>Link (URL)</Label>
-                    <Input
-                      value={editing.link_url || ""}
-                      onChange={(e) => setEditing({ ...editing, link_url: e.target.value })}
-                      placeholder="https://..."
-                    />
+                    <Label className="font-medium flex items-center gap-2">
+                      <Link2 className="h-4 w-4" />
+                      Link e chamada para ação
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Opcional. O mesmo CTA acompanha todas as mensagens desta campanha.
+                    </p>
                   </div>
-                  <div>
-                    <Label>CTA label</Label>
-                    <Input
-                      value={editing.link_label || ""}
-                      onChange={(e) => setEditing({ ...editing, link_label: e.target.value })}
-                      placeholder="Aproveitar"
-                    />
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between">
-                  <Label>Ativa</Label>
-                  <Switch
-                    checked={editing.enabled ?? true}
-                    onCheckedChange={(v) => setEditing({ ...editing, enabled: v })}
-                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Link (URL)</Label>
+                      <Input
+                        value={editing.link_url || ""}
+                        onChange={(e) => setEditing({ ...editing, link_url: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div>
+                      <Label>CTA label</Label>
+                      <Input
+                        value={editing.link_label || ""}
+                        onChange={(e) => setEditing({ ...editing, link_label: e.target.value })}
+                        placeholder="Aproveitar"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="rounded-lg border p-3">
-                  <div className="text-xs text-muted-foreground mb-2">Preview</div>
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="text-xs text-muted-foreground">Preview</div>
+                    {editingSlides.length > 1 && (
+                      <Badge variant="outline">slide automático vertical</Badge>
+                    )}
+                  </div>
                   <div style={previewStyle}>
-                    {editing.title && (
+                    {previewSlide.title && (
                       <span style={{ fontWeight: effectiveTitleBold ? 700 : 400, letterSpacing: ".02em" }}>
-                        {editing.title}
+                        {previewSlide.title}
                       </span>
                     )}
                     <span style={{ fontWeight: effectiveMessageBold ? 700 : 400 }}>
-                      {editing.message || "Sua mensagem aparece aqui"}
+                      {previewSlide.message || "Sua mensagem aparece aqui"}
                     </span>
                     {editing.countdown_enabled && (
                       <span

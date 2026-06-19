@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { serializeTopbarSlides } from "@/lib/topbar/slides";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -51,7 +52,9 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  if (!body.name || !body.message) {
+  const content = serializeTopbarSlides(body.slides, body.title, body.message);
+
+  if (!body.name || !content.message) {
     return NextResponse.json({ error: "name and message are required" }, { status: 400 });
   }
 
@@ -68,14 +71,14 @@ export async function POST(request: NextRequest) {
       name: body.name,
       enabled: body.enabled ?? true,
       priority: body.priority ?? 0,
-      title: body.title || null,
+      title: content.title,
       starts_at: body.starts_at || null,
       ends_at: body.ends_at || null,
       recurrence: body.recurrence || "none",
       recurrence_days: body.recurrence_days || null,
       recurrence_window_start: body.recurrence_window_start || null,
       recurrence_window_end: body.recurrence_window_end || null,
-      message: body.message,
+      message: content.message,
       link_url: body.link_url || null,
       link_label: body.link_label || null,
       countdown_enabled: body.countdown_enabled ?? false,

@@ -3074,6 +3074,7 @@
       if (tb.campaign_id && isDismissed(tb.campaign_id, tb.close_persistence_hours)) return;
 
       var prev = document.getElementById("vtx-topbar");
+      if (prev && typeof prev.__vtxCleanup === "function") prev.__vtxCleanup();
       if (prev) prev.remove();
 
       var bar = document.createElement("div");
@@ -3108,27 +3109,92 @@
       bar.setAttribute("style", styles.join(";"));
 
       var content = document.createElement("div");
-      content.setAttribute("style", "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center");
+      content.setAttribute("style", "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;min-width:0;max-width:100%");
 
       var titleBold = tb.title_bold !== false;   // default true
       var messageBold = tb.message_bold === true; // default false
-
-      if (tb.title) {
-        var titleEl = document.createElement("span");
-        titleEl.id = "vtx-topbar-title";
-        titleEl.setAttribute(
-          "style",
-          "font-weight:" + (titleBold ? 700 : 400) + ";letter-spacing:.02em"
-        );
-        titleEl.textContent = tb.title;
-        content.appendChild(titleEl);
+      var slides = [];
+      if (Array.isArray(tb.slides)) {
+        for (var si = 0; si < tb.slides.length; si++) {
+          var item = tb.slides[si] || {};
+          var itemMsg = String(item.message || "").trim();
+          if (!itemMsg) continue;
+          slides.push({
+            title: String(item.title || "").trim(),
+            message: itemMsg,
+          });
+        }
+      }
+      if (!slides.length) {
+        slides.push({
+          title: String(tb.title || "").trim(),
+          message: String(tb.message || "").trim(),
+        });
       }
 
-      var msg = document.createElement("span");
-      msg.id = "vtx-topbar-msg";
-      msg.setAttribute("style", "font-weight:" + (messageBold ? 700 : 400));
-      msg.textContent = tb.message || "";
-      content.appendChild(msg);
+      function buildTopbarSlide(slide, slideIndex) {
+        var row = document.createElement("span");
+        row.setAttribute(
+          "style",
+          "height:1.3em;min-height:1.3em;display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;min-width:0;max-width:100%;overflow:hidden"
+        );
+        if (slide.title) {
+          var titleEl = document.createElement("span");
+          if (slideIndex === 0) titleEl.id = "vtx-topbar-title";
+          titleEl.setAttribute(
+            "style",
+            "font-weight:" + (titleBold ? 700 : 400) +
+              ";letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:42vw"
+          );
+          titleEl.textContent = slide.title;
+          row.appendChild(titleEl);
+        }
+
+        var msg = document.createElement("span");
+        if (slideIndex === 0) msg.id = "vtx-topbar-msg";
+        msg.setAttribute(
+          "style",
+          "font-weight:" + (messageBold ? 700 : 400) +
+            ";overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%"
+        );
+        msg.textContent = slide.message || "";
+        row.appendChild(msg);
+        return row;
+      }
+
+      var copyWrap = document.createElement("span");
+      copyWrap.id = "vtx-topbar-copy";
+      copyWrap.setAttribute(
+        "style",
+        "display:inline-flex;align-items:center;justify-content:center;min-width:0;max-width:min(760px,calc(100vw - 170px));overflow:hidden" +
+          (slides.length > 1 ? ";height:1.3em" : "")
+      );
+
+      var slideTrack = document.createElement("span");
+      slideTrack.setAttribute(
+        "style",
+        slides.length > 1
+          ? "display:flex;flex-direction:column;transition:transform .48s cubic-bezier(.22,.61,.36,1);will-change:transform"
+          : "display:inline-flex;align-items:center;min-width:0;max-width:100%"
+      );
+      for (var sIdx = 0; sIdx < slides.length; sIdx++) {
+        slideTrack.appendChild(buildTopbarSlide(slides[sIdx], sIdx));
+      }
+      copyWrap.appendChild(slideTrack);
+      content.appendChild(copyWrap);
+      var slideTimer = null;
+      var slidePaused = false;
+      if (slides.length > 1) {
+        var activeSlide = 0;
+        copyWrap.addEventListener("mouseenter", function () { slidePaused = true; });
+        copyWrap.addEventListener("mouseleave", function () { slidePaused = false; });
+        slideTimer = setInterval(function () {
+          if (slidePaused) return;
+          activeSlide = (activeSlide + 1) % slides.length;
+          var slideHeight = copyWrap.getBoundingClientRect().height || 20;
+          slideTrack.style.transform = "translateY(-" + (activeSlide * slideHeight) + "px)";
+        }, 3500);
+      }
 
       var countdownEl = null;
       var countdownTarget = tb.countdown_enabled && tb.countdown_target
@@ -3183,6 +3249,7 @@
         close.addEventListener("click", function () {
           trackTopbar("close", tb.campaign_id, tb.variation_id);
           if (tb.campaign_id) markDismissed(tb.campaign_id);
+          if (slideTimer) clearInterval(slideTimer);
           bar.remove();
           document.documentElement.style.removeProperty("--vtx-topbar-h");
           document.body.style.removeProperty(isTop ? "padding-top" : "padding-bottom");
@@ -3221,6 +3288,10 @@
           el.removeAttribute("data-vtx-shifted");
         }
       }
+
+      bar.__vtxCleanup = function () {
+        if (slideTimer) clearInterval(slideTimer);
+      };
 
       document.body.appendChild(bar);
 

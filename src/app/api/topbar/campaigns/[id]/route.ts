@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { serializeTopbarSlides } from "@/lib/topbar/slides";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -110,6 +111,15 @@ export async function PATCH(request: NextRequest, ctx: RouteCtx) {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
     if (key in body) patch[key] = body[key];
+  }
+
+  if ("slides" in body) {
+    const content = serializeTopbarSlides(body.slides, body.title, body.message);
+    if (!content.message) {
+      return NextResponse.json({ error: "message is required" }, { status: 400 });
+    }
+    patch.title = content.title;
+    patch.message = content.message;
   }
 
   // Recalcula next_regenerate_at se auto_regenerate ou regenerate_every_hours mudou

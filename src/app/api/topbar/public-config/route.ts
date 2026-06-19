@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { resolveActiveCampaign } from "@/lib/topbar/resolve";
+import { normalizeTopbarSlides } from "@/lib/topbar/slides";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -104,6 +105,20 @@ export async function GET(request: NextRequest) {
     return fallback;
   };
 
+  const campaignSlides = normalizeTopbarSlides(
+    (campaign as { slides?: unknown }).slides,
+    (campaign as { title?: string | null }).title || null,
+    campaign.message
+  );
+  const variationIsActive = Boolean(selectedVar && campaignSlides.length <= 1);
+  const slides = variationIsActive
+    ? normalizeTopbarSlides(null, (campaign as { title?: string | null }).title || null, selectedVar?.message)
+    : campaignSlides;
+  const primarySlide = slides[0] || {
+    title: (campaign as { title?: string | null }).title || null,
+    message: selectedVar?.message || campaign.message,
+  };
+
   return NextResponse.json(
     {
       topbar: {
@@ -121,11 +136,12 @@ export async function GET(request: NextRequest) {
         close_persistence_hours: config.close_persistence_hours,
         // Conteúdo
         campaign_id: campaign.id,
-        variation_id: selectedVar?.id || null,
-        title: (campaign as { title?: string | null }).title || null,
-        message: selectedVar?.message || campaign.message,
+        variation_id: variationIsActive ? selectedVar?.id || null : null,
+        title: primarySlide.title || null,
+        message: primarySlide.message,
+        slides,
         link_url: campaign.link_url,
-        link_label: selectedVar?.link_label || campaign.link_label,
+        link_label: variationIsActive ? selectedVar?.link_label || campaign.link_label : campaign.link_label,
         // Countdown
         countdown_enabled: campaign.countdown_enabled,
         countdown_target: countdownTarget,
