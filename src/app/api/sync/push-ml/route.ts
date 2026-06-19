@@ -173,6 +173,38 @@ function buildSizeGridAttrs(
   return attrs;
 }
 
+function withDefaultFashionAttrs(
+  attrs: Array<{ id: string; value_name: string }>
+): Array<{ id: string; value_name: string }> {
+  const next = [...attrs];
+  if (!next.some((a) => a.id === "AGE_GROUP")) {
+    next.push({ id: "AGE_GROUP", value_name: "Adultos" });
+  }
+  return next;
+}
+
+function isMlWarningsOnlyValidationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const jsonStart = err.message.indexOf("{");
+  if (jsonStart < 0) return false;
+  try {
+    const parsed = JSON.parse(err.message.slice(jsonStart)) as {
+      error?: string;
+      status?: number;
+      cause?: Array<{ type?: string }>;
+    };
+    const causes = Array.isArray(parsed.cause) ? parsed.cause : [];
+    return (
+      parsed.status === 400 &&
+      parsed.error === "validation_error" &&
+      causes.length > 0 &&
+      causes.every((cause) => cause.type === "warning")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fetch size grid row mapping from ML API.
  * Returns a map from size name (e.g. "P") to grid row ID (e.g. "2748024:1").
@@ -295,13 +327,13 @@ function buildUPPayload(
     pictures,
     seller_custom_field: product.sku,
     attributes: sanitizeColorAttribute(
-      [
+      withDefaultFashionAttrs([
         ...baseAttrs,
         ...varAttrs,
         ...gridAttrs,
         ...buildPackageDimAttrs(parent),
         ...gtinAttrs,
-      ],
+      ]),
       parent.nome
     ),
     shipping: {
@@ -351,7 +383,13 @@ function buildSimpleUPPayload(
     pictures,
     seller_custom_field: product.sku,
     attributes: sanitizeColorAttribute(
-      [...baseAttrs, ...sizeAttrs, ...gridAttrs, ...buildPackageDimAttrs(product), ...gtinAttrs],
+      withDefaultFashionAttrs([
+        ...baseAttrs,
+        ...sizeAttrs,
+        ...gridAttrs,
+        ...buildPackageDimAttrs(product),
+        ...gtinAttrs,
+      ]),
       product.nome
     ),
     shipping: {
@@ -546,7 +584,11 @@ export async function POST(req: NextRequest) {
       );
 
       if (validateOnly) {
-        await ml.post("/items/validate", payload, workspaceId);
+        try {
+          await ml.post("/items/validate", payload, workspaceId);
+        } catch (err) {
+          if (!isMlWarningsOnlyValidationError(err)) throw err;
+        }
         results.push({ sku: product.sku, status: "published" });
         continue;
       }
@@ -682,7 +724,11 @@ export async function POST(req: NextRequest) {
           );
 
           if (validateOnly) {
-            await ml.post("/items/validate", payload, workspaceId);
+            try {
+              await ml.post("/items/validate", payload, workspaceId);
+            } catch (err) {
+              if (!isMlWarningsOnlyValidationError(err)) throw err;
+            }
             results.push({ sku: child.sku, status: "published" });
             continue;
           }
