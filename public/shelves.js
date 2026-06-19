@@ -3113,6 +3113,7 @@
 
       var titleBold = tb.title_bold !== false;   // default true
       var messageBold = tb.message_bold === true; // default false
+      var slideLineHeight = "1.75em";
       var slides = [];
       if (Array.isArray(tb.slides)) {
         for (var si = 0; si < tb.slides.length; si++) {
@@ -3140,7 +3141,9 @@
         var row = document.createElement("span");
         row.setAttribute(
           "style",
-          "height:1.3em;min-height:1.3em;display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;min-width:0;max-width:100%;overflow:hidden"
+          "height:" + slideLineHeight +
+            ";min-height:" + slideLineHeight +
+            ";display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;min-width:0;max-width:100%;overflow:hidden;line-height:1.35"
         );
         if (slide.title) {
           var titleEl = document.createElement("span");
@@ -3148,7 +3151,7 @@
           titleEl.setAttribute(
             "style",
             "font-weight:" + (titleBold ? 700 : 400) +
-              ";letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:42vw"
+              ";letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:42vw;line-height:1.35"
           );
           titleEl.textContent = slide.title;
           row.appendChild(titleEl);
@@ -3159,7 +3162,7 @@
         msg.setAttribute(
           "style",
           "font-weight:" + (messageBold ? 700 : 400) +
-            ";overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%"
+            ";overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%;line-height:1.35"
         );
         msg.textContent = slide.message || "";
         row.appendChild(msg);
@@ -3171,7 +3174,7 @@
       copyWrap.setAttribute(
         "style",
         "display:inline-flex;align-items:center;justify-content:center;min-width:0;max-width:min(760px,calc(100vw - 170px));overflow:hidden" +
-          (slides.length > 1 ? ";height:1.3em" : "")
+          (slides.length > 1 ? ";height:" + slideLineHeight : "")
       );
 
       var slideTrack = document.createElement("span");

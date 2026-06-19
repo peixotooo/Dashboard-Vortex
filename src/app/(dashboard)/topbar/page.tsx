@@ -583,6 +583,7 @@ export default function TopbarPage() {
 
   const currentPreviewSlide =
     previewSlides[previewSlideIndex % previewSlides.length] || previewSlides[0];
+  const previewSlideHeightEm = 1.75;
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
@@ -1391,110 +1392,6 @@ export default function TopbarPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border p-3">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <div className="text-xs text-muted-foreground">Preview</div>
-                    {editingSlides.length > 1 && (
-                      <Badge variant="outline">slide automático vertical</Badge>
-                    )}
-                  </div>
-                  <div style={previewStyle}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        minWidth: 0,
-                        maxWidth: "min(760px, 100%)",
-                        overflow: "hidden",
-                        height: previewSlides.length > 1 ? "1.3em" : undefined,
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: previewSlides.length > 1 ? "flex" : "inline-flex",
-                          flexDirection: previewSlides.length > 1 ? "column" : undefined,
-                          alignItems: "center",
-                          transition: "transform .48s cubic-bezier(.22,.61,.36,1)",
-                          transform:
-                            previewSlides.length > 1
-                              ? `translateY(-${
-                                  (previewSlideIndex % previewSlides.length) * 1.3
-                                }em)`
-                              : undefined,
-                        }}
-                      >
-                        {previewSlides.map((slide, index) => (
-                          <span
-                            key={`${index}-${slide.message}-${slide.link_label}`}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: 8,
-                              height: "1.3em",
-                              minHeight: "1.3em",
-                              maxWidth: "100%",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                            }}
-                          >
-                            {slide.title && (
-                              <span
-                                style={{
-                                  fontWeight: effectiveTitleBold ? 700 : 400,
-                                  letterSpacing: ".02em",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                }}
-                              >
-                                {slide.title}
-                              </span>
-                            )}
-                            <span
-                              style={{
-                                fontWeight: effectiveMessageBold ? 700 : 400,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {slide.message}
-                            </span>
-                          </span>
-                        ))}
-                      </span>
-                    </span>
-                    {editing.countdown_enabled && (
-                      <span
-                        style={{
-                          background: effectiveCdBg,
-                          color: effectiveCdColor,
-                          borderRadius: effectiveCdRadius,
-                          padding: effectiveCdPad,
-                          margin: effectiveCdMargin,
-                          fontWeight: effectiveCdWeight,
-                        }}
-                      >
-                        {editing.countdown_label || "Termina em"} 02:14:33
-                      </span>
-                    )}
-                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
-                      <span
-                        style={{
-                          background: editing.accent_color || config.accent_color,
-                          color: "#fff",
-                          padding: "4px 12px",
-                          borderRadius: 999,
-                          fontWeight: 600,
-                          fontSize: 13,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {currentPreviewSlide.link_label}
-                      </span>
-                    )}
-                  </div>
-                </div>
               </CardContent>
             </Card>
 
@@ -1784,6 +1681,118 @@ export default function TopbarPage() {
                 <p className="text-xs text-muted-foreground">
                   Sobrescrevem o estilo global. Deixe em branco para herdar das Configurações.
                 </p>
+
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="text-xs text-muted-foreground">Preview</div>
+                    {editingSlides.length > 1 && (
+                      <Badge variant="outline">slide automático vertical</Badge>
+                    )}
+                  </div>
+                  <div style={previewStyle}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minWidth: 0,
+                        maxWidth: "min(760px, 100%)",
+                        overflow: "hidden",
+                        height:
+                          previewSlides.length > 1
+                            ? `${previewSlideHeightEm}em`
+                            : undefined,
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: previewSlides.length > 1 ? "flex" : "inline-flex",
+                          flexDirection: previewSlides.length > 1 ? "column" : undefined,
+                          alignItems: "center",
+                          transition: "transform .48s cubic-bezier(.22,.61,.36,1)",
+                          transform:
+                            previewSlides.length > 1
+                              ? `translateY(-${
+                                  (previewSlideIndex % previewSlides.length) *
+                                  previewSlideHeightEm
+                                }em)`
+                              : undefined,
+                        }}
+                      >
+                        {previewSlides.map((slide, index) => (
+                          <span
+                            key={`${index}-${slide.message}-${slide.link_label}`}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 8,
+                              height: `${previewSlideHeightEm}em`,
+                              minHeight: `${previewSlideHeightEm}em`,
+                              maxWidth: "100%",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            {slide.title && (
+                              <span
+                                style={{
+                                  fontWeight: effectiveTitleBold ? 700 : 400,
+                                  letterSpacing: ".02em",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                {slide.title}
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                fontWeight: effectiveMessageBold ? 700 : 400,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              {slide.message}
+                            </span>
+                          </span>
+                        ))}
+                      </span>
+                    </span>
+                    {editing.countdown_enabled && (
+                      <span
+                        style={{
+                          background: effectiveCdBg,
+                          color: effectiveCdColor,
+                          borderRadius: effectiveCdRadius,
+                          padding: effectiveCdPad,
+                          margin: effectiveCdMargin,
+                          fontWeight: effectiveCdWeight,
+                        }}
+                      >
+                        {editing.countdown_label || "Termina em"} 02:14:33
+                      </span>
+                    )}
+                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
+                      <span
+                        style={{
+                          background: editing.accent_color || config.accent_color,
+                          color: "#fff",
+                          padding: "4px 12px",
+                          borderRadius: 999,
+                          fontWeight: 600,
+                          fontSize: 13,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {currentPreviewSlide.link_label}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-3 gap-4">
                   <OptionalColorField
