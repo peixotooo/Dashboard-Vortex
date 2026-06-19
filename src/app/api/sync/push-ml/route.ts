@@ -62,6 +62,10 @@ const SKIP_ATTR_IDS = new Set([
 // Sale terms the seller is not allowed to set (auto-managed by ML)
 const SKIP_SALE_TERMS = new Set(["INSTALLMENTS_CAMPAIGN"]);
 
+// Grade válida da Bulking para camisetas/regatas no ML (MLB31447).
+// Mantida como fallback porque itens simples também exigem fashion grid.
+const DEFAULT_BULKING_SIZE_GRID_ID = "2583806";
+
 /**
  * Clean sale terms from enrichment, filtering out disallowed ones.
  */
@@ -108,6 +112,65 @@ function buildPackageDimAttrs(product: HubProduct) {
     { id: "SELLER_PACKAGE_LENGTH", value_name: `${l} cm` },
     { id: "SELLER_PACKAGE_WEIGHT", value_name: `${Math.round(weight * 1000)} g` },
   ];
+}
+
+function enrichmentAttrValue(
+  enrichment: HubProduct["ml_enrichment"] | undefined,
+  attrId: string
+): string | undefined {
+  return enrichment?.attributes?.find((a) => a.id === attrId)?.value_name || undefined;
+}
+
+function resolveSizeGridId(product: HubProduct, parent?: HubProduct): string {
+  return (
+    enrichmentAttrValue(parent?.ml_enrichment, "SIZE_GRID_ID") ||
+    enrichmentAttrValue(product.ml_enrichment, "SIZE_GRID_ID") ||
+    DEFAULT_BULKING_SIZE_GRID_ID
+  );
+}
+
+function normalizeSizeValue(value: string): string {
+  const raw = value.trim().toUpperCase();
+  if (["PP", "P", "M", "G", "GG", "XGG", "XXG", "XXGG"].includes(raw)) {
+    return raw === "XXG" || raw === "XXGG" ? "XGG" : raw;
+  }
+  return value.trim();
+}
+
+function inferSizeValue(product: HubProduct, parent?: HubProduct): string | undefined {
+  const attrs = product.atributos || {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (/tamanho/i.test(key) && value) return normalizeSizeValue(String(value));
+  }
+
+  const name = (product.nome || "").trim();
+  const parentName = (parent?.nome || "").trim();
+  if (name && parentName && name.startsWith(parentName)) {
+    const suffix = name.slice(parentName.length).trim();
+    if (suffix) return normalizeSizeValue(suffix);
+  }
+
+  const lastToken = name.split(/\s+/).pop() || "";
+  if (/^(PP|P|M|G|GG|XGG|XXG|XXGG)$/i.test(lastToken)) {
+    return normalizeSizeValue(lastToken);
+  }
+  return undefined;
+}
+
+function buildSizeGridAttrs(
+  sizeGridId: string,
+  sizeValue: string | undefined,
+  sizeGridMap: Record<string, string>
+): Array<{ id: string; value_name: string }> {
+  const attrs: Array<{ id: string; value_name: string }> = [];
+  if (sizeGridId) {
+    attrs.push({ id: "SIZE_GRID_ID", value_name: sizeGridId });
+  }
+  if (sizeValue) {
+    const rowId = sizeGridMap[sizeValue];
+    if (rowId) attrs.push({ id: "SIZE_GRID_ROW_ID", value_name: rowId });
+  }
+  return attrs;
 }
 
 /**
@@ -164,6 +227,7 @@ function buildUPPayload(
   product: HubProduct,
   parent: HubProduct,
   categoryId: string,
+  sizeGridId: string,
   sizeGridMap: Record<string, string>,
   pictures: Array<{ id: string }>,
   listingTypeOverride?: string
@@ -207,18 +271,8 @@ function buildUPPayload(
   }
 
   // Add SIZE_GRID_ID + SIZE_GRID_ROW_ID only if grid map lookup succeeded
-  const sizeGridId = enr?.attributes?.find((a) => a.id === "SIZE_GRID_ID")?.value_name;
   const sizeValue = varAttrs.find((a) => a.id === "SIZE")?.value_name;
-  const gridRowId = sizeValue ? sizeGridMap[sizeValue] : undefined;
-  const hasValidGrid = Object.keys(sizeGridMap).length > 0;
-
-  const gridAttrs: Array<{ id: string; value_name: string }> = [];
-  if (sizeGridId && hasValidGrid) {
-    gridAttrs.push({ id: "SIZE_GRID_ID", value_name: sizeGridId });
-  }
-  if (gridRowId) {
-    gridAttrs.push({ id: "SIZE_GRID_ROW_ID", value_name: gridRowId });
-  }
+  const gridAttrs = buildSizeGridAttrs(sizeGridId, sizeValue, sizeGridMap);
 
   // GTIN from child product
   const gtinAttrs: Array<{ id: string; value_name: string }> = [];
@@ -265,6 +319,8 @@ function buildUPPayload(
 function buildSimpleUPPayload(
   product: HubProduct,
   categoryId: string,
+  sizeGridId: string,
+  sizeGridMap: Record<string, string>,
   pictures: Array<{ id: string }>,
   listingTypeOverride?: string
 ) {
@@ -277,6 +333,9 @@ function buildSimpleUPPayload(
     gtinAttrs.push({ id: "GTIN", value_name: product.gtin });
   }
 
+  const sizeValue = inferSizeValue(product);
+  const sizeAttrs = sizeValue ? [{ id: "SIZE", value_name: sizeValue }] : [];
+  const gridAttrs = buildSizeGridAttrs(sizeGridId, sizeValue, sizeGridMap);
   const familyName = (product.nome || product.sku).substring(0, 60);
 
   return {
@@ -292,7 +351,7 @@ function buildSimpleUPPayload(
     pictures,
     seller_custom_field: product.sku,
     attributes: sanitizeColorAttribute(
-      [...baseAttrs, ...buildPackageDimAttrs(product), ...gtinAttrs],
+      [...baseAttrs, ...sizeAttrs, ...gridAttrs, ...buildPackageDimAttrs(product), ...gtinAttrs],
       product.nome
     ),
     shipping: {
@@ -314,6 +373,7 @@ export async function POST(req: NextRequest) {
   if (!workspaceId) {
     return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
   }
+  const safeWorkspaceId = workspaceId;
 
   const body = await req.json();
   const skus: string[] = body.skus || [];
@@ -435,6 +495,13 @@ export async function POST(req: NextRequest) {
   );
 
   const results: PushResult[] = [];
+  const sizeGridCache = new Map<string, Record<string, string>>();
+  async function getSizeGridMapCached(sizeGridId: string) {
+    if (!sizeGridCache.has(sizeGridId)) {
+      sizeGridCache.set(sizeGridId, await fetchSizeGridMap(sizeGridId, safeWorkspaceId));
+    }
+    return sizeGridCache.get(sizeGridId)!;
+  }
 
   // -------------------------------------------------------------------
   // Publish simple products (UP model, individual items)
@@ -442,7 +509,16 @@ export async function POST(req: NextRequest) {
   for (const product of simpleProducts) {
     try {
       const pics = await uploadPicturesToML(product.fotos || [], workspaceId);
-      const payload = buildSimpleUPPayload(product, categoryId, pics, listingTypeId || undefined);
+      const sizeGridId = resolveSizeGridId(product);
+      const sizeGridMap = await getSizeGridMapCached(sizeGridId);
+      const payload = buildSimpleUPPayload(
+        product,
+        categoryId,
+        sizeGridId,
+        sizeGridMap,
+        pics,
+        listingTypeId || undefined
+      );
 
       if (validateOnly) {
         await ml.post("/items/validate", payload, workspaceId);
@@ -556,13 +632,8 @@ export async function POST(req: NextRequest) {
       parent = parentData as HubProduct | undefined;
       if (!parent) parent = children[0];
 
-      // Fetch size grid mapping if enrichment has SIZE_GRID_ID
-      const sizeGridId = parent.ml_enrichment?.attributes?.find(
-        (a) => a.id === "SIZE_GRID_ID"
-      )?.value_name;
-      const sizeGridMap = sizeGridId
-        ? await fetchSizeGridMap(sizeGridId, workspaceId)
-        : {};
+      const sizeGridId = resolveSizeGridId(parent);
+      const sizeGridMap = await getSizeGridMapCached(sizeGridId);
 
       // Resolve Eccosys image URLs once for all children (they share parent photos)
       const resolvedPics = await uploadPicturesToML(parent!.fotos || [], workspaceId);
@@ -574,7 +645,16 @@ export async function POST(req: NextRequest) {
       for (const child of children) {
         try {
           const effectiveGridMap = gridRejected ? {} : sizeGridMap;
-          let payload = buildUPPayload(child, parent!, categoryId, effectiveGridMap, resolvedPics, listingTypeId || undefined);
+          const effectiveSizeGridId = gridRejected ? "" : sizeGridId;
+          let payload = buildUPPayload(
+            child,
+            parent!,
+            categoryId,
+            effectiveSizeGridId,
+            effectiveGridMap,
+            resolvedPics,
+            listingTypeId || undefined
+          );
 
           if (validateOnly) {
             await ml.post("/items/validate", payload, workspaceId);
@@ -594,7 +674,15 @@ export async function POST(req: NextRequest) {
             const errMsg = firstErr instanceof Error ? firstErr.message : "";
             if (errMsg.includes("invalid.fashion_grid.grid_id.values") && !gridRejected) {
               gridRejected = true;
-              payload = buildUPPayload(child, parent!, categoryId, {}, resolvedPics, listingTypeId || undefined);
+              payload = buildUPPayload(
+                child,
+                parent!,
+                categoryId,
+                "",
+                {},
+                resolvedPics,
+                listingTypeId || undefined
+              );
               result = await ml.post<{
                 id: string;
                 permalink: string;

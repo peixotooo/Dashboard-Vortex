@@ -53,6 +53,20 @@ interface MLItemFull {
   }>;
 }
 
+type FamilyMatchSource = "parent" | "variation" | "catalog";
+
+interface FamilySummary {
+  id: number;
+  sku: string;
+  nome: string;
+  preco: number;
+  foto: string | null;
+  situacao: string;
+  child_count: number | null;
+  matched_by: FamilyMatchSource;
+  search_rank?: number;
+}
+
 // Known Eccosys → ML attribute name mapping (fallback dictionary)
 const KNOWN_ATTR_MAP: Record<string, string> = {
   cor: "COLOR",
@@ -160,6 +174,225 @@ function isEccosysBadFilterError(err: unknown): boolean {
   return err instanceof Error && /Eccosys 400|Requisi/i.test(err.message);
 }
 
+function cleanCandidateSku(value: unknown): string | null {
+  if (value == null) return null;
+  const sku = String(value).trim();
+  if (!sku || sku.toUpperCase().startsWith("ML-")) return null;
+  return sku;
+}
+
+function scoreCandidate(query: string, sku: string, name: string): number {
+  const nq = normalize(query);
+  const ns = normalize(sku);
+  const nn = normalize(name);
+  if (!nq) return 0;
+  if (ns === nq) return 100;
+  if (nn === nq) return 95;
+  if (ns.includes(nq)) return 90;
+  if (nn.startsWith(nq)) return 80;
+  if (nn.includes(nq)) return 70;
+  return 10;
+}
+
+function upsertFamilySummary(
+  map: Map<string, FamilySummary>,
+  family: FamilySummary
+) {
+  const current = map.get(family.sku);
+  if (!current || (family.search_rank ?? 0) > (current.search_rank ?? 0)) {
+    map.set(family.sku, family);
+  }
+}
+
+async function loadLocalFamilyCandidates(
+  supabase: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  query: string
+): Promise<FamilySummary[]> {
+  const pattern = `%${query.trim()}%`;
+  const bySku = new Map<string, FamilySummary>();
+
+  const add = (input: {
+    sku: unknown;
+    nome: unknown;
+    preco?: unknown;
+    foto?: unknown;
+    id?: unknown;
+    matched_by: FamilyMatchSource;
+    rankBoost?: number;
+  }) => {
+    const sku = cleanCandidateSku(input.sku);
+    if (!sku) return;
+    const nome = String(input.nome || sku).trim();
+    const rank = scoreCandidate(query, sku, nome) + (input.rankBoost || 0);
+    upsertFamilySummary(bySku, {
+      id: Number(input.id) || 0,
+      sku,
+      nome,
+      preco: Number(input.preco) || 0,
+      foto: typeof input.foto === "string" && input.foto ? input.foto : null,
+      situacao: "A",
+      child_count: null,
+      matched_by: input.matched_by,
+      search_rank: rank,
+    });
+  };
+
+  const [hubByName, hubBySku, hubByParentSku, shelfByName, shelfBySku, shelfByProductId, collectionByName, collectionByCode] =
+    await Promise.all([
+      supabase
+        .from("hub_products")
+        .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+        .eq("workspace_id", workspaceId)
+        .eq("source", "eccosys")
+        .ilike("nome", pattern)
+        .limit(120),
+      supabase
+        .from("hub_products")
+        .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+        .eq("workspace_id", workspaceId)
+        .eq("source", "eccosys")
+        .ilike("sku", pattern)
+        .limit(80),
+      supabase
+        .from("hub_products")
+        .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+        .eq("workspace_id", workspaceId)
+        .eq("source", "eccosys")
+        .ilike("ecc_pai_sku", pattern)
+        .limit(80),
+      supabase
+        .from("shelf_products")
+        .select("product_id, sku, name, price, sale_price, image_url, active")
+        .eq("workspace_id", workspaceId)
+        .ilike("name", pattern)
+        .limit(160),
+      supabase
+        .from("shelf_products")
+        .select("product_id, sku, name, price, sale_price, image_url, active")
+        .eq("workspace_id", workspaceId)
+        .ilike("sku", pattern)
+        .limit(100),
+      supabase
+        .from("shelf_products")
+        .select("product_id, sku, name, price, sale_price, image_url, active")
+        .eq("workspace_id", workspaceId)
+        .ilike("product_id", pattern)
+        .limit(100),
+      supabase
+        .from("collection_items")
+        .select("ecc_product_id, codigo, nome, preco, image_public_url, status")
+        .eq("workspace_id", workspaceId)
+        .ilike("nome", pattern)
+        .limit(100),
+      supabase
+        .from("collection_items")
+        .select("ecc_product_id, codigo, nome, preco, image_public_url, status")
+        .eq("workspace_id", workspaceId)
+        .ilike("codigo", pattern)
+        .limit(100),
+    ]);
+
+  const hubRows = [...(hubByName.data || []), ...(hubBySku.data || []), ...(hubByParentSku.data || [])];
+  const hubByLocalSku = new Map<string, (typeof hubRows)[number]>();
+  for (const row of hubRows) {
+    if (row?.sku && !hubByLocalSku.has(row.sku)) hubByLocalSku.set(row.sku, row);
+  }
+
+  const hubParentSkus = Array.from(
+    new Set(
+      hubRows
+        .map((row) => row.ecc_pai_sku)
+        .filter((sku): sku is string => Boolean(sku))
+    )
+  );
+
+  if (hubParentSkus.length > 0) {
+    const { data: parents } = await supabase
+      .from("hub_products")
+      .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+      .eq("workspace_id", workspaceId)
+      .eq("source", "eccosys")
+      .in("sku", hubParentSkus);
+    for (const parent of parents || []) {
+      if (parent?.sku && !hubByLocalSku.has(parent.sku)) hubByLocalSku.set(parent.sku, parent);
+    }
+  }
+
+  for (const row of hubRows) {
+    const parentSku = cleanCandidateSku(row.ecc_pai_sku || row.sku);
+    if (!parentSku) continue;
+    const parent = hubByLocalSku.get(parentSku) || row;
+    const fotos = Array.isArray(parent.fotos) ? parent.fotos : [];
+    add({
+      sku: parentSku,
+      nome: parent.nome || row.nome || parentSku,
+      preco: parent.preco,
+      foto: fotos[0],
+      id: parent.ecc_id,
+      matched_by: row.ecc_pai_sku ? "variation" : "parent",
+      rankBoost: 10,
+    });
+  }
+
+  const shelfRows = [...(shelfByName.data || []), ...(shelfBySku.data || []), ...(shelfByProductId.data || [])];
+  for (const row of shelfRows) {
+    add({
+      sku: row.sku || row.product_id,
+      nome: row.name,
+      preco: row.sale_price || row.price,
+      foto: row.image_url,
+      matched_by: "catalog",
+      rankBoost: row.active ? 6 : 0,
+    });
+  }
+
+  const collectionRows = [...(collectionByName.data || []), ...(collectionByCode.data || [])];
+  for (const row of collectionRows) {
+    add({
+      sku: row.codigo || row.ecc_product_id,
+      nome: row.nome,
+      preco: row.preco,
+      foto: row.image_public_url,
+      id: row.ecc_product_id,
+      matched_by: "catalog",
+      rankBoost: row.ecc_product_id ? 4 : 0,
+    });
+  }
+
+  return Array.from(bySku.values())
+    .filter((family) => family.search_rank && family.search_rank > 0)
+    .sort((a, b) => {
+      const rankDiff = (b.search_rank || 0) - (a.search_rank || 0);
+      if (rankDiff !== 0) return rankDiff;
+      return a.nome.localeCompare(b.nome, "pt-BR");
+    });
+}
+
+async function fetchEccosysParentProduct(
+  workspaceId: string,
+  skuOrId: string
+): Promise<EccosysProduto | undefined> {
+  const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+    `/produtos/${encodeURIComponent(skuOrId)}`,
+    workspaceId
+  );
+  const product = Array.isArray(result) ? result[0] : result;
+  if (!product?.codigo) return undefined;
+  if (isParentProduct(product)) return product;
+
+  const parentKey = parentLookupKey(product);
+  if (!parentKey || parentKey === skuOrId) return undefined;
+
+  const parentResult = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+    `/produtos/${encodeURIComponent(parentKey)}`,
+    workspaceId
+  );
+  const parent = Array.isArray(parentResult) ? parentResult[0] : parentResult;
+  if (parent?.codigo && isParentProduct(parent)) return parent;
+  return undefined;
+}
+
 // Extract photos from Eccosys product (images endpoint returns string[])
 function extractPhotos(product: EccosysProduto, imgs?: unknown): string[] {
   // The /produtos/{id}/imagens endpoint returns string[] directly
@@ -202,12 +435,16 @@ export async function GET(req: NextRequest) {
       let products: EccosysProduto[] = [];
       let hasMore = false;
       let warning: string | null = null;
+      let localFamilyPage: FamilySummary[] = [];
       const nq = normalize(q);
 
       if (nq) {
         const scanPageSize = 100;
         const targetStart = page * pageSize;
         const targetEnd = targetStart + pageSize;
+        const localFamilies = await loadLocalFamilyCandidates(supabase, workspaceId, q);
+        localFamilyPage = localFamilies.slice(targetStart, targetEnd);
+        hasMore = localFamilies.length > targetEnd;
         const matchedProducts: EccosysProduto[] = [];
         const seenFamilyKeys = new Set<string>();
         let reachedEnd = false;
@@ -237,27 +474,30 @@ export async function GET(req: NextRequest) {
           },
         ];
 
-        for (const params of candidateQueries) {
-          try {
-            const candidateProducts = await eccosys.get<EccosysProduto[]>(
-              "/produtos",
-              workspaceId,
-              params
-            );
-            if (Array.isArray(candidateProducts)) addMatchedProducts(candidateProducts);
-          } catch (err) {
-            if (isEccosysRateLimitError(err)) {
-              warning = "O Eccosys limitou a busca agora. Mostrando os resultados que conseguimos carregar.";
-              reachedEnd = true;
-              break;
+        if (localFamilyPage.length < pageSize) {
+          for (const params of candidateQueries) {
+            try {
+              const candidateProducts = await eccosys.get<EccosysProduto[]>(
+                "/produtos",
+                workspaceId,
+                params
+              );
+              if (Array.isArray(candidateProducts)) addMatchedProducts(candidateProducts);
+            } catch (err) {
+              if (isEccosysRateLimitError(err)) {
+                warning = "O Eccosys limitou a busca agora. Mostrando os resultados que conseguimos carregar.";
+                reachedEnd = true;
+                break;
+              }
+              if (!isEccosysBadFilterError(err)) throw err;
             }
-            if (!isEccosysBadFilterError(err)) throw err;
           }
         }
 
         // O $filter do Eccosys retorna 400 em produção. Como fallback,
         // varremos uma amostra controlada para não estourar o limite de 100 req/min.
-        const maxScanPages = matchedProducts.length > targetEnd ? 0 : 12;
+        const maxScanPages =
+          localFamilyPage.length >= pageSize || matchedProducts.length > targetEnd ? 0 : 12;
         for (let scanPage = 0; scanPage < maxScanPages && matchedProducts.length <= targetEnd; scanPage++) {
           let pageProducts: EccosysProduto[];
           try {
@@ -296,11 +536,12 @@ export async function GET(req: NextRequest) {
         if (!reachedEnd && matchedProducts.length <= targetEnd) {
           warning =
             warning ||
-            "Busca parcial no Eccosys para preservar o limite da API. Se não aparecer, tente um termo mais específico ou o SKU pai.";
+            "Busca por nome usa nosso índice local e uma consulta parcial no Eccosys para preservar o limite da API. A prévia/importação valida a família no Eccosys pelo código.";
         }
 
         products = matchedProducts.slice(targetStart, targetEnd);
         hasMore =
+          hasMore ||
           matchedProducts.length > targetEnd ||
           (!reachedEnd && matchedProducts.length >= targetEnd);
       } else {
@@ -330,78 +571,12 @@ export async function GET(req: NextRequest) {
           foto: string | null;
           situacao: string;
           child_count: number | null;
-          matched_by: "parent" | "variation";
+          matched_by: FamilyMatchSource;
         }
       >();
 
-      if (nq) {
-        const pattern = `%${q.trim()}%`;
-        const [byName, bySku, byParentSku] = await Promise.all([
-          supabase
-            .from("hub_products")
-            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
-            .eq("workspace_id", workspaceId)
-            .eq("source", "eccosys")
-            .ilike("nome", pattern)
-            .limit(120),
-          supabase
-            .from("hub_products")
-            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
-            .eq("workspace_id", workspaceId)
-            .eq("source", "eccosys")
-            .ilike("sku", pattern)
-            .limit(80),
-          supabase
-            .from("hub_products")
-            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
-            .eq("workspace_id", workspaceId)
-            .eq("source", "eccosys")
-            .ilike("ecc_pai_sku", pattern)
-            .limit(80),
-        ]);
-
-        const cachedRows = [...(byName.data || []), ...(bySku.data || []), ...(byParentSku.data || [])];
-        const cachedBySku = new Map<string, (typeof cachedRows)[number]>();
-        for (const row of cachedRows) {
-          if (row?.sku && !cachedBySku.has(row.sku)) cachedBySku.set(row.sku, row);
-        }
-
-        const cachedParentSkus = Array.from(
-          new Set(
-            cachedRows
-              .map((row) => row.ecc_pai_sku)
-              .filter((sku): sku is string => Boolean(sku))
-          )
-        );
-
-        if (cachedParentSkus.length > 0) {
-          const { data: parents } = await supabase
-            .from("hub_products")
-            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
-            .eq("workspace_id", workspaceId)
-            .eq("source", "eccosys")
-            .in("sku", cachedParentSkus);
-          for (const parent of parents || []) {
-            if (parent?.sku && !cachedBySku.has(parent.sku)) cachedBySku.set(parent.sku, parent);
-          }
-        }
-
-        for (const row of cachedRows) {
-          const parentSku = row.ecc_pai_sku || row.sku;
-          if (!parentSku || familiesBySku.has(parentSku)) continue;
-          const parent = cachedBySku.get(parentSku) || row;
-          const fotos = Array.isArray(parent.fotos) ? parent.fotos : [];
-          familiesBySku.set(parentSku, {
-            id: Number(parent.ecc_id) || 0,
-            sku: parentSku,
-            nome: parent.nome || row.nome || parentSku,
-            preco: Number(parent.preco) || 0,
-            foto: fotos[0] || null,
-            situacao: parent.situacao || "A",
-            child_count: null,
-            matched_by: row.ecc_pai_sku ? "variation" : "parent",
-          });
-        }
+      for (const family of localFamilyPage) {
+        familiesBySku.set(family.sku, family);
       }
 
       const childParentKeys = new Set<string>();
@@ -499,18 +674,7 @@ export async function GET(req: NextRequest) {
     let parent: EccosysProduto | undefined;
 
     try {
-      const result = await eccosys.get<EccosysProduto | EccosysProduto[]>(
-        `/produtos/${encodeURIComponent(parentSku)}`,
-        workspaceId
-      );
-      // API may return single object or array
-      const prod = Array.isArray(result) ? result[0] : result;
-      if (prod?.codigo) {
-        // Verify it's a parent (idProdutoMaster === "0" or 0) or simple product
-        if (isParentProduct(prod)) {
-          parent = prod;
-        }
-      }
+      parent = await fetchEccosysParentProduct(workspaceId, parentSku);
     } catch {
       // Direct lookup failed
     }

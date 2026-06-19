@@ -530,7 +530,7 @@ interface FamilySearchResult {
   foto: string | null;
   situacao: string;
   child_count: number | null;
-  matched_by: "parent" | "variation";
+  matched_by: "parent" | "variation" | "catalog";
   already_in_hub: boolean;
 }
 
@@ -992,7 +992,9 @@ function ImportFamilyModal({
                               <p className="text-[11px] text-muted-foreground">
                                 {family.matched_by === "variation"
                                   ? "Encontrada por variação"
-                                  : "Produto pai"}
+                                  : family.matched_by === "catalog"
+                                    ? "Encontrada no índice local"
+                                    : "Produto pai"}
                               </p>
                             </div>
                           </div>
