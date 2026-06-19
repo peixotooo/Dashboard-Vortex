@@ -3115,6 +3115,10 @@
       var messageBold = tb.message_bold === true; // default false
       var slideLineHeight = "2.1em";
       var slides = [];
+      function topbarStyleValue(value, fallback) {
+        var cleaned = String(value || "").replace(/[;{}]/g, "").trim();
+        return cleaned || fallback || "";
+      }
       if (Array.isArray(tb.slides)) {
         for (var si = 0; si < tb.slides.length; si++) {
           var item = tb.slides[si] || {};
@@ -3125,6 +3129,11 @@
             message: itemMsg,
             link_url: String(item.link_url || "").trim(),
             link_label: String(item.link_label || "").trim(),
+            button_bg_color: topbarStyleValue(item.button_bg_color),
+            button_text_color: topbarStyleValue(item.button_text_color),
+            button_padding: topbarStyleValue(item.button_padding),
+            button_border_radius: topbarStyleValue(item.button_border_radius),
+            button_font_weight: topbarStyleValue(item.button_font_weight),
           });
         }
       }
@@ -3134,6 +3143,11 @@
           message: String(tb.message || "").trim(),
           link_url: String(tb.link_url || "").trim(),
           link_label: String(tb.link_label || "").trim(),
+          button_bg_color: topbarStyleValue(tb.button_bg_color),
+          button_text_color: topbarStyleValue(tb.button_text_color),
+          button_padding: topbarStyleValue(tb.button_padding),
+          button_border_radius: topbarStyleValue(tb.button_border_radius),
+          button_font_weight: topbarStyleValue(tb.button_font_weight),
         });
       }
 
@@ -3228,6 +3242,48 @@
         }, 3500);
       }
 
+      var cta = null;
+      function updateCtaForActiveSlide() {
+        if (!cta) return;
+        var slide = slides[activeSlide] || slides[0] || {};
+        if (slide.link_url && slide.link_label) {
+          cta.href = safeUrl(slide.link_url);
+          cta.textContent = slide.link_label;
+          cta.style.display = "inline-flex";
+          cta.style.background = topbarStyleValue(
+            slide.button_bg_color,
+            tb.accent_color || "#22c55e"
+          );
+          cta.style.color = topbarStyleValue(slide.button_text_color, "#ffffff");
+          cta.style.padding = topbarStyleValue(slide.button_padding, "4px 12px");
+          cta.style.borderRadius = topbarStyleValue(slide.button_border_radius, "999px");
+          cta.style.fontWeight = topbarStyleValue(slide.button_font_weight, "600");
+        } else {
+          cta.removeAttribute("href");
+          cta.textContent = "";
+          cta.style.display = "none";
+        }
+      }
+      var hasSlideCta = false;
+      for (var ctaIdx = 0; ctaIdx < slides.length; ctaIdx++) {
+        if (slides[ctaIdx].link_url && slides[ctaIdx].link_label) {
+          hasSlideCta = true;
+          break;
+        }
+      }
+      if (hasSlideCta) {
+        cta = document.createElement("a");
+        cta.setAttribute(
+          "style",
+          "display:inline-flex;align-items:center;text-decoration:none;font-size:13px;white-space:nowrap"
+        );
+        cta.addEventListener("click", function () {
+          trackTopbar("click", tb.campaign_id, tb.variation_id);
+        });
+        updateCtaForActiveSlide();
+        content.appendChild(cta);
+      }
+
       var countdownEl = null;
       var countdownTarget = tb.countdown_enabled && tb.countdown_target
         ? new Date(tb.countdown_target).getTime() : 0;
@@ -3252,42 +3308,6 @@
             ";font-variant-numeric:tabular-nums"
         );
         content.appendChild(countdownEl);
-      }
-
-      var cta = null;
-      function updateCtaForActiveSlide() {
-        if (!cta) return;
-        var slide = slides[activeSlide] || slides[0] || {};
-        if (slide.link_url && slide.link_label) {
-          cta.href = safeUrl(slide.link_url);
-          cta.textContent = slide.link_label;
-          cta.style.display = "inline-flex";
-        } else {
-          cta.removeAttribute("href");
-          cta.textContent = "";
-          cta.style.display = "none";
-        }
-      }
-      var hasSlideCta = false;
-      for (var ctaIdx = 0; ctaIdx < slides.length; ctaIdx++) {
-        if (slides[ctaIdx].link_url && slides[ctaIdx].link_label) {
-          hasSlideCta = true;
-          break;
-        }
-      }
-      if (hasSlideCta) {
-        cta = document.createElement("a");
-        cta.setAttribute(
-          "style",
-          "display:inline-flex;align-items:center;padding:4px 12px;border-radius:999px;background:" +
-            (tb.accent_color || "#22c55e") +
-            ";color:#ffffff;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap"
-        );
-        cta.addEventListener("click", function () {
-          trackTopbar("click", tb.campaign_id, tb.variation_id);
-        });
-        updateCtaForActiveSlide();
-        content.appendChild(cta);
       }
 
       bar.appendChild(content);

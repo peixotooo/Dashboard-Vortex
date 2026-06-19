@@ -1,6 +1,10 @@
 import { callLLM } from "@/lib/agent/llm-provider";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { primaryTopbarSlide } from "@/lib/topbar/slides";
+import {
+  normalizeTopbarSlides,
+  primaryTopbarSlide,
+  serializeTopbarSlides,
+} from "@/lib/topbar/slides";
 
 // Emoji ranges (cobre símbolos, pictografia, "fire" 🔥, etc.)
 const EMOJI_RE =
@@ -253,7 +257,7 @@ export async function autoRegenerateCampaign(input: GenerateInput) {
 
   const { data: campaign } = await admin
     .from("topbar_campaigns")
-    .select("regenerate_every_hours")
+    .select("title,message,link_url,link_label,regenerate_every_hours")
     .eq("id", input.campaignId)
     .single();
 
@@ -261,11 +265,45 @@ export async function autoRegenerateCampaign(input: GenerateInput) {
     Date.now() + ((campaign?.regenerate_every_hours || 24) as number) * 3600 * 1000
   ).toISOString();
 
+  const currentSlides = normalizeTopbarSlides(
+    null,
+    campaign?.title || null,
+    campaign?.message || null,
+    {
+      fallbackLinkUrl: campaign?.link_url || null,
+      fallbackLinkLabel: campaign?.link_label || null,
+    }
+  );
+  const nextSlides = currentSlides.length
+    ? currentSlides
+    : [
+        {
+          title: campaign?.title || null,
+          message: campaign?.message || "",
+          link_url: campaign?.link_url || null,
+          link_label: campaign?.link_label || null,
+        },
+      ];
+  nextSlides[0] = {
+    ...nextSlides[0],
+    message: first.message,
+    link_label: first.link_label || nextSlides[0].link_label || null,
+  };
+  const content = serializeTopbarSlides(
+    nextSlides,
+    campaign?.title || null,
+    first.message,
+    campaign?.link_url || null,
+    first.link_label || campaign?.link_label || null
+  );
+
   await admin
     .from("topbar_campaigns")
     .update({
-      message: first.message,
-      link_label: first.link_label,
+      title: content.title,
+      message: content.message,
+      link_url: content.link_url,
+      link_label: content.link_label,
       last_regenerated_at: new Date().toISOString(),
       next_regenerate_at: nextRegen,
       updated_at: new Date().toISOString(),

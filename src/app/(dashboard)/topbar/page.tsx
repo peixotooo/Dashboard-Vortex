@@ -211,7 +211,19 @@ function emptyCampaign(): Partial<Campaign> {
     recurrence_window_end: null,
     title: "",
     message: "",
-    slides: [{ title: "", message: "", link_url: "", link_label: "" }],
+    slides: [
+      {
+        title: "",
+        message: "",
+        link_url: "",
+        link_label: "",
+        button_bg_color: "",
+        button_text_color: "",
+        button_padding: "",
+        button_border_radius: "",
+        button_font_weight: "",
+      },
+    ],
     link_url: "",
     link_label: "",
     countdown_enabled: false,
@@ -520,6 +532,20 @@ export default function TopbarPage() {
         message: typeof slide.message === "string" ? slide.message : "",
         link_url: typeof slide.link_url === "string" ? slide.link_url : "",
         link_label: typeof slide.link_label === "string" ? slide.link_label : "",
+        button_bg_color:
+          typeof slide.button_bg_color === "string" ? slide.button_bg_color : "",
+        button_text_color:
+          typeof slide.button_text_color === "string" ? slide.button_text_color : "",
+        button_padding:
+          typeof slide.button_padding === "string" ? slide.button_padding : "",
+        button_border_radius:
+          typeof slide.button_border_radius === "string"
+            ? slide.button_border_radius
+            : "",
+        button_font_weight:
+          typeof slide.button_font_weight === "string"
+            ? slide.button_font_weight
+            : "",
       }));
     }
 
@@ -533,7 +559,19 @@ export default function TopbarPage() {
   function updateEditingSlides(nextSlides: TopbarSlide[]) {
     const slides = nextSlides.length
       ? nextSlides
-      : [{ title: "", message: "", link_url: "", link_label: "" }];
+      : [
+          {
+            title: "",
+            message: "",
+            link_url: "",
+            link_label: "",
+            button_bg_color: "",
+            button_text_color: "",
+            button_padding: "",
+            button_border_radius: "",
+            button_font_weight: "",
+          },
+        ];
     const first = slides[0] || { title: "", message: "" };
     setEditing((prev) =>
       prev
@@ -569,7 +607,19 @@ export default function TopbarPage() {
     const filled = editingSlides.filter((slide) => slide.message.trim().length > 0);
     return filled.length
       ? filled
-      : [{ title: "", message: "Sua mensagem aparece aqui", link_url: "", link_label: "" }];
+      : [
+          {
+            title: "",
+            message: "Sua mensagem aparece aqui",
+            link_url: "",
+            link_label: "",
+            button_bg_color: "",
+            button_text_color: "",
+            button_padding: "",
+            button_border_radius: "",
+            button_font_weight: "",
+          },
+        ];
   }, [editingSlides]);
 
   useEffect(() => {
@@ -584,6 +634,12 @@ export default function TopbarPage() {
   const currentPreviewSlide =
     previewSlides[previewSlideIndex % previewSlides.length] || previewSlides[0];
   const previewSlideHeightEm = 2.1;
+  const currentPreviewCtaBg =
+    currentPreviewSlide?.button_bg_color || editing?.accent_color || config.accent_color;
+  const currentPreviewCtaColor = currentPreviewSlide?.button_text_color || "#fff";
+  const currentPreviewCtaPadding = currentPreviewSlide?.button_padding || "4px 12px";
+  const currentPreviewCtaRadius = currentPreviewSlide?.button_border_radius || "999px";
+  const currentPreviewCtaWeight = currentPreviewSlide?.button_font_weight || "600";
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
@@ -1281,7 +1337,17 @@ export default function TopbarPage() {
                       onClick={() =>
                         updateEditingSlides([
                           ...editingSlides,
-                          { title: "", message: "", link_url: "", link_label: "" },
+                          {
+                            title: "",
+                            message: "",
+                            link_url: "",
+                            link_label: "",
+                            button_bg_color: "",
+                            button_text_color: "",
+                            button_padding: "",
+                            button_border_radius: "",
+                            button_font_weight: "",
+                          },
                         ])
                       }
                       disabled={editingSlides.length >= 8}
@@ -1383,6 +1449,48 @@ export default function TopbarPage() {
                                   updateEditingSlide(index, { link_label: e.target.value })
                                 }
                                 placeholder="Aproveitar"
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
+                            <OptionalColorField
+                              label="Fundo do botão"
+                              value={slide.button_bg_color || ""}
+                              placeholder={editing.accent_color || config.accent_color}
+                              onChange={(v) =>
+                                updateEditingSlide(index, { button_bg_color: v })
+                              }
+                            />
+                            <OptionalColorField
+                              label="Texto do botão"
+                              value={slide.button_text_color || ""}
+                              placeholder="#ffffff"
+                              onChange={(v) =>
+                                updateEditingSlide(index, { button_text_color: v })
+                              }
+                            />
+                            <div>
+                              <Label>Padding do botão</Label>
+                              <Input
+                                value={slide.button_padding || ""}
+                                onChange={(e) =>
+                                  updateEditingSlide(index, {
+                                    button_padding: e.target.value,
+                                  })
+                                }
+                                placeholder="4px 12px"
+                              />
+                            </div>
+                            <div>
+                              <Label>Raio do botão</Label>
+                              <Input
+                                value={slide.button_border_radius || ""}
+                                onChange={(e) =>
+                                  updateEditingSlide(index, {
+                                    button_border_radius: e.target.value,
+                                  })
+                                }
+                                placeholder="999px"
                               />
                             </div>
                           </div>
@@ -1762,6 +1870,21 @@ export default function TopbarPage() {
                         ))}
                       </span>
                     </span>
+                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
+                      <span
+                        style={{
+                          background: currentPreviewCtaBg,
+                          color: currentPreviewCtaColor,
+                          padding: currentPreviewCtaPadding,
+                          borderRadius: currentPreviewCtaRadius,
+                          fontWeight: currentPreviewCtaWeight,
+                          fontSize: 13,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {currentPreviewSlide.link_label}
+                      </span>
+                    )}
                     {editing.countdown_enabled && (
                       <span
                         style={{
@@ -1774,21 +1897,6 @@ export default function TopbarPage() {
                         }}
                       >
                         {editing.countdown_label || "Termina em"} 02:14:33
-                      </span>
-                    )}
-                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
-                      <span
-                        style={{
-                          background: editing.accent_color || config.accent_color,
-                          color: "#fff",
-                          padding: "4px 12px",
-                          borderRadius: 999,
-                          fontWeight: 600,
-                          fontSize: 13,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {currentPreviewSlide.link_label}
                       </span>
                     )}
                   </div>

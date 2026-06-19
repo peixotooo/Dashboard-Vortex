@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
     }
   );
   const variationIsActive = Boolean(selectedVar && campaignSlides.length <= 1);
-  const slides = variationIsActive
+  const variationSlides = variationIsActive
     ? normalizeTopbarSlides(
         null,
         (campaign as { title?: string | null }).title || null,
@@ -126,6 +126,19 @@ export async function GET(request: NextRequest) {
           fallbackLinkLabel: selectedVar?.link_label || campaign.link_label,
         }
       )
+    : [];
+  const slides = variationIsActive
+    ? variationSlides.map((slide, index) => {
+        const styleSource = campaignSlides[index] || campaignSlides[0];
+        return {
+          ...slide,
+          button_bg_color: styleSource?.button_bg_color || null,
+          button_text_color: styleSource?.button_text_color || null,
+          button_padding: styleSource?.button_padding || null,
+          button_border_radius: styleSource?.button_border_radius || null,
+          button_font_weight: styleSource?.button_font_weight || null,
+        };
+      })
     : campaignSlides;
   const primarySlide = slides[0] || {
     title: (campaign as { title?: string | null }).title || null,

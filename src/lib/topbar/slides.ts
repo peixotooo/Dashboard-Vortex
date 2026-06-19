@@ -3,6 +3,11 @@ export interface TopbarSlide {
   message: string;
   link_url?: string | null;
   link_label?: string | null;
+  button_bg_color?: string | null;
+  button_text_color?: string | null;
+  button_padding?: string | null;
+  button_border_radius?: string | null;
+  button_font_weight?: string | null;
 }
 
 const SLIDES_PREFIX = "__vtx_topbar_slides_v1__:";
@@ -11,6 +16,7 @@ const MAX_TITLE_LENGTH = 80;
 const MAX_MESSAGE_LENGTH = 180;
 const MAX_LINK_URL_LENGTH = 500;
 const MAX_LINK_LABEL_LENGTH = 50;
+const MAX_BUTTON_STYLE_LENGTH = 80;
 
 function cleanText(value: unknown, maxLength: number): string {
   if (typeof value !== "string") return "";
@@ -20,6 +26,21 @@ function cleanText(value: unknown, maxLength: number): string {
 function cleanUrl(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, MAX_LINK_URL_LENGTH);
+}
+
+function cleanStyle(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/[;{}]/g, "").trim().slice(0, MAX_BUTTON_STYLE_LENGTH);
+}
+
+function slideHasButtonStyle(slide: TopbarSlide): boolean {
+  return Boolean(
+    slide.button_bg_color ||
+      slide.button_text_color ||
+      slide.button_padding ||
+      slide.button_border_radius ||
+      slide.button_font_weight
+  );
 }
 
 function decodeMessageSlides(message: unknown): TopbarSlide[] {
@@ -35,6 +56,13 @@ function decodeMessageSlides(message: unknown): TopbarSlide[] {
         link_url: cleanUrl((slide as TopbarSlide)?.link_url) || null,
         link_label:
           cleanText((slide as TopbarSlide)?.link_label, MAX_LINK_LABEL_LENGTH) || null,
+        button_bg_color: cleanStyle((slide as TopbarSlide)?.button_bg_color) || null,
+        button_text_color: cleanStyle((slide as TopbarSlide)?.button_text_color) || null,
+        button_padding: cleanStyle((slide as TopbarSlide)?.button_padding) || null,
+        button_border_radius:
+          cleanStyle((slide as TopbarSlide)?.button_border_radius) || null,
+        button_font_weight:
+          cleanStyle((slide as TopbarSlide)?.button_font_weight) || null,
       }))
       .filter((slide) => slide.message.length > 0)
       .slice(0, MAX_SLIDES);
@@ -71,6 +99,13 @@ export function normalizeTopbarSlides(
           cleanText((slide as TopbarSlide)?.link_label, MAX_LINK_LABEL_LENGTH) ||
           fallbackLinkLabel ||
           null,
+        button_bg_color: cleanStyle((slide as TopbarSlide)?.button_bg_color) || null,
+        button_text_color: cleanStyle((slide as TopbarSlide)?.button_text_color) || null,
+        button_padding: cleanStyle((slide as TopbarSlide)?.button_padding) || null,
+        button_border_radius:
+          cleanStyle((slide as TopbarSlide)?.button_border_radius) || null,
+        button_font_weight:
+          cleanStyle((slide as TopbarSlide)?.button_font_weight) || null,
       };
     })
     .filter((slide) => keepEmpty || slide.message.length > 0)
@@ -95,6 +130,11 @@ export function normalizeTopbarSlides(
         message: legacyMessage,
         link_url: legacyLinkUrl,
         link_label: legacyLinkLabel,
+        button_bg_color: null,
+        button_text_color: null,
+        button_padding: null,
+        button_border_radius: null,
+        button_font_weight: null,
       },
     ];
   }
@@ -120,15 +160,16 @@ export function serializeTopbarSlides(
     fallbackLinkLabel,
   });
   const primary = slides[0] || { title: null, message: "" };
+  const shouldEncodeSlides =
+    slides.length > 1 || slides.some((slide) => slideHasButtonStyle(slide));
 
   return {
     title: primary.title || null,
     link_url: primary.link_url || null,
     link_label: primary.link_label || null,
-    message:
-      slides.length > 1
-        ? `${SLIDES_PREFIX}${JSON.stringify(slides)}`
-        : primary.message,
+    message: shouldEncodeSlides
+      ? `${SLIDES_PREFIX}${JSON.stringify(slides)}`
+      : primary.message,
     slides,
   };
 }
