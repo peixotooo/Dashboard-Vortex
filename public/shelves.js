@@ -1862,6 +1862,48 @@
         "width: 100%; flex-basis: 100%;" +
         "margin: 12px 0; clear: both;" +
       "}" +
+      ".vtx-promo-tag--has-modal {" +
+        "pointer-events: auto; cursor: pointer; text-transform: none;" +
+      "}" +
+      ".vtx-promo-tag--has-modal:focus-visible {" +
+        "outline: 2px solid currentColor; outline-offset: 2px;" +
+      "}" +
+      ".vtx-promo-tag-modal {" +
+        "position: fixed; inset: 0; z-index: 2147483000;" +
+        "display: none; align-items: center; justify-content: center;" +
+        "padding: 20px; box-sizing: border-box;" +
+        "font-family: inherit;" +
+      "}" +
+      ".vtx-promo-tag-modal.is-open { display: flex; }" +
+      ".vtx-promo-tag-modal__backdrop {" +
+        "position: absolute; inset: 0; background: rgba(0,0,0,.48);" +
+      "}" +
+      ".vtx-promo-tag-modal__dialog {" +
+        "position: relative; width: min(420px, 100%);" +
+        "background: #fff; color: #111; border-radius: 12px;" +
+        "box-shadow: 0 18px 60px rgba(0,0,0,.24);" +
+        "padding: 22px 22px 20px; box-sizing: border-box;" +
+      "}" +
+      ".vtx-promo-tag-modal__close {" +
+        "position: absolute; top: 10px; right: 10px;" +
+        "width: 32px; height: 32px; border: 0; border-radius: 999px;" +
+        "background: #f3f4f6; color: #111; cursor: pointer;" +
+        "font-size: 22px; line-height: 1; display: flex;" +
+        "align-items: center; justify-content: center;" +
+      "}" +
+      ".vtx-promo-tag-modal__title {" +
+        "font-size: 17px; font-weight: 800; line-height: 1.25;" +
+        "margin: 0 36px 10px 0; color: inherit;" +
+      "}" +
+      ".vtx-promo-tag-modal__body {" +
+        "font-size: 14px; line-height: 1.55; color: #3f3f46;" +
+      "}" +
+      ".vtx-promo-tag-modal__body p { margin: 0 0 10px; }" +
+      ".vtx-promo-tag-modal__body p:last-child { margin-bottom: 0; }" +
+      "@media (max-width: 640px) {" +
+        ".vtx-promo-tag-modal { align-items: flex-end; padding: 12px; }" +
+        ".vtx-promo-tag-modal__dialog { border-radius: 12px; padding: 20px 18px 18px; }" +
+      "}" +
       // Cashback pill — colors come from rule.badge_bg_color/text_color via inline style
       ".vtx-promo-tag--cashback {" +
         "position: relative; display: inline-flex; align-items: center; gap: 6px;" +
@@ -2051,6 +2093,127 @@
     return null;
   }
 
+  function hasPromoTagModal(rule) {
+    return !!getPromoTagModalBody(rule);
+  }
+
+  function isShipping24hPromoTag(rule) {
+    var text = String((rule && rule.badge_text) || "").toLowerCase();
+    return /envio\s+em\s+24\s*h(?:oras)?/.test(text);
+  }
+
+  function getPromoTagModalTitle(rule) {
+    if (rule && String(rule.modal_title || "").trim()) {
+      return String(rule.modal_title).trim();
+    }
+    if (isShipping24hPromoTag(rule)) return "Envio em 24 horas";
+    return (rule && rule.badge_text) || "Informação";
+  }
+
+  function getPromoTagModalBody(rule) {
+    if (rule && String(rule.modal_body || "").trim()) {
+      return String(rule.modal_body).trim();
+    }
+    if (isShipping24hPromoTag(rule)) {
+      return "O prazo de 24 horas considera apenas dias úteis e começa a contar após a aprovação do pagamento.";
+    }
+    return "";
+  }
+
+  function renderPromoTagModalBody(body) {
+    var text = String(body || "").replace(/\r\n/g, "\n").trim();
+    if (!text) return "";
+    return text
+      .split(/\n{2,}/)
+      .map(function (paragraph) {
+        return "<p>" + escapeHtml(paragraph).replace(/\n/g, "<br>") + "</p>";
+      })
+      .join("");
+  }
+
+  function closePromoTagModal() {
+    var modal = document.getElementById("vtx-promo-tag-modal");
+    if (!modal) return;
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+  }
+
+  function ensurePromoTagModal() {
+    var existing = document.getElementById("vtx-promo-tag-modal");
+    if (existing) return existing;
+
+    var modal = document.createElement("div");
+    modal.id = "vtx-promo-tag-modal";
+    modal.className = "vtx-promo-tag-modal";
+    modal.setAttribute("aria-hidden", "true");
+    modal.innerHTML =
+      '<div class="vtx-promo-tag-modal__backdrop" data-vtx-promo-modal-close></div>' +
+      '<div class="vtx-promo-tag-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="vtx-promo-tag-modal-title">' +
+        '<button type="button" class="vtx-promo-tag-modal__close" aria-label="Fechar" data-vtx-promo-modal-close>&times;</button>' +
+        '<h2 class="vtx-promo-tag-modal__title" id="vtx-promo-tag-modal-title"></h2>' +
+        '<div class="vtx-promo-tag-modal__body"></div>' +
+      '</div>';
+
+    modal.addEventListener("click", function (e) {
+      var target = e.target;
+      if (target && target.getAttribute && target.getAttribute("data-vtx-promo-modal-close") !== null) {
+        e.preventDefault();
+        closePromoTagModal();
+      }
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closePromoTagModal();
+    });
+
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  function openPromoTagModal(rule) {
+    if (!hasPromoTagModal(rule)) return;
+    var modal = ensurePromoTagModal();
+    var titleEl = modal.querySelector(".vtx-promo-tag-modal__title");
+    var bodyEl = modal.querySelector(".vtx-promo-tag-modal__body");
+    if (titleEl) titleEl.textContent = getPromoTagModalTitle(rule);
+    if (bodyEl) bodyEl.innerHTML = renderPromoTagModalBody(getPromoTagModalBody(rule));
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    var closeBtn = modal.querySelector(".vtx-promo-tag-modal__close");
+    if (closeBtn && closeBtn.focus) closeBtn.focus();
+  }
+
+  function bindPromoTagModal(badge, rule) {
+    if (!badge || !hasPromoTagModal(rule)) return;
+    badge.classList.add("vtx-promo-tag--has-modal");
+    badge.setAttribute("role", "button");
+    badge.setAttribute("tabindex", "0");
+    badge.setAttribute(
+      "aria-label",
+      "Abrir detalhes: " + (rule.modal_title || rule.badge_text || "etiqueta")
+    );
+    badge.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPromoTagModal(rule);
+    });
+    badge.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      openPromoTagModal(rule);
+    });
+  }
+
+  function promoTagShowsOnPage(rule, pageType) {
+    var pages = rule && Array.isArray(rule.show_on_pages) ? rule.show_on_pages : ["all"];
+    if (pages.indexOf("all") !== -1) return true;
+    if (pageType === "product") return pages.indexOf("product") !== -1;
+    if (pageType === "home") return pages.indexOf("home") !== -1;
+    if (pageType === "cart") return pages.indexOf("cart") !== -1;
+    return pages.indexOf("category") !== -1;
+  }
+
   function createBadgeElement(rule, isPdp) {
     var badge = document.createElement("div");
     badge.className = isPdp
@@ -2062,6 +2225,7 @@
     badge.style.fontSize = rule.badge_font_size || "11px";
     badge.style.borderRadius = rule.badge_border_radius || "4px";
     badge.style.padding = rule.badge_padding || "4px 8px";
+    bindPromoTagModal(badge, rule);
     return badge;
   }
 
@@ -2088,6 +2252,7 @@
       .replace(/\{cashback\}/g, "<strong>" + formatBRLShort(amount) + "</strong>")
       .replace(/\{percent\}/g, String(pct));
     applyRuleColors(badge, rule, "rgba(34,197,94,.12)", "#15803d");
+    bindPromoTagModal(badge, rule);
     return badge;
   }
 
@@ -2229,6 +2394,7 @@
     scheduleNextTick();
 
     applyRuleColors(badge, rule, "rgba(244,63,94,.08)", "#be123c");
+    bindPromoTagModal(badge, rule);
     return badge;
   }
 
@@ -2428,7 +2594,10 @@
     var productId = extractProductId();
     if (!productId || !matches[productId]) return;
 
-    var rules = matches[productId];
+    var rules = matches[productId].filter(function (rule) {
+      return promoTagShowsOnPage(rule, "product");
+    });
+    if (!rules.length) return;
     var fallbackCashbackPct = payload && payload.cashback_percent ? payload.cashback_percent : 0;
 
     for (var i = 0; i < rules.length; i++) {
@@ -2521,7 +2690,7 @@
     }
   }
 
-  function applyPromoTagsListing(matches) {
+  function applyPromoTagsListing(matches, pageType) {
     // Category/listing pages: inject inline badge in description area of card
     var cards = document.querySelectorAll("[data-product-id]");
     var vtxCards = document.querySelectorAll("[data-vtx-product-id]");
@@ -2534,7 +2703,10 @@
       // Use the first STATIC rule for listing — cashback/viewers are PDP-only
       var rule = null;
       for (var r = 0; r < matches[productId].length; r++) {
-        if ((matches[productId][r].badge_type || "static") === "static") {
+        if (
+          (matches[productId][r].badge_type || "static") === "static" &&
+          promoTagShowsOnPage(matches[productId][r], pageType)
+        ) {
           rule = matches[productId][r];
           break;
         }
@@ -2579,7 +2751,7 @@
     if (pageType === "product") {
       applyPromoTagsPDP(matches, payload);
     } else {
-      applyPromoTagsListing(matches);
+      applyPromoTagsListing(matches, pageType);
     }
   }
 

@@ -227,11 +227,14 @@ export interface PromoTagRule {
   badge_type: BadgeType;
   badge_placement: BadgePlacement;
   priority: number;
+  show_on_pages?: string[];
   // Pre-computed per-product values (only present for dynamic badge types)
   cashback_value?: number;     // R$ this product earns in cashback
   viewers_baseline?: number;   // server-suggested live viewer count
   viewers_min?: number;
   viewers_max?: number;
+  modal_title?: string | null;
+  modal_body?: string | null;
   // Countdown coupon — emitted when an active coupon exists for this product
   coupon_code?: string;
   coupon_discount_pct?: number;
@@ -576,6 +579,9 @@ export async function computePromoTagMatches(
         badge_type: badgeType,
         badge_placement: placement,
         priority: rule.priority,
+        show_on_pages: Array.isArray(rule.show_on_pages) ? rule.show_on_pages : ["all"],
+        modal_title: rule.modal_title || null,
+        modal_body: rule.modal_body || null,
       };
 
       // Per-product enrichment

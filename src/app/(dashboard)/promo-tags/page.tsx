@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -58,6 +59,8 @@ interface PromoTagRule {
   viewers_max?: number;
   starts_at?: string | null;
   ends_at?: string | null;
+  modal_title?: string | null;
+  modal_body?: string | null;
 }
 
 const EMPTY_RULE: PromoTagRule = {
@@ -78,6 +81,8 @@ const EMPTY_RULE: PromoTagRule = {
   badge_placement: "auto",
   viewers_min: 3,
   viewers_max: 56,
+  modal_title: "",
+  modal_body: "",
 };
 
 const BADGE_TYPE_LABELS: Record<string, string> = {
@@ -406,6 +411,11 @@ export default function PromoTagsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate flex items-center gap-2">
                       {rule.name}
+                      {rule.modal_body && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Modal
+                        </Badge>
+                      )}
                       {(() => {
                         const now = Date.now();
                         const startsMs = rule.starts_at ? new Date(rule.starts_at).getTime() : null;
@@ -710,6 +720,37 @@ export default function PromoTagsPage() {
                   Use <code className="bg-muted px-1 rounded">{"{viewers}"}</code> como placeholder do número.
                 </p>
               )}
+            </div>
+
+            {/* Optional modal */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div>
+                <Label>Modal ao clicar (opcional)</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Preencha para deixar a etiqueta clicável na loja.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Título do modal</Label>
+                <Input
+                  value={editingRule.modal_title || ""}
+                  onChange={(e) =>
+                    updateEditing({ modal_title: e.target.value })
+                  }
+                  placeholder="Ex: Envio em 24 horas"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Texto do modal</Label>
+                <Textarea
+                  value={editingRule.modal_body || ""}
+                  onChange={(e) =>
+                    updateEditing({ modal_body: e.target.value })
+                  }
+                  placeholder="Ex: Envio em 24 horas em dias úteis, após aprovação do pagamento."
+                  rows={4}
+                />
+              </div>
             </div>
 
             {/* Viewers range — only when type=viewers */}
