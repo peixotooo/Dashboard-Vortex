@@ -10,7 +10,7 @@ const FOLLOWUP_MIN_AGE_HOURS = 24;
 const FOLLOWUP_MAX_AGE_DAYS = 14;
 const FOLLOWUP_LIMIT = 100;
 const FOLLOWUP_INTRO =
-  "Passando pra lembrar com carinho: {{requester_name}} tinha pedido esse produto de presente. Se ainda estiver em dúvida, essa pode ser uma forma simples de mostrar que você lembrou.";
+  "Passando pra lembrar: {{requester_name}} tinha pedido esse produto de presente. Se ainda fizer sentido, essa pode ser uma forma simples de mostrar que você lembrou.";
 
 interface GiftRequestWithId extends GiftRequestRow {
   id: string;
@@ -103,12 +103,13 @@ async function dispatchGiftRequestFollowup(params: {
 
   const { data: tpl } = await admin
     .from("wa_templates")
-    .select("name, language, status, components")
+    .select("name, language, status, category, components")
     .eq("id", templateId)
     .single();
 
   if (!tpl) return { ok: false, error: "template_not_found" };
   if (tpl.status !== "APPROVED") return { ok: false, error: "template_pending" };
+  if (tpl.category !== "UTILITY") return { ok: false, error: "template_not_utility" };
 
   const vars = buildGiftRequestVariables(request);
   const mapping = followupMapping(variableMapping || {});

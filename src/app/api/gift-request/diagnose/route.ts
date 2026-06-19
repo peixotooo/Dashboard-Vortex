@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
       detail:
         template.category === "UTILITY"
           ? undefined
-          : `Meta classificou como ${template.category}. Custo maior, mas ainda funciona. Pra reduzir custo, crie um novo com 'Criar agora'.`,
+          : `Meta classificou como ${template.category}. O módulo bloqueia templates fora de UTILITY. Crie um novo com 'Criar agora'.`,
     });
   }
 

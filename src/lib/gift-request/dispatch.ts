@@ -39,7 +39,7 @@ export async function dispatchGiftRequest(params: {
   // Confere se o template está APROVADO pela Meta antes de enfileirar.
   const { data: tpl } = await admin
     .from("wa_templates")
-    .select("name, language, status, components")
+    .select("name, language, status, category, components")
     .eq("id", templateId)
     .single();
 
@@ -48,6 +48,9 @@ export async function dispatchGiftRequest(params: {
   }
   if (tpl.status !== "APPROVED") {
     return { ok: false, error: "template_pending" };
+  }
+  if (tpl.category !== "UTILITY") {
+    return { ok: false, error: "template_not_utility" };
   }
 
   const vars = buildGiftRequestVariables(request, { storeName });
