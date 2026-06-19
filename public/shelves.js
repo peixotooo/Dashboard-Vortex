@@ -3113,7 +3113,7 @@
 
       var titleBold = tb.title_bold !== false;   // default true
       var messageBold = tb.message_bold === true; // default false
-      var slideLineHeight = "1.75em";
+      var slideLineHeight = "2.1em";
       var slides = [];
       if (Array.isArray(tb.slides)) {
         for (var si = 0; si < tb.slides.length; si++) {
@@ -3192,14 +3192,37 @@
       var slideTimer = null;
       var slidePaused = false;
       var activeSlide = 0;
+      var measuredSlideHeight = 0;
+      function applySlidePosition() {
+        var h = measuredSlideHeight || copyWrap.getBoundingClientRect().height || 28;
+        slideTrack.style.transform = "translateY(-" + (activeSlide * h) + "px)";
+      }
+      function syncSlideHeight() {
+        if (slides.length <= 1) return;
+        var maxH = 0;
+        for (var sh = 0; sh < slideTrack.children.length; sh++) {
+          var child = slideTrack.children[sh];
+          child.style.height = "auto";
+          child.style.minHeight = slideLineHeight;
+          var rect = child.getBoundingClientRect();
+          maxH = Math.max(maxH, Math.ceil(rect.height));
+        }
+        var fontSize = parseFloat(getComputedStyle(copyWrap).fontSize) || 14;
+        measuredSlideHeight = Math.max(maxH + 4, Math.ceil(fontSize * 2.1));
+        copyWrap.style.height = measuredSlideHeight + "px";
+        for (var sr = 0; sr < slideTrack.children.length; sr++) {
+          slideTrack.children[sr].style.height = measuredSlideHeight + "px";
+          slideTrack.children[sr].style.minHeight = measuredSlideHeight + "px";
+        }
+        applySlidePosition();
+      }
       if (slides.length > 1) {
         copyWrap.addEventListener("mouseenter", function () { slidePaused = true; });
         copyWrap.addEventListener("mouseleave", function () { slidePaused = false; });
         slideTimer = setInterval(function () {
           if (slidePaused) return;
           activeSlide = (activeSlide + 1) % slides.length;
-          var slideHeight = copyWrap.getBoundingClientRect().height || 20;
-          slideTrack.style.transform = "translateY(-" + (activeSlide * slideHeight) + "px)";
+          syncSlideHeight();
           updateCtaForActiveSlide();
         }, 3500);
       }
@@ -3326,6 +3349,7 @@
       document.body.appendChild(bar);
 
       function applyOffsets() {
+        syncSlideHeight();
         var h = bar.getBoundingClientRect().height || parseInt(tb.height, 10) || 40;
         document.documentElement.style.setProperty("--vtx-topbar-h", h + "px");
         document.body.style[isTop ? "paddingTop" : "paddingBottom"] = h + "px";

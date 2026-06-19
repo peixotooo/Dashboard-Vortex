@@ -583,7 +583,7 @@ export default function TopbarPage() {
 
   const currentPreviewSlide =
     previewSlides[previewSlideIndex % previewSlides.length] || previewSlides[0];
-  const previewSlideHeightEm = 1.75;
+  const previewSlideHeightEm = 2.1;
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
