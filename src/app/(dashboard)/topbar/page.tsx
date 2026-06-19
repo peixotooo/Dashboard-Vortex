@@ -1693,7 +1693,7 @@ export default function TopbarPage() {
                     <span
                       style={{
                         display: "inline-flex",
-                        alignItems: "center",
+                        alignItems: previewSlides.length > 1 ? "flex-start" : "center",
                         justifyContent: "center",
                         minWidth: 0,
                         maxWidth: "min(760px, 100%)",

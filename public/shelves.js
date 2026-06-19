@@ -3173,7 +3173,8 @@
       copyWrap.id = "vtx-topbar-copy";
       copyWrap.setAttribute(
         "style",
-        "display:inline-flex;align-items:center;justify-content:center;min-width:0;max-width:min(760px,calc(100vw - 170px));overflow:hidden" +
+        "display:inline-flex;align-items:" + (slides.length > 1 ? "flex-start" : "center") +
+          ";justify-content:center;min-width:0;max-width:min(760px,calc(100vw - 170px));overflow:hidden" +
           (slides.length > 1 ? ";height:" + slideLineHeight : "")
       );
 
