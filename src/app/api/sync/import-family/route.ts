@@ -341,18 +341,21 @@ export async function GET(req: NextRequest) {
             .from("hub_products")
             .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
             .eq("workspace_id", workspaceId)
+            .eq("source", "eccosys")
             .ilike("nome", pattern)
             .limit(120),
           supabase
             .from("hub_products")
             .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
             .eq("workspace_id", workspaceId)
+            .eq("source", "eccosys")
             .ilike("sku", pattern)
             .limit(80),
           supabase
             .from("hub_products")
             .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
             .eq("workspace_id", workspaceId)
+            .eq("source", "eccosys")
             .ilike("ecc_pai_sku", pattern)
             .limit(80),
         ]);
@@ -376,6 +379,7 @@ export async function GET(req: NextRequest) {
             .from("hub_products")
             .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
             .eq("workspace_id", workspaceId)
+            .eq("source", "eccosys")
             .in("sku", cachedParentSkus);
           for (const parent of parents || []) {
             if (parent?.sku && !cachedBySku.has(parent.sku)) cachedBySku.set(parent.sku, parent);
