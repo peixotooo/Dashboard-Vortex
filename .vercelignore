@@ -1,0 +1,25 @@
+.git
+.next
+.turbo
+node_modules
+
+.agents
+.claude
+.codex
+
+output
+reports
+docs/*.md
+
+public/*.zip
+public/Motivacionais
+public/ChatGPT Image*
+public/relatorio_*.csv
+public/socialbu-resized-400x400.png
+
+scripts/*.ts
+scripts/.*.json
+scripts/.*.txt
+scripts/.*.md
+scripts/.covers
+scripts/.covers-ctrl
