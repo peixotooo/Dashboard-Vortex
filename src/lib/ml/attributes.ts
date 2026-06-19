@@ -45,6 +45,8 @@ const COLOR_TOKENS: Array<[string, string]> = [
   ["branca", "Branco"],
   ["branco", "Branco"],
   ["gelo", "Branco"],
+  ["off", "Creme"],
+  ["mescla", "Cinza"],
   ["cinza", "Cinza"],
   ["chumbo", "Cinza-escuro"],
   ["grafite", "Cinza-escuro"],
