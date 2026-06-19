@@ -141,6 +141,25 @@ function parentLookupKey(product: EccosysProduto): string | null {
   return null;
 }
 
+function productSearchText(product: EccosysProduto): string {
+  return normalize(
+    `${product.codigo || ""} ${product.nome || ""} ${product.codigoPai || ""}`
+  );
+}
+
+function productMatchesQuery(product: EccosysProduto, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return productSearchText(product).includes(normalizedQuery);
+}
+
+function isEccosysRateLimitError(err: unknown): boolean {
+  return err instanceof Error && /Eccosys 429|Limite de/i.test(err.message);
+}
+
+function isEccosysBadFilterError(err: unknown): boolean {
+  return err instanceof Error && /Eccosys 400|Requisi/i.test(err.message);
+}
+
 // Extract photos from Eccosys product (images endpoint returns string[])
 function extractPhotos(product: EccosysProduto, imgs?: unknown): string[] {
   // The /produtos/{id}/imagens endpoint returns string[] directly
@@ -179,8 +198,10 @@ export async function GET(req: NextRequest) {
     );
 
     try {
+      const supabase = createAdminClient();
       let products: EccosysProduto[] = [];
       let hasMore = false;
+      let warning: string | null = null;
       const nq = normalize(q);
 
       if (nq) {
@@ -192,41 +213,90 @@ export async function GET(req: NextRequest) {
         let reachedEnd = false;
         let offset = 0;
 
-        // O $filter do Eccosys pode retornar 400 em algumas contas/ambientes.
-        // Para busca por nome confiável, varremos páginas e filtramos aqui.
-        for (let scanPage = 0; scanPage < 60 && matchedProducts.length <= targetEnd; scanPage++) {
-          const pageProducts = await eccosys.get<EccosysProduto[]>(
-            "/produtos",
-            workspaceId,
-            {
-              $offset: String(offset),
-              $count: String(scanPageSize),
-              $situacao: "A",
-            }
-          );
-
-          if (!Array.isArray(pageProducts) || pageProducts.length === 0) {
-            reachedEnd = true;
-            break;
-          }
-
+        const addMatchedProducts = (pageProducts: EccosysProduto[]) => {
           for (const product of pageProducts) {
-            const searchable = normalize(
-              `${product.codigo || ""} ${product.nome || ""} ${product.codigoPai || ""}`
-            );
-            if (!searchable.includes(nq)) continue;
+            if (!productMatchesQuery(product, nq)) continue;
 
             const key = parentLookupKey(product) || product.codigo || String(product.id);
             if (seenFamilyKeys.has(key)) continue;
             seenFamilyKeys.add(key);
             matchedProducts.push(product);
           }
+        };
+
+        const candidateQueries: Array<Record<string, string>> = [
+          {
+            codigo: q.trim(),
+            $count: String(scanPageSize),
+            $situacao: "A",
+          },
+          {
+            nome: q.trim(),
+            $count: String(scanPageSize),
+            $situacao: "A",
+          },
+        ];
+
+        for (const params of candidateQueries) {
+          try {
+            const candidateProducts = await eccosys.get<EccosysProduto[]>(
+              "/produtos",
+              workspaceId,
+              params
+            );
+            if (Array.isArray(candidateProducts)) addMatchedProducts(candidateProducts);
+          } catch (err) {
+            if (isEccosysRateLimitError(err)) {
+              warning = "O Eccosys limitou a busca agora. Mostrando os resultados que conseguimos carregar.";
+              reachedEnd = true;
+              break;
+            }
+            if (!isEccosysBadFilterError(err)) throw err;
+          }
+        }
+
+        // O $filter do Eccosys retorna 400 em produção. Como fallback,
+        // varremos uma amostra controlada para não estourar o limite de 100 req/min.
+        const maxScanPages = matchedProducts.length > targetEnd ? 0 : 12;
+        for (let scanPage = 0; scanPage < maxScanPages && matchedProducts.length <= targetEnd; scanPage++) {
+          let pageProducts: EccosysProduto[];
+          try {
+            pageProducts = await eccosys.get<EccosysProduto[]>(
+              "/produtos",
+              workspaceId,
+              {
+                $offset: String(offset),
+                $count: String(scanPageSize),
+                $situacao: "A",
+              }
+            );
+          } catch (err) {
+            if (isEccosysRateLimitError(err)) {
+              warning = "O Eccosys limitou a busca agora. Mostrando os resultados que conseguimos carregar.";
+              reachedEnd = true;
+              break;
+            }
+            throw err;
+          }
+
+          if (!Array.isArray(pageProducts) || pageProducts.length === 0) {
+            reachedEnd = true;
+            break;
+          }
+
+          addMatchedProducts(pageProducts);
 
           if (pageProducts.length < scanPageSize) {
             reachedEnd = true;
             break;
           }
           offset += scanPageSize;
+        }
+
+        if (!reachedEnd && matchedProducts.length <= targetEnd) {
+          warning =
+            warning ||
+            "Busca parcial no Eccosys para preservar o limite da API. Se não aparecer, tente um termo mais específico ou o SKU pai.";
         }
 
         products = matchedProducts.slice(targetStart, targetEnd);
@@ -263,6 +333,72 @@ export async function GET(req: NextRequest) {
           matched_by: "parent" | "variation";
         }
       >();
+
+      if (nq) {
+        const pattern = `%${q.trim()}%`;
+        const [byName, bySku, byParentSku] = await Promise.all([
+          supabase
+            .from("hub_products")
+            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+            .eq("workspace_id", workspaceId)
+            .ilike("nome", pattern)
+            .limit(120),
+          supabase
+            .from("hub_products")
+            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+            .eq("workspace_id", workspaceId)
+            .ilike("sku", pattern)
+            .limit(80),
+          supabase
+            .from("hub_products")
+            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+            .eq("workspace_id", workspaceId)
+            .ilike("ecc_pai_sku", pattern)
+            .limit(80),
+        ]);
+
+        const cachedRows = [...(byName.data || []), ...(bySku.data || []), ...(byParentSku.data || [])];
+        const cachedBySku = new Map<string, (typeof cachedRows)[number]>();
+        for (const row of cachedRows) {
+          if (row?.sku && !cachedBySku.has(row.sku)) cachedBySku.set(row.sku, row);
+        }
+
+        const cachedParentSkus = Array.from(
+          new Set(
+            cachedRows
+              .map((row) => row.ecc_pai_sku)
+              .filter((sku): sku is string => Boolean(sku))
+          )
+        );
+
+        if (cachedParentSkus.length > 0) {
+          const { data: parents } = await supabase
+            .from("hub_products")
+            .select("ecc_id, sku, nome, preco, fotos, situacao, ecc_pai_sku")
+            .eq("workspace_id", workspaceId)
+            .in("sku", cachedParentSkus);
+          for (const parent of parents || []) {
+            if (parent?.sku && !cachedBySku.has(parent.sku)) cachedBySku.set(parent.sku, parent);
+          }
+        }
+
+        for (const row of cachedRows) {
+          const parentSku = row.ecc_pai_sku || row.sku;
+          if (!parentSku || familiesBySku.has(parentSku)) continue;
+          const parent = cachedBySku.get(parentSku) || row;
+          const fotos = Array.isArray(parent.fotos) ? parent.fotos : [];
+          familiesBySku.set(parentSku, {
+            id: Number(parent.ecc_id) || 0,
+            sku: parentSku,
+            nome: parent.nome || row.nome || parentSku,
+            preco: Number(parent.preco) || 0,
+            foto: fotos[0] || null,
+            situacao: parent.situacao || "A",
+            child_count: null,
+            matched_by: row.ecc_pai_sku ? "variation" : "parent",
+          });
+        }
+      }
 
       const childParentKeys = new Set<string>();
       for (const product of products) {
@@ -311,7 +447,6 @@ export async function GET(req: NextRequest) {
 
       const families = Array.from(familiesBySku.values());
       const skus = families.map((f) => f.sku);
-      const supabase = createAdminClient();
       const { data: existing } = skus.length
         ? await supabase
             .from("hub_products")
@@ -338,6 +473,7 @@ export async function GET(req: NextRequest) {
         })),
         page,
         hasMore,
+        warning,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";

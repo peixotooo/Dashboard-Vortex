@@ -534,6 +534,13 @@ interface FamilySearchResult {
   already_in_hub: boolean;
 }
 
+function isLikelyExactParentCode(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^\d+$/.test(trimmed)) return true;
+  return /^(?=.*\d)[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmed);
+}
+
 function ImportFamilyModal({
   open,
   onClose,
@@ -561,6 +568,7 @@ function ImportFamilyModal({
   const [preview, setPreview] = useState<FamilyPreview | null>(null);
   const [enrichment, setEnrichment] = useState<MLEnrichment | null>(null);
   const [error, setError] = useState("");
+  const [searchNotice, setSearchNotice] = useState("");
   const [result, setResult] = useState<{
     imported: number;
     errors: number;
@@ -581,6 +589,7 @@ function ImportFamilyModal({
       setPreview(null);
       setEnrichment(null);
       setError("");
+      setSearchNotice("");
       setResult(null);
     }
   }, [open]);
@@ -588,6 +597,7 @@ function ImportFamilyModal({
   async function handleFamilySearch(p = 0, query = parentSku) {
     setLoading(true);
     setError("");
+    if (p === 0) setSearchNotice("");
     try {
       const params = new URLSearchParams({
         mode: "search",
@@ -602,6 +612,7 @@ function ImportFamilyModal({
         setError(data.error || "Erro ao buscar familias");
         return;
       }
+      setSearchNotice(data.warning || "");
       const incoming = (data.families || []) as FamilySearchResult[];
       setFamilies((prev) => {
         if (p === 0) return incoming;
@@ -620,6 +631,10 @@ function ImportFamilyModal({
 
   async function handleSearch(sku = parentSku.trim()) {
     if (!sku.trim()) return;
+    if (!isLikelyExactParentCode(sku)) {
+      await handleFamilySearch(0, sku);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -847,20 +862,8 @@ function ImportFamilyModal({
                 />
               </div>
               <Button
-                onClick={() => handleSearch(parentSku.trim())}
-                disabled={loading || !parentSku.trim()}
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Eye className="h-4 w-4 mr-2" />
-                )}
-                Prévia por código
-              </Button>
-              <Button
-                variant="outline"
                 onClick={() => handleFamilySearch(0, parentSku)}
-                disabled={loading || importing}
+                disabled={loading || importing || !parentSku.trim()}
               >
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -869,11 +872,35 @@ function ImportFamilyModal({
                 )}
                 Buscar famílias
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleSearch(parentSku.trim())}
+                disabled={loading || importing || !isLikelyExactParentCode(parentSku)}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Eye className="h-4 w-4 mr-2" />
+                )}
+                Prévia por código
+              </Button>
             </div>
+
+            {parentSku.trim() && !isLikelyExactParentCode(parentSku) && (
+              <p className="text-xs text-muted-foreground">
+                Buscando por trecho do nome. Para abrir uma prévia direta, informe o código/SKU pai exato.
+              </p>
+            )}
 
             {error && (
               <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded">
                 {error}
+              </div>
+            )}
+
+            {searchNotice && (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-900 px-3 py-2 rounded">
+                {searchNotice}
               </div>
             )}
 
