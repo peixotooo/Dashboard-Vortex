@@ -179,18 +179,72 @@ export async function GET(req: NextRequest) {
     );
 
     try {
-      const params: Record<string, string> = {
-        $offset: String(page * pageSize),
-        $count: String(pageSize),
-        $situacao: "A",
-      };
-      if (q) params.$filter = q;
+      let products: EccosysProduto[] = [];
+      let hasMore = false;
+      const nq = normalize(q);
 
-      const products = await eccosys.get<EccosysProduto[]>(
-        "/produtos",
-        workspaceId,
-        params
-      );
+      if (nq) {
+        const scanPageSize = 100;
+        const targetStart = page * pageSize;
+        const targetEnd = targetStart + pageSize;
+        const matchedProducts: EccosysProduto[] = [];
+        const seenFamilyKeys = new Set<string>();
+        let reachedEnd = false;
+        let offset = 0;
+
+        // O $filter do Eccosys pode retornar 400 em algumas contas/ambientes.
+        // Para busca por nome confiável, varremos páginas e filtramos aqui.
+        for (let scanPage = 0; scanPage < 60 && matchedProducts.length <= targetEnd; scanPage++) {
+          const pageProducts = await eccosys.get<EccosysProduto[]>(
+            "/produtos",
+            workspaceId,
+            {
+              $offset: String(offset),
+              $count: String(scanPageSize),
+              $situacao: "A",
+            }
+          );
+
+          if (!Array.isArray(pageProducts) || pageProducts.length === 0) {
+            reachedEnd = true;
+            break;
+          }
+
+          for (const product of pageProducts) {
+            const searchable = normalize(
+              `${product.codigo || ""} ${product.nome || ""} ${product.codigoPai || ""}`
+            );
+            if (!searchable.includes(nq)) continue;
+
+            const key = parentLookupKey(product) || product.codigo || String(product.id);
+            if (seenFamilyKeys.has(key)) continue;
+            seenFamilyKeys.add(key);
+            matchedProducts.push(product);
+          }
+
+          if (pageProducts.length < scanPageSize) {
+            reachedEnd = true;
+            break;
+          }
+          offset += scanPageSize;
+        }
+
+        products = matchedProducts.slice(targetStart, targetEnd);
+        hasMore =
+          matchedProducts.length > targetEnd ||
+          (!reachedEnd && matchedProducts.length >= targetEnd);
+      } else {
+        products = await eccosys.get<EccosysProduto[]>(
+          "/produtos",
+          workspaceId,
+          {
+            $offset: String(page * pageSize),
+            $count: String(pageSize),
+            $situacao: "A",
+          }
+        );
+        hasMore = Array.isArray(products) && products.length === pageSize;
+      }
 
       if (!Array.isArray(products)) {
         return NextResponse.json({ families: [], page, hasMore: false });
@@ -267,7 +321,6 @@ export async function GET(req: NextRequest) {
         : { data: [] };
       const existingSkus = new Set((existing || []).map((r) => r.sku));
 
-      const nq = normalize(q);
       families.sort((a, b) => {
         const aName = normalize(`${a.sku} ${a.nome}`);
         const bName = normalize(`${b.sku} ${b.nome}`);
@@ -284,7 +337,7 @@ export async function GET(req: NextRequest) {
           already_in_hub: existingSkus.has(family.sku),
         })),
         page,
-        hasMore: products.length === pageSize,
+        hasMore,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
