@@ -659,7 +659,6 @@ export default function TopbarPage() {
 
   const currentPreviewSlide =
     previewSlides[previewSlideIndex % previewSlides.length] || previewSlides[0];
-  const previewSlideHeightEm = 2.1;
   const currentPreviewCtaBg =
     currentPreviewSlide?.button_bg_color || editing?.accent_color || config.accent_color;
   const currentPreviewCtaColor =
@@ -674,15 +673,19 @@ export default function TopbarPage() {
     return {
       background: bg,
       color: fg,
-      padding: "8px 52px 8px 20px",
+      padding: "8px 38px 8px 12px",
       borderRadius: 8,
       fontSize: editing?.font_size || config.font_size,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      gap: 14,
+      gap: 6,
       minHeight: editing?.height || config.height,
+      flexDirection: "column",
       flexWrap: "wrap",
+      boxSizing: "border-box",
+      overflow: "visible",
+      textAlign: "center",
       boxShadow: "0 1px 0 rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.08)",
       border: "1px solid rgba(255,255,255,.10)",
     };
@@ -1829,154 +1832,148 @@ export default function TopbarPage() {
                   <div style={previewStyle}>
                     <span
                       style={{
-                        display: "inline-flex",
-                        alignItems: previewSlides.length > 1 ? "flex-start" : "center",
+                        display: "flex",
+                        alignItems: "center",
                         justifyContent: "center",
+                        flexWrap: "wrap",
+                        gap: "2px 7px",
                         minWidth: 0,
-                        maxWidth: "min(760px, 100%)",
-                        overflow: "hidden",
-                        height:
-                          previewSlides.length > 1
-                            ? `${previewSlideHeightEm}em`
-                            : undefined,
+                        width: "100%",
+                        maxWidth: "100%",
+                        overflow: "visible",
+                        lineHeight: 1.35,
+                        textAlign: "center",
                       }}
                     >
+                      {currentPreviewSlide?.title && (
+                        <span
+                          style={{
+                            fontWeight: effectiveTitleBold ? 700 : 400,
+                            letterSpacing: ".02em",
+                            overflow: "visible",
+                            textOverflow: "clip",
+                            lineHeight: 1.35,
+                            maxWidth: "100%",
+                          }}
+                        >
+                          {currentPreviewSlide.title}
+                        </span>
+                      )}
                       <span
                         style={{
-                          display: previewSlides.length > 1 ? "flex" : "inline-flex",
-                          flexDirection: previewSlides.length > 1 ? "column" : undefined,
-                          alignItems: "center",
-                          transition: "transform .48s cubic-bezier(.22,.61,.36,1)",
-                          transform:
-                            previewSlides.length > 1
-                              ? `translateY(-${
-                                  (previewSlideIndex % previewSlides.length) *
-                                  previewSlideHeightEm
-                                }em)`
-                              : undefined,
+                          fontWeight: effectiveMessageBold ? 700 : 400,
+                          overflow: "visible",
+                          textOverflow: "clip",
+                          lineHeight: 1.35,
+                          maxWidth: "100%",
                         }}
                       >
-                        {previewSlides.map((slide, index) => (
-                          <span
-                            key={`${index}-${slide.message}-${slide.link_label}`}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: 8,
-                              height: `${previewSlideHeightEm}em`,
-                              minHeight: `${previewSlideHeightEm}em`,
-                              maxWidth: "100%",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              lineHeight: 1.35,
-                            }}
-                          >
-                            {slide.title && (
-                              <span
-                                style={{
-                                  fontWeight: effectiveTitleBold ? 700 : 400,
-                                  letterSpacing: ".02em",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  lineHeight: 1.35,
-                                }}
-                              >
-                                {slide.title}
-                              </span>
-                            )}
-                            <span
-                              style={{
-                                fontWeight: effectiveMessageBold ? 700 : 400,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              {slide.message}
-                            </span>
-                          </span>
-                        ))}
+                        {currentPreviewSlide?.message}
                       </span>
                     </span>
-                    {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
-                      <span
-                        style={{
-                          background: currentPreviewCtaBg,
-                          color: currentPreviewCtaColor,
-                          padding: currentPreviewCtaPadding,
-                          borderRadius: currentPreviewCtaRadius,
-                          fontWeight: currentPreviewCtaWeight,
-                          fontSize: 13,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {currentPreviewSlide.link_label}
-                      </span>
-                    )}
-                    {editing.countdown_enabled && (
+                    {(currentPreviewSlide?.link_url && currentPreviewSlide.link_label) ||
+                    editing.countdown_enabled ? (
                       <span
                         style={{
                           display: "inline-flex",
-                          alignItems: "stretch",
-                          gap: 0,
-                          overflow: "hidden",
-                          background: effectiveCdBg,
-                          color: effectiveCdColor,
-                          borderRadius: effectiveCdRadius,
-                          margin: effectiveCdMargin,
-                          fontWeight: effectiveCdWeight,
-                          fontSize: 13,
-                          lineHeight: 1,
-                          fontVariantNumeric: "tabular-nums",
-                          boxShadow:
-                            "0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(0,0,0,.08)",
-                          border: "1px solid rgba(255,255,255,.12)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexWrap: "wrap",
+                          gap: "6px 8px",
+                          width: "100%",
+                          maxWidth: "100%",
                         }}
                       >
-                        {(editing.countdown_label || "Termina em").trim() && (
+                        {currentPreviewSlide?.link_url && currentPreviewSlide.link_label && (
                           <span
                             style={{
                               display: "inline-flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              padding: "0 10px",
-                              opacity: 0.74,
-                              fontSize: 10,
-                              textTransform: "uppercase",
-                              letterSpacing: ".06em",
-                              borderRight: "1px solid rgba(255,255,255,.16)",
+                              background: currentPreviewCtaBg,
+                              color: currentPreviewCtaColor,
+                              padding: currentPreviewCtaPadding,
+                              borderRadius: currentPreviewCtaRadius,
+                              fontWeight: currentPreviewCtaWeight,
+                              fontSize: 12,
+                              minHeight: 30,
                               whiteSpace: "nowrap",
+                              maxWidth: "100%",
+                              boxSizing: "border-box",
                             }}
                           >
-                            {editing.countdown_label || "Termina em"}
+                            {currentPreviewSlide.link_label}
                           </span>
                         )}
-                        {[
-                          ["02", "h"],
-                          ["14", "m"],
-                          ["33", "s"],
-                        ].map(([value, unit]) => (
+                        {editing.countdown_enabled && (
                           <span
-                            key={unit}
                             style={{
                               display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              minWidth: 42,
-                              padding: effectiveCdPad,
-                              whiteSpace: "nowrap",
-                              borderLeft: "1px solid rgba(255,255,255,.12)",
+                              alignItems: "stretch",
+                              gap: 0,
+                              overflow: "hidden",
+                              background: effectiveCdBg,
+                              color: effectiveCdColor,
+                              borderRadius: effectiveCdRadius,
+                              margin: effectiveCdMargin,
+                              fontWeight: effectiveCdWeight,
+                              fontSize: 12,
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                              maxWidth: "100%",
+                              boxSizing: "border-box",
+                              boxShadow:
+                                "0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(0,0,0,.08)",
+                              border: "1px solid rgba(255,255,255,.12)",
                             }}
                           >
-                            <span>{value}</span>
-                            <span style={{ opacity: 0.64, marginLeft: 2, fontSize: ".82em" }}>
-                              {unit}
-                            </span>
+                            {(editing.countdown_label || "Termina em").trim() && (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: "0 8px",
+                                  opacity: 0.74,
+                                  fontSize: 9,
+                                  textTransform: "uppercase",
+                                  letterSpacing: ".06em",
+                                  borderRight: "1px solid rgba(255,255,255,.16)",
+                                  whiteSpace: "nowrap",
+                                  boxSizing: "border-box",
+                                }}
+                              >
+                                {editing.countdown_label || "Termina em"}
+                              </span>
+                            )}
+                            {[
+                              ["02", "h"],
+                              ["14", "m"],
+                              ["33", "s"],
+                            ].map(([value, unit]) => (
+                              <span
+                                key={unit}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  minWidth: 36,
+                                  padding: effectiveCdPad,
+                                  whiteSpace: "nowrap",
+                                  borderLeft: "1px solid rgba(255,255,255,.12)",
+                                  boxSizing: "border-box",
+                                }}
+                              >
+                                <span>{value}</span>
+                                <span style={{ opacity: 0.64, marginLeft: 2, fontSize: ".82em" }}>
+                                  {unit}
+                                </span>
+                              </span>
+                            ))}
                           </span>
-                        ))}
+                        )}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 

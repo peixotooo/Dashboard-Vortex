@@ -3110,6 +3110,7 @@
       bar.setAttribute("style", styles.join(";"));
 
       var content = document.createElement("div");
+      content.setAttribute("data-vtx-topbar-content", "true");
       content.setAttribute(
         "style",
         "display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;min-width:0;width:min(100%,1280px);max-width:100%;margin:0 auto"
@@ -3181,6 +3182,7 @@
 
       function buildTopbarSlide(slide, slideIndex) {
         var row = document.createElement("span");
+        row.setAttribute("data-vtx-slide-row", "true");
         row.setAttribute(
           "style",
           "height:" + slideLineHeight +
@@ -3190,6 +3192,7 @@
         if (slide.title) {
           var titleEl = document.createElement("span");
           if (slideIndex === 0) titleEl.id = "vtx-topbar-title";
+          titleEl.setAttribute("data-vtx-copy-title", "true");
           titleEl.setAttribute(
             "style",
             "font-weight:" + (titleBold ? 700 : 400) +
@@ -3201,6 +3204,7 @@
 
         var msg = document.createElement("span");
         if (slideIndex === 0) msg.id = "vtx-topbar-msg";
+        msg.setAttribute("data-vtx-copy-message", "true");
         msg.setAttribute(
           "style",
           "font-weight:" + (messageBold ? 700 : 400) +
@@ -3216,64 +3220,60 @@
       copyWrap.setAttribute(
         "style",
         "display:inline-flex;align-items:" + (slides.length > 1 ? "flex-start" : "center") +
-          ";justify-content:center;min-width:0;max-width:min(760px,100%);overflow:hidden" +
-          (slides.length > 1 ? ";height:" + slideLineHeight : "")
+          ";justify-content:center;min-width:0;max-width:min(760px,100%);overflow:hidden"
       );
 
       var slideTrack = document.createElement("span");
       slideTrack.setAttribute(
         "style",
-        slides.length > 1
-          ? "display:flex;flex-direction:column;transition:transform .48s cubic-bezier(.22,.61,.36,1);will-change:transform"
-          : "display:inline-flex;align-items:center;min-width:0;max-width:100%"
+        "display:inline-flex;align-items:center;justify-content:center;min-width:0;max-width:100%;transition:transform .24s ease,opacity .24s ease;will-change:transform,opacity"
       );
-      for (var sIdx = 0; sIdx < slides.length; sIdx++) {
-        slideTrack.appendChild(buildTopbarSlide(slides[sIdx], sIdx));
+      function renderVisibleSlide(slideIndex) {
+        while (slideTrack.firstChild) slideTrack.removeChild(slideTrack.firstChild);
+        slideTrack.appendChild(buildTopbarSlide(slides[slideIndex] || slides[0], 0));
       }
+      renderVisibleSlide(0);
       copyWrap.appendChild(slideTrack);
       content.appendChild(copyWrap);
       var slideTimer = null;
+      var slideSwapTimer = null;
       var slidePaused = false;
       var activeSlide = 0;
-      var measuredSlideHeight = 0;
-      function applySlidePosition() {
-        var h = measuredSlideHeight || copyWrap.getBoundingClientRect().height || 28;
-        slideTrack.style.transform = "translateY(-" + (activeSlide * h) + "px)";
-      }
       function syncSlideHeight() {
-        if (slides.length <= 1) return;
-        var maxH = 0;
-        for (var sh = 0; sh < slideTrack.children.length; sh++) {
-          var child = slideTrack.children[sh];
-          child.style.height = "auto";
-          child.style.minHeight = slideLineHeight;
-          var rect = child.getBoundingClientRect();
-          maxH = Math.max(maxH, Math.ceil(rect.height));
-        }
-        var fontSize = parseFloat(getComputedStyle(copyWrap).fontSize) || 14;
-        measuredSlideHeight = Math.max(maxH + 4, Math.ceil(fontSize * 2.1));
-        copyWrap.style.height = measuredSlideHeight + "px";
-        for (var sr = 0; sr < slideTrack.children.length; sr++) {
-          slideTrack.children[sr].style.height = measuredSlideHeight + "px";
-          slideTrack.children[sr].style.minHeight = measuredSlideHeight + "px";
-        }
-        applySlidePosition();
+        copyWrap.style.height = "";
       }
       if (slides.length > 1) {
         copyWrap.addEventListener("mouseenter", function () { slidePaused = true; });
         copyWrap.addEventListener("mouseleave", function () { slidePaused = false; });
         slideTimer = setInterval(function () {
           if (slidePaused) return;
-          activeSlide = (activeSlide + 1) % slides.length;
-          syncSlideHeight();
-          updateCtaForActiveSlide();
+          var nextSlide = (activeSlide + 1) % slides.length;
+          slideTrack.style.transform = "translateY(-8px)";
+          slideTrack.style.opacity = "0";
+          if (slideSwapTimer) clearTimeout(slideSwapTimer);
+          slideSwapTimer = setTimeout(function () {
+            activeSlide = nextSlide;
+            renderVisibleSlide(activeSlide);
+            updateCtaForActiveSlide();
+            applyResponsiveTopbarLayout();
+            slideTrack.style.transition = "none";
+            slideTrack.style.transform = "translateY(8px)";
+            slideTrack.style.opacity = "0";
+            requestAnimationFrame(function () {
+              slideTrack.style.transition = "transform .24s ease,opacity .24s ease";
+              slideTrack.style.transform = "translateY(0)";
+              slideTrack.style.opacity = "1";
+              setTimeout(applyOffsets, 0);
+            });
+          }, 220);
         }, 3500);
       }
 
       var actionsWrap = document.createElement("span");
+      actionsWrap.setAttribute("data-vtx-topbar-actions", "true");
       actionsWrap.setAttribute(
         "style",
-        "display:inline-flex;align-items:center;justify-content:center;gap:10px;flex-wrap:nowrap;min-width:0"
+        "display:inline-flex;align-items:center;justify-content:center;gap:10px;flex-wrap:nowrap;min-width:0;max-width:100%"
       );
 
       var cta = null;
@@ -3308,9 +3308,10 @@
       }
       if (hasSlideCta) {
         cta = document.createElement("a");
+        cta.setAttribute("data-vtx-topbar-cta", "true");
         cta.setAttribute(
           "style",
-          "display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px;line-height:1;white-space:nowrap;box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 1px 2px rgba(0,0,0,.10);transition:opacity .16s ease,transform .16s ease"
+          "display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px;line-height:1;white-space:nowrap;box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 1px 2px rgba(0,0,0,.10);transition:opacity .16s ease,transform .16s ease;box-sizing:border-box;max-width:100%"
         );
         cta.addEventListener("mouseenter", function () { cta.style.opacity = ".92"; });
         cta.addEventListener("mouseleave", function () { cta.style.opacity = "1"; });
@@ -3343,26 +3344,29 @@
             ";color:" + cdColor +
             ";font-weight:" + cdWeight +
             ";font-size:13px;line-height:1;font-variant-numeric:tabular-nums" +
+            ";box-sizing:border-box" +
             ";box-shadow:0 1px 0 rgba(255,255,255,.12) inset,0 1px 2px rgba(0,0,0,.08)" +
             ";border:1px solid rgba(255,255,255,.12)"
         );
         var countdownLabel = String(tb.countdown_label || "Termina em").trim();
         if (countdownLabel) {
           var labelEl = document.createElement("span");
+          labelEl.setAttribute("data-vtx-countdown-label", "true");
           labelEl.setAttribute(
             "style",
-            "display:inline-flex;align-items:center;justify-content:center;padding:0 10px;opacity:.74;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-right:1px solid rgba(255,255,255,.16);white-space:nowrap"
+            "display:inline-flex;align-items:center;justify-content:center;padding:0 10px;opacity:.74;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-right:1px solid rgba(255,255,255,.16);white-space:nowrap;box-sizing:border-box"
           );
           labelEl.textContent = countdownLabel;
           countdownEl.appendChild(labelEl);
         }
         function makeCountdownCell(unit) {
           var cell = document.createElement("span");
+          cell.setAttribute("data-vtx-countdown-cell", "true");
           cell.setAttribute(
             "style",
             "display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:" +
               cdPad +
-              ";white-space:nowrap" +
+              ";white-space:nowrap;box-sizing:border-box" +
               (countdownEl.children.length ? ";border-left:1px solid rgba(255,255,255,.12)" : "")
           );
           var value = document.createElement("span");
@@ -3387,6 +3391,85 @@
 
       bar.appendChild(content);
 
+      function isCompactTopbar() {
+        var w = window.innerWidth || document.documentElement.clientWidth || 0;
+        return w > 0 && w <= 640;
+      }
+
+      function applyResponsiveTopbarLayout() {
+        var compact = isCompactTopbar();
+        bar.style.padding = compact
+          ? (tb.show_close_button !== false ? "8px 38px 8px 12px" : "8px 12px")
+          : "8px 52px 8px 20px";
+        content.style.flexDirection = compact ? "column" : "row";
+        content.style.gap = compact ? "6px" : "14px";
+        content.style.width = compact ? "100%" : "min(100%,1280px)";
+
+        copyWrap.style.width = compact ? "100%" : "";
+        copyWrap.style.maxWidth = compact ? "100%" : "min(760px,100%)";
+        copyWrap.style.alignItems = compact ? "center" : (slides.length > 1 ? "flex-start" : "center");
+
+        slideTrack.style.width = compact ? "100%" : "";
+        slideTrack.style.maxWidth = "100%";
+
+        for (var rr = 0; rr < slideTrack.children.length; rr++) {
+          var row = slideTrack.children[rr];
+          row.style.width = compact ? "100%" : "";
+          row.style.whiteSpace = compact ? "normal" : "nowrap";
+          row.style.flexWrap = compact ? "wrap" : "nowrap";
+          row.style.gap = compact ? "2px 7px" : "8px";
+          row.style.overflow = compact ? "visible" : "hidden";
+          row.style.textAlign = "center";
+          row.style.height = compact ? "auto" : slideLineHeight;
+          row.style.minHeight = compact ? "0" : slideLineHeight;
+        }
+
+        var titleParts = bar.querySelectorAll("[data-vtx-copy-title]");
+        for (var tt = 0; tt < titleParts.length; tt++) {
+          titleParts[tt].style.maxWidth = compact ? "100%" : "42vw";
+          titleParts[tt].style.overflow = compact ? "visible" : "hidden";
+          titleParts[tt].style.textOverflow = compact ? "clip" : "ellipsis";
+        }
+
+        var messageParts = bar.querySelectorAll("[data-vtx-copy-message]");
+        for (var mm = 0; mm < messageParts.length; mm++) {
+          messageParts[mm].style.overflow = compact ? "visible" : "hidden";
+          messageParts[mm].style.textOverflow = compact ? "clip" : "ellipsis";
+          messageParts[mm].style.maxWidth = "100%";
+        }
+
+        actionsWrap.style.width = compact ? "100%" : "";
+        actionsWrap.style.flexWrap = compact ? "wrap" : "nowrap";
+        actionsWrap.style.gap = compact ? "6px 8px" : "10px";
+
+        if (cta) {
+          cta.style.fontSize = compact ? "12px" : "13px";
+          cta.style.minHeight = compact ? "30px" : "";
+          cta.style.flexShrink = "0";
+        }
+
+        if (countdownEl) {
+          countdownEl.style.maxWidth = "100%";
+          countdownEl.style.flexShrink = "1";
+          countdownEl.style.fontSize = compact ? "12px" : "13px";
+        }
+
+        var countdownLabelEl = countdownEl
+          ? countdownEl.querySelector("[data-vtx-countdown-label]")
+          : null;
+        if (countdownLabelEl) {
+          countdownLabelEl.style.padding = compact ? "0 8px" : "0 10px";
+          countdownLabelEl.style.fontSize = compact ? "9px" : "10px";
+        }
+
+        var countdownCellEls = countdownEl
+          ? countdownEl.querySelectorAll("[data-vtx-countdown-cell]")
+          : [];
+        for (var cc = 0; cc < countdownCellEls.length; cc++) {
+          countdownCellEls[cc].style.minWidth = compact ? "36px" : "42px";
+        }
+      }
+
       if (tb.show_close_button !== false) {
         var close = document.createElement("button");
         close.setAttribute("aria-label", "Fechar");
@@ -3398,7 +3481,7 @@
         close.addEventListener("click", function () {
           trackTopbar("close", tb.campaign_id, tb.variation_id);
           if (tb.campaign_id) markDismissed(tb.campaign_id);
-          if (slideTimer) clearInterval(slideTimer);
+          cleanupTopbarInternals();
           bar.remove();
           document.documentElement.style.removeProperty("--vtx-topbar-h");
           document.body.style.removeProperty(isTop ? "padding-top" : "padding-bottom");
@@ -3421,10 +3504,11 @@
           // Só considera elementos efetivamente colados no top
           var topVal = parseFloat(cs.top);
           if (isNaN(topVal) || topVal > 8) continue;
-          // Evita re-empurrar
-          if (el.getAttribute("data-vtx-shifted")) continue;
-          el.setAttribute("data-vtx-shifted", String(topVal || 0));
-          el.style.setProperty("top", (topVal + barHeight) + "px", "important");
+          var storedTop = el.getAttribute("data-vtx-shifted");
+          var originalTop = storedTop !== null ? parseFloat(storedTop) : (topVal || 0);
+          if (isNaN(originalTop)) originalTop = 0;
+          el.setAttribute("data-vtx-shifted", String(originalTop));
+          el.style.setProperty("top", (originalTop + barHeight) + "px", "important");
         }
       }
 
@@ -3438,13 +3522,26 @@
         }
       }
 
-      bar.__vtxCleanup = function () {
+      var resizeRaf = null;
+      function queueTopbarResize() {
+        if (resizeRaf) cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(applyOffsets);
+      }
+
+      function cleanupTopbarInternals() {
         if (slideTimer) clearInterval(slideTimer);
-      };
+        if (slideSwapTimer) clearTimeout(slideSwapTimer);
+        if (resizeRaf) cancelAnimationFrame(resizeRaf);
+        window.removeEventListener("resize", queueTopbarResize);
+        window.removeEventListener("orientationchange", queueTopbarResize);
+      }
+
+      bar.__vtxCleanup = cleanupTopbarInternals;
 
       document.body.appendChild(bar);
 
       function applyOffsets() {
+        applyResponsiveTopbarLayout();
         syncSlideHeight();
         var h = bar.getBoundingClientRect().height || parseInt(tb.height, 10) || 40;
         document.documentElement.style.setProperty("--vtx-topbar-h", h + "px");
@@ -3455,6 +3552,8 @@
       // Themes (VNDA, Shopify) costumam montar header async — reaplica.
       setTimeout(applyOffsets, 600);
       setTimeout(applyOffsets, 1800);
+      window.addEventListener("resize", queueTopbarResize);
+      window.addEventListener("orientationchange", queueTopbarResize);
 
       trackTopbar("impression", tb.campaign_id, tb.variation_id);
 
