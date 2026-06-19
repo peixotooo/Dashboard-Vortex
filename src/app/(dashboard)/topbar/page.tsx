@@ -295,6 +295,32 @@ function withConfigSpacing(config: Partial<TopbarConfig> | null | undefined): To
   };
 }
 
+function isLightCssColor(value: string | null | undefined): boolean {
+  const raw = (value || "").trim().toLowerCase();
+  const hex = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 170;
+  }
+  const rgb = raw.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgb) {
+    return (
+      (Number(rgb[1]) * 299 + Number(rgb[2]) * 587 + Number(rgb[3]) * 114) /
+        1000 >
+      170
+    );
+  }
+  return raw.includes("white") || raw.includes("255,255,255");
+}
+
+function readableTextOnCssColor(bg: string | null | undefined): string {
+  return isLightCssColor(bg) ? "#111827" : "#ffffff";
+}
+
 // ---------- Component ----------
 
 export default function TopbarPage() {
@@ -636,10 +662,11 @@ export default function TopbarPage() {
   const previewSlideHeightEm = 2.1;
   const currentPreviewCtaBg =
     currentPreviewSlide?.button_bg_color || editing?.accent_color || config.accent_color;
-  const currentPreviewCtaColor = currentPreviewSlide?.button_text_color || "#fff";
-  const currentPreviewCtaPadding = currentPreviewSlide?.button_padding || "4px 12px";
-  const currentPreviewCtaRadius = currentPreviewSlide?.button_border_radius || "999px";
-  const currentPreviewCtaWeight = currentPreviewSlide?.button_font_weight || "600";
+  const currentPreviewCtaColor =
+    currentPreviewSlide?.button_text_color || readableTextOnCssColor(currentPreviewCtaBg);
+  const currentPreviewCtaPadding = currentPreviewSlide?.button_padding || "7px 16px";
+  const currentPreviewCtaRadius = currentPreviewSlide?.button_border_radius || "12px";
+  const currentPreviewCtaWeight = currentPreviewSlide?.button_font_weight || "700";
 
   const previewStyle = useMemo<React.CSSProperties>(() => {
     const bg = editing?.bg_color || config.bg_color;
@@ -647,15 +674,17 @@ export default function TopbarPage() {
     return {
       background: bg,
       color: fg,
-      padding: "10px 14px",
+      padding: "8px 52px 8px 20px",
       borderRadius: 8,
       fontSize: editing?.font_size || config.font_size,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      gap: 12,
+      gap: 14,
       minHeight: editing?.height || config.height,
       flexWrap: "wrap",
+      boxShadow: "0 1px 0 rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.08)",
+      border: "1px solid rgba(255,255,255,.10)",
     };
   }, [editing, config]);
 
@@ -1888,15 +1917,64 @@ export default function TopbarPage() {
                     {editing.countdown_enabled && (
                       <span
                         style={{
+                          display: "inline-flex",
+                          alignItems: "stretch",
+                          gap: 0,
+                          overflow: "hidden",
                           background: effectiveCdBg,
                           color: effectiveCdColor,
                           borderRadius: effectiveCdRadius,
-                          padding: effectiveCdPad,
                           margin: effectiveCdMargin,
                           fontWeight: effectiveCdWeight,
+                          fontSize: 13,
+                          lineHeight: 1,
+                          fontVariantNumeric: "tabular-nums",
+                          boxShadow:
+                            "0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(0,0,0,.08)",
+                          border: "1px solid rgba(255,255,255,.12)",
                         }}
                       >
-                        {editing.countdown_label || "Termina em"} 02:14:33
+                        {(editing.countdown_label || "Termina em").trim() && (
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "0 10px",
+                              opacity: 0.74,
+                              fontSize: 10,
+                              textTransform: "uppercase",
+                              letterSpacing: ".06em",
+                              borderRight: "1px solid rgba(255,255,255,.16)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {editing.countdown_label || "Termina em"}
+                          </span>
+                        )}
+                        {[
+                          ["02", "h"],
+                          ["14", "m"],
+                          ["33", "s"],
+                        ].map(([value, unit]) => (
+                          <span
+                            key={unit}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              minWidth: 42,
+                              padding: effectiveCdPad,
+                              whiteSpace: "nowrap",
+                              borderLeft: "1px solid rgba(255,255,255,.12)",
+                            }}
+                          >
+                            <span>{value}</span>
+                            <span style={{ opacity: 0.64, marginLeft: 2, fontSize: ".82em" }}>
+                              {unit}
+                            </span>
+                          </span>
+                        ))}
                       </span>
                     )}
                   </div>

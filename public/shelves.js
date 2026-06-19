@@ -3096,20 +3096,24 @@
         "display:flex",
         "align-items:center",
         "justify-content:center",
-        "gap:12px",
-        "padding:6px 44px 6px 16px",
+        "gap:0",
+        "padding:8px 52px 8px 20px",
         "box-sizing:border-box",
         "text-align:center",
-        "line-height:1.3",
+        "line-height:1.35",
         "font-family:inherit",
         // Zera font-weight herdado do tema da loja — cada child decide o seu
         "font-weight:400",
-        "box-shadow:0 1px 3px rgba(0,0,0,.08)",
+        "box-shadow:0 1px 0 rgba(255,255,255,.08),0 8px 22px rgba(0,0,0,.08)",
+        "border-bottom:1px solid rgba(255,255,255,.10)",
       ];
       bar.setAttribute("style", styles.join(";"));
 
       var content = document.createElement("div");
-      content.setAttribute("style", "display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;min-width:0;max-width:100%");
+      content.setAttribute(
+        "style",
+        "display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;min-width:0;width:min(100%,1280px);max-width:100%;margin:0 auto"
+      );
 
       var titleBold = tb.title_bold !== false;   // default true
       var messageBold = tb.message_bold === true; // default false
@@ -3118,6 +3122,30 @@
       function topbarStyleValue(value, fallback) {
         var cleaned = String(value || "").replace(/[;{}]/g, "").trim();
         return cleaned || fallback || "";
+      }
+      function isLightTopbarColor(value) {
+        var raw = String(value || "").trim().toLowerCase();
+        var hex = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+        if (hex) {
+          var h = hex[1];
+          if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+          var r = parseInt(h.slice(0, 2), 16);
+          var g = parseInt(h.slice(2, 4), 16);
+          var b = parseInt(h.slice(4, 6), 16);
+          return (r * 299 + g * 587 + b * 114) / 1000 > 170;
+        }
+        var rgb = raw.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (rgb) {
+          return (
+            (Number(rgb[1]) * 299 + Number(rgb[2]) * 587 + Number(rgb[3]) * 114) /
+              1000 >
+            170
+          );
+        }
+        return raw.indexOf("white") >= 0 || raw.indexOf("255,255,255") >= 0;
+      }
+      function topbarReadableText(bg) {
+        return isLightTopbarColor(bg) ? "#111827" : "#ffffff";
       }
       if (Array.isArray(tb.slides)) {
         for (var si = 0; si < tb.slides.length; si++) {
@@ -3188,7 +3216,7 @@
       copyWrap.setAttribute(
         "style",
         "display:inline-flex;align-items:" + (slides.length > 1 ? "flex-start" : "center") +
-          ";justify-content:center;min-width:0;max-width:min(760px,calc(100vw - 170px));overflow:hidden" +
+          ";justify-content:center;min-width:0;max-width:min(760px,100%);overflow:hidden" +
           (slides.length > 1 ? ";height:" + slideLineHeight : "")
       );
 
@@ -3242,22 +3270,29 @@
         }, 3500);
       }
 
+      var actionsWrap = document.createElement("span");
+      actionsWrap.setAttribute(
+        "style",
+        "display:inline-flex;align-items:center;justify-content:center;gap:10px;flex-wrap:nowrap;min-width:0"
+      );
+
       var cta = null;
       function updateCtaForActiveSlide() {
         if (!cta) return;
         var slide = slides[activeSlide] || slides[0] || {};
         if (slide.link_url && slide.link_label) {
+          var ctaBg = topbarStyleValue(
+            slide.button_bg_color,
+            tb.accent_color || "#ffffff"
+          );
           cta.href = safeUrl(slide.link_url);
           cta.textContent = slide.link_label;
           cta.style.display = "inline-flex";
-          cta.style.background = topbarStyleValue(
-            slide.button_bg_color,
-            tb.accent_color || "#22c55e"
-          );
-          cta.style.color = topbarStyleValue(slide.button_text_color, "#ffffff");
-          cta.style.padding = topbarStyleValue(slide.button_padding, "4px 12px");
-          cta.style.borderRadius = topbarStyleValue(slide.button_border_radius, "999px");
-          cta.style.fontWeight = topbarStyleValue(slide.button_font_weight, "600");
+          cta.style.background = ctaBg;
+          cta.style.color = topbarStyleValue(slide.button_text_color, topbarReadableText(ctaBg));
+          cta.style.padding = topbarStyleValue(slide.button_padding, "7px 16px");
+          cta.style.borderRadius = topbarStyleValue(slide.button_border_radius, "12px");
+          cta.style.fontWeight = topbarStyleValue(slide.button_font_weight, "700");
         } else {
           cta.removeAttribute("href");
           cta.textContent = "";
@@ -3275,16 +3310,19 @@
         cta = document.createElement("a");
         cta.setAttribute(
           "style",
-          "display:inline-flex;align-items:center;text-decoration:none;font-size:13px;white-space:nowrap"
+          "display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:13px;line-height:1;white-space:nowrap;box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 1px 2px rgba(0,0,0,.10);transition:opacity .16s ease,transform .16s ease"
         );
+        cta.addEventListener("mouseenter", function () { cta.style.opacity = ".92"; });
+        cta.addEventListener("mouseleave", function () { cta.style.opacity = "1"; });
         cta.addEventListener("click", function () {
           trackTopbar("click", tb.campaign_id, tb.variation_id);
         });
         updateCtaForActiveSlide();
-        content.appendChild(cta);
+        actionsWrap.appendChild(cta);
       }
 
       var countdownEl = null;
+      var countdownCells = null;
       var countdownTarget = tb.countdown_enabled && tb.countdown_target
         ? new Date(tb.countdown_target).getTime() : 0;
       if (countdownTarget && countdownTarget > Date.now()) {
@@ -3293,22 +3331,59 @@
         var cdBg = tb.countdown_bg_color || "rgba(255,255,255,.14)";
         var cdColor = tb.countdown_text_color || tb.text_color || "#ffffff";
         var cdWeight = tb.countdown_font_weight || "600";
-        var cdPad = tb.countdown_padding || "3px 10px";
+        var cdPad = tb.countdown_padding || "7px 10px";
         var cdMargin = tb.countdown_margin || "0";
-        var cdRadius = tb.countdown_border_radius || "999px";
+        var cdRadius = tb.countdown_border_radius || "12px";
         countdownEl.setAttribute(
           "style",
-          "display:inline-flex;align-items:center;gap:6px" +
-            ";padding:" + cdPad +
+          "display:inline-flex;align-items:stretch;gap:0;overflow:hidden" +
             ";margin:" + cdMargin +
             ";border-radius:" + cdRadius +
             ";background:" + cdBg +
             ";color:" + cdColor +
             ";font-weight:" + cdWeight +
-            ";font-variant-numeric:tabular-nums"
+            ";font-size:13px;line-height:1;font-variant-numeric:tabular-nums" +
+            ";box-shadow:0 1px 0 rgba(255,255,255,.12) inset,0 1px 2px rgba(0,0,0,.08)" +
+            ";border:1px solid rgba(255,255,255,.12)"
         );
-        content.appendChild(countdownEl);
+        var countdownLabel = String(tb.countdown_label || "Termina em").trim();
+        if (countdownLabel) {
+          var labelEl = document.createElement("span");
+          labelEl.setAttribute(
+            "style",
+            "display:inline-flex;align-items:center;justify-content:center;padding:0 10px;opacity:.74;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-right:1px solid rgba(255,255,255,.16);white-space:nowrap"
+          );
+          labelEl.textContent = countdownLabel;
+          countdownEl.appendChild(labelEl);
+        }
+        function makeCountdownCell(unit) {
+          var cell = document.createElement("span");
+          cell.setAttribute(
+            "style",
+            "display:inline-flex;align-items:center;justify-content:center;min-width:42px;padding:" +
+              cdPad +
+              ";white-space:nowrap" +
+              (countdownEl.children.length ? ";border-left:1px solid rgba(255,255,255,.12)" : "")
+          );
+          var value = document.createElement("span");
+          var unitEl = document.createElement("span");
+          unitEl.setAttribute("style", "opacity:.64;margin-left:2px;font-size:.82em");
+          unitEl.textContent = unit;
+          cell.appendChild(value);
+          cell.appendChild(unitEl);
+          countdownEl.appendChild(cell);
+          return { cell: cell, value: value };
+        }
+        countdownCells = {
+          d: makeCountdownCell("d"),
+          h: makeCountdownCell("h"),
+          m: makeCountdownCell("m"),
+          s: makeCountdownCell("s"),
+        };
+        actionsWrap.appendChild(countdownEl);
       }
+
+      if (actionsWrap.children.length) content.appendChild(actionsWrap);
 
       bar.appendChild(content);
 
@@ -3396,11 +3471,19 @@
           var d = Math.floor(s / 86400); s -= d * 86400;
           var h = Math.floor(s / 3600); s -= h * 3600;
           var m = Math.floor(s / 60); s -= m * 60;
-          var label = tb.countdown_label || "Termina em";
-          var parts = [];
-          if (d > 0) parts.push(d + "d");
-          parts.push(pad(h) + ":" + pad(m) + ":" + pad(s));
-          countdownEl.textContent = label + " " + parts.join(" ");
+          if (countdownCells) {
+            countdownCells.d.cell.style.display = d > 0 ? "inline-flex" : "none";
+            countdownCells.d.value.textContent = String(d);
+            countdownCells.h.value.textContent = pad(h);
+            countdownCells.m.value.textContent = pad(m);
+            countdownCells.s.value.textContent = pad(s);
+          } else {
+            var label = tb.countdown_label || "Termina em";
+            var parts = [];
+            if (d > 0) parts.push(d + "d");
+            parts.push(pad(h) + ":" + pad(m) + ":" + pad(s));
+            countdownEl.textContent = label + " " + parts.join(" ");
+          }
         }
         tick();
         setInterval(tick, 1000);
