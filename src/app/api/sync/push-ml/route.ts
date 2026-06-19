@@ -404,7 +404,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const hubProducts = products as HubProduct[];
+  let hubProducts = products as HubProduct[];
+
+  const selectedParentSkus = hubProducts
+    .filter((p) => !p.ecc_pai_sku)
+    .map((p) => p.sku)
+    .filter(Boolean);
+
+  if (selectedParentSkus.length > 0) {
+    const { data: familyChildren, error: childrenErr } = await supabase
+      .from("hub_products")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .in("ecc_pai_sku", selectedParentSkus);
+
+    if (childrenErr) {
+      return NextResponse.json({ error: childrenErr.message }, { status: 500 });
+    }
+
+    if (familyChildren?.length) {
+      const bySku = new Map(hubProducts.map((p) => [p.sku, p]));
+      for (const child of familyChildren as HubProduct[]) {
+        if (!bySku.has(child.sku)) bySku.set(child.sku, child);
+      }
+      hubProducts = Array.from(bySku.values());
+    }
+  }
 
   // Validate: either category_id in body or all products have enrichment
   if (!categoryId) {
