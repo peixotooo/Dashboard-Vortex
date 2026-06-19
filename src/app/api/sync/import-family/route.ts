@@ -126,6 +126,21 @@ function parseVariationType(tipoVariacao: string): string {
   return tipoVariacao.replace(/\s*tray\s*$/i, "").trim();
 }
 
+function isParentProduct(product: EccosysProduto): boolean {
+  const masterId = String(product.idProdutoMaster ?? "0");
+  return masterId === "0" || (!product.idProdutoMaster && !product.idProdutoPai && !product.codigoPai);
+}
+
+function parentLookupKey(product: EccosysProduto): string | null {
+  if (isParentProduct(product)) return product.codigo || String(product.id);
+  if (product.codigoPai) return product.codigoPai;
+  if (product.idProdutoMaster && String(product.idProdutoMaster) !== "0") {
+    return String(product.idProdutoMaster);
+  }
+  if (product.idProdutoPai) return String(product.idProdutoPai);
+  return null;
+}
+
 // Extract photos from Eccosys product (images endpoint returns string[])
 function extractPhotos(product: EccosysProduto, imgs?: unknown): string[] {
   // The /produtos/{id}/imagens endpoint returns string[] directly
@@ -154,6 +169,129 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const mode = req.nextUrl.searchParams.get("mode")?.trim();
+  if (mode === "search") {
+    const q = req.nextUrl.searchParams.get("q")?.trim() || "";
+    const page = Math.max(0, parseInt(req.nextUrl.searchParams.get("page") || "0", 10) || 0);
+    const pageSize = Math.min(
+      80,
+      Math.max(10, parseInt(req.nextUrl.searchParams.get("page_size") || "50", 10) || 50)
+    );
+
+    try {
+      const params: Record<string, string> = {
+        $offset: String(page * pageSize),
+        $count: String(pageSize),
+        $situacao: "A",
+      };
+      if (q) params.$filter = q;
+
+      const products = await eccosys.get<EccosysProduto[]>(
+        "/produtos",
+        workspaceId,
+        params
+      );
+
+      if (!Array.isArray(products)) {
+        return NextResponse.json({ families: [], page, hasMore: false });
+      }
+
+      const familiesBySku = new Map<
+        string,
+        {
+          id: number;
+          sku: string;
+          nome: string;
+          preco: number;
+          foto: string | null;
+          situacao: string;
+          child_count: number | null;
+          matched_by: "parent" | "variation";
+        }
+      >();
+
+      const childParentKeys = new Set<string>();
+      for (const product of products) {
+        if (isParentProduct(product)) {
+          familiesBySku.set(product.codigo, {
+            id: product.id,
+            sku: product.codigo,
+            nome: product.nome,
+            preco: product.preco,
+            foto: product.foto1 || null,
+            situacao: product.situacao,
+            child_count: product._Skus?.length ?? null,
+            matched_by: "parent",
+          });
+          continue;
+        }
+
+        const key = parentLookupKey(product);
+        if (key) childParentKeys.add(key);
+      }
+
+      for (const key of Array.from(childParentKeys).slice(0, 25)) {
+        try {
+          const parentResult = await eccosys.get<EccosysProduto | EccosysProduto[]>(
+            `/produtos/${encodeURIComponent(key)}`,
+            workspaceId
+          );
+          const parent = Array.isArray(parentResult) ? parentResult[0] : parentResult;
+          if (!parent?.codigo || !isParentProduct(parent)) continue;
+          if (!familiesBySku.has(parent.codigo)) {
+            familiesBySku.set(parent.codigo, {
+              id: parent.id,
+              sku: parent.codigo,
+              nome: parent.nome,
+              preco: parent.preco,
+              foto: parent.foto1 || null,
+              situacao: parent.situacao,
+              child_count: parent._Skus?.length ?? null,
+              matched_by: "variation",
+            });
+          }
+        } catch {
+          /* parent lookup is best-effort for variation matches */
+        }
+      }
+
+      const families = Array.from(familiesBySku.values());
+      const skus = families.map((f) => f.sku);
+      const supabase = createAdminClient();
+      const { data: existing } = skus.length
+        ? await supabase
+            .from("hub_products")
+            .select("sku")
+            .eq("workspace_id", workspaceId)
+            .in("sku", skus)
+        : { data: [] };
+      const existingSkus = new Set((existing || []).map((r) => r.sku));
+
+      const nq = normalize(q);
+      families.sort((a, b) => {
+        const aName = normalize(`${a.sku} ${a.nome}`);
+        const bName = normalize(`${b.sku} ${b.nome}`);
+        const aDirect = nq ? Number(aName.includes(nq)) : 0;
+        const bDirect = nq ? Number(bName.includes(nq)) : 0;
+        if (aDirect !== bDirect) return bDirect - aDirect;
+        if (a.matched_by !== b.matched_by) return a.matched_by === "parent" ? -1 : 1;
+        return a.nome.localeCompare(b.nome, "pt-BR");
+      });
+
+      return NextResponse.json({
+        families: families.map((family) => ({
+          ...family,
+          already_in_hub: existingSkus.has(family.sku),
+        })),
+        page,
+        hasMore: products.length === pageSize,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro desconhecido";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   const parentSku = req.nextUrl.searchParams.get("parent_sku")?.trim();
   if (!parentSku) {
     return NextResponse.json(
@@ -176,8 +314,7 @@ export async function GET(req: NextRequest) {
       const prod = Array.isArray(result) ? result[0] : result;
       if (prod?.codigo) {
         // Verify it's a parent (idProdutoMaster === "0" or 0) or simple product
-        const masterIdStr = String(prod.idProdutoMaster ?? "0");
-        if (masterIdStr === "0" || !prod.idProdutoMaster) {
+        if (isParentProduct(prod)) {
           parent = prod;
         }
       }

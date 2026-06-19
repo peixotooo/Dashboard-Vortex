@@ -522,6 +522,18 @@ interface FamilyPreview {
   cross_ref: { ml_item_id: string; title: string } | null;
 }
 
+interface FamilySearchResult {
+  id: number;
+  sku: string;
+  nome: string;
+  preco: number;
+  foto: string | null;
+  situacao: string;
+  child_count: number | null;
+  matched_by: "parent" | "variation";
+  already_in_hub: boolean;
+}
+
 function ImportFamilyModal({
   open,
   onClose,
@@ -535,6 +547,15 @@ function ImportFamilyModal({
 }) {
   const [step, setStep] = useState<"search" | "preview" | "result">("search");
   const [parentSku, setParentSku] = useState("");
+  const [families, setFamilies] = useState<FamilySearchResult[]>([]);
+  const [selectedFamilies, setSelectedFamilies] = useState<Set<string>>(new Set());
+  const [familyPage, setFamilyPage] = useState(0);
+  const [hasMoreFamilies, setHasMoreFamilies] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    current: number;
+    total: number;
+    label: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [preview, setPreview] = useState<FamilyPreview | null>(null);
@@ -543,6 +564,8 @@ function ImportFamilyModal({
   const [result, setResult] = useState<{
     imported: number;
     errors: number;
+    families?: number;
+    failedFamilies?: number;
   } | null>(null);
 
   // Reset on open
@@ -550,6 +573,11 @@ function ImportFamilyModal({
     if (open) {
       setStep("search");
       setParentSku("");
+      setFamilies([]);
+      setSelectedFamilies(new Set());
+      setFamilyPage(0);
+      setHasMoreFamilies(false);
+      setBulkProgress(null);
       setPreview(null);
       setEnrichment(null);
       setError("");
@@ -557,13 +585,46 @@ function ImportFamilyModal({
     }
   }, [open]);
 
-  async function handleSearch() {
-    if (!parentSku.trim()) return;
+  async function handleFamilySearch(p = 0, query = parentSku) {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        mode: "search",
+        page: String(p),
+      });
+      if (query.trim()) params.set("q", query.trim());
+      const res = await fetch(`/api/sync/import-family?${params}`, {
+        headers: { "x-workspace-id": workspaceId },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Erro ao buscar familias");
+        return;
+      }
+      const incoming = (data.families || []) as FamilySearchResult[];
+      setFamilies((prev) => {
+        if (p === 0) return incoming;
+        const seen = new Set(prev.map((family) => family.sku));
+        return [...prev, ...incoming.filter((family) => !seen.has(family.sku))];
+      });
+      setHasMoreFamilies(!!data.hasMore);
+      setFamilyPage(p);
+      if (p === 0) setSelectedFamilies(new Set());
+    } catch {
+      setError("Erro de conexao");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSearch(sku = parentSku.trim()) {
+    if (!sku.trim()) return;
     setLoading(true);
     setError("");
     try {
       const res = await fetch(
-        `/api/sync/import-family?parent_sku=${encodeURIComponent(parentSku.trim())}`,
+        `/api/sync/import-family?parent_sku=${encodeURIComponent(sku.trim())}`,
         { headers: { "x-workspace-id": workspaceId } }
       );
       const data = await res.json();
@@ -578,6 +639,97 @@ function ImportFamilyModal({
       setError("Erro de conexao");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function toggleFamily(sku: string) {
+    setSelectedFamilies((prev) => {
+      const next = new Set(prev);
+      if (next.has(sku)) next.delete(sku);
+      else next.add(sku);
+      return next;
+    });
+  }
+
+  function selectVisibleFamilies() {
+    setSelectedFamilies((prev) => {
+      const next = new Set(prev);
+      const allVisibleSelected = families.length > 0 && families.every((f) => next.has(f.sku));
+      if (allVisibleSelected) {
+        for (const family of families) next.delete(family.sku);
+      } else {
+        for (const family of families) next.add(family.sku);
+      }
+      return next;
+    });
+  }
+
+  async function handleBulkImport() {
+    const skus = Array.from(selectedFamilies);
+    if (skus.length === 0) return;
+
+    setImporting(true);
+    setError("");
+    setBulkProgress({ current: 0, total: skus.length, label: "Preparando..." });
+
+    let imported = 0;
+    let errors = 0;
+    let failedFamilies = 0;
+
+    try {
+      for (let i = 0; i < skus.length; i++) {
+        const sku = skus[i];
+        setBulkProgress({ current: i + 1, total: skus.length, label: sku });
+
+        try {
+          const previewRes = await fetch(
+            `/api/sync/import-family?parent_sku=${encodeURIComponent(sku)}`,
+            { headers: { "x-workspace-id": workspaceId } }
+          );
+          const previewData = await previewRes.json();
+          if (!previewRes.ok) {
+            errors += 1;
+            failedFamilies += 1;
+            continue;
+          }
+
+          const familyPreview = previewData as FamilyPreview;
+          const eccIds = [
+            familyPreview.parent.ecc_id,
+            ...familyPreview.children.map((c) => c.ecc_id),
+          ];
+          const importRes = await fetch("/api/sync/import-family", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-workspace-id": workspaceId,
+            },
+            body: JSON.stringify({
+              parent_sku: familyPreview.parent.sku,
+              ecc_ids: eccIds,
+              enrichment: familyPreview.enrichment,
+            }),
+          });
+          const importData = await importRes.json();
+          imported += importData.imported || 0;
+          errors += importData.errors || 0;
+          if (!importRes.ok || importData.errors > 0) failedFamilies += 1;
+        } catch {
+          errors += 1;
+          failedFamilies += 1;
+        }
+      }
+
+      setResult({
+        imported,
+        errors,
+        families: skus.length,
+        failedFamilies,
+      });
+      setStep("result");
+    } finally {
+      setBulkProgress(null);
+      setImporting(false);
     }
   }
 
@@ -667,43 +819,233 @@ function ImportFamilyModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Importar Familia de Produtos</DialogTitle>
           <DialogDescription>
-            Insira o codigo do produto pai para importar toda a familia com
-            enriquecimento ML automatico.
+            Busque por nome, trecho do nome ou codigo do produto pai. Selecione
+            uma ou varias familias para importar com enriquecimento ML automatico.
           </DialogDescription>
         </DialogHeader>
 
         {/* Step 1: Search */}
         {step === "search" && (
-          <div className="space-y-4">
+          <div className="flex-1 min-h-0 flex flex-col space-y-4">
             <div className="flex gap-2">
-              <Input
-                placeholder="Codigo do produto pai (ex: BLK-001)"
-                value={parentSku}
-                onChange={(e) => setParentSku(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSearch();
-                }}
-                disabled={loading}
-                autoFocus
-              />
-              <Button onClick={handleSearch} disabled={loading || !parentSku.trim()}>
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar familia por nome ou SKU pai (ex: full heavy, regata, BLK-001)"
+                  value={parentSku}
+                  onChange={(e) => setParentSku(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleFamilySearch(0, parentSku);
+                  }}
+                  disabled={loading || importing}
+                  className="pl-9"
+                  autoFocus
+                />
+              </div>
+              <Button
+                onClick={() => handleSearch(parentSku.trim())}
+                disabled={loading || !parentSku.trim()}
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Eye className="h-4 w-4 mr-2" />
+                )}
+                Prévia por código
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleFamilySearch(0, parentSku)}
+                disabled={loading || importing}
+              >
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
                   <Search className="h-4 w-4 mr-2" />
                 )}
-                Buscar
+                Buscar famílias
               </Button>
             </div>
+
             {error && (
               <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded">
                 {error}
               </div>
             )}
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                {families.length > 0
+                  ? `${families.length} familia(s) encontrada(s)`
+                  : "Digite parte do nome para filtrar familias do Eccosys."}
+              </div>
+              {families.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectVisibleFamilies}
+                  disabled={importing}
+                >
+                  {families.every((f) => selectedFamilies.has(f.sku))
+                    ? "Limpar seleção visível"
+                    : "Selecionar visíveis"}
+                </Button>
+              )}
+            </div>
+
+            <div className="flex-1 min-h-[260px] overflow-auto border rounded-lg">
+              {loading && families.length === 0 ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : families.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Package className="h-8 w-8 mb-2" />
+                  <p className="text-sm">Nenhuma familia carregada</p>
+                  <p className="text-xs">
+                    Busque por um trecho do nome para selecionar em massa.
+                  </p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>
+                      <th className="p-3 w-10"></th>
+                      <th className="p-3 text-left font-medium">SKU pai</th>
+                      <th className="p-3 text-left font-medium">Familia</th>
+                      <th className="p-3 text-center font-medium">Variações</th>
+                      <th className="p-3 text-center font-medium">Status</th>
+                      <th className="p-3 text-right font-medium">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {families.map((family) => (
+                      <tr
+                        key={family.sku}
+                        className={`border-t hover:bg-muted/30 cursor-pointer ${
+                          selectedFamilies.has(family.sku) ? "bg-primary/5" : ""
+                        }`}
+                        onClick={() => toggleFamily(family.sku)}
+                      >
+                        <td className="p-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedFamilies.has(family.sku)}
+                            onChange={() => toggleFamily(family.sku)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded"
+                            disabled={importing}
+                          />
+                        </td>
+                        <td className="p-3 font-mono text-xs">{family.sku}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {family.foto ? (
+                              <Image
+                                src={family.foto}
+                                alt={family.nome}
+                                width={40}
+                                height={40}
+                                className="rounded object-cover shrink-0"
+                                unoptimized
+                              />
+                            ) : (
+                              <div className="h-10 w-10 rounded bg-muted flex items-center justify-center shrink-0">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-medium truncate max-w-[260px]">
+                                {family.nome}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {family.matched_by === "variation"
+                                  ? "Encontrada por variação"
+                                  : "Produto pai"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3 text-center text-xs">
+                          {family.child_count == null ? "—" : family.child_count}
+                        </td>
+                        <td className="p-3 text-center">
+                          {family.already_in_hub ? (
+                            <Badge variant="outline" className="text-xs text-green-600">
+                              No Hub
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs">
+                              Nova
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="p-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSearch(family.sku);
+                            }}
+                            disabled={loading || importing}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            Prévia
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {hasMoreFamilies && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleFamilySearch(familyPage + 1, parentSku)}
+                disabled={loading || importing}
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Carregar mais
+              </Button>
+            )}
+
+            {bulkProgress && (
+              <div className="text-xs text-muted-foreground bg-muted/50 border rounded px-3 py-2">
+                Importando familia {bulkProgress.current} de {bulkProgress.total}:{" "}
+                <span className="font-mono">{bulkProgress.label}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 w-full justify-between border-t pt-4">
+              <span className="text-sm text-muted-foreground">
+                {selectedFamilies.size} familia(s) selecionada(s)
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={onClose} disabled={importing}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleBulkImport}
+                  disabled={selectedFamilies.size === 0 || importing}
+                >
+                  {importing ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <ArrowDownToLine className="h-4 w-4 mr-2" />
+                  )}
+                  Importar selecionadas{" "}
+                  {selectedFamilies.size > 0 ? `(${selectedFamilies.size})` : ""}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -997,6 +1339,12 @@ function ImportFamilyModal({
             </div>
             <div className="text-center space-y-1">
               <p className="font-medium">Importacao concluida</p>
+              {result.families != null && (
+                <p className="text-sm text-muted-foreground">
+                  {result.families} familia(s) processada(s)
+                  {result.failedFamilies ? `, ${result.failedFamilies} com falha` : ""}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 {result.imported} importado(s)
                 {result.errors > 0 && `, ${result.errors} erro(s)`}
