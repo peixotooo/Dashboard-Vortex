@@ -1872,6 +1872,21 @@
       ".vtx-promo-tag--has-modal {" +
         "pointer-events: auto; cursor: pointer; text-transform: none;" +
       "}" +
+      ".vtx-promo-tag--shipping-24h {" +
+        "position: relative !important; overflow: hidden; isolation: isolate;" +
+      "}" +
+      ".vtx-promo-tag--shipping-24h::after {" +
+        "content: ''; position: absolute; top: -60%; bottom: -60%; left: -45%;" +
+        "width: 34%; transform: skewX(-22deg);" +
+        "background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.52), rgba(255,255,255,0));" +
+        "animation: vtx-shipping-shine 2.8s ease-in-out infinite; pointer-events: none;" +
+      "}" +
+      "@keyframes vtx-shipping-shine {" +
+        "0% { left: -45%; opacity: 0; }" +
+        "12% { opacity: .85; }" +
+        "52% { left: 120%; opacity: .85; }" +
+        "70%, 100% { left: 120%; opacity: 0; }" +
+      "}" +
       ".vtx-promo-tag--has-modal:focus-visible {" +
         "outline: 2px solid currentColor; outline-offset: 2px;" +
       "}" +
@@ -2200,6 +2215,9 @@
   function bindPromoTagModal(badge, rule) {
     if (!badge || !hasPromoTagModal(rule)) return;
     badge.classList.add("vtx-promo-tag--has-modal");
+    if (isShipping24hPromoTag(rule)) {
+      badge.classList.add("vtx-promo-tag--shipping-24h");
+    }
     badge.setAttribute("role", "button");
     badge.setAttribute("tabindex", "0");
     badge.setAttribute(
