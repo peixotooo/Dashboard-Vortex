@@ -1864,7 +1864,7 @@
         "margin: 12px 0; clear: both;" +
       "}" +
       ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) {" +
-        "height: 44px !important; min-height: 44px !important;" +
+        "height: 32px !important; min-height: 32px !important;" +
         "display: inline-flex !important; align-items: center !important; justify-content: center !important;" +
         "padding-top: 0 !important; padding-bottom: 0 !important;" +
         "line-height: 1 !important; box-sizing: border-box !important;" +
