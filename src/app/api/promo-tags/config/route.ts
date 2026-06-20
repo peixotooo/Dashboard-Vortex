@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  hydratePromoTagRuleModal,
+  withPromoTagModalMetadata,
+} from "@/lib/promo-tags/modal-metadata";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -53,7 +57,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ rules: rules || [] });
+    return NextResponse.json({
+      rules: (rules || []).map((rule) => hydratePromoTagRuleModal(rule)),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -123,6 +129,11 @@ export async function POST(request: NextRequest) {
     if (result.error && isMissingModalColumn(result.error.message)) {
       delete insertPayload.modal_title;
       delete insertPayload.modal_body;
+      insertPayload.show_on_pages = withPromoTagModalMetadata(
+        body.show_on_pages || ["all"],
+        body.modal_title,
+        body.modal_body
+      );
       result = await admin
         .from("promo_tag_configs")
         .insert(insertPayload)
@@ -134,7 +145,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ rule: result.data });
+    return NextResponse.json({ rule: hydratePromoTagRuleModal(result.data) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

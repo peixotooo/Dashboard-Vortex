@@ -1,5 +1,9 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getGA4Report } from "@/lib/ga4-api";
+import {
+  extractPromoTagModalMetadata,
+  normalizePromoTagPages,
+} from "@/lib/promo-tags/modal-metadata";
 
 // --- Popularity cache: GA4 itemsViewed last 30d, normalized 0-1 (per workspace) ---
 
@@ -524,6 +528,8 @@ export async function computePromoTagMatches(
     const placement: BadgePlacement = (rule.badge_placement as BadgePlacement) || "auto";
     const viewersMin = Number(rule.viewers_min) || 6;
     const viewersMax = Number(rule.viewers_max) || 42;
+    const pageTargets = normalizePromoTagPages(rule.show_on_pages);
+    const modal = extractPromoTagModalMetadata(rule);
 
     switch (rule.match_type) {
       case "tag": {
@@ -579,9 +585,9 @@ export async function computePromoTagMatches(
         badge_type: badgeType,
         badge_placement: placement,
         priority: rule.priority,
-        show_on_pages: Array.isArray(rule.show_on_pages) ? rule.show_on_pages : ["all"],
-        modal_title: rule.modal_title || null,
-        modal_body: rule.modal_body || null,
+        show_on_pages: pageTargets,
+        modal_title: modal.modal_title,
+        modal_body: modal.modal_body,
       };
 
       // Per-product enrichment

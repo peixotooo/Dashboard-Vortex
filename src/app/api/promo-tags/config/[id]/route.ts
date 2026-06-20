@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import {
+  hydratePromoTagRuleModal,
+  withPromoTagModalMetadata,
+} from "@/lib/promo-tags/modal-metadata";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -87,6 +91,13 @@ export async function PATCH(
     if (result.error && isMissingModalColumn(result.error.message)) {
       delete updatePayload.modal_title;
       delete updatePayload.modal_body;
+      if (body.modal_title !== undefined || body.modal_body !== undefined) {
+        updatePayload.show_on_pages = withPromoTagModalMetadata(
+          body.show_on_pages || updatePayload.show_on_pages || ["all"],
+          body.modal_title,
+          body.modal_body
+        );
+      }
       result = await admin
         .from("promo_tag_configs")
         .update(updatePayload)
@@ -100,7 +111,7 @@ export async function PATCH(
       return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ rule: result.data });
+    return NextResponse.json({ rule: hydratePromoTagRuleModal(result.data) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

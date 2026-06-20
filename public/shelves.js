@@ -1920,6 +1920,8 @@
       ".vtx-promo-tag-modal__body {" +
         "font-size: 14px; line-height: 1.55; color: #3f3f46;" +
       "}" +
+      ".vtx-promo-tag-modal__body strong { font-weight: 800; color: #111827; }" +
+      ".vtx-promo-tag-modal__body em { font-style: italic; }" +
       ".vtx-promo-tag-modal__body p { margin: 0 0 10px; }" +
       ".vtx-promo-tag-modal__body p:last-child { margin-bottom: 0; }" +
       "@media (max-width: 640px) {" +
@@ -2155,7 +2157,10 @@
     return text
       .split(/\n{2,}/)
       .map(function (paragraph) {
-        return "<p>" + escapeHtml(paragraph).replace(/\n/g, "<br>") + "</p>";
+        var html = escapeHtml(paragraph)
+          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+        return "<p>" + html.replace(/\n/g, "<br>") + "</p>";
       })
       .join("");
   }
