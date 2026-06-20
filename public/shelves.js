@@ -1859,8 +1859,15 @@
       // Wrapper that holds cashback + viewers side-by-side below the price
       ".vtx-promo-tag-row {" +
         "display: flex; flex-wrap: wrap; gap: 8px;" +
+        "align-items: center;" +
         "width: 100%; flex-basis: 100%;" +
         "margin: 12px 0; clear: both;" +
+      "}" +
+      ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) {" +
+        "height: 44px !important; min-height: 44px !important;" +
+        "display: inline-flex !important; align-items: center !important; justify-content: center !important;" +
+        "padding-top: 0 !important; padding-bottom: 0 !important;" +
+        "line-height: 1 !important; box-sizing: border-box !important;" +
       "}" +
       ".vtx-promo-tag--has-modal {" +
         "pointer-events: auto; cursor: pointer; text-transform: none;" +
@@ -2097,16 +2104,23 @@
     return !!getPromoTagModalBody(rule);
   }
 
+  function normalizePromoTagText(value) {
+    return String(value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
   function isShipping24hPromoTag(rule) {
-    var text = String((rule && rule.badge_text) || "").toLowerCase();
-    return /envio\s+em\s+24\s*h(?:oras)?/.test(text);
+    var text = normalizePromoTagText((rule && rule.badge_text) || "");
+    return /(envio|entrega)/.test(text) && /24\s*h(?:oras)?/.test(text);
   }
 
   function getPromoTagModalTitle(rule) {
     if (rule && String(rule.modal_title || "").trim()) {
       return String(rule.modal_title).trim();
     }
-    if (isShipping24hPromoTag(rule)) return "Envio em 24 horas";
+    if (isShipping24hPromoTag(rule)) return "Entrega em 24h úteis";
     return (rule && rule.badge_text) || "Informação";
   }
 
@@ -2115,7 +2129,7 @@
       return String(rule.modal_body).trim();
     }
     if (isShipping24hPromoTag(rule)) {
-      return "O prazo de 24 horas considera apenas dias úteis e começa a contar após a aprovação do pagamento.";
+      return "Este produto tem entrega em 24h úteis. O prazo começa a contar após a aprovação do pagamento.";
     }
     return "";
   }
