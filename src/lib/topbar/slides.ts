@@ -43,6 +43,10 @@ function slideHasButtonStyle(slide: TopbarSlide): boolean {
   );
 }
 
+function slideHasLink(slide: TopbarSlide): boolean {
+  return Boolean(slide.link_url || slide.link_label);
+}
+
 function decodeMessageSlides(message: unknown): TopbarSlide[] {
   if (typeof message !== "string" || !message.startsWith(SLIDES_PREFIX)) return [];
 
@@ -161,7 +165,8 @@ export function serializeTopbarSlides(
   });
   const primary = slides[0] || { title: null, message: "" };
   const shouldEncodeSlides =
-    slides.length > 1 || slides.some((slide) => slideHasButtonStyle(slide));
+    slides.length > 1 ||
+    slides.some((slide) => slideHasLink(slide) || slideHasButtonStyle(slide));
 
   return {
     title: primary.title || null,

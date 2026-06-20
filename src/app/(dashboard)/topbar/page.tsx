@@ -1457,10 +1457,10 @@ export default function TopbarPage() {
                         <div className="rounded-md bg-muted/30 p-3">
                           <Label className="font-medium flex items-center gap-2">
                             <Link2 className="h-4 w-4" />
-                            Link desta mensagem
+                            Link e botão desta mensagem
                           </Label>
                           <p className="text-xs text-muted-foreground mb-3">
-                            Opcional. Use CTAs diferentes quando cada mensagem levar para uma vitrine ou coleção específica.
+                            Opcional e individual. Cada mensagem pode abrir uma URL e exibir um CTA diferente.
                           </p>
                           <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
                             <div className="lg:col-span-3">
