@@ -671,7 +671,7 @@
   //   "1271" -> test on a single PDP (BASIC PRETA)
   //   null   -> enable on ALL product pages
   //   ""     -> disabled (full revert, nothing injected/built)
-  var BUYBAR_ENHANCE_PRODUCT_ID = "1271";
+  var BUYBAR_ENHANCE_PRODUCT_ID = null;
 
   function isMobileBuyBarTarget(productId) {
     if (!BUYBAR_ENHANCE_PRODUCT_ID && BUYBAR_ENHANCE_PRODUCT_ID !== null) return false;
