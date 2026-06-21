@@ -608,6 +608,8 @@
   // --- Inject minimal CSS ---
 
   function injectStyles() {
+    var helpPhoneIcon =
+      "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%222.15%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.1 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.32 1.78.59 2.63a2 2 0 0 1-.45 2.11L8 9.71a16 16 0 0 0 6.29 6.29l1.25-1.25a2 2 0 0 1 2.11-.45c.85.27 1.73.47 2.63.59A2 2 0 0 1 22 16.92z%22/%3E%3C/svg%3E";
     var css =
       ".vtx-shelf-container { width: 100%; max-width: none; }" +
       ".vtx-shelf { margin: 40px auto; font-family: 'Inter', sans-serif; position: relative; width: calc(100% - clamp(24px, 3vw, 56px)); max-width: 1680px; padding: 0; box-sizing: border-box; }" +
@@ -639,6 +641,13 @@
       ".vtx-swiper .swiper-pagination { display: none !important; }" +
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
+      "[data-mbz-button-popup-wrapper] { width: 48px !important; height: 108px !important; right: 0 !important; bottom: 100px !important; z-index: 9998 !important; display: flex !important; flex-direction: column !important; align-items: stretch !important; justify-content: flex-start !important; background: #fff !important; border: 1px solid #111 !important; border-right: 0 !important; border-radius: 0 !important; box-shadow: 0 10px 24px rgba(0,0,0,.12) !important; overflow: hidden !important; box-sizing: border-box !important; }" +
+      "[data-mbz-button-popup-wrapper]::before { content: 'Ajuda' !important; flex: 1 1 auto !important; min-height: 58px !important; display: flex !important; align-items: center !important; justify-content: center !important; color: #111 !important; background: #fff !important; border-bottom: 1px solid #111 !important; font-family: Arial, Helvetica, sans-serif !important; font-size: 15px !important; font-weight: 500 !important; line-height: 1 !important; letter-spacing: 0 !important; writing-mode: vertical-rl !important; transform: rotate(180deg) !important; pointer-events: none !important; }" +
+      "[data-mbz-popup-button] { position: relative !important; inset: auto !important; width: 100% !important; height: 48px !important; min-width: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; background: #fff !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; color: transparent !important; font-size: 0 !important; line-height: 0 !important; overflow: hidden !important; animation: none !important; transform: none !important; }" +
+      "[data-mbz-popup-button]::before { content: '' !important; width: 30px !important; height: 30px !important; display: block !important; border-radius: 999px !important; background: #222 url('" + helpPhoneIcon + "') center / 16px 16px no-repeat !important; box-shadow: none !important; transform: none !important; opacity: 1 !important; }" +
+      "[data-mbz-popup-button]::after, [data-mbz-popup-button] img, [data-mbz-popup-button] svg { display: none !important; content: none !important; }" +
+      ".mbz-shake-animate { animation: none !important; }" +
+      "body.mbz-popup-opened [data-mbz-button-popup-wrapper], body.mbz-popup-opened .stories-video-planweb-widget, body.mbz-popup-opened .stories-video-planweb, body.mbz-popup-opened [class*='stories-video-planweb'] { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }" +
       ".vtx-skel-title { width: 200px; height: 24px; background: #eee; border-radius: 4px; margin: 0 auto 24px; }" +
       ".vtx-skel-card { flex: 0 0 31%; aspect-ratio: 2 / 3; background: #eee; border-radius: 4px; animation: vtx-pulse 1.5s infinite; }" +
       "@keyframes vtx-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }" +
@@ -818,6 +827,86 @@
         el.classList.remove("bk-buybar-floating-lift");
       }
     }
+    if (typeof initWhatsAppHelpTab._apply === "function") initWhatsAppHelpTab._apply();
+  }
+
+  function initWhatsAppHelpTab() {
+    if (initWhatsAppHelpTab._bound) return;
+    initWhatsAppHelpTab._bound = true;
+
+    function setImportant(el, prop, value) {
+      if (!el || !el.style) return;
+      el.style.setProperty(prop, value, "important");
+    }
+
+    function applyHelpTabStyles() {
+      var wrappers = document.querySelectorAll("[data-mbz-button-popup-wrapper]");
+      for (var i = 0; i < wrappers.length; i++) {
+        var wrapper = wrappers[i];
+        var button = wrapper.querySelector("[data-mbz-popup-button]");
+
+        wrapper.classList.add("bk-wa-help-tab");
+        setImportant(wrapper, "width", "48px");
+        setImportant(wrapper, "height", "108px");
+        setImportant(wrapper, "right", "0");
+        if (!wrapper.classList.contains("bk-buybar-floating-lift")) {
+          setImportant(wrapper, "bottom", "100px");
+        }
+        setImportant(wrapper, "z-index", "9998");
+        setImportant(wrapper, "display", "flex");
+        setImportant(wrapper, "flex-direction", "column");
+        setImportant(wrapper, "align-items", "stretch");
+        setImportant(wrapper, "justify-content", "flex-start");
+        setImportant(wrapper, "background", "#fff");
+        setImportant(wrapper, "border", "1px solid #111");
+        setImportant(wrapper, "border-right", "0");
+        setImportant(wrapper, "border-radius", "0");
+        setImportant(wrapper, "box-shadow", "0 10px 24px rgba(0,0,0,.12)");
+        setImportant(wrapper, "overflow", "hidden");
+        setImportant(wrapper, "box-sizing", "border-box");
+
+        if (!button) continue;
+        button.classList.add("bk-wa-help-tab-button");
+        setImportant(button, "position", "relative");
+        setImportant(button, "inset", "auto");
+        setImportant(button, "width", "100%");
+        setImportant(button, "height", "48px");
+        setImportant(button, "min-width", "0");
+        setImportant(button, "min-height", "0");
+        setImportant(button, "margin", "0");
+        setImportant(button, "padding", "0");
+        setImportant(button, "display", "flex");
+        setImportant(button, "align-items", "center");
+        setImportant(button, "justify-content", "center");
+        setImportant(button, "background", "#fff");
+        setImportant(button, "border", "0");
+        setImportant(button, "border-radius", "0");
+        setImportant(button, "box-shadow", "none");
+        setImportant(button, "color", "transparent");
+        setImportant(button, "font-size", "0");
+        setImportant(button, "line-height", "0");
+        setImportant(button, "overflow", "hidden");
+        setImportant(button, "animation", "none");
+        setImportant(button, "transform", "none");
+      }
+    }
+
+    initWhatsAppHelpTab._apply = applyHelpTabStyles;
+    applyHelpTabStyles();
+    for (var i = 1; i <= 10; i++) {
+      setTimeout(applyHelpTabStyles, i < 5 ? i * 400 : i * 1200);
+    }
+    if (window.MutationObserver) {
+      var observer = new MutationObserver(applyHelpTabStyles);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    document.addEventListener("click", function (event) {
+      var wrapper = event.target && event.target.closest ? event.target.closest("[data-mbz-button-popup-wrapper]") : null;
+      if (!wrapper || event.target !== wrapper) return;
+      var button = wrapper.querySelector("[data-mbz-popup-button]");
+      if (button) button.click();
+    }, true);
   }
 
   function enhanceMobileBuyBar(productId) {
@@ -1214,6 +1303,7 @@
 
     // Inject styles
     injectStyles();
+    initWhatsAppHelpTab();
 
     // Enhance the native mobile sticky buy bar (Aramis-style) on PDPs
     if (pageType === "product") enhanceMobileBuyBar(productId);
