@@ -656,6 +656,44 @@
     document.head.appendChild(style);
   }
 
+  // --- Mobile sticky buy bar enhancement (Aramis-style) ---
+  // The VNDA theme already creates a native mobile sticky buy bar (.form-floating,
+  // built on scroll via data-floating-button). It ships with two problems:
+  //   1) transition: all 10s ease-in  -> the bar crawls in over 10s, so it only
+  //      becomes visible "way further down" as you scroll (the user's complaint).
+  //   2) default styling is a flat light-gray block with a loud green button.
+  // We override ONLY via CSS (no extra button, no DOM changes) so the existing bar
+  // snaps in fast (.22s) and reads like Aramis: clean white bar + dark CTA.
+  //
+  // ROLLOUT/REVERT knob:
+  //   "1271" -> test on a single PDP (BASIC PRETA)
+  //   null   -> enable on ALL product pages
+  //   ""     -> disabled (full revert, no CSS injected)
+  var BUYBAR_ENHANCE_PRODUCT_ID = "1271";
+
+  function enhanceMobileBuyBar(productId) {
+    if (!BUYBAR_ENHANCE_PRODUCT_ID && BUYBAR_ENHANCE_PRODUCT_ID !== null) return; // "" = off
+    if (BUYBAR_ENHANCE_PRODUCT_ID && productId !== BUYBAR_ENHANCE_PRODUCT_ID) return;
+    if (document.getElementById("bk-buybar-enhance")) return;
+    var css =
+      "@media (max-width: 767px) {" +
+        // 1) behavior: kill the 10s lag so the native bar appears instantly
+        ".form-floating { transition: all .22s ease !important; }" +
+        // 2) style: clean white floating bar with separation from the page
+        ".form-floating .block-info { background:#fff !important; box-shadow:0 -8px 26px rgba(0,0,0,.16) !important; border-top:1px solid #ececec !important; padding:10px 14px calc(10px + env(safe-area-inset-bottom)) !important; gap:8px !important; }" +
+        ".form-floating .block-info .attributes { margin:0 0 4px !important; }" +
+        ".form-floating .block-info .attributes .option-Tamanho { gap:6px !important; }" +
+        // 3) CTA: brand-dark, full-width, compact (overrides the native 2rem green)
+        ".form-floating .actions-wrapper { font-size:15px !important; }" +
+        ".form-floating .add-to-cart-button { background:#111 !important; color:#fff !important; border:none !important; border-radius:10px !important; width:100% !important; height:50px !important; font-size:15px !important; font-weight:800 !important; letter-spacing:.04em !important; text-transform:uppercase !important; }" +
+      "}";
+    var style = document.createElement("style");
+    style.id = "bk-buybar-enhance";
+    style.textContent = css;
+    document.head.appendChild(style);
+    console.log("[Shelves] Mobile buy bar enhanced (Aramis-style) for product", productId);
+  }
+
   function attachImageFallbacks(container) {
     var imgs = container.querySelectorAll(".vtx-product-img");
     for (var i = 0; i < imgs.length; i++) {
@@ -858,6 +896,9 @@
 
     // Inject styles
     injectStyles();
+
+    // Enhance the native mobile sticky buy bar (Aramis-style) on PDPs
+    if (pageType === "product") enhanceMobileBuyBar(productId);
 
     // Fetch config
     fetchConfig(pageType)
