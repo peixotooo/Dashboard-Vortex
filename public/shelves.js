@@ -1512,20 +1512,20 @@
   }
 
 
-  // Inline SVGs for step icons (24x24, currentColor)
+  // Inline geometric SVGs for storefront utility/benefit icons.
   var GB_ICONS = {
-    truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>',
-    gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg>',
-    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-    heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></svg>',
-    percent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>',
-    sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.7L19.6 10.6 13.9 12.5 12 18.2l-1.9-5.7L4.4 10.6 10.1 8.7z"/><path d="M19 3v4"/><path d="M21 5h-4"/></svg>',
-    bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
-    crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>',
-    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-    medal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.21 15 2.66 7.14a2 2 0 0 1 .13-2.2L4.4 2.8A2 2 0 0 1 6 2h12a2 2 0 0 1 1.6.8l1.6 2.14a2 2 0 0 1 .14 2.2L16.79 15"/><path d="M11 12 5.12 2.2"/><path d="M13 12l5.88-9.8"/><circle cx="12" cy="17" r="5"/><path d="M12 18v-2h-.5"/></svg>',
-    shirt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>',
-    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+    truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7z"/><path d="M6 19h1"/><path d="M17 19h1"/><circle cx="7.5" cy="16.5" r="2.2"/><circle cx="18" cy="16.5" r="2.2"/></svg>',
+    gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 8h16v11H4z"/><path d="M4 8l8-4 8 4"/><path d="M12 4v15"/><path d="M7 12h10"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 3 4 7v6c0 4.5 3.2 7 8 8 4.8-1 8-3.5 8-8V7z"/><path d="m8.5 12 2.3 2.3 4.8-5"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 3 4 7v6c0 4.5 3.2 7 8 8 4.8-1 8-3.5 8-8V7z"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>',
+    percent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="m8 16 8-8"/><path d="M8 8h.01"/><path d="M16 16h.01"/></svg>',
+    sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 3 20 12 12 21 4 12z"/><path d="M12 7v10"/><path d="M7 12h10"/></svg>',
+    bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M5 7h14v14H5z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/><path d="M9 11h6"/></svg>',
+    crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M5 18h14"/><path d="M6 15 4 6l5 4 3-6 3 6 5-4-2 9z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="m8 12 2.7 2.7L16 9"/></svg>',
+    medal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M8 3h8l2 5-6 4-6-4z"/><circle cx="12" cy="16" r="5"/><path d="M12 13v6"/><path d="M9 16h6"/></svg>',
+    shirt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><path d="M8 4h8l4 3v5h-3v8H7v-8H4V7z"/><path d="M9 4a3 3 0 0 0 6 0"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M12 11v6"/><path d="M12 7h.01"/></svg>'
   };
 
   function renderIcon(icon) {
@@ -1596,7 +1596,66 @@
     modal.setAttribute("aria-hidden", "false");
   }
 
-  // Product Benefits: vertical list rendered below the buy button on PDP
+  function initProductBenefitsCarousel(block) {
+    if (!block || block.getAttribute("data-vtx-pb-carousel") === "1") return;
+    block.setAttribute("data-vtx-pb-carousel", "1");
+
+    var track = block.querySelector(".vtx-pb-track");
+    var items = block.querySelectorAll(".vtx-pb-item");
+    var dots = block.querySelectorAll(".vtx-pb-dot");
+    if (!track || items.length <= 1) {
+      block.classList.add("vtx-pb-single");
+      return;
+    }
+
+    var index = 0;
+    var timer = null;
+    var prefersReducedMotion = false;
+    try {
+      prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch (e) { /* ignore */ }
+
+    function go(next) {
+      index = (next + items.length) % items.length;
+      track.style.transform = "translate3d(-" + (index * 100) + "%,0,0)";
+      for (var i = 0; i < dots.length; i++) {
+        dots[i].classList.toggle("is-active", i === index);
+        dots[i].setAttribute("aria-selected", i === index ? "true" : "false");
+      }
+    }
+
+    function stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+
+    function start() {
+      if (prefersReducedMotion || timer) return;
+      timer = setInterval(function () {
+        if (document.hidden) return;
+        go(index + 1);
+      }, 3600);
+    }
+
+    for (var d = 0; d < dots.length; d++) {
+      (function (dot, dotIndex) {
+        dot.addEventListener("click", function () {
+          stop();
+          go(dotIndex);
+          start();
+        });
+      })(dots[d], d);
+    }
+
+    block.addEventListener("mouseenter", stop);
+    block.addEventListener("mouseleave", start);
+    block.addEventListener("touchstart", stop, { passive: true });
+    block.addEventListener("touchend", start, { passive: true });
+    go(0);
+    start();
+  }
+
+  // Product Benefits: compact automatic carousel rendered below the buy button on PDP
   function renderProductBenefits(cfg, retries) {
     retries = retries || 0;
     var benefits = Array.isArray(cfg.product_benefits) ? cfg.product_benefits : [];
@@ -1606,17 +1665,25 @@
     // Inject styles once
     if (!document.getElementById("vtx-product-benefits-styles")) {
       var pbCss =
-        "#vtx-product-benefits{margin:24px 0;padding:20px 0;border-top:1px solid #e5e7eb;font-family:'Inter',system-ui,sans-serif;color:#1f2937}" +
-        ".vtx-pb-title{margin:0 0 16px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280}" +
-        ".vtx-pb-list{display:flex;flex-direction:column;gap:18px}" +
-        ".vtx-pb-item{display:flex;align-items:flex-start;gap:14px}" +
-        ".vtx-pb-icon{flex:0 0 auto;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#111827}" +
-        ".vtx-pb-icon svg{width:100%;height:100%}" +
+        "#vtx-product-benefits{margin:18px 0;padding:0;border:1px solid #e2e2e2;border-radius:8px;overflow:hidden;background:#fff;font-family:'Inter',system-ui,sans-serif;color:#1f2937;box-shadow:0 8px 22px rgba(0,0,0,.035)}" +
+        ".vtx-pb-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px 0}" +
+        ".vtx-pb-title{margin:0;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;line-height:1.2}" +
+        ".vtx-pb-dots{display:flex;align-items:center;gap:5px;flex:0 0 auto}" +
+        ".vtx-pb-dot{width:5px;height:5px;border:0;border-radius:999px;background:#d4d4d4;padding:0;cursor:pointer;transition:width .2s ease,background .2s ease}" +
+        ".vtx-pb-dot.is-active{width:14px;background:#111827}" +
+        ".vtx-pb-viewport{width:100%;overflow:hidden}" +
+        ".vtx-pb-track{display:flex;transition:transform .46s cubic-bezier(.22,.61,.36,1);will-change:transform}" +
+        ".vtx-pb-item{flex:0 0 100%;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:68px;padding:12px 13px 14px;box-sizing:border-box}" +
+        ".vtx-pb-icon{width:30px;height:30px;border:1px solid #d9d9d9;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#111827;background:#f8f8f8;box-sizing:border-box}" +
+        ".vtx-pb-icon svg{width:18px;height:18px;display:block}" +
         ".vtx-pb-text{flex:1;min-width:0}" +
-        ".vtx-pb-title-line{margin:0;font-size:15px;font-weight:500;color:#111827;line-height:1.35}" +
-        ".vtx-pb-link{display:inline-block;margin-top:2px;font-size:14px;color:#6b7280;text-decoration:underline;text-underline-offset:2px;cursor:pointer;background:none;border:none;padding:0;font-family:inherit}" +
+        ".vtx-pb-title-line{margin:0;font-size:13.5px;font-weight:700;color:#111827;line-height:1.25;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
+        ".vtx-pb-link{display:inline-block;margin-top:3px;font-size:12.5px;color:#6b7280;text-decoration:none;cursor:pointer;background:none;border:none;padding:0;font-family:inherit;line-height:1.25}" +
+        ".vtx-pb-link::after{content:'>';margin-left:5px;font-size:11px;color:#9ca3af}" +
         ".vtx-pb-link:hover{color:#111827}" +
-        "@media(max-width:768px){#vtx-product-benefits{margin:16px 0;padding:16px 0}.vtx-pb-title-line{font-size:14px}.vtx-pb-link{font-size:13px}}";
+        ".vtx-pb-single .vtx-pb-dots{display:none}" +
+        "@media(max-width:768px){#vtx-product-benefits{margin:14px 0}.vtx-pb-head{padding:10px 12px 0}.vtx-pb-item{min-height:64px;padding:11px 12px 13px}.vtx-pb-title-line{font-size:13px}.vtx-pb-link{font-size:12px}}" +
+        "@media(prefers-reduced-motion:reduce){.vtx-pb-track{transition:none}}";
       var pbStyle = document.createElement("style");
       pbStyle.id = "vtx-product-benefits-styles";
       pbStyle.textContent = pbCss;
@@ -1627,8 +1694,17 @@
     var block = document.createElement("div");
     block.id = "vtx-product-benefits";
     var html =
-      '<p class="vtx-pb-title">' + escapeHtml(cfg.product_benefits_title || "Nossos benefícios") + "</p>" +
-      '<div class="vtx-pb-list">';
+      '<div class="vtx-pb-head">' +
+        '<p class="vtx-pb-title">' + escapeHtml(cfg.product_benefits_title || "Nossos benefícios") + "</p>" +
+        '<div class="vtx-pb-dots" role="tablist" aria-label="Benefícios">';
+    for (var dotIndex = 0; dotIndex < benefits.length; dotIndex++) {
+      html += '<button type="button" class="vtx-pb-dot' + (dotIndex === 0 ? " is-active" : "") + '" aria-label="Ver benefício ' + (dotIndex + 1) + '" aria-selected="' + (dotIndex === 0 ? "true" : "false") + '"></button>';
+    }
+    html +=
+        '</div>' +
+      '</div>' +
+      '<div class="vtx-pb-viewport">' +
+        '<div class="vtx-pb-track">';
     for (var i = 0; i < benefits.length; i++) {
       var b = benefits[i];
       var hasModal = b.modal_body && String(b.modal_body).trim().length > 0;
@@ -1645,7 +1721,7 @@
           '</div>' +
         '</div>';
     }
-    html += '</div>';
+    html += '</div></div>';
     block.innerHTML = html;
 
     // Find anchor: admin override → fallback selectors.
@@ -1712,6 +1788,7 @@
         });
       })(btns[j]);
     }
+    initProductBenefitsCarousel(block);
 
     console.log("[ProductBenefits] Rendered", benefits.length, "benefits");
   }
@@ -2289,7 +2366,7 @@
         "position: absolute; z-index: 10; pointer-events: none;" +
         "font-family: inherit;" +
         "font-weight: 700; text-transform: uppercase;" +
-        "line-height: 1.2; white-space: nowrap;" +
+        "line-height: 1.2; white-space: nowrap; letter-spacing:.035em;" +
         "box-sizing: border-box;" +
       "}" +
       ".vtx-promo-tag--top-left { top: 8px; left: 8px; }" +
@@ -2298,25 +2375,26 @@
       ".vtx-promo-tag--bottom-right { bottom: 8px; right: 8px; }" +
       // Badge on product detail page (inline block, not absolute)
       ".vtx-promo-tag--pdp {" +
-        "position: static; display: inline-block; pointer-events: none;" +
+        "position: static; display: inline-flex; align-items:center; justify-content:center; pointer-events: none;" +
         "font-family: inherit;" +
-        "font-weight: 700; text-transform: uppercase;" +
+        "font-weight: 800; text-transform: uppercase;" +
         "line-height: 1.2; white-space: nowrap;" +
-        "box-sizing: border-box;" +
-        "margin: 8px 0;" +
+        "box-sizing: border-box; border:1px solid rgba(0,0,0,.08);" +
+        "margin: 6px 0; box-shadow:0 5px 14px rgba(0,0,0,.06);" +
       "}" +
       // Wrapper that holds cashback + viewers side-by-side below the price
       ".vtx-promo-tag-row {" +
-        "display: flex; flex-wrap: wrap; gap: 8px;" +
+        "display: flex; flex-wrap: wrap; gap: 7px;" +
         "align-items: center;" +
         "width: 100%; flex-basis: 100%;" +
-        "margin: 12px 0; clear: both;" +
+        "margin: 10px 0 12px; clear: both;" +
       "}" +
       ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) {" +
-        "height: 32px !important; min-height: 32px !important;" +
+        "height: 30px !important; min-height: 30px !important;" +
         "display: inline-flex !important; align-items: center !important; justify-content: center !important;" +
-        "padding-top: 0 !important; padding-bottom: 0 !important;" +
+        "padding-top: 0 !important; padding-bottom: 0 !important; padding-left:12px !important; padding-right:12px !important;" +
         "line-height: 1 !important; box-sizing: border-box !important;" +
+        "border-radius:999px !important;" +
       "}" +
       ".vtx-promo-tag--has-modal {" +
         "pointer-events: auto; cursor: pointer; text-transform: none;" +
@@ -2380,18 +2458,18 @@
       // Cashback pill — colors come from rule.badge_bg_color/text_color via inline style
       ".vtx-promo-tag--cashback {" +
         "position: relative; display: inline-flex; align-items: center; gap: 6px;" +
-        "padding: 5px 12px;" +
-        "font-weight: 600; text-transform: none; font-size: 12px;" +
-        "border-radius: 6px;" +
+        "padding: 0 12px;" +
+        "font-weight: 700; text-transform: none; font-size: 11.5px;" +
+        "border-radius: 999px;" +
         "font-family: inherit; line-height: 1.3;" +
       "}" +
       ".vtx-promo-tag--cashback strong { font-weight: 700 }" +
       // Live viewers pill — pulsing dot inherits color from text
       ".vtx-promo-tag--viewers {" +
         "position: relative; display: inline-flex; align-items: center; gap: 6px;" +
-        "padding: 5px 12px;" +
-        "font-weight: 500; text-transform: none; font-size: 11.5px;" +
-        "border-radius: 6px;" +
+        "padding: 0 12px;" +
+        "font-weight: 700; text-transform: none; font-size: 11px;" +
+        "border-radius: 999px;" +
         "font-family: inherit; line-height: 1.3;" +
       "}" +
       ".vtx-promo-tag--viewers strong { font-weight: 700 }" +
@@ -2399,6 +2477,11 @@
         "width: 7px; height: 7px; border-radius: 50%;" +
         "background: currentColor; opacity: .85;" +
         "animation: vtx-pulse 1.6s infinite;" +
+      "}" +
+      "@media (max-width: 640px) {" +
+        ".vtx-promo-tag-row { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 6px; margin: 10px -20px 12px; padding: 0 20px 8px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }" +
+        ".vtx-promo-tag-row::-webkit-scrollbar { display: none; }" +
+        ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) { flex: 0 0 auto; scroll-snap-align: start; }" +
       "}" +
       // Pulse uses currentColor so the ring matches the badge text color
       "@keyframes vtx-pulse {" +
@@ -2703,14 +2786,16 @@
   function createBadgeElement(rule, isPdp) {
     var badge = document.createElement("div");
     badge.className = isPdp
-      ? "vtx-promo-tag vtx-promo-tag--pdp"
+      ? "vtx-promo-tag vtx-promo-tag--pdp vtx-promo-tag--static"
       : "vtx-promo-tag vtx-promo-tag--" + (rule.badge_position || "top-left");
     badge.textContent = rule.badge_text;
-    badge.style.backgroundColor = rule.badge_bg_color || "#ff0000";
+    badge.style.backgroundColor = rule.badge_bg_color || "#111827";
     badge.style.color = rule.badge_text_color || "#ffffff";
     badge.style.fontSize = rule.badge_font_size || "11px";
-    badge.style.borderRadius = rule.badge_border_radius || "4px";
-    badge.style.padding = rule.badge_padding || "4px 8px";
+    badge.style.borderRadius = rule.badge_border_radius || "999px";
+    badge.style.padding = rule.badge_padding || (isPdp ? "0 12px" : "5px 10px");
+    badge.style.border = "1px solid rgba(0,0,0,.08)";
+    badge.style.boxShadow = "0 5px 14px rgba(0,0,0,.06)";
     bindPromoTagModal(badge, rule);
     return badge;
   }
@@ -2721,6 +2806,8 @@
     if (rule.badge_font_size) badge.style.fontSize = rule.badge_font_size;
     if (rule.badge_border_radius) badge.style.borderRadius = rule.badge_border_radius;
     if (rule.badge_padding) badge.style.padding = rule.badge_padding;
+    badge.style.border = "1px solid rgba(0,0,0,.08)";
+    badge.style.boxShadow = "0 5px 14px rgba(0,0,0,.06)";
   }
 
   function createCashbackBadge(rule, fallbackPercent) {
