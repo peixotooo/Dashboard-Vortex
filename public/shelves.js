@@ -707,6 +707,7 @@
         "#bk-sticky-buy.-need-size .bk-sb-sizes{animation:bk-shake .3s;}" +
         "@keyframes bk-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}" +
         "@media(max-width:767px){.form-floating{display:none !important;}}" +
+        "@media(max-width:767px){body.bk-buybar-on .stories-video-planweb-widget,body.bk-buybar-on .stories-video-planweb,body.bk-buybar-on .whatsapp{bottom:150px !important;transition:bottom .26s ease;}}" +
         "@media(min-width:768px){#bk-sticky-buy{display:none !important;}}";
       var st = document.createElement("style");
       st.id = "bk-buybar-css";
@@ -791,19 +792,40 @@
 
     document.body.appendChild(bar);
 
-    // Trigger: appear EARLY (after ~1/3 screen scroll), hide back near the top
-    var ticking = false;
-    function update() {
-      ticking = false;
-      var vh = window.innerHeight || 700;
-      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
-      if (y > vh * 0.33) bar.classList.add("-show");
-      else if (y < vh * 0.12) bar.classList.remove("-show");
+    // Declutter (mobile): move our promo-tag stack (cashback / LEVE 5 / viewers)
+    // BELOW the buy box, so the real CTA sits right after the price (Aramis-style)
+    // and isn't buried. We only move OUR own widget, never the native form.
+    var promoRow = document.getElementById("vtx-promo-tag-row");
+    if (promoRow && promoRow !== form && !promoRow.getAttribute("data-bk-moved")) {
+      try { form.insertAdjacentElement("afterend", promoRow); promoRow.setAttribute("data-bk-moved", "1"); } catch (e) {}
     }
-    window.addEventListener("scroll", function () {
-      if (!ticking) { ticking = true; (window.requestAnimationFrame || window.setTimeout)(update, 16); }
-    }, { passive: true });
-    update();
+
+    // Trigger: show the sticky bar whenever the in-page CTA is NOT visible.
+    // - At the top, if the CTA is below the fold -> bar shows immediately.
+    // - When the real CTA scrolls into view -> bar hides (never covers it).
+    // Also toggles a body class so the floating video/WhatsApp widgets lift up.
+    function setShown(on) {
+      bar.classList.toggle("-show", on);
+      document.body.classList.toggle("bk-buybar-on", on);
+    }
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        setShown(!entries[0].isIntersecting);
+      }, { threshold: 0 });
+      io.observe(nativeCta);
+    } else {
+      var ticking = false;
+      function update() {
+        ticking = false;
+        var r = nativeCta.getBoundingClientRect();
+        var vh = window.innerHeight || 700;
+        setShown(r.bottom < 0 || r.top > vh);
+      }
+      window.addEventListener("scroll", function () {
+        if (!ticking) { ticking = true; (window.requestAnimationFrame || window.setTimeout)(update, 16); }
+      }, { passive: true });
+      update();
+    }
     console.log("[Shelves] Custom mobile buy bar active (Aramis-style) for product", productId);
   }
 
