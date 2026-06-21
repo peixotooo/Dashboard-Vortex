@@ -951,11 +951,9 @@
     // and isn't buried. We only move OUR own widget, never the native form.
     scheduleMobilePdpBuyBoxReorder(productId);
 
-    // Trigger: show the sticky bar after the first intentional scroll whenever
-    // the in-page CTA is not visible.
-    // - At the very top, if the CTA is below the fold, the bar stays hidden.
-    // - When the real CTA is visible, the bar stays hidden (never covers it).
-    // - Between gallery and CTA, or after passing the CTA, the sticky bar appears.
+    // Trigger: single source of truth.
+    // Native CTA visible in the viewport => sticky bar hidden.
+    // Native CTA outside the viewport => sticky bar visible.
     // Also toggles a body class so the floating video/WhatsApp widgets lift up.
     function isNativeCtaVisible() {
       var r = nativeCta.getBoundingClientRect();
@@ -964,18 +962,13 @@
       return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
     }
     function shouldShowStickyBuyBar() {
-      var r = nativeCta.getBoundingClientRect();
-      var vh = window.innerHeight || 700;
-      var scrollTop =
-        window.pageYOffset ||
-        document.documentElement.scrollTop ||
-        document.body.scrollTop ||
-        0;
-      var hasIntentionalScroll = scrollTop > Math.min(140, Math.round(vh * 0.16));
-      if (!hasIntentionalScroll) return false;
-      return r.bottom < 0 || r.top > vh;
+      return !isNativeCtaVisible();
     }
     function setShown(on) {
+      if (bar.classList.contains("-show") === on) {
+        if (on) setMobileFloatingOffset(true, bar);
+        return;
+      }
       bar.classList.toggle("-show", on);
       document.body.classList.toggle("bk-buybar-on", on);
       setMobileFloatingOffset(on, bar);
@@ -987,23 +980,6 @@
     enhanceMobileBuyBar._syncVisibility = function () {
       setShown(shouldShowStickyBuyBar());
     };
-    if ("IntersectionObserver" in window) {
-      var io = new IntersectionObserver(function (entries) {
-        if (entries[0].isIntersecting || isNativeCtaVisible()) setShown(false);
-        else setShown(shouldShowStickyBuyBar());
-      }, { threshold: 0 });
-      io.observe(nativeCta);
-    } else {
-      var ticking = false;
-      function update() {
-        ticking = false;
-        setShown(shouldShowStickyBuyBar());
-      }
-      window.addEventListener("scroll", function () {
-        if (!ticking) { ticking = true; (window.requestAnimationFrame || window.setTimeout)(update, 16); }
-      }, { passive: true });
-      update();
-    }
     window.addEventListener("scroll", function () {
       if (enhanceMobileBuyBar._scrollTicking) return;
       enhanceMobileBuyBar._scrollTicking = true;
@@ -1016,6 +992,7 @@
       if (window.innerWidth > 767) setShown(false);
       else enhanceMobileBuyBar._syncVisibility();
     }, { passive: true });
+    enhanceMobileBuyBar._syncVisibility();
     console.log("[Shelves] Custom mobile buy bar active (Aramis-style) for product", productId);
   }
 
