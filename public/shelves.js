@@ -1647,10 +1647,35 @@
       })(dots[d], d);
     }
 
+    var touchStartX = 0;
+    var touchStartY = 0;
+    var touchStarted = false;
+
     block.addEventListener("mouseenter", stop);
     block.addEventListener("mouseleave", start);
-    block.addEventListener("touchstart", stop, { passive: true });
-    block.addEventListener("touchend", start, { passive: true });
+    block.addEventListener("touchstart", function (e) {
+      if (!e.touches || !e.touches.length) return;
+      stop();
+      touchStarted = true;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    block.addEventListener("touchend", function (e) {
+      if (!touchStarted) {
+        start();
+        return;
+      }
+      touchStarted = false;
+      var touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+      if (touch) {
+        var dx = touch.clientX - touchStartX;
+        var dy = touch.clientY - touchStartY;
+        if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          go(index + (dx < 0 ? 1 : -1));
+        }
+      }
+      setTimeout(start, 700);
+    }, { passive: true });
     go(0);
     start();
   }
@@ -1671,7 +1696,7 @@
         ".vtx-pb-dots{display:flex;align-items:center;gap:5px;flex:0 0 auto}" +
         ".vtx-pb-dot{width:5px;height:5px;border:0;border-radius:999px;background:#d4d4d4;padding:0;cursor:pointer;transition:width .2s ease,background .2s ease}" +
         ".vtx-pb-dot.is-active{width:14px;background:#111827}" +
-        ".vtx-pb-viewport{width:100%;overflow:hidden}" +
+        ".vtx-pb-viewport{width:100%;overflow:hidden;touch-action:pan-y}" +
         ".vtx-pb-track{display:flex;transition:transform .46s cubic-bezier(.22,.61,.36,1);will-change:transform}" +
         ".vtx-pb-item{flex:0 0 100%;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:68px;padding:12px 13px 14px;box-sizing:border-box}" +
         ".vtx-pb-icon{width:30px;height:30px;border:1px solid #d9d9d9;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#111827;background:#f8f8f8;box-sizing:border-box}" +
@@ -2479,9 +2504,8 @@
         "animation: vtx-pulse 1.6s infinite;" +
       "}" +
       "@media (max-width: 640px) {" +
-        ".vtx-promo-tag-row { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 6px; margin: 10px -20px 12px; padding: 0 20px 8px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; }" +
-        ".vtx-promo-tag-row::-webkit-scrollbar { display: none; }" +
-        ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) { flex: 0 0 auto; scroll-snap-align: start; }" +
+        ".vtx-promo-tag-row { flex-wrap: wrap; overflow: visible; gap: 6px; margin: 10px 0 12px; padding: 0; }" +
+        ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) { flex: 0 1 auto; max-width: 100%; margin: 0 !important; font-size: 10.5px !important; padding-left: 10px !important; padding-right: 10px !important; }" +
       "}" +
       // Pulse uses currentColor so the ring matches the badge text color
       "@keyframes vtx-pulse {" +
