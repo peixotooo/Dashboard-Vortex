@@ -656,42 +656,155 @@
     document.head.appendChild(style);
   }
 
-  // --- Mobile sticky buy bar enhancement (Aramis-style) ---
-  // The VNDA theme already creates a native mobile sticky buy bar (.form-floating,
-  // built on scroll via data-floating-button). It ships with two problems:
-  //   1) transition: all 10s ease-in  -> the bar crawls in over 10s, so it only
-  //      becomes visible "way further down" as you scroll (the user's complaint).
-  //   2) default styling is a flat light-gray block with a loud green button.
-  // We override ONLY via CSS (no extra button, no DOM changes) so the existing bar
-  // snaps in fast (.22s) and reads like Aramis: clean white bar + dark CTA.
+  // --- Mobile sticky buy bar (Aramis-style) ---
+  // The VNDA native mobile buy bar (.form-floating) only triggers AFTER you scroll
+  // past the in-page buy box (~1 screen) and crawls in over a 10s transition, so it
+  // "only shows way further down". Instead of fighting the theme's lazily-created
+  // bar, we render OUR OWN bottom sticky bar that:
+  //   - appears EARLY (after ~1/3 screen of scroll), like Aramis
+  //   - shows thumb + name + price + size chips + dark CTA
+  //   - FORWARDS clicks to the real controls (native size labels + add-to-cart),
+  //     so we never reimplement the purchase flow
+  // The native .form-floating is hidden on mobile so there's only one sticky bar.
   //
   // ROLLOUT/REVERT knob:
   //   "1271" -> test on a single PDP (BASIC PRETA)
   //   null   -> enable on ALL product pages
-  //   ""     -> disabled (full revert, no CSS injected)
+  //   ""     -> disabled (full revert, nothing injected/built)
   var BUYBAR_ENHANCE_PRODUCT_ID = "1271";
 
   function enhanceMobileBuyBar(productId) {
     if (!BUYBAR_ENHANCE_PRODUCT_ID && BUYBAR_ENHANCE_PRODUCT_ID !== null) return; // "" = off
     if (BUYBAR_ENHANCE_PRODUCT_ID && productId !== BUYBAR_ENHANCE_PRODUCT_ID) return;
-    if (document.getElementById("bk-buybar-enhance")) return;
-    var css =
-      "@media (max-width: 767px) {" +
-        // 1) behavior: kill the 10s lag so the native bar appears instantly
-        ".form-floating { transition: all .22s ease !important; }" +
-        // 2) style: clean white floating bar with separation from the page
-        ".form-floating .block-info { background:#fff !important; box-shadow:0 -8px 26px rgba(0,0,0,.16) !important; border-top:1px solid #ececec !important; padding:10px 14px calc(10px + env(safe-area-inset-bottom)) !important; gap:8px !important; }" +
-        ".form-floating .block-info .attributes { margin:0 0 4px !important; }" +
-        ".form-floating .block-info .attributes .option-Tamanho { gap:6px !important; }" +
-        // 3) CTA: brand-dark, full-width, compact (overrides the native 2rem green)
-        ".form-floating .actions-wrapper { font-size:15px !important; }" +
-        ".form-floating .add-to-cart-button { background:#111 !important; color:#fff !important; border:none !important; border-radius:10px !important; width:100% !important; height:50px !important; font-size:15px !important; font-weight:800 !important; letter-spacing:.04em !important; text-transform:uppercase !important; }" +
-      "}";
-    var style = document.createElement("style");
-    style.id = "bk-buybar-enhance";
-    style.textContent = css;
-    document.head.appendChild(style);
-    console.log("[Shelves] Mobile buy bar enhanced (Aramis-style) for product", productId);
+    if (window.innerWidth > 767) return; // mobile only
+    if (document.getElementById("bk-sticky-buy")) return;
+
+    // Locate the real (in-page) controls we will forward to
+    var form = document.querySelector("form.add-to-cart[data-product-id], .product-section form.add-to-cart");
+    var nativeCta = (form && form.querySelector(".add-to-cart-button")) ||
+      document.querySelector(".product-section .add-to-cart-button");
+    if (!form || !nativeCta) {
+      enhanceMobileBuyBar._tries = (enhanceMobileBuyBar._tries || 0) + 1;
+      if (enhanceMobileBuyBar._tries <= 5) setTimeout(function () { enhanceMobileBuyBar(productId); }, 700);
+      return;
+    }
+
+    // Inject CSS once: hide native float on mobile + style our own bar
+    if (!document.getElementById("bk-buybar-css")) {
+      var css = "" +
+        "#bk-sticky-buy{position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#fff;box-shadow:0 -8px 26px rgba(0,0,0,.16);border-top:1px solid #ececec;padding:10px 12px calc(10px + env(safe-area-inset-bottom));transform:translateY(120%);transition:transform .26s cubic-bezier(.22,.61,.36,1);font-family:'Inter',sans-serif;}" +
+        "#bk-sticky-buy.-show{transform:translateY(0);}" +
+        "#bk-sticky-buy .bk-sb-top{display:flex;align-items:center;gap:10px;}" +
+        "#bk-sticky-buy .bk-sb-thumb{width:40px;height:40px;border-radius:6px;object-fit:cover;flex:0 0 auto;background:#f3f3f3;}" +
+        "#bk-sticky-buy .bk-sb-text{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;}" +
+        "#bk-sticky-buy .bk-sb-name{font-size:11px;font-weight:600;text-transform:uppercase;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}" +
+        "#bk-sticky-buy .bk-sb-price{font-size:15px;font-weight:800;color:#111;line-height:1.2;}" +
+        "#bk-sticky-buy .bk-sb-cta{flex:0 0 auto;background:#111;color:#fff;border:none;border-radius:10px;height:44px;padding:0 16px;font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;}" +
+        "#bk-sticky-buy .bk-sb-sizes{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}" +
+        "#bk-sticky-buy .bk-sb-size{min-width:36px;height:32px;padding:0 8px;border:1px solid #d9d9d9;border-radius:8px;background:#fff;font-size:12px;font-weight:700;color:#111;display:flex;align-items:center;justify-content:center;cursor:pointer;}" +
+        "#bk-sticky-buy .bk-sb-size.-active{border-color:#111;background:#111;color:#fff;}" +
+        "#bk-sticky-buy .bk-sb-size.-disabled{opacity:.32;text-decoration:line-through;pointer-events:none;}" +
+        "#bk-sticky-buy.-need-size .bk-sb-sizes{animation:bk-shake .3s;}" +
+        "@keyframes bk-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}" +
+        "@media(max-width:767px){.form-floating{display:none !important;}}" +
+        "@media(min-width:768px){#bk-sticky-buy{display:none !important;}}";
+      var st = document.createElement("style");
+      st.id = "bk-buybar-css";
+      st.textContent = css;
+      document.head.appendChild(st);
+    }
+
+    var nameEl = document.querySelector(".product-section h1.name, h1.name");
+    var priceEl = document.querySelector(".product-price .cmp-price-sale-price, .cmp-price-sale-price, .product-price .price, .product-price, .product-name-price .price");
+    var imgEl = document.querySelector(".product-images img.swiper-zoom-target, .product-images figure.image img, .product-images img");
+    var sizeLabels = form.querySelectorAll(".option-Tamanho label.label, .attributes label.label");
+
+    function pickImg(el) {
+      if (!el) return "";
+      return el.currentSrc || el.getAttribute("src") || el.getAttribute("data-src") || "";
+    }
+
+    var bar = document.createElement("div");
+    bar.id = "bk-sticky-buy";
+
+    var top = document.createElement("div"); top.className = "bk-sb-top";
+    var thumb = document.createElement("img"); thumb.className = "bk-sb-thumb"; thumb.alt = "";
+    var src = pickImg(imgEl); if (src) thumb.src = src;
+    var txt = document.createElement("div"); txt.className = "bk-sb-text";
+    var nm = document.createElement("span"); nm.className = "bk-sb-name"; nm.textContent = nameEl ? nameEl.textContent.trim() : "";
+    var pr = document.createElement("span"); pr.className = "bk-sb-price"; pr.textContent = priceEl ? priceEl.textContent.trim().replace(/\s+/g, " ") : "";
+    txt.appendChild(nm); txt.appendChild(pr);
+    var cta = document.createElement("button"); cta.type = "button"; cta.className = "bk-sb-cta"; cta.textContent = "Adicionar";
+    top.appendChild(thumb); top.appendChild(txt); top.appendChild(cta);
+    bar.appendChild(top);
+
+    var chipByValue = {};
+    function setActiveChip(val) {
+      for (var k in chipByValue) { if (chipByValue.hasOwnProperty(k)) chipByValue[k].classList.toggle("-active", k === val); }
+    }
+    function selectedSize() {
+      var r = form.querySelector("input[name='attribute-Tamanho']:checked");
+      return r ? r.value : null;
+    }
+
+    if (sizeLabels.length) {
+      var sizesWrap = document.createElement("div"); sizesWrap.className = "bk-sb-sizes";
+      for (var i = 0; i < sizeLabels.length; i++) {
+        (function (label) {
+          var val = label.getAttribute("data-attribute-value") || label.getAttribute("data-text") || label.textContent.trim();
+          if (!val) return;
+          var avail = /(^|\s)-available(\s|$)/.test(label.className) ||
+            !/-unavailable|-sold|sold-off|disabled/i.test(label.className);
+          var chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "bk-sb-size" + (avail ? "" : " -disabled");
+          chip.textContent = val;
+          chip.addEventListener("click", function () {
+            if (!avail) return;
+            try { label.click(); } catch (e) {}
+            var radio = document.getElementById(label.getAttribute("for"));
+            if (radio) { radio.checked = true; try { radio.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {} }
+            setActiveChip(val);
+            bar.classList.remove("-need-size");
+          });
+          chipByValue[val] = chip;
+          sizesWrap.appendChild(chip);
+        })(sizeLabels[i]);
+      }
+      bar.appendChild(sizesWrap);
+    }
+
+    // Reflect in-page size selection back into our chips
+    var radios = form.querySelectorAll("input[name='attribute-Tamanho']");
+    for (var j = 0; j < radios.length; j++) {
+      radios[j].addEventListener("change", function () { var s = selectedSize(); if (s) setActiveChip(s); });
+    }
+
+    cta.addEventListener("click", function () {
+      if (sizeLabels.length > 0 && !selectedSize()) {
+        bar.classList.add("-need-size");
+        setTimeout(function () { bar.classList.remove("-need-size"); }, 350);
+        return;
+      }
+      try { nativeCta.click(); } catch (e) {}
+    });
+
+    document.body.appendChild(bar);
+
+    // Trigger: appear EARLY (after ~1/3 screen scroll), hide back near the top
+    var ticking = false;
+    function update() {
+      ticking = false;
+      var vh = window.innerHeight || 700;
+      var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+      if (y > vh * 0.33) bar.classList.add("-show");
+      else if (y < vh * 0.12) bar.classList.remove("-show");
+    }
+    window.addEventListener("scroll", function () {
+      if (!ticking) { ticking = true; (window.requestAnimationFrame || window.setTimeout)(update, 16); }
+    }, { passive: true });
+    update();
+    console.log("[Shelves] Custom mobile buy bar active (Aramis-style) for product", productId);
   }
 
   function attachImageFallbacks(container) {
