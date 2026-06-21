@@ -673,16 +673,162 @@
   //   ""     -> disabled (full revert, nothing injected/built)
   var BUYBAR_ENHANCE_PRODUCT_ID = "1271";
 
+  function isMobileBuyBarTarget(productId) {
+    if (!BUYBAR_ENHANCE_PRODUCT_ID && BUYBAR_ENHANCE_PRODUCT_ID !== null) return false;
+    if (BUYBAR_ENHANCE_PRODUCT_ID && productId !== BUYBAR_ENHANCE_PRODUCT_ID) return false;
+    return true;
+  }
+
+  function findMobileBuyForm() {
+    var form = document.querySelector("form.add-to-cart[data-product-id], .product-section form.add-to-cart");
+    var nativeCta = (form && form.querySelector(".add-to-cart-button")) ||
+      document.querySelector(".product-section .add-to-cart-button");
+    return { form: form, nativeCta: nativeCta };
+  }
+
+  function reorderMobilePdpBuyBox(productId) {
+    productId = productId || extractProductId();
+    if (!isMobileBuyBarTarget(productId)) return false;
+    if (window.innerWidth > 767) return false;
+
+    var controls = findMobileBuyForm();
+    var form = controls.form;
+    if (!form) return false;
+
+    var moved = false;
+    var anchor = form;
+    var widgets = [
+      document.getElementById("vtx-promo-tag-row"),
+      document.getElementById("vtx-gift-request-button"),
+      document.getElementById("vtx-product-benefits"),
+      document.getElementById("vtx-rv-compact")
+    ];
+    try {
+      for (var i = 0; i < widgets.length; i++) {
+        var widget = widgets[i];
+        if (!widget || widget === form || widget.contains(form)) continue;
+        anchor.insertAdjacentElement("afterend", widget);
+        widget.setAttribute("data-bk-moved", "1");
+        anchor = widget;
+        moved = true;
+      }
+    } catch (e) {
+      return false;
+    }
+    if (moved && typeof enhanceMobileBuyBar._syncVisibility === "function") {
+      enhanceMobileBuyBar._syncVisibility();
+    }
+    return moved;
+  }
+
+  function scheduleMobilePdpBuyBoxReorder(productId) {
+    productId = productId || extractProductId();
+    if (!isMobileBuyBarTarget(productId)) return;
+
+    var tries = 0;
+    function run() {
+      reorderMobilePdpBuyBox(productId);
+      tries += 1;
+      if (tries <= 14) {
+        setTimeout(run, tries < 5 ? 250 : 600);
+      }
+    }
+    run();
+  }
+
+  function addUniqueEl(list, el) {
+    if (!el) return;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === el) return;
+    }
+    list.push(el);
+  }
+
+  function findFixedAncestor(el) {
+    var node = el;
+    for (var i = 0; node && i < 8; i++) {
+      var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+      var pos = style ? style.position : "";
+      if (pos === "fixed" || pos === "sticky") return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function addShadowFixedTargets(host, targets, depth) {
+    if (!host || !host.shadowRoot || depth > 2) return;
+    var nodes = host.shadowRoot.querySelectorAll("*");
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+      var pos = style ? style.position : "";
+      if (pos === "fixed" || pos === "sticky") addUniqueEl(targets, node);
+      if (node.shadowRoot) addShadowFixedTargets(node, targets, depth + 1);
+    }
+  }
+
+  function findMobileFloatingTargets() {
+    var targets = [];
+    var planweb = document.querySelectorAll(
+      ".stories-video-planweb-widget, .stories-video-planweb, [class*='stories-video-planweb']"
+    );
+    for (var i = 0; i < planweb.length; i++) {
+      addUniqueEl(targets, findFixedAncestor(planweb[i]) || planweb[i]);
+      addShadowFixedTargets(planweb[i], targets, 0);
+    }
+
+    var whatsapp = document.querySelectorAll(
+      ".whatsapp, .whatsapp-button, .whatsapp-link, [class*='whatsapp'], " +
+      "[data-mbz-button-popup-wrapper], [data-mbz-popup-button], [aria-label*='WhatsApp'], " +
+      "a[href*='wa.me'], a[href*='api.whatsapp.com'], a[href*='whatsapp']"
+    );
+    for (var j = 0; j < whatsapp.length; j++) {
+      addUniqueEl(targets, findFixedAncestor(whatsapp[j]));
+    }
+    return targets;
+  }
+
+  function setMobileFloatingOffset(on, bar) {
+    if (window.innerWidth > 767) on = false;
+    var offset = "150px";
+    if (on && bar) {
+      var rect = bar.getBoundingClientRect ? bar.getBoundingClientRect() : null;
+      var height = rect && rect.height ? rect.height : 126;
+      offset = Math.ceil(height + 18) + "px";
+    }
+
+    var targets = findMobileFloatingTargets();
+    for (var i = 0; i < targets.length; i++) {
+      var el = targets[i];
+      if (!el || !el.style) continue;
+      if (on) {
+        if (el.getAttribute("data-bk-buybar-bottom") === null) {
+          el.setAttribute("data-bk-buybar-bottom", el.style.getPropertyValue("bottom") || "");
+          el.setAttribute("data-bk-buybar-bottom-priority", el.style.getPropertyPriority("bottom") || "");
+        }
+        el.classList.add("bk-buybar-floating-lift");
+        el.style.setProperty("bottom", offset, "important");
+      } else if (el.getAttribute("data-bk-buybar-bottom") !== null) {
+        var previous = el.getAttribute("data-bk-buybar-bottom") || "";
+        var priority = el.getAttribute("data-bk-buybar-bottom-priority") || "";
+        if (previous) el.style.setProperty("bottom", previous, priority);
+        else el.style.removeProperty("bottom");
+        el.removeAttribute("data-bk-buybar-bottom");
+        el.removeAttribute("data-bk-buybar-bottom-priority");
+        el.classList.remove("bk-buybar-floating-lift");
+      }
+    }
+  }
+
   function enhanceMobileBuyBar(productId) {
-    if (!BUYBAR_ENHANCE_PRODUCT_ID && BUYBAR_ENHANCE_PRODUCT_ID !== null) return; // "" = off
-    if (BUYBAR_ENHANCE_PRODUCT_ID && productId !== BUYBAR_ENHANCE_PRODUCT_ID) return;
+    if (!isMobileBuyBarTarget(productId)) return;
     if (window.innerWidth > 767) return; // mobile only
     if (document.getElementById("bk-sticky-buy")) return;
 
     // Locate the real (in-page) controls we will forward to
-    var form = document.querySelector("form.add-to-cart[data-product-id], .product-section form.add-to-cart");
-    var nativeCta = (form && form.querySelector(".add-to-cart-button")) ||
-      document.querySelector(".product-section .add-to-cart-button");
+    var controls = findMobileBuyForm();
+    var form = controls.form;
+    var nativeCta = controls.nativeCta;
     if (!form || !nativeCta) {
       enhanceMobileBuyBar._tries = (enhanceMobileBuyBar._tries || 0) + 1;
       if (enhanceMobileBuyBar._tries <= 5) setTimeout(function () { enhanceMobileBuyBar(productId); }, 700);
@@ -707,7 +853,7 @@
         "#bk-sticky-buy.-need-size .bk-sb-sizes{animation:bk-shake .3s;}" +
         "@keyframes bk-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}" +
         "@media(max-width:767px){.form-floating{display:none !important;}}" +
-        "@media(max-width:767px){body.bk-buybar-on .stories-video-planweb-widget,body.bk-buybar-on .stories-video-planweb,body.bk-buybar-on .whatsapp{bottom:150px !important;transition:bottom .26s ease;}}" +
+        "@media(max-width:767px){body.bk-buybar-on .bk-buybar-floating-lift{transition:bottom .26s ease !important;}}" +
         "@media(min-width:768px){#bk-sticky-buy{display:none !important;}}";
       var st = document.createElement("style");
       st.id = "bk-buybar-css";
@@ -724,6 +870,14 @@
       if (!el) return "";
       return el.currentSrc || el.getAttribute("src") || el.getAttribute("data-src") || "";
     }
+    function pickPriceText() {
+      var sale = document.querySelector(
+        ".cmp-price-sale-price .price, .cmp-price-sale-price ins.price, .cmp-price-sale-price"
+      );
+      var source = sale || priceEl;
+      var text = source ? source.textContent.trim().replace(/\s+/g, " ") : "";
+      return text.replace(/^Por:\s*/i, "");
+    }
 
     var bar = document.createElement("div");
     bar.id = "bk-sticky-buy";
@@ -733,7 +887,7 @@
     var src = pickImg(imgEl); if (src) thumb.src = src;
     var txt = document.createElement("div"); txt.className = "bk-sb-text";
     var nm = document.createElement("span"); nm.className = "bk-sb-name"; nm.textContent = nameEl ? nameEl.textContent.trim() : "";
-    var pr = document.createElement("span"); pr.className = "bk-sb-price"; pr.textContent = priceEl ? priceEl.textContent.trim().replace(/\s+/g, " ") : "";
+    var pr = document.createElement("span"); pr.className = "bk-sb-price"; pr.textContent = pickPriceText();
     txt.appendChild(nm); txt.appendChild(pr);
     var cta = document.createElement("button"); cta.type = "button"; cta.className = "bk-sb-cta"; cta.textContent = "Adicionar";
     top.appendChild(thumb); top.appendChild(txt); top.appendChild(cta);
@@ -795,37 +949,56 @@
     // Declutter (mobile): move our promo-tag stack (cashback / LEVE 5 / viewers)
     // BELOW the buy box, so the real CTA sits right after the price (Aramis-style)
     // and isn't buried. We only move OUR own widget, never the native form.
-    var promoRow = document.getElementById("vtx-promo-tag-row");
-    if (promoRow && promoRow !== form && !promoRow.getAttribute("data-bk-moved")) {
-      try { form.insertAdjacentElement("afterend", promoRow); promoRow.setAttribute("data-bk-moved", "1"); } catch (e) {}
-    }
+    scheduleMobilePdpBuyBoxReorder(productId);
 
-    // Trigger: show the sticky bar whenever the in-page CTA is NOT visible.
-    // - At the top, if the CTA is below the fold -> bar shows immediately.
-    // - When the real CTA scrolls into view -> bar hides (never covers it).
+    // Trigger: show the sticky bar only after the in-page CTA has been passed.
+    // - At the top, if the CTA is below the fold, the bar stays hidden.
+    // - When the real CTA is visible, the bar stays hidden (never covers it).
+    // - After the CTA scrolls above the viewport, the sticky bar appears.
     // Also toggles a body class so the floating video/WhatsApp widgets lift up.
+    function isNativeCtaVisible() {
+      var r = nativeCta.getBoundingClientRect();
+      var vh = window.innerHeight || 700;
+      var vw = window.innerWidth || 360;
+      return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+    }
+    function shouldShowStickyBuyBar() {
+      var r = nativeCta.getBoundingClientRect();
+      return r.bottom < 0;
+    }
     function setShown(on) {
       bar.classList.toggle("-show", on);
       document.body.classList.toggle("bk-buybar-on", on);
+      setMobileFloatingOffset(on, bar);
+      if (on) {
+        setTimeout(function () { setMobileFloatingOffset(true, bar); }, 350);
+        setTimeout(function () { setMobileFloatingOffset(true, bar); }, 1200);
+      }
     }
+    enhanceMobileBuyBar._syncVisibility = function () {
+      setShown(shouldShowStickyBuyBar());
+    };
     if ("IntersectionObserver" in window) {
       var io = new IntersectionObserver(function (entries) {
-        setShown(!entries[0].isIntersecting);
+        if (entries[0].isIntersecting || isNativeCtaVisible()) setShown(false);
+        else setShown(shouldShowStickyBuyBar());
       }, { threshold: 0 });
       io.observe(nativeCta);
     } else {
       var ticking = false;
       function update() {
         ticking = false;
-        var r = nativeCta.getBoundingClientRect();
-        var vh = window.innerHeight || 700;
-        setShown(r.bottom < 0 || r.top > vh);
+        setShown(shouldShowStickyBuyBar());
       }
       window.addEventListener("scroll", function () {
         if (!ticking) { ticking = true; (window.requestAnimationFrame || window.setTimeout)(update, 16); }
       }, { passive: true });
       update();
     }
+    window.addEventListener("resize", function () {
+      if (window.innerWidth > 767) setShown(false);
+      else enhanceMobileBuyBar._syncVisibility();
+    }, { passive: true });
     console.log("[Shelves] Custom mobile buy bar active (Aramis-style) for product", productId);
   }
 
@@ -2901,6 +3074,8 @@
         if (form) form.parentNode.insertBefore(badge, form);
       }
     }
+
+    scheduleMobilePdpBuyBoxReorder(productId);
   }
 
   function applyPromoTagsListing(matches, pageType) {
