@@ -187,6 +187,7 @@ export default function GiftRequestPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingEnabled, setSavingEnabled] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
@@ -370,6 +371,35 @@ export default function GiftRequestPage() {
     }
   }
 
+  async function saveEnabled(nextEnabled: boolean) {
+    if (!workspace?.id) return;
+    const previousConfig = config;
+    const nextConfig = { ...config, enabled: nextEnabled };
+
+    setConfig(nextConfig);
+    setSavingEnabled(true);
+    setSaved(false);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/gift-request/config", {
+        method: "PUT",
+        headers: headers(),
+        body: JSON.stringify(nextConfig),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao salvar status");
+      setConfig({ ...DEFAULT_CONFIG, ...data.config });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setConfig(previousConfig);
+      setError(e instanceof Error ? e.message : "Erro ao salvar status");
+    } finally {
+      setSavingEnabled(false);
+    }
+  }
+
   function setMappingSlot(position: string, raw: string) {
     setConfig((prev) => ({
       ...prev,
@@ -522,9 +552,23 @@ export default function GiftRequestPage() {
             Botão na PDP que envia WhatsApp pra pessoa que vai presentear.
           </p>
         </div>
-        <Badge variant={config.enabled ? "default" : "secondary"}>
-          {config.enabled ? "Ativo" : "Desativado"}
-        </Badge>
+        <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 shadow-sm">
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">Botão na loja</div>
+            <div className="flex items-center justify-end gap-1.5 text-sm font-medium">
+              {savingEnabled && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              )}
+              {config.enabled ? "Ativo" : "Desativado"}
+            </div>
+          </div>
+          <Switch
+            checked={config.enabled}
+            disabled={savingEnabled || !workspace?.id}
+            onCheckedChange={saveEnabled}
+            aria-label="Ativar ou desativar botão Pedir de presente"
+          />
+        </div>
       </div>
 
       {error && (
@@ -748,15 +792,25 @@ export default function GiftRequestPage() {
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={config.enabled}
-                    onCheckedChange={(v) => setConfig({ ...config, enabled: v })}
+                    disabled={savingEnabled || !workspace?.id}
+                    onCheckedChange={saveEnabled}
+                    aria-label="Ativar ou desativar botão Pedir de presente"
                   />
                   <Label className="text-sm">
-                    {config.enabled ? "Ativo" : "Desativado"}
+                    {savingEnabled
+                      ? "Salvando..."
+                      : config.enabled
+                      ? "Ativo"
+                      : "Desativado"}
                   </Label>
                 </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-md border bg-slate-50 p-3 text-sm text-slate-700">
+                Quando desativado, o botão some da PDP e novas solicitações são
+                bloqueadas. Essa chave é salva imediatamente.
+              </div>
               <div>
                 <Label className="text-xs">Seletor CSS opcional (PDP)</Label>
                 <Input
@@ -1300,7 +1354,7 @@ export default function GiftRequestPage() {
             )}
             <Button
               onClick={saveConfig}
-              disabled={saving || !workspace?.id}
+              disabled={saving || savingEnabled || !workspace?.id}
               size="lg"
             >
               {saving ? (
