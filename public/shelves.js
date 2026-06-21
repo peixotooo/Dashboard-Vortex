@@ -888,10 +888,26 @@
     var txt = document.createElement("div"); txt.className = "bk-sb-text";
     var nm = document.createElement("span"); nm.className = "bk-sb-name"; nm.textContent = nameEl ? nameEl.textContent.trim() : "";
     var pr = document.createElement("span"); pr.className = "bk-sb-price"; pr.textContent = pickPriceText();
+    function syncBarPrice() {
+      var nextPrice = pickPriceText();
+      if (nextPrice) pr.textContent = nextPrice;
+    }
     txt.appendChild(nm); txt.appendChild(pr);
     var cta = document.createElement("button"); cta.type = "button"; cta.className = "bk-sb-cta"; cta.textContent = "Adicionar";
     top.appendChild(thumb); top.appendChild(txt); top.appendChild(cta);
     bar.appendChild(top);
+    syncBarPrice();
+    setTimeout(syncBarPrice, 350);
+    setTimeout(syncBarPrice, 1200);
+    setTimeout(syncBarPrice, 3000);
+    if (window.MutationObserver) {
+      var priceWatch = document.querySelector(".product-name-price, .price-wrapper, .product-price");
+      if (priceWatch) {
+        var priceObserver = new MutationObserver(syncBarPrice);
+        priceObserver.observe(priceWatch, { childList: true, subtree: true, characterData: true });
+        setTimeout(function () { try { priceObserver.disconnect(); } catch (e) {} }, 7000);
+      }
+    }
 
     var chipByValue = {};
     function setActiveChip(val) {
