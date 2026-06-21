@@ -951,10 +951,11 @@
     // and isn't buried. We only move OUR own widget, never the native form.
     scheduleMobilePdpBuyBoxReorder(productId);
 
-    // Trigger: show the sticky bar only after the in-page CTA has been passed.
-    // - At the top, if the CTA is below the fold, the bar stays hidden.
+    // Trigger: show the sticky bar after the first intentional scroll whenever
+    // the in-page CTA is not visible.
+    // - At the very top, if the CTA is below the fold, the bar stays hidden.
     // - When the real CTA is visible, the bar stays hidden (never covers it).
-    // - After the CTA scrolls above the viewport, the sticky bar appears.
+    // - Between gallery and CTA, or after passing the CTA, the sticky bar appears.
     // Also toggles a body class so the floating video/WhatsApp widgets lift up.
     function isNativeCtaVisible() {
       var r = nativeCta.getBoundingClientRect();
@@ -964,7 +965,15 @@
     }
     function shouldShowStickyBuyBar() {
       var r = nativeCta.getBoundingClientRect();
-      return r.bottom < 0;
+      var vh = window.innerHeight || 700;
+      var scrollTop =
+        window.pageYOffset ||
+        document.documentElement.scrollTop ||
+        document.body.scrollTop ||
+        0;
+      var hasIntentionalScroll = scrollTop > Math.min(140, Math.round(vh * 0.16));
+      if (!hasIntentionalScroll) return false;
+      return r.bottom < 0 || r.top > vh;
     }
     function setShown(on) {
       bar.classList.toggle("-show", on);
@@ -995,6 +1004,14 @@
       }, { passive: true });
       update();
     }
+    window.addEventListener("scroll", function () {
+      if (enhanceMobileBuyBar._scrollTicking) return;
+      enhanceMobileBuyBar._scrollTicking = true;
+      (window.requestAnimationFrame || window.setTimeout)(function () {
+        enhanceMobileBuyBar._scrollTicking = false;
+        enhanceMobileBuyBar._syncVisibility();
+      }, 16);
+    }, { passive: true });
     window.addEventListener("resize", function () {
       if (window.innerWidth > 767) setShown(false);
       else enhanceMobileBuyBar._syncVisibility();
