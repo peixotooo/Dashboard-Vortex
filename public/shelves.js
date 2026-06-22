@@ -1290,7 +1290,8 @@
 
   // --- THE SALE rotating topbar (reuses native section.top-bar; keeps theme offset) ---
   // Set SALE_TOPBAR_ON = false (or remove) after the sale ends (30/06).
-  var SALE_TOPBAR_ON = true;
+  // OFF: the store's native top strip (geral-faixa-topo banners) is used instead.
+  var SALE_TOPBAR_ON = false;
   var SALE_TOPBAR_MSGS = [
     "THE SALE · SÓ ATÉ 30 DE JUNHO",
     "LEVE 3 CAMISETAS POR R$199",
