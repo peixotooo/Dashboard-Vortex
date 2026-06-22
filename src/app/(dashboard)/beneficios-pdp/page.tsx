@@ -48,6 +48,9 @@ interface GiftBarStep {
 interface ProductBenefit {
   icon: string;
   title: string;
+  enabled?: boolean;
+  starts_at?: string | null;
+  ends_at?: string | null;
   link_label?: string;
   modal_title?: string;
   modal_body?: string;
@@ -151,7 +154,12 @@ function mergeWithDefaults(raw: Partial<GiftBarConfig> | null): GiftBarConfig {
       ? data.show_on_pages
       : ["all"],
     product_benefits: Array.isArray(data.product_benefits)
-      ? data.product_benefits
+      ? data.product_benefits.map((benefit) => ({
+          ...benefit,
+          enabled: benefit.enabled !== false,
+          starts_at: benefit.starts_at || null,
+          ends_at: benefit.ends_at || null,
+        }))
       : [],
     product_benefits_title:
       data.product_benefits_title || DEFAULT_CONFIG.product_benefits_title,
@@ -167,6 +175,48 @@ function mergeWithDefaults(raw: Partial<GiftBarConfig> | null): GiftBarConfig {
 
 function iconFor(name: string) {
   return ICON_OPTIONS.find((opt) => opt.value === name)?.Icon || Info;
+}
+
+function toDatetimeLocal(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDatetimeLocal(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function benefitStatus(benefit: ProductBenefit): {
+  label: string;
+  variant: "default" | "secondary" | "outline";
+} {
+  if (benefit.enabled === false) {
+    return { label: "Desativado", variant: "secondary" };
+  }
+
+  const now = Date.now();
+  const startsAt = benefit.starts_at ? Date.parse(benefit.starts_at) : null;
+  const endsAt = benefit.ends_at ? Date.parse(benefit.ends_at) : null;
+
+  if (startsAt && Number.isFinite(startsAt) && startsAt > now) {
+    return { label: "Programado", variant: "outline" };
+  }
+  if (endsAt && Number.isFinite(endsAt) && endsAt < now) {
+    return { label: "Expirado", variant: "secondary" };
+  }
+  return { label: "Ativo", variant: "default" };
+}
+
+function isBenefitLive(benefit: ProductBenefit): boolean {
+  return benefitStatus(benefit).label === "Ativo";
 }
 
 export default function PdpBenefitsPage() {
@@ -207,14 +257,19 @@ export default function PdpBenefitsPage() {
     }
   }, [workspace?.id, loadConfig]);
 
+  const liveBenefits = useMemo(
+    () => config.product_benefits.filter(isBenefitLive),
+    [config.product_benefits]
+  );
+
   const firstBenefit = useMemo(
     () =>
-      config.product_benefits[0] || {
+      liveBenefits[0] || {
         icon: "info",
         title: "10% de Cashback na próxima compra.",
         link_label: "Saiba mais sobre o cashback.",
       },
-    [config.product_benefits]
+    [liveBenefits]
   );
 
   async function handleSave() {
@@ -257,7 +312,7 @@ export default function PdpBenefitsPage() {
       ...prev,
       product_benefits: [
         ...prev.product_benefits,
-        { icon: "info", title: "Novo benefício" },
+        { icon: "info", title: "Novo benefício", enabled: true },
       ],
     }));
   }
@@ -286,6 +341,7 @@ export default function PdpBenefitsPage() {
       product_benefits_title: "Nossos benefícios",
       product_benefits: [
         {
+          enabled: true,
           icon: "percent",
           title: "10% de Cashback na próxima compra.",
           link_label: "Saiba mais sobre o cashback.",
@@ -294,6 +350,7 @@ export default function PdpBenefitsPage() {
             "<p>A cada compra você recebe <strong>10% de cashback</strong> que vira crédito para usar na próxima.</p><p>O crédito é liberado após o prazo de troca e não acumula com outros descontos.</p>",
         },
         {
+          enabled: true,
           icon: "truck",
           title: "Frete grátis a partir de R$ 299*",
           link_label: "Confira por região.",
@@ -301,6 +358,7 @@ export default function PdpBenefitsPage() {
           modal_body: FREE_SHIPPING_TABLE_TEMPLATE,
         },
         {
+          enabled: true,
           icon: "medal",
           title: "Melhor custo benefício do Brasil.",
           link_label: "Entenda o motivo.",
@@ -309,6 +367,7 @@ export default function PdpBenefitsPage() {
             "<p>Tecidos premium, modelagem testada em performance e produção própria — o que garante qualidade superior por um preço menor que o mercado.</p>",
         },
         {
+          enabled: true,
           icon: "shirt",
           title: "Mais cuidado, mais durabilidade.",
           link_label: "Veja como conservar seu produto.",
@@ -317,6 +376,7 @@ export default function PdpBenefitsPage() {
             "<p>Lave do avesso, em água fria, com sabão neutro.</p><p>Não use alvejante, não passe ferro nas estampas e seque à sombra.</p>",
         },
         {
+          enabled: true,
           icon: "bag",
           title: "A primeira troca é fácil e gratuita.",
           link_label: "Confira as opções de troca aqui.",
@@ -427,9 +487,14 @@ export default function PdpBenefitsPage() {
               <Card key={idx}>
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
-                    <CardTitle className="text-sm">
-                      Benefício #{idx + 1}
-                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm">
+                        Benefício #{idx + 1}
+                      </CardTitle>
+                      <Badge variant={benefitStatus(benefit).variant}>
+                        {benefitStatus(benefit).label}
+                      </Badge>
+                    </div>
                     <div className="flex gap-1">
                       <Button
                         variant="ghost"
@@ -458,6 +523,52 @@ export default function PdpBenefitsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <Label className="text-sm font-medium">
+                          Exibir este benefício
+                        </Label>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Use início e fim apenas quando o benefício for
+                          temporário.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={benefit.enabled !== false}
+                        onCheckedChange={(v) =>
+                          updateBenefit(idx, { enabled: v })
+                        }
+                      />
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Início programado</Label>
+                        <Input
+                          type="datetime-local"
+                          value={toDatetimeLocal(benefit.starts_at)}
+                          onChange={(e) =>
+                            updateBenefit(idx, {
+                              starts_at: fromDatetimeLocal(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Fim programado</Label>
+                        <Input
+                          type="datetime-local"
+                          value={toDatetimeLocal(benefit.ends_at)}
+                          onChange={(e) =>
+                            updateBenefit(idx, {
+                              ends_at: fromDatetimeLocal(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
                       <Label>Ícone</Label>
@@ -539,7 +650,7 @@ export default function PdpBenefitsPage() {
                   {config.product_benefits_title || "Nossos benefícios"}
                 </p>
                 <div className="flex gap-1">
-                  {config.product_benefits.slice(0, 5).map((_, idx) => (
+                  {liveBenefits.slice(0, 5).map((_, idx) => (
                     <span
                       key={idx}
                       className={`h-2 rounded-full ${

@@ -1736,10 +1736,30 @@
     start();
   }
 
+  function parseProductBenefitTime(value) {
+    if (!value) return null;
+    var time = Date.parse(value);
+    return isNaN(time) ? null : time;
+  }
+
+  function isProductBenefitLive(benefit, now) {
+    if (!benefit || benefit.enabled === false) return false;
+
+    var startsAt = parseProductBenefitTime(benefit.starts_at);
+    if (startsAt !== null && startsAt > now) return false;
+
+    var endsAt = parseProductBenefitTime(benefit.ends_at);
+    if (endsAt !== null && endsAt < now) return false;
+
+    return true;
+  }
+
   // Product Benefits: compact automatic carousel rendered below the buy button on PDP
   function renderProductBenefits(cfg, retries) {
     retries = retries || 0;
-    var benefits = Array.isArray(cfg.product_benefits) ? cfg.product_benefits : [];
+    var benefits = Array.isArray(cfg.product_benefits) ? cfg.product_benefits.filter(function (benefit) {
+      return isProductBenefitLive(benefit, Date.now());
+    }) : [];
     if (benefits.length === 0) return;
     if (document.getElementById("vtx-product-benefits")) return;
 

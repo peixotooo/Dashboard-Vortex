@@ -8,6 +8,39 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+type ProductBenefit = {
+  enabled?: boolean;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  [key: string]: unknown;
+};
+
+function parseTime(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+function isBenefitLive(benefit: ProductBenefit, now: number): boolean {
+  if (!benefit || benefit.enabled === false) return false;
+
+  const startsAt = parseTime(benefit.starts_at);
+  if (startsAt !== null && startsAt > now) return false;
+
+  const endsAt = parseTime(benefit.ends_at);
+  if (endsAt !== null && endsAt < now) return false;
+
+  return true;
+}
+
+function filterProductBenefits(raw: unknown): ProductBenefit[] {
+  if (!Array.isArray(raw)) return [];
+  const now = Date.now();
+  return raw
+    .filter((item): item is ProductBenefit => !!item && typeof item === "object")
+    .filter((benefit) => isBenefitLive(benefit, now));
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
@@ -54,6 +87,9 @@ export async function GET(request: NextRequest) {
   const giftBar = configResult.data
     ? {
         ...(configResult.data as unknown as Record<string, unknown>),
+        product_benefits: filterProductBenefits(
+          (configResult.data as { product_benefits?: unknown }).product_benefits
+        ),
         // Surface cashback % so the bar can show "Voce ganhara R$ X em cashback"
         cashback_percent: cashbackResult.data?.percentage
           ? Number(cashbackResult.data.percentage)
@@ -66,7 +102,7 @@ export async function GET(request: NextRequest) {
     {
       headers: {
         ...CORS_HEADERS,
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
       },
     }
   );
