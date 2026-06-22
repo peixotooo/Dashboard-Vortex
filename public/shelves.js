@@ -1288,9 +1288,61 @@
     ]);
   }
 
+  // --- THE SALE rotating topbar (reuses native section.top-bar; keeps theme offset) ---
+  // Set SALE_TOPBAR_ON = false (or remove) after the sale ends (30/06).
+  var SALE_TOPBAR_ON = true;
+  var SALE_TOPBAR_MSGS = [
+    "THE SALE · SÓ ATÉ 30 DE JUNHO",
+    "LEVE 3 CAMISETAS POR R$199",
+    "BERMUDAS R$149 · REGATAS R$69",
+    "ÚLTIMA CHAMADA · ATÉ 40% OFF",
+    "FRETE GRÁTIS ACIMA DE R$149"
+  ];
+  function renderSaleTopbar() {
+    if (!SALE_TOPBAR_ON) return;
+    if (document.getElementById("bk-sale-msgs")) return;
+    var bar = document.querySelector("section.top-bar");
+    if (!bar) {
+      renderSaleTopbar._t = (renderSaleTopbar._t || 0) + 1;
+      if (renderSaleTopbar._t <= 10) setTimeout(renderSaleTopbar, 600);
+      return;
+    }
+    if (!document.getElementById("bk-sale-topbar-css")) {
+      var css =
+        "section.top-bar{position:relative !important;height:50px !important;background:#0a0a0a !important;overflow:hidden !important;}" +
+        "section.top-bar .swiper-wrapper,section.top-bar .swiper-slide,section.top-bar .pagination,section.top-bar .swiper-pagination{display:none !important;}" +
+        "#bk-sale-msgs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:3;}" +
+        "#bk-sale-msgs .m{position:absolute;width:100%;text-align:center;color:#fff;font-family:'Inter',sans-serif;font-weight:800;font-size:13px;letter-spacing:1.6px;text-transform:uppercase;opacity:0;transition:opacity .5s ease;padding:0 14px;box-sizing:border-box;}" +
+        "#bk-sale-msgs .m.-on{opacity:1;}" +
+        "@media(max-width:767px){#bk-sale-msgs .m{font-size:10.5px;letter-spacing:.7px;}}";
+      var st = document.createElement("style");
+      st.id = "bk-sale-topbar-css";
+      st.textContent = css;
+      document.head.appendChild(st);
+    }
+    var box = document.createElement("div");
+    box.id = "bk-sale-msgs";
+    var spans = [];
+    for (var i = 0; i < SALE_TOPBAR_MSGS.length; i++) {
+      var s = document.createElement("span");
+      s.className = "m" + (i === 0 ? " -on" : "");
+      s.textContent = SALE_TOPBAR_MSGS[i];
+      box.appendChild(s);
+      spans.push(s);
+    }
+    bar.appendChild(box);
+    var idx = 0;
+    setInterval(function () {
+      spans[idx].classList.remove("-on");
+      idx = (idx + 1) % spans.length;
+      spans[idx].classList.add("-on");
+    }, 3500);
+  }
+
   function init() {
     var pageType = detectPageType();
     var productId = extractProductId();
+    renderSaleTopbar();
 
     console.log("[Shelves] Initializing on page type:", pageType, "with product ID:", productId);
 
