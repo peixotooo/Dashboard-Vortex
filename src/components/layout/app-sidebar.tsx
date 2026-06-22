@@ -175,6 +175,11 @@ const navGroups: NavGroup[] = [
           { title: "Produtos", href: "/products", icon: Boxes },
           { title: "Prateleiras", href: "/shelves", icon: LayoutGrid },
           { title: "Régua de Brinde", href: "/gift-bar", icon: Gift },
+          {
+            title: "Benefícios PDP",
+            href: "/beneficios-pdp",
+            icon: ListChecks,
+          },
           { title: "Pedir de Presente", href: "/pedir-de-presente", icon: Gift },
           { title: "Topbar", href: "/topbar", icon: Megaphone },
           { title: "Etiquetas Promo", href: "/promo-tags", icon: Tag },
@@ -292,20 +297,29 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+function hrefPath(href: string): string {
+  return href.split(/[?#]/)[0] || "/";
+}
+
 function NavCollapsible({ item }: { item: NavItem }) {
   const pathname = usePathname();
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
 
   const isChildActive = item.items?.some(
-    (sub) =>
-      pathname === sub.href ||
-      (sub.href !== "/" && pathname.startsWith(sub.href))
+    (sub) => {
+      const subPath = hrefPath(sub.href);
+      return (
+        pathname === subPath ||
+        (subPath !== "/" && pathname.startsWith(subPath + "/"))
+      );
+    }
   );
 
+  const itemPath = hrefPath(item.href);
   const isActive =
-    pathname === item.href ||
-    (item.href !== "/" && pathname.startsWith(item.href));
+    pathname === itemPath ||
+    (itemPath !== "/" && pathname.startsWith(itemPath + "/"));
 
   return (
     <Collapsible
@@ -347,9 +361,10 @@ function NavCollapsible({ item }: { item: NavItem }) {
         <CollapsibleContent>
           <SidebarMenuSub>
             {item.items?.map((sub) => {
+              const subPath = hrefPath(sub.href);
               const subActive =
-                pathname === sub.href ||
-                (sub.href !== "/" && pathname.startsWith(sub.href));
+                pathname === subPath ||
+                (subPath !== "/" && pathname.startsWith(subPath + "/"));
               return (
                 <SidebarMenuSubItem key={sub.href}>
                   <SidebarMenuSubButton asChild isActive={subActive}>
@@ -373,9 +388,10 @@ function NavSingle({ item }: { item: NavItem }) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   
+  const itemPath = hrefPath(item.href);
   const isActive =
-    pathname === item.href ||
-    (item.href !== "/" && pathname.startsWith(item.href));
+    pathname === itemPath ||
+    (itemPath !== "/" && pathname.startsWith(itemPath + "/"));
 
   return (
     <SidebarMenuItem>

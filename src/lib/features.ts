@@ -180,6 +180,14 @@ export const FEATURES: Feature[] = [
     parent: "loja",
   },
   {
+    id: "loja.pdp_benefits",
+    label: "Benefícios PDP",
+    description: "Bloco de benefícios exibido na página de produto",
+    routes: ["/beneficios-pdp"],
+    parent: "loja",
+    legacyParents: ["loja.gift_bar"],
+  },
+  {
     id: "loja.promo_tags",
     label: "Etiquetas Promo",
     description: "Etiquetas promocionais",
@@ -414,6 +422,10 @@ for (const feature of FEATURES) {
 // Sort longest first so longest-prefix wins (sub-features beat parents).
 ROUTE_TO_FEATURE.sort((a, b) => b.route.length - a.route.length);
 
+function normalizePathname(pathname: string): string {
+  return pathname.split(/[?#]/)[0] || "/";
+}
+
 /**
  * Given a pathname, return the most specific feature ID it belongs to.
  * Returns null for unrestricted routes (Settings, login flows, etc.).
@@ -421,10 +433,11 @@ ROUTE_TO_FEATURE.sort((a, b) => b.route.length - a.route.length);
  * The "/" overview route only matches exactly so it never claims sub-paths.
  */
 export function getFeatureForPath(pathname: string): string | null {
+  const cleanPathname = normalizePathname(pathname);
   for (const { route, featureId } of ROUTE_TO_FEATURE) {
-    if (pathname === route) return featureId;
+    if (cleanPathname === route) return featureId;
     if (route === "/") continue;
-    if (pathname.startsWith(route + "/")) return featureId;
+    if (cleanPathname.startsWith(route + "/")) return featureId;
   }
   return null;
 }
