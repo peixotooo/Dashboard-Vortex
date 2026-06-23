@@ -143,6 +143,13 @@ export const FEATURES: Feature[] = [
     routes: ["/instagram"],
     parent: "canais",
   },
+  {
+    id: "canais.bio",
+    label: "Bio inteligente",
+    description: "Link da bio proprio com vitrines, ofertas e tracking",
+    routes: ["/bio-inteligente"],
+    parent: "canais",
+  },
 
   // ===== Loja =====
   {

@@ -1,9 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/forgot-password", "/reset-password", "/avaliar"];
+const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/forgot-password", "/reset-password", "/avaliar", "/bio"];
 const GROUPS_PUBLIC_HOSTS = (
   process.env.WHATSAPP_GROUPS_PUBLIC_HOSTS || "grupos.bulking.com.br"
+)
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+const BIO_PUBLIC_HOSTS = (
+  process.env.BIO_PUBLIC_HOSTS || "bio.bulking.com.br"
 )
   .split(",")
   .map((host) => host.trim().toLowerCase())
@@ -13,6 +19,11 @@ const GROUPS_DEFAULT_SLUG = process.env.WHATSAPP_GROUPS_DEFAULT_SLUG || "vip";
 function isGroupsPublicHost(host: string): boolean {
   const normalized = host.split(":")[0].toLowerCase();
   return GROUPS_PUBLIC_HOSTS.includes(normalized);
+}
+
+function isBioPublicHost(host: string): boolean {
+  const normalized = host.split(":")[0].toLowerCase();
+  return BIO_PUBLIC_HOSTS.includes(normalized);
 }
 
 export async function middleware(request: NextRequest) {
@@ -27,6 +38,12 @@ export async function middleware(request: NextRequest) {
     } else if (!pathname.startsWith("/g/")) {
       url.pathname = `/g/${slug}`;
     }
+    return NextResponse.rewrite(url);
+  }
+
+  if (isBioPublicHost(host) && pathname === "/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/bio";
     return NextResponse.rewrite(url);
   }
 

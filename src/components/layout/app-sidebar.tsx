@@ -52,6 +52,7 @@ import {
   Instagram,
   Music2,
   Link2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -152,6 +153,7 @@ const navGroups: NavGroup[] = [
     label: "Canais",
     items: [
       { title: "Instagram", href: "/instagram", icon: Instagram },
+      { title: "Bio inteligente", href: "/bio-inteligente", icon: Sparkles },
       {
         title: "WhatsApp Grupos",
         href: "/whatsapp-groups",
