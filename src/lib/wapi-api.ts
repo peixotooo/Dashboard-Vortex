@@ -169,17 +169,57 @@ export async function listGroups(config: WapiConfig): Promise<unknown> {
 const WHATSAPP_INVITE_URL_RE =
   /https?:\/\/(?:chat\.whatsapp\.com|wa\.me\/joinchat)\/[^\s"'<>]+/i;
 const INVITE_CODE_RE = /^[A-Za-z0-9_-]{10,}$/;
+const INVALID_INVITE_CODES = new Set([
+  "undefined",
+  "null",
+  "false",
+  "true",
+  "nan",
+  "[objectobject]",
+]);
+
+function normalizeInviteCode(value: string): string | null {
+  const code = value.trim().replace(/[),.;]+$/, "");
+  const normalized = code.toLowerCase().replace(/\s+/g, "");
+  if (!code || INVALID_INVITE_CODES.has(normalized)) return null;
+  return INVITE_CODE_RE.test(code) ? code : null;
+}
+
+function normalizeInviteUrl(value: string): string | null {
+  const trimmed = value.trim();
+  const directUrl = trimmed.match(WHATSAPP_INVITE_URL_RE)?.[0];
+  if (!directUrl) return null;
+
+  try {
+    const url = new URL(directUrl.replace(/[),.;]+$/, ""));
+    const parts = url.pathname.split("/").filter(Boolean);
+    const code = normalizeInviteCode(parts[parts.length - 1] || "");
+    if (!code) return null;
+
+    if (url.hostname === "chat.whatsapp.com") {
+      return `https://chat.whatsapp.com/${code}`;
+    }
+    if (url.hostname === "wa.me" && parts[0] === "joinchat") {
+      return `https://wa.me/joinchat/${code}`;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 function normalizeInviteCandidate(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
 
-  const directUrl = trimmed.match(WHATSAPP_INVITE_URL_RE)?.[0];
-  if (directUrl) return directUrl.replace(/[),.;]+$/, "");
+  const directUrl = normalizeInviteUrl(trimmed);
+  if (directUrl) return directUrl;
 
-  if (INVITE_CODE_RE.test(trimmed)) {
-    return `https://chat.whatsapp.com/${trimmed}`;
+  const code = normalizeInviteCode(trimmed);
+  if (code) {
+    return `https://chat.whatsapp.com/${code}`;
   }
 
   return null;

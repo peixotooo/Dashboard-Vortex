@@ -176,7 +176,22 @@ function normalizeInviteUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  return trimmed;
+
+  const match = trimmed.match(
+    /https?:\/\/(?:chat\.whatsapp\.com|wa\.me\/joinchat)\/([A-Za-z0-9_-]+)/i
+  );
+  if (!match) return null;
+
+  const code = (match[1] || "").replace(/[),.;]+$/, "");
+  const normalized = code.toLowerCase().replace(/\s+/g, "");
+  if (
+    !/^[A-Za-z0-9_-]{10,}$/.test(code) ||
+    ["undefined", "null", "false", "true", "nan", "[objectobject]"].includes(normalized)
+  ) {
+    return null;
+  }
+
+  return match[0].replace(/[),.;]+$/, "");
 }
 
 function sleep(ms: number): Promise<void> {
