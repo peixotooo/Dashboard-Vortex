@@ -121,7 +121,10 @@ export default function MediaGalleryPage() {
       // 1. Get presigned URL
       const urlRes = await fetch("/api/media/upload-url", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
         body: JSON.stringify({ filename: item.file.name, mime_type: item.file.type }),
       });
 

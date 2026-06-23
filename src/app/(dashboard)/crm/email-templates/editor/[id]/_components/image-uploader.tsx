@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 interface Props {
+  workspaceId: string;
   /** Called once the upload completes; the URL is the public B2 link
    *  that can be used as <img src> directly. */
   onUploaded: (publicUrl: string) => void;
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function ImageUploader({
+  workspaceId,
   onUploaded,
   label = "Upload de imagem",
   accept = "image/png,image/jpeg,image/webp,image/gif",
@@ -55,7 +57,10 @@ export function ImageUploader({
       // 1. Ask our server for a presigned PUT url
       const r = await fetch("/api/media/upload-url", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspaceId,
+        },
         body: JSON.stringify({ filename: file.name, mime_type: file.type }),
       });
       const d = await r.json();

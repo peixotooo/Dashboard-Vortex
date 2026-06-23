@@ -224,7 +224,13 @@ function renderFields(
         />
       );
     case "image-grid":
-      return <ImageGridInspector node={n} onChange={onChange} />;
+      return (
+        <ImageGridInspector
+          node={n}
+          workspaceId={workspaceId}
+          onChange={onChange}
+        />
+      );
     case "logo":
       return (
         <>
@@ -583,6 +589,7 @@ function ImageInspector({
         Gerar header com IA
       </Button>
       <ImageUploader
+        workspaceId={workspaceId}
         label="Upload de imagem (Backblaze)"
         onUploaded={(url) => onChange({ src: url } as Partial<LeafNode>)}
       />
@@ -617,9 +624,11 @@ function ImageInspector({
 
 function ImageGridInspector({
   node,
+  workspaceId,
   onChange,
 }: {
   node: Extract<LeafNode, { type: "image-grid" }>;
+  workspaceId: string;
   onChange: (patch: Partial<LeafNode>) => void;
 }) {
   const items = node.items ?? [];
@@ -679,6 +688,7 @@ function ImageGridInspector({
             Imagem {i + 1}
           </div>
           <ImageUploader
+            workspaceId={workspaceId}
             label={it.src ? "Trocar imagem" : "Upload de imagem"}
             onUploaded={(url) => setItem(i, { src: url })}
           />

@@ -480,7 +480,14 @@ function EditItemDialog({ item, categories, onClose, onSave }: {
     setUploadingImg(true);
     for (const file of Array.from(files)) {
       try {
-        const urlRes = await fetch("/api/media/upload-url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, mime_type: file.type }) });
+        const urlRes = await fetch("/api/media/upload-url", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspace.id,
+          },
+          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        });
         if (!urlRes.ok) continue;
         const { signedUrl, key, publicUrl } = await urlRes.json();
         await fetch(signedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });

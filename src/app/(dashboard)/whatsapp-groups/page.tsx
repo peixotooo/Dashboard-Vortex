@@ -607,7 +607,10 @@ export default function WhatsAppGroupsPage() {
       // Step 1: Get presigned URL
       const urlRes = await fetch("/api/media/upload-url", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-workspace-id": workspace.id,
+        },
         body: JSON.stringify({
           filename: file.name,
           mime_type: file.type,

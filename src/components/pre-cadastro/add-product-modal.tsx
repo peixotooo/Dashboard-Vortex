@@ -80,7 +80,10 @@ export function AddProductModal({ open, onOpenChange, collectionId, onCreated }:
       for (const img of images) {
         const urlRes = await fetch("/api/media/upload-url", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-workspace-id": workspace.id,
+          },
           body: JSON.stringify({ filename: img.file.name, mime_type: img.file.type }),
         });
         if (!urlRes.ok) throw new Error("Erro ao gerar URL de upload");
