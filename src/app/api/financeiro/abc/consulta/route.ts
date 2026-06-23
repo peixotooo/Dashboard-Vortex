@@ -34,6 +34,8 @@ type SortKey =
   | "qty_desc"
   | "profit_desc"
   | "margin_desc"
+  | "turnover_desc"
+  | "coverage_asc"
   | "cumulative_asc"
   | "name_asc";
 
@@ -50,6 +52,11 @@ interface RawProductRow {
   product_id?: unknown;
   name?: unknown;
   qty_sold?: unknown;
+  units_per_day?: unknown;
+  stock_units?: unknown;
+  stock_coverage_days?: unknown;
+  turnover_period?: unknown;
+  stock_source?: unknown;
   revenue?: unknown;
   cost_unit?: unknown;
   cost_total?: unknown;
@@ -66,6 +73,11 @@ interface AbcItem {
   product_id: string | null;
   name: string;
   qty_sold: number;
+  units_per_day: number;
+  stock_units: number | null;
+  stock_coverage_days: number | null;
+  turnover_period: number | null;
+  stock_source: "hub_products" | "pricing_history" | "none";
   revenue: number;
   revenue_pct: number;
   cost_unit: number;
@@ -85,6 +97,8 @@ const VALID_SORTS = new Set<SortKey>([
   "qty_desc",
   "profit_desc",
   "margin_desc",
+  "turnover_desc",
+  "coverage_asc",
   "cumulative_asc",
   "name_asc",
 ]);
@@ -171,6 +185,12 @@ function asNumber(value: unknown): number {
   return Number.isFinite(num) ? num : 0;
 }
 
+function asNullableNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
 function asAbcClass(value: unknown): AbcClass {
   const cls = String(value ?? "").toUpperCase();
   return VALID_ABC_CLASSES.has(cls) ? (cls as AbcClass) : "C";
@@ -178,6 +198,10 @@ function asAbcClass(value: unknown): AbcClass {
 
 function asCostSource(value: unknown): "tracked" | "estimated" {
   return value === "tracked" ? "tracked" : "estimated";
+}
+
+function asStockSource(value: unknown): "hub_products" | "pricing_history" | "none" {
+  return value === "hub_products" || value === "pricing_history" ? value : "none";
 }
 
 function normalizeItem(
@@ -192,6 +216,11 @@ function normalizeItem(
     product_id: asString(row.product_id),
     name: asString(row.name) ?? "(sem nome)",
     qty_sold: asNumber(row.qty_sold),
+    units_per_day: asNumber(row.units_per_day),
+    stock_units: asNullableNumber(row.stock_units),
+    stock_coverage_days: asNullableNumber(row.stock_coverage_days),
+    turnover_period: asNullableNumber(row.turnover_period),
+    stock_source: asStockSource(row.stock_source),
     revenue,
     revenue_pct: totalRevenue > 0 ? round4(revenue / totalRevenue) : 0,
     cost_unit: asNumber(row.cost_unit),
@@ -212,6 +241,14 @@ function sortItems(items: AbcItem[], sort: SortKey): AbcItem[] {
   else if (sort === "qty_desc") sorted.sort((a, b) => b.qty_sold - a.qty_sold);
   else if (sort === "profit_desc") sorted.sort((a, b) => b.profit - a.profit);
   else if (sort === "margin_desc") sorted.sort((a, b) => b.margin_pct - a.margin_pct);
+  else if (sort === "turnover_desc")
+    sorted.sort((a, b) => (b.turnover_period ?? -1) - (a.turnover_period ?? -1));
+  else if (sort === "coverage_asc")
+    sorted.sort(
+      (a, b) =>
+        (a.stock_coverage_days ?? Number.POSITIVE_INFINITY) -
+        (b.stock_coverage_days ?? Number.POSITIVE_INFINITY)
+    );
   else if (sort === "cumulative_asc")
     sorted.sort((a, b) => a.cumulative_revenue_pct - b.cumulative_revenue_pct);
   else if (sort === "name_asc") sorted.sort(byName);
@@ -276,13 +313,24 @@ async function ensureSnapshotForPeriod(
   periodDays: number
 ): Promise<{ snapshot: SnapshotRow | null; recomputed: boolean }> {
   const current = await loadSnapshot(admin, workspaceId);
-  if (current?.period_days === periodDays) {
+  if (current?.period_days === periodDays && snapshotHasTurnoverFields(current)) {
     return { snapshot: current, recomputed: false };
   }
 
   const rows = await loadCrmRows(admin, workspaceId, periodDays);
   await recomputeAbcSnapshot(admin, workspaceId, rows, periodDays);
   return { snapshot: await loadSnapshot(admin, workspaceId), recomputed: true };
+}
+
+function snapshotHasTurnoverFields(snapshot: SnapshotRow): boolean {
+  const products = snapshot.products ?? [];
+  if (products.length === 0) return true;
+  return products.every(
+    (product) =>
+      Object.prototype.hasOwnProperty.call(product, "units_per_day") &&
+      Object.prototype.hasOwnProperty.call(product, "stock_units") &&
+      Object.prototype.hasOwnProperty.call(product, "turnover_period")
+  );
 }
 
 export async function GET(request: NextRequest) {

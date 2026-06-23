@@ -35,6 +35,11 @@ type ProductRow = {
   product_id: string | null;
   name: string;
   qty_sold: number;
+  units_per_day?: number;
+  stock_units?: number | null;
+  stock_coverage_days?: number | null;
+  turnover_period?: number | null;
+  stock_source?: "hub_products" | "pricing_history" | "none";
   revenue: number;
   cost_unit: number;
   cost_total: number;
@@ -82,6 +87,32 @@ function formatPct(frac: number): string {
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("pt-BR");
+}
+
+function formatNumber(value: number, maximumFractionDigits = 0): string {
+  return value.toLocaleString("pt-BR", {
+    maximumFractionDigits,
+    minimumFractionDigits: maximumFractionDigits > 0 ? 1 : 0,
+  });
+}
+
+function formatStockUnits(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return value.toLocaleString("pt-BR");
+}
+
+function formatTurnover(product: ProductRow): string {
+  if (product.stock_units === 0) return "sem estoque";
+  if (product.turnover_period == null) return "—";
+  return `${formatNumber(product.turnover_period, 1)}x`;
+}
+
+function formatCoverage(product: ProductRow): string {
+  if (product.stock_units === 0) return "0d";
+  if (product.stock_coverage_days == null) return "—";
+  const days = product.stock_coverage_days;
+  if (days > 0 && days < 1) return "<1d";
+  return `${formatNumber(days, days < 10 ? 1 : 0)}d`;
 }
 
 function classBadgeVariant(cls: AbcClass): "default" | "secondary" | "outline" {
@@ -318,67 +349,85 @@ export default function CurvaAbcPage() {
 
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">#</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead className="w-20">Classe</TableHead>
-                    <TableHead className="w-20 text-right">Qtd</TableHead>
-                    <TableHead className="w-32 text-right">Receita</TableHead>
-                    <TableHead className="w-24 text-right">% Receita</TableHead>
-                    <TableHead className="w-28 text-right">Acumulado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((p, idx) => {
-                    const revPct =
-                      summary.total_revenue > 0
-                        ? p.revenue / summary.total_revenue
-                        : 0;
-                    return (
-                      <TableRow key={`${p.sku ?? p.product_id ?? p.name}-${idx}`}>
-                        <TableCell className="text-muted-foreground">
-                          {idx + 1}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{p.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {p.sku ?? p.product_id ?? "—"}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={classBadgeVariant(p.abc_class)}>
-                            {p.abc_class}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {p.qty_sold.toLocaleString("pt-BR")}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(p.revenue)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatPct(revPct)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatPct(p.cumulative_revenue_pct)}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead className="min-w-[260px]">Produto</TableHead>
+                      <TableHead className="w-20">Classe</TableHead>
+                      <TableHead className="w-20 text-right">Qtd</TableHead>
+                      <TableHead className="w-24 text-right">Estoque</TableHead>
+                      <TableHead className="w-24 text-right">Giro</TableHead>
+                      <TableHead className="w-28 text-right">Cobertura</TableHead>
+                      <TableHead className="w-24 text-right">Vendas/dia</TableHead>
+                      <TableHead className="w-32 text-right">Receita</TableHead>
+                      <TableHead className="w-24 text-right">% Receita</TableHead>
+                      <TableHead className="w-28 text-right">Acumulado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProducts.map((p, idx) => {
+                      const revPct =
+                        summary.total_revenue > 0
+                          ? p.revenue / summary.total_revenue
+                          : 0;
+                      return (
+                        <TableRow key={`${p.sku ?? p.product_id ?? p.name}-${idx}`}>
+                          <TableCell className="text-muted-foreground">
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{p.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {p.sku ?? p.product_id ?? "—"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={classBadgeVariant(p.abc_class)}>
+                              {p.abc_class}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {p.qty_sold.toLocaleString("pt-BR")}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatStockUnits(p.stock_units)}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatTurnover(p)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatCoverage(p)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatNumber(p.units_per_day ?? 0, 1)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(p.revenue)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatPct(revPct)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatPct(p.cumulative_revenue_pct)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredProducts.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={11}
+                          className="py-8 text-center text-sm text-muted-foreground"
+                        >
+                          Sem produtos nesta classe.
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
-                  {filteredProducts.length === 0 && (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className="py-8 text-center text-sm text-muted-foreground"
-                      >
-                        Sem produtos nesta classe.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </>

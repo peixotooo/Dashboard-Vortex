@@ -40,6 +40,11 @@ export interface AbcProductRow {
   product_id: string | null;
   name: string;
   qty_sold: number;
+  units_per_day?: number;
+  stock_units?: number | null;
+  stock_coverage_days?: number | null;
+  turnover_period?: number | null;
+  stock_source?: "hub_products" | "pricing_history" | "none";
   revenue: number;
   cost_unit: number;
   cost_total: number;
