@@ -139,6 +139,58 @@
     return false;
   }
 
+  function hidePdpShippingCalculator() {
+    if (detectPageType() !== "product") return;
+    if (!document.body) return;
+
+    document.body.classList.add("vtx-hide-pdp-shipping");
+
+    if (!document.getElementById("vtx-hide-pdp-shipping-css")) {
+      var css =
+        "body.vtx-hide-pdp-shipping .shipping," +
+        "body.vtx-hide-pdp-shipping .shipping-form," +
+        "body.vtx-hide-pdp-shipping [data-vtx-hide-pdp-shipping='1']{" +
+          "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
+        "}";
+      var style = document.createElement("style");
+      style.id = "vtx-hide-pdp-shipping-css";
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
+
+    function hideCandidates() {
+      var candidates = document.querySelectorAll(
+        ".shipping, .shipping-form, [class*='shipping'], form[name='shipping-form']"
+      );
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        var text = (candidate.textContent || "").toLowerCase();
+        var isShippingBlock =
+          candidate.classList.contains("shipping") ||
+          candidate.classList.contains("shipping-form") ||
+          candidate.getAttribute("name") === "shipping-form" ||
+          (text.indexOf("calcular frete") !== -1 && text.indexOf("cep") !== -1);
+        if (!isShippingBlock) continue;
+        var target = candidate.closest ? (candidate.closest(".shipping") || candidate) : candidate;
+        target.setAttribute("data-vtx-hide-pdp-shipping", "1");
+      }
+    }
+
+    hideCandidates();
+    for (var t = 1; t <= 8; t++) {
+      setTimeout(hideCandidates, t < 4 ? t * 300 : t * 900);
+    }
+    if (window.MutationObserver && !hidePdpShippingCalculator._observer) {
+      hidePdpShippingCalculator._observer = new MutationObserver(function () {
+        hideCandidates();
+      });
+      hidePdpShippingCalculator._observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
   // Anchor for kit PDPs. The promo tag row (#vtx-promo-tag-row) is already
   // rendered OUTSIDE the size/buy panel in the Bulking theme — so for kits
   // we just drop the coupon countdown and the benefits block right below it.
@@ -5626,6 +5678,7 @@
   // Run when DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
+      hidePdpShippingCalculator();
       init();
       initGiftBar();
       initPromoTags();
@@ -5636,6 +5689,7 @@
       scheduleStoreReviewsHome();
     });
   } else {
+    hidePdpShippingCalculator();
     init();
     initGiftBar();
     initPromoTags();
