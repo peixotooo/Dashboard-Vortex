@@ -49,3 +49,8 @@ meta-mcp/node_modules
 meta-mcp/dist
 .env.cron
 scripts/.tiktok-create-state.json
+
+# PII — lista de clientes p/ Meta Custom Audience (NAO COMMITAR)
+clientes-bulking-*.csv
+scripts/.thesale-tt-state.json
+scripts/.thesale-creatives.json
