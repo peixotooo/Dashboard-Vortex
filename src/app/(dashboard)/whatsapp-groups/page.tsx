@@ -78,6 +78,13 @@ interface PoolGroup {
   fillPct: number | null;
   isNearFull: boolean;
   isFull: boolean;
+  inviteJob: {
+    status: "queued" | "processing" | "retrying" | "failed";
+    attempts: number;
+    runAt: string;
+    lastError: string | null;
+    updatedAt: string;
+  } | null;
 }
 
 interface GroupPool {
@@ -98,6 +105,8 @@ interface GroupPool {
     nearFullGroups: number;
     fullGroups: number;
     missingInviteLinks: number;
+    queuedInviteLinks: number;
+    failedInviteLinks: number;
     totalMembers: number;
     needsMoreGroups: boolean;
   };
@@ -152,6 +161,7 @@ export default function WhatsAppGroupsPage() {
   const [poolsLoading, setPoolsLoading] = useState(false);
   const [poolSaving, setPoolSaving] = useState(false);
   const [poolInviteRefreshing, setPoolInviteRefreshing] = useState<string | null>(null);
+  const [groupInviteRefreshing, setGroupInviteRefreshing] = useState<string | null>(null);
   const [poolDraft, setPoolDraft] = useState({
     name: "BULKING VIP",
     slug: "vip",
@@ -481,11 +491,23 @@ export default function WhatsAppGroupsPage() {
     }
   }
 
-  async function handleRefreshPoolInvites(pool: GroupPool, force = false) {
+  async function handleRefreshPoolInvites(
+    pool: GroupPool,
+    force = false,
+    groupJid: string | null = null
+  ) {
     const missingCount = pool.stats.missingInviteLinks;
-    const message = force
-      ? "A W-API vai renovar os links de convite de todos os grupos ativos deste link unico. Links antigos desses grupos podem parar de funcionar. Continuar?"
-      : `A W-API vai gerar/renovar o link de ${missingCount} grupo(s) ativo(s) sem link no dashboard. Se algum link antigo ja circulava fora daqui, ele pode parar de funcionar. Continuar?`;
+    let message =
+      `A W-API vai colocar ${missingCount} grupo(s) ativo(s) sem link em uma fila de geracao. ` +
+      "Se algum link antigo ja circulava fora daqui, ele pode parar de funcionar. Continuar?";
+    if (force) {
+      message =
+        "A W-API vai renovar os links de convite de todos os grupos ativos deste link unico. Links antigos desses grupos podem parar de funcionar. Continuar?";
+    }
+    if (groupJid) {
+      message =
+        "Gerar/renovar o link de convite deste grupo pela W-API? Se houver um link antigo deste grupo circulando, ele pode parar de funcionar.";
+    }
 
     if (!window.confirm(message)) return;
 
@@ -495,12 +517,13 @@ export default function WhatsAppGroupsPage() {
     const saved = await handleSavePool(pool, false, { quiet: true });
     if (!saved) return;
 
-    setPoolInviteRefreshing(pool.id);
+    if (groupJid) setGroupInviteRefreshing(groupJid);
+    else setPoolInviteRefreshing(pool.id);
     try {
       const res = await fetch(`/api/whatsapp-groups/pools/${pool.id}/invite-links`, {
         method: "POST",
         headers: wsHeaders(),
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({ force, groupJid }),
       });
       const data = await res.json();
       if (data.error) {
@@ -512,17 +535,24 @@ export default function WhatsAppGroupsPage() {
       const summary = data.summary || {};
       const failures = Number(summary.failed || 0);
       const updated = Number(summary.updated || 0);
-      setSuccessMsg(
-        failures > 0
-          ? `Links atualizados para ${updated} grupo(s), com ${failures} erro(s).`
-          : `Links atualizados para ${updated} grupo(s).`
-      );
+      const queued = Number(summary.queued || 0);
+      const retrying = Number(summary.retrying || 0);
+      const remaining = Number(summary.remaining || 0);
+      let message =
+        `Fila criada: ${queued} grupo(s) enfileirado(s), ${updated} link(s) gerado(s) agora e ${remaining} pendente(s).`;
+      if (failures > 0) {
+        message = `Fila processada: ${updated} link(s) gerado(s), ${retrying} em retry e ${failures} falha(s).`;
+      } else if (groupJid) {
+        message = updated > 0 ? "Link gerado para este grupo." : "Grupo colocado na fila de geracao.";
+      }
+      setSuccessMsg(message);
     } catch (err) {
       setErrorMsg(
         `Erro ao gerar links: ${err instanceof Error ? err.message : "desconhecido"}`
       );
     } finally {
-      setPoolInviteRefreshing(null);
+      if (groupJid) setGroupInviteRefreshing(null);
+      else setPoolInviteRefreshing(null);
     }
   }
 
@@ -1276,6 +1306,16 @@ export default function WhatsAppGroupsPage() {
                           <Badge variant="outline">
                             {pool.stats.routeableGroups} com link
                           </Badge>
+                          {pool.stats.queuedInviteLinks > 0 && (
+                            <Badge variant="secondary">
+                              {pool.stats.queuedInviteLinks} na fila
+                            </Badge>
+                          )}
+                          {pool.stats.failedInviteLinks > 0 && (
+                            <Badge variant="destructive">
+                              {pool.stats.failedInviteLinks} falharam
+                            </Badge>
+                          )}
                           <Badge variant="outline">
                             {pool.stats.totalMembers} membros
                           </Badge>
@@ -1358,8 +1398,8 @@ export default function WhatsAppGroupsPage() {
                           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                           <span>
                             {pool.stats.missingInviteLinks} grupo(s) ativo(s) sem link de convite.
-                            Use a W-API para preencher automaticamente; isso renova o convite
-                            desses grupos no WhatsApp.
+                            Use a W-API para colocar esses grupos em fila; o worker gera em
+                            lotes pequenos para evitar limite de requisicao.
                           </span>
                         </div>
                         <Button
@@ -1517,15 +1557,52 @@ export default function WhatsAppGroupsPage() {
                                 </Select>
                               </td>
                               <td className="px-3 py-3 align-top">
-                                <Input
-                                  value={group.inviteUrl || ""}
-                                  onChange={(e) =>
-                                    updatePoolGroup(pool.id, group.id, {
-                                      inviteUrl: e.target.value,
-                                    })
-                                  }
-                                  placeholder="https://chat.whatsapp.com/..."
-                                />
+                                <div className="flex min-w-[320px] items-start gap-2">
+                                  <div className="flex-1 space-y-1">
+                                    <Input
+                                      value={group.inviteUrl || ""}
+                                      onChange={(e) =>
+                                        updatePoolGroup(pool.id, group.id, {
+                                          inviteUrl: e.target.value,
+                                        })
+                                      }
+                                      placeholder="https://chat.whatsapp.com/..."
+                                    />
+                                    {group.inviteJob && !group.inviteUrl && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {group.inviteJob.status === "failed"
+                                          ? `Falhou: ${group.inviteJob.lastError || "sem detalhe"}`
+                                          : group.inviteJob.status === "retrying"
+                                            ? `Em retry (${group.inviteJob.attempts})`
+                                            : group.inviteJob.status === "processing"
+                                              ? "Gerando agora..."
+                                              : "Na fila"}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {!group.inviteUrl && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleRefreshPoolInvites(pool, false, group.groupJid)
+                                      }
+                                      disabled={
+                                        poolSaving ||
+                                        poolInviteRefreshing === pool.id ||
+                                        groupInviteRefreshing === group.groupJid
+                                      }
+                                      className="shrink-0 gap-1.5"
+                                    >
+                                      {groupInviteRefreshing === group.groupJid ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Link2 className="h-3.5 w-3.5" />
+                                      )}
+                                      Gerar
+                                    </Button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { refreshPoolInviteLinks } from "@/lib/whatsapp/group-pools";
+import {
+  enqueuePoolInviteLinkJobs,
+  processPoolInviteLinkQueue,
+} from "@/lib/whatsapp/group-pools";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -46,15 +49,39 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const admin = createAdminClient();
-    const result = await refreshPoolInviteLinks(
+    const enqueued = await enqueuePoolInviteLinkJobs(
       admin,
       auth.workspaceId,
       id,
       request.nextUrl.origin,
-      { force: body.force === true, throttleMs: 200 }
+      {
+        force: body.force === true,
+        groupJid: typeof body.groupJid === "string" ? body.groupJid : null,
+      }
+    );
+    const processed = await processPoolInviteLinkQueue(
+      admin,
+      {
+        workspaceId: auth.workspaceId,
+        poolId: id,
+        origin: request.nextUrl.origin,
+        limit: body.groupJid ? 1 : 2,
+        throttleMs: 20000,
+      }
     );
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      pools: processed.pools || enqueued.pools,
+      summary: {
+        ...enqueued.summary,
+        processed: processed.processed,
+        updated: processed.updated,
+        failed: processed.failed,
+        retrying: processed.retrying,
+        remaining: processed.remaining,
+        errors: processed.errors,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

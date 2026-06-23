@@ -133,6 +133,13 @@ const maintenanceJobs = [
     running: false,
   },
   {
+    name: "wapi-group-invite-links",
+    path: "/api/cron/wapi-group-invite-links",
+    intervalMs: numberEnv("WA_WORKER_WAPI_INVITE_LINK_INTERVAL_MS", 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
     name: "review-requests",
     path: "/api/cron/review-requests",
     intervalMs: numberEnv("WA_WORKER_REVIEW_REQUESTS_INTERVAL_MS", 30 * 60 * 1000),

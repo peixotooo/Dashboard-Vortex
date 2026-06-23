@@ -2,6 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWapiConfig, listGroups, revokeGroupInvite } from "@/lib/wapi-api";
 
 export type PoolGroupStatus = "active" | "paused" | "full" | "archived";
+export type PoolInviteJobStatus = "queued" | "processing" | "retrying" | "failed";
+
+export interface PoolInviteJobView {
+  status: PoolInviteJobStatus;
+  attempts: number;
+  runAt: string;
+  lastError: string | null;
+  updatedAt: string;
+}
 
 export interface GroupPoolGroupView {
   id: string;
@@ -18,6 +27,7 @@ export interface GroupPoolGroupView {
   fillPct: number | null;
   isNearFull: boolean;
   isFull: boolean;
+  inviteJob: PoolInviteJobView | null;
 }
 
 export interface GroupPoolView {
@@ -38,6 +48,8 @@ export interface GroupPoolView {
     nearFullGroups: number;
     fullGroups: number;
     missingInviteLinks: number;
+    queuedInviteLinks: number;
+    failedInviteLinks: number;
     totalMembers: number;
     needsMoreGroups: boolean;
   };
@@ -76,6 +88,31 @@ export interface SyncPoolGroupsResult {
   syncedAt: string;
 }
 
+export interface EnqueuePoolInviteLinksResult {
+  pools: GroupPoolView[];
+  summary: {
+    queued: number;
+    skipped: number;
+    force: boolean;
+    groupJid: string | null;
+  };
+}
+
+export interface ProcessPoolInviteLinkQueueResult {
+  pools?: GroupPoolView[];
+  processed: number;
+  updated: number;
+  failed: number;
+  retrying: number;
+  remaining: number;
+  errors: Array<{
+    poolId: string;
+    groupJid: string;
+    groupName: string;
+    error: string;
+  }>;
+}
+
 type PoolConfig = {
   name: string;
   slug: string;
@@ -92,6 +129,7 @@ type PoolConfig = {
       redirectCount?: number;
     }
   >;
+  inviteJobs?: Record<string, PoolInviteJobView>;
 };
 
 type PresetRow = {
@@ -154,6 +192,7 @@ function parsePoolConfig(row: Pick<PresetRow, "name">): PoolConfig | null {
       nearFullThreshold: parsed.nearFullThreshold || 950,
       active: parsed.active !== false,
       groupOverrides: parsed.groupOverrides || {},
+      inviteJobs: parsed.inviteJobs || {},
     };
   } catch {
     return null;
@@ -169,6 +208,7 @@ function serializePoolConfig(config: PoolConfig): string {
     nearFullThreshold: config.nearFullThreshold,
     active: config.active,
     groupOverrides: config.groupOverrides || {},
+    inviteJobs: config.inviteJobs || {},
   })}`;
 }
 
@@ -275,6 +315,7 @@ function toPoolGroupView(
   snapshot: SnapshotRow | undefined
 ): GroupPoolGroupView {
   const override = config.groupOverrides?.[group.group_jid] || {};
+  const inviteJob = config.inviteJobs?.[group.group_jid] || null;
   const memberCount = snapshot?.member_count ?? null;
   const fillPct =
     memberCount === null
@@ -298,6 +339,7 @@ function toPoolGroupView(
     fillPct,
     isNearFull: memberCount !== null && memberCount >= config.nearFullThreshold,
     isFull: memberCount !== null && memberCount >= config.capacity,
+    inviteJob,
   };
 }
 
@@ -308,6 +350,10 @@ function buildStats(groups: GroupPoolGroupView[]) {
   const nearFull = active.filter((g) => g.isNearFull);
   const full = active.filter((g) => g.isFull);
   const missingInviteLinks = active.filter((g) => !g.inviteUrl).length;
+  const queuedInviteLinks = active.filter((g) =>
+    ["queued", "processing", "retrying"].includes(g.inviteJob?.status || "")
+  ).length;
+  const failedInviteLinks = active.filter((g) => g.inviteJob?.status === "failed").length;
 
   return {
     totalGroups: groups.length,
@@ -317,6 +363,8 @@ function buildStats(groups: GroupPoolGroupView[]) {
     nearFullGroups: nearFull.length,
     fullGroups: full.length,
     missingInviteLinks,
+    queuedInviteLinks,
+    failedInviteLinks,
     totalMembers: groups.reduce((sum, g) => sum + (g.memberCount || 0), 0),
     needsMoreGroups: routeable.length > 0 && routeable.every((g) => g.isNearFull),
   };
@@ -480,6 +528,268 @@ export async function syncPoolGroupsFromWapi(
   return {
     groupsCount: groupList.length,
     syncedAt,
+  };
+}
+
+const INVITE_JOB_MAX_ATTEMPTS = 8;
+const INVITE_JOB_STALE_PROCESSING_MS = 10 * 60 * 1000;
+
+function createInviteJob(now = new Date()): PoolInviteJobView {
+  const iso = now.toISOString();
+  return {
+    status: "queued",
+    attempts: 0,
+    runAt: iso,
+    lastError: null,
+    updatedAt: iso,
+  };
+}
+
+function retryRunAt(attempts: number): string {
+  const minutes = [2, 5, 10, 20, 40, 60, 90, 120][Math.max(0, attempts - 1)] || 120;
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+}
+
+function isInviteJobDue(job: PoolInviteJobView, nowMs = Date.now()): boolean {
+  if (job.status === "failed") return false;
+  if (job.status === "processing") {
+    return nowMs - new Date(job.updatedAt || job.runAt).getTime() > INVITE_JOB_STALE_PROCESSING_MS;
+  }
+  return new Date(job.runAt).getTime() <= nowMs;
+}
+
+async function loadPoolPreset(
+  db: SupabaseClient,
+  workspaceId: string,
+  poolId: string
+): Promise<{ row: PresetRow; config: PoolConfig }> {
+  const { data, error } = await db
+    .from("wapi_group_presets")
+    .select("id, workspace_id, name, group_jids, created_at")
+    .eq("id", poolId)
+    .eq("workspace_id", workspaceId)
+    .like("name", `${POOL_PREFIX}%`)
+    .single();
+
+  if (error || !data) throw new Error(error?.message || "Pool not found");
+
+  const row = data as PresetRow;
+  const config = parsePoolConfig(row);
+  if (!config) throw new Error("Pool invalido");
+  return { row, config };
+}
+
+async function savePoolPresetConfig(
+  db: SupabaseClient,
+  workspaceId: string,
+  poolId: string,
+  config: PoolConfig
+): Promise<void> {
+  const currentGroups = await groupsForPool(db, workspaceId, config);
+  const { error } = await db
+    .from("wapi_group_presets")
+    .update({
+      name: serializePoolConfig(config),
+      group_jids: currentGroups.map((group) => group.group_jid),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", poolId)
+    .eq("workspace_id", workspaceId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function enqueuePoolInviteLinkJobs(
+  db: SupabaseClient,
+  workspaceId: string,
+  poolId: string,
+  origin: string,
+  options: { force?: boolean; groupJid?: string | null } = {}
+): Promise<EnqueuePoolInviteLinksResult> {
+  const { row, config } = await loadPoolPreset(db, workspaceId, poolId);
+  const view = await buildPoolView(db, row, config, origin);
+  const force = options.force === true;
+  const groupJid = options.groupJid || null;
+  const activeGroups = view.groups.filter((group) => group.status === "active");
+  const targets = activeGroups.filter((group) => {
+    if (groupJid) return group.groupJid === groupJid;
+    return force || !group.inviteUrl;
+  });
+  const inviteJobs: NonNullable<PoolConfig["inviteJobs"]> = {
+    ...(config.inviteJobs || {}),
+  };
+  let queued = 0;
+  let skipped = 0;
+
+  for (const group of targets) {
+    if (!force && group.inviteUrl && !groupJid) {
+      skipped += 1;
+      continue;
+    }
+
+    const current = inviteJobs[group.groupJid];
+    if (current && ["queued", "processing", "retrying"].includes(current.status)) {
+      skipped += 1;
+      continue;
+    }
+
+    inviteJobs[group.groupJid] = createInviteJob();
+    queued += 1;
+  }
+
+  await savePoolPresetConfig(db, workspaceId, poolId, { ...config, inviteJobs });
+  const pools = await listGroupPools(db, workspaceId, origin);
+
+  return {
+    pools,
+    summary: {
+      queued,
+      skipped,
+      force,
+      groupJid,
+    },
+  };
+}
+
+export async function processPoolInviteLinkQueue(
+  db: SupabaseClient,
+  options: {
+    workspaceId?: string;
+    poolId?: string;
+    origin?: string;
+    limit?: number;
+    throttleMs?: number;
+  } = {}
+): Promise<ProcessPoolInviteLinkQueueResult> {
+  const limit = Math.max(1, options.limit ?? 2);
+  const throttleMs = Math.max(0, options.throttleMs ?? 15000);
+  const origin = options.origin || "https://dash.bulking.com.br";
+  const errors: ProcessPoolInviteLinkQueueResult["errors"] = [];
+  let processed = 0;
+  let updated = 0;
+  let failed = 0;
+  let retrying = 0;
+
+  let query = db
+    .from("wapi_group_presets")
+    .select("id, workspace_id, name, group_jids, created_at")
+    .like("name", `${POOL_PREFIX}%`)
+    .order("updated_at", { ascending: true });
+
+  if (options.workspaceId) query = query.eq("workspace_id", options.workspaceId);
+  if (options.poolId) query = query.eq("id", options.poolId);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const configs = new Map<string, Awaited<ReturnType<typeof getWapiConfig>>>();
+  const nowMs = Date.now();
+
+  for (const row of (data || []) as PresetRow[]) {
+    if (processed >= limit) break;
+    let config = parsePoolConfig(row);
+    if (!config?.inviteJobs) continue;
+
+    const view = await buildPoolView(db, row, config, origin);
+    const dueGroups = view.groups
+      .filter((group) => !group.inviteUrl && group.inviteJob && isInviteJobDue(group.inviteJob, nowMs))
+      .sort((a, b) => new Date(a.inviteJob!.runAt).getTime() - new Date(b.inviteJob!.runAt).getTime());
+
+    for (const group of dueGroups) {
+      if (processed >= limit) break;
+      if (processed > 0 && throttleMs > 0) await sleep(throttleMs);
+
+      const jobs: NonNullable<PoolConfig["inviteJobs"]> = {
+        ...(config.inviteJobs || {}),
+      };
+      const currentJob = jobs[group.groupJid] || createInviteJob();
+      jobs[group.groupJid] = {
+        ...currentJob,
+        status: "processing",
+        updatedAt: new Date().toISOString(),
+      };
+      config = { ...config, inviteJobs: jobs };
+      await savePoolPresetConfig(db, row.workspace_id, row.id, config);
+
+      processed += 1;
+
+      try {
+        let wapiConfig = configs.get(row.workspace_id);
+        if (wapiConfig === undefined) {
+          wapiConfig = await getWapiConfig(row.workspace_id);
+          configs.set(row.workspace_id, wapiConfig);
+        }
+        if (!wapiConfig) throw new Error("W-API not configured");
+
+        const invite = await revokeGroupInvite(wapiConfig, group.groupJid);
+        if (!invite.inviteUrl) throw new Error("W-API nao retornou link de convite valido");
+
+        const overrides: NonNullable<PoolConfig["groupOverrides"]> = {
+          ...(config.groupOverrides || {}),
+        };
+        const override = overrides[group.groupJid] || {};
+        overrides[group.groupJid] = {
+          ...override,
+          status: group.status,
+          sequence: group.sequence,
+          inviteUrl: invite.inviteUrl,
+          redirectCount: group.redirectCount,
+        };
+
+        const nextJobs: NonNullable<PoolConfig["inviteJobs"]> = {
+          ...(config.inviteJobs || {}),
+        };
+        delete nextJobs[group.groupJid];
+        config = { ...config, groupOverrides: overrides, inviteJobs: nextJobs };
+        await savePoolPresetConfig(db, row.workspace_id, row.id, config);
+        updated += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const attempts = (currentJob.attempts || 0) + 1;
+        const nextStatus: PoolInviteJobStatus =
+          attempts >= INVITE_JOB_MAX_ATTEMPTS ? "failed" : "retrying";
+        const nextJobs: NonNullable<PoolConfig["inviteJobs"]> = {
+          ...(config.inviteJobs || {}),
+        };
+        nextJobs[group.groupJid] = {
+          status: nextStatus,
+          attempts,
+          runAt: nextStatus === "failed" ? new Date().toISOString() : retryRunAt(attempts),
+          lastError: message,
+          updatedAt: new Date().toISOString(),
+        };
+        config = { ...config, inviteJobs: nextJobs };
+        await savePoolPresetConfig(db, row.workspace_id, row.id, config);
+
+        if (nextStatus === "failed") failed += 1;
+        else retrying += 1;
+        errors.push({
+          poolId: row.id,
+          groupJid: group.groupJid,
+          groupName: group.groupName,
+          error: message,
+        });
+      }
+    }
+  }
+
+  const pools =
+    options.workspaceId && options.origin
+      ? await listGroupPools(db, options.workspaceId, options.origin)
+      : undefined;
+  const remaining = (pools || []).reduce(
+    (sum, pool) => sum + pool.groups.filter((group) => group.inviteJob && group.inviteJob.status !== "failed").length,
+    0
+  );
+
+  return {
+    pools,
+    processed,
+    updated,
+    failed,
+    retrying,
+    remaining,
+    errors,
   };
 }
 
