@@ -38,6 +38,19 @@ import Link from "next/link";
 
 // --- Types ---
 
+interface PromoComboTier {
+  quantity: number;
+  total: number;
+  label?: string;
+}
+
+interface PromoComboTiersConfig {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
+  tiers: PromoComboTier[];
+}
+
 interface PromoTagRule {
   id?: string;
   enabled: boolean;
@@ -61,6 +74,55 @@ interface PromoTagRule {
   ends_at?: string | null;
   modal_title?: string | null;
   modal_body?: string | null;
+  combo_tiers?: PromoComboTiersConfig;
+}
+
+const CURRENT_COMBO_TIERS: PromoComboTier[] = [
+  { quantity: 2, total: 149, label: "2 por R$149" },
+  { quantity: 3, total: 199, label: "3 por R$199" },
+  { quantity: 4, total: 249, label: "4 por R$249" },
+  { quantity: 5, total: 299, label: "5 por R$299" },
+];
+
+const DEFAULT_COMBO_TIERS_CONFIG: PromoComboTiersConfig = {
+  enabled: false,
+  title: "Compre mais, pague menos",
+  subtitle: "Desconto aplicado automaticamente no carrinho.",
+  tiers: CURRENT_COMBO_TIERS,
+};
+
+function cloneComboTiersConfig(
+  config: PromoComboTiersConfig = DEFAULT_COMBO_TIERS_CONFIG
+): PromoComboTiersConfig {
+  return {
+    enabled: config.enabled,
+    title: config.title,
+    subtitle: config.subtitle,
+    tiers: config.tiers.map((tier) => ({ ...tier })),
+  };
+}
+
+function normalizeComboTiersConfig(
+  config?: PromoComboTiersConfig
+): PromoComboTiersConfig {
+  const source = config || DEFAULT_COMBO_TIERS_CONFIG;
+  const tiers = Array.isArray(source.tiers)
+    ? source.tiers
+        .map((tier) => ({
+          quantity: Math.max(1, Math.floor(Number(tier.quantity) || 0)),
+          total: Math.max(0, Number(tier.total) || 0),
+          label: (tier.label || "").trim(),
+        }))
+        .filter((tier) => tier.quantity > 0)
+        .sort((a, b) => a.quantity - b.quantity)
+    : [];
+
+  return {
+    enabled: source.enabled === true && tiers.length > 0,
+    title: (source.title || DEFAULT_COMBO_TIERS_CONFIG.title).trim(),
+    subtitle: (source.subtitle || "").trim(),
+    tiers,
+  };
 }
 
 const EMPTY_RULE: PromoTagRule = {
@@ -83,6 +145,7 @@ const EMPTY_RULE: PromoTagRule = {
   viewers_max: 56,
   modal_title: "",
   modal_body: "",
+  combo_tiers: cloneComboTiersConfig(),
 };
 
 const BADGE_TYPE_LABELS: Record<string, string> = {
@@ -189,13 +252,21 @@ export default function PromoTagsPage() {
   }, [workspace?.id, loadRules, loadApiKeys]);
 
   function openCreate() {
-    setEditingRule(EMPTY_RULE);
+    setEditingRule({
+      ...EMPTY_RULE,
+      show_on_pages: [...EMPTY_RULE.show_on_pages],
+      combo_tiers: cloneComboTiersConfig(),
+    });
     setEditingId(null);
     setDialogOpen(true);
   }
 
   function openEdit(rule: PromoTagRule) {
-    setEditingRule({ ...rule });
+    setEditingRule({
+      ...rule,
+      show_on_pages: [...(rule.show_on_pages || ["all"])],
+      combo_tiers: normalizeComboTiersConfig(rule.combo_tiers),
+    });
     setEditingId(rule.id || null);
     setDialogOpen(true);
   }
@@ -285,6 +356,75 @@ export default function PromoTagsPage() {
     setEditingRule((prev) => ({ ...prev, ...partial }));
   }
 
+  function updateComboTiers(partial: Partial<PromoComboTiersConfig>) {
+    setEditingRule((prev) => ({
+      ...prev,
+      combo_tiers: normalizeComboTiersConfig({
+        ...cloneComboTiersConfig(
+          normalizeComboTiersConfig(prev.combo_tiers)
+        ),
+        ...partial,
+      }),
+    }));
+  }
+
+  function updateComboTier(
+    index: number,
+    partial: Partial<PromoComboTier>
+  ) {
+    setEditingRule((prev) => {
+      const combo = normalizeComboTiersConfig(prev.combo_tiers);
+      const tiers = combo.tiers.map((tier, i) =>
+        i === index ? { ...tier, ...partial } : tier
+      );
+      return {
+        ...prev,
+        combo_tiers: normalizeComboTiersConfig({ ...combo, tiers }),
+      };
+    });
+  }
+
+  function addComboTier() {
+    setEditingRule((prev) => {
+      const combo = normalizeComboTiersConfig(prev.combo_tiers);
+      const last = combo.tiers[combo.tiers.length - 1];
+      const nextQuantity = last ? last.quantity + 1 : 2;
+      return {
+        ...prev,
+        combo_tiers: {
+          ...combo,
+          enabled: true,
+          tiers: [
+            ...combo.tiers,
+            { quantity: nextQuantity, total: 0, label: "" },
+          ],
+        },
+      };
+    });
+  }
+
+  function removeComboTier(index: number) {
+    setEditingRule((prev) => {
+      const combo = normalizeComboTiersConfig(prev.combo_tiers);
+      return {
+        ...prev,
+        combo_tiers: normalizeComboTiersConfig({
+          ...combo,
+          tiers: combo.tiers.filter((_, i) => i !== index),
+        }),
+      };
+    });
+  }
+
+  function applyCurrentComboPreset() {
+    updateComboTiers({
+      enabled: true,
+      title: DEFAULT_COMBO_TIERS_CONFIG.title,
+      subtitle: DEFAULT_COMBO_TIERS_CONFIG.subtitle,
+      tiers: CURRENT_COMBO_TIERS.map((tier) => ({ ...tier })),
+    });
+  }
+
   function togglePage(page: string) {
     setEditingRule((prev) => {
       const current = prev.show_on_pages;
@@ -299,6 +439,8 @@ export default function PromoTagsPage() {
       return { ...prev, show_on_pages: next };
     });
   }
+
+  const editingComboTiers = normalizeComboTiersConfig(editingRule.combo_tiers);
 
   if (loading) {
     return (
@@ -414,6 +556,11 @@ export default function PromoTagsPage() {
                       {rule.modal_body && (
                         <Badge variant="outline" className="text-[10px]">
                           Modal
+                        </Badge>
+                      )}
+                      {normalizeComboTiersConfig(rule.combo_tiers).enabled && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Tabela combo
                         </Badge>
                       )}
                       {(() => {
@@ -722,6 +869,117 @@ export default function PromoTagsPage() {
               )}
             </div>
 
+            {/* Combo tiers table */}
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label>Tabela "compre mais" na PDP</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Mostra o valor total do combo abaixo da etiqueta, perto do preço do produto.
+                  </p>
+                </div>
+                <Switch
+                  checked={editingComboTiers.enabled}
+                  onCheckedChange={(checked) =>
+                    updateComboTiers({ enabled: checked })
+                  }
+                />
+              </div>
+
+              {editingComboTiers.enabled && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-3">
+                    <div className="space-y-2">
+                      <Label>Título</Label>
+                      <Input
+                        value={editingComboTiers.title}
+                        onChange={(e) =>
+                          updateComboTiers({ title: e.target.value })
+                        }
+                        placeholder="Compre mais, pague menos"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Subtítulo</Label>
+                      <Input
+                        value={editingComboTiers.subtitle}
+                        onChange={(e) =>
+                          updateComboTiers({ subtitle: e.target.value })
+                        }
+                        placeholder="Desconto aplicado automaticamente no carrinho."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-12 gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <span className="col-span-2">Qtd.</span>
+                      <span className="col-span-3">Total</span>
+                      <span className="col-span-6">Texto</span>
+                      <span className="col-span-1" />
+                    </div>
+                    {editingComboTiers.tiers.map((tier, index) => (
+                      <div key={`${tier.quantity}-${index}`} className="grid grid-cols-12 gap-2">
+                        <Input
+                          className="col-span-2"
+                          type="number"
+                          min={1}
+                          value={tier.quantity}
+                          onChange={(e) =>
+                            updateComboTier(index, {
+                              quantity: Math.max(1, parseInt(e.target.value) || 1),
+                            })
+                          }
+                          aria-label="Quantidade"
+                        />
+                        <Input
+                          className="col-span-3"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={tier.total}
+                          onChange={(e) =>
+                            updateComboTier(index, {
+                              total: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                          aria-label="Valor total"
+                        />
+                        <Input
+                          className="col-span-6"
+                          value={tier.label || ""}
+                          onChange={(e) =>
+                            updateComboTier(index, { label: e.target.value })
+                          }
+                          placeholder={`${tier.quantity} por R$${tier.total || ""}`}
+                          aria-label="Texto exibido"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeComboTier(index)}
+                          aria-label="Remover linha"
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={addComboTier}>
+                      <Plus className="h-3 w-3 mr-2" />
+                      Adicionar linha
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={applyCurrentComboPreset}>
+                      Usar promoção atual
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Optional modal */}
             <div className="space-y-3 rounded-md border p-3">
               <div>
@@ -965,7 +1223,7 @@ export default function PromoTagsPage() {
             {/* Live badge preview */}
             <div className="space-y-2">
               <Label>Preview</Label>
-              <div className="flex items-center justify-center py-4 bg-muted rounded-lg">
+              <div className="flex flex-col items-center justify-center gap-3 py-4 px-3 bg-muted rounded-lg">
                 {editingRule.badge_text ? (
                   <div
                     className="font-bold uppercase"
@@ -983,6 +1241,33 @@ export default function PromoTagsPage() {
                   <span className="text-sm text-muted-foreground">
                     Digite o texto do badge para ver o preview
                   </span>
+                )}
+                {editingComboTiers.enabled && (
+                  <div className="w-full max-w-sm rounded-md border bg-background text-foreground overflow-hidden">
+                    <div className="px-3 py-2 border-b">
+                      <p className="text-xs font-bold uppercase tracking-wide">
+                        {editingComboTiers.title}
+                      </p>
+                      {editingComboTiers.subtitle && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {editingComboTiers.subtitle}
+                        </p>
+                      )}
+                    </div>
+                    {editingComboTiers.tiers.map((tier) => (
+                      <div
+                        key={`${tier.quantity}-${tier.total}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2 border-b last:border-b-0"
+                      >
+                        <span className="text-xs font-semibold">
+                          Leve {tier.quantity}
+                        </span>
+                        <span className="text-xs font-bold">
+                          {tier.label || `${tier.quantity} por R$${tier.total}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>

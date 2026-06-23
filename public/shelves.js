@@ -760,6 +760,7 @@
     var anchor = form;
     var widgets = [
       document.getElementById("vtx-promo-tag-row"),
+      document.querySelector(".vtx-combo-table"),
       document.getElementById("vtx-gift-request-button"),
       document.getElementById("vtx-product-benefits"),
       document.getElementById("vtx-rv-compact")
@@ -2549,6 +2550,37 @@
         "line-height: 1 !important; box-sizing: border-box !important;" +
         "border-radius:999px !important;" +
       "}" +
+      ".vtx-combo-table {" +
+        "width:100%; box-sizing:border-box; clear:both;" +
+        "margin:2px 0 14px; border:1px solid #e5e5e5; border-radius:8px;" +
+        "background:#fff; color:#111; overflow:hidden; font-family:inherit;" +
+        "box-shadow:0 8px 22px rgba(0,0,0,.04);" +
+      "}" +
+      ".vtx-combo-table__head {" +
+        "padding:10px 12px 8px; border-bottom:1px solid #e5e5e5;" +
+      "}" +
+      ".vtx-combo-table__title {" +
+        "margin:0; font-size:12px; line-height:1.2; font-weight:900;" +
+        "letter-spacing:.04em; text-transform:uppercase;" +
+      "}" +
+      ".vtx-combo-table__subtitle {" +
+        "margin:3px 0 0; font-size:11px; line-height:1.35; color:#666;" +
+      "}" +
+      ".vtx-combo-table__row {" +
+        "display:grid; grid-template-columns:74px minmax(0,1fr); gap:10px;" +
+        "align-items:center; padding:9px 12px; border-bottom:1px solid #ededed;" +
+      "}" +
+      ".vtx-combo-table__row:last-child { border-bottom:0; }" +
+      ".vtx-combo-table__qty {" +
+        "font-size:12px; line-height:1.15; font-weight:900; text-transform:uppercase;" +
+      "}" +
+      ".vtx-combo-table__value {" +
+        "display:flex; align-items:baseline; justify-content:space-between; gap:8px;" +
+        "font-size:13px; line-height:1.2; font-weight:800;" +
+      "}" +
+      ".vtx-combo-table__unit {" +
+        "font-size:10.5px; line-height:1.2; color:#777; font-weight:600; white-space:nowrap;" +
+      "}" +
       ".vtx-promo-tag--has-modal {" +
         "pointer-events: auto; cursor: pointer; text-transform: none;" +
       "}" +
@@ -2634,6 +2666,14 @@
       "@media (max-width: 640px) {" +
         ".vtx-promo-tag-row { flex-wrap: wrap; overflow: visible; gap: 6px; margin: 10px 0 12px; padding: 0; }" +
         ".vtx-promo-tag-row > .vtx-promo-tag:not(.vtx-promo-tag--coupon) { flex: 0 1 auto; max-width: 100%; margin: 0 !important; font-size: 10.5px !important; padding-left: 10px !important; padding-right: 10px !important; }" +
+        ".vtx-combo-table { margin: 0 0 12px; border-radius: 8px; box-shadow:none; }" +
+        ".vtx-combo-table__head { padding: 9px 10px 7px; }" +
+        ".vtx-combo-table__title { font-size: 11.5px; }" +
+        ".vtx-combo-table__subtitle { font-size: 10.5px; }" +
+        ".vtx-combo-table__row { grid-template-columns: 66px minmax(0,1fr); gap: 8px; padding: 8px 10px; }" +
+        ".vtx-combo-table__qty { font-size: 11.5px; }" +
+        ".vtx-combo-table__value { font-size: 12.5px; }" +
+        ".vtx-combo-table__unit { font-size: 10px; }" +
       "}" +
       // Pulse uses currentColor so the ring matches the badge text color
       "@keyframes vtx-pulse {" +
@@ -2759,6 +2799,105 @@
 
   function formatBRLShort(v) {
     return "R$ " + v.toFixed(2).replace(".", ",");
+  }
+
+  function formatComboMoney(value, forceCents) {
+    var num = Number(value) || 0;
+    var hasCents = forceCents || Math.abs(num - Math.round(num)) > 0.005;
+    var out = hasCents ? num.toFixed(2) : String(Math.round(num));
+    return "R$" + out.replace(".", ",");
+  }
+
+  function normalizeComboTableConfig(rule) {
+    var raw = rule && rule.combo_tiers;
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch (e) {
+        raw = null;
+      }
+    }
+    if (!raw || typeof raw !== "object" || raw.enabled !== true) return null;
+
+    var tiers = Array.isArray(raw.tiers) ? raw.tiers : [];
+    tiers = tiers
+      .map(function (tier) {
+        var quantity = Math.floor(Number(tier && tier.quantity) || 0);
+        var total = Number(tier && tier.total) || 0;
+        var label = tier && tier.label ? String(tier.label).trim() : "";
+        return { quantity: quantity, total: total, label: label };
+      })
+      .filter(function (tier) {
+        return tier.quantity > 0 && tier.total > 0;
+      })
+      .sort(function (a, b) {
+        return a.quantity - b.quantity;
+      })
+      .slice(0, 8);
+
+    if (!tiers.length) return null;
+
+    return {
+      title: String(raw.title || "Compre mais, pague menos").trim(),
+      subtitle: String(raw.subtitle || "").trim(),
+      tiers: tiers
+    };
+  }
+
+  function createComboTableElement(rule) {
+    var cfg = normalizeComboTableConfig(rule);
+    if (!cfg) return null;
+
+    var table = document.createElement("div");
+    table.className = "vtx-combo-table";
+    table.setAttribute("role", "group");
+    table.setAttribute("aria-label", cfg.title || "Compre mais, pague menos");
+
+    var head =
+      '<div class="vtx-combo-table__head">' +
+        '<p class="vtx-combo-table__title">' + escapeHtml(cfg.title) + '</p>' +
+        (cfg.subtitle
+          ? '<p class="vtx-combo-table__subtitle">' + escapeHtml(cfg.subtitle) + '</p>'
+          : '') +
+      '</div>';
+
+    var rows = cfg.tiers.map(function (tier) {
+      var label = tier.label || (tier.quantity + " por " + formatComboMoney(tier.total));
+      var unit = formatComboMoney(tier.total / tier.quantity, true) + " cada";
+      return (
+        '<div class="vtx-combo-table__row">' +
+          '<div class="vtx-combo-table__qty">Leve ' + escapeHtml(String(tier.quantity)) + '</div>' +
+          '<div class="vtx-combo-table__value">' +
+            '<span>' + escapeHtml(label) + '</span>' +
+            '<span class="vtx-combo-table__unit">' + escapeHtml(unit) + '</span>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    table.innerHTML = head + rows;
+    return table;
+  }
+
+  function insertComboTableForRule(rule, marker) {
+    var cfg = normalizeComboTableConfig(rule);
+    if (!cfg) return false;
+    var comboMarker = "vtx-combo-table-" + marker;
+    if (document.querySelector("[data-vtx-combo-mark='" + comboMarker + "']")) {
+      return true;
+    }
+
+    var table = createComboTableElement(rule);
+    if (!table) return false;
+    table.setAttribute("data-vtx-combo-mark", comboMarker);
+
+    var row = document.getElementById("vtx-promo-tag-row");
+    if (row && row.parentNode) {
+      row.parentNode.insertBefore(table, row.nextSibling);
+      return true;
+    }
+
+    return insertNearPrice(table);
   }
 
   // Try to read product price from the PDP DOM (multiple themes)
@@ -3410,7 +3549,14 @@
 
       if (!inserted) {
         var form = document.querySelector("#product-form, .product-form, form[action*='carrinho']");
-        if (form) form.parentNode.insertBefore(badge, form);
+        if (form) {
+          form.parentNode.insertBefore(badge, form);
+          inserted = true;
+        }
+      }
+
+      if (inserted) {
+        insertComboTableForRule(rule, marker);
       }
     }
 

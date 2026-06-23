@@ -5,6 +5,11 @@ import {
   hydratePromoTagRuleModal,
   withPromoTagModalMetadata,
 } from "@/lib/promo-tags/modal-metadata";
+import {
+  extractPromoTagComboTiers,
+  normalizePromoTagComboTiers,
+  withPromoTagComboTiersMetadata,
+} from "@/lib/promo-tags/combo-tiers";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -27,6 +32,30 @@ function isMissingModalColumn(message: string): boolean {
     message.includes("modal_body") ||
     message.includes("schema cache")
   );
+}
+
+function isMissingOptionalColumn(message: string): boolean {
+  return isMissingModalColumn(message) || message.includes("combo_tiers");
+}
+
+function withOptionalPromoTagMetadata(
+  showOnPages: unknown,
+  modalTitle: unknown,
+  modalBody: unknown,
+  comboTiers: unknown
+): string[] {
+  return withPromoTagComboTiersMetadata(
+    withPromoTagModalMetadata(showOnPages, modalTitle, modalBody),
+    comboTiers
+  );
+}
+
+function hydratePromoTagRule<T extends Record<string, unknown>>(rule: T) {
+  const modalRule = hydratePromoTagRuleModal(rule);
+  return {
+    ...modalRule,
+    combo_tiers: extractPromoTagComboTiers(rule),
+  };
 }
 
 export async function PATCH(
@@ -77,6 +106,9 @@ export async function PATCH(
       ...(body.ends_at !== undefined && { ends_at: body.ends_at || null }),
       ...(body.modal_title !== undefined && { modal_title: body.modal_title || null }),
       ...(body.modal_body !== undefined && { modal_body: body.modal_body || null }),
+      ...(body.combo_tiers !== undefined && {
+        combo_tiers: normalizePromoTagComboTiers(body.combo_tiers),
+      }),
     };
 
     const admin = createAdminClient();
@@ -88,14 +120,20 @@ export async function PATCH(
       .select()
       .single();
 
-    if (result.error && isMissingModalColumn(result.error.message)) {
+    if (result.error && isMissingOptionalColumn(result.error.message)) {
       delete updatePayload.modal_title;
       delete updatePayload.modal_body;
-      if (body.modal_title !== undefined || body.modal_body !== undefined) {
-        updatePayload.show_on_pages = withPromoTagModalMetadata(
+      delete updatePayload.combo_tiers;
+      if (
+        body.modal_title !== undefined ||
+        body.modal_body !== undefined ||
+        body.combo_tiers !== undefined
+      ) {
+        updatePayload.show_on_pages = withOptionalPromoTagMetadata(
           body.show_on_pages || updatePayload.show_on_pages || ["all"],
           body.modal_title,
-          body.modal_body
+          body.modal_body,
+          body.combo_tiers
         );
       }
       result = await admin
@@ -111,7 +149,7 @@ export async function PATCH(
       return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ rule: hydratePromoTagRuleModal(result.data) });
+    return NextResponse.json({ rule: hydratePromoTagRule(result.data) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

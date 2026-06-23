@@ -4,6 +4,10 @@ import {
   extractPromoTagModalMetadata,
   normalizePromoTagPages,
 } from "@/lib/promo-tags/modal-metadata";
+import {
+  extractPromoTagComboTiers,
+  type PromoComboTiersConfig,
+} from "@/lib/promo-tags/combo-tiers";
 
 // --- Popularity cache: GA4 itemsViewed last 30d, normalized 0-1 (per workspace) ---
 
@@ -239,6 +243,7 @@ export interface PromoTagRule {
   viewers_max?: number;
   modal_title?: string | null;
   modal_body?: string | null;
+  combo_tiers?: PromoComboTiersConfig;
   // Countdown coupon — emitted when an active coupon exists for this product
   coupon_code?: string;
   coupon_discount_pct?: number;
@@ -530,6 +535,7 @@ export async function computePromoTagMatches(
     const viewersMax = Number(rule.viewers_max) || 42;
     const pageTargets = normalizePromoTagPages(rule.show_on_pages);
     const modal = extractPromoTagModalMetadata(rule);
+    const comboTiers = extractPromoTagComboTiers(rule);
 
     switch (rule.match_type) {
       case "tag": {
@@ -588,6 +594,7 @@ export async function computePromoTagMatches(
         show_on_pages: pageTargets,
         modal_title: modal.modal_title,
         modal_body: modal.modal_body,
+        combo_tiers: comboTiers,
       };
 
       // Per-product enrichment
