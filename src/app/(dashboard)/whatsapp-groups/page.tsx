@@ -151,6 +151,7 @@ export default function WhatsAppGroupsPage() {
   const [pools, setPools] = useState<GroupPool[]>([]);
   const [poolsLoading, setPoolsLoading] = useState(false);
   const [poolSaving, setPoolSaving] = useState(false);
+  const [poolInviteRefreshing, setPoolInviteRefreshing] = useState<string | null>(null);
   const [poolDraft, setPoolDraft] = useState({
     name: "BULKING VIP",
     slug: "vip",
@@ -418,10 +419,16 @@ export default function WhatsAppGroupsPage() {
     }
   }
 
-  async function handleSavePool(pool: GroupPool, sync = false) {
+  async function handleSavePool(
+    pool: GroupPool,
+    sync = false,
+    options: { quiet?: boolean } = {}
+  ): Promise<boolean> {
     setPoolSaving(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
+    if (!options.quiet) {
+      setErrorMsg(null);
+      setSuccessMsg(null);
+    }
     try {
       const res = await fetch(`/api/whatsapp-groups/pools/${pool.id}`, {
         method: "PATCH",
@@ -446,16 +453,66 @@ export default function WhatsAppGroupsPage() {
       const data = await res.json();
       if (data.error) {
         setErrorMsg(`Erro ao salvar pool: ${data.error}`);
+        return false;
       } else {
         setPools(data.pools || []);
-        setSuccessMsg(sync ? "Pool sincronizado." : "Pool salvo.");
+        if (!options.quiet) {
+          setSuccessMsg(sync ? "Pool sincronizado." : "Pool salvo.");
+        }
+        return true;
       }
     } catch (err) {
       setErrorMsg(
         `Erro ao salvar pool: ${err instanceof Error ? err.message : "desconhecido"}`
       );
+      return false;
     } finally {
       setPoolSaving(false);
+    }
+  }
+
+  async function handleRefreshPoolInvites(pool: GroupPool, force = false) {
+    const missingCount = pool.stats.missingInviteLinks;
+    const message = force
+      ? "A W-API vai renovar os links de convite de todos os grupos ativos deste link unico. Links antigos desses grupos podem parar de funcionar. Continuar?"
+      : `A W-API vai gerar/renovar o link de ${missingCount} grupo(s) ativo(s) sem link no dashboard. Se algum link antigo ja circulava fora daqui, ele pode parar de funcionar. Continuar?`;
+
+    if (!window.confirm(message)) return;
+
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const saved = await handleSavePool(pool, false, { quiet: true });
+    if (!saved) return;
+
+    setPoolInviteRefreshing(pool.id);
+    try {
+      const res = await fetch(`/api/whatsapp-groups/pools/${pool.id}/invite-links`, {
+        method: "POST",
+        headers: wsHeaders(),
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErrorMsg(`Erro ao gerar links: ${data.error}`);
+        return;
+      }
+
+      setPools(data.pools || []);
+      const summary = data.summary || {};
+      const failures = Number(summary.failed || 0);
+      const updated = Number(summary.updated || 0);
+      setSuccessMsg(
+        failures > 0
+          ? `Links atualizados para ${updated} grupo(s), com ${failures} erro(s).`
+          : `Links atualizados para ${updated} grupo(s).`
+      );
+    } catch (err) {
+      setErrorMsg(
+        `Erro ao gerar links: ${err instanceof Error ? err.message : "desconhecido"}`
+      );
+    } finally {
+      setPoolInviteRefreshing(null);
     }
   }
 
@@ -1235,7 +1292,7 @@ export default function WhatsAppGroupsPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleSavePool(pool, true)}
-                          disabled={poolSaving}
+                          disabled={poolSaving || poolInviteRefreshing === pool.id}
                           className="gap-1.5"
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
@@ -1243,8 +1300,26 @@ export default function WhatsAppGroupsPage() {
                         </Button>
                         <Button
                           size="sm"
+                          variant="outline"
+                          onClick={() => handleRefreshPoolInvites(pool)}
+                          disabled={
+                            poolSaving ||
+                            poolInviteRefreshing === pool.id ||
+                            pool.stats.missingInviteLinks === 0
+                          }
+                          className="gap-1.5"
+                        >
+                          {poolInviteRefreshing === pool.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Link2 className="h-3.5 w-3.5" />
+                          )}
+                          Preencher links
+                        </Button>
+                        <Button
+                          size="sm"
                           onClick={() => handleSavePool(pool)}
-                          disabled={poolSaving}
+                          disabled={poolSaving || poolInviteRefreshing === pool.id}
                           className="gap-1.5"
                         >
                           {poolSaving ? (
@@ -1268,10 +1343,38 @@ export default function WhatsAppGroupsPage() {
                     )}
 
                     {pool.stats.missingInviteLinks > 0 && (
-                      <div className="flex items-start gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            {pool.stats.missingInviteLinks} grupo(s) ativo(s) sem link de convite.
+                            Use a W-API para preencher automaticamente; isso renova o convite
+                            desses grupos no WhatsApp.
+                          </span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRefreshPoolInvites(pool)}
+                          disabled={poolSaving || poolInviteRefreshing === pool.id}
+                          className="shrink-0 gap-1.5"
+                        >
+                          {poolInviteRefreshing === pool.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Link2 className="h-3.5 w-3.5" />
+                          )}
+                          Preencher agora
+                        </Button>
+                      </div>
+                    )}
+
+                    {pool.stats.missingInviteLinks === 0 && pool.stats.routeableGroups > 0 && (
+                      <div className="flex items-start gap-2 rounded-lg border border-green-500/20 bg-green-500/5 p-3 text-sm text-green-700 dark:text-green-300">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>
-                          {pool.stats.missingInviteLinks} grupo(s) ativo(s) ainda sem link de convite.
+                          Link unico pronto: todos os grupos ativos possuem convite e
+                          entram no rodizio conforme ocupacao.
                         </span>
                       </div>
                     )}

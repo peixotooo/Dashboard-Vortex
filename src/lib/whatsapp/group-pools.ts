@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getWapiConfig, revokeGroupInvite } from "@/lib/wapi-api";
 
 export type PoolGroupStatus = "active" | "paused" | "full" | "archived";
 
@@ -52,6 +53,22 @@ export interface PoolRedirectSelection {
   };
   config: PoolConfig;
   group: GroupPoolGroupView | null;
+}
+
+export interface RefreshPoolInviteLinksResult {
+  pools: GroupPoolView[];
+  summary: {
+    attempted: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    force: boolean;
+    errors: Array<{
+      groupJid: string;
+      groupName: string;
+      error: string;
+    }>;
+  };
 }
 
 type PoolConfig = {
@@ -150,6 +167,10 @@ function normalizeInviteUrl(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function latestSnapshotsByGroup(
@@ -382,6 +403,105 @@ export async function deleteGroupPool(
 
 export async function syncPoolGroupsFromCache(): Promise<void> {
   // Os grupos sao lidos dinamicamente de wapi_groups pelo matchPattern.
+}
+
+export async function refreshPoolInviteLinks(
+  db: SupabaseClient,
+  workspaceId: string,
+  poolId: string,
+  origin: string,
+  options: { force?: boolean; throttleMs?: number } = {}
+): Promise<RefreshPoolInviteLinksResult> {
+  const { data, error } = await db
+    .from("wapi_group_presets")
+    .select("id, workspace_id, name, group_jids, created_at")
+    .eq("id", poolId)
+    .eq("workspace_id", workspaceId)
+    .like("name", `${POOL_PREFIX}%`)
+    .single();
+
+  if (error || !data) throw new Error(error?.message || "Pool not found");
+
+  const row = data as PresetRow;
+  const config = parsePoolConfig(row);
+  if (!config) throw new Error("Pool invalido");
+
+  const wapiConfig = await getWapiConfig(workspaceId);
+  if (!wapiConfig) throw new Error("W-API not configured");
+
+  const view = await buildPoolView(db, row, config, origin);
+  const force = options.force === true;
+  const throttleMs = Math.max(0, options.throttleMs ?? 500);
+  const activeGroups = view.groups.filter((group) => group.status === "active");
+  const targets = activeGroups.filter((group) => force || !group.inviteUrl);
+  const overrides: NonNullable<PoolConfig["groupOverrides"]> = {
+    ...(config.groupOverrides || {}),
+  };
+  const errors: RefreshPoolInviteLinksResult["summary"]["errors"] = [];
+  let updated = 0;
+
+  for (let index = 0; index < targets.length; index += 1) {
+    const group = targets[index];
+    if (index > 0 && throttleMs > 0) await sleep(throttleMs);
+
+    try {
+      const invite = await revokeGroupInvite(wapiConfig, group.groupJid);
+      if (!invite.inviteUrl) {
+        errors.push({
+          groupJid: group.groupJid,
+          groupName: group.groupName,
+          error: "W-API nao retornou link de convite",
+        });
+        continue;
+      }
+
+      const current = overrides[group.groupJid] || {};
+      overrides[group.groupJid] = {
+        ...current,
+        status: group.status,
+        sequence: group.sequence,
+        inviteUrl: invite.inviteUrl,
+        redirectCount: group.redirectCount,
+      };
+      updated += 1;
+    } catch (err) {
+      errors.push({
+        groupJid: group.groupJid,
+        groupName: group.groupName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (updated > 0) {
+    const nextConfig = { ...config, groupOverrides: overrides };
+    const currentGroups = await groupsForPool(db, workspaceId, nextConfig);
+    const { error: updateError } = await db
+      .from("wapi_group_presets")
+      .update({
+        name: serializePoolConfig(nextConfig),
+        group_jids: currentGroups.map((group) => group.group_jid),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", poolId)
+      .eq("workspace_id", workspaceId);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  const pools = await listGroupPools(db, workspaceId, origin);
+
+  return {
+    pools,
+    summary: {
+      attempted: targets.length,
+      updated,
+      skipped: activeGroups.length - targets.length,
+      failed: errors.length,
+      force,
+      errors,
+    },
+  };
 }
 
 export async function selectGroupForPoolRedirect(

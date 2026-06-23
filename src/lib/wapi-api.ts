@@ -16,6 +16,18 @@ export interface WapiGroup {
   participants?: number;
 }
 
+export interface WapiGroupInviteResult {
+  inviteUrl: string | null;
+  raw: unknown;
+}
+
+export interface WapiCreateGroupInput {
+  groupName: string;
+  participants: string[];
+  profilePictureUrl?: string;
+  autoInvite?: boolean;
+}
+
 export interface WapiSendResult {
   instanceId?: string;
   messageId?: string;
@@ -61,6 +73,7 @@ export async function saveWapiConfig(
       workspace_id: workspaceId,
       instance_id: config.instanceId,
       token: encrypt(config.token),
+      connected: false,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "workspace_id" }
@@ -110,7 +123,8 @@ async function wapiRequest<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`W-API ${res.status}: ${text.slice(0, 300)}`);
+    const safeText = text.replaceAll(config.token, "[redacted]");
+    throw new Error(`W-API ${res.status}: ${safeText.slice(0, 300)}`);
   }
 
   return res.json();
@@ -138,7 +152,8 @@ export async function getQrCode(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`W-API ${res.status}: ${text.slice(0, 300)}`);
+    const safeText = text.replaceAll(config.token, "[redacted]");
+    throw new Error(`W-API ${res.status}: ${safeText.slice(0, 300)}`);
   }
 
   // image=enable retorna PNG binario - converter para data URI base64
@@ -149,6 +164,109 @@ export async function getQrCode(
 
 export async function listGroups(config: WapiConfig): Promise<unknown> {
   return wapiRequest(config, "/group/get-all-groups");
+}
+
+const WHATSAPP_INVITE_URL_RE =
+  /https?:\/\/(?:chat\.whatsapp\.com|wa\.me\/joinchat)\/[^\s"'<>]+/i;
+const INVITE_CODE_RE = /^[A-Za-z0-9_-]{10,}$/;
+
+function normalizeInviteCandidate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const directUrl = trimmed.match(WHATSAPP_INVITE_URL_RE)?.[0];
+  if (directUrl) return directUrl.replace(/[),.;]+$/, "");
+
+  if (INVITE_CODE_RE.test(trimmed)) {
+    return `https://chat.whatsapp.com/${trimmed}`;
+  }
+
+  return null;
+}
+
+export function extractInviteUrlFromResponse(raw: unknown): string | null {
+  const seen = new Set<unknown>();
+  const priorityKeys = new Set([
+    "inviteLink",
+    "inviteUrl",
+    "invite_url",
+    "groupInviteLink",
+    "link",
+    "url",
+    "invite",
+    "inviteCode",
+    "code",
+  ]);
+
+  function visit(value: unknown): string | null {
+    const direct = normalizeInviteCandidate(value);
+    if (direct) return direct;
+
+    if (!value || typeof value !== "object") return null;
+    if (seen.has(value)) return null;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const object = value as Record<string, unknown>;
+    for (const key of Object.keys(object)) {
+      if (!priorityKeys.has(key)) continue;
+      const found = normalizeInviteCandidate(object[key]);
+      if (found) return found;
+    }
+
+    for (const nested of Object.values(object)) {
+      const found = visit(nested);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  return visit(raw);
+}
+
+export async function createGroup(
+  config: WapiConfig,
+  input: WapiCreateGroupInput
+): Promise<{ groupId: string | null; inviteUrl: string | null; raw: unknown }> {
+  const raw = await wapiRequest<Record<string, unknown>>(config, "/group/create-group", {
+    method: "POST",
+    body: {
+      groupName: input.groupName,
+      participants: input.participants,
+      profilePictureUrl: input.profilePictureUrl || "",
+      autoInvite: input.autoInvite ?? false,
+    },
+  });
+  const group = (raw.group || {}) as Record<string, unknown>;
+  return {
+    groupId: (group.id as string) || (raw.groupId as string) || null,
+    inviteUrl: extractInviteUrlFromResponse(raw),
+    raw,
+  };
+}
+
+export async function revokeGroupInvite(
+  config: WapiConfig,
+  groupId: string
+): Promise<WapiGroupInviteResult> {
+  const raw = await wapiRequest<unknown>(config, "/group/revoke-invite", {
+    method: "POST",
+    extraParams: { groupId },
+  });
+
+  return {
+    inviteUrl: extractInviteUrlFromResponse(raw),
+    raw,
+  };
 }
 
 export interface WapiGroupMetadata {
@@ -275,16 +393,18 @@ export async function checkInstanceHealth(
   }
   if (res.status >= 500) {
     const text = await res.text().catch(() => "");
+    const safeText = text.replaceAll(config.token, "[redacted]");
     return {
       healthy: false,
-      reason: `Sessao W-API em estado inconsistente (${res.status} em /group/get-all-groups: ${text.slice(0, 180)}). Use 'Reiniciar instancia' ou reconecte antes de enviar para evitar disparo em massa quando a sessao voltar.`,
+      reason: `Sessao W-API em estado inconsistente (${res.status} em /group/get-all-groups: ${safeText.slice(0, 180)}). Use 'Reiniciar instancia' ou reconecte antes de enviar para evitar disparo em massa quando a sessao voltar.`,
     };
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    const safeText = text.replaceAll(config.token, "[redacted]");
     return {
       healthy: false,
-      reason: `W-API rejeitou validacao de sessao (${res.status}): ${text.slice(0, 180)}`,
+      reason: `W-API rejeitou validacao de sessao (${res.status}): ${safeText.slice(0, 180)}`,
     };
   }
 
