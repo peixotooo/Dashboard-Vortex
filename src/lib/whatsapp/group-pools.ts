@@ -157,6 +157,10 @@ type SnapshotRow = {
 };
 
 const POOL_PREFIX = "__pool__:";
+const GROUPS_PUBLIC_BASE_URL = (
+  process.env.WHATSAPP_GROUPS_BASE_URL || "https://grupos.bulking.com.br"
+).replace(/\/$/, "");
+const GROUPS_DEFAULT_SLUG = process.env.WHATSAPP_GROUPS_DEFAULT_SLUG || "vip";
 
 export function isTechnicalPoolPresetName(name: string): boolean {
   return name.startsWith(POOL_PREFIX);
@@ -210,6 +214,11 @@ function serializePoolConfig(config: PoolConfig): string {
     groupOverrides: config.groupOverrides || {},
     inviteJobs: config.inviteJobs || {},
   })}`;
+}
+
+function buildGroupPublicUrl(slug: string): string {
+  if (slug === GROUPS_DEFAULT_SLUG) return GROUPS_PUBLIC_BASE_URL;
+  return `${GROUPS_PUBLIC_BASE_URL}/${slug}`;
 }
 
 function normalizeInviteUrl(value: unknown): string | null {
@@ -374,7 +383,7 @@ async function buildPoolView(
   db: SupabaseClient,
   row: PresetRow,
   config: PoolConfig,
-  origin: string
+  _origin: string
 ): Promise<GroupPoolView> {
   const groups = await groupsForPool(db, row.workspace_id, config);
   const snapshots = await latestSnapshotsByGroup(
@@ -390,7 +399,7 @@ async function buildPoolView(
     id: row.id,
     name: config.name,
     slug: config.slug,
-    publicUrl: `${origin.replace(/\/$/, "")}/g/${config.slug}`,
+    publicUrl: buildGroupPublicUrl(config.slug),
     matchPattern: config.matchPattern,
     capacity: config.capacity,
     nearFullThreshold: config.nearFullThreshold,

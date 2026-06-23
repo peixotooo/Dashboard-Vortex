@@ -2,9 +2,34 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/forgot-password", "/reset-password", "/avaliar"];
+const GROUPS_PUBLIC_HOSTS = (
+  process.env.WHATSAPP_GROUPS_PUBLIC_HOSTS || "grupos.bulking.com.br"
+)
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+const GROUPS_DEFAULT_SLUG = process.env.WHATSAPP_GROUPS_DEFAULT_SLUG || "vip";
+
+function isGroupsPublicHost(host: string): boolean {
+  const normalized = host.split(":")[0].toLowerCase();
+  return GROUPS_PUBLIC_HOSTS.includes(normalized);
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") || "";
+
+  if (isGroupsPublicHost(host)) {
+    const url = request.nextUrl.clone();
+    const slug = pathname === "/" ? GROUPS_DEFAULT_SLUG : pathname.split("/").filter(Boolean)[0];
+    if (!slug) {
+      url.pathname = `/g/${GROUPS_DEFAULT_SLUG}`;
+    } else if (!pathname.startsWith("/g/")) {
+      url.pathname = `/g/${slug}`;
+    }
+    return NextResponse.rewrite(url);
+  }
+
   const isPublicRoute = PUBLIC_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
@@ -75,7 +100,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // --- Custom domain resolution ---
-  const host = request.headers.get("host") || "";
   const isDefaultHost =
     host.includes("vercel.app") ||
     host.includes("localhost") ||
