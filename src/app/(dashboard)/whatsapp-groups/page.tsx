@@ -457,7 +457,17 @@ export default function WhatsAppGroupsPage() {
       } else {
         setPools(data.pools || []);
         if (!options.quiet) {
-          setSuccessMsg(sync ? "Pool sincronizado." : "Pool salvo.");
+          const syncedCount =
+            typeof data.syncResult?.groupsCount === "number"
+              ? data.syncResult.groupsCount
+              : null;
+          setSuccessMsg(
+            sync && syncedCount !== null
+              ? `Pool sincronizado: ${syncedCount} grupo(s) lidos da W-API.`
+              : sync
+                ? "Pool sincronizado."
+                : "Pool salvo."
+          );
         }
         return true;
       }

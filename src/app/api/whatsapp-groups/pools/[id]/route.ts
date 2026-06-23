@@ -5,7 +5,7 @@ import {
   deleteGroupPool,
   listGroupPools,
   slugifyGroupPool,
-  syncPoolGroupsFromCache,
+  syncPoolGroupsFromWapi,
   updateGroupPool,
 } from "@/lib/whatsapp/group-pools";
 
@@ -105,6 +105,9 @@ export async function PATCH(
       return NextResponse.json({ error: "Limite de alerta invalido" }, { status: 400 });
     }
 
+    const syncResult =
+      body.sync === true ? await syncPoolGroupsFromWapi(admin, auth.workspaceId) : null;
+
     await updateGroupPool(
       admin,
       auth.workspaceId,
@@ -113,12 +116,8 @@ export async function PATCH(
       Array.isArray(body.groups) ? (body.groups as Array<Record<string, unknown>>) : []
     );
 
-    if (body.sync === true) {
-      await syncPoolGroupsFromCache();
-    }
-
     const pools = await listGroupPools(admin, auth.workspaceId, request.nextUrl.origin);
-    return NextResponse.json({ pools });
+    return NextResponse.json({ pools, syncResult });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

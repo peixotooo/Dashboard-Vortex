@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getWapiConfig, revokeGroupInvite } from "@/lib/wapi-api";
+import { getWapiConfig, listGroups, revokeGroupInvite } from "@/lib/wapi-api";
 
 export type PoolGroupStatus = "active" | "paused" | "full" | "archived";
 
@@ -71,6 +71,11 @@ export interface RefreshPoolInviteLinksResult {
   };
 }
 
+export interface SyncPoolGroupsResult {
+  groupsCount: number;
+  syncedAt: string;
+}
+
 type PoolConfig = {
   name: string;
   slug: string;
@@ -100,6 +105,11 @@ type PresetRow = {
 type WapiGroupRow = {
   group_jid: string;
   group_name: string;
+};
+
+type NormalizedWapiGroup = {
+  id: string;
+  name: string;
 };
 
 type SnapshotRow = {
@@ -171,6 +181,25 @@ function normalizeInviteUrl(value: unknown): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeWapiGroupList(raw: unknown): NormalizedWapiGroup[] {
+  let source: Array<Record<string, unknown>> = [];
+
+  if (Array.isArray(raw)) {
+    source = raw as Array<Record<string, unknown>>;
+  } else if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const candidate = obj.groups || obj.data || obj.result || [];
+    if (Array.isArray(candidate)) source = candidate as Array<Record<string, unknown>>;
+  }
+
+  return source
+    .map((group) => ({
+      id: String(group.id || group.jid || group.groupId || ""),
+      name: String(group.name || group.subject || group.groupName || "Sem nome"),
+    }))
+    .filter((group) => group.id && group.id.includes("@g.us"));
 }
 
 async function latestSnapshotsByGroup(
@@ -401,8 +430,42 @@ export async function deleteGroupPool(
   if (error) throw new Error(error.message);
 }
 
-export async function syncPoolGroupsFromCache(): Promise<void> {
-  // Os grupos sao lidos dinamicamente de wapi_groups pelo matchPattern.
+export async function syncPoolGroupsFromWapi(
+  db: SupabaseClient,
+  workspaceId: string
+): Promise<SyncPoolGroupsResult> {
+  const wapiConfig = await getWapiConfig(workspaceId);
+  if (!wapiConfig) throw new Error("W-API not configured");
+
+  const raw = await listGroups(wapiConfig);
+  const groupList = normalizeWapiGroupList(raw);
+  const syncedAt = new Date().toISOString();
+
+  if (groupList.length > 0) {
+    const rows = groupList.map((group) => ({
+      workspace_id: workspaceId,
+      group_jid: group.id,
+      group_name: group.name,
+      synced_at: syncedAt,
+    }));
+
+    const { error } = await db
+      .from("wapi_groups")
+      .upsert(rows, { onConflict: "workspace_id,group_jid" });
+
+    if (error) throw new Error(error.message);
+
+    await db
+      .from("wapi_groups")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .lt("synced_at", syncedAt);
+  }
+
+  return {
+    groupsCount: groupList.length,
+    syncedAt,
+  };
 }
 
 export async function refreshPoolInviteLinks(
