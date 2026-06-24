@@ -24,6 +24,7 @@ export interface BioCategoryItem {
   url: string;
   description?: string;
   metric?: string;
+  cover_image_url?: string | null;
 }
 
 export interface BioBlockConfig {

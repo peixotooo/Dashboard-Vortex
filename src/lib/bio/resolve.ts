@@ -245,6 +245,53 @@ function inferCategoryFromName(name: string): (typeof CATEGORY_DEFS)[number] | n
   ) || null;
 }
 
+function normalizeProductName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Capa de categoria = imagem do produto mais vendido daquela categoria.
+// crm_abc_snapshots nao guarda imagem -> resolve nome -> imagem via shelf_products
+// (mesmo padrao do getBestsellerCamisetas). Best-effort: sem imagem, o tile cai no fallback.
+async function fetchCoverImages(
+  workspaceId: string,
+  names: string[]
+): Promise<Map<string, string>> {
+  const covers = new Map<string, string>();
+  const wanted = names.filter(Boolean);
+  if (wanted.length === 0) return covers;
+
+  const admin = createAdminClient();
+  try {
+    const { data } = await admin
+      .from("shelf_products")
+      .select("name, image_url, image_url_2")
+      .eq("workspace_id", workspaceId)
+      .eq("active", true)
+      .eq("in_stock", true)
+      .not("image_url", "is", null)
+      .range(0, 1999);
+
+    const byName = new Map<string, string>();
+    for (const row of (data || []) as Array<{ name: string | null; image_url: string | null; image_url_2: string | null }>) {
+      const key = normalizeProductName(row.name || "");
+      const img = row.image_url || row.image_url_2;
+      if (key && img && !byName.has(key)) byName.set(key, img);
+    }
+    for (const name of wanted) {
+      const img = byName.get(normalizeProductName(name));
+      if (img) covers.set(name, img);
+    }
+  } catch {
+    // Covers sao opcionais \u2014 o tile renderiza sem imagem.
+  }
+  return covers;
+}
+
 async function getTrendingCategories(
   workspaceId: string,
   storeBaseUrl: string,
@@ -252,6 +299,8 @@ async function getTrendingCategories(
 ): Promise<BioCategoryItem[]> {
   const admin = createAdminClient();
   const scores = new Map<string, { score: number; count: number }>();
+  const topByCat = new Map<string, { name: string; score: number }>();
+  let globalTop: { name: string; score: number } | null = null;
 
   try {
     const { data } = await admin
@@ -265,12 +314,17 @@ async function getTrendingCategories(
     const products = Array.isArray(data?.products) ? data.products as Array<Record<string, unknown>> : [];
     for (const product of products.slice(0, 120)) {
       const name = String(product.name || "");
+      if (!name) continue;
+      const pScore = Number(product.revenue || 0) || Number(product.qty_sold || 0) || 1;
+      if (!globalTop || pScore > globalTop.score) globalTop = { name, score: pScore };
       const category = inferCategoryFromName(name);
       if (!category) continue;
       const current = scores.get(category.id) || { score: 0, count: 0 };
-      current.score += Number(product.revenue || 0) || Number(product.qty_sold || 0) || 1;
+      current.score += pScore;
       current.count += 1;
       scores.set(category.id, current);
+      const top = topByCat.get(category.id);
+      if (!top || pScore > top.score) topByCat.set(category.id, { name, score: pScore });
     }
   } catch {
     // ABC can be absent in fresh workspaces.
@@ -299,7 +353,7 @@ async function getTrendingCategories(
 
   const merged = [...generated, ...manual];
   const seen = new Set<string>();
-  return merged
+  const finalItems = merged
     .filter((item) => {
       const key = item.id || item.label.toLowerCase();
       if (seen.has(key)) return false;
@@ -307,6 +361,18 @@ async function getTrendingCategories(
       return true;
     })
     .slice(0, 6);
+
+  // Capa = produto mais vendido da categoria (fallback: top global da loja).
+  const nameByCat = new Map<string, string>();
+  for (const item of finalItems) {
+    const top = topByCat.get(item.id) || globalTop;
+    if (top?.name) nameByCat.set(item.id, top.name);
+  }
+  const covers = await fetchCoverImages(workspaceId, [...nameByCat.values()]);
+  return finalItems.map((item) => {
+    const name = nameByCat.get(item.id);
+    return { ...item, cover_image_url: (name && covers.get(name)) || null };
+  });
 }
 
 async function resolveCategoriesBlock(

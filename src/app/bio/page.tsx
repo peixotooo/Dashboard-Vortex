@@ -18,7 +18,7 @@ export const metadata = {
 const getCachedBioPageData = unstable_cache(
   async (host: string) => resolveBioPageData(host),
   ["bio-page-data"],
-  { revalidate: 60, tags: ["bio-page"] }
+  { revalidate: 120, tags: ["bio-page"] }
 );
 
 function getClickHref({
@@ -35,7 +35,7 @@ function getClickHref({
   return `/api/bio/click?${params.toString()}`;
 }
 
-function ProductImage({ src, name }: { src: string | null; name: string }) {
+function ProductImage({ src, name, eager }: { src: string | null; name: string; eager?: boolean }) {
   if (!src) {
     return (
       <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-neutral-100 text-neutral-300">
@@ -44,7 +44,13 @@ function ProductImage({ src, name }: { src: string | null; name: string }) {
     );
   }
   return (
-    <img src={src} alt={name} loading="lazy" className="aspect-[3/4] w-full rounded-xl bg-neutral-100 object-cover" />
+    <img
+      src={src}
+      alt={name}
+      loading={eager ? "eager" : "lazy"}
+      fetchPriority={eager ? "high" : "auto"}
+      className="aspect-[3/4] w-full rounded-xl bg-neutral-100 object-cover"
+    />
   );
 }
 
@@ -122,14 +128,11 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
               {off >= 10 ? (
                 <span className="absolute right-3 top-3 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">-{off}%</span>
               ) : null}
-              <ProductImage src={product.image_url} name={product.name} />
+              <ProductImage src={product.image_url} name={product.name} eager={index === 0} />
               <div className="mt-2.5 px-0.5 pb-1">
                 <p className="line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-tight text-[var(--bio-fg)]">{product.name}</p>
                 <div className="mt-2 flex items-end justify-between gap-2">
-                  <div className="min-w-0">
-                    {sale ? <p className="text-[11px] font-medium text-[var(--bio-muted)] line-through">{formatCurrency(product.price || 0)}</p> : null}
-                    <p className="text-[16px] font-black leading-none text-[var(--bio-fg)]">{formatCurrency(show)}</p>
-                  </div>
+                  <p className="text-[16px] font-black leading-none text-[var(--bio-fg)]">{formatCurrency(show)}</p>
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white">
                     <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
@@ -147,13 +150,35 @@ function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<Bi
   return (
     <section data-bio-block={block.id} data-bio-type={block.type}>
       <BlockHeader title={block.title} subtitle={block.subtitle} />
-      <div className="flex flex-wrap gap-2">
-        {block.items.map((item) => (
+      <div className="grid grid-cols-2 gap-3">
+        {block.items.map((item, index) => (
           <a key={item.id}
             href={getClickHref({ data, block, url: item.url, event: "bio_category_clicked", category: item.label })}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--bio-border)] bg-[var(--bio-card)] py-2 pl-4 pr-3 text-[var(--bio-fg)] shadow-sm transition active:scale-[0.98]">
-            <span className="text-[13.5px] font-bold">{item.label}</span>
-            <ChevronRight className="h-3.5 w-3.5 text-neutral-400" />
+            className="group relative flex aspect-[4/5] items-end overflow-hidden rounded-2xl border border-[var(--bio-border)] bg-neutral-900 shadow-sm transition active:scale-[0.98]">
+            {item.cover_image_url ? (
+              <img
+                src={item.cover_image_url}
+                alt={item.label}
+                loading={index < 2 ? "eager" : "lazy"}
+                className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center bg-neutral-900 text-white/15">
+                <ShoppingBag className="h-9 w-9" />
+              </div>
+            )}
+            <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+            <div className="relative z-10 flex w-full items-center justify-between gap-1 p-3">
+              <div className="min-w-0">
+                <span className="block truncate text-[15px] font-black uppercase leading-tight tracking-tight text-white drop-shadow">{item.label}</span>
+                {item.metric ? (
+                  <span className="mt-0.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/70">{item.metric}</span>
+                ) : null}
+              </div>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/95 text-neutral-950">
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </span>
+            </div>
           </a>
         ))}
       </div>
@@ -162,20 +187,25 @@ function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<Bi
 }
 
 function LinkBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "group" | "club" | "shipping" }> }) {
-  const Icon = block.type === "group" ? MessageCircle : ShieldCheck;
-  const event = block.type === "group" ? "bio_group_clicked" : "bio_club_clicked";
+  const isGroup = block.type === "group";
+  const Icon = isGroup ? MessageCircle : ShieldCheck;
+  const event = isGroup ? "bio_group_clicked" : "bio_club_clicked";
+  const cta = block.cta_label || (isGroup ? "Entrar" : "Ativar");
+  const accent = isGroup
+    ? { card: "border-emerald-300 bg-emerald-50", icon: "bg-emerald-500" }
+    : { card: "border-amber-300 bg-amber-50", icon: "bg-neutral-950" };
   return (
     <a data-bio-block={block.id} data-bio-type={block.type}
       href={getClickHref({ data, block, url: block.url || data.storeBaseUrl, event })}
-      className="flex items-center gap-3.5 rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm transition active:scale-[0.99]">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white">
-        <Icon className="h-5 w-5" />
+      className={`flex items-center gap-3.5 rounded-2xl border-2 ${accent.card} p-4 shadow-sm transition active:scale-[0.99]`}>
+      <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${accent.icon} text-white`}>
+        <Icon className="h-[22px] w-[22px]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-black leading-tight text-[var(--bio-fg)]">{block.title}</span>
-        {block.subtitle ? <span className="mt-0.5 block text-[12.5px] leading-snug text-[var(--bio-muted)]">{block.subtitle}</span> : null}
+        <span className="block text-[15px] font-black leading-tight text-neutral-950">{block.title}</span>
+        {block.subtitle ? <span className="mt-0.5 block text-[12.5px] font-medium leading-snug text-neutral-600">{block.subtitle}</span> : null}
       </span>
-      <ChevronRight className="h-5 w-5 shrink-0 text-neutral-400" />
+      <span className="shrink-0 rounded-full bg-neutral-950 px-3.5 py-2 text-[12px] font-black uppercase tracking-tight text-white">{cta}</span>
     </a>
   );
 }
@@ -254,6 +284,10 @@ export default async function BioPage() {
     );
   }
 
+  const reviewsBlock = data.blocks.find(
+    (block): block is Extract<BioResolvedBlock, { type: "reviews" }> => block.type === "reviews"
+  );
+
   return (
     <main style={style} className="min-h-screen overflow-x-hidden bg-[var(--bio-bg)] text-[var(--bio-fg)]">
       <BioTracker workspaceId={data.workspaceId} blocks={data.blocks.map((block) => ({ id: block.id, type: block.type }))} />
@@ -262,15 +296,29 @@ export default async function BioPage() {
         <header className="mb-5 flex items-center gap-3">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-950 text-lg font-black text-white">
             {data.config.avatar_url ? (
-              <img src={data.config.avatar_url} alt={data.config.brand_name} className="h-full w-full object-cover" />
+              <img src={data.config.avatar_url} alt={data.config.brand_name} loading="eager" className="h-full w-full object-cover" />
             ) : (data.config.brand_name.slice(0, 1).toUpperCase())}
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[16px] font-black leading-tight tracking-tight">{data.config.headline}</p>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[12px] leading-snug text-[var(--bio-muted)]">
-              <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" /></span>
-              Ofertas atualizadas agora
-            </p>
+            {reviewsBlock ? (
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] leading-snug text-[var(--bio-muted)]">
+                <span className="inline-flex items-center gap-1 font-bold text-[var(--bio-fg)]">
+                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  {reviewsBlock.summary.average.toFixed(1)}
+                </span>
+                <span>{reviewsBlock.summary.total.toLocaleString("pt-BR")}+ avaliacoes</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" /></span>
+                  ao vivo
+                </span>
+              </p>
+            ) : (
+              <p className="mt-0.5 flex items-center gap-1.5 text-[12px] leading-snug text-[var(--bio-muted)]">
+                <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" /></span>
+                Ofertas atualizadas agora
+              </p>
+            )}
           </div>
         </header>
 
