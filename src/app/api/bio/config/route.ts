@@ -38,7 +38,10 @@ async function authenticate(request: NextRequest) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error) return { error: error.message, status: 500 as const };
+  if (error) {
+    console.error("[bio config] workspace membership check failed", error.message);
+    return { error: "Failed to verify workspace access", status: 500 as const };
+  }
   if (!membership) return { error: "Forbidden", status: 403 as const };
 
   return { user, workspaceId, role: membership.role as string };
@@ -52,8 +55,8 @@ export async function GET(request: NextRequest) {
     const config = await getBioConfigByWorkspace(auth.workspaceId);
     return NextResponse.json({ config });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[bio config] GET failed", error);
+    return NextResponse.json({ error: "Failed to load bio config" }, { status: 500 });
   }
 }
 
@@ -84,7 +87,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ config });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[bio config] PATCH failed", error);
+    return NextResponse.json({ error: "Failed to save bio config" }, { status: 500 });
   }
 }

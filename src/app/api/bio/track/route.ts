@@ -1,9 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildCorsHeaders } from "@/lib/cors";
-import { parseUtm, recordBioEvent } from "@/lib/bio/tracking";
+import {
+  buildBioCorsHeaders,
+  checkBioRateLimit,
+  getBioClientIp,
+  isAllowedBioOrigin,
+  isBioRequestBodyTooLarge,
+  isValidBioWorkspaceId,
+  sanitizeBioMetadata,
+} from "@/lib/bio/security";
+import { isValidBioEvent, parseUtm, recordBioEvent } from "@/lib/bio/tracking";
 
 export async function POST(request: NextRequest) {
-  const cors = buildCorsHeaders(request);
+  const cors = buildBioCorsHeaders(request);
+
+  if (!isAllowedBioOrigin(request)) {
+    return NextResponse.json({ error: "Origin not allowed" }, { status: 403, headers: cors });
+  }
+
+  if (isBioRequestBodyTooLarge(request)) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413, headers: cors });
+  }
+
+  const ip = getBioClientIp(request);
+  if (!checkBioRateLimit(`bio_track:${ip}`, 240)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: cors });
+  }
+
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: cors });
@@ -16,6 +38,15 @@ export async function POST(request: NextRequest) {
       { error: "workspace_id and event_name are required" },
       { status: 400, headers: cors }
     );
+  }
+  if (!isValidBioWorkspaceId(workspaceId)) {
+    return NextResponse.json({ error: "Invalid workspace_id" }, { status: 400, headers: cors });
+  }
+  if (!isValidBioEvent(eventName)) {
+    return NextResponse.json({ error: "Invalid event_name" }, { status: 400, headers: cors });
+  }
+  if (!checkBioRateLimit(`bio_track:${ip}:${workspaceId}`, 120)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: cors });
   }
 
   const url = new URL(request.url);
@@ -37,17 +68,22 @@ export async function POST(request: NextRequest) {
     medium: typeof body.utm_medium === "string" ? body.utm_medium : utm.medium,
     campaign: typeof body.utm_campaign === "string" ? body.utm_campaign : utm.campaign,
     content: typeof body.utm_content === "string" ? body.utm_content : utm.content,
-    metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : null,
+    metadata: sanitizeBioMetadata(body.metadata),
   });
 
   return NextResponse.json({ ok: true }, { headers: cors });
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const cors = buildBioCorsHeaders(request);
+  if (!isAllowedBioOrigin(request)) {
+    return new NextResponse(null, { status: 403, headers: cors });
+  }
+
   return new NextResponse(null, {
     status: 204,
     headers: {
-      ...buildCorsHeaders(request),
+      ...cors,
       "Access-Control-Max-Age": "86400",
     },
   });

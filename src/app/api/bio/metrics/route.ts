@@ -28,6 +28,17 @@ async function authenticate(request: NextRequest) {
   const workspaceId = request.headers.get("x-workspace-id") || "";
   if (!workspaceId) return { error: "Workspace not specified", status: 400 as const };
 
+  const admin = createAdminClient();
+  const { data: membership, error } = await admin
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) return { error: "Failed to verify workspace access", status: 500 as const };
+  if (!membership) return { error: "Forbidden", status: 403 as const };
+
   return { workspaceId };
 }
 
@@ -57,7 +68,8 @@ export async function GET(request: NextRequest) {
           days,
         });
       }
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[bio metrics] query failed", error.message);
+      return NextResponse.json({ error: "Failed to load bio metrics" }, { status: 500 });
     }
 
     const byEvent: Record<string, number> = {};
@@ -89,7 +101,7 @@ export async function GET(request: NextRequest) {
       days,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[bio metrics] GET failed", error);
+    return NextResponse.json({ error: "Failed to load bio metrics" }, { status: 500 });
   }
 }

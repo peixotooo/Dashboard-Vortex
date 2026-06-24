@@ -15,14 +15,15 @@ const VALID_EVENTS = new Set([
   "bio_review_clicked",
 ]);
 
+export function isValidBioEvent(value: unknown): value is string {
+  return typeof value === "string" && VALID_EVENTS.has(value);
+}
+
 const ALWAYS_ALLOWED_HOSTS = new Set([
   "bulking.com.br",
   "www.bulking.com.br",
   "bio.bulking.com.br",
   "grupos.bulking.com.br",
-  "chat.whatsapp.com",
-  "wa.me",
-  "api.whatsapp.com",
 ]);
 
 function cleanText(value: unknown, max = 512): string | null {
@@ -57,7 +58,7 @@ export async function recordBioEvent(
   input: BioEventInput,
   db: SupabaseClient = createAdminClient()
 ): Promise<void> {
-  if (!input.workspaceId || !VALID_EVENTS.has(input.eventName)) return;
+  if (!input.workspaceId || !isValidBioEvent(input.eventName)) return;
 
   const sessionId = normalizeSessionId(input.sessionId) || null;
   const metadata = {

@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  checkBioRateLimit,
+  getBioClientIp,
+  isValidBioWorkspaceId,
+} from "@/lib/bio/security";
 import { getBioConfigByWorkspace } from "@/lib/bio/config";
 import { buildTrackedDestination, parseUtm, recordBioEvent } from "@/lib/bio/tracking";
 
@@ -8,10 +13,15 @@ function makeSessionId(): string {
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
+  const ip = getBioClientIp(request);
+  if (!checkBioRateLimit(`bio_click:${ip}`, 300)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const workspaceId = url.searchParams.get("w") || url.searchParams.get("workspace_id") || "";
   const rawDestination = url.searchParams.get("to") || "";
 
-  if (!workspaceId || !rawDestination) {
+  if (!workspaceId || !rawDestination || !isValidBioWorkspaceId(workspaceId)) {
     return NextResponse.redirect(new URL("/bio", request.url), 302);
   }
 
@@ -70,6 +80,7 @@ export async function GET(request: NextRequest) {
     maxAge: 60 * 60 * 24 * 30,
     sameSite: "lax",
     httpOnly: false,
+    secure: request.nextUrl.protocol === "https:",
   });
   return response;
 }
