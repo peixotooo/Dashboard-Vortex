@@ -147,6 +147,7 @@ export default function BioInteligentePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newBlockType, setNewBlockType] = useState<BioBlockType>("products");
+  const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
 
   const headers = useCallback(
     () => ({
@@ -173,7 +174,13 @@ export default function BioInteligentePage() {
       const configData = await configRes.json();
       const metricsData = await metricsRes.json();
       if (!configRes.ok) throw new Error(configData.error || "Erro ao carregar bio");
-      setConfig(configData.config);
+      const loadedConfig = configData.config as BioPageConfig;
+      setConfig(loadedConfig);
+      setExpandedBlockId((current) =>
+        current && loadedConfig.blocks.some((block) => block.id === current)
+          ? current
+          : loadedConfig.blocks[0]?.id || null
+      );
       setMetrics(metricsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar");
@@ -211,6 +218,9 @@ export default function BioInteligentePage() {
   }
 
   function removeBlock(index: number) {
+    const removedId = config?.blocks[index]?.id;
+    const fallbackId = config?.blocks[index + 1]?.id || config?.blocks[index - 1]?.id || null;
+    if (removedId && expandedBlockId === removedId) setExpandedBlockId(fallbackId);
     setConfig((current) => {
       if (!current) return current;
       return { ...current, blocks: current.blocks.filter((_, itemIndex) => itemIndex !== index) };
@@ -218,9 +228,11 @@ export default function BioInteligentePage() {
   }
 
   function addBlock() {
+    const block = makeBlock(newBlockType);
+    setExpandedBlockId(block.id);
     setConfig((current) => {
       if (!current) return current;
-      return { ...current, blocks: [...current.blocks, makeBlock(newBlockType)] };
+      return { ...current, blocks: [...current.blocks, block] };
     });
   }
 
@@ -386,9 +398,11 @@ export default function BioInteligentePage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {config.blocks.map((block, index) => (
-                <div key={block.id} className="rounded-lg border p-4">
-                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {config.blocks.map((block, index) => {
+                const expanded = expandedBlockId === block.id;
+                return (
+                <div key={block.id} className={`rounded-lg border p-4 transition ${expanded ? "border-neutral-900 bg-muted/20" : "bg-background"}`}>
+                  <div className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${expanded ? "mb-4" : ""}`}>
                     <div className="flex items-center gap-3">
                       <GripVertical className="h-5 w-5 text-muted-foreground" />
                       <div>
@@ -396,10 +410,19 @@ export default function BioInteligentePage() {
                           <Badge variant="secondary">{blockTypeLabel(block.type)}</Badge>
                           <span className="font-semibold">{block.title || block.id}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground">{block.id}</p>
+                        <p className="line-clamp-1 text-xs text-muted-foreground">
+                          {block.subtitle || block.id}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant={expanded ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setExpandedBlockId(expanded ? null : block.id)}
+                      >
+                        {expanded ? "Fechar" : "Editar"}
+                      </Button>
                       <Button variant="outline" size="sm" disabled={index === 0} onClick={() => moveBlock(index, -1)}>
                         Subir
                       </Button>
@@ -413,7 +436,8 @@ export default function BioInteligentePage() {
                     </div>
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
+                  {expanded ? (
+                  <div className="grid gap-4 border-t pt-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Titulo</Label>
                       <Input value={block.title} onChange={(event) => patchBlock(index, { title: event.target.value })} />
@@ -552,8 +576,10 @@ export default function BioInteligentePage() {
                       </div>
                     ) : null}
                   </div>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </div>

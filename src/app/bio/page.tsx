@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
-import { ArrowUpRight, MessageCircle, Package, ShieldCheck, Star, Truck } from "lucide-react";
+import { unstable_cache } from "next/cache";
+import { ArrowUpRight, ChevronRight, Clock, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
 import { BioTracker } from "@/app/bio/bio-tracker";
 import { resolveBioPageData } from "@/lib/bio/resolve";
 import type { BioPageData, BioResolvedBlock } from "@/lib/bio/types";
@@ -12,6 +13,15 @@ export const metadata = {
   title: "Bulking | Link da Bio",
   description: "Ofertas, produtos mais vendidos, grupo VIP e beneficios Bulking.",
 };
+
+const getCachedBioPageData = unstable_cache(
+  async (host: string) => resolveBioPageData(host),
+  ["bio-page-data"],
+  {
+    revalidate: 60,
+    tags: ["bio-page"],
+  }
+);
 
 function getClickHref({
   data,
@@ -50,8 +60,6 @@ function formatCountdown(target?: string | null): string | null {
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
   }).format(date);
 }
 
@@ -78,7 +86,7 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
   return (
     <section data-bio-block={block.id} data-bio-type={block.type} className="space-y-3">
       <BlockHeader title={block.title} subtitle={block.subtitle} />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="flex snap-x gap-3 overflow-x-auto pb-2">
         {block.products.map((product, index) => {
           const productUrl = product.product_url || data.storeBaseUrl;
           const price = product.sale_price && product.sale_price > 0 ? product.sale_price : product.price;
@@ -92,16 +100,18 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
                 event: "bio_product_clicked",
                 productId: product.product_id,
               })}
-              className="group rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] p-2 transition hover:-translate-y-0.5 hover:border-neutral-900"
+              className="group min-w-[154px] snap-start rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-2 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-900 sm:min-w-[172px]"
             >
               <ProductImage src={product.image_url} name={product.name} />
-              <div className="mt-2 min-h-[74px]">
-                <p className="line-clamp-2 text-sm font-semibold leading-tight text-[var(--bio-fg)]">
+              <div className="mt-2 min-h-[84px]">
+                <p className="line-clamp-2 text-[13px] font-semibold leading-tight text-[var(--bio-fg)]">
                   {product.name}
                 </p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-[var(--bio-fg)]">{formatCurrency(price || 0)}</p>
-                  <ArrowUpRight className="h-4 w-4 text-neutral-500 transition group-hover:text-neutral-950" />
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <p className="text-[15px] font-black text-[var(--bio-fg)]">{formatCurrency(price || 0)}</p>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-950 text-white transition group-hover:bg-neutral-800">
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </span>
                 </div>
               </div>
             </a>
@@ -114,9 +124,11 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
 
 function BlockHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div>
-      <h2 className="text-[15px] font-bold uppercase tracking-[0.18em] text-[var(--bio-fg)]">{title}</h2>
-      {subtitle ? <p className="mt-1 text-sm leading-snug text-[var(--bio-muted)]">{subtitle}</p> : null}
+    <div className="flex items-end justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="text-lg font-black leading-tight text-[var(--bio-fg)]">{title}</h2>
+        {subtitle ? <p className="mt-1 text-sm leading-snug text-[var(--bio-muted)]">{subtitle}</p> : null}
+      </div>
     </div>
   );
 }
@@ -127,20 +139,21 @@ function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResol
     <section
       data-bio-block={block.id}
       data-bio-type={block.type}
-      className="rounded-xl border border-neutral-900 bg-neutral-950 p-5 text-white"
+      className="overflow-hidden rounded-lg border border-neutral-900 bg-neutral-950 p-4 text-white shadow-sm"
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">
+      <div className="flex items-center gap-2">
+        <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em]">
           {block.badge || "Bulking"}
         </span>
-        {countdown ? (
-          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-neutral-950">
-            Ate {countdown}
-          </span>
-        ) : null}
       </div>
-      <h1 className="mt-5 text-3xl font-black leading-none">{block.title}</h1>
-      {block.subtitle ? <p className="mt-3 text-sm leading-relaxed text-white/72">{block.subtitle}</p> : null}
+      <h1 className="mt-4 text-[28px] font-black leading-[0.98] sm:text-3xl">{block.title}</h1>
+      {block.subtitle ? <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-white/72">{block.subtitle}</p> : null}
+      {countdown ? (
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white/80">
+          <Clock className="h-3.5 w-3.5" />
+          Termina em {countdown}
+        </p>
+      ) : null}
       {block.url ? (
         <a
           href={getClickHref({
@@ -150,11 +163,15 @@ function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResol
             event: "bio_cta_clicked",
             campaignId: block.campaign_id,
           })}
-          className="mt-5 flex h-12 items-center justify-center rounded-md bg-white px-4 text-sm font-black uppercase text-neutral-950"
+          className="mt-5 flex h-12 items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-black uppercase text-neutral-950 transition hover:bg-neutral-100"
         >
+          <ShoppingBag className="h-4 w-4" />
           {block.cta_label || "Conferir agora"}
         </a>
       ) : null}
+      <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45">
+        Loja oficial Bulking
+      </p>
     </section>
   );
 }
@@ -163,7 +180,7 @@ function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<Bi
   return (
     <section data-bio-block={block.id} data-bio-type={block.type} className="space-y-3">
       <BlockHeader title={block.title} subtitle={block.subtitle} />
-      <div className="grid gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {block.items.map((item) => (
           <a
             key={item.id}
@@ -174,17 +191,17 @@ function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<Bi
               event: "bio_category_clicked",
               category: item.label,
             })}
-            className="flex items-center justify-between rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] px-4 py-3 text-[var(--bio-fg)] transition hover:border-neutral-900"
+            className="flex min-w-fit items-center gap-3 rounded-full border border-[var(--bio-border)] bg-[var(--bio-card)] px-4 py-2.5 text-[var(--bio-fg)] shadow-sm transition hover:border-neutral-900"
           >
             <div>
-              <p className="font-bold">{item.label}</p>
+              <p className="text-sm font-black">{item.label}</p>
               {item.description || item.metric ? (
-                <p className="text-xs text-[var(--bio-muted)]">
+                <p className="text-[11px] text-[var(--bio-muted)]">
                   {[item.description, item.metric].filter(Boolean).join(" · ")}
                 </p>
               ) : null}
             </div>
-            <ArrowUpRight className="h-4 w-4 text-neutral-500" />
+            <ChevronRight className="h-4 w-4 text-neutral-500" />
           </a>
         ))}
       </div>
@@ -205,16 +222,19 @@ function LinkBlock({ data, block }: { data: BioPageData; block: Extract<BioResol
     <section data-bio-block={block.id} data-bio-type={block.type}>
       <a
         href={getClickHref({ data, block, url: block.url || data.storeBaseUrl, event })}
-        className="flex items-center gap-3 rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 transition hover:border-neutral-900"
+        className="flex items-center gap-3 rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm transition hover:border-neutral-900"
       >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-neutral-950 text-white">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-950">
           <Icon className="h-5 w-5" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block font-bold text-[var(--bio-fg)]">{block.title}</span>
           {block.subtitle ? <span className="mt-0.5 block text-sm leading-snug text-[var(--bio-muted)]">{block.subtitle}</span> : null}
         </span>
-        <ArrowUpRight className="h-4 w-4 shrink-0 text-neutral-500" />
+        <span className="hidden rounded-full bg-neutral-950 px-3 py-1 text-xs font-bold text-white sm:inline-flex">
+          {block.cta_label || "Abrir"}
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-500 sm:hidden" />
       </a>
     </section>
   );
@@ -227,14 +247,14 @@ function ReviewsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "rev
         <BlockHeader title={block.title} subtitle={block.subtitle} />
         <div className="shrink-0 text-right">
           <p className="text-xl font-black text-[var(--bio-fg)]">{block.summary.average.toFixed(1)}</p>
-          <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--bio-muted)]">{block.summary.total} reviews</p>
+          <p className="text-[11px] font-semibold text-[var(--bio-muted)]">{block.summary.total} reviews</p>
         </div>
       </div>
       <div className="flex snap-x gap-3 overflow-x-auto pb-1">
         {block.reviews.map((review) => (
           <article
             key={review.id}
-            className="min-w-[78%] snap-start rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] p-4"
+            className="min-w-[82%] snap-start rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm"
           >
             <div className="mb-3 flex items-center gap-1 text-neutral-950">
               <Star className="h-4 w-4 fill-current" />
@@ -262,7 +282,7 @@ function ResolvedBlock({ data, block }: { data: BioPageData; block: BioResolvedB
 export default async function BioPage() {
   const headerList = await headers();
   const host = headerList.get("x-forwarded-host") || headerList.get("host") || "";
-  const data = await resolveBioPageData(host);
+  const data = await getCachedBioPageData(host);
 
   if (!data) {
     return (
@@ -297,33 +317,38 @@ export default async function BioPage() {
   }
 
   return (
-    <main style={style} className="min-h-screen bg-[var(--bio-bg)] text-[var(--bio-fg)]">
+    <main style={style} className="min-h-screen overflow-x-hidden bg-[var(--bio-bg)] text-[var(--bio-fg)]">
       <BioTracker
         workspaceId={data.workspaceId}
         blocks={data.blocks.map((block) => ({ id: block.id, type: block.type }))}
       />
-      <div className="mx-auto min-h-screen w-full max-w-[520px] px-4 py-5">
-        <header className="mb-4 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-neutral-950 text-lg font-black text-white">
-            {data.config.avatar_url ? (
-              <img src={data.config.avatar_url} alt={data.config.brand_name} className="h-full w-full rounded-lg object-cover" />
-            ) : (
-              data.config.brand_name.slice(0, 1).toUpperCase()
-            )}
+      <div className="mx-auto min-h-screen w-screen max-w-[520px] py-4">
+        <header className="mx-4 mb-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] p-3 shadow-sm">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-neutral-950 text-lg font-black text-white">
+              {data.config.avatar_url ? (
+                <img src={data.config.avatar_url} alt={data.config.brand_name} className="h-full w-full rounded-md object-cover" />
+              ) : (
+                data.config.brand_name.slice(0, 1).toUpperCase()
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-base font-black leading-tight">{data.config.headline}</p>
+              <p className="line-clamp-1 text-xs leading-snug text-[var(--bio-muted)]">{data.config.subtitle}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-lg font-black leading-tight">{data.config.headline}</p>
-            <p className="line-clamp-2 text-sm leading-snug text-[var(--bio-muted)]">{data.config.subtitle}</p>
-          </div>
+          <span className="shrink-0 rounded-full border border-[var(--bio-border)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--bio-muted)]">
+            Oficial
+          </span>
         </header>
 
-        <div className="space-y-5">
+        <div className="space-y-6 px-4">
           {data.blocks.map((block) => (
             <ResolvedBlock key={block.id} data={data} block={block} />
           ))}
         </div>
 
-        <footer className="py-8 text-center text-xs uppercase tracking-[0.18em] text-[var(--bio-muted)]">
+        <footer className="px-4 py-8 text-center text-xs uppercase tracking-[0.18em] text-[var(--bio-muted)]">
           bulking.com.br
         </footer>
       </div>

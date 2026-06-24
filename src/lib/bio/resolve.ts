@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getRecommendations, type ShelfProduct } from "@/lib/shelves/algorithms";
 import { getVndaConfigAdmin } from "@/lib/vnda-api";
 import { resolveActiveCampaign } from "@/lib/topbar/resolve";
+import { normalizeTopbarSlides } from "@/lib/topbar/slides";
 import { listGroupPools } from "@/lib/whatsapp/group-pools";
 import { BIO_DEFAULT_PUBLIC_DOMAIN, BIO_DEFAULT_STORE_URL, getDefaultBioConfig } from "@/lib/bio/defaults";
 import { getBioConfigByDomain, getBioConfigByWorkspace, isMissingBioTable } from "@/lib/bio/config";
@@ -82,9 +83,17 @@ function displayName(name: string | null): string {
 
 function cleanReviewComment(comment: string | null): string {
   return (comment || "")
+    .replace(/\s*\[(?=[^\]]*(?:Local|Processo|Entrega|Atendimento)\s*:)[\s\S]*?\]\s*$/gi, "")
+    .replace(/(?:^|\s)(?:Local|Processo|Entrega|Atendimento)\s*:\s*[^|]+(?:\||$)/gi, " ")
     .replace(/\s+/g, " ")
     .replace(/\?{2,}/g, "")
     .trim();
+}
+
+function hasUsefulReviewText(comment: string): boolean {
+  if (comment.length < 24) return false;
+  if (/^(?:local|processo|entrega|atendimento)\s*:/i.test(comment)) return false;
+  return /[a-zA-ZÀ-ÿ]{4,}/.test(comment);
 }
 
 function truncate(text: string, max = 164): string {
@@ -273,8 +282,8 @@ async function getTrendingCategories(
       id: category.id,
       label: category.label,
       url: withStoreBase(category.url, storeBaseUrl),
-      description: score?.count ? `${score.count} produtos com tracao` : undefined,
-      metric: score?.score ? `R$ ${Math.round(score.score).toLocaleString("pt-BR")}` : undefined,
+      description: score?.count ? "Em alta agora" : undefined,
+      metric: score?.count ? `${score.count} itens` : undefined,
       weight: score?.score || CATEGORY_DEFS.length - index,
     };
   })
@@ -329,16 +338,30 @@ async function resolveHeroBlock(
   if (block.source === "active_topbar") {
     const active = await resolveActiveCampaign(workspaceId, "bio").catch(() => null);
     if (active?.campaign) {
+      const campaign = active.campaign as typeof active.campaign & {
+        slides?: unknown;
+        title?: string | null;
+        message?: string | null;
+        name?: string | null;
+        link_url?: string | null;
+        link_label?: string | null;
+        id?: string | null;
+      };
+      const slides = normalizeTopbarSlides(campaign.slides, campaign.title, campaign.message, {
+        fallbackLinkUrl: campaign.link_url,
+        fallbackLinkLabel: campaign.link_label,
+      });
+      const primary = slides[0];
       return {
         id: block.id,
         type: "hero",
-        title: active.campaign.title || active.campaign.name || block.title,
-        subtitle: active.campaign.message || block.subtitle,
-        cta_label: active.campaign.link_label || block.cta_label || "Conferir agora",
-        url: withStoreBase(active.campaign.link_url || block.url || "/combos", storeBaseUrl),
+        title: primary?.title || campaign.title || campaign.name || block.title,
+        subtitle: primary?.message || block.subtitle,
+        cta_label: primary?.link_label || campaign.link_label || block.cta_label || "Conferir agora",
+        url: withStoreBase(primary?.link_url || campaign.link_url || block.url || "/combos", storeBaseUrl),
         badge: "Acao ativa",
         countdown_target: active.countdownTarget,
-        campaign_id: active.campaign.id,
+        campaign_id: campaign.id,
       };
     }
   }
@@ -403,7 +426,7 @@ async function getReviews(workspaceId: string, limit: number): Promise<{ reviews
       author: displayName(review.author_name),
       date: review.created_at,
     }))
-    .filter((review) => review.body.length >= 20)
+    .filter((review) => hasUsefulReviewText(review.body))
     .slice(0, limit);
 
   const average = reviews.length

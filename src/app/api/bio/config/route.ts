@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getBioConfigByWorkspace, normalizeBioBlocks, upsertBioConfig } from "@/lib/bio/config";
@@ -78,6 +79,8 @@ export async function PATCH(request: NextRequest) {
       blocks: normalizeBioBlocks(body.blocks),
       theme: body.theme,
     });
+
+    revalidateTag("bio-page", "max");
 
     return NextResponse.json({ config });
   } catch (error) {
