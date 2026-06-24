@@ -1,8 +1,9 @@
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
-import { ArrowUpRight, ChevronRight, Clock, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Flame, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
 import { BioTracker } from "@/app/bio/bio-tracker";
+import { BioCountdown } from "@/app/bio/bio-countdown";
 import { resolveBioPageData } from "@/lib/bio/resolve";
 import type { BioPageData, BioResolvedBlock } from "@/lib/bio/types";
 import { formatCurrency } from "@/lib/utils";
@@ -17,35 +18,16 @@ export const metadata = {
 const getCachedBioPageData = unstable_cache(
   async (host: string) => resolveBioPageData(host),
   ["bio-page-data"],
-  {
-    revalidate: 60,
-    tags: ["bio-page"],
-  }
+  { revalidate: 60, tags: ["bio-page"] }
 );
 
 function getClickHref({
-  data,
-  block,
-  url,
-  event,
-  productId,
-  category,
-  campaignId,
+  data, block, url, event, productId, category, campaignId,
 }: {
-  data: BioPageData;
-  block: BioResolvedBlock;
-  url: string;
-  event?: string;
-  productId?: string;
-  category?: string;
-  campaignId?: string | null;
+  data: BioPageData; block: BioResolvedBlock; url: string; event?: string;
+  productId?: string; category?: string; campaignId?: string | null;
 }) {
-  const params = new URLSearchParams({
-    w: data.workspaceId,
-    to: url,
-    block_id: block.id,
-    block_type: block.type,
-  });
+  const params = new URLSearchParams({ w: data.workspaceId, to: url, block_id: block.id, block_type: block.type });
   if (event) params.set("event", event);
   if (productId) params.set("product_id", productId);
   if (category) params.set("category", category);
@@ -53,63 +35,102 @@ function getClickHref({
   return `/api/bio/click?${params.toString()}`;
 }
 
-function formatCountdown(target?: string | null): string | null {
-  if (!target) return null;
-  const date = new Date(target);
-  if (Number.isNaN(date.getTime()) || date.getTime() < Date.now()) return null;
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-  }).format(date);
-}
-
 function ProductImage({ src, name }: { src: string | null; name: string }) {
   if (!src) {
     return (
-      <div className="flex aspect-[2/3] items-center justify-center rounded-md bg-neutral-100 text-neutral-400">
+      <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-neutral-100 text-neutral-300">
         <Package className="h-6 w-6" />
       </div>
     );
   }
-
   return (
-    <img
-      src={src}
-      alt={name}
-      loading="lazy"
-      className="aspect-[2/3] w-full rounded-md bg-neutral-100 object-cover"
-    />
+    <img src={src} alt={name} loading="lazy" className="aspect-[3/4] w-full rounded-xl bg-neutral-100 object-cover" />
   );
 }
 
-function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "products" }> }) {
+function BlockHeader({ kicker, title, subtitle }: { kicker?: string; title: string; subtitle?: string }) {
   return (
-    <section data-bio-block={block.id} data-bio-type={block.type} className="space-y-3">
-      <BlockHeader title={block.title} subtitle={block.subtitle} />
-      <div className="flex snap-x gap-3 overflow-x-auto pb-2">
+    <div className="mb-3.5 px-0.5">
+      {kicker ? (
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--bio-muted)]">{kicker}</p>
+      ) : null}
+      <h2 className="text-[19px] font-black leading-tight tracking-tight text-[var(--bio-fg)]">{title}</h2>
+      {subtitle ? <p className="mt-1 text-[13.5px] leading-snug text-[var(--bio-muted)]">{subtitle}</p> : null}
+    </div>
+  );
+}
+
+// --- Hero (acao ativa) — bloco focal escuro com countdown VIVO ---
+function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "hero" }> }) {
+  const live = block.badge === "Acao ativa";
+  return (
+    <section data-bio-block={block.id} data-bio-type={block.type}
+      className="overflow-hidden rounded-2xl bg-neutral-950 p-5 text-white shadow-[0_18px_40px_-22px_rgba(0,0,0,0.5)]">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-white/85">
+        {live ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" /></span> : null}
+        {block.badge || "Bulking"}
+      </span>
+      <h1 className="mt-4 text-[30px] font-black leading-[0.98] tracking-tight">{block.title}</h1>
+      {block.subtitle ? <p className="mt-2.5 line-clamp-2 text-[14px] leading-relaxed text-white/70">{block.subtitle}</p> : null}
+      {block.countdown_target ? <div className="mt-4"><BioCountdown target={block.countdown_target} /></div> : null}
+      {block.url ? (
+        <a href={getClickHref({ data, block, url: block.url, event: "bio_cta_clicked", campaignId: block.campaign_id })}
+          className="mt-5 flex h-[52px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-[15px] font-black uppercase tracking-tight text-neutral-950 transition active:scale-[0.99] hover:bg-neutral-100">
+          <ShoppingBag className="h-[18px] w-[18px]" />
+          {block.cta_label || "Conferir agora"}
+        </a>
+      ) : null}
+    </section>
+  );
+}
+
+// --- Frete: barra fina de incentivo (nao card grande) ---
+function ShippingBar({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "group" | "club" | "shipping" }> }) {
+  return (
+    <a data-bio-block={block.id} data-bio-type={block.type}
+      href={getClickHref({ data, block, url: block.url || data.storeBaseUrl, event: "bio_shipping_clicked" })}
+      className="flex items-center gap-2.5 rounded-xl border border-[var(--bio-border)] bg-[var(--bio-card)] px-4 py-3 shadow-sm transition active:scale-[0.99]">
+      <Truck className="h-[18px] w-[18px] shrink-0 text-neutral-950" />
+      <span className="min-w-0 flex-1 truncate text-[13.5px] font-bold text-[var(--bio-fg)]">{block.title}</span>
+      {block.subtitle ? <span className="hidden shrink-0 text-[12px] text-[var(--bio-muted)] sm:inline">{block.subtitle}</span> : null}
+      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-400" />
+    </a>
+  );
+}
+
+// --- Produtos (isca) — selo #1 + de/por ---
+function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "products" }> }) {
+  const ranked = block.algorithm === "bestsellers" || block.algorithm === "bestseller_camisetas" || block.algorithm === "most_popular";
+  return (
+    <section data-bio-block={block.id} data-bio-type={block.type}>
+      <BlockHeader kicker={ranked ? "Em alta agora" : undefined} title={block.title} subtitle={block.subtitle} />
+      <div className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {block.products.map((product, index) => {
           const productUrl = product.product_url || data.storeBaseUrl;
-          const price = product.sale_price && product.sale_price > 0 ? product.sale_price : product.price;
+          const sale = product.sale_price && product.sale_price > 0 && (!product.price || product.sale_price < product.price) ? product.sale_price : null;
+          const show = sale ?? product.price ?? product.sale_price ?? 0;
+          const off = sale && product.price ? Math.round((1 - sale / product.price) * 100) : 0;
           return (
-            <a
-              key={`${block.id}-${product.product_id}-${index}`}
-              href={getClickHref({
-                data,
-                block,
-                url: productUrl,
-                event: "bio_product_clicked",
-                productId: product.product_id,
-              })}
-              className="group min-w-[154px] snap-start rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-2 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-900 sm:min-w-[172px]"
-            >
+            <a key={`${block.id}-${product.product_id}-${index}`}
+              href={getClickHref({ data, block, url: productUrl, event: "bio_product_clicked", productId: product.product_id })}
+              className="group relative min-w-[150px] snap-start rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-2 shadow-sm transition active:scale-[0.99] sm:min-w-[166px]">
+              {ranked && index === 0 ? (
+                <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-neutral-950 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                  <Flame className="h-3 w-3" />#1
+                </span>
+              ) : null}
+              {off >= 10 ? (
+                <span className="absolute right-3 top-3 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">-{off}%</span>
+              ) : null}
               <ProductImage src={product.image_url} name={product.name} />
-              <div className="mt-2 min-h-[84px]">
-                <p className="line-clamp-2 text-[13px] font-semibold leading-tight text-[var(--bio-fg)]">
-                  {product.name}
-                </p>
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <p className="text-[15px] font-black text-[var(--bio-fg)]">{formatCurrency(price || 0)}</p>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-950 text-white transition group-hover:bg-neutral-800">
+              <div className="mt-2.5 px-0.5 pb-1">
+                <p className="line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-tight text-[var(--bio-fg)]">{product.name}</p>
+                <div className="mt-2 flex items-end justify-between gap-2">
+                  <div className="min-w-0">
+                    {sale ? <p className="text-[11px] font-medium text-[var(--bio-muted)] line-through">{formatCurrency(product.price || 0)}</p> : null}
+                    <p className="text-[16px] font-black leading-none text-[var(--bio-fg)]">{formatCurrency(show)}</p>
+                  </div>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white">
                     <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
                 </div>
@@ -122,86 +143,17 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
   );
 }
 
-function BlockHeader({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div className="flex items-end justify-between gap-3">
-      <div className="min-w-0">
-        <h2 className="text-lg font-black leading-tight text-[var(--bio-fg)]">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm leading-snug text-[var(--bio-muted)]">{subtitle}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "hero" }> }) {
-  const countdown = formatCountdown(block.countdown_target);
-  return (
-    <section
-      data-bio-block={block.id}
-      data-bio-type={block.type}
-      className="overflow-hidden rounded-lg border border-neutral-900 bg-neutral-950 p-4 text-white shadow-sm"
-    >
-      <div className="flex items-center gap-2">
-        <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em]">
-          {block.badge || "Bulking"}
-        </span>
-      </div>
-      <h1 className="mt-4 text-[28px] font-black leading-[0.98] sm:text-3xl">{block.title}</h1>
-      {block.subtitle ? <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-white/72">{block.subtitle}</p> : null}
-      {countdown ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white/80">
-          <Clock className="h-3.5 w-3.5" />
-          Termina em {countdown}
-        </p>
-      ) : null}
-      {block.url ? (
-        <a
-          href={getClickHref({
-            data,
-            block,
-            url: block.url,
-            event: "bio_cta_clicked",
-            campaignId: block.campaign_id,
-          })}
-          className="mt-5 flex h-12 items-center justify-center gap-2 rounded-md bg-white px-4 text-sm font-black uppercase text-neutral-950 transition hover:bg-neutral-100"
-        >
-          <ShoppingBag className="h-4 w-4" />
-          {block.cta_label || "Conferir agora"}
-        </a>
-      ) : null}
-      <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45">
-        Loja oficial Bulking
-      </p>
-    </section>
-  );
-}
-
 function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "categories" }> }) {
   return (
-    <section data-bio-block={block.id} data-bio-type={block.type} className="space-y-3">
+    <section data-bio-block={block.id} data-bio-type={block.type}>
       <BlockHeader title={block.title} subtitle={block.subtitle} />
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-2">
         {block.items.map((item) => (
-          <a
-            key={item.id}
-            href={getClickHref({
-              data,
-              block,
-              url: item.url,
-              event: "bio_category_clicked",
-              category: item.label,
-            })}
-            className="flex min-w-fit items-center gap-3 rounded-full border border-[var(--bio-border)] bg-[var(--bio-card)] px-4 py-2.5 text-[var(--bio-fg)] shadow-sm transition hover:border-neutral-900"
-          >
-            <div>
-              <p className="text-sm font-black">{item.label}</p>
-              {item.description || item.metric ? (
-                <p className="text-[11px] text-[var(--bio-muted)]">
-                  {[item.description, item.metric].filter(Boolean).join(" · ")}
-                </p>
-              ) : null}
-            </div>
-            <ChevronRight className="h-4 w-4 text-neutral-500" />
+          <a key={item.id}
+            href={getClickHref({ data, block, url: item.url, event: "bio_category_clicked", category: item.label })}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--bio-border)] bg-[var(--bio-card)] py-2 pl-4 pr-3 text-[var(--bio-fg)] shadow-sm transition active:scale-[0.98]">
+            <span className="text-[13.5px] font-bold">{item.label}</span>
+            <ChevronRight className="h-3.5 w-3.5 text-neutral-400" />
           </a>
         ))}
       </div>
@@ -210,60 +162,45 @@ function CategoriesBlock({ data, block }: { data: BioPageData; block: Extract<Bi
 }
 
 function LinkBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "group" | "club" | "shipping" }> }) {
-  const Icon = block.type === "group" ? MessageCircle : block.type === "shipping" ? Truck : ShieldCheck;
-  const event =
-    block.type === "group"
-      ? "bio_group_clicked"
-      : block.type === "club"
-        ? "bio_club_clicked"
-        : "bio_shipping_clicked";
-
+  const Icon = block.type === "group" ? MessageCircle : ShieldCheck;
+  const event = block.type === "group" ? "bio_group_clicked" : "bio_club_clicked";
   return (
-    <section data-bio-block={block.id} data-bio-type={block.type}>
-      <a
-        href={getClickHref({ data, block, url: block.url || data.storeBaseUrl, event })}
-        className="flex items-center gap-3 rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm transition hover:border-neutral-900"
-      >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-950">
-          <Icon className="h-5 w-5" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-bold text-[var(--bio-fg)]">{block.title}</span>
-          {block.subtitle ? <span className="mt-0.5 block text-sm leading-snug text-[var(--bio-muted)]">{block.subtitle}</span> : null}
-        </span>
-        <span className="hidden rounded-full bg-neutral-950 px-3 py-1 text-xs font-bold text-white sm:inline-flex">
-          {block.cta_label || "Abrir"}
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-500 sm:hidden" />
-      </a>
-    </section>
+    <a data-bio-block={block.id} data-bio-type={block.type}
+      href={getClickHref({ data, block, url: block.url || data.storeBaseUrl, event })}
+      className="flex items-center gap-3.5 rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm transition active:scale-[0.99]">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-black leading-tight text-[var(--bio-fg)]">{block.title}</span>
+        {block.subtitle ? <span className="mt-0.5 block text-[12.5px] leading-snug text-[var(--bio-muted)]">{block.subtitle}</span> : null}
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-neutral-400" />
+    </a>
   );
 }
 
 function ReviewsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "reviews" }> }) {
   return (
-    <section data-bio-block={block.id} data-bio-type={block.type} className="space-y-3">
-      <div className="flex items-end justify-between gap-3">
-        <BlockHeader title={block.title} subtitle={block.subtitle} />
-        <div className="shrink-0 text-right">
-          <p className="text-xl font-black text-[var(--bio-fg)]">{block.summary.average.toFixed(1)}</p>
-          <p className="text-[11px] font-semibold text-[var(--bio-muted)]">{block.summary.total} reviews</p>
+    <section data-bio-block={block.id} data-bio-type={block.type}>
+      <div className="mb-3.5 flex items-end justify-between gap-3 px-0.5">
+        <div>
+          <h2 className="text-[19px] font-black leading-tight tracking-tight text-[var(--bio-fg)]">{block.title}</h2>
+          {block.subtitle ? <p className="mt-1 text-[13.5px] leading-snug text-[var(--bio-muted)]">{block.subtitle}</p> : null}
+        </div>
+        <div className="shrink-0 rounded-xl border border-[var(--bio-border)] bg-[var(--bio-card)] px-3 py-1.5 text-center shadow-sm">
+          <p className="flex items-center gap-1 text-[17px] font-black leading-none text-[var(--bio-fg)]"><Star className="h-3.5 w-3.5 fill-current" />{block.summary.average.toFixed(1)}</p>
+          <p className="mt-0.5 text-[10px] font-semibold text-[var(--bio-muted)]">{block.summary.total} avaliações</p>
         </div>
       </div>
-      <div className="flex snap-x gap-3 overflow-x-auto pb-1">
+      <div className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {block.reviews.map((review) => (
-          <article
-            key={review.id}
-            className="min-w-[82%] snap-start rounded-md border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm"
-          >
-            <div className="mb-3 flex items-center gap-1 text-neutral-950">
-              <Star className="h-4 w-4 fill-current" />
-              <span className="text-sm font-bold">{review.rating.toFixed(1)}</span>
+          <article key={review.id} className="min-w-[80%] snap-start rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm sm:min-w-[72%]">
+            <div className="mb-2.5 flex items-center gap-0.5 text-neutral-950">
+              {Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3.5 w-3.5 ${i < Math.round(review.rating) ? "fill-current" : "text-neutral-200"}`} />)}
             </div>
-            <p className="text-sm leading-relaxed text-[var(--bio-fg)]">"{review.body}"</p>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--bio-muted)]">
-              {review.author}
-            </p>
+            <p className="text-[13.5px] leading-relaxed text-[var(--bio-fg)]">"{review.body}"</p>
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--bio-muted)]">{review.author}</p>
           </article>
         ))}
       </div>
@@ -276,6 +213,7 @@ function ResolvedBlock({ data, block }: { data: BioPageData; block: BioResolvedB
   if (block.type === "products") return <ProductsBlock data={data} block={block} />;
   if (block.type === "categories") return <CategoriesBlock data={data} block={block} />;
   if (block.type === "reviews") return <ReviewsBlock block={block} />;
+  if (block.type === "shipping") return <ShippingBar data={data} block={block} />;
   return <LinkBlock data={data} block={block} />;
 }
 
@@ -318,37 +256,31 @@ export default async function BioPage() {
 
   return (
     <main style={style} className="min-h-screen overflow-x-hidden bg-[var(--bio-bg)] text-[var(--bio-fg)]">
-      <BioTracker
-        workspaceId={data.workspaceId}
-        blocks={data.blocks.map((block) => ({ id: block.id, type: block.type }))}
-      />
-      <div className="mx-auto min-h-screen w-screen max-w-[520px] py-4">
-        <header className="mx-4 mb-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--bio-border)] bg-[var(--bio-card)] p-3 shadow-sm">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-neutral-950 text-lg font-black text-white">
-              {data.config.avatar_url ? (
-                <img src={data.config.avatar_url} alt={data.config.brand_name} className="h-full w-full rounded-md object-cover" />
-              ) : (
-                data.config.brand_name.slice(0, 1).toUpperCase()
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-base font-black leading-tight">{data.config.headline}</p>
-              <p className="line-clamp-1 text-xs leading-snug text-[var(--bio-muted)]">{data.config.subtitle}</p>
-            </div>
+      <BioTracker workspaceId={data.workspaceId} blocks={data.blocks.map((block) => ({ id: block.id, type: block.type }))} />
+      <div className="mx-auto min-h-screen w-full max-w-[480px] px-4 pb-12 pt-5">
+        {/* Header — enxuto, com indicador "ao vivo" */}
+        <header className="mb-5 flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-950 text-lg font-black text-white">
+            {data.config.avatar_url ? (
+              <img src={data.config.avatar_url} alt={data.config.brand_name} className="h-full w-full object-cover" />
+            ) : (data.config.brand_name.slice(0, 1).toUpperCase())}
           </div>
-          <span className="shrink-0 rounded-full border border-[var(--bio-border)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--bio-muted)]">
-            Oficial
-          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[16px] font-black leading-tight tracking-tight">{data.config.headline}</p>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[12px] leading-snug text-[var(--bio-muted)]">
+              <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" /></span>
+              Ofertas atualizadas agora
+            </p>
+          </div>
         </header>
 
-        <div className="space-y-6 px-4">
+        <div className="space-y-5">
           {data.blocks.map((block) => (
             <ResolvedBlock key={block.id} data={data} block={block} />
           ))}
         </div>
 
-        <footer className="px-4 py-8 text-center text-xs uppercase tracking-[0.18em] text-[var(--bio-muted)]">
+        <footer className="px-4 pt-9 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--bio-muted)]">
           bulking.com.br
         </footer>
       </div>

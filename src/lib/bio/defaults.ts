@@ -26,16 +26,36 @@ export const BIO_THEME_DEFAULT: BioThemeConfig = {
   accentForeground: "#ffffff",
 };
 
+// Ordem = funil de conversao: acao ativa -> incentivo (frete) -> isca (mais vendidos)
+// -> navegacao -> mais desejo (ofertas) -> prova social -> comunidade/retencao.
 export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
   {
     id: "hero",
     type: "hero",
     enabled: true,
-    title: "O que esta valendo agora na Bulking",
-    subtitle: "Ofertas ativas, produtos mais buscados e atalhos rapidos para comprar sem perder tempo.",
-    cta_label: "Ver acao atual",
+    title: "O que esta valendo agora",
+    subtitle: "A acao ativa da loja, em tempo real.",
+    cta_label: "Aproveitar agora",
     url: `${BIO_DEFAULT_STORE_URL}/combos`,
     source: "active_topbar",
+  },
+  {
+    id: "shipping",
+    type: "shipping",
+    enabled: true,
+    title: "FRETE GRATIS acima de R$149",
+    subtitle: "Em toda a loja",
+    cta_label: "Comprar",
+    url: `${BIO_DEFAULT_STORE_URL}/camisetas`,
+  },
+  {
+    id: "bestsellers",
+    type: "products",
+    enabled: true,
+    title: "Mais vendidos agora",
+    subtitle: "O que mais esta saindo neste momento.",
+    algorithm: "bestsellers",
+    limit: 6,
   },
   {
     id: "categories",
@@ -52,22 +72,21 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     ],
   },
   {
-    id: "bestsellers",
-    type: "products",
-    enabled: true,
-    title: "Mais vendidos agora",
-    subtitle: "Uma selecao curta do que mais esta saindo.",
-    algorithm: "bestsellers",
-    limit: 4,
-  },
-  {
     id: "offers",
     type: "products",
     enabled: true,
     title: "Ofertas em destaque",
     subtitle: "Boas oportunidades com estoque ativo.",
     algorithm: "offers",
-    limit: 4,
+    limit: 6,
+  },
+  {
+    id: "reviews",
+    type: "reviews",
+    enabled: true,
+    title: "Quem compra, volta",
+    subtitle: "Avaliacoes reais e recentes da loja.",
+    limit: 6,
   },
   {
     id: "group",
@@ -84,26 +103,9 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     type: "club",
     enabled: true,
     title: "Bulking Club",
-    subtitle: "Cashback, beneficios e vantagens para voltar comprando melhor.",
+    subtitle: "Cashback e vantagens para voltar comprando melhor.",
     cta_label: "Conhecer o clube",
     url: BIO_DEFAULT_STORE_URL,
-  },
-  {
-    id: "shipping",
-    type: "shipping",
-    enabled: true,
-    title: "Frete e beneficios",
-    subtitle: "Veja as regras ativas antes de finalizar.",
-    cta_label: "Ver ofertas com frete",
-    url: `${BIO_DEFAULT_STORE_URL}/combos`,
-  },
-  {
-    id: "reviews",
-    type: "reviews",
-    enabled: true,
-    title: "Quem compra, volta",
-    subtitle: "Avaliacoes reais recentes da loja.",
-    limit: 5,
   },
 ];
 
