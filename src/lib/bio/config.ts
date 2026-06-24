@@ -62,7 +62,7 @@ export function normalizeBioBlocks(value: unknown): BioBlockConfig[] {
       if (!item || typeof item !== "object") return null;
       const raw = item as Record<string, unknown>;
       const type = cleanText(raw.type);
-      if (!["hero", "products", "categories", "group", "club", "shipping", "reviews"].includes(type)) {
+      if (!["hero", "products", "categories", "group", "club", "shipping", "reviews", "benefits"].includes(type)) {
         return null;
       }
 

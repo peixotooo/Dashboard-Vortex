@@ -99,9 +99,9 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     type: "club",
     enabled: true,
     title: "Bulking Club",
-    subtitle: "Ganhe cashback em toda compra.",
-    cta_label: "Ativar",
-    url: BIO_DEFAULT_STORE_URL,
+    subtitle: "Clube de membros: cashback e vantagens.",
+    cta_label: "Entrar",
+    url: `${BIO_DEFAULT_STORE_URL}/cashback`,
   },
 ];
 
