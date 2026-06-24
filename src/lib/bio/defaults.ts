@@ -27,7 +27,7 @@ export const BIO_THEME_DEFAULT: BioThemeConfig = {
 };
 
 // Ordem = funil de conversao: acao ativa -> incentivo (frete) -> isca (mais vendidos)
-// -> navegacao -> mais desejo (ofertas) -> prova social -> comunidade/retencao.
+// -> navegacao (capas) -> prova social -> mais produtos -> comunidade/retencao.
 export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
   {
     id: "hero",
@@ -61,8 +61,8 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     id: "categories",
     type: "categories",
     enabled: true,
-    title: "Ir direto para",
-    subtitle: "Os caminhos mais rapidos da loja hoje.",
+    title: "Explore por categoria",
+    subtitle: "Capa = o campeao de vendas de cada categoria.",
     source: "automatic",
     items: [
       { id: "combos", label: "Combos", url: `${BIO_DEFAULT_STORE_URL}/combos` },
@@ -70,15 +70,6 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
       { id: "lancamentos", label: "Lancamentos", url: `${BIO_DEFAULT_STORE_URL}/lancamentos` },
       { id: "mais-vendidos", label: "Mais vendidos", url: `${BIO_DEFAULT_STORE_URL}/mais-vendidos` },
     ],
-  },
-  {
-    id: "offers",
-    type: "products",
-    enabled: true,
-    title: "Ofertas em destaque",
-    subtitle: "Boas oportunidades com estoque ativo.",
-    algorithm: "offers",
-    limit: 6,
   },
   {
     id: "reviews",
@@ -89,12 +80,21 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     limit: 6,
   },
   {
+    id: "offers",
+    type: "products",
+    enabled: true,
+    title: "Continue explorando",
+    subtitle: "Mais oportunidades com estoque ativo.",
+    algorithm: "offers",
+    limit: 6,
+  },
+  {
     id: "group",
     type: "group",
     enabled: true,
     title: "Grupo VIP no WhatsApp",
-    subtitle: "Drops, condicoes e avisos antes de todo mundo.",
-    cta_label: "Entrar no grupo",
+    subtitle: "Drops e a SALE antes de todo mundo.",
+    cta_label: "Entrar",
     url: "https://grupos.bulking.com.br",
     pool_slug: "vip",
   },
@@ -103,8 +103,8 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     type: "club",
     enabled: true,
     title: "Bulking Club",
-    subtitle: "Cashback e vantagens para voltar comprando melhor.",
-    cta_label: "Conhecer o clube",
+    subtitle: "Ganhe cashback em toda compra.",
+    cta_label: "Ativar",
     url: BIO_DEFAULT_STORE_URL,
   },
 ];
