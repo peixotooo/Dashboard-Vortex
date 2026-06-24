@@ -62,7 +62,6 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     type: "categories",
     enabled: true,
     title: "Explore por categoria",
-    subtitle: "Capa = o campeao de vendas de cada categoria.",
     source: "automatic",
     items: [
       { id: "combos", label: "Combos", url: `${BIO_DEFAULT_STORE_URL}/combos` },

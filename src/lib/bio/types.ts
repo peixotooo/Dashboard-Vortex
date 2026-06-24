@@ -88,10 +88,27 @@ export interface BioResolvedBlockBase {
   url?: string;
 }
 
+export interface BioHeroBenefit {
+  title: string;
+  message?: string;
+}
+
+export interface BioCountdownStyle {
+  bg?: string | null;
+  text?: string | null;
+  fontWeight?: string | null;
+  padding?: string | null;
+  borderRadius?: string | null;
+}
+
 export interface BioResolvedHeroBlock extends BioResolvedBlockBase {
   type: "hero";
   badge?: string;
   countdown_target?: string | null;
+  countdown_label?: string | null;
+  countdown_style?: BioCountdownStyle | null;
+  accent_color?: string | null;
+  benefits?: BioHeroBenefit[];
   campaign_id?: string | null;
 }
 

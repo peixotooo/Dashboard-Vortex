@@ -201,24 +201,40 @@ async function resolveWorkspaceAndConfig(host: string): Promise<{ workspaceId: s
 }
 
 async function resolveProductsBlock(
-  workspaceId: string,
+  ctx: BioContext,
   block: BioBlockConfig
 ): Promise<BioResolvedBlock | null> {
   const algorithm = (block.algorithm || "bestsellers") as BioProductAlgorithm;
   const limit = Math.min(Math.max(Number(block.limit) || 6, 1), 12);
   let products: ShelfProduct[] = [];
 
-  try {
-    products = await getRecommendations({
-      workspaceId,
-      algorithm,
-      limit,
-      tags: block.tags,
-      priceMin: typeof block.price_min === "number" ? block.price_min : undefined,
-      priceMax: typeof block.price_max === "number" ? block.price_max : undefined,
-    });
-  } catch (error) {
-    console.warn("[bio] recommendations failed", block.id, error);
+  // Caminho rapido: mais vendidos via snapshot (sem hit na VNDA). "offers" pega o
+  // proximo trecho do ranking ("continue explorando"), sem repetir os bestsellers.
+  if (algorithm === "bestsellers" || algorithm === "offers") {
+    try {
+      products = await resolveSnapshotProducts(ctx, {
+        limit,
+        offset: algorithm === "offers" ? limit : 0,
+      });
+    } catch (error) {
+      console.warn("[bio] snapshot products failed", block.id, error);
+    }
+  }
+
+  // Fallback (snapshot ausente, ou outro algoritmo): recomendacao via VNDA.
+  if (products.length === 0) {
+    try {
+      products = await getRecommendations({
+        workspaceId: ctx.workspaceId,
+        algorithm,
+        limit,
+        tags: block.tags,
+        priceMin: typeof block.price_min === "number" ? block.price_min : undefined,
+        priceMax: typeof block.price_max === "number" ? block.price_max : undefined,
+      });
+    } catch (error) {
+      console.warn("[bio] recommendations failed", block.id, error);
+    }
   }
 
   if (products.length === 0) return null;
@@ -254,54 +270,52 @@ function normalizeProductName(name: string): string {
     .trim();
 }
 
-// Capa de categoria = imagem do produto mais vendido daquela categoria.
-// crm_abc_snapshots nao guarda imagem -> resolve nome -> imagem via shelf_products
-// (mesmo padrao do getBestsellerCamisetas). Best-effort: sem imagem, o tile cai no fallback.
-async function fetchCoverImages(
-  workspaceId: string,
-  names: string[]
-): Promise<Map<string, string>> {
-  const covers = new Map<string, string>();
-  const wanted = names.filter(Boolean);
-  if (wanted.length === 0) return covers;
+// --- Contexto da bio: catalogo (shelf_products) + ranking ABC carregados UMA vez ---
+// e compartilhados entre os blocos (mais vendidos, ofertas, capas de categoria),
+// tudo no Supabase, SEM paginar a API de pedidos da VNDA no caminho quente.
+type BioCatalogEntry = {
+  product_id: string;
+  name: string;
+  image_url: string | null;
+  image_url_2: string | null;
+  product_url: string | null;
+};
 
+type BioSnapItem = { name: string; score: number };
+
+type BioContext = {
+  workspaceId: string;
+  storeBaseUrl: string;
+  snapshot: () => Promise<BioSnapItem[]>;
+  catalog: () => Promise<Map<string, BioCatalogEntry>>;
+};
+
+// shelf_products (ativo + em estoque) indexado por nome normalizado.
+async function loadCatalogMap(workspaceId: string): Promise<Map<string, BioCatalogEntry>> {
+  const map = new Map<string, BioCatalogEntry>();
   const admin = createAdminClient();
   try {
     const { data } = await admin
       .from("shelf_products")
-      .select("name, image_url, image_url_2")
+      .select("product_id, name, image_url, image_url_2, product_url")
       .eq("workspace_id", workspaceId)
       .eq("active", true)
       .eq("in_stock", true)
       .not("image_url", "is", null)
       .range(0, 1999);
-
-    const byName = new Map<string, string>();
-    for (const row of (data || []) as Array<{ name: string | null; image_url: string | null; image_url_2: string | null }>) {
+    for (const row of (data || []) as BioCatalogEntry[]) {
       const key = normalizeProductName(row.name || "");
-      const img = row.image_url || row.image_url_2;
-      if (key && img && !byName.has(key)) byName.set(key, img);
-    }
-    for (const name of wanted) {
-      const img = byName.get(normalizeProductName(name));
-      if (img) covers.set(name, img);
+      if (key && !map.has(key)) map.set(key, row);
     }
   } catch {
-    // Covers sao opcionais \u2014 o tile renderiza sem imagem.
+    // Catalogo e best-effort.
   }
-  return covers;
+  return map;
 }
 
-async function getTrendingCategories(
-  workspaceId: string,
-  storeBaseUrl: string,
-  fallbackItems: BioCategoryItem[] = []
-): Promise<BioCategoryItem[]> {
+// Ranking de mais vendidos (snapshot ABC mais recente), em ordem de venda.
+async function loadSnapshotRanking(workspaceId: string): Promise<BioSnapItem[]> {
   const admin = createAdminClient();
-  const scores = new Map<string, { score: number; count: number }>();
-  const topByCat = new Map<string, { name: string; score: number }>();
-  let globalTop: { name: string; score: number } | null = null;
-
   try {
     const { data } = await admin
       .from("crm_abc_snapshots")
@@ -310,24 +324,83 @@ async function getTrendingCategories(
       .order("computed_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    const products = Array.isArray(data?.products) ? data.products as Array<Record<string, unknown>> : [];
-    for (const product of products.slice(0, 120)) {
-      const name = String(product.name || "");
-      if (!name) continue;
-      const pScore = Number(product.revenue || 0) || Number(product.qty_sold || 0) || 1;
-      if (!globalTop || pScore > globalTop.score) globalTop = { name, score: pScore };
-      const category = inferCategoryFromName(name);
-      if (!category) continue;
-      const current = scores.get(category.id) || { score: 0, count: 0 };
-      current.score += pScore;
-      current.count += 1;
-      scores.set(category.id, current);
-      const top = topByCat.get(category.id);
-      if (!top || pScore > top.score) topByCat.set(category.id, { name, score: pScore });
-    }
+    const products = Array.isArray(data?.products) ? (data.products as Array<Record<string, unknown>>) : [];
+    return products
+      .map((p) => ({
+        name: String(p.name || ""),
+        score: Number(p.revenue || 0) || Number(p.qty_sold || 0) || 1,
+      }))
+      .filter((p) => p.name)
+      .sort((a, b) => b.score - a.score);
   } catch {
-    // ABC can be absent in fresh workspaces.
+    return [];
+  }
+}
+
+function createBioContext(workspaceId: string, storeBaseUrl: string): BioContext {
+  let snapPromise: Promise<BioSnapItem[]> | null = null;
+  let catPromise: Promise<Map<string, BioCatalogEntry>> | null = null;
+  return {
+    workspaceId,
+    storeBaseUrl,
+    snapshot: () => (snapPromise ||= loadSnapshotRanking(workspaceId)),
+    catalog: () => (catPromise ||= loadCatalogMap(workspaceId)),
+  };
+}
+
+function catalogEntryToShelf(entry: BioCatalogEntry): ShelfProduct {
+  return {
+    product_id: entry.product_id,
+    name: entry.name,
+    price: 0,
+    sale_price: null,
+    image_url: entry.image_url,
+    image_url_2: entry.image_url_2,
+    product_url: entry.product_url,
+    category: null,
+    tags: null,
+    in_stock: true,
+  };
+}
+
+// Mais vendidos / "continue explorando" via snapshot + catalogo (sem hit na VNDA).
+async function resolveSnapshotProducts(
+  ctx: BioContext,
+  opts: { limit: number; offset?: number }
+): Promise<ShelfProduct[]> {
+  const [ranking, catalog] = await Promise.all([ctx.snapshot(), ctx.catalog()]);
+  const offset = opts.offset || 0;
+  const out: ShelfProduct[] = [];
+  const used = new Set<string>();
+  for (const item of ranking) {
+    const entry = catalog.get(normalizeProductName(item.name));
+    if (!entry || used.has(entry.product_id)) continue;
+    used.add(entry.product_id);
+    out.push(catalogEntryToShelf(entry));
+    if (out.length >= offset + opts.limit) break;
+  }
+  return out.slice(offset, offset + opts.limit);
+}
+
+async function getTrendingCategories(
+  ctx: BioContext,
+  storeBaseUrl: string,
+  fallbackItems: BioCategoryItem[] = []
+): Promise<BioCategoryItem[]> {
+  const [ranking, catalog] = await Promise.all([ctx.snapshot(), ctx.catalog()]);
+  const scores = new Map<string, { score: number; count: number }>();
+  const candByCat = new Map<string, BioSnapItem[]>();
+
+  for (const item of ranking.slice(0, 200)) {
+    const category = inferCategoryFromName(item.name);
+    if (!category) continue;
+    const current = scores.get(category.id) || { score: 0, count: 0 };
+    current.score += item.score;
+    current.count += 1;
+    scores.set(category.id, current);
+    const arr = candByCat.get(category.id) || [];
+    arr.push(item);
+    candByCat.set(category.id, arr);
   }
 
   const generated = CATEGORY_DEFS.map((category, index) => {
@@ -362,26 +435,35 @@ async function getTrendingCategories(
     })
     .slice(0, 6);
 
-  // Capa = produto mais vendido da categoria (fallback: top global da loja).
-  const nameByCat = new Map<string, string>();
-  for (const item of finalItems) {
-    const top = topByCat.get(item.id) || globalTop;
-    if (top?.name) nameByCat.set(item.id, top.name);
-  }
-  const covers = await fetchCoverImages(workspaceId, [...nameByCat.values()]);
+  // Capa = produto mais vendido da categoria, garantindo imagens DISTINTAS entre
+  // categorias (greedy). Categorias sem produto proprio (ex.: mais-vendidos,
+  // lancamentos) caem no proximo do ranking global ainda nao usado.
+  const usedImg = new Set<string>();
+  const pickCover = (candidates: BioSnapItem[]): string | null => {
+    for (const candidate of candidates) {
+      const entry = catalog.get(normalizeProductName(candidate.name));
+      const img = entry?.image_url || entry?.image_url_2 || null;
+      if (img && !usedImg.has(img)) {
+        usedImg.add(img);
+        return img;
+      }
+    }
+    return null;
+  };
+
   return finalItems.map((item) => {
-    const name = nameByCat.get(item.id);
-    return { ...item, cover_image_url: (name && covers.get(name)) || null };
+    const cover = pickCover(candByCat.get(item.id) || []) || pickCover(ranking);
+    return { ...item, cover_image_url: cover };
   });
 }
 
 async function resolveCategoriesBlock(
-  workspaceId: string,
+  ctx: BioContext,
   block: BioBlockConfig,
   storeBaseUrl: string
 ): Promise<BioResolvedBlock | null> {
   const items = block.source === "automatic" || !block.items?.length
-    ? await getTrendingCategories(workspaceId, storeBaseUrl, block.items || [])
+    ? await getTrendingCategories(ctx, storeBaseUrl, block.items || [])
     : block.items.map((item) => ({ ...item, url: withStoreBase(item.url, storeBaseUrl) })).slice(0, 8);
 
   if (items.length === 0) return null;
@@ -412,12 +494,28 @@ async function resolveHeroBlock(
         link_url?: string | null;
         link_label?: string | null;
         id?: string | null;
+        countdown_label?: string | null;
+        countdown_bg_color?: string | null;
+        countdown_text_color?: string | null;
+        countdown_font_weight?: string | null;
+        countdown_padding?: string | null;
+        countdown_border_radius?: string | null;
+        accent_color?: string | null;
       };
       const slides = normalizeTopbarSlides(campaign.slides, campaign.title, campaign.message, {
         fallbackLinkUrl: campaign.link_url,
         fallbackLinkLabel: campaign.link_label,
       });
       const primary = slides[0];
+      // Slides seguintes = pontos da oferta (explica a acao melhor que so o subtitulo).
+      const benefits = slides
+        .slice(1)
+        .filter((slide) => slide?.title)
+        .map((slide) => ({
+          title: String(slide.title),
+          message: slide.message ? String(slide.message) : undefined,
+        }))
+        .slice(0, 4);
       return {
         id: block.id,
         type: "hero",
@@ -427,6 +525,16 @@ async function resolveHeroBlock(
         url: withStoreBase(primary?.link_url || campaign.link_url || block.url || "/combos", storeBaseUrl),
         badge: "Acao ativa",
         countdown_target: active.countdownTarget,
+        countdown_label: campaign.countdown_label || "Acaba em",
+        countdown_style: {
+          bg: campaign.countdown_bg_color,
+          text: campaign.countdown_text_color,
+          fontWeight: campaign.countdown_font_weight,
+          padding: campaign.countdown_padding,
+          borderRadius: campaign.countdown_border_radius,
+        },
+        accent_color: campaign.accent_color || null,
+        benefits,
         campaign_id: campaign.id,
       };
     }
@@ -488,7 +596,7 @@ async function getReviews(workspaceId: string, limit: number): Promise<{ reviews
     .map((review) => ({
       id: review.id,
       rating: Number(review.rating) || 5,
-      body: truncate(cleanReviewComment(review.comment)),
+      body: truncate(cleanReviewComment(review.comment), 130),
       author: displayName(review.author_name),
       date: review.created_at,
     }))
@@ -507,17 +615,17 @@ async function getReviews(workspaceId: string, limit: number): Promise<{ reviews
 }
 
 async function resolveBlock(
-  workspaceId: string,
+  ctx: BioContext,
   block: BioBlockConfig,
   storeBaseUrl: string
 ): Promise<BioResolvedBlock | null> {
   if (!block.enabled) return null;
 
-  if (block.type === "hero") return resolveHeroBlock(workspaceId, block, storeBaseUrl);
-  if (block.type === "products") return resolveProductsBlock(workspaceId, block);
-  if (block.type === "categories") return resolveCategoriesBlock(workspaceId, block, storeBaseUrl);
+  if (block.type === "hero") return resolveHeroBlock(ctx.workspaceId, block, storeBaseUrl);
+  if (block.type === "products") return resolveProductsBlock(ctx, block);
+  if (block.type === "categories") return resolveCategoriesBlock(ctx, block, storeBaseUrl);
   if (block.type === "reviews") {
-    const result = await getReviews(workspaceId, Math.min(Math.max(Number(block.limit) || 5, 1), 8));
+    const result = await getReviews(ctx.workspaceId, Math.min(Math.max(Number(block.limit) || 5, 1), 8));
     if (result.reviews.length === 0) return null;
     return {
       id: block.id,
@@ -530,7 +638,7 @@ async function resolveBlock(
   }
 
   const url = block.type === "group"
-    ? await resolveGroupUrl(workspaceId, block)
+    ? await resolveGroupUrl(ctx.workspaceId, block)
     : withStoreBase(block.url || "/", storeBaseUrl);
 
   return {
@@ -564,8 +672,9 @@ export async function resolveBioPageData(host: string): Promise<BioPageData | nu
     };
   }
 
+  const ctx = createBioContext(resolved.workspaceId, storeBaseUrl);
   const settled = await Promise.allSettled(
-    config.blocks.map((block) => resolveBlock(resolved.workspaceId, block, storeBaseUrl))
+    config.blocks.map((block) => resolveBlock(ctx, block, storeBaseUrl))
   );
   const blocks = settled
     .map((result) => (result.status === "fulfilled" ? result.value : null))
