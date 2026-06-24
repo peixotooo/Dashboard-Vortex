@@ -1,12 +1,11 @@
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
-import { ArrowUpRight, ChevronRight, Flame, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
+import { ArrowUpRight, Check, ChevronRight, Flame, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
 import { BioTracker } from "@/app/bio/bio-tracker";
 import { BioCountdown } from "@/app/bio/bio-countdown";
 import { resolveBioPageData } from "@/lib/bio/resolve";
 import type { BioPageData, BioResolvedBlock } from "@/lib/bio/types";
-import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -66,22 +65,43 @@ function BlockHeader({ kicker, title, subtitle }: { kicker?: string; title: stri
   );
 }
 
-// --- Hero (acao ativa) — bloco focal escuro com countdown VIVO ---
+// --- Hero (acao ativa) — espelha o topbar: oferta explicada + countdown destacado ---
 function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "hero" }> }) {
   const live = block.badge === "Acao ativa";
+  const accent = block.accent_color || "#d92d20";
+  const benefits = block.benefits || [];
   return (
     <section data-bio-block={block.id} data-bio-type={block.type}
       className="overflow-hidden rounded-2xl bg-neutral-950 p-5 text-white shadow-[0_18px_40px_-22px_rgba(0,0,0,0.5)]">
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-white/85">
-        {live ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" /></span> : null}
+      <span
+        style={live ? { backgroundColor: accent } : undefined}
+        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${live ? "text-white" : "bg-white/10 text-white/85"}`}>
+        {live ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" /></span> : null}
         {block.badge || "Bulking"}
       </span>
       <h1 className="mt-4 text-[30px] font-black leading-[0.98] tracking-tight">{block.title}</h1>
-      {block.subtitle ? <p className="mt-2.5 line-clamp-2 text-[14px] leading-relaxed text-white/70">{block.subtitle}</p> : null}
-      {block.countdown_target ? <div className="mt-4"><BioCountdown target={block.countdown_target} /></div> : null}
+      {block.subtitle ? <p className="mt-2 line-clamp-2 text-[14px] leading-relaxed text-white/70">{block.subtitle}</p> : null}
+      {benefits.length ? (
+        <ul className="mt-4 space-y-2">
+          {benefits.map((benefit, index) => (
+            <li key={`${block.id}-b-${index}`} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
+              <Check className="mt-px h-[17px] w-[17px] shrink-0" style={{ color: accent }} strokeWidth={3} />
+              <span className="text-white/90">
+                <span className="font-bold text-white">{benefit.title}</span>
+                {benefit.message ? <span className="text-white/55"> · {benefit.message}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {block.countdown_target ? (
+        <div className="mt-5">
+          <BioCountdown target={block.countdown_target} label={block.countdown_label || "Acaba em"} style={block.countdown_style} prominent />
+        </div>
+      ) : null}
       {block.url ? (
         <a href={getClickHref({ data, block, url: block.url, event: "bio_cta_clicked", campaignId: block.campaign_id })}
-          className="mt-5 flex h-[52px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-[15px] font-black uppercase tracking-tight text-neutral-950 transition active:scale-[0.99] hover:bg-neutral-100">
+          className="mt-3 flex h-[52px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-[15px] font-black uppercase tracking-tight text-neutral-950 transition active:scale-[0.99] hover:bg-neutral-100">
           <ShoppingBag className="h-[18px] w-[18px]" />
           {block.cta_label || "Conferir agora"}
         </a>
@@ -113,9 +133,6 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
       <div className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {block.products.map((product, index) => {
           const productUrl = product.product_url || data.storeBaseUrl;
-          const sale = product.sale_price && product.sale_price > 0 && (!product.price || product.sale_price < product.price) ? product.sale_price : null;
-          const show = sale ?? product.price ?? product.sale_price ?? 0;
-          const off = sale && product.price ? Math.round((1 - sale / product.price) * 100) : 0;
           return (
             <a key={`${block.id}-${product.product_id}-${index}`}
               href={getClickHref({ data, block, url: productUrl, event: "bio_product_clicked", productId: product.product_id })}
@@ -125,18 +142,12 @@ function ProductsBlock({ data, block }: { data: BioPageData; block: Extract<BioR
                   <Flame className="h-3 w-3" />#1
                 </span>
               ) : null}
-              {off >= 10 ? (
-                <span className="absolute right-3 top-3 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">-{off}%</span>
-              ) : null}
               <ProductImage src={product.image_url} name={product.name} eager={index === 0} />
-              <div className="mt-2.5 px-0.5 pb-1">
-                <p className="line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-tight text-[var(--bio-fg)]">{product.name}</p>
-                <div className="mt-2 flex items-end justify-between gap-2">
-                  <p className="text-[16px] font-black leading-none text-[var(--bio-fg)]">{formatCurrency(show)}</p>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white">
-                    <ArrowUpRight className="h-3.5 w-3.5" />
-                  </span>
-                </div>
+              <div className="mt-2.5 flex items-center justify-between gap-2 px-0.5 pb-1">
+                <p className="line-clamp-2 min-h-[32px] text-[12.5px] font-semibold leading-tight text-[var(--bio-fg)]">{product.name}</p>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white">
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </span>
               </div>
             </a>
           );
@@ -223,14 +234,14 @@ function ReviewsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "rev
           <p className="mt-0.5 text-[10px] font-semibold text-[var(--bio-muted)]">{block.summary.total} avaliações</p>
         </div>
       </div>
-      <div className="flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {block.reviews.map((review) => (
-          <article key={review.id} className="min-w-[80%] snap-start rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-4 shadow-sm sm:min-w-[72%]">
-            <div className="mb-2.5 flex items-center gap-0.5 text-neutral-950">
-              {Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3.5 w-3.5 ${i < Math.round(review.rating) ? "fill-current" : "text-neutral-200"}`} />)}
+          <article key={review.id} className="flex min-w-[74%] snap-start flex-col rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-3.5 shadow-sm sm:min-w-[60%]">
+            <div className="mb-1.5 flex items-center gap-0.5 text-amber-400">
+              {Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3 w-3 ${i < Math.round(review.rating) ? "fill-current" : "text-neutral-200"}`} />)}
             </div>
-            <p className="text-[13.5px] leading-relaxed text-[var(--bio-fg)]">"{review.body}"</p>
-            <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--bio-muted)]">{review.author}</p>
+            <p className="line-clamp-3 text-[13px] leading-snug text-[var(--bio-fg)]">&ldquo;{review.body}&rdquo;</p>
+            <p className="mt-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[var(--bio-muted)]">{review.author}</p>
           </article>
         ))}
       </div>
