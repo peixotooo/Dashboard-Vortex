@@ -40,13 +40,10 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     source: "active_topbar",
   },
   {
-    id: "shipping",
-    type: "shipping",
+    id: "benefits",
+    type: "benefits",
     enabled: true,
-    title: "FRETE GRATIS acima de R$149",
-    subtitle: "Em toda a loja",
-    cta_label: "Comprar",
-    url: `${BIO_DEFAULT_STORE_URL}/camisetas`,
+    title: "Nossos beneficios",
   },
   {
     id: "bestsellers",

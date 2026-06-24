@@ -31,35 +31,53 @@ type StoreReviewRow = {
   created_at: string | null;
 };
 
-const CATEGORY_DEFS = [
+const CATEGORY_DEFS: Array<{
+  id: string;
+  label: string;
+  url: string;
+  tag: string | null;
+  patterns: string[];
+}> = [
   {
     id: "combos",
     label: "Combos",
     url: "/combos",
+    tag: "combos",
     patterns: ["combo", "leve", "kit"],
+  },
+  {
+    id: "feminino",
+    label: "Feminino",
+    url: "/feminino",
+    tag: "feminino",
+    patterns: ["feminin", "cropped", "baby look"],
   },
   {
     id: "camisetas",
     label: "Camisetas",
     url: "/camisetas",
+    tag: "camisetas",
     patterns: ["camiseta", "oversized", "t-shirt", "shirt"],
   },
   {
     id: "regatas",
     label: "Regatas",
     url: "/busca?q=regata",
+    tag: "regatas",
     patterns: ["regata", "tank"],
   },
   {
     id: "lancamentos",
     label: "Lancamentos",
     url: "/lancamentos",
+    tag: "lancamentos",
     patterns: ["lancamento", "new"],
   },
   {
     id: "mais-vendidos",
     label: "Mais vendidos",
     url: "/mais-vendidos",
+    tag: null,
     patterns: ["camiseta", "regata", "combo"],
   },
 ];
@@ -279,7 +297,20 @@ type BioCatalogEntry = {
   image_url: string | null;
   image_url_2: string | null;
   product_url: string | null;
+  created_at: string | null;
+  tags: unknown;
 };
+
+function entryTagSet(entry: BioCatalogEntry): Set<string> {
+  const set = new Set<string>();
+  if (Array.isArray(entry.tags)) {
+    for (const tag of entry.tags) {
+      const name = String((tag as { name?: unknown })?.name || "").toLowerCase().trim();
+      if (name) set.add(name);
+    }
+  }
+  return set;
+}
 
 type BioSnapItem = { name: string; score: number };
 
@@ -297,7 +328,7 @@ async function loadCatalogMap(workspaceId: string): Promise<Map<string, BioCatal
   try {
     const { data } = await admin
       .from("shelf_products")
-      .select("product_id, name, image_url, image_url_2, product_url")
+      .select("product_id, name, image_url, image_url_2, product_url, created_at, tags")
       .eq("workspace_id", workspaceId)
       .eq("active", true)
       .eq("in_stock", true)
@@ -388,8 +419,18 @@ async function getTrendingCategories(
   fallbackItems: BioCategoryItem[] = []
 ): Promise<BioCategoryItem[]> {
   const [ranking, catalog] = await Promise.all([ctx.snapshot(), ctx.catalog()]);
+  const entries = [...catalog.values()];
   const scores = new Map<string, { score: number; count: number }>();
   const candByCat = new Map<string, BioSnapItem[]>();
+
+  // ranking index (ordem de venda) por nome normalizado.
+  const rankIndex = new Map<string, number>();
+  ranking.forEach((item, index) => {
+    const key = normalizeProductName(item.name);
+    if (!rankIndex.has(key)) rankIndex.set(key, index);
+  });
+  const rankOf = (entry: BioCatalogEntry) =>
+    rankIndex.get(normalizeProductName(entry.name)) ?? Number.MAX_SAFE_INTEGER;
 
   for (const item of ranking.slice(0, 200)) {
     const category = inferCategoryFromName(item.name);
@@ -401,6 +442,21 @@ async function getTrendingCategories(
     const arr = candByCat.get(category.id) || [];
     arr.push(item);
     candByCat.set(category.id, arr);
+  }
+
+  // Pools por TAG (mais confiavel que o nome): feminino = colecao; lancamentos =
+  // flag da loja (capa precisa ser um lancamento DE VERDADE — mais novo primeiro).
+  const tagPool = (tag: string) => entries.filter((entry) => entryTagSet(entry).has(tag));
+  const femininoPool = tagPool("feminino").sort((a, b) => rankOf(a) - rankOf(b));
+  const lancPool = tagPool("lancamentos").sort(
+    (a, b) =>
+      (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0) ||
+      rankOf(a) - rankOf(b)
+  );
+  if (femininoPool.length) scores.set("feminino", { score: 1, count: femininoPool.length });
+  if (lancPool.length) {
+    const current = scores.get("lancamentos") || { score: 0, count: 0 };
+    scores.set("lancamentos", { score: current.score, count: lancPool.length });
   }
 
   const generated = CATEGORY_DEFS.map((category, index) => {
@@ -435,11 +491,21 @@ async function getTrendingCategories(
     })
     .slice(0, 6);
 
-  // Capa = produto mais vendido da categoria, garantindo imagens DISTINTAS entre
-  // categorias (greedy). Categorias sem produto proprio (ex.: mais-vendidos,
-  // lancamentos) caem no proximo do ranking global ainda nao usado.
+  // Capa = produto representativo da categoria, garantindo imagens DISTINTAS
+  // (greedy). feminino/lancamentos puxam do pool por tag; demais do ranking de
+  // vendas; fallback no proximo do ranking global ainda nao usado.
   const usedImg = new Set<string>();
-  const pickCover = (candidates: BioSnapItem[]): string | null => {
+  const pickFromEntries = (pool: BioCatalogEntry[]): string | null => {
+    for (const entry of pool) {
+      const img = entry.image_url || entry.image_url_2 || null;
+      if (img && !usedImg.has(img)) {
+        usedImg.add(img);
+        return img;
+      }
+    }
+    return null;
+  };
+  const pickFromNames = (candidates: BioSnapItem[]): string | null => {
     for (const candidate of candidates) {
       const entry = catalog.get(normalizeProductName(candidate.name));
       const img = entry?.image_url || entry?.image_url_2 || null;
@@ -452,7 +518,11 @@ async function getTrendingCategories(
   };
 
   return finalItems.map((item) => {
-    const cover = pickCover(candByCat.get(item.id) || []) || pickCover(ranking);
+    let cover: string | null = null;
+    if (item.id === "feminino") cover = pickFromEntries(femininoPool);
+    else if (item.id === "lancamentos") cover = pickFromEntries(lancPool);
+    else cover = pickFromNames(candByCat.get(item.id) || []);
+    if (!cover) cover = pickFromNames(ranking);
     return { ...item, cover_image_url: cover };
   });
 }
@@ -614,6 +684,59 @@ async function getReviews(workspaceId: string, limit: number): Promise<{ reviews
   };
 }
 
+type GiftBarBenefit = {
+  icon?: string;
+  title?: string;
+  enabled?: boolean;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  link_label?: string;
+};
+
+function isBenefitLive(benefit: GiftBarBenefit, now: number): boolean {
+  if (benefit.enabled === false) return false;
+  const startsAt = benefit.starts_at ? Date.parse(benefit.starts_at) : null;
+  const endsAt = benefit.ends_at ? Date.parse(benefit.ends_at) : null;
+  if (startsAt && Number.isFinite(startsAt) && startsAt > now) return false;
+  if (endsAt && Number.isFinite(endsAt) && endsAt < now) return false;
+  return true;
+}
+
+// Benefícios PDP ("Nossos benefícios") — mesma fonte da PDP (gift_bar_configs),
+// só os ativos/dentro do agendamento.
+async function resolveBenefitsBlock(
+  workspaceId: string,
+  block: BioBlockConfig
+): Promise<BioResolvedBlock | null> {
+  const admin = createAdminClient();
+  let raw: GiftBarBenefit[] = [];
+  let title = block.title;
+  try {
+    const { data } = await admin
+      .from("gift_bar_configs")
+      .select("show_product_benefits, product_benefits, product_benefits_title")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (data?.show_product_benefits === false) return null;
+    raw = Array.isArray(data?.product_benefits) ? (data.product_benefits as GiftBarBenefit[]) : [];
+    if (data?.product_benefits_title) title = data.product_benefits_title;
+  } catch {
+    return null;
+  }
+  const now = Date.now();
+  const items = raw
+    .filter((benefit) => isBenefitLive(benefit, now))
+    .map((benefit) => ({
+      icon: String(benefit.icon || "info"),
+      title: String(benefit.title || "").trim(),
+      link_label: benefit.link_label ? String(benefit.link_label) : undefined,
+    }))
+    .filter((benefit) => benefit.title)
+    .slice(0, 8);
+  if (items.length === 0) return null;
+  return { id: block.id, type: "benefits", title, items };
+}
+
 async function resolveBlock(
   ctx: BioContext,
   block: BioBlockConfig,
@@ -624,6 +747,7 @@ async function resolveBlock(
   if (block.type === "hero") return resolveHeroBlock(ctx.workspaceId, block, storeBaseUrl);
   if (block.type === "products") return resolveProductsBlock(ctx, block);
   if (block.type === "categories") return resolveCategoriesBlock(ctx, block, storeBaseUrl);
+  if (block.type === "benefits") return resolveBenefitsBlock(ctx.workspaceId, block);
   if (block.type === "reviews") {
     const result = await getReviews(ctx.workspaceId, Math.min(Math.max(Number(block.limit) || 5, 1), 8));
     if (result.reviews.length === 0) return null;
