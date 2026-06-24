@@ -334,7 +334,7 @@ export default async function BioPage() {
       <div className="mx-auto min-h-screen w-full max-w-[480px] px-4 pb-12 pt-5">
         {/* Header — enxuto, com indicador "ao vivo" */}
         <header className="mb-5 flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-950 text-lg font-black text-white">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-neutral-950 text-lg font-black text-white">
             {data.config.avatar_url ? (
               <img src={data.config.avatar_url} alt={data.config.brand_name} loading="eager" className="h-full w-full object-cover" />
             ) : (data.config.brand_name.slice(0, 1).toUpperCase())}

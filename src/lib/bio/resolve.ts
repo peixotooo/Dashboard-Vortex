@@ -382,6 +382,23 @@ function createBioContext(workspaceId: string, storeBaseUrl: string): BioContext
   };
 }
 
+// O permalink da VNDA e `/produto/{slug}-{id}`, mas shelf_products guarda só
+// `/produto/{slug}` (sem o -id) -> 404 na loja (que joga pro home, perdendo UTM
+// e a PDP). Garante o -{id} no fim do path.
+function ensureVndaProductUrl(url: string | null, productId: string): string | null {
+  if (!url || !productId) return url;
+  try {
+    const parsed = new URL(url);
+    const suffix = `-${productId}`;
+    if (!parsed.pathname.endsWith(suffix)) {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, "") + suffix;
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 function catalogEntryToShelf(entry: BioCatalogEntry): ShelfProduct {
   return {
     product_id: entry.product_id,
@@ -390,7 +407,7 @@ function catalogEntryToShelf(entry: BioCatalogEntry): ShelfProduct {
     sale_price: null,
     image_url: entry.image_url,
     image_url_2: entry.image_url_2,
-    product_url: entry.product_url,
+    product_url: ensureVndaProductUrl(entry.product_url, entry.product_id),
     category: null,
     tags: null,
     in_stock: true,
