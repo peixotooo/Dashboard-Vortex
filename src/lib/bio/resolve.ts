@@ -288,6 +288,9 @@ function normalizeProductName(name: string): string {
     .trim();
 }
 
+// Acessorios nao servem de capa de categoria (ex.: manguito, meia, garrafa).
+const ACCESSORY_RE = /manguito|munhequeira|\bmeia\b|garrafa|shaker|squeeze|caneca|\bbon[\u00e9e]\b|touca|\bfaixa\b|adesivo|gift\s?card|vale[-\s]presente/i;
+
 // --- Contexto da bio: catalogo (shelf_products) + ranking ABC carregados UMA vez ---
 // e compartilhados entre os blocos (mais vendidos, ofertas, capas de categoria),
 // tudo no Supabase, SEM paginar a API de pedidos da VNDA no caminho quente.
@@ -497,6 +500,7 @@ async function getTrendingCategories(
   const usedImg = new Set<string>();
   const pickFromEntries = (pool: BioCatalogEntry[]): string | null => {
     for (const entry of pool) {
+      if (ACCESSORY_RE.test(entry.name)) continue;
       const img = entry.image_url || entry.image_url_2 || null;
       if (img && !usedImg.has(img)) {
         usedImg.add(img);
@@ -507,6 +511,7 @@ async function getTrendingCategories(
   };
   const pickFromNames = (candidates: BioSnapItem[]): string | null => {
     for (const candidate of candidates) {
+      if (ACCESSORY_RE.test(candidate.name)) continue;
       const entry = catalog.get(normalizeProductName(candidate.name));
       const img = entry?.image_url || entry?.image_url_2 || null;
       if (img && !usedImg.has(img)) {
