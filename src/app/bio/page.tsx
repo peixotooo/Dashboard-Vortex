@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
-import { ArrowUpRight, Check, ChevronRight, Flame, MessageCircle, Package, ShieldCheck, ShoppingBag, Star, Truck } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { ArrowUpRight, Check, ChevronRight, Crown, Flame, Gift, Heart, Info, Medal, MessageCircle, Package, Percent, ShieldCheck, Shirt, ShoppingBag, Sparkles, Star, Truck } from "lucide-react";
 import { BioTracker } from "@/app/bio/bio-tracker";
 import { BioCountdown } from "@/app/bio/bio-countdown";
 import { resolveBioPageData } from "@/lib/bio/resolve";
@@ -65,27 +66,29 @@ function BlockHeader({ kicker, title, subtitle }: { kicker?: string; title: stri
   );
 }
 
-// --- Hero (acao ativa) — espelha o topbar: oferta explicada + countdown destacado ---
+// --- Hero (acao ativa) — espelha o topbar: countdown no topo + oferta explicada ---
 function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "hero" }> }) {
   const live = block.badge === "Acao ativa";
-  const accent = block.accent_color || "#d92d20";
   const benefits = block.benefits || [];
   return (
     <section data-bio-block={block.id} data-bio-type={block.type}
       className="overflow-hidden rounded-2xl bg-neutral-950 p-5 text-white shadow-[0_18px_40px_-22px_rgba(0,0,0,0.5)]">
-      <span
-        style={live ? { backgroundColor: accent } : undefined}
-        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${live ? "text-white" : "bg-white/10 text-white/85"}`}>
+      {block.countdown_target ? (
+        <div className="mb-4">
+          <BioCountdown target={block.countdown_target} label={block.countdown_label || "Acaba em"} style={block.countdown_style} prominent />
+        </div>
+      ) : null}
+      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em] ${live ? "bg-white/15 text-white" : "bg-white/10 text-white/85"}`}>
         {live ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" /></span> : null}
         {block.badge || "Bulking"}
       </span>
-      <h1 className="mt-4 text-[30px] font-black leading-[0.98] tracking-tight">{block.title}</h1>
+      <h1 className="mt-3 text-[30px] font-black leading-[0.98] tracking-tight">{block.title}</h1>
       {block.subtitle ? <p className="mt-2 line-clamp-2 text-[14px] leading-relaxed text-white/70">{block.subtitle}</p> : null}
       {benefits.length ? (
         <ul className="mt-4 space-y-2">
           {benefits.map((benefit, index) => (
             <li key={`${block.id}-b-${index}`} className="flex items-start gap-2.5 text-[13.5px] leading-snug">
-              <Check className="mt-px h-[17px] w-[17px] shrink-0" style={{ color: accent }} strokeWidth={3} />
+              <Check className="mt-px h-[17px] w-[17px] shrink-0 text-white" strokeWidth={3} />
               <span className="text-white/90">
                 <span className="font-bold text-white">{benefit.title}</span>
                 {benefit.message ? <span className="text-white/55"> · {benefit.message}</span> : null}
@@ -94,14 +97,9 @@ function HeroBlock({ data, block }: { data: BioPageData; block: Extract<BioResol
           ))}
         </ul>
       ) : null}
-      {block.countdown_target ? (
-        <div className="mt-5">
-          <BioCountdown target={block.countdown_target} label={block.countdown_label || "Acaba em"} style={block.countdown_style} prominent />
-        </div>
-      ) : null}
       {block.url ? (
         <a href={getClickHref({ data, block, url: block.url, event: "bio_cta_clicked", campaignId: block.campaign_id })}
-          className="mt-3 flex h-[52px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-[15px] font-black uppercase tracking-tight text-neutral-950 transition active:scale-[0.99] hover:bg-neutral-100">
+          className="mt-5 flex h-[52px] items-center justify-center gap-2 rounded-xl bg-white px-4 text-[15px] font-black uppercase tracking-tight text-neutral-950 transition active:scale-[0.99] hover:bg-neutral-100">
           <ShoppingBag className="h-[18px] w-[18px]" />
           {block.cta_label || "Conferir agora"}
         </a>
@@ -249,11 +247,42 @@ function ReviewsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "rev
   );
 }
 
+// --- Beneficios PDP ("Nossos beneficios") — mesma fonte/itens da PDP ---
+const BENEFIT_ICONS: Record<string, LucideIcon> = {
+  truck: Truck, percent: Percent, medal: Medal, bag: ShoppingBag, star: Star,
+  gift: Gift, heart: Heart, sparkles: Sparkles, crown: Crown, shirt: Shirt, info: Info,
+};
+
+function BenefitsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "benefits" }> }) {
+  return (
+    <section data-bio-block={block.id} data-bio-type={block.type}>
+      <p className="mb-2.5 px-0.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--bio-muted)]">{block.title || "Nossos beneficios"}</p>
+      <div className="flex snap-x gap-2.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {block.items.map((item, index) => {
+          const Icon = BENEFIT_ICONS[item.icon] || Info;
+          return (
+            <div key={`${block.id}-${index}`} className="flex min-w-[68%] snap-start items-center gap-3 rounded-2xl border border-[var(--bio-border)] bg-[var(--bio-card)] p-3.5 shadow-sm sm:min-w-[46%]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-950 text-white">
+                <Icon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-bold leading-tight text-[var(--bio-fg)]">{item.title}</p>
+                {item.link_label ? <p className="mt-0.5 truncate text-[11px] text-[var(--bio-muted)]">{item.link_label}</p> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ResolvedBlock({ data, block }: { data: BioPageData; block: BioResolvedBlock }) {
   if (block.type === "hero") return <HeroBlock data={data} block={block} />;
   if (block.type === "products") return <ProductsBlock data={data} block={block} />;
   if (block.type === "categories") return <CategoriesBlock data={data} block={block} />;
   if (block.type === "reviews") return <ReviewsBlock block={block} />;
+  if (block.type === "benefits") return <BenefitsBlock block={block} />;
   if (block.type === "shipping") return <ShippingBar data={data} block={block} />;
   return <LinkBlock data={data} block={block} />;
 }

@@ -7,7 +7,8 @@ export type BioBlockType =
   | "group"
   | "club"
   | "shipping"
-  | "reviews";
+  | "reviews"
+  | "benefits";
 
 export type BioProductAlgorithm =
   | "bestsellers"
@@ -136,12 +137,24 @@ export interface BioResolvedReviewsBlock extends BioResolvedBlockBase {
   };
 }
 
+export interface BioBenefitItem {
+  icon: string;
+  title: string;
+  link_label?: string;
+}
+
+export interface BioResolvedBenefitsBlock extends BioResolvedBlockBase {
+  type: "benefits";
+  items: BioBenefitItem[];
+}
+
 export type BioResolvedBlock =
   | BioResolvedHeroBlock
   | BioResolvedProductsBlock
   | BioResolvedCategoriesBlock
   | BioResolvedLinkBlock
-  | BioResolvedReviewsBlock;
+  | BioResolvedReviewsBlock
+  | BioResolvedBenefitsBlock;
 
 export interface BioPageData {
   workspaceId: string;
