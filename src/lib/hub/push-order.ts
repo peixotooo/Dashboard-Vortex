@@ -262,8 +262,10 @@ export async function pushOrderToEccosys(
     eccNumero = (result.numero as string) ?? (result.codigo as string) ?? null;
   }
 
-  // Update hub_orders
-  await supabase
+  // Update hub_orders. The Eccosys order already exists at this point, so a
+  // failed write here MUST surface (otherwise the row stays "pending" and the
+  // operator re-imports → duplicate Eccosys order). Check the error explicitly.
+  const { error: updErr } = await supabase
     .from("hub_orders")
     .update({
       ecc_pedido_id: eccPedidoId,
@@ -274,6 +276,11 @@ export async function pushOrderToEccosys(
       updated_at: new Date().toISOString(),
     })
     .eq("id", order.id);
+  if (updErr) {
+    throw new Error(
+      `Pedido criado no Eccosys (id ${eccPedidoId}, nº ${eccNumero}) mas falhou ao gravar no hub: ${updErr.message}. NÃO reimporte — vincule manualmente para evitar pedido duplicado.`
+    );
+  }
 
   // Log
   await supabase.from("hub_logs").insert({
@@ -480,9 +487,11 @@ export async function pushPackToEccosys(
     throw new Error(`Eccosys nao retornou id do pedido: ${JSON.stringify(result).slice(0, 400)}`);
   }
 
-  // Link every order in the pack to the same Eccosys order
+  // Link every order in the pack to the same Eccosys order. As above, the
+  // Eccosys order already exists — a failed write must surface to avoid a
+  // re-import creating a duplicate.
   const now = new Date().toISOString();
-  await supabase
+  const { error: packUpdErr } = await supabase
     .from("hub_orders")
     .update({
       ecc_pedido_id: eccPedidoId,
@@ -493,6 +502,11 @@ export async function pushPackToEccosys(
       updated_at: now,
     })
     .in("id", orders.map((o) => o.id));
+  if (packUpdErr) {
+    throw new Error(
+      `Pack criado no Eccosys (id ${eccPedidoId}, nº ${eccNumero}) mas falhou ao gravar no hub: ${packUpdErr.message}. NÃO reimporte — vincule manualmente para evitar pedido duplicado.`
+    );
+  }
 
   await supabase.from("hub_logs").insert({
     workspace_id: workspaceId,
