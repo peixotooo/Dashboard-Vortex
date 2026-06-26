@@ -11,16 +11,17 @@
 //      plus workspace_id query/header.
 //
 // Query:
-//   period_days=7|14|30|60|90 controls the analyzed period. If the saved
-//   snapshot is from a different period, this endpoint refreshes it first.
+//   period_days=<1..365> controls the analyzed period. If the saved snapshot
+//   is from a different period, this endpoint refreshes it first.
 
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 import {
-  ABC_ALLOWED_PERIODS,
+  ABC_PERIOD_DAYS_MAX,
   ABC_PERIOD_DAYS_DEFAULT,
+  ABC_PERIOD_DAYS_MIN,
   recomputeAbcSnapshot,
 } from "@/lib/financeiro/recompute";
 import { createAdminClient } from "@/lib/supabase-admin";
@@ -166,10 +167,17 @@ function numberParam(value: string | null, fallback: number): number {
 
 function parsePeriodDays(value: string | null): number {
   if (value == null || value.trim() === "") return ABC_PERIOD_DAYS_DEFAULT;
-  const parsed = Number.parseInt(value, 10);
-  if ((ABC_ALLOWED_PERIODS as readonly number[]).includes(parsed)) return parsed;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new AuthError(
+      `Invalid period_days. Use an integer between ${ABC_PERIOD_DAYS_MIN} and ${ABC_PERIOD_DAYS_MAX}.`,
+      400
+    );
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (parsed >= ABC_PERIOD_DAYS_MIN && parsed <= ABC_PERIOD_DAYS_MAX) return parsed;
   throw new AuthError(
-    `Invalid period_days. Use one of: ${ABC_ALLOWED_PERIODS.join(", ")}`,
+    `Invalid period_days. Use an integer between ${ABC_PERIOD_DAYS_MIN} and ${ABC_PERIOD_DAYS_MAX}.`,
     400
   );
 }

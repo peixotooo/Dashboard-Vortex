@@ -25,6 +25,8 @@ import {
 export const ABC_PERIOD_DAYS_DEFAULT = 30;
 export const ABC_ALLOWED_PERIODS = [7, 14, 30, 60, 90] as const;
 export type AbcPeriodDays = (typeof ABC_ALLOWED_PERIODS)[number];
+export const ABC_PERIOD_DAYS_MIN = 1;
+export const ABC_PERIOD_DAYS_MAX = 365;
 
 /** @deprecated use ABC_PERIOD_DAYS_DEFAULT */
 export const ABC_PERIOD_DAYS = ABC_PERIOD_DAYS_DEFAULT;

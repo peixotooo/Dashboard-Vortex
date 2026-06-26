@@ -6,7 +6,7 @@
 // Usado pelo seletor de janela na página /financeiro — trocar 30→90d
 // não deveria forçar re-cálculo de RFM, que é caro.
 //
-// Body / query: period_days = 7|14|30|60|90 (default 30).
+// Body / query: period_days = integer 1..365 (default 30).
 //
 // Carrega crm_vendas paginado (igual o crm-compute faz pra RFM) e
 // passa pra recomputeAbcSnapshot. Best-effort no error path: se algo
@@ -17,8 +17,9 @@ import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   recomputeAbcSnapshot,
-  ABC_ALLOWED_PERIODS,
   ABC_PERIOD_DAYS_DEFAULT,
+  ABC_PERIOD_DAYS_MAX,
+  ABC_PERIOD_DAYS_MIN,
 } from "@/lib/financeiro/recompute";
 import type { CrmVendaRow } from "@/lib/crm-rfm";
 
@@ -42,8 +43,11 @@ function createSupabase(request: NextRequest) {
 }
 
 function parsePeriodDays(value: string | null | undefined): number {
-  const n = parseInt(value ?? "", 10);
-  if (Number.isFinite(n) && (ABC_ALLOWED_PERIODS as readonly number[]).includes(n)) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return ABC_PERIOD_DAYS_DEFAULT;
+  if (!/^\d+$/.test(raw)) return ABC_PERIOD_DAYS_DEFAULT;
+  const n = parseInt(raw, 10);
+  if (Number.isFinite(n) && n >= ABC_PERIOD_DAYS_MIN && n <= ABC_PERIOD_DAYS_MAX) {
     return n;
   }
   return ABC_PERIOD_DAYS_DEFAULT;
