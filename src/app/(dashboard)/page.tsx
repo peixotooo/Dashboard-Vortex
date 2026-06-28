@@ -144,6 +144,47 @@ interface VndaDailyRow {
   revenue: number;
 }
 
+interface CheckoutInsights {
+  configured: boolean;
+  period?: { since: string; until: string };
+  totals: {
+    events: number;
+    checkout_sessions: number;
+    purchased_sessions: number;
+    abandoned_sessions: number;
+    completion_rate: number;
+    abandonment_rate: number;
+  };
+  steps: Array<{
+    step: string;
+    sessions: number;
+    abandon_sessions: number;
+    abandon_rate: number;
+  }>;
+  fields: Array<{
+    field_key: string;
+    touches: number;
+    completions: number;
+    errors: number;
+    last_before_exit: number;
+    error_rate: number;
+  }>;
+  payment_methods: Array<{
+    payment_method: string;
+    selected: number;
+    last_before_exit: number;
+  }>;
+  shipping_methods: Array<{
+    shipping_method: string;
+    selected: number;
+    last_before_exit: number;
+  }>;
+  error_codes: Array<{
+    error_code: string;
+    count: number;
+  }>;
+}
+
 interface FinancialSettings {
   monthly_fixed_costs: number;
   tax_pct: number;
@@ -174,7 +215,7 @@ const FIN_DEFAULTS: FinancialSettings = {
   isDefault: true,
 };
 
-const OVERVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
+const OVERVIEW_CACHE_TTL_MS = 60 * 1000;
 
 interface OverviewCacheEntry {
   savedAt: number;
@@ -209,6 +250,21 @@ function writeOverviewCache(key: string, data: OverviewData) {
   }
 }
 
+async function fetchJsonOr<T>(url: string, fallback: T, init?: RequestInit): Promise<T> {
+  try {
+    const response = await fetch(url, { ...init, cache: "no-store" });
+    const json = await response.json().catch(() => fallback);
+    if (!response.ok) {
+      console.warn("[Overview] HTTP", response.status, url, json);
+      return fallback;
+    }
+    return json as T;
+  } catch (error) {
+    console.warn("[Overview] fetch failed", url, error);
+    return fallback;
+  }
+}
+
 interface OverviewData {
   // Meta
   spend: number;
@@ -234,6 +290,7 @@ interface OverviewData {
   ga4Configured: boolean;
   // VNDA
   vndaConfigured: boolean;
+  storeRevenueSource: string;
   vndaShipping: number;
   vndaDiscount: number;
   // Funnel
@@ -241,6 +298,7 @@ interface OverviewData {
   checkouts: number;
   productViewers: number;
   ga4Transactions: number;
+  checkoutInsights: CheckoutInsights | null;
   // Combined
   trendData: DailyRow[];
   dailyData: DailyRow[];
@@ -252,6 +310,75 @@ interface OverviewData {
   // Financial
   finSettings: FinancialSettings;
 }
+
+type OverviewGa4Response = {
+  configured: boolean;
+  insights: GA4DailyRow[];
+  totals: GA4Totals;
+  googleAds: { totals: GoogleAdsTotals; daily: GoogleAdsDailyRow[] } | null;
+  comparison?: GA4Totals | null;
+  googleAdsComparison?: GoogleAdsTotals | null;
+};
+
+type OverviewVndaResponse = {
+  configured: boolean;
+  insights: VndaDailyRow[];
+  totals: VndaTotals;
+  comparison?: VndaTotals | null;
+  source?: string;
+};
+
+const EMPTY_GA4_RESPONSE: OverviewGa4Response = {
+  configured: false,
+  insights: [],
+  totals: {
+    sessions: 0,
+    users: 0,
+    newUsers: 0,
+    transactions: 0,
+    revenue: 0,
+    pageViews: 0,
+    addToCarts: 0,
+    checkouts: 0,
+    productViewers: 0,
+  },
+  googleAds: null,
+  comparison: null,
+  googleAdsComparison: null,
+};
+
+const EMPTY_VNDA_RESPONSE: OverviewVndaResponse = {
+  configured: false,
+  insights: [],
+  totals: {
+    orders: 0,
+    revenue: 0,
+    subtotal: 0,
+    discount: 0,
+    shipping: 0,
+    avgTicket: 0,
+    productsSold: 0,
+  },
+  comparison: null,
+  source: "none",
+};
+
+const EMPTY_CHECKOUT_INSIGHTS: CheckoutInsights = {
+  configured: false,
+  totals: {
+    events: 0,
+    checkout_sessions: 0,
+    purchased_sessions: 0,
+    abandoned_sessions: 0,
+    completion_rate: 0,
+    abandonment_rate: 0,
+  },
+  steps: [],
+  fields: [],
+  payment_methods: [],
+  shipping_methods: [],
+  error_codes: [],
+};
 
 export default function OverviewPage() {
   const { accountId, accounts } = useAccount();
@@ -280,12 +407,14 @@ export default function OverviewPage() {
     roas: 0,
     ga4Configured: false,
     vndaConfigured: false,
+    storeRevenueSource: "none",
     vndaShipping: 0,
     vndaDiscount: 0,
     addToCarts: 0,
     checkouts: 0,
     productViewers: 0,
     ga4Transactions: 0,
+    checkoutInsights: null,
     trendData: [],
     dailyData: [],
     metaComparison: null,
@@ -348,38 +477,43 @@ export default function OverviewPage() {
           ? `date_preset=custom&since=${customRange.since}&until=${customRange.until}`
           : `date_preset=${datePreset}`;
 
-        // Fetch Meta (per-account) + GA4 + VNDA in parallel
+        // Fetch Meta (per-account) + GA4 + VNDA in parallel. Each source is
+        // isolated so one flaky API does not zero the whole Overview.
         const wsHeaders: Record<string, string> = {};
         if (workspace?.id) wsHeaders["x-workspace-id"] = workspace.id;
 
-        const [insightsResults, ga4Res, vndaRes, finRes] = await Promise.all([
+        const [insightsResults, ga4Data, vndaData, checkoutInsights, finSettings] = await Promise.all([
           // Fetch insights for each account in parallel
           Promise.all(
             accountIds.map((id) =>
-              fetch(
+              fetchJsonOr<{ insights?: Array<Record<string, unknown>>; comparison?: MetaComparison }>(
                 `/api/insights?object_id=${id}&level=account&${dateParams}&include_comparison=true`,
+                { insights: [] },
                 { headers: wsHeaders }
-              ).then((r) => r.json())
+              )
             )
           ),
-          fetch(
+          fetchJsonOr<OverviewGa4Response>(
             `/api/ga4/insights?${dateParams}&include_comparison=true`,
+            EMPTY_GA4_RESPONSE,
             { headers: wsHeaders }
           ),
-          fetch(
+          fetchJsonOr<OverviewVndaResponse>(
             `/api/vnda/insights?${dateParams}&include_comparison=true`,
+            EMPTY_VNDA_RESPONSE,
             { headers: wsHeaders }
           ),
           workspace?.id
-            ? fetch("/api/financial-settings", { headers: wsHeaders })
-            : Promise.resolve(null),
+            ? fetchJsonOr<CheckoutInsights>(
+                `/api/checkout/insights?${dateParams}`,
+                EMPTY_CHECKOUT_INSIGHTS,
+                { headers: wsHeaders }
+              )
+            : Promise.resolve(EMPTY_CHECKOUT_INSIGHTS),
+          workspace?.id
+            ? fetchJsonOr<FinancialSettings>("/api/financial-settings", FIN_DEFAULTS, { headers: wsHeaders })
+            : Promise.resolve(FIN_DEFAULTS),
         ]);
-
-        const ga4Data = await ga4Res.json();
-        const vndaData = await vndaRes.json();
-        const finSettings: FinancialSettings = finRes
-          ? await finRes.json()
-          : FIN_DEFAULTS;
 
         // --- Process & aggregate Meta data across all accounts ---
         interface MetaDailyItem {
@@ -490,13 +624,13 @@ export default function OverviewPage() {
         // --- Process GA4 data ---
         const ga4Configured = ga4Data.configured === true;
         const ga4Insights: GA4DailyRow[] = (ga4Data.insights || []).map(
-          (row: Record<string, unknown>) => ({
-            date: row.date as string,
-            dateRaw: (row.dateRaw as string) || "",
-            sessions: (row.sessions as number) || 0,
-            users: (row.users as number) || 0,
-            transactions: (row.transactions as number) || 0,
-            revenue: (row.revenue as number) || 0,
+          (row) => ({
+            date: row.date,
+            dateRaw: row.dateRaw || "",
+            sessions: row.sessions || 0,
+            users: row.users || 0,
+            transactions: row.transactions || 0,
+            revenue: row.revenue || 0,
           })
         );
         const ga4Totals: GA4Totals = ga4Data.totals || {
@@ -515,23 +649,23 @@ export default function OverviewPage() {
         const gadsConfigured = ga4Data.googleAds != null;
         const gadsTotals: GoogleAdsTotals = ga4Data.googleAds?.totals || { cost: 0, clicks: 0, impressions: 0, cpc: 0, ctr: 0 };
         const gadsDaily: GoogleAdsDailyRow[] = (ga4Data.googleAds?.daily || []).map(
-          (row: Record<string, unknown>) => ({
-            date: row.date as string,
-            dateRaw: (row.dateRaw as string) || "",
-            cost: (row.cost as number) || 0,
-            clicks: (row.clicks as number) || 0,
-            impressions: (row.impressions as number) || 0,
+          (row) => ({
+            date: row.date,
+            dateRaw: row.dateRaw || "",
+            cost: row.cost || 0,
+            clicks: row.clicks || 0,
+            impressions: row.impressions || 0,
           })
         );
 
         // --- Process VNDA data ---
         const vndaConfigured = vndaData.configured === true;
         const vndaInsights: VndaDailyRow[] = (vndaData.insights || []).map(
-          (row: Record<string, unknown>) => ({
-            date: row.date as string,
-            dateRaw: (row.dateRaw as string) || "",
-            orders: (row.orders as number) || 0,
-            revenue: (row.revenue as number) || 0,
+          (row) => ({
+            date: row.date,
+            dateRaw: row.dateRaw || "",
+            orders: row.orders || 0,
+            revenue: row.revenue || 0,
           })
         );
         const vndaTotals: VndaTotals = vndaData.totals || {
@@ -655,12 +789,14 @@ export default function OverviewPage() {
           roas: totalRoas,
           ga4Configured,
           vndaConfigured,
+          storeRevenueSource: vndaData.source || (vndaConfigured ? "vnda" : "none"),
           vndaShipping: vndaTotals.shipping,
           vndaDiscount: vndaTotals.discount,
           addToCarts: ga4Configured ? ga4Totals.addToCarts : 0,
           checkouts: ga4Configured ? ga4Totals.checkouts : 0,
           productViewers: ga4Configured ? ga4Totals.productViewers : 0,
           ga4Transactions: ga4Configured ? ga4Totals.transactions : 0,
+          checkoutInsights: checkoutInsights.configured ? checkoutInsights : null,
           trendData,
           dailyData,
           metaComparison: aggComparison,
@@ -733,7 +869,8 @@ export default function OverviewPage() {
       : undefined;
 
   // Revenue source badge: VNDA > GA4 > Meta
-  const revenueSource = data.vndaConfigured ? "VNDA" : data.ga4Configured ? "GA4" : "Meta";
+  const storeRevenueLabel = data.storeRevenueSource === "crm_vendas" ? "CRM vendas" : "VNDA";
+  const revenueSource = data.vndaConfigured ? storeRevenueLabel : data.ga4Configured ? "GA4" : "Meta";
   const revenueColor = data.vndaConfigured ? "#10b981" : data.ga4Configured ? "#f97316" : "#818cf8";
 
   // Investment badge
@@ -742,7 +879,7 @@ export default function OverviewPage() {
 
   // ROAS badge
   const roasSources = [data.gadsConfigured ? "Meta + Google" : "Meta"];
-  if (data.vndaConfigured) roasSources.push("VNDA");
+  if (data.vndaConfigured) roasSources.push(storeRevenueLabel);
   else if (data.ga4Configured) roasSources.push("GA4");
   const roasBadge = roasSources.join(" / ");
   const pendingReviewsHref =
@@ -972,6 +1109,7 @@ export default function OverviewPage() {
         }}
         ga4Configured={data.ga4Configured}
         vndaConfigured={data.vndaConfigured}
+        checkoutInsights={data.checkoutInsights}
         loading={loading}
       />
 
@@ -1626,6 +1764,7 @@ function FunnelSection({
   previous,
   ga4Configured,
   vndaConfigured,
+  checkoutInsights,
   loading,
 }: {
   workspaceId?: string;
@@ -1655,6 +1794,7 @@ function FunnelSection({
   };
   ga4Configured: boolean;
   vndaConfigured: boolean;
+  checkoutInsights: CheckoutInsights | null;
   loading: boolean;
 }) {
   // Metas editáveis do funil Ideal — persistidas por workspace no navegador.
@@ -2155,6 +2295,8 @@ function FunnelSection({
             </p>
           </div>
         </div>
+
+        <CheckoutFrictionPanel insights={checkoutInsights} />
       </CardContent>
     </Card>
   );
@@ -2227,6 +2369,164 @@ function BenchmarkLine({
         <strong className="font-semibold">{formatFunnelRate(actual)}</strong>
         <span className="ml-2 text-xs text-muted-foreground">ref. {benchmark}</span>
       </span>
+    </div>
+  );
+}
+
+function checkoutLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    cart: "Carrinho",
+    identification: "Cadastro/identificação",
+    shipping: "Frete/entrega",
+    payment: "Pagamento",
+    confirmation: "Confirmação",
+    unknown: "Indefinido",
+    email: "Email",
+    phone: "Telefone",
+    document: "CPF/CNPJ",
+    birthdate: "Data de nascimento",
+    name: "Nome",
+    last_name: "Sobrenome",
+    shipping_zip: "CEP",
+    shipping_address: "Endereço",
+    address_number: "Número",
+    address_complement: "Complemento",
+    neighborhood: "Bairro",
+    city: "Cidade",
+    state: "Estado",
+    coupon: "Cupom",
+    card_number: "Número do cartão",
+    card_cvv: "CVV",
+    card_expiry: "Validade do cartão",
+    card_holder: "Titular do cartão",
+    installments: "Parcelas",
+    field_other: "Outro campo",
+    pix: "Pix",
+    credit_card: "Cartão de crédito",
+    debit_card: "Cartão de débito",
+    boleto: "Boleto",
+    sedex: "Sedex",
+    pac: "PAC",
+    pickup: "Retirada",
+    motoboy: "Motoboy",
+    transportadora: "Transportadora",
+    other: "Outro",
+  };
+  return labels[kind] || kind.replace(/_/g, " ");
+}
+
+function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null }) {
+  const hasData = Boolean(insights && insights.totals.events > 0);
+  const topStep = insights?.steps?.[0];
+  const topFields = insights?.fields?.slice(0, 4) || [];
+  const topPayment = insights?.payment_methods?.[0];
+  const topShipping = insights?.shipping_methods?.[0];
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Checkout pixel
+          </p>
+          <h3 className="mt-1 text-base font-semibold">Abandono por etapa e campo</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Eventos sem PII: campos normalizados, etapa, erro, frete e método de pagamento.
+          </p>
+        </div>
+        <Badge variant="outline">
+          {hasData
+            ? `${formatNumber(insights!.totals.checkout_sessions)} sessões`
+            : "aguardando eventos"}
+        </Badge>
+      </div>
+
+      {!hasData ? (
+        <div className="mt-4 rounded-md border border-dashed bg-background/50 p-4 text-sm text-muted-foreground">
+          O pixel já fica pronto para medir quando o script carregar no checkout.
+          Após as primeiras sessões, este bloco mostra onde as pessoas travam:
+          frete, cadastro, Pix, cartão ou campo específico.
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-4">
+          <div className="rounded-md border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Abandono checkout</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">
+              {insights!.totals.abandonment_rate.toFixed(1)}%
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatNumber(insights!.totals.abandoned_sessions)} de{" "}
+              {formatNumber(insights!.totals.checkout_sessions)} sessões
+            </p>
+          </div>
+
+          <div className="rounded-md border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Maior saída</p>
+            <p className="mt-1 text-lg font-semibold">
+              {topStep ? checkoutLabel(topStep.step) : "Sem etapa"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {topStep
+                ? `${formatNumber(topStep.abandon_sessions)} saídas · ${topStep.abandon_rate.toFixed(1)}%`
+                : "sem volume suficiente"}
+            </p>
+          </div>
+
+          <div className="rounded-md border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Pagamento associado</p>
+            <p className="mt-1 text-lg font-semibold">
+              {topPayment ? checkoutLabel(topPayment.payment_method) : "Sem dado"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {topPayment
+                ? `${formatNumber(topPayment.last_before_exit)} saídas após seleção`
+                : "ainda não selecionado"}
+            </p>
+          </div>
+
+          <div className="rounded-md border bg-background/60 p-3">
+            <p className="text-xs text-muted-foreground">Frete associado</p>
+            <p className="mt-1 text-lg font-semibold">
+              {topShipping ? checkoutLabel(topShipping.shipping_method) : "Sem dado"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {topShipping
+                ? `${formatNumber(topShipping.last_before_exit)} saídas após seleção`
+                : "ainda não selecionado"}
+            </p>
+          </div>
+
+          <div className="lg:col-span-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Campos mais críticos
+            </p>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+              {topFields.length > 0 ? (
+                topFields.map((field) => (
+                  <div key={field.field_key} className="rounded-md border bg-background/60 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-semibold">
+                        {checkoutLabel(field.field_key)}
+                      </p>
+                      <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
+                        {field.error_rate.toFixed(0)}% erro
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatNumber(field.errors)} erros ·{" "}
+                      {formatNumber(field.last_before_exit)} saídas
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
+                  Sem erros/campos críticos ainda.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

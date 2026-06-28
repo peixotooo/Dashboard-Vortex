@@ -3664,6 +3664,566 @@
   }
 
   // =====================================================================
+  // CHECKOUT MICRO-FUNNEL PIXEL
+  //
+  // Records checkout friction without PII. We never send field values,
+  // CPF/email/phone/card numbers, or free-form error text. The dashboard
+  // receives only normalized step/field/method/error categories.
+  // =====================================================================
+
+  var CHECKOUT_TRACKER_VERSION = "2026-06-27.1";
+
+  function initCheckoutPixel() {
+    if (!API_BASE || !API_KEY || window.__vtxCheckoutPixelStarted) return;
+    if (!isCheckoutLikePath()) return;
+    window.__vtxCheckoutPixelStarted = true;
+
+    var startedAt = Date.now();
+    var lastSentAt = {};
+    var state = {
+      completed: isCheckoutConfirmationPath(),
+      lastStep: detectCheckoutStep(),
+      lastFieldKey: null,
+      paymentMethod: null,
+      shippingMethod: null,
+      touched: {},
+      completedFields: {},
+      errors: {},
+    };
+
+    function eventKey(eventType, data) {
+      return [
+        eventType,
+        data && data.step || "",
+        data && data.field_key || "",
+        data && data.payment_method || "",
+        data && data.shipping_method || "",
+        data && data.error_code || ""
+      ].join("|");
+    }
+
+    function sendCheckoutEvent(eventType, data, opts) {
+      data = data || {};
+      opts = opts || {};
+      if (!eventType) return;
+
+      var key = eventKey(eventType, data);
+      var now = Date.now();
+      var wait = opts.throttleMs == null ? 1200 : opts.throttleMs;
+      if (wait > 0 && lastSentAt[key] && now - lastSentAt[key] < wait) return;
+      lastSentAt[key] = now;
+
+      var meta = data.metadata || {};
+      meta.tracker_version = CHECKOUT_TRACKER_VERSION;
+      meta.device = window.innerWidth < 768 ? "mobile" : "desktop";
+      meta.viewport_width = window.innerWidth || 0;
+      meta.viewport_height = window.innerHeight || 0;
+
+      var payload = JSON.stringify({
+        key: API_KEY,
+        session_id: sessionId,
+        consumer_id: consumerId || "",
+        event_type: eventType,
+        step: normalizeCheckoutStep(data.step || state.lastStep || detectCheckoutStep()),
+        field_key: normalizeCheckoutToken(data.field_key),
+        field_group: normalizeCheckoutToken(data.field_group),
+        payment_method: normalizeCheckoutToken(data.payment_method || state.paymentMethod),
+        shipping_method: normalizeCheckoutToken(data.shipping_method || state.shippingMethod),
+        error_code: normalizeCheckoutToken(data.error_code),
+        path: window.location.pathname || "",
+        occurred_at: new Date().toISOString(),
+        metadata: sanitizeCheckoutMetadata(meta),
+      });
+
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(
+          API_BASE + "/api/checkout-events",
+          new Blob([payload], { type: "application/json" })
+        );
+      } else {
+        fetch(API_BASE + "/api/checkout-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(function () {});
+      }
+    }
+
+    function emitStepIfChanged(force) {
+      var step = detectCheckoutStep();
+      if (!step) step = "unknown";
+      if (!force && step === state.lastStep) return;
+      state.lastStep = step;
+      sendCheckoutEvent("checkout_step_viewed", { step: step }, { throttleMs: force ? 0 : 2500 });
+    }
+
+    function bindField(el) {
+      if (!el || el.__vtxCheckoutBound) return;
+      if (!isTrackableCheckoutField(el)) return;
+      el.__vtxCheckoutBound = true;
+
+      var info = fieldInfo(el);
+      if (!info.key) return;
+
+      el.addEventListener("focus", function () {
+        info = fieldInfo(el);
+        if (!info.key) return;
+        state.lastFieldKey = info.key;
+        state.touched[info.key] = 1;
+        sendCheckoutEvent("checkout_field_started", {
+          step: detectCheckoutStep(),
+          field_key: info.key,
+          field_group: info.group,
+        });
+      }, true);
+
+      var complete = function () {
+        info = fieldInfo(el);
+        if (!info.key || !fieldHasSafeCompletion(el)) return;
+        state.lastFieldKey = info.key;
+        state.completedFields[info.key] = 1;
+        sendCheckoutEvent("checkout_field_completed", {
+          step: detectCheckoutStep(),
+          field_key: info.key,
+          field_group: info.group,
+        }, { throttleMs: 3000 });
+      };
+
+      var error = function () {
+        info = fieldInfo(el);
+        if (!info.key) return;
+        if (!fieldLooksInvalid(el)) return;
+        state.lastFieldKey = info.key;
+        state.errors[info.key] = 1;
+        sendCheckoutEvent("checkout_field_error", {
+          step: detectCheckoutStep(),
+          field_key: info.key,
+          field_group: info.group,
+          error_code: classifyCheckoutError(info.key, nearbyErrorText(el)),
+        }, { throttleMs: 2500 });
+      };
+
+      el.addEventListener("blur", function () {
+        complete();
+        error();
+      }, true);
+      el.addEventListener("change", function () {
+        complete();
+        error();
+      }, true);
+      el.addEventListener("invalid", error, true);
+    }
+
+    function bindOption(el) {
+      if (!el || el.__vtxCheckoutOptionBound) return;
+      el.__vtxCheckoutOptionBound = true;
+      el.addEventListener("click", function () {
+        var txt = elementText(el);
+        var payment = classifyPaymentMethod(txt);
+        var shipping = classifyShippingMethod(txt);
+        if (payment) {
+          state.paymentMethod = payment;
+          sendCheckoutEvent("checkout_payment_method_selected", {
+            step: "payment",
+            payment_method: payment,
+          });
+        }
+        if (shipping) {
+          state.shippingMethod = shipping;
+          sendCheckoutEvent("checkout_shipping_selected", {
+            step: "shipping",
+            shipping_method: shipping,
+          });
+        }
+      }, true);
+    }
+
+    function bindSubmit(el) {
+      if (!el || el.__vtxCheckoutSubmitBound) return;
+      el.__vtxCheckoutSubmitBound = true;
+      el.addEventListener("click", function () {
+        var txt = elementText(el);
+        var payment = classifyPaymentMethod(txt);
+        if (payment) state.paymentMethod = payment;
+        if (/frete|entrega|envio|shipping/i.test(txt)) {
+          sendCheckoutEvent("checkout_shipping_calculated", {
+            step: "shipping",
+          }, { throttleMs: 2500 });
+          return;
+        }
+        if (/finalizar|pagar|comprar|concluir|place order|payment|checkout/i.test(txt)) {
+          sendCheckoutEvent("checkout_payment_attempted", {
+            step: detectCheckoutStep(),
+            payment_method: state.paymentMethod,
+          }, { throttleMs: 2500 });
+        }
+      }, true);
+    }
+
+    function scanCheckoutDom() {
+      if (!isCheckoutLikePath()) return;
+      emitStepIfChanged(false);
+
+      var fields = document.querySelectorAll("input, select, textarea");
+      for (var i = 0; i < fields.length; i++) bindField(fields[i]);
+
+      var options = document.querySelectorAll(
+        "label, button, [role='button'], [role='radio'], .shipping-option, .payment-option, [data-payment-method], [data-shipping-method]"
+      );
+      for (var j = 0; j < options.length; j++) bindOption(options[j]);
+
+      var buttons = document.querySelectorAll("button, input[type='submit'], a[href]");
+      for (var k = 0; k < buttons.length; k++) bindSubmit(buttons[k]);
+
+      detectVisibleErrors();
+    }
+
+    function detectVisibleErrors() {
+      var nodes = document.querySelectorAll(
+        ".error, .errors, .field-error, .invalid-feedback, .form-error, .alert-danger, [role='alert'], [aria-invalid='true']"
+      );
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        var target = nearestInputForError(node);
+        var info = target ? fieldInfo(target) : { key: state.lastFieldKey, group: null };
+        if (!info.key) continue;
+        state.errors[info.key] = 1;
+        sendCheckoutEvent("checkout_field_error", {
+          step: detectCheckoutStep(),
+          field_key: info.key,
+          field_group: info.group,
+          error_code: classifyCheckoutError(info.key, elementText(node)),
+        }, { throttleMs: 5000 });
+      }
+    }
+
+    function sendAbandonSnapshot() {
+      if (state.completed || isCheckoutConfirmationPath()) return;
+      sendCheckoutEvent("checkout_abandon_snapshot", {
+        step: detectCheckoutStep(),
+        field_key: state.lastFieldKey,
+        payment_method: state.paymentMethod,
+        shipping_method: state.shippingMethod,
+        metadata: {
+          fields_touched_count: objectSize(state.touched),
+          fields_completed_count: objectSize(state.completedFields),
+          errors_count: objectSize(state.errors),
+          last_field_key: state.lastFieldKey || "",
+          last_step: state.lastStep || "unknown",
+          elapsed_ms: Date.now() - startedAt,
+        },
+      }, { throttleMs: 0 });
+    }
+
+    patchCheckoutHistory(emitStepIfChanged);
+    sendCheckoutEvent("checkout_started", {
+      step: state.lastStep,
+    }, { throttleMs: 0 });
+    emitStepIfChanged(true);
+
+    if (isCheckoutConfirmationPath()) {
+      state.completed = true;
+      sendCheckoutEvent("checkout_purchase_completed", {
+        step: "confirmation",
+      }, { throttleMs: 0 });
+    }
+
+    scanCheckoutDom();
+    try {
+      var mo = new MutationObserver(function () {
+        clearTimeout(window.__vtxCheckoutScanTimer);
+        window.__vtxCheckoutScanTimer = setTimeout(scanCheckoutDom, 350);
+      });
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "aria-invalid"] });
+    } catch (e) {}
+
+    window.addEventListener("pagehide", sendAbandonSnapshot);
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) sendAbandonSnapshot();
+    });
+    setInterval(function () {
+      if (isCheckoutConfirmationPath() && !state.completed) {
+        state.completed = true;
+        sendCheckoutEvent("checkout_purchase_completed", { step: "confirmation" }, { throttleMs: 0 });
+      }
+      scanCheckoutDom();
+    }, 2500);
+  }
+
+  function isCheckoutLikePath() {
+    var path = (window.location.pathname || "").toLowerCase();
+    return path.indexOf("/checkout") !== -1 || path.indexOf("/pedido/") !== -1;
+  }
+
+  function isCheckoutConfirmationPath() {
+    var path = (window.location.pathname || "").toLowerCase();
+    return path.indexOf("/checkout/confirmation") !== -1 || path.indexOf("/pedido/") !== -1;
+  }
+
+  function normalizeCheckoutStep(step) {
+    step = normalizeCheckoutToken(step) || "unknown";
+    if (step === "delivery" || step === "frete" || step === "envio") return "shipping";
+    if (step === "address" || step === "cadastro" || step === "login") return "identification";
+    if (step === "pagamento") return "payment";
+    if (step === "confirmacao" || step === "pedido") return "confirmation";
+    if (/^(cart|identification|shipping|payment|confirmation|unknown)$/.test(step)) return step;
+    return "unknown";
+  }
+
+  function detectCheckoutStep() {
+    var path = ((window.location.pathname || "") + " " + (window.location.hash || "")).toLowerCase();
+    if (/confirmation|confirmacao|pedido\//.test(path)) return "confirmation";
+    if (/pagamento|payment|cartao|card|pix|boleto/.test(path)) return "payment";
+    if (/entrega|frete|envio|shipping|delivery|cep/.test(path)) return "shipping";
+    if (/identificacao|identification|login|cadastro|email|address|endereco/.test(path)) return "identification";
+    if (/carrinho|cart/.test(path)) return "cart";
+
+    var text = "";
+    try {
+      var nodes = document.querySelectorAll("h1,h2,h3,.active,[aria-current='step'],.checkout-step,.step,.breadcrumb");
+      for (var i = 0; i < nodes.length && text.length < 1200; i++) {
+        text += " " + elementText(nodes[i]);
+      }
+    } catch (e) {}
+    text = text.toLowerCase();
+    if (/pagamento|payment|cartao|cartão|pix|boleto/.test(text)) return "payment";
+    if (/entrega|frete|envio|shipping|delivery|cep/.test(text)) return "shipping";
+    if (/identificacao|identificação|login|cadastro|email|endereco|endereço/.test(text)) return "identification";
+    if (/carrinho|cart/.test(text)) return "cart";
+    return "unknown";
+  }
+
+  function normalizeCheckoutToken(value) {
+    if (!value || typeof value !== "string") return null;
+    var token = value
+      .toLowerCase()
+      .replace(/[áàãâä]/g, "a")
+      .replace(/[éèêë]/g, "e")
+      .replace(/[íìîï]/g, "i")
+      .replace(/[óòõôö]/g, "o")
+      .replace(/[úùûü]/g, "u")
+      .replace(/[ç]/g, "c")
+      .replace(/[^a-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 80);
+    return token || null;
+  }
+
+  function sanitizeCheckoutMetadata(meta) {
+    var out = {};
+    var allow = {
+      tracker_version: 1,
+      device: 1,
+      viewport_width: 1,
+      viewport_height: 1,
+      fields_touched_count: 1,
+      fields_completed_count: 1,
+      errors_count: 1,
+      last_field_key: 1,
+      last_step: 1,
+      has_coupon: 1,
+      cart_value_bucket: 1,
+      elapsed_ms: 1,
+    };
+    for (var k in meta) {
+      if (!Object.prototype.hasOwnProperty.call(meta, k) || !allow[k]) continue;
+      var v = meta[k];
+      if (typeof v === "boolean") out[k] = v;
+      else if (typeof v === "number" && isFinite(v)) out[k] = Math.max(0, Math.min(1000000, Math.round(v)));
+      else if (typeof v === "string") {
+        var token = normalizeCheckoutToken(v);
+        if (token) out[k] = token;
+      }
+    }
+    return out;
+  }
+
+  function isTrackableCheckoutField(el) {
+    if (!el || !el.tagName) return false;
+    var type = String(el.getAttribute("type") || "").toLowerCase();
+    if (/^(hidden|password|file|image|reset|submit|button)$/.test(type)) return false;
+    return true;
+  }
+
+  function fieldInfo(el) {
+    var raw = [
+      el.getAttribute("autocomplete") || "",
+      el.getAttribute("name") || "",
+      el.getAttribute("id") || "",
+      el.getAttribute("placeholder") || "",
+      labelText(el),
+    ].join(" ").toLowerCase();
+
+    raw = raw
+      .replace(/[áàãâä]/g, "a")
+      .replace(/[éèêë]/g, "e")
+      .replace(/[íìîï]/g, "i")
+      .replace(/[óòõôö]/g, "o")
+      .replace(/[úùûü]/g, "u")
+      .replace(/[ç]/g, "c");
+
+    if (/email|e-mail/.test(raw)) return { key: "email", group: "contact" };
+    if (/phone|telefone|celular|whatsapp|tel\b/.test(raw)) return { key: "phone", group: "contact" };
+    if (/cpf|cnpj|document|documento|taxvat|vat/.test(raw)) return { key: "document", group: "contact" };
+    if (/birth|nascimento|birthday/.test(raw)) return { key: "birthdate", group: "contact" };
+    if (/first.*name|nome/.test(raw)) return { key: "name", group: "contact" };
+    if (/last.*name|sobrenome/.test(raw)) return { key: "last_name", group: "contact" };
+    if (/cep|zip|postal/.test(raw)) return { key: "shipping_zip", group: "shipping" };
+    if (/address|endereco|logradouro|street|rua/.test(raw)) return { key: "shipping_address", group: "address" };
+    if (/numero|number/.test(raw) && !/card|cartao|cartão|cvv|cvc/.test(raw)) return { key: "address_number", group: "address" };
+    if (/complement|complemento/.test(raw)) return { key: "address_complement", group: "address" };
+    if (/bairro|neighborhood|district/.test(raw)) return { key: "neighborhood", group: "address" };
+    if (/cidade|city/.test(raw)) return { key: "city", group: "address" };
+    if (/estado|state|uf/.test(raw)) return { key: "state", group: "address" };
+    if (/coupon|cupom|discount|desconto/.test(raw)) return { key: "coupon", group: "coupon" };
+    if (/card.*number|numero.*cart|cartao|cartão|credit.*number/.test(raw)) return { key: "card_number", group: "payment" };
+    if (/cvv|cvc|security.*code|codigo.*seguranca|seguranca/.test(raw)) return { key: "card_cvv", group: "payment" };
+    if (/expiry|expire|validade|vencimento|expiration/.test(raw)) return { key: "card_expiry", group: "payment" };
+    if (/holder|titular|name.*card|nome.*cart/.test(raw)) return { key: "card_holder", group: "payment" };
+    if (/installment|parcel|parcela/.test(raw)) return { key: "installments", group: "payment" };
+    return { key: "field_other", group: "other" };
+  }
+
+  function fieldHasSafeCompletion(el) {
+    if (!el) return false;
+    var tag = (el.tagName || "").toLowerCase();
+    if (tag === "select") return !!el.value;
+    var type = String(el.getAttribute("type") || "").toLowerCase();
+    if (type === "checkbox" || type === "radio") return !!el.checked;
+    return String(el.value || "").trim().length > 0;
+  }
+
+  function fieldLooksInvalid(el) {
+    if (!el) return false;
+    if (el.getAttribute("aria-invalid") === "true") return true;
+    if (/\berror\b|\binvalid\b/.test(el.className || "")) return true;
+    try {
+      if (typeof el.matches === "function" && el.matches(":invalid") && String(el.value || "").trim().length > 0) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function classifyCheckoutError(fieldKey, text) {
+    text = String(text || "").toLowerCase()
+      .replace(/[áàãâä]/g, "a")
+      .replace(/[éèêë]/g, "e")
+      .replace(/[íìîï]/g, "i")
+      .replace(/[óòõôö]/g, "o")
+      .replace(/[úùûü]/g, "u")
+      .replace(/[ç]/g, "c");
+    if (/obrigatorio|required|preencha|informe/.test(text)) return "required";
+    if (/email/.test(text) || fieldKey === "email") return "invalid_email";
+    if (/cpf|cnpj|document/.test(text) || fieldKey === "document") return "invalid_document";
+    if (/telefone|phone|celular/.test(text) || fieldKey === "phone") return "invalid_phone";
+    if (/cep|zip|postal/.test(text) || fieldKey === "shipping_zip") return "invalid_zip";
+    if (/cupom|coupon|desconto/.test(text) || fieldKey === "coupon") return "invalid_coupon";
+    if (/cartao|cartão|card|cvv|cvc|validade/.test(text) || /^card_/.test(fieldKey || "")) return "invalid_card";
+    if (/pagamento|payment|recusad|declined|autoriz/.test(text)) return "payment_failed";
+    if (/frete|entrega|shipping|indisponivel|nao disponivel/.test(text)) return "shipping_unavailable";
+    return "unknown";
+  }
+
+  function classifyPaymentMethod(text) {
+    text = String(text || "").toLowerCase();
+    if (/pix/.test(text)) return "pix";
+    if (/boleto/.test(text)) return "boleto";
+    if (/debito|debit/.test(text)) return "debit_card";
+    if (/cartao|cartão|credito|credit|card/.test(text)) return "credit_card";
+    return null;
+  }
+
+  function classifyShippingMethod(text) {
+    text = String(text || "").toLowerCase();
+    if (/sedex/.test(text)) return "sedex";
+    if (/\bpac\b/.test(text)) return "pac";
+    if (/retirada|pickup|loja/.test(text)) return "pickup";
+    if (/motoboy|moto/.test(text)) return "motoboy";
+    if (/transportadora|carrier/.test(text)) return "transportadora";
+    if (/frete|entrega|envio|shipping/.test(text)) return "other";
+    return null;
+  }
+
+  function elementText(el) {
+    if (!el) return "";
+    var value = "";
+    try {
+      value = (
+        el.getAttribute("aria-label") ||
+        el.getAttribute("data-payment-method") ||
+        el.getAttribute("data-shipping-method") ||
+        el.value ||
+        el.textContent ||
+        ""
+      );
+    } catch (e) {}
+    return String(value).replace(/\s+/g, " ").trim().slice(0, 240);
+  }
+
+  function labelText(el) {
+    try {
+      if (el.id) {
+        var label = document.querySelector("label[for='" + cssEscapeSafe(el.id) + "']");
+        if (label) return elementText(label);
+      }
+      var parent = el.closest && el.closest("label");
+      if (parent) return elementText(parent);
+      var wrap = el.closest && el.closest(".field, .form-group, .input, .control, .checkout-field");
+      if (wrap) return elementText(wrap).slice(0, 160);
+    } catch (e) {}
+    return "";
+  }
+
+  function nearbyErrorText(el) {
+    try {
+      var wrap = el.closest && el.closest(".field, .form-group, .input, .control, .checkout-field, .row, div");
+      if (!wrap) return "";
+      var node = wrap.querySelector(".error, .field-error, .invalid-feedback, .form-error, [role='alert']");
+      return node ? elementText(node) : "";
+    } catch (e) {}
+    return "";
+  }
+
+  function nearestInputForError(node) {
+    try {
+      var wrap = node.closest && node.closest(".field, .form-group, .input, .control, .checkout-field, .row, div");
+      if (!wrap) return null;
+      return wrap.querySelector("input, select, textarea");
+    } catch (e) {}
+    return null;
+  }
+
+  function cssEscapeSafe(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/'/g, "\\'");
+  }
+
+  function objectSize(obj) {
+    var n = 0;
+    for (var k in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) n++;
+    }
+    return n;
+  }
+
+  function patchCheckoutHistory(onChange) {
+    if (window.__vtxCheckoutHistoryPatched || !window.history) return;
+    window.__vtxCheckoutHistoryPatched = true;
+    ["pushState", "replaceState"].forEach(function (name) {
+      var original = history[name];
+      if (typeof original !== "function") return;
+      history[name] = function () {
+        var ret = original.apply(this, arguments);
+        setTimeout(function () { onChange(false); }, 50);
+        return ret;
+      };
+    });
+    window.addEventListener("popstate", function () {
+      setTimeout(function () { onChange(false); }, 50);
+    });
+  }
+
+  // =====================================================================
   // META CAPI MODULE - Server-side event forwarding for BK COM pixel
   //
   // Strategy: CAPI-only (no browser pixel injection).
@@ -5829,6 +6389,7 @@
       initGiftBar();
       initPromoTags();
       initCAPI();
+      initCheckoutPixel();
       initTopbar();
       initGiftRequest();
       initReviews();
@@ -5840,6 +6401,7 @@
     initGiftBar();
     initPromoTags();
     initCAPI();
+    initCheckoutPixel();
     initTopbar();
     initGiftRequest();
     initReviews();
