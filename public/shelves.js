@@ -3671,7 +3671,7 @@
   // receives only normalized step/field/method/error categories.
   // =====================================================================
 
-  var CHECKOUT_TRACKER_VERSION = "2026-06-27.1";
+  var CHECKOUT_TRACKER_VERSION = "2026-06-27.2";
 
   function initCheckoutPixel() {
     if (!API_BASE || !API_KEY || window.__vtxCheckoutPixelStarted) return;
@@ -3680,6 +3680,8 @@
 
     var startedAt = Date.now();
     var lastSentAt = {};
+    var lastAbandonSignature = "";
+    var lastAbandonAt = 0;
     var state = {
       completed: isCheckoutConfirmationPath(),
       lastStep: detectCheckoutStep(),
@@ -3689,6 +3691,9 @@
       touched: {},
       completedFields: {},
       errors: {},
+      sentFieldErrors: {},
+      sentPaymentMethods: {},
+      sentShippingMethods: {},
     };
 
     function eventKey(eventType, data) {
@@ -3770,6 +3775,7 @@
         info = fieldInfo(el);
         if (!info.key) return;
         state.lastFieldKey = info.key;
+        if (state.touched[info.key]) return;
         state.touched[info.key] = 1;
         sendCheckoutEvent("checkout_field_started", {
           step: detectCheckoutStep(),
@@ -3781,6 +3787,7 @@
       var complete = function () {
         info = fieldInfo(el);
         if (!info.key || !fieldHasSafeCompletion(el)) return;
+        if (state.completedFields[info.key]) return;
         state.lastFieldKey = info.key;
         state.completedFields[info.key] = 1;
         sendCheckoutEvent("checkout_field_completed", {
@@ -3794,13 +3801,17 @@
         info = fieldInfo(el);
         if (!info.key) return;
         if (!fieldLooksInvalid(el)) return;
+        var errorCode = classifyCheckoutError(info.key, nearbyErrorText(el));
+        var errorKey = info.key + "|" + errorCode;
+        if (state.sentFieldErrors[errorKey]) return;
         state.lastFieldKey = info.key;
         state.errors[info.key] = 1;
+        state.sentFieldErrors[errorKey] = 1;
         sendCheckoutEvent("checkout_field_error", {
           step: detectCheckoutStep(),
           field_key: info.key,
           field_group: info.group,
-          error_code: classifyCheckoutError(info.key, nearbyErrorText(el)),
+          error_code: errorCode,
         }, { throttleMs: 2500 });
       };
 
@@ -3824,17 +3835,23 @@
         var shipping = classifyShippingMethod(txt);
         if (payment) {
           state.paymentMethod = payment;
-          sendCheckoutEvent("checkout_payment_method_selected", {
-            step: "payment",
-            payment_method: payment,
-          });
+          if (!state.sentPaymentMethods[payment]) {
+            state.sentPaymentMethods[payment] = 1;
+            sendCheckoutEvent("checkout_payment_method_selected", {
+              step: "payment",
+              payment_method: payment,
+            });
+          }
         }
         if (shipping) {
           state.shippingMethod = shipping;
-          sendCheckoutEvent("checkout_shipping_selected", {
-            step: "shipping",
-            shipping_method: shipping,
-          });
+          if (!state.sentShippingMethods[shipping]) {
+            state.sentShippingMethods[shipping] = 1;
+            sendCheckoutEvent("checkout_shipping_selected", {
+              step: "shipping",
+              shipping_method: shipping,
+            });
+          }
         }
       }, true);
     }
@@ -3888,20 +3905,38 @@
         var target = nearestInputForError(node);
         var info = target ? fieldInfo(target) : { key: state.lastFieldKey, group: null };
         if (!info.key) continue;
+        var errorCode = classifyCheckoutError(info.key, elementText(node));
+        var errorKey = info.key + "|" + errorCode;
+        if (state.sentFieldErrors[errorKey]) continue;
         state.errors[info.key] = 1;
+        state.sentFieldErrors[errorKey] = 1;
         sendCheckoutEvent("checkout_field_error", {
           step: detectCheckoutStep(),
           field_key: info.key,
           field_group: info.group,
-          error_code: classifyCheckoutError(info.key, elementText(node)),
+          error_code: errorCode,
         }, { throttleMs: 5000 });
       }
     }
 
     function sendAbandonSnapshot() {
       if (state.completed || isCheckoutConfirmationPath()) return;
+      var step = detectCheckoutStep();
+      var now = Date.now();
+      var signature = [
+        step,
+        state.lastFieldKey || "",
+        state.paymentMethod || "",
+        state.shippingMethod || "",
+        objectSize(state.touched),
+        objectSize(state.completedFields),
+        objectSize(state.errors)
+      ].join("|");
+      if (signature === lastAbandonSignature && now - lastAbandonAt < 60000) return;
+      lastAbandonSignature = signature;
+      lastAbandonAt = now;
       sendCheckoutEvent("checkout_abandon_snapshot", {
-        step: detectCheckoutStep(),
+        step: step,
         field_key: state.lastFieldKey,
         payment_method: state.paymentMethod,
         shipping_method: state.shippingMethod,
@@ -3911,9 +3946,9 @@
           errors_count: objectSize(state.errors),
           last_field_key: state.lastFieldKey || "",
           last_step: state.lastStep || "unknown",
-          elapsed_ms: Date.now() - startedAt,
+          elapsed_ms: now - startedAt,
         },
-      }, { throttleMs: 0 });
+      }, { throttleMs: 15000 });
     }
 
     patchCheckoutHistory(emitStepIfChanged);
