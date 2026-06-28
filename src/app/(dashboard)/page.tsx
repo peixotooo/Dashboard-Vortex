@@ -2509,11 +2509,11 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
                         {checkoutLabel(field.field_key)}
                       </p>
                       <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
-                        {field.error_rate.toFixed(0)}% erro
+                        {field.error_rate.toFixed(0)}% c/ erro
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {formatNumber(field.errors)} erros ·{" "}
+                      {formatNumber(field.errors)} sessões c/ erro ·{" "}
                       {formatNumber(field.last_before_exit)} saídas
                     </p>
                   </div>

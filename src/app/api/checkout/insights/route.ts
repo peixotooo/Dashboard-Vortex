@@ -145,13 +145,14 @@ function summarizeRollups(
       const touches = fieldTouches.get(key) || 0;
       const errors = fieldErrors.get(key) || 0;
       const exits = fieldExit.get(key) || 0;
+      const denominator = Math.max(touches, errors);
       return {
         field_key: key,
         touches,
         completions: fieldCompletions.get(key) || 0,
         errors,
         last_before_exit: exits,
-        error_rate: pct(errors, touches),
+        error_rate: pct(errors, denominator),
       };
     })
     .sort(
@@ -373,13 +374,14 @@ export async function GET(request: NextRequest) {
       const touches = fieldTouches.get(key) || 0;
       const errors = fieldErrors.get(key) || 0;
       const exits = fieldExit.get(key) || 0;
+      const denominator = Math.max(touches, errors);
       return {
         field_key: key,
         touches,
         completions: fieldCompletions.get(key) || 0,
         errors,
         last_before_exit: exits,
-        error_rate: pct(errors, touches),
+        error_rate: pct(errors, denominator),
       };
     }).sort((a, b) =>
       b.last_before_exit - a.last_before_exit ||
