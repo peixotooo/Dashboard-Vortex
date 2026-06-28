@@ -2041,18 +2041,22 @@ function FunnelSection({
   const cmPreAdsPct = Math.max(0, 100 - variableCostPct);
   const periodFixedCost = finSettings.monthly_fixed_costs * (Math.max(1, periodDays) / 30.4375);
   const fixedCostPct = revenue > 0 ? (periodFixedCost / revenue) * 100 : 0;
-  const adsRoomPct = cmPreAdsPct - fixedCostPct;
-  const merBreakeven = adsRoomPct > 0 ? 100 / adsRoomPct : null;
-  const merHealthyRoomPct = adsRoomPct - Math.max(0, finSettings.safety_margin_pct);
+  const mediaRoomPct = cmPreAdsPct;
+  const businessRoomPct = cmPreAdsPct - fixedCostPct;
+  const merMarketingFloor = mediaRoomPct > 0 ? 100 / mediaRoomPct : null;
+  const merBusinessBreakeven = businessRoomPct > 0 ? 100 / businessRoomPct : null;
+  const merHealthyRoomPct = businessRoomPct - Math.max(0, finSettings.safety_margin_pct);
   const merHealthy = merHealthyRoomPct > 0 ? 100 / merHealthyRoomPct : null;
   const merStatus =
     currentMer == null
       ? "sem mídia"
       : merHealthy != null && currentMer >= merHealthy
         ? "saudável"
-        : merBreakeven != null && currentMer >= merBreakeven
-          ? "breakeven"
-          : "abaixo";
+        : merBusinessBreakeven != null && currentMer >= merBusinessBreakeven
+          ? "breakeven geral"
+          : merMarketingFloor != null && currentMer >= merMarketingFloor
+            ? "margem ok"
+            : "abaixo margem";
 
   const pixelCheckoutSessions = checkoutInsights?.totals.checkout_sessions ?? 0;
   const pixelPurchases = checkoutInsights?.totals.purchased_sessions ?? 0;
@@ -2265,12 +2269,35 @@ function FunnelSection({
               })}
             </div>
 
-            {/* Rodapé: resultado real + meta + MER financeiro */}
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-3 lg:grid-cols-6">
-              <FunnelSummaryTile tone="violet" label="MER atual" value={currentMer != null ? `${currentMer.toFixed(2)}x` : "—"} />
+            {/* Rodapé: MER blended + pisos financeiros separados */}
+            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
               <FunnelSummaryTile
                 tone="violet"
-                label="Faturado"
+                label="MER atual"
+                value={currentMer != null ? `${currentMer.toFixed(2)}x` : "—"}
+                title="Marketing Efficiency Ratio: receita total / investimento total em marketing no período."
+              />
+              <FunnelSummaryTile
+                tone="gray"
+                label="MER mín. mídia"
+                value={merMarketingFloor != null ? `${merMarketingFloor.toFixed(2)}x` : "—"}
+                title="Piso de mídia sem custo fixo: considera CMV, frete, descontos, impostos e outras despesas variáveis."
+              />
+              <FunnelSummaryTile
+                tone="gray"
+                label="MER breakeven"
+                value={merBusinessBreakeven != null ? `${merBusinessBreakeven.toFixed(2)}x` : "—"}
+                title="Breakeven geral: inclui custo fixo proporcional ao período."
+              />
+              <FunnelSummaryTile
+                tone={merStatus === "saudável" ? "teal" : "gray"}
+                label="MER saudável"
+                value={merHealthy != null ? `${merHealthy.toFixed(2)}x` : merStatus}
+                title="Breakeven geral acrescido da margem de segurança configurada."
+              />
+              <FunnelSummaryTile
+                tone="violet"
+                label="Receita"
                 value={revenue > 0 ? formatCurrency(revenue) : "—"}
               />
               <FunnelSummaryTile
@@ -2282,16 +2309,6 @@ function FunnelSection({
                 tone="gray"
                 label="Receita meta"
                 value={idealRevenue > 0 ? formatCurrency(idealRevenue) : "—"}
-              />
-              <FunnelSummaryTile
-                tone="gray"
-                label="MER mínimo"
-                value={merBreakeven != null ? `${merBreakeven.toFixed(2)}x` : "—"}
-              />
-              <FunnelSummaryTile
-                tone={merStatus === "saudável" ? "teal" : "gray"}
-                label="MER saudável"
-                value={merHealthy != null ? `${merHealthy.toFixed(2)}x` : merStatus}
               />
             </div>
           </div>
@@ -2410,10 +2427,12 @@ function FunnelSummaryTile({
   tone,
   label,
   value,
+  title,
 }: {
   tone: "violet" | "teal" | "gray";
   label: string;
   value: string;
+  title?: string;
 }) {
   const toneClass =
     tone === "violet"
@@ -2423,7 +2442,7 @@ function FunnelSummaryTile({
         : "border bg-muted text-foreground";
   const labelClass = tone === "gray" ? "text-muted-foreground" : "text-white/80";
   return (
-    <div className={`min-w-0 rounded-md px-2.5 py-2 ${toneClass}`}>
+    <div className={`min-w-0 rounded-md px-2.5 py-2 ${toneClass}`} title={title}>
       <p className={`truncate text-[10px] font-medium uppercase tracking-wide ${labelClass}`}>{label}</p>
       <p className="truncate text-sm font-bold leading-tight tabular-nums">{value}</p>
     </div>
