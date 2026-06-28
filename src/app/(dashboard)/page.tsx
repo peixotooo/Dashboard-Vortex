@@ -853,7 +853,7 @@ export default function OverviewPage() {
   const prevGadsCost = gadsc?.cost ?? 0;
   const prevTotalInvestment = prevMetaSpend + prevGadsCost;
 
-  // Previous period ROAS (uses total investment)
+  // Previous period MER (uses total investment)
   const prevRoas =
     prevTotalInvestment > 0 && prevRevenue !== undefined ? prevRevenue / prevTotalInvestment : undefined;
   // Previous period ticket médio
@@ -877,15 +877,17 @@ export default function OverviewPage() {
   const investBadge = data.gadsConfigured ? "Meta + Google" : "Meta";
   const investColor = data.gadsConfigured ? "#8b5cf6" : "#818cf8";
 
-  // ROAS badge
-  const roasSources = [data.gadsConfigured ? "Meta + Google" : "Meta"];
-  if (data.vndaConfigured) roasSources.push(storeRevenueLabel);
-  else if (data.ga4Configured) roasSources.push("GA4");
-  const roasBadge = roasSources.join(" / ");
+  // MER badge (antes exibido como ROAS): receita real/fonte de pedidos ÷ investimento total.
+  const merSources = [data.gadsConfigured ? "Meta + Google" : "Meta"];
+  if (data.vndaConfigured) merSources.push(storeRevenueLabel);
+  else if (data.ga4Configured) merSources.push("GA4");
+  const merBadge = merSources.join(" / ");
   const pendingReviewsHref =
     pendingReviews && pendingReviews.product <= 0 && pendingReviews.store > 0
       ? "/reviews?tab=store&status=pending"
       : "/reviews?tab=moderation&status=pending";
+  const selectedRange = datePresetToTimeRange(datePreset, customRange);
+  const selectedPeriodDays = inclusiveDateDays(selectedRange.since, selectedRange.until);
 
   return (
     <div className="space-y-6">
@@ -949,13 +951,13 @@ export default function OverviewPage() {
         />
         <div className="relative group">
           <KpiCard
-            title="ROAS"
+            title="MER"
             value={`${data.roas.toFixed(2)}x`}
             change={calcChange(data.roas, prevRoas)}
             icon={Target}
             iconColor="text-purple-400"
             loading={loading}
-            badge={roasBadge}
+            badge={merBadge}
             badgeColor="#8b5cf6"
           />
           <Link
@@ -1094,7 +1096,6 @@ export default function OverviewPage() {
         pedidos={data.pedidos}
         revenue={data.revenue}
         ticketMedio={data.ticketMedio}
-        roas={data.roas}
         investment={data.totalInvestment}
         previous={{
           users: gc?.users ?? 0,
@@ -1110,6 +1111,8 @@ export default function OverviewPage() {
         ga4Configured={data.ga4Configured}
         vndaConfigured={data.vndaConfigured}
         checkoutInsights={data.checkoutInsights}
+        finSettings={data.finSettings}
+        periodDays={selectedPeriodDays}
         loading={loading}
       />
 
@@ -1151,7 +1154,7 @@ export default function OverviewPage() {
           ...(data.gadsConfigured ? [{ key: "googleAdsCost", label: "Invest. Google", format: "currency" as const, align: "right" as const }] : []),
           { key: "totalSpend", label: "Invest. Total", format: "currency", align: "right" },
           { key: "revenue", label: "Receita", format: "currency", align: "right" },
-          { key: "roas", label: "ROAS", format: "text", align: "right" },
+          { key: "roas", label: "MER", format: "text", align: "right" },
         ]}
         data={data.dailyData.map((row) => ({
           ...row,
@@ -1587,6 +1590,13 @@ function safeRate(value: number, base: number): number | null {
   return (value / base) * 100;
 }
 
+function inclusiveDateDays(since: string, until: string): number {
+  const start = new Date(`${since}T00:00:00.000Z`).getTime();
+  const end = new Date(`${until}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 30;
+  return Math.max(1, Math.round((end - start) / 86400000) + 1);
+}
+
 function formatFunnelRate(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(1)}%`;
@@ -1596,6 +1606,11 @@ function formatPointDelta(current: number | null, previous: number | null): stri
   if (current == null || previous == null) return "sem comparativo";
   const delta = current - previous;
   return `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} p.p.`;
+}
+
+function formatSignedFunnelRate(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "sem base";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
 function benchmarkTone(rate: number | null, benchmark: number) {
@@ -1684,9 +1699,9 @@ function targetGap(value: number, target: number): number {
 }
 
 const FUNNEL_TARGET_DEFAULTS = {
-  produtos: 60,
-  carrinho: 12,
-  checkout: 45,
+  produtos: 55,
+  carrinho: 10,
+  checkout: 40,
   finalizados: 70,
   faturados: 90,
 };
@@ -1698,7 +1713,7 @@ function clampPct(value: number): number {
 }
 
 // Input de meta (%) com rascunho local: permite limpar/digitar decimais sem
-// "pular para 0", commita o número válido na hora (recalcula o Ideal) e
+// "pular para 0", commita o número válido na hora (recalcula a meta) e
 // reverte para o último valor ao sair se o campo ficar vazio.
 function TargetInput({
   value,
@@ -1759,12 +1774,13 @@ function FunnelSection({
   pedidos,
   revenue,
   ticketMedio,
-  roas,
   investment,
   previous,
   ga4Configured,
   vndaConfigured,
   checkoutInsights,
+  finSettings,
+  periodDays,
   loading,
 }: {
   workspaceId?: string;
@@ -1779,7 +1795,6 @@ function FunnelSection({
   pedidos: number;
   revenue: number;
   ticketMedio: number;
-  roas: number;
   investment: number;
   previous: {
     users: number;
@@ -1795,10 +1810,12 @@ function FunnelSection({
   ga4Configured: boolean;
   vndaConfigured: boolean;
   checkoutInsights: CheckoutInsights | null;
+  finSettings: FinancialSettings;
+  periodDays: number;
   loading: boolean;
 }) {
-  // Metas editáveis do funil Ideal — persistidas por workspace no navegador.
-  const storageKey = `funnel-targets:${workspaceId || "default"}`;
+  // Metas editáveis do funil — versionadas para a régua realista BR (CVR ~1,4%).
+  const storageKey = `funnel-targets-realistic-v2:${workspaceId || "default"}`;
   const [targets, setTargets] = useState<Record<FunnelTargetKey, number>>(() => ({
     ...FUNNEL_TARGET_DEFAULTS,
   }));
@@ -1867,6 +1884,7 @@ function FunnelSection({
   const ordersToFashionExcellentBrazil = targetGap(pedidos, targetOrdersExcellentBrazil);
   const effectiveTicket = ticketMedio || (pedidos > 0 ? revenue / pedidos : 0);
   const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
+  const currentMer = investment > 0 ? revenue / investment : null;
 
   const diagnosticCandidates = [
     {
@@ -1899,8 +1917,8 @@ function FunnelSection({
   const cvrTone = conversionTone(siteConversionRate);
   const cartAbandonTone = abandonmentTone(cartAbandonmentRate);
 
-  // --- Funil duplo (Realizado vs Ideal) ---
-  // O Ideal cascateia a partir das metas (%) de cada transição.
+  // --- Funil duplo (Realizado vs Meta) ---
+  // A meta cascateia a partir de percentuais editáveis e nasce em CVR ~1,4%.
   const idealUsuarios = visitorBase;
   const idealProdutos = idealUsuarios * (targets.produtos / 100);
   const idealCarrinho = idealProdutos * (targets.carrinho / 100);
@@ -2008,10 +2026,44 @@ function FunnelSection({
     },
   ];
 
-  // Projeção do Ideal: receita e ROAS se o funil bater as metas.
+  // Projeção da meta: receita se o funil bater as taxas editáveis.
   const idealOrdersForRevenue = faturados != null ? idealFaturados : idealFinalizados;
   const idealRevenue = idealOrdersForRevenue * effectiveTicket;
-  const idealRoas = investment > 0 ? idealRevenue / investment : null;
+  const targetSiteConversionRate = safeRate(idealOrdersForRevenue, sessions);
+
+  const variableCostPct =
+    finSettings.product_cost_pct +
+    finSettings.frete_pct +
+    finSettings.desconto_pct +
+    finSettings.tax_pct +
+    finSettings.other_expenses_pct;
+  const cmPreAdsPct = Math.max(0, 100 - variableCostPct);
+  const periodFixedCost = finSettings.monthly_fixed_costs * (Math.max(1, periodDays) / 30.4375);
+  const fixedCostPct = revenue > 0 ? (periodFixedCost / revenue) * 100 : 0;
+  const adsRoomPct = cmPreAdsPct - fixedCostPct;
+  const merBreakeven = adsRoomPct > 0 ? 100 / adsRoomPct : null;
+  const merHealthyRoomPct = adsRoomPct - Math.max(0, finSettings.safety_margin_pct);
+  const merHealthy = merHealthyRoomPct > 0 ? 100 / merHealthyRoomPct : null;
+  const merStatus =
+    currentMer == null
+      ? "sem mídia"
+      : merHealthy != null && currentMer >= merHealthy
+        ? "saudável"
+        : merBreakeven != null && currentMer >= merBreakeven
+          ? "breakeven"
+          : "abaixo";
+
+  const pixelCheckoutSessions = checkoutInsights?.totals.checkout_sessions ?? 0;
+  const pixelPurchases = checkoutInsights?.totals.purchased_sessions ?? 0;
+  const pixelCompletionRate = checkoutInsights?.totals.completion_rate ?? null;
+  const ga4VsPixelCheckoutGap =
+    checkouts > 0 && pixelCheckoutSessions > 0
+      ? ((pixelCheckoutSessions - checkouts) / Math.max(checkouts, pixelCheckoutSessions)) * 100
+      : null;
+  const ordersVsPixelPurchaseGap =
+    pedidos > 0 && pixelPurchases > 0
+      ? ((pixelPurchases - pedidos) / Math.max(pedidos, pixelPurchases)) * 100
+      : null;
 
   const gridCols = "grid grid-cols-[1.1fr_4.25rem_4.25rem_1.1fr_5.5rem] gap-2";
 
@@ -2023,12 +2075,15 @@ function FunnelSection({
             <CardTitle className="text-base">Funil de conversões</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               <span className="font-semibold text-violet-600 dark:text-violet-400">Realizado</span> vs{" "}
-              <span className="font-semibold text-zinc-500 dark:text-zinc-400">Ideal</span> — ajuste as metas (%) por etapa; ficam salvas neste navegador.
+              <span className="font-semibold text-zinc-500 dark:text-zinc-400">Meta</span> — régua inicial realista para moda BR, ajustável por etapa.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
               Brasil CVR bom {FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente {FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%
+            </Badge>
+            <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              Meta atual {formatFunnelRate(targetSiteConversionRate)}
             </Badge>
             <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
               Abandono mercado {FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–{FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%
@@ -2072,13 +2127,13 @@ function FunnelSection({
           />
         </div>
 
-        {/* Funil duplo: Realizado (roxo) vs Ideal (cinza) com conversões no meio */}
+        {/* Funil duplo: Realizado (roxo) vs Meta (cinza) com conversões no meio */}
         <div className="overflow-x-auto">
           <div className="min-w-[680px]">
             <div className={`${gridCols} px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider`}>
               <span className="text-right text-violet-600 dark:text-violet-400">Realizado</span>
               <span className="col-span-2 text-center text-muted-foreground">Conversão</span>
-              <span className="text-left text-zinc-500 dark:text-zinc-400">Ideal</span>
+              <span className="text-left text-zinc-500 dark:text-zinc-400">Meta</span>
               <span className="text-center leading-tight text-muted-foreground">Ajuste manual (%)</span>
             </div>
 
@@ -2155,7 +2210,7 @@ function FunnelSection({
                       )}
                     </div>
 
-                    {/* Conversão ideal/meta (âmbar) */}
+                    {/* Conversão meta (âmbar) */}
                     <div className="flex items-center justify-center">
                       {row.rateLabel && (
                         <div className="flex w-full flex-col items-center justify-center rounded-md bg-amber-100 px-1 py-1.5 text-center dark:bg-amber-900/40">
@@ -2169,7 +2224,7 @@ function FunnelSection({
                       )}
                     </div>
 
-                    {/* Ideal (cinza) + quanto falta para a meta */}
+                    {/* Meta (cinza) + quanto falta para bater */}
                     <div className="flex min-w-0 flex-col items-start gap-0.5">
                       <div
                         className="flex flex-col items-start rounded-md bg-zinc-200 px-3 py-1.5 text-left text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100"
@@ -2209,9 +2264,9 @@ function FunnelSection({
               })}
             </div>
 
-            {/* Rodapé: ROAS / Faturado / TKM (realizado) + projeção ideal */}
-            <div className="mt-3 grid grid-cols-5 gap-2 border-t pt-3">
-              <FunnelSummaryTile tone="violet" label="ROAS" value={roas > 0 ? `${roas.toFixed(2)}x` : "—"} />
+            {/* Rodapé: resultado real + meta + MER financeiro */}
+            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-3 lg:grid-cols-6">
+              <FunnelSummaryTile tone="violet" label="MER atual" value={currentMer != null ? `${currentMer.toFixed(2)}x` : "—"} />
               <FunnelSummaryTile
                 tone="violet"
                 label="Faturado"
@@ -2224,13 +2279,18 @@ function FunnelSection({
               />
               <FunnelSummaryTile
                 tone="gray"
-                label="Faturado ideal"
+                label="Receita meta"
                 value={idealRevenue > 0 ? formatCurrency(idealRevenue) : "—"}
               />
               <FunnelSummaryTile
                 tone="gray"
-                label="ROAS ideal"
-                value={idealRoas != null ? `${idealRoas.toFixed(2)}x` : "—"}
+                label="MER mínimo"
+                value={merBreakeven != null ? `${merBreakeven.toFixed(2)}x` : "—"}
+              />
+              <FunnelSummaryTile
+                tone={merStatus === "saudável" ? "teal" : "gray"}
+                label="MER saudável"
+                value={merHealthy != null ? `${merHealthy.toFixed(2)}x` : merStatus}
               />
             </div>
           </div>
@@ -2293,6 +2353,49 @@ function FunnelSection({
             <p className="mt-3 text-xs text-muted-foreground">
               Projeção usa o ticket médio atual e não considera ruptura de estoque ou mix de canal.
             </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-muted/20 p-4">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Validação do funil</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                GA4 mede topo/meio, o pixel audita checkout e a loja valida pedidos/faturamento.
+              </p>
+            </div>
+            <Badge variant="outline" className={merStatus === "saudável" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-border bg-background text-muted-foreground"}>
+              MER {merStatus}
+            </Badge>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-md border bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Checkout GA4 × pixel</p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {formatNumber(checkouts)} × {formatNumber(pixelCheckoutSessions)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                diferença {formatSignedFunnelRate(ga4VsPixelCheckoutGap)}
+              </p>
+            </div>
+            <div className="rounded-md border bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Pedido loja × pixel</p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {formatNumber(pedidos)} × {formatNumber(pixelPurchases)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                diferença {formatSignedFunnelRate(ordersVsPixelPurchaseGap)}
+              </p>
+            </div>
+            <div className="rounded-md border bg-background/60 p-3">
+              <p className="text-xs text-muted-foreground">Conclusão checkout</p>
+              <p className="mt-1 text-xl font-bold tabular-nums">
+                {formatFunnelRate(pixelCompletionRate)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                pixel independente do GA4 para detectar fricção
+              </p>
+            </div>
           </div>
         </div>
 
@@ -2531,7 +2634,7 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
   );
 }
 
-// --- ROAS Bar Chart ---
+// --- MER Bar Chart ---
 
 function RoasChart({
   data,
@@ -2546,7 +2649,7 @@ function RoasChart({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">ROAS Diário</CardTitle>
+          <CardTitle className="text-base">MER Diário</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] animate-pulse rounded bg-muted" />
@@ -2558,7 +2661,7 @@ function RoasChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">ROAS Diário</CardTitle>
+        <CardTitle className="text-base">MER Diário</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-[300px]">
@@ -2586,13 +2689,13 @@ function RoasChart({
                 contentStyle={chart.tooltipStyle}
                 formatter={(value) => [
                   `${Number(value ?? 0).toFixed(2)}x`,
-                  "ROAS",
+                  "MER",
                 ]}
               />
               <Legend />
               <Bar
                 dataKey="roas"
-                name="ROAS"
+                name="MER"
                 fill="#8b5cf6"
                 radius={[4, 4, 0, 0]}
               />
