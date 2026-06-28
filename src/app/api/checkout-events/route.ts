@@ -106,6 +106,8 @@ const SAFE_META_KEYS = new Set([
   "elapsed_ms",
 ]);
 
+const MAX_BATCH_EVENTS = 50;
+
 function safeToken(value: unknown, max = 80): string | null {
   if (typeof value !== "string") return null;
   const normalized = value
@@ -160,6 +162,85 @@ function safeMetadata(value: unknown): Record<string, unknown> {
   return out;
 }
 
+function safeOccurredAt(value: unknown): string {
+  return typeof value === "string" && Number.isFinite(new Date(value).getTime())
+    ? new Date(value).toISOString()
+    : new Date().toISOString();
+}
+
+function buildCheckoutEventRow(
+  raw: unknown,
+  body: Record<string, unknown>,
+  workspaceId: string
+): { row?: Record<string, unknown>; error?: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { error: "Invalid event payload" };
+  }
+
+  const event = raw as Record<string, unknown>;
+  const sessionId =
+    typeof event.session_id === "string"
+      ? event.session_id
+      : typeof body.session_id === "string"
+        ? body.session_id
+        : "";
+
+  if (
+    !sessionId ||
+    sessionId.length > 128 ||
+    !/^[a-zA-Z0-9_-]+$/.test(sessionId)
+  ) {
+    return { error: "Invalid session_id" };
+  }
+
+  const eventType = safeToken(event.event_type);
+  if (!eventType || !VALID_EVENT_TYPES.has(eventType)) {
+    return { error: "Invalid event_type" };
+  }
+
+  const step = safeToken(event.step);
+  const fieldKey = safeToken(event.field_key);
+  const fieldGroup = safeToken(event.field_group);
+  const paymentMethod = safeToken(event.payment_method);
+  const shippingMethod = safeToken(event.shipping_method);
+  const errorCode = safeToken(event.error_code);
+  const consumerId =
+    event.consumer_id != null
+      ? safeToken(event.consumer_id, 128)
+      : safeToken(body.consumer_id, 128);
+
+  return {
+    row: {
+      workspace_id: workspaceId,
+      session_id: sessionId,
+      consumer_id: consumerId,
+      event_type: eventType,
+      step: step && VALID_STEPS.has(step) ? step : "unknown",
+      field_key: fieldKey && VALID_FIELD_KEYS.has(fieldKey) ? fieldKey : null,
+      field_group:
+        fieldGroup && VALID_FIELD_GROUPS.has(fieldGroup) ? fieldGroup : null,
+      payment_method:
+        paymentMethod && VALID_PAYMENT_METHODS.has(paymentMethod)
+          ? paymentMethod
+          : null,
+      shipping_method:
+        shippingMethod && VALID_SHIPPING_METHODS.has(shippingMethod)
+          ? shippingMethod
+          : null,
+      error_code:
+        errorCode && VALID_ERROR_CODES.has(errorCode) ? errorCode : null,
+      path: safePath(event.path),
+      metadata: {
+        ...safeMetadata(event.metadata),
+        ...(safeBool(event.debug) === true || safeBool(body.debug) === true
+          ? { debug: true }
+          : {}),
+      },
+      occurred_at: safeOccurredAt(event.occurred_at),
+    },
+  };
+}
+
 export async function POST(request: NextRequest) {
   const CORS_HEADERS = buildCorsHeaders(request);
   let body: Record<string, unknown>;
@@ -182,69 +263,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sessionId = typeof body.session_id === "string" ? body.session_id : "";
-  if (
-    !sessionId ||
-    sessionId.length > 128 ||
-    !/^[a-zA-Z0-9_-]+$/.test(sessionId)
-  ) {
+  const eventPayloads = Array.isArray(body.events) ? body.events : [body];
+  if (eventPayloads.length === 0) {
     return NextResponse.json(
-      { error: "Invalid session_id" },
+      { error: "No events" },
+      { status: 400, headers: CORS_HEADERS }
+    );
+  }
+  if (eventPayloads.length > MAX_BATCH_EVENTS) {
+    return NextResponse.json(
+      { error: `Too many events. Max ${MAX_BATCH_EVENTS}` },
       { status: 400, headers: CORS_HEADERS }
     );
   }
 
-  const eventType = safeToken(body.event_type);
-  if (!eventType || !VALID_EVENT_TYPES.has(eventType)) {
-    return NextResponse.json(
-      { error: "Invalid event_type" },
-      { status: 400, headers: CORS_HEADERS }
-    );
+  const rows: Record<string, unknown>[] = [];
+  for (const eventPayload of eventPayloads) {
+    const built = buildCheckoutEventRow(eventPayload, body, auth.workspaceId);
+    if (built.error || !built.row) {
+      return NextResponse.json(
+        { error: built.error || "Invalid event" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    rows.push(built.row);
   }
-
-  const step = safeToken(body.step);
-  const fieldKey = safeToken(body.field_key);
-  const fieldGroup = safeToken(body.field_group);
-  const paymentMethod = safeToken(body.payment_method);
-  const shippingMethod = safeToken(body.shipping_method);
-  const errorCode = safeToken(body.error_code);
-  const occurredAt =
-    typeof body.occurred_at === "string" &&
-    Number.isFinite(new Date(body.occurred_at).getTime())
-      ? new Date(body.occurred_at).toISOString()
-      : new Date().toISOString();
 
   const admin = createAdminClient();
 
   try {
-    await admin.from("checkout_events").insert({
-      workspace_id: auth.workspaceId,
-      session_id: sessionId,
-      consumer_id: safeToken(body.consumer_id, 128),
-      event_type: eventType,
-      step: step && VALID_STEPS.has(step) ? step : "unknown",
-      field_key: fieldKey && VALID_FIELD_KEYS.has(fieldKey) ? fieldKey : null,
-      field_group:
-        fieldGroup && VALID_FIELD_GROUPS.has(fieldGroup) ? fieldGroup : null,
-      payment_method:
-        paymentMethod && VALID_PAYMENT_METHODS.has(paymentMethod)
-          ? paymentMethod
-          : null,
-      shipping_method:
-        shippingMethod && VALID_SHIPPING_METHODS.has(shippingMethod)
-          ? shippingMethod
-          : null,
-      error_code:
-        errorCode && VALID_ERROR_CODES.has(errorCode) ? errorCode : null,
-      path: safePath(body.path),
-      metadata: {
-        ...safeMetadata(body.metadata),
-        ...(safeBool(body.debug) === true ? { debug: true } : {}),
-      },
-      occurred_at: occurredAt,
-    });
+    await admin.from("checkout_events").insert(rows);
 
-    return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
+    return NextResponse.json(
+      { ok: true, inserted: rows.length },
+      { headers: CORS_HEADERS }
+    );
   } catch (error) {
     console.error("[Checkout Events]", error);
     return NextResponse.json(

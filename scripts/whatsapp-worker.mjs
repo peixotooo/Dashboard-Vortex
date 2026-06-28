@@ -126,6 +126,13 @@ const maintenanceJobs = [
     running: false,
   },
   {
+    name: "checkout-funnel-aggregate",
+    path: "/api/cron/checkout-funnel-aggregate",
+    intervalMs: numberEnv("WA_WORKER_CHECKOUT_FUNNEL_INTERVAL_MS", 5 * 60 * 1000),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
     name: "wapi-group-sender",
     path: "/api/cron/wapi-group-sender",
     intervalMs: numberEnv("WA_WORKER_WAPI_GROUP_INTERVAL_MS", 5 * 60 * 1000),

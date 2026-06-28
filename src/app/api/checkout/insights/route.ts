@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  loadCheckoutSessionRollups,
+  type CheckoutSessionRollupRow,
+} from "@/lib/checkout/rollups";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { datePresetToTimeRange } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
@@ -56,6 +60,138 @@ function topEntries(map: Map<string, number>, limit = 10) {
     .map(([key, count]) => ({ key, count }));
 }
 
+function jsonCountEntries(value: Record<string, number> | null | undefined) {
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).filter((entry): entry is [string, number] => {
+    return Boolean(entry[0]) && typeof entry[1] === "number" && Number.isFinite(entry[1]);
+  });
+}
+
+function summarizeRollups(
+  rollups: CheckoutSessionRollupRow[],
+  period: { since: string; until: string }
+) {
+  const fieldTouches = new Map<string, number>();
+  const fieldCompletions = new Map<string, number>();
+  const fieldErrors = new Map<string, number>();
+  const fieldExit = new Map<string, number>();
+  const stepSessions = new Map<string, number>();
+  const stepExit = new Map<string, number>();
+  const paymentSelected = new Map<string, number>();
+  const paymentExit = new Map<string, number>();
+  const shippingSelected = new Map<string, number>();
+  const shippingExit = new Map<string, number>();
+  const errorCodes = new Map<string, number>();
+
+  let events = 0;
+  let purchasedSessions = 0;
+
+  for (const rollup of rollups) {
+    events += rollup.event_count || 0;
+    if (rollup.purchased) purchasedSessions++;
+
+    for (const [step] of jsonCountEntries(rollup.steps_seen)) {
+      addCount(stepSessions, step);
+    }
+    for (const [field, count] of jsonCountEntries(rollup.fields_touched)) {
+      addCount(fieldTouches, field, count);
+    }
+    for (const [field, count] of jsonCountEntries(rollup.fields_completed)) {
+      addCount(fieldCompletions, field, count);
+    }
+    for (const [field, count] of jsonCountEntries(rollup.fields_errored)) {
+      addCount(fieldErrors, field, count);
+    }
+    for (const [code, count] of jsonCountEntries(rollup.error_codes)) {
+      addCount(errorCodes, code, count);
+    }
+    if (rollup.payment_method) addCount(paymentSelected, rollup.payment_method);
+    if (rollup.shipping_method) addCount(shippingSelected, rollup.shipping_method);
+
+    if (!rollup.purchased) {
+      addCount(stepExit, rollup.last_step || "unknown");
+      addCount(fieldExit, rollup.last_field_key);
+      addCount(paymentExit, rollup.payment_method);
+      addCount(shippingExit, rollup.shipping_method);
+    }
+  }
+
+  const checkoutSessions = rollups.length;
+  const abandonedSessions = Math.max(0, checkoutSessions - purchasedSessions);
+  const steps = [...stepSessions.entries()]
+    .map(([step, sessionsCount]) => {
+      const exits = stepExit.get(step) || 0;
+      return {
+        step,
+        sessions: sessionsCount,
+        abandon_sessions: exits,
+        abandon_rate: pct(exits, sessionsCount),
+      };
+    })
+    .sort((a, b) => b.abandon_sessions - a.abandon_sessions);
+
+  const fields = topEntries(
+    new Map(
+      [...new Set([...fieldTouches.keys(), ...fieldErrors.keys(), ...fieldExit.keys()])].map(
+        (field) => [
+          field,
+          fieldTouches.get(field) || fieldErrors.get(field) || fieldExit.get(field) || 0,
+        ]
+      )
+    ),
+    12
+  )
+    .map(({ key }) => {
+      const touches = fieldTouches.get(key) || 0;
+      const errors = fieldErrors.get(key) || 0;
+      const exits = fieldExit.get(key) || 0;
+      return {
+        field_key: key,
+        touches,
+        completions: fieldCompletions.get(key) || 0,
+        errors,
+        last_before_exit: exits,
+        error_rate: pct(errors, touches),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.last_before_exit - a.last_before_exit ||
+        b.errors - a.errors ||
+        b.touches - a.touches
+    );
+
+  return {
+    configured: true,
+    source: "rollup",
+    period,
+    totals: {
+      events,
+      checkout_sessions: checkoutSessions,
+      purchased_sessions: purchasedSessions,
+      abandoned_sessions: abandonedSessions,
+      completion_rate: pct(purchasedSessions, checkoutSessions),
+      abandonment_rate: pct(abandonedSessions, checkoutSessions),
+    },
+    steps,
+    fields,
+    payment_methods: topEntries(paymentSelected, 8).map((entry) => ({
+      payment_method: entry.key,
+      selected: entry.count,
+      last_before_exit: paymentExit.get(entry.key) || 0,
+    })),
+    shipping_methods: topEntries(shippingSelected, 8).map((entry) => ({
+      shipping_method: entry.key,
+      selected: entry.count,
+      last_before_exit: shippingExit.get(entry.key) || 0,
+    })),
+    error_codes: topEntries(errorCodes, 8).map((entry) => ({
+      error_code: entry.key,
+      count: entry.count,
+    })),
+  };
+}
+
 async function loadEvents(
   admin: SupabaseClient,
   workspaceId: string,
@@ -98,6 +234,27 @@ export async function GET(request: NextRequest) {
     const period = datePresetToTimeRange(datePreset, customRange);
     const sinceIso = toBrtIsoStart(period.since);
     const untilIso = toBrtIsoEnd(period.until);
+
+    const rollups = await loadCheckoutSessionRollups(
+      admin,
+      auth.workspaceId,
+      sinceIso,
+      untilIso
+    ).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("checkout_session_rollups") ||
+        message.includes("schema cache")
+      ) {
+        console.warn("[Checkout Insights] rollups unavailable, falling back to raw events");
+        return [] as CheckoutSessionRollupRow[];
+      }
+      throw error;
+    });
+
+    if (rollups.length > 0) {
+      return NextResponse.json(summarizeRollups(rollups, period));
+    }
 
     const events = await loadEvents(admin, auth.workspaceId, sinceIso, untilIso);
     const sessions = new Map<string, SessionState>();

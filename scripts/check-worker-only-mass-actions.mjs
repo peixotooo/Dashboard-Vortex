@@ -136,6 +136,7 @@ if (fs.existsSync(vercelConfigPath)) {
     "/api/cron/cart-recovery",
     "/api/cron/cart-recovery-import",
     "/api/cron/cashback-tick",
+    "/api/cron/checkout-funnel-aggregate",
     "/api/cron/coupon-attribution",
     "/api/cron/coupon-jobs",
     "/api/cron/coupon-refresh",

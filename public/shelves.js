@@ -3671,7 +3671,9 @@
   // receives only normalized step/field/method/error categories.
   // =====================================================================
 
-  var CHECKOUT_TRACKER_VERSION = "2026-06-27.2";
+  var CHECKOUT_TRACKER_VERSION = "2026-06-27.3";
+  var CHECKOUT_BATCH_MAX = 12;
+  var CHECKOUT_BATCH_FLUSH_MS = 4000;
 
   function initCheckoutPixel() {
     if (!API_BASE || !API_KEY || window.__vtxCheckoutPixelStarted) return;
@@ -3682,6 +3684,8 @@
     var lastSentAt = {};
     var lastAbandonSignature = "";
     var lastAbandonAt = 0;
+    var eventQueue = [];
+    var flushTimer = null;
     var state = {
       completed: isCheckoutConfirmationPath(),
       lastStep: detectCheckoutStep(),
@@ -3707,6 +3711,84 @@
       ].join("|");
     }
 
+    function buildCheckoutPayloadEvent(eventType, data) {
+      var meta = data.metadata || {};
+      meta.tracker_version = CHECKOUT_TRACKER_VERSION;
+      meta.device = window.innerWidth < 768 ? "mobile" : "desktop";
+      meta.viewport_width = window.innerWidth || 0;
+      meta.viewport_height = window.innerHeight || 0;
+
+      return {
+        event_type: eventType,
+        step: normalizeCheckoutStep(data.step || state.lastStep || detectCheckoutStep()),
+        field_key: normalizeCheckoutToken(data.field_key),
+        field_group: normalizeCheckoutToken(data.field_group),
+        payment_method: normalizeCheckoutToken(data.payment_method || state.paymentMethod),
+        shipping_method: normalizeCheckoutToken(data.shipping_method || state.shippingMethod),
+        error_code: normalizeCheckoutToken(data.error_code),
+        path: window.location.pathname || "",
+        occurred_at: new Date().toISOString(),
+        metadata: sanitizeCheckoutMetadata(meta),
+      };
+    }
+
+    function queueCheckoutEvent(event) {
+      eventQueue.push(event);
+      if (eventQueue.length >= CHECKOUT_BATCH_MAX) {
+        flushCheckoutEvents(false);
+        return;
+      }
+      if (!flushTimer) {
+        flushTimer = setTimeout(function () {
+          flushCheckoutEvents(false);
+        }, CHECKOUT_BATCH_FLUSH_MS);
+      }
+    }
+
+    function flushCheckoutEvents(useBeacon) {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (!eventQueue.length) return;
+
+      var batch = eventQueue.splice(0, 50);
+      var payload = JSON.stringify({
+        key: API_KEY,
+        session_id: sessionId,
+        consumer_id: consumerId || "",
+        events: batch,
+      });
+
+      if (useBeacon && navigator.sendBeacon) {
+        var sent = navigator.sendBeacon(
+          API_BASE + "/api/checkout-events",
+          new Blob([payload], { type: "application/json" })
+        );
+        if (!sent) eventQueue = batch.concat(eventQueue);
+      } else {
+        fetch(API_BASE + "/api/checkout-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(function () {
+          eventQueue = batch.concat(eventQueue).slice(0, 100);
+          if (!flushTimer) {
+            flushTimer = setTimeout(function () {
+              flushCheckoutEvents(false);
+            }, CHECKOUT_BATCH_FLUSH_MS);
+          }
+        });
+      }
+
+      if (eventQueue.length && !flushTimer) {
+        flushTimer = setTimeout(function () {
+          flushCheckoutEvents(false);
+        }, useBeacon ? 250 : CHECKOUT_BATCH_FLUSH_MS);
+      }
+    }
+
     function sendCheckoutEvent(eventType, data, opts) {
       data = data || {};
       opts = opts || {};
@@ -3718,40 +3800,9 @@
       if (wait > 0 && lastSentAt[key] && now - lastSentAt[key] < wait) return;
       lastSentAt[key] = now;
 
-      var meta = data.metadata || {};
-      meta.tracker_version = CHECKOUT_TRACKER_VERSION;
-      meta.device = window.innerWidth < 768 ? "mobile" : "desktop";
-      meta.viewport_width = window.innerWidth || 0;
-      meta.viewport_height = window.innerHeight || 0;
-
-      var payload = JSON.stringify({
-        key: API_KEY,
-        session_id: sessionId,
-        consumer_id: consumerId || "",
-        event_type: eventType,
-        step: normalizeCheckoutStep(data.step || state.lastStep || detectCheckoutStep()),
-        field_key: normalizeCheckoutToken(data.field_key),
-        field_group: normalizeCheckoutToken(data.field_group),
-        payment_method: normalizeCheckoutToken(data.payment_method || state.paymentMethod),
-        shipping_method: normalizeCheckoutToken(data.shipping_method || state.shippingMethod),
-        error_code: normalizeCheckoutToken(data.error_code),
-        path: window.location.pathname || "",
-        occurred_at: new Date().toISOString(),
-        metadata: sanitizeCheckoutMetadata(meta),
-      });
-
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(
-          API_BASE + "/api/checkout-events",
-          new Blob([payload], { type: "application/json" })
-        );
-      } else {
-        fetch(API_BASE + "/api/checkout-events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-          keepalive: true,
-        }).catch(function () {});
+      queueCheckoutEvent(buildCheckoutPayloadEvent(eventType, data));
+      if (opts.flush) {
+        flushCheckoutEvents(!!opts.beacon);
       }
     }
 
@@ -3948,7 +3999,7 @@
           last_step: state.lastStep || "unknown",
           elapsed_ms: now - startedAt,
         },
-      }, { throttleMs: 15000 });
+      }, { throttleMs: 15000, flush: true, beacon: true });
     }
 
     patchCheckoutHistory(emitStepIfChanged);
@@ -3961,7 +4012,7 @@
       state.completed = true;
       sendCheckoutEvent("checkout_purchase_completed", {
         step: "confirmation",
-      }, { throttleMs: 0 });
+      }, { throttleMs: 0, flush: true });
     }
 
     scanCheckoutDom();
@@ -3974,13 +4025,16 @@
     } catch (e) {}
 
     window.addEventListener("pagehide", sendAbandonSnapshot);
+    window.addEventListener("beforeunload", function () {
+      flushCheckoutEvents(true);
+    });
     document.addEventListener("visibilitychange", function () {
       if (document.hidden) sendAbandonSnapshot();
     });
     setInterval(function () {
       if (isCheckoutConfirmationPath() && !state.completed) {
         state.completed = true;
-        sendCheckoutEvent("checkout_purchase_completed", { step: "confirmation" }, { throttleMs: 0 });
+        sendCheckoutEvent("checkout_purchase_completed", { step: "confirmation" }, { throttleMs: 0, flush: true });
       }
       scanCheckoutDom();
     }, 2500);
