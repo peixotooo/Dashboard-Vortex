@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { randomUUID } from "crypto";
 
 function getClient() {
     let endpoint = process.env.B2_ENDPOINT;
@@ -43,17 +44,57 @@ function getBucket() {
     return bucket;
 }
 
-export function generateKey(filename: string): string {
-    const ext = filename.split(".").pop() || "bin";
-    return `creatives/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+function safePathSegment(value: string): string {
+    return value
+        .trim()
+        .replace(/^\/+|\/+$/g, "")
+        .split("/")
+        .filter(Boolean)
+        .map((part) => part.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, ""))
+        .filter(Boolean)
+        .join("/");
 }
 
-export async function createPresignedUploadUrl(key: string, contentType: string): Promise<string> {
+function safeExtension(filename: string): string {
+    const ext = filename.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]+/g, "") || "bin";
+    return ext.slice(0, 12) || "bin";
+}
+
+export function generateKey(filename: string, namespace = "creatives"): string {
+    const prefix = safePathSegment(namespace) || "creatives";
+    const ext = safeExtension(filename);
+    return `${prefix}/${Date.now()}-${randomUUID()}.${ext}`;
+}
+
+export function isSafeStorageKey(key: unknown, workspaceId?: string): key is string {
+    if (typeof key !== "string") return false;
+    if (!key || key.length > 500) return false;
+    if (key.startsWith("/") || key.includes("\\") || key.includes("..")) return false;
+    if (!/^[a-zA-Z0-9._/-]+$/.test(key)) return false;
+    if (!/^(creatives|reviews)\//.test(key)) return false;
+
+    if (workspaceId) {
+        const wsPrefix = `creatives/${workspaceId}/`;
+        const reviewPrefix = `reviews/${workspaceId}/`;
+        if (key.startsWith(wsPrefix) || key.startsWith(reviewPrefix)) return true;
+
+        // Backward compatibility for older keys generated before workspace
+        // namespacing. They are still high-entropy, but new uploads are scoped.
+        return /^creatives\/\d+-[a-zA-Z0-9._-]+\.[a-z0-9]+$/.test(key);
+    }
+
+    return true;
+}
+
+export async function createPresignedUploadUrl(key: string, contentType: string, contentLength?: number): Promise<string> {
     const client = getClient();
     const command = new PutObjectCommand({
         Bucket: getBucket(),
         Key: key,
         ContentType: contentType,
+        ...(Number.isFinite(contentLength) && contentLength && contentLength > 0
+            ? { ContentLength: Math.floor(contentLength) }
+            : {}),
     });
     return getSignedUrl(client, command, { expiresIn: 3600 });
 }

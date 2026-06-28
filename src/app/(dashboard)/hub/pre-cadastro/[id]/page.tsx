@@ -486,7 +486,7 @@ function EditItemDialog({ item, categories, onClose, onSave }: {
             "Content-Type": "application/json",
             "x-workspace-id": workspace.id,
           },
-          body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+          body: JSON.stringify({ filename: file.name, mime_type: file.type, file_size: file.size }),
         });
         if (!urlRes.ok) continue;
         const { signedUrl, key, publicUrl } = await urlRes.json();

@@ -271,7 +271,7 @@ export function TemplateCreateDialog({ open, onOpenChange, onCreated, initialVal
       const res = await fetch("/api/media/upload-url", {
         method: "POST",
         headers: wsHeaders(),
-        body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        body: JSON.stringify({ filename: file.name, mime_type: file.type, file_size: file.size }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

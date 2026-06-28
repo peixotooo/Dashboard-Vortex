@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { fetchPublicHttpUrl } from "@/lib/security/external-url";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
     const item = media[i];
     if (!item?.url) return NextResponse.json({ error: "mídia não encontrada" }, { status: 404 });
 
-    const upstream = await fetch(item.url);
+    const upstream = await fetchPublicHttpUrl(item.url, {}, { label: "review media" });
     if (!upstream.ok || !upstream.body) {
       return NextResponse.json({ error: "falha ao baixar a mídia" }, { status: 502 });
     }

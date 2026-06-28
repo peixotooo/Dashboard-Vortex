@@ -1,3 +1,5 @@
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
+
 interface EccosysConfig {
   apiToken: string;
   ambiente: string;
@@ -224,11 +226,11 @@ class EccosysClient {
     const config = this.getConfig();
     if (!config) throw new Error("Eccosys nao configurado.");
 
-    // Download image
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) throw new Error(`Falha ao baixar imagem: ${imgRes.status}`);
-    const imgBuffer = await imgRes.arrayBuffer();
-    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    const { buffer: imgBuffer, contentType } = await readPublicUrlBuffer(imageUrl, {
+      label: "imageUrl",
+      maxBytes: 15 * 1024 * 1024,
+      allowedContentTypes: /^image\//i,
+    });
 
     await this.throttle();
     const res = await fetch(this.getBaseUrl(config) + `/produtos/${productId}/imagens`, {
@@ -237,7 +239,7 @@ class EccosysClient {
         Authorization: `Bearer ${config.apiToken}`,
         "Content-Type": contentType,
       },
-      body: imgBuffer,
+      body: new Uint8Array(imgBuffer),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

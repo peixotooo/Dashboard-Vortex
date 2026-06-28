@@ -7,6 +7,7 @@ import {
   deleteTemplateOnMeta,
   type WaConfig,
 } from "@/lib/whatsapp-api";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -87,11 +88,12 @@ async function uploadMediaToMeta(
 // Download from B2 and upload to Meta, returning header_handle
 async function urlToHandle(config: WaConfig, mediaUrl: string): Promise<string> {
   console.error(`[WA Templates] Downloading media from: ${mediaUrl.slice(0, 80)}...`);
-  const fileRes = await fetch(mediaUrl);
-  if (!fileRes.ok) throw new Error(`Erro ao baixar midia: HTTP ${fileRes.status}`);
-  const buffer = Buffer.from(await fileRes.arrayBuffer());
-  const mimeType = fileRes.headers.get("content-type") || "image/jpeg";
-  return uploadMediaToMeta(config.accessToken, buffer, mimeType);
+  const { buffer, contentType } = await readPublicUrlBuffer(mediaUrl, {
+    label: "mediaUrl",
+    maxBytes: 80 * 1024 * 1024,
+    allowedContentTypes: /^(image|video)\//i,
+  });
+  return uploadMediaToMeta(config.accessToken, buffer, contentType);
 }
 
 // Convert header_url to header_handle by uploading media to Meta

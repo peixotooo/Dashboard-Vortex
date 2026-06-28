@@ -84,7 +84,7 @@ export function AddProductModal({ open, onOpenChange, collectionId, onCreated }:
             "Content-Type": "application/json",
             "x-workspace-id": workspace.id,
           },
-          body: JSON.stringify({ filename: img.file.name, mime_type: img.file.type }),
+          body: JSON.stringify({ filename: img.file.name, mime_type: img.file.type, file_size: img.file.size }),
         });
         if (!urlRes.ok) throw new Error("Erro ao gerar URL de upload");
         const { signedUrl, key, publicUrl } = await urlRes.json();

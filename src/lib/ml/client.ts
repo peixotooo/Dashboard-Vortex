@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { encrypt, decrypt } from "@/lib/encryption";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 const ML_BASE = "https://api.mercadolibre.com";
 
@@ -205,14 +206,15 @@ class MLClient {
     await this.throttle();
     const token = await this.getToken(workspaceId);
 
-    // Download image
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) throw new Error(`Failed to download image: ${imgRes.status}`);
-    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const { buffer: imgBuffer } = await readPublicUrlBuffer(imageUrl, {
+      label: "imageUrl",
+      maxBytes: 15 * 1024 * 1024,
+      allowedContentTypes: /^image\//i,
+    });
 
     // Upload as multipart
     const formData = new FormData();
-    const blob = new Blob([imgBuffer], { type: "image/jpeg" });
+    const blob = new Blob([new Uint8Array(imgBuffer)], { type: "image/jpeg" });
     const filename = imageUrl.split("/").pop() || "image.jpg";
     formData.append("file", blob, filename);
 

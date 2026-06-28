@@ -125,7 +125,7 @@ export default function MediaGalleryPage() {
           "Content-Type": "application/json",
           "x-workspace-id": workspace.id,
         },
-        body: JSON.stringify({ filename: item.file.name, mime_type: item.file.type }),
+        body: JSON.stringify({ filename: item.file.name, mime_type: item.file.type, file_size: item.file.size }),
       });
 
       if (!urlRes.ok) {

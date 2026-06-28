@@ -175,7 +175,7 @@ export default function AvaliarPage() {
       const presign = await fetch(`/api/reviews/request/${token}/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, content_type: file.type }),
+        body: JSON.stringify({ filename: file.name, content_type: file.type, file_size: file.size }),
       }).then((r) => r.json());
       if (!presign.upload_url) throw new Error(presign.error || "Falha no upload");
       const put = await fetch(presign.upload_url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });

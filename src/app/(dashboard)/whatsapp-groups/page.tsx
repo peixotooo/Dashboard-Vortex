@@ -711,6 +711,7 @@ export default function WhatsAppGroupsPage() {
         body: JSON.stringify({
           filename: file.name,
           mime_type: file.type,
+          file_size: file.size,
         }),
       });
       const { signedUrl, key, publicUrl } = await urlRes.json();

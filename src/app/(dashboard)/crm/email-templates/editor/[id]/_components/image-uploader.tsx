@@ -61,7 +61,7 @@ export function ImageUploader({
           "Content-Type": "application/json",
           "x-workspace-id": workspaceId,
         },
-        body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        body: JSON.stringify({ filename: file.name, mime_type: file.type, file_size: file.size }),
       });
       const d = await r.json();
       if (!r.ok || !d.signedUrl)

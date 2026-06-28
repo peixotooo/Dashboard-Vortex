@@ -160,7 +160,7 @@ export default function TeamChatPage() {
       const urlRes = await fetch("/api/media/upload-url", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, mime_type: file.type }),
+        body: JSON.stringify({ filename: file.name, mime_type: file.type, file_size: file.size }),
       });
       const urlData = await urlRes.json();
       if (!urlRes.ok) {

@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const OBJECTIVES = [
   { value: "OUTCOME_TRAFFIC", label: "Tráfego" },
@@ -82,6 +83,7 @@ export default function EditCampaignPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const { accountId } = useAccount();
+  const { workspace } = useWorkspace();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -333,6 +335,7 @@ export default function EditCampaignPage() {
 
         const mediaRes = await fetch("/api/media", {
           method: "POST",
+          headers: workspace?.id ? { "x-workspace-id": workspace.id } : undefined,
           body: formData,
         });
         const mediaResult = await mediaRes.json();

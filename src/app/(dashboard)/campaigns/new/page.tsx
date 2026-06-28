@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAccount } from "@/lib/account-context";
+import { useWorkspace } from "@/lib/workspace-context";
 
 const OBJECTIVES = [
     { value: "OUTCOME_TRAFFIC", label: "Tráfego" },
@@ -50,6 +51,7 @@ const DEFAULT_URL_TAGS = "utm_source={{site_source_name}}&utm_medium=paid&utm_ca
 export default function NewCampaignWizard() {
     const router = useRouter();
     const { accountId } = useAccount();
+    const { workspace } = useWorkspace();
 
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
@@ -176,6 +178,7 @@ export default function NewCampaignWizard() {
 
                 const mediaRes = await fetch("/api/media", {
                     method: "POST",
+                    headers: workspace?.id ? { "x-workspace-id": workspace.id } : undefined,
                     body: formData,
                 });
                 const mediaResult = await mediaRes.json();

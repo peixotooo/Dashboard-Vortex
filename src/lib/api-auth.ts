@@ -252,5 +252,6 @@ export function handleAuthError(error: unknown): NextResponse {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
   const message = error instanceof Error ? error.message : "Unknown error";
-  return NextResponse.json({ error: message }, { status: 500 });
+  console.error("[api-auth]", message);
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }

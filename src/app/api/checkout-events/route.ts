@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { buildCorsHeaders } from "@/lib/cors";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -107,6 +106,100 @@ const SAFE_META_KEYS = new Set([
 ]);
 
 const MAX_BATCH_EVENTS = 50;
+const MAX_BODY_BYTES = 64 * 1024;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 240;
+const RATE_LIMIT_MAX_EVENTS = 1500;
+
+const rateBuckets = new Map<
+  string,
+  { resetAt: number; requests: number; events: number }
+>();
+
+function configuredAllowedOrigins() {
+  const configured = (process.env.CHECKOUT_EVENTS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim().toLowerCase())
+    .filter(Boolean);
+
+  return configured.length > 0
+    ? configured
+    : [
+        "https://bulking.com.br",
+        "https://www.bulking.com.br",
+        "https://checkout.bulking.com.br",
+        "https://dash.bulking.com.br",
+        "https://dashboard-vortex.vercel.app",
+      ];
+}
+
+function isAllowedOrigin(origin: string | null) {
+  if (!origin) return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") return false;
+  const normalized = parsed.origin.toLowerCase();
+  const host = parsed.hostname.toLowerCase();
+  return configuredAllowedOrigins().some((allowed) => {
+    if (allowed === normalized) return true;
+    if (allowed.startsWith("https://*.")) {
+      const suffix = allowed.slice("https://*.".length);
+      return host.endsWith(`.${suffix}`);
+    }
+    return false;
+  });
+}
+
+function corsHeaders(request: NextRequest): Record<string, string> {
+  const origin = request.headers.get("origin");
+  const allowed = isAllowedOrigin(origin);
+  return {
+    "Access-Control-Allow-Origin": allowed && origin ? origin : "https://www.bulking.com.br",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
+
+function clientIp(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-for");
+  return (forwarded?.split(",")[0] || request.headers.get("x-real-ip") || "unknown")
+    .trim()
+    .slice(0, 80);
+}
+
+function rateLimitKey(request: NextRequest, publicKey: string | null) {
+  return `${publicKey || "missing"}:${clientIp(request)}`;
+}
+
+function checkRateLimit(key: string, eventCount: number) {
+  const now = Date.now();
+  const existing = rateBuckets.get(key);
+  const bucket =
+    existing && existing.resetAt > now
+      ? existing
+      : { resetAt: now + RATE_LIMIT_WINDOW_MS, requests: 0, events: 0 };
+  bucket.requests += 1;
+  bucket.events += eventCount;
+  rateBuckets.set(key, bucket);
+
+  if (rateBuckets.size > 10000) {
+    for (const [bucketKey, value] of rateBuckets.entries()) {
+      if (value.resetAt <= now) rateBuckets.delete(bucketKey);
+    }
+  }
+
+  return (
+    bucket.requests <= RATE_LIMIT_MAX_REQUESTS &&
+    bucket.events <= RATE_LIMIT_MAX_EVENTS
+  );
+}
 
 function safeToken(value: unknown, max = 80): string | null {
   if (typeof value !== "string") return null;
@@ -117,6 +210,12 @@ function safeToken(value: unknown, max = 80): string | null {
     .replace(/^_+|_+$/g, "")
     .slice(0, max);
   return normalized || null;
+}
+
+function isJsonContentType(request: NextRequest) {
+  const contentType = request.headers.get("content-type");
+  if (!contentType) return true;
+  return /^(application\/json|text\/plain)\b/i.test(contentType);
 }
 
 function safePath(value: unknown): string | null {
@@ -242,11 +341,42 @@ function buildCheckoutEventRow(
 }
 
 export async function POST(request: NextRequest) {
-  const CORS_HEADERS = buildCorsHeaders(request);
+  const CORS_HEADERS = corsHeaders(request);
   let body: Record<string, unknown>;
+  const origin = request.headers.get("origin");
+  if (!isAllowedOrigin(origin)) {
+    return NextResponse.json(
+      { error: "Origin not allowed" },
+      { status: 403, headers: CORS_HEADERS }
+    );
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || "0");
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { error: "Payload too large" },
+      { status: 413, headers: CORS_HEADERS }
+    );
+  }
+  if (!isJsonContentType(request)) {
+    return NextResponse.json(
+      { error: "Unsupported content type" },
+      { status: 415, headers: CORS_HEADERS }
+    );
+  }
 
   try {
-    body = await request.json();
+    const raw = await request.text();
+    if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: "Payload too large" },
+        { status: 413, headers: CORS_HEADERS }
+      );
+    }
+    body = JSON.parse(raw);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new Error("Invalid body");
+    }
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON" },
@@ -255,14 +385,12 @@ export async function POST(request: NextRequest) {
   }
 
   const key = typeof body.key === "string" ? body.key : null;
-  const auth = await validateApiKey(key);
-  if (!auth) {
+  if (!key || key.length > 256) {
     return NextResponse.json(
       { error: "Invalid API key" },
       { status: 401, headers: CORS_HEADERS }
     );
   }
-
   const eventPayloads = Array.isArray(body.events) ? body.events : [body];
   if (eventPayloads.length === 0) {
     return NextResponse.json(
@@ -274,6 +402,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: `Too many events. Max ${MAX_BATCH_EVENTS}` },
       { status: 400, headers: CORS_HEADERS }
+    );
+  }
+  if (!checkRateLimit(rateLimitKey(request, key), eventPayloads.length)) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429, headers: CORS_HEADERS }
+    );
+  }
+
+  const auth = await validateApiKey(key);
+  if (!auth) {
+    return NextResponse.json(
+      { error: "Invalid API key" },
+      { status: 401, headers: CORS_HEADERS }
     );
   }
 
@@ -299,7 +441,7 @@ export async function POST(request: NextRequest) {
       { headers: CORS_HEADERS }
     );
   } catch (error) {
-    console.error("[Checkout Events]", error);
+    console.error("[Checkout Events]", error instanceof Error ? error.message : "insert_failed");
     return NextResponse.json(
       { ok: false },
       { status: 500, headers: CORS_HEADERS }
@@ -308,11 +450,15 @@ export async function POST(request: NextRequest) {
 }
 
 export async function OPTIONS(request: NextRequest) {
+  const CORS_HEADERS = corsHeaders(request);
+  if (!isAllowedOrigin(request.headers.get("origin"))) {
+    return new NextResponse(null, {
+      status: 403,
+      headers: CORS_HEADERS,
+    });
+  }
   return new NextResponse(null, {
     status: 204,
-    headers: {
-      ...buildCorsHeaders(request),
-      "Access-Control-Max-Age": "86400",
-    },
+    headers: CORS_HEADERS,
   });
 }

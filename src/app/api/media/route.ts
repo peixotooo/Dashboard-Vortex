@@ -2,7 +2,43 @@ import { NextRequest, NextResponse } from "next/server";
 import { runWithToken, uploadAdImage, uploadAdVideo } from "@/lib/meta-api";
 import { getWorkspaceContext, handleAuthError, resolveTokenForAccount } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey } from "@/lib/b2-storage";
+import { getPublicUrl, uploadFile, downloadFile, deleteFile, generateKey, isSafeStorageKey } from "@/lib/b2-storage";
+
+const MIME_LIMITS: Record<string, number> = {
+    "image/jpeg": 12 * 1024 * 1024,
+    "image/png": 12 * 1024 * 1024,
+    "image/gif": 12 * 1024 * 1024,
+    "image/webp": 12 * 1024 * 1024,
+    "video/mp4": 80 * 1024 * 1024,
+    "video/quicktime": 80 * 1024 * 1024,
+    "video/x-msvideo": 80 * 1024 * 1024,
+    "video/webm": 80 * 1024 * 1024,
+    "application/pdf": 20 * 1024 * 1024,
+};
+
+function validateMediaInput(
+    workspaceId: string,
+    storageKey: unknown,
+    filename: unknown,
+    mimeType: unknown,
+    fileSize?: unknown
+): string | null {
+    if (typeof filename !== "string" || filename.trim().length === 0 || filename.length > 240) {
+        return "Invalid filename";
+    }
+    if (typeof mimeType !== "string" || !Object.prototype.hasOwnProperty.call(MIME_LIMITS, mimeType)) {
+        return "Unsupported file type";
+    }
+    if (!isSafeStorageKey(storageKey, workspaceId)) {
+        return "Invalid storage key";
+    }
+    if (fileSize != null) {
+        const size = Number(fileSize);
+        if (!Number.isFinite(size) || size <= 0) return "Invalid file size";
+        if (size > MIME_LIMITS[mimeType]) return "File too large";
+    }
+    return null;
+}
 
 // Register file already in B2 — no Meta upload
 async function handleRegisterOnly(
@@ -16,6 +52,14 @@ async function handleRegisterOnly(
         return NextResponse.json(
             { error: "storage_key, filename, and mime_type are required" },
             { status: 400 }
+        );
+    }
+
+    const validationError = validateMediaInput(workspaceId, storage_key, filename, mime_type, file_size);
+    if (validationError) {
+        return NextResponse.json(
+            { error: validationError },
+            { status: validationError === "File too large" ? 413 : 400 }
         );
     }
 
@@ -57,6 +101,14 @@ async function handlePreUploadedFile(
         return NextResponse.json(
             { error: "storage_key, account_id, filename, and mime_type are required" },
             { status: 400 }
+        );
+    }
+
+    const validationError = validateMediaInput(workspaceId, storage_key, filename, mime_type, file_size);
+    if (validationError) {
+        return NextResponse.json(
+            { error: validationError },
+            { status: validationError === "File too large" ? 413 : 400 }
         );
     }
 
@@ -183,8 +235,15 @@ export async function POST(request: NextRequest) {
         const fileSize = file.size;
         const isVideo = fileType.startsWith("video/");
 
+        if (!Object.prototype.hasOwnProperty.call(MIME_LIMITS, fileType)) {
+            return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+        }
+        if (fileSize > MIME_LIMITS[fileType]) {
+            return NextResponse.json({ error: "File too large" }, { status: 413 });
+        }
+
         // 1. Upload to B2
-        const key = generateKey(fileName);
+        const key = generateKey(fileName, `creatives/${workspaceId}`);
         const imageUrl = await uploadFile(key, fileBuffer, fileType);
 
         // 2. Upload to Meta

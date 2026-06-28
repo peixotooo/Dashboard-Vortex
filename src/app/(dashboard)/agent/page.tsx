@@ -81,7 +81,11 @@ export default function AgentPage() {
       const formData = new FormData();
       formData.append("filename", file, file.name);
       formData.append("account_id", uploadAccId);
-      const res = await fetch("/api/media", { method: "POST", body: formData });
+      const res = await fetch("/api/media", {
+        method: "POST",
+        headers: workspace?.id ? { "x-workspace-id": workspace.id } : undefined,
+        body: formData,
+      });
       const data = await res.json();
       const images = data.images || {};
       const firstKey = Object.keys(images)[0];

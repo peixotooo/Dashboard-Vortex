@@ -35,6 +35,7 @@ import {
 import { createAdminClient } from "@/lib/supabase-admin";
 import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readPublicUrlBuffer } from "@/lib/security/external-url";
 
 export async function executeToolCall(
   toolName: string,
@@ -557,15 +558,15 @@ async function executeToolCallInner(
       }
 
       try {
-        // Download image from URL
-        const imgRes = await fetch(imageUrl);
-        if (!imgRes.ok) {
-          return { error: `Falha ao baixar imagem: HTTP ${imgRes.status}` };
-        }
-        const blob = await imgRes.blob();
+        const downloaded = await readPublicUrlBuffer(imageUrl, {
+          label: "image_url",
+          maxBytes: 15 * 1024 * 1024,
+          allowedContentTypes: /^image\//i,
+        });
+        const blob = new Blob([new Uint8Array(downloaded.buffer)], { type: downloaded.contentType });
 
         // Detect filename from URL
-        const urlPath = new URL(imageUrl).pathname;
+        const urlPath = new URL(downloaded.finalUrl).pathname;
         const filename = urlPath.split("/").pop() || "image.jpg";
 
         // Create FormData for Meta upload
