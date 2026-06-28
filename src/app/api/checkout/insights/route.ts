@@ -60,6 +60,26 @@ function topEntries(map: Map<string, number>, limit = 10) {
     .map(([key, count]) => ({ key, count }));
 }
 
+function topMethodEntries(
+  selected: Map<string, number>,
+  exited: Map<string, number>,
+  limit = 8
+) {
+  return [...new Set([...selected.keys(), ...exited.keys()])]
+    .map((key) => ({
+      key,
+      selected: selected.get(key) || 0,
+      last_before_exit: exited.get(key) || 0,
+    }))
+    .sort(
+      (a, b) =>
+        b.last_before_exit - a.last_before_exit ||
+        b.selected - a.selected ||
+        a.key.localeCompare(b.key)
+    )
+    .slice(0, limit);
+}
+
 function jsonCountEntries(value: Record<string, number> | null | undefined) {
   if (!value || typeof value !== "object") return [];
   return Object.entries(value).filter((entry): entry is [string, number] => {
@@ -128,7 +148,12 @@ function summarizeRollups(
         abandon_rate: pct(exits, sessionsCount),
       };
     })
-    .sort((a, b) => b.abandon_sessions - a.abandon_sessions);
+    .sort(
+      (a, b) =>
+        Number(a.step === "unknown") - Number(b.step === "unknown") ||
+        b.abandon_sessions - a.abandon_sessions ||
+        b.sessions - a.sessions
+    );
 
   const fields = topEntries(
     new Map(
@@ -171,20 +196,21 @@ function summarizeRollups(
       checkout_sessions: checkoutSessions,
       purchased_sessions: purchasedSessions,
       abandoned_sessions: abandonedSessions,
+      unclassified_abandoned_sessions: stepExit.get("unknown") || 0,
       completion_rate: pct(purchasedSessions, checkoutSessions),
       abandonment_rate: pct(abandonedSessions, checkoutSessions),
     },
     steps,
     fields,
-    payment_methods: topEntries(paymentSelected, 8).map((entry) => ({
+    payment_methods: topMethodEntries(paymentSelected, paymentExit, 8).map((entry) => ({
       payment_method: entry.key,
-      selected: entry.count,
-      last_before_exit: paymentExit.get(entry.key) || 0,
+      selected: entry.selected,
+      last_before_exit: entry.last_before_exit,
     })),
-    shipping_methods: topEntries(shippingSelected, 8).map((entry) => ({
+    shipping_methods: topMethodEntries(shippingSelected, shippingExit, 8).map((entry) => ({
       shipping_method: entry.key,
-      selected: entry.count,
-      last_before_exit: shippingExit.get(entry.key) || 0,
+      selected: entry.selected,
+      last_before_exit: entry.last_before_exit,
     })),
     error_codes: topEntries(errorCodes, 8).map((entry) => ({
       error_code: entry.key,
@@ -348,6 +374,15 @@ export async function GET(request: NextRequest) {
       addCount(shippingExit, state.shippingMethod);
     }
 
+    fieldTouches.clear();
+    fieldCompletions.clear();
+    fieldErrors.clear();
+    for (const state of sessions.values()) {
+      for (const field of state.fieldsTouched) addCount(fieldTouches, field);
+      for (const field of state.fieldsCompleted) addCount(fieldCompletions, field);
+      for (const field of state.fieldsErrored) addCount(fieldErrors, field);
+    }
+
     const checkoutSessions = sessions.size;
     const abandonedSessions = Math.max(0, checkoutSessions - purchasedSessions);
     const steps = [...stepSessions.entries()]
@@ -361,7 +396,12 @@ export async function GET(request: NextRequest) {
           abandon_rate: pct(exits, sessionsCount),
         };
       })
-      .sort((a, b) => b.abandon_sessions - a.abandon_sessions);
+      .sort(
+        (a, b) =>
+          Number(a.step === "unknown") - Number(b.step === "unknown") ||
+          b.abandon_sessions - a.abandon_sessions ||
+          b.sessions - a.sessions
+      );
 
     const fields = topEntries(
       new Map(
@@ -397,20 +437,21 @@ export async function GET(request: NextRequest) {
         checkout_sessions: checkoutSessions,
         purchased_sessions: purchasedSessions,
         abandoned_sessions: abandonedSessions,
+        unclassified_abandoned_sessions: stepExit.get("unknown") || 0,
         completion_rate: pct(purchasedSessions, checkoutSessions),
         abandonment_rate: pct(abandonedSessions, checkoutSessions),
       },
       steps,
       fields,
-      payment_methods: topEntries(paymentSelected, 8).map((entry) => ({
+      payment_methods: topMethodEntries(paymentSelected, paymentExit, 8).map((entry) => ({
         payment_method: entry.key,
-        selected: entry.count,
-        last_before_exit: paymentExit.get(entry.key) || 0,
+        selected: entry.selected,
+        last_before_exit: entry.last_before_exit,
       })),
-      shipping_methods: topEntries(shippingSelected, 8).map((entry) => ({
+      shipping_methods: topMethodEntries(shippingSelected, shippingExit, 8).map((entry) => ({
         shipping_method: entry.key,
-        selected: entry.count,
-        last_before_exit: shippingExit.get(entry.key) || 0,
+        selected: entry.selected,
+        last_before_exit: entry.last_before_exit,
       })),
       error_codes: topEntries(errorCodes, 8).map((entry) => ({
         error_code: entry.key,

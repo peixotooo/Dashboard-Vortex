@@ -3671,7 +3671,7 @@
   // receives only normalized step/field/method/error categories.
   // =====================================================================
 
-  var CHECKOUT_TRACKER_VERSION = "2026-06-27.3";
+  var CHECKOUT_TRACKER_VERSION = "2026-06-28.1";
   var CHECKOUT_BATCH_MAX = 12;
   var CHECKOUT_BATCH_FLUSH_MS = 4000;
 
@@ -3711,8 +3711,19 @@
       ].join("|");
     }
 
+    function currentCheckoutStep(preferred) {
+      var step = normalizeCheckoutStep(preferred || detectCheckoutStep());
+      if (step && step !== "unknown") {
+        state.lastStep = step;
+        return step;
+      }
+      if (state.lastStep && state.lastStep !== "unknown") return state.lastStep;
+      return step || "unknown";
+    }
+
     function buildCheckoutPayloadEvent(eventType, data) {
       var meta = data.metadata || {};
+      var step = currentCheckoutStep(data.step || detectCheckoutStep());
       meta.tracker_version = CHECKOUT_TRACKER_VERSION;
       meta.device = window.innerWidth < 768 ? "mobile" : "desktop";
       meta.viewport_width = window.innerWidth || 0;
@@ -3720,7 +3731,7 @@
 
       return {
         event_type: eventType,
-        step: normalizeCheckoutStep(data.step || state.lastStep || detectCheckoutStep()),
+        step: step,
         field_key: normalizeCheckoutToken(data.field_key),
         field_group: normalizeCheckoutToken(data.field_group),
         payment_method: normalizeCheckoutToken(data.payment_method || state.paymentMethod),
@@ -3807,7 +3818,8 @@
     }
 
     function emitStepIfChanged(force) {
-      var step = detectCheckoutStep();
+      var detected = normalizeCheckoutStep(detectCheckoutStep());
+      var step = detected && detected !== "unknown" ? detected : state.lastStep || "unknown";
       if (!step) step = "unknown";
       if (!force && step === state.lastStep) return;
       state.lastStep = step;
@@ -3826,10 +3838,11 @@
         info = fieldInfo(el);
         if (!info.key) return;
         state.lastFieldKey = info.key;
+        var step = stepFromFieldInfo(info) || currentCheckoutStep(detectCheckoutStep());
         if (state.touched[info.key]) return;
         state.touched[info.key] = 1;
         sendCheckoutEvent("checkout_field_started", {
-          step: detectCheckoutStep(),
+          step: step,
           field_key: info.key,
           field_group: info.group,
         });
@@ -3840,9 +3853,10 @@
         if (!info.key || !fieldHasSafeCompletion(el)) return;
         if (state.completedFields[info.key]) return;
         state.lastFieldKey = info.key;
+        var step = stepFromFieldInfo(info) || currentCheckoutStep(detectCheckoutStep());
         state.completedFields[info.key] = 1;
         sendCheckoutEvent("checkout_field_completed", {
-          step: detectCheckoutStep(),
+          step: step,
           field_key: info.key,
           field_group: info.group,
         }, { throttleMs: 3000 });
@@ -3856,10 +3870,11 @@
         var errorKey = info.key + "|" + errorCode;
         if (state.sentFieldErrors[errorKey]) return;
         state.lastFieldKey = info.key;
+        var step = stepFromFieldInfo(info) || currentCheckoutStep(detectCheckoutStep());
         state.errors[info.key] = 1;
         state.sentFieldErrors[errorKey] = 1;
         sendCheckoutEvent("checkout_field_error", {
-          step: detectCheckoutStep(),
+          step: step,
           field_key: info.key,
           field_group: info.group,
           error_code: errorCode,
@@ -3922,7 +3937,7 @@
         }
         if (/finalizar|pagar|comprar|concluir|place order|payment|checkout/i.test(txt)) {
           sendCheckoutEvent("checkout_payment_attempted", {
-            step: detectCheckoutStep(),
+            step: currentCheckoutStep(payment ? "payment" : detectCheckoutStep()),
             payment_method: state.paymentMethod,
           }, { throttleMs: 2500 });
         }
@@ -3959,10 +3974,11 @@
         var errorCode = classifyCheckoutError(info.key, elementText(node));
         var errorKey = info.key + "|" + errorCode;
         if (state.sentFieldErrors[errorKey]) continue;
+        var step = stepFromFieldInfo(info) || currentCheckoutStep(detectCheckoutStep());
         state.errors[info.key] = 1;
         state.sentFieldErrors[errorKey] = 1;
         sendCheckoutEvent("checkout_field_error", {
-          step: detectCheckoutStep(),
+          step: step,
           field_key: info.key,
           field_group: info.group,
           error_code: errorCode,
@@ -3972,7 +3988,7 @@
 
     function sendAbandonSnapshot() {
       if (state.completed || isCheckoutConfirmationPath()) return;
-      var step = detectCheckoutStep();
+      var step = currentCheckoutStep(detectCheckoutStep());
       var now = Date.now();
       var signature = [
         step,
@@ -4080,7 +4096,29 @@
     if (/entrega|frete|envio|shipping|delivery|cep/.test(text)) return "shipping";
     if (/identificacao|identificação|login|cadastro|email|endereco|endereço/.test(text)) return "identification";
     if (/carrinho|cart/.test(text)) return "cart";
+
+    var fieldSignals = { payment: 0, shipping: 0, identification: 0 };
+    try {
+      var fields = document.querySelectorAll("input, select, textarea");
+      for (var j = 0; j < fields.length; j++) {
+        if (!isVisibleCheckoutElement(fields[j])) continue;
+        var info = fieldInfo(fields[j]);
+        var step = stepFromFieldInfo(info);
+        if (step && fieldSignals[step] != null) fieldSignals[step] += 1;
+      }
+    } catch (e) {}
+    if (fieldSignals.payment > 0) return "payment";
+    if (fieldSignals.shipping > 0) return "shipping";
+    if (fieldSignals.identification > 0) return "identification";
     return "unknown";
+  }
+
+  function stepFromFieldInfo(info) {
+    if (!info) return null;
+    if (info.group === "payment" || info.group === "coupon") return "payment";
+    if (info.group === "shipping" || info.group === "address") return "shipping";
+    if (info.group === "contact") return "identification";
+    return null;
   }
 
   function normalizeCheckoutToken(value) {
@@ -4141,6 +4179,12 @@
       el.getAttribute("name") || "",
       el.getAttribute("id") || "",
       el.getAttribute("placeholder") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("title") || "",
+      el.getAttribute("data-testid") || "",
+      el.getAttribute("data-test") || "",
+      el.getAttribute("data-cy") || "",
+      el.getAttribute("class") || "",
       labelText(el),
     ].join(" ").toLowerCase();
 
@@ -4156,8 +4200,13 @@
     if (/phone|telefone|celular|whatsapp|tel\b/.test(raw)) return { key: "phone", group: "contact" };
     if (/cpf|cnpj|document|documento|taxvat|vat/.test(raw)) return { key: "document", group: "contact" };
     if (/birth|nascimento|birthday/.test(raw)) return { key: "birthdate", group: "contact" };
-    if (/first.*name|nome/.test(raw)) return { key: "name", group: "contact" };
+    if (/installment|parcel|parcela/.test(raw)) return { key: "installments", group: "payment" };
+    if (/cvv|cvc|security.*code|codigo.*seguranca|seguranca/.test(raw)) return { key: "card_cvv", group: "payment" };
+    if (/expiry|expire|validade|vencimento|expiration/.test(raw)) return { key: "card_expiry", group: "payment" };
+    if (/holder|titular|name.*card|nome.*cart|nome.*impresso/.test(raw)) return { key: "card_holder", group: "payment" };
+    if (/card.*number|numero.*cart|number.*card|cartao.*numero|credit.*number/.test(raw)) return { key: "card_number", group: "payment" };
     if (/last.*name|sobrenome/.test(raw)) return { key: "last_name", group: "contact" };
+    if (/first.*name|full.*name|nome completo|\bnome\b/.test(raw) && !/cartao|cartão|card|titular/.test(raw)) return { key: "name", group: "contact" };
     if (/cep|zip|postal/.test(raw)) return { key: "shipping_zip", group: "shipping" };
     if (/address|endereco|logradouro|street|rua/.test(raw)) return { key: "shipping_address", group: "address" };
     if (/numero|number/.test(raw) && !/card|cartao|cartão|cvv|cvc/.test(raw)) return { key: "address_number", group: "address" };
@@ -4166,12 +4215,18 @@
     if (/cidade|city/.test(raw)) return { key: "city", group: "address" };
     if (/estado|state|uf/.test(raw)) return { key: "state", group: "address" };
     if (/coupon|cupom|discount|desconto/.test(raw)) return { key: "coupon", group: "coupon" };
-    if (/card.*number|numero.*cart|cartao|cartão|credit.*number/.test(raw)) return { key: "card_number", group: "payment" };
-    if (/cvv|cvc|security.*code|codigo.*seguranca|seguranca/.test(raw)) return { key: "card_cvv", group: "payment" };
-    if (/expiry|expire|validade|vencimento|expiration/.test(raw)) return { key: "card_expiry", group: "payment" };
-    if (/holder|titular|name.*card|nome.*cart/.test(raw)) return { key: "card_holder", group: "payment" };
-    if (/installment|parcel|parcela/.test(raw)) return { key: "installments", group: "payment" };
     return { key: "field_other", group: "other" };
+  }
+
+  function isVisibleCheckoutElement(el) {
+    try {
+      if (!el || el.disabled) return false;
+      if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
+      var rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    } catch (e) {
+      return true;
+    }
   }
 
   function fieldHasSafeCompletion(el) {

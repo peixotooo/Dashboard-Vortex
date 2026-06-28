@@ -152,6 +152,7 @@ interface CheckoutInsights {
     checkout_sessions: number;
     purchased_sessions: number;
     abandoned_sessions: number;
+    unclassified_abandoned_sessions?: number;
     completion_rate: number;
     abandonment_rate: number;
   };
@@ -2483,7 +2484,7 @@ function checkoutLabel(kind: string): string {
     shipping: "Frete/entrega",
     payment: "Pagamento",
     confirmation: "Confirmação",
-    unknown: "Indefinido",
+    unknown: "Sem etapa detectada",
     email: "Email",
     phone: "Telefone",
     document: "CPF/CNPJ",
@@ -2503,7 +2504,7 @@ function checkoutLabel(kind: string): string {
     card_expiry: "Validade do cartão",
     card_holder: "Titular do cartão",
     installments: "Parcelas",
-    field_other: "Outro campo",
+    field_other: "Campo não identificado",
     pix: "Pix",
     credit_card: "Cartão de crédito",
     debit_card: "Cartão de débito",
@@ -2513,17 +2514,38 @@ function checkoutLabel(kind: string): string {
     pickup: "Retirada",
     motoboy: "Motoboy",
     transportadora: "Transportadora",
-    other: "Outro",
+    other: "Outro / não identificado",
   };
   return labels[kind] || kind.replace(/_/g, " ");
 }
 
 function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null }) {
   const hasData = Boolean(insights && insights.totals.events > 0);
-  const topStep = insights?.steps?.[0];
-  const topFields = insights?.fields?.slice(0, 4) || [];
-  const topPayment = insights?.payment_methods?.[0];
-  const topShipping = insights?.shipping_methods?.[0];
+  const abandonedSessions = insights?.totals.abandoned_sessions || 0;
+  const unclassifiedExits =
+    insights?.totals.unclassified_abandoned_sessions ||
+    insights?.steps?.find((step) => step.step === "unknown")?.abandon_sessions ||
+    0;
+  const unclassifiedRate =
+    abandonedSessions > 0 ? (unclassifiedExits / abandonedSessions) * 100 : 0;
+  const actionableSteps =
+    insights?.steps?.filter((step) => step.step !== "unknown" && step.abandon_sessions > 0) ||
+    [];
+  const topStep = actionableSteps[0] || null;
+  const rawFields = insights?.fields || [];
+  const actionableFields = rawFields.filter(
+    (field) => field.field_key !== "field_other" && (field.errors > 0 || field.last_before_exit > 0)
+  );
+  const topFields = (actionableFields.length > 0
+    ? actionableFields
+    : rawFields.filter((field) => field.errors > 0 || field.last_before_exit > 0)
+  ).slice(0, 4);
+  const topPayment =
+    insights?.payment_methods?.find((method) => method.last_before_exit > 0) ||
+    insights?.payment_methods?.[0];
+  const topShipping =
+    insights?.shipping_methods?.find((method) => method.last_before_exit > 0) ||
+    insights?.shipping_methods?.[0];
 
   return (
     <div className="rounded-lg border bg-muted/20 p-4">
@@ -2534,7 +2556,7 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
           </p>
           <h3 className="mt-1 text-base font-semibold">Abandono por etapa e campo</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Eventos sem PII: campos normalizados, etapa, erro, frete e método de pagamento.
+            Leitura sem PII: etapa, campo normalizado, validações, frete e pagamento.
           </p>
         </div>
         <Badge variant="outline">
@@ -2564,14 +2586,16 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
           </div>
 
           <div className="rounded-md border bg-background/60 p-3">
-            <p className="text-xs text-muted-foreground">Maior saída</p>
+            <p className="text-xs text-muted-foreground">Etapa crítica</p>
             <p className="mt-1 text-lg font-semibold">
-              {topStep ? checkoutLabel(topStep.step) : "Sem etapa"}
+              {topStep ? checkoutLabel(topStep.step) : "Sem etapa útil"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {topStep
                 ? `${formatNumber(topStep.abandon_sessions)} saídas · ${topStep.abandon_rate.toFixed(1)}%`
-                : "sem volume suficiente"}
+                : unclassifiedExits > 0
+                  ? `${formatNumber(unclassifiedExits)} saídas sem classificação`
+                  : "sem volume suficiente"}
             </p>
           </div>
 
@@ -2599,34 +2623,60 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
             </p>
           </div>
 
+          {unclassifiedExits > 0 && (
+            <div className="rounded-md border border-amber-300/60 bg-amber-50/70 p-3 text-sm text-amber-950 lg:col-span-4 dark:border-amber-400/30 dark:bg-amber-950/20 dark:text-amber-100">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-semibold">Coleta a calibrar</p>
+                <p className="text-xs font-medium">
+                  {unclassifiedRate.toFixed(0)}% dos abandonos sem etapa detectada
+                </p>
+              </div>
+              <p className="mt-1 text-xs opacity-80">
+                Esses casos ficam fora do ranking de etapa crítica para não gerar conclusão falsa.
+                Os próximos eventos já devem chegar melhor classificados pelo pixel.
+              </p>
+            </div>
+          )}
+
           <div className="lg:col-span-4">
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Campos mais críticos
+              Campos / validações mais críticas
             </p>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
               {topFields.length > 0 ? (
-                topFields.map((field) => (
-                  <div key={field.field_key} className="rounded-md border bg-background/60 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-semibold">
-                        {checkoutLabel(field.field_key)}
+                topFields.map((field) => {
+                  const affected = Math.max(field.errors, field.last_before_exit);
+                  return (
+                    <div key={field.field_key} className="rounded-md border bg-background/60 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold">
+                          {checkoutLabel(field.field_key)}
+                        </p>
+                        <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
+                          {formatNumber(affected)} sessões
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatNumber(field.errors)} c/ validação ·{" "}
+                        {formatNumber(field.last_before_exit)} saídas
                       </p>
-                      <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
-                        {field.error_rate.toFixed(0)}% c/ erro
-                      </span>
+                      <p className="mt-1 text-[10px] text-muted-foreground/80">
+                        {field.touches > 0
+                          ? `${field.error_rate.toFixed(0)}% das sessões que tocaram`
+                          : "sem base de toque suficiente"}
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatNumber(field.errors)} sessões c/ erro ·{" "}
-                      {formatNumber(field.last_before_exit)} saídas
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
                   Sem erros/campos críticos ainda.
                 </div>
               )}
             </div>
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Validação aqui significa fricção percebida no checkout, não erro técnico do sistema.
+            </p>
           </div>
         </div>
       )}
