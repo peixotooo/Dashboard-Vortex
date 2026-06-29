@@ -117,6 +117,26 @@ export async function pushOrderToEccosys(
     } catch {
       // SKU not found in Eccosys
     }
+
+    // Fallback: SKU absent from Eccosys (e.g. synthetic ML-<id> from a listing
+    // recreated without seller_custom_field). Resolve via the ML item id, which
+    // the order item always carries, against a linked hub_products row.
+    if (item.ml_item_id) {
+      const { data: byItem } = await supabase
+        .from("hub_products")
+        .select("ecc_id")
+        .eq("workspace_id", workspaceId)
+        .eq("ml_item_id", item.ml_item_id)
+        .not("ecc_id", "is", null)
+        .limit(1);
+      const eccId = (byItem as Array<{ ecc_id: number | null }> | null)?.[0]?.ecc_id;
+      if (eccId) {
+        console.log(
+          `[push-order] Resolved ${item.sku} via ml_item_id ${item.ml_item_id}: ecc_id=${eccId}`
+        );
+        return eccId;
+      }
+    }
     return null;
   }
 
@@ -359,6 +379,20 @@ export async function pushPackToEccosys(
       const prod = Array.isArray(result) ? result[0] : result;
       if (prod?.id) return prod.id;
     } catch { /* not found */ }
+
+    // Fallback: resolve via the ML item id when the SKU is missing from Eccosys
+    // (synthetic ML-<id> from a listing recreated without seller_custom_field).
+    if (item.ml_item_id) {
+      const { data: byItem } = await supabase
+        .from("hub_products")
+        .select("ecc_id")
+        .eq("workspace_id", workspaceId)
+        .eq("ml_item_id", item.ml_item_id)
+        .not("ecc_id", "is", null)
+        .limit(1);
+      const eccId = (byItem as Array<{ ecc_id: number | null }> | null)?.[0]?.ecc_id;
+      if (eccId) return eccId;
+    }
     return null;
   }
 
