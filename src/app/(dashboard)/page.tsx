@@ -1086,6 +1086,7 @@ export default function OverviewPage() {
       {/* Funnel E-commerce */}
       <FunnelSection
         workspaceId={workspace?.id}
+        trendData={data.trendData}
         sessions={data.sessions}
         users={data.users}
         pageViews={data.pageViews}
@@ -1598,6 +1599,52 @@ function inclusiveDateDays(since: string, until: string): number {
   return Math.max(1, Math.round((end - start) / 86400000) + 1);
 }
 
+function formatMerMultiple(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)}x`;
+}
+
+function calcMarginalMer(data: DailyRow[], windowDays = 3) {
+  const rows = data.filter(
+    (row) => Number.isFinite(row.totalSpend) && Number.isFinite(row.revenue)
+  );
+  if (rows.length < windowDays * 2) {
+    return {
+      value: null,
+      spendDelta: 0,
+      revenueDelta: 0,
+      label: "sem base",
+      detail: "precisa de duas janelas comparáveis",
+    };
+  }
+
+  const previousWindow = rows.slice(-windowDays * 2, -windowDays);
+  const currentWindow = rows.slice(-windowDays);
+  const sum = (items: DailyRow[], key: "totalSpend" | "revenue") =>
+    items.reduce((total, row) => total + (row[key] || 0), 0);
+
+  const spendDelta = sum(currentWindow, "totalSpend") - sum(previousWindow, "totalSpend");
+  const revenueDelta = sum(currentWindow, "revenue") - sum(previousWindow, "revenue");
+
+  if (spendDelta <= 0) {
+    return {
+      value: null,
+      spendDelta,
+      revenueDelta,
+      label: "sem aumento",
+      detail: "mídia não subiu na janela de 3 dias",
+    };
+  }
+
+  return {
+    value: revenueDelta / spendDelta,
+    spendDelta,
+    revenueDelta,
+    label: "marginal 3d",
+    detail: `Δ receita ${formatCurrency(revenueDelta)} / Δ mídia ${formatCurrency(spendDelta)}`,
+  };
+}
+
 function formatFunnelRate(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(1)}%`;
@@ -1764,6 +1811,7 @@ function volumeDelta(real: number | null, prev: number): number | null {
 
 function FunnelSection({
   workspaceId,
+  trendData,
   sessions,
   users,
   pageViews,
@@ -1785,6 +1833,7 @@ function FunnelSection({
   loading,
 }: {
   workspaceId?: string;
+  trendData: DailyRow[];
   sessions: number;
   users: number;
   pageViews: number;
@@ -1886,6 +1935,7 @@ function FunnelSection({
   const effectiveTicket = ticketMedio || (pedidos > 0 ? revenue / pedidos : 0);
   const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
   const currentMer = investment > 0 ? revenue / investment : null;
+  const marginalMer = calcMarginalMer(trendData, 3);
 
   const diagnosticCandidates = [
     {
@@ -2043,7 +2093,7 @@ function FunnelSection({
   const fixedCostPct = revenue > 0 ? (periodFixedCost / revenue) * 100 : 0;
   const mediaRoomPct = cmPreAdsPct;
   const businessRoomPct = cmPreAdsPct - fixedCostPct;
-  const merMarketingFloor = mediaRoomPct > 0 ? 100 / mediaRoomPct : null;
+  const merMarketingBreakeven = mediaRoomPct > 0 ? 100 / mediaRoomPct : null;
   const merBusinessBreakeven = businessRoomPct > 0 ? 100 / businessRoomPct : null;
   const merHealthyRoomPct = businessRoomPct - Math.max(0, finSettings.safety_margin_pct);
   const merHealthy = merHealthyRoomPct > 0 ? 100 / merHealthyRoomPct : null;
@@ -2054,9 +2104,23 @@ function FunnelSection({
         ? "saudável"
         : merBusinessBreakeven != null && currentMer >= merBusinessBreakeven
           ? "breakeven geral"
-          : merMarketingFloor != null && currentMer >= merMarketingFloor
+          : merMarketingBreakeven != null && currentMer >= merMarketingBreakeven
             ? "margem ok"
             : "abaixo margem";
+  const marginalMerStatus =
+    marginalMer.value == null
+      ? marginalMer.label
+      : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
+        ? "escala ok"
+        : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
+          ? "no limite"
+          : "não escalar";
+  const marginalMerTone =
+    marginalMer.value == null
+      ? "border-border bg-muted/40 text-foreground"
+      : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
+        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+        : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
 
   const pixelCheckoutSessions = checkoutInsights?.totals.checkout_sessions ?? 0;
   const pixelPurchases = checkoutInsights?.totals.purchased_sessions ?? 0;
@@ -2097,13 +2161,20 @@ function FunnelSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           <FunnelMetricTile
             label="CVR site"
             value={formatFunnelRate(siteConversionRate)}
             detail={`vs período anterior: ${formatPointDelta(siteConversionRate, prevSiteConversionRate)}`}
             toneClass={cvrTone.className}
             status={cvrTone.label}
+          />
+          <FunnelMetricTile
+            label="MER marginal 3d"
+            value={formatMerMultiple(marginalMer.value)}
+            detail={marginalMer.detail}
+            toneClass={marginalMerTone}
+            status={marginalMerStatus}
           />
           <FunnelMetricTile
             label="Abandono carrinho"
@@ -2270,23 +2341,29 @@ function FunnelSection({
             </div>
 
             {/* Rodapé: MER blended + pisos financeiros separados */}
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-4 xl:grid-cols-8">
               <FunnelSummaryTile
                 tone="violet"
                 label="MER atual"
-                value={currentMer != null ? `${currentMer.toFixed(2)}x` : "—"}
+                value={formatMerMultiple(currentMer)}
                 title="Marketing Efficiency Ratio: receita total / investimento total em marketing no período."
               />
               <FunnelSummaryTile
-                tone="gray"
-                label="MER mín. mídia"
-                value={merMarketingFloor != null ? `${merMarketingFloor.toFixed(2)}x` : "—"}
-                title="Piso de mídia sem custo fixo: considera CMV, frete, descontos, impostos e outras despesas variáveis."
+                tone={marginalMer.value != null && merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven ? "teal" : "gray"}
+                label="MER marginal"
+                value={formatMerMultiple(marginalMer.value)}
+                title="Incremento dos últimos 3 dias vs 3 dias anteriores: delta de receita dividido pelo delta de marketing."
               />
               <FunnelSummaryTile
                 tone="gray"
-                label="MER breakeven"
-                value={merBusinessBreakeven != null ? `${merBusinessBreakeven.toFixed(2)}x` : "—"}
+                label="MER BE mídia"
+                value={formatMerMultiple(merMarketingBreakeven)}
+                title="Break-even de mídia: 1 / margem de contribuição. Não inclui custo fixo."
+              />
+              <FunnelSummaryTile
+                tone="gray"
+                label="MER BE geral"
+                value={formatMerMultiple(merBusinessBreakeven)}
                 title="Breakeven geral: inclui custo fixo proporcional ao período."
               />
               <FunnelSummaryTile
