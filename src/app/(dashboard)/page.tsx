@@ -2209,27 +2209,35 @@ function FunnelSection({
       ? {
           title: "Não decidir escala ainda",
           badge: marginalMer.label,
-          className: "border-border bg-muted/40 text-foreground",
+          className: "border-border border-l-muted bg-card text-foreground",
+          badgeClass: "bg-muted text-foreground",
+          titleClass: "text-foreground",
           helper: marginalMer.detail,
         }
       : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
         ? {
             title: "Pode escalar mídia",
             badge: "positivo",
-            className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+            className: "border-emerald-600 border-l-emerald-600 bg-card text-foreground shadow-sm dark:border-emerald-400 dark:border-l-emerald-400",
+            badgeClass: "bg-emerald-600 text-white dark:bg-emerald-500 dark:text-emerald-950",
+            titleClass: "text-emerald-800 dark:text-emerald-300",
             helper: `MER marginal ${formatMerMultiple(marginalMer.value)} acima do mínimo ${formatMerMultiple(merMarketingBreakeven)}.`,
           }
         : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
           ? {
               title: "Escalar com cautela",
               badge: "no limite",
-              className: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+              className: "border-amber-600 border-l-amber-600 bg-card text-foreground shadow-sm dark:border-amber-400 dark:border-l-amber-400",
+              badgeClass: "bg-amber-500 text-amber-950",
+              titleClass: "text-amber-800 dark:text-amber-300",
               helper: `Está acima do mínimo ${formatMerMultiple(merMarketingBreakeven)}, mas sem folga grande.`,
             }
           : {
               title: "Não escalar agora",
               badge: "negativo",
-              className: "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-200",
+              className: "border-rose-600 border-l-rose-600 bg-card text-foreground shadow-sm dark:border-rose-400 dark:border-l-rose-400",
+              badgeClass: "bg-rose-600 text-white dark:bg-rose-500 dark:text-rose-950",
+              titleClass: "text-rose-800 dark:text-rose-300",
               helper: `MER marginal ${formatMerMultiple(marginalMer.value)} abaixo do mínimo ${formatMerMultiple(merMarketingBreakeven)}.`,
             };
 
@@ -2440,34 +2448,34 @@ function FunnelSection({
               })}
             </div>
 
-            <div className={`mt-4 rounded-lg border p-4 ${mediaDecision.className}`}>
+            <div className={`mt-4 rounded-lg border border-l-4 p-4 ${mediaDecision.className}`}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider opacity-75">Decisão de mídia</p>
-                    <span className="rounded bg-background/60 px-2 py-0.5 text-[10px] font-semibold">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decisão de mídia</p>
+                    <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${mediaDecision.badgeClass}`}>
                       {mediaDecision.badge}
                     </span>
                   </div>
-                  <h3 className="mt-1 text-xl font-bold">{mediaDecision.title}</h3>
-                  <p className="mt-1 text-sm opacity-80">{mediaDecision.helper}</p>
+                  <h3 className={`mt-1 text-xl font-bold ${mediaDecision.titleClass}`}>{mediaDecision.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{mediaDecision.helper}</p>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-right">
                   <div>
-                    <p className="text-[10px] uppercase opacity-70">Marginal</p>
-                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(marginalMer.value)}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">Marginal</p>
+                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(marginalMer.value)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase opacity-70">Mínimo</p>
-                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(merMarketingBreakeven)}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">Mínimo</p>
+                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(merMarketingBreakeven)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase opacity-70">Período</p>
-                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(currentMer)}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">Período</p>
+                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(currentMer)}</p>
                   </div>
                 </div>
               </div>
-              <p className="mt-3 text-xs opacity-70">
+              <p className="mt-3 text-xs text-muted-foreground">
                 Regra simples: marginal acima do mínimo = dá para escalar; abaixo do mínimo = segura mídia e melhora oferta/funil.
               </p>
             </div>
