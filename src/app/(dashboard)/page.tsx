@@ -894,9 +894,6 @@ export default function OverviewPage() {
     pendingReviews && pendingReviews.product <= 0 && pendingReviews.store > 0
       ? "/reviews?tab=store&status=pending"
       : "/reviews?tab=moderation&status=pending";
-  const selectedRange = datePresetToTimeRange(datePreset, customRange);
-  const selectedPeriodDays = inclusiveDateDays(selectedRange.since, selectedRange.until);
-
   return (
     <UiTooltipProvider delayDuration={150}>
     <div className="space-y-6">
@@ -1115,8 +1112,6 @@ export default function OverviewPage() {
         revenue={data.revenue}
         ticketMedio={data.ticketMedio}
         investment={data.totalInvestment}
-        previousRevenue={prevRevenue}
-        previousInvestment={prevTotalInvestment}
         previous={{
           users: gc?.users ?? 0,
           sessions: gc?.sessions ?? 0,
@@ -1131,7 +1126,6 @@ export default function OverviewPage() {
         vndaConfigured={data.vndaConfigured}
         checkoutInsights={data.checkoutInsights}
         finSettings={data.finSettings}
-        periodDays={selectedPeriodDays}
         loading={loading}
       />
 
@@ -1610,67 +1604,9 @@ function safeRate(value: number, base: number): number | null {
   return (value / base) * 100;
 }
 
-function inclusiveDateDays(since: string, until: string): number {
-  const start = new Date(`${since}T00:00:00.000Z`).getTime();
-  const end = new Date(`${until}T00:00:00.000Z`).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 30;
-  return Math.max(1, Math.round((end - start) / 86400000) + 1);
-}
-
 function formatMerMultiple(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(2)}x`;
-}
-
-function calcPeriodMarginalMer({
-  currentRevenue,
-  currentSpend,
-  previousRevenue,
-  previousSpend,
-  periodDays,
-}: {
-  currentRevenue: number;
-  currentSpend: number;
-  previousRevenue: number | undefined;
-  previousSpend: number | undefined;
-  periodDays: number;
-}) {
-  const periodLabel = `${periodDays} dia${periodDays === 1 ? "" : "s"}`;
-  if (
-    previousRevenue == null ||
-    previousSpend == null ||
-    !Number.isFinite(previousRevenue) ||
-    !Number.isFinite(previousSpend)
-  ) {
-    return {
-      value: null,
-      spendDelta: 0,
-      revenueDelta: 0,
-      label: "sem base",
-      detail: "sem período anterior equivalente",
-    };
-  }
-
-  const spendDelta = currentSpend - previousSpend;
-  const revenueDelta = currentRevenue - previousRevenue;
-
-  if (spendDelta <= 0) {
-    return {
-      value: null,
-      spendDelta,
-      revenueDelta,
-      label: "não aplicável",
-      detail: `mídia ${formatCurrency(currentSpend)} vs ${formatCurrency(previousSpend)} nos ${periodLabel} anteriores`,
-    };
-  }
-
-  return {
-    value: revenueDelta / spendDelta,
-    spendDelta,
-    revenueDelta,
-    label: "marginal",
-    detail: `vs ${periodLabel} anteriores: receita ${formatCurrency(revenueDelta)} / mídia ${formatCurrency(spendDelta)}`,
-  };
 }
 
 function calcRecentMarginalMer(data: DailyRow[], windowDays = 3) {
@@ -1924,14 +1860,11 @@ function FunnelSection({
   revenue,
   ticketMedio,
   investment,
-  previousRevenue,
-  previousInvestment,
   previous,
   ga4Configured,
   vndaConfigured,
   checkoutInsights,
   finSettings,
-  periodDays,
   loading,
 }: {
   workspaceId?: string;
@@ -1947,8 +1880,6 @@ function FunnelSection({
   revenue: number;
   ticketMedio: number;
   investment: number;
-  previousRevenue?: number;
-  previousInvestment?: number;
   previous: {
     users: number;
     sessions: number;
@@ -1963,7 +1894,6 @@ function FunnelSection({
   vndaConfigured: boolean;
   checkoutInsights: CheckoutInsights | null;
   finSettings: FinancialSettings;
-  periodDays: number;
   loading: boolean;
 }) {
   // Metas editáveis do funil — versionadas para a régua realista BR (CVR ~1,4%).
@@ -2033,13 +1963,6 @@ function FunnelSection({
   const currentMer = investment > 0 ? revenue / investment : null;
   const marginalMer = calcRecentMarginalMer(trendData, 3);
   const marginalMerDisplay = marginalMer.value == null ? "N/A" : formatMerMultiple(marginalMer.value);
-  const periodMarginalMer = calcPeriodMarginalMer({
-    currentRevenue: revenue,
-    currentSpend: investment,
-    previousRevenue,
-    previousSpend: previousInvestment,
-    periodDays,
-  });
 
   const diagnosticCandidates = [
     {
@@ -2195,33 +2118,23 @@ function FunnelSection({
   const cmPreAdsPct = Math.max(0, 100 - variableCostPct);
   const mediaRoomPct = cmPreAdsPct;
   const merMarketingBreakeven = mediaRoomPct > 0 ? 100 / mediaRoomPct : null;
-  const marginalMerStatus =
-    marginalMer.value == null
-      ? marginalMer.label
-      : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
-        ? "escala ok"
-        : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
+  const periodMerStatus =
+    currentMer == null
+      ? "sem dado"
+      : merMarketingBreakeven != null && currentMer >= merMarketingBreakeven * 1.1
+        ? "saudável"
+        : merMarketingBreakeven != null && currentMer >= merMarketingBreakeven
           ? "no limite"
-          : "não escalar";
-  const marginalMerTone =
-    marginalMer.value == null
-      ? "border-border bg-muted/40 text-foreground"
-      : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
+          : "abaixo";
+  const periodMerTone =
+    currentMer == null
+      ? "border-border bg-muted text-muted-foreground"
+      : merMarketingBreakeven != null && currentMer >= merMarketingBreakeven
         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
         : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
   const mediaDecision =
     marginalMer.value == null
-      ? {
-          title: marginalMer.label === "não aplicável" ? "Sem aumento de mídia" : "Não decidir escala ainda",
-          badge: marginalMer.label,
-          className: "border-border border-l-muted bg-card text-foreground",
-          badgeClass: "bg-muted text-foreground",
-          titleClass: "text-foreground",
-          helper:
-            marginalMer.label === "não aplicável"
-              ? `${marginalMer.detail}. MER marginal só existe quando há R$ a mais investido.`
-              : marginalMer.detail,
-        }
+      ? null
       : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
         ? {
             title: "Pode escalar mídia",
@@ -2278,21 +2191,21 @@ function FunnelSection({
             info="Taxa de conversão do site no período selecionado: pedidos divididos por sessões. Verde/vermelho compara com a régua de moda BR: bom a partir de 1,4% e excelente acima de 2,0%."
           />
           <FunnelMetricTile
-            label="MER marginal recente"
-            value={marginalMerDisplay}
-            detail={marginalMer.detail}
-            toneClass={marginalMerTone}
-            status={marginalMerStatus}
+            label="MER do período"
+            value={formatMerMultiple(currentMer)}
+            detail={`mínimo ${formatMerMultiple(merMarketingBreakeven)} para pagar mídia`}
+            toneClass={periodMerTone}
+            status={periodMerStatus}
             info={
               <>
                 <p>
-                  Mede se o aumento recente de mídia compensou: variação de receita dividida pela variação de investimento nos últimos 3 dias contra os 3 dias anteriores.
+                  Receita total do período dividida pelo investimento total em mídia. É o ROAS blended real da loja no período selecionado.
                 </p>
                 <p className="mt-1">
-                  Se a mídia não aumentou, aparece N/A porque não existe R$ incremental para medir. Nesse caso, acompanhe o MER do período abaixo.
+                  O mínimo vem da margem de contribuição antes da mídia: se o MER fica abaixo dele, a mídia tende a consumir a margem.
                 </p>
                 <p className="mt-1">
-                  Comparativo do período selecionado vs anterior: {formatMerMultiple(periodMarginalMer.value)}.
+                  O MER marginal continua sendo monitorado e entra em destaque quando há aumento real de investimento para medir.
                 </p>
               </>
             }
@@ -2456,37 +2369,39 @@ function FunnelSection({
               })}
             </div>
 
-            <div className={`mt-4 rounded-lg border border-l-4 p-4 ${mediaDecision.className}`}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decisão de mídia</p>
-                    <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${mediaDecision.badgeClass}`}>
-                      {mediaDecision.badge}
-                    </span>
+            {mediaDecision && (
+              <div className={`mt-4 rounded-lg border border-l-4 p-4 ${mediaDecision.className}`}>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Decisão de mídia</p>
+                      <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${mediaDecision.badgeClass}`}>
+                        {mediaDecision.badge}
+                      </span>
+                    </div>
+                    <h3 className={`mt-1 text-xl font-bold ${mediaDecision.titleClass}`}>{mediaDecision.title}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">{mediaDecision.helper}</p>
                   </div>
-                  <h3 className={`mt-1 text-xl font-bold ${mediaDecision.titleClass}`}>{mediaDecision.title}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{mediaDecision.helper}</p>
+                  <div className="grid grid-cols-3 gap-2 text-right">
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">Marginal</p>
+                      <p className="text-lg font-bold tabular-nums text-foreground">{marginalMerDisplay}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">Mínimo</p>
+                      <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(merMarketingBreakeven)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">Período</p>
+                      <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(currentMer)}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-right">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Marginal</p>
-                    <p className="text-lg font-bold tabular-nums text-foreground">{marginalMerDisplay}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Mínimo</p>
-                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(merMarketingBreakeven)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Período</p>
-                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(currentMer)}</p>
-                  </div>
-                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Regra simples: marginal acima do mínimo = dá para escalar; abaixo do mínimo = segura mídia e melhora oferta/funil.
+                </p>
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Regra simples: marginal acima do mínimo = dá para escalar; abaixo do mínimo = segura mídia e melhora oferta/funil.
-              </p>
-            </div>
+            )}
           </div>
         </div>
 
