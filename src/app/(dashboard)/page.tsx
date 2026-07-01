@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   DollarSign,
   TrendingUp,
@@ -11,6 +11,7 @@ import {
   Percent,
   Calculator,
   Landmark,
+  HelpCircle,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -34,6 +35,12 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { OverviewSummary } from "@/components/dashboard/overview-summary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider,
+  TooltipTrigger as UiTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatCurrency, formatNumber, formatPercent, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -891,6 +898,7 @@ export default function OverviewPage() {
   const selectedPeriodDays = inclusiveDateDays(selectedRange.since, selectedRange.until);
 
   return (
+    <UiTooltipProvider delayDuration={150}>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -939,6 +947,7 @@ export default function OverviewPage() {
           loading={loading}
           badge={investBadge}
           badgeColor={investColor}
+          info="Soma do investimento em mídia no período selecionado. Quando Google Ads está configurado, soma Meta + Google."
         />
         <KpiCard
           title="Receita"
@@ -949,6 +958,7 @@ export default function OverviewPage() {
           loading={loading}
           badge={revenueSource}
           badgeColor={revenueColor}
+          info="Receita real do período. A prioridade é VNDA/loja; se não houver VNDA, usa GA4; Meta fica apenas como fallback."
         />
         <div className="relative group">
           <KpiCard
@@ -960,6 +970,7 @@ export default function OverviewPage() {
             loading={loading}
             badge={merBadge}
             badgeColor="#8b5cf6"
+            info="MER blended: receita real total dividida pelo investimento total em marketing no período. É o ROAS agregado do negócio, sem depender da atribuição inflada das plataformas."
           />
           <Link
             href="/simulador"
@@ -977,6 +988,7 @@ export default function OverviewPage() {
           loading={loading}
           badge={revenueSource}
           badgeColor={revenueColor}
+          info="Quantidade de pedidos do período. A prioridade acompanha a fonte de receita: VNDA/loja, depois GA4 e, por último, Meta."
         />
       </div>
 
@@ -991,6 +1003,7 @@ export default function OverviewPage() {
           loading={loading}
           badge="Meta"
           badgeColor="#818cf8"
+          info="Investimento reportado pela Meta Ads no período selecionado."
         />
         {data.gadsConfigured ? (
           <KpiCard
@@ -1002,6 +1015,7 @@ export default function OverviewPage() {
             loading={loading}
             badge="Google Ads"
             badgeColor="#4285f4"
+            info="Investimento reportado pelo Google Ads no período selecionado."
           />
         ) : (
           <KpiCard
@@ -1013,6 +1027,7 @@ export default function OverviewPage() {
             loading={loading}
             badge="GA4"
             badgeColor="#f97316"
+            info="Sessões medidas pelo GA4 no período selecionado. É a principal base para calcular a conversão do site."
           />
         )}
         <KpiCard
@@ -1024,6 +1039,7 @@ export default function OverviewPage() {
           loading={loading}
           badge={revenueSource}
           badgeColor={revenueColor}
+          info="Taxa de conversão do site: pedidos divididos por sessões do período. Quando a loja está configurada, usa pedidos reais da VNDA contra sessões do GA4."
         />
         <KpiCard
           title="Ticket Médio"
@@ -1034,6 +1050,7 @@ export default function OverviewPage() {
           loading={loading}
           badge={revenueSource}
           badgeColor={revenueColor}
+          info="Receita dividida pelo número de pedidos do período. Ajuda a separar ganho por volume de ganho por valor de pedido."
         />
       </div>
 
@@ -1099,6 +1116,8 @@ export default function OverviewPage() {
         revenue={data.revenue}
         ticketMedio={data.ticketMedio}
         investment={data.totalInvestment}
+        previousRevenue={prevRevenue}
+        previousInvestment={prevTotalInvestment}
         previous={{
           users: gc?.users ?? 0,
           pageViews: gc?.pageViews ?? 0,
@@ -1166,6 +1185,7 @@ export default function OverviewPage() {
         loading={loading}
       />
     </div>
+    </UiTooltipProvider>
   );
 }
 
@@ -1604,7 +1624,58 @@ function formatMerMultiple(value: number | null | undefined): string {
   return `${value.toFixed(2)}x`;
 }
 
-function calcMarginalMer(data: DailyRow[], windowDays = 3) {
+function calcPeriodMarginalMer({
+  currentRevenue,
+  currentSpend,
+  previousRevenue,
+  previousSpend,
+  periodDays,
+}: {
+  currentRevenue: number;
+  currentSpend: number;
+  previousRevenue: number | undefined;
+  previousSpend: number | undefined;
+  periodDays: number;
+}) {
+  const periodLabel = `${periodDays} dia${periodDays === 1 ? "" : "s"}`;
+  if (
+    previousRevenue == null ||
+    previousSpend == null ||
+    !Number.isFinite(previousRevenue) ||
+    !Number.isFinite(previousSpend)
+  ) {
+    return {
+      value: null,
+      spendDelta: 0,
+      revenueDelta: 0,
+      label: "sem base",
+      detail: "sem período anterior equivalente",
+    };
+  }
+
+  const spendDelta = currentSpend - previousSpend;
+  const revenueDelta = currentRevenue - previousRevenue;
+
+  if (spendDelta <= 0) {
+    return {
+      value: null,
+      spendDelta,
+      revenueDelta,
+      label: "sem aumento",
+      detail: `mídia não subiu vs ${periodLabel} anteriores`,
+    };
+  }
+
+  return {
+    value: revenueDelta / spendDelta,
+    spendDelta,
+    revenueDelta,
+    label: "marginal",
+    detail: `vs ${periodLabel} anteriores: receita ${formatCurrency(revenueDelta)} / mídia ${formatCurrency(spendDelta)}`,
+  };
+}
+
+function calcRecentMarginalMer(data: DailyRow[], windowDays = 3) {
   const rows = data.filter(
     (row) => Number.isFinite(row.totalSpend) && Number.isFinite(row.revenue)
   );
@@ -1614,7 +1685,8 @@ function calcMarginalMer(data: DailyRow[], windowDays = 3) {
       spendDelta: 0,
       revenueDelta: 0,
       label: "sem base",
-      detail: "precisa de duas janelas comparáveis",
+      detail: `precisa de ${windowDays * 2} dias com dados`,
+      windowDays,
     };
   }
 
@@ -1632,7 +1704,8 @@ function calcMarginalMer(data: DailyRow[], windowDays = 3) {
       spendDelta,
       revenueDelta,
       label: "sem aumento",
-      detail: "mídia não subiu na janela de 3 dias",
+      detail: `mídia não subiu nos últimos ${windowDays} dias`,
+      windowDays,
     };
   }
 
@@ -1640,9 +1713,35 @@ function calcMarginalMer(data: DailyRow[], windowDays = 3) {
     value: revenueDelta / spendDelta,
     spendDelta,
     revenueDelta,
-    label: "marginal 3d",
-    detail: `Δ receita ${formatCurrency(revenueDelta)} / Δ mídia ${formatCurrency(spendDelta)}`,
+    label: `${windowDays}d`,
+    detail: `últimos ${windowDays}d vs ${windowDays}d anteriores: receita ${formatCurrency(revenueDelta)} / mídia ${formatCurrency(spendDelta)}`,
+    windowDays,
   };
+}
+
+function InfoTooltip({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <UiTooltip delayDuration={150}>
+      <UiTooltipTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex shrink-0 items-center justify-center opacity-70 transition-opacity hover:opacity-100 ${className}`}
+          aria-label="Mais informações"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </UiTooltipTrigger>
+      <UiTooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+        {children}
+      </UiTooltipContent>
+    </UiTooltip>
+  );
 }
 
 function formatFunnelRate(value: number | null | undefined): string {
@@ -1824,6 +1923,8 @@ function FunnelSection({
   revenue,
   ticketMedio,
   investment,
+  previousRevenue,
+  previousInvestment,
   previous,
   ga4Configured,
   vndaConfigured,
@@ -1846,6 +1947,8 @@ function FunnelSection({
   revenue: number;
   ticketMedio: number;
   investment: number;
+  previousRevenue?: number;
+  previousInvestment?: number;
   previous: {
     users: number;
     pageViews: number;
@@ -1935,7 +2038,14 @@ function FunnelSection({
   const effectiveTicket = ticketMedio || (pedidos > 0 ? revenue / pedidos : 0);
   const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
   const currentMer = investment > 0 ? revenue / investment : null;
-  const marginalMer = calcMarginalMer(trendData, 3);
+  const marginalMer = calcRecentMarginalMer(trendData, 3);
+  const periodMarginalMer = calcPeriodMarginalMer({
+    currentRevenue: revenue,
+    currentSpend: investment,
+    previousRevenue,
+    previousSpend: previousInvestment,
+    periodDays,
+  });
 
   const diagnosticCandidates = [
     {
@@ -2168,13 +2278,27 @@ function FunnelSection({
             detail={`vs período anterior: ${formatPointDelta(siteConversionRate, prevSiteConversionRate)}`}
             toneClass={cvrTone.className}
             status={cvrTone.label}
+            info="Taxa de conversão do site no período selecionado: pedidos divididos por sessões. Verde/vermelho compara com a régua de moda BR: bom a partir de 1,4% e excelente acima de 2,0%."
           />
           <FunnelMetricTile
-            label="MER marginal 3d"
+            label="MER marginal recente"
             value={formatMerMultiple(marginalMer.value)}
             detail={marginalMer.detail}
             toneClass={marginalMerTone}
             status={marginalMerStatus}
+            info={
+              <>
+                <p>
+                  Mede se o aumento recente de mídia compensou: variação de receita dividida pela variação de investimento.
+                </p>
+                <p className="mt-1">
+                  Verde significa que ficou acima do MER de break-even de mídia ({formatMerMultiple(merMarketingBreakeven)}). Não usa todo o período do funil para não diluir decisão de escala em 30/60/90 dias.
+                </p>
+                <p className="mt-1">
+                  Comparativo do período selecionado vs anterior: {formatMerMultiple(periodMarginalMer.value)}.
+                </p>
+              </>
+            }
           />
           <FunnelMetricTile
             label="Abandono carrinho"
@@ -2182,6 +2306,7 @@ function FunnelSection({
             detail="carrinhos que não viraram pedido"
             toneClass={cartAbandonTone.className}
             status={cartAbandonTone.label}
+            info="Percentual de adições ao carrinho que não viraram pedido. Aqui, menor é melhor. Acima da referência de mercado entra em atenção/crítico."
           />
           <FunnelMetricTile
             label="Páginas / usuário"
@@ -2193,6 +2318,7 @@ function FunnelSection({
             }`}
             toneClass="border-border bg-muted/40 text-foreground"
             status="engaj."
+            info="Média de páginas vistas por usuário/sessão no período. Ajuda a ler profundidade de navegação, mas não substitui conversão."
           />
           <FunnelMetricTile
             label="Receita potencial"
@@ -2200,6 +2326,7 @@ function FunnelSection({
             detail={`se CVR chegar a ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}%`}
             toneClass="border-primary/20 bg-primary/10 text-primary"
             status={`${formatNumber(ordersToFashionGoodBrazil)} pedidos`}
+            info="Estimativa de receita adicional se a conversão chegar ao patamar bom de moda BR, usando o ticket médio atual. É potencial, não previsão garantida."
           />
         </div>
 
@@ -2207,10 +2334,22 @@ function FunnelSection({
         <div className="overflow-x-auto">
           <div className="min-w-[680px]">
             <div className={`${gridCols} px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider`}>
-              <span className="text-right text-violet-600 dark:text-violet-400">Realizado</span>
-              <span className="col-span-2 text-center text-muted-foreground">Conversão</span>
-              <span className="text-left text-zinc-500 dark:text-zinc-400">Meta</span>
-              <span className="text-center leading-tight text-muted-foreground">Ajuste manual (%)</span>
+              <span className="inline-flex items-center justify-end gap-1 text-right text-violet-600 dark:text-violet-400">
+                Realizado
+                <InfoTooltip>Volume real medido no período selecionado para cada etapa do funil.</InfoTooltip>
+              </span>
+              <span className="col-span-2 inline-flex items-center justify-center gap-1 text-center text-muted-foreground">
+                Conversão
+                <InfoTooltip>Taxa entre uma etapa e a próxima. O bloco verde é o realizado; o bloco âmbar é a meta configurada.</InfoTooltip>
+              </span>
+              <span className="inline-flex items-center gap-1 text-left text-zinc-500 dark:text-zinc-400">
+                Meta
+                <InfoTooltip>Volume esperado se o funil bater as taxas alvo configuradas por etapa.</InfoTooltip>
+              </span>
+              <span className="inline-flex items-center justify-center gap-1 text-center leading-tight text-muted-foreground">
+                Ajuste manual (%)
+                <InfoTooltip>Campo para alterar a meta percentual daquela etapa. O ajuste fica salvo neste navegador por workspace.</InfoTooltip>
+              </span>
             </div>
 
             <div className="space-y-1.5">
@@ -2347,45 +2486,58 @@ function FunnelSection({
                 label="MER atual"
                 value={formatMerMultiple(currentMer)}
                 title="Marketing Efficiency Ratio: receita total / investimento total em marketing no período."
+                info="MER blended do período selecionado: receita real total dividida pelo investimento total em mídia. Bom para visão geral do negócio, mas não decide sozinho se vale escalar mais."
               />
               <FunnelSummaryTile
                 tone={marginalMer.value != null && merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven ? "teal" : "gray"}
-                label="MER marginal"
+                label="MER marginal rec."
                 value={formatMerMultiple(marginalMer.value)}
                 title="Incremento dos últimos 3 dias vs 3 dias anteriores: delta de receita dividido pelo delta de marketing."
+                info={
+                  <>
+                    <p>MER marginal recente: aumento de receita dividido pelo aumento de mídia nos últimos 3 dias contra os 3 dias anteriores.</p>
+                    <p className="mt-1">Período selecionado contra período anterior: {formatMerMultiple(periodMarginalMer.value)}.</p>
+                  </>
+                }
               />
               <FunnelSummaryTile
                 tone="gray"
                 label="MER BE mídia"
                 value={formatMerMultiple(merMarketingBreakeven)}
                 title="Break-even de mídia: 1 / margem de contribuição. Não inclui custo fixo."
+                info="MER mínimo para a mídia se pagar antes dos custos fixos. Fórmula: 1 dividido pela margem de contribuição pré-mídia. Se o MER marginal fica abaixo disso, escalar tende a queimar margem."
               />
               <FunnelSummaryTile
                 tone="gray"
                 label="MER BE geral"
                 value={formatMerMultiple(merBusinessBreakeven)}
                 title="Breakeven geral: inclui custo fixo proporcional ao período."
+                info="MER de break-even incluindo custo fixo proporcional ao período. Serve para leitura de caixa/negócio, não para decidir o próximo real de mídia."
               />
               <FunnelSummaryTile
                 tone={merStatus === "saudável" ? "teal" : "gray"}
                 label="MER saudável"
                 value={merHealthy != null ? `${merHealthy.toFixed(2)}x` : merStatus}
                 title="Breakeven geral acrescido da margem de segurança configurada."
+                info="MER acima do break-even geral com a margem de segurança configurada. É uma régua conservadora para saúde financeira."
               />
               <FunnelSummaryTile
                 tone="violet"
                 label="Receita"
                 value={revenue > 0 ? formatCurrency(revenue) : "—"}
+                info="Receita real do período selecionado, priorizando a fonte da loja/VNDA."
               />
               <FunnelSummaryTile
                 tone="teal"
                 label="TKM"
                 value={ticketMedio > 0 ? formatCurrency(ticketMedio) : "—"}
+                info="Ticket médio do período: receita dividida por pedidos."
               />
               <FunnelSummaryTile
                 tone="gray"
                 label="Receita meta"
                 value={idealRevenue > 0 ? formatCurrency(idealRevenue) : "—"}
+                info="Receita estimada se o funil atingir as metas configuradas por etapa, usando o ticket médio atual."
               />
             </div>
           </div>
@@ -2505,11 +2657,13 @@ function FunnelSummaryTile({
   label,
   value,
   title,
+  info,
 }: {
   tone: "violet" | "teal" | "gray";
   label: string;
   value: string;
   title?: string;
+  info?: ReactNode;
 }) {
   const toneClass =
     tone === "violet"
@@ -2520,7 +2674,10 @@ function FunnelSummaryTile({
   const labelClass = tone === "gray" ? "text-muted-foreground" : "text-white/80";
   return (
     <div className={`min-w-0 rounded-md px-2.5 py-2 ${toneClass}`} title={title}>
-      <p className={`truncate text-[10px] font-medium uppercase tracking-wide ${labelClass}`}>{label}</p>
+      <div className={`flex min-w-0 items-center gap-1 ${labelClass}`}>
+        <p className="truncate text-[10px] font-medium uppercase tracking-wide">{label}</p>
+        {info && <InfoTooltip className={tone === "gray" ? "text-muted-foreground" : "text-white/80"}>{info}</InfoTooltip>}
+      </div>
       <p className="truncate text-sm font-bold leading-tight tabular-nums">{value}</p>
     </div>
   );
@@ -2532,17 +2689,22 @@ function FunnelMetricTile({
   detail,
   toneClass,
   status,
+  info,
 }: {
   label: string;
   value: string;
   detail: string;
   toneClass: string;
   status: string;
+  info?: ReactNode;
 }) {
   return (
     <div className={`rounded-lg border p-3 ${toneClass}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider opacity-80">{label}</p>
+        <div className="flex min-w-0 items-center gap-1">
+          <p className="truncate text-xs font-medium uppercase tracking-wider opacity-80">{label}</p>
+          {info && <InfoTooltip>{info}</InfoTooltip>}
+        </div>
         <span className="rounded bg-background/60 px-1.5 py-0.5 text-[10px] font-semibold">
           {status}
         </span>
