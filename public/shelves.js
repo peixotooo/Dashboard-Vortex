@@ -1620,6 +1620,163 @@
     observer.observe(document.body, { childList: true, characterData: true, subtree: true });
   }
 
+  function initCartInstallmentHider() {
+    if (window.__vtxCartInstallmentHiderStarted) return;
+    window.__vtxCartInstallmentHiderStarted = true;
+
+    if (!document.getElementById("vtx-cart-installment-hider-css")) {
+      var style = document.createElement("style");
+      style.id = "vtx-cart-installment-hider-css";
+      style.textContent =
+        "[data-vtx-hide-cart-installments='1']{" +
+          "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
+        "}";
+      document.head.appendChild(style);
+    }
+
+    var installmentTextRe = /\s*ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}/gi;
+    var exactInstallmentTextRe = /^ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}$/i;
+    var scanTimer = null;
+
+    function normalizeText(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function isCartScopedRoot(el) {
+      if (!el || el.nodeType !== 1) return false;
+      if (detectPageType() === "cart" && el === document.body) return true;
+      var marker = (
+        (el.id || "") + " " +
+        (el.className && typeof el.className === "string" ? el.className : "") + " " +
+        Array.prototype.map.call(el.attributes || [], function (attr) {
+          return attr.name + " " + attr.value;
+        }).join(" ")
+      ).toLowerCase();
+      return /cart|carrinho|minicart|drawer/.test(marker);
+    }
+
+    function collectCartRoots() {
+      var roots = [];
+      var selectors = [
+        "#component-cart-drawer-root",
+        "#cart",
+        "#cart-drawer",
+        "[data-cart-drawer]",
+        "[data-cart]",
+        ".cart",
+        ".cart-page",
+        ".cart-drawer",
+        ".CartDrawer",
+        ".drawer-cart",
+        ".side-cart",
+        ".minicart",
+        "[id*='cart'][id*='drawer']",
+        "[class*='cart-drawer']",
+        "[class*='CartDrawer']",
+        "[class*='mini-cart']"
+      ];
+      for (var i = 0; i < selectors.length; i++) {
+        var found = document.querySelectorAll(selectors[i]);
+        for (var j = 0; j < found.length; j++) {
+          if (roots.indexOf(found[j]) === -1) roots.push(found[j]);
+        }
+      }
+      if (detectPageType() === "cart" && roots.indexOf(document.body) === -1) {
+        roots.push(document.body);
+      }
+      return roots.filter(isCartScopedRoot);
+    }
+
+    function cleanTextNode(textNode) {
+      var value = textNode.nodeValue || "";
+      installmentTextRe.lastIndex = 0;
+      if (!installmentTextRe.test(value)) return;
+      installmentTextRe.lastIndex = 0;
+
+      var parent = textNode.parentElement;
+      if (!parent) return;
+
+      var parentText = normalizeText(parent.textContent);
+      if (exactInstallmentTextRe.test(parentText)) {
+        parent.setAttribute("data-vtx-hide-cart-installments", "1");
+        return;
+      }
+
+      textNode.nodeValue = value.replace(installmentTextRe, "");
+    }
+
+    function scanRoot(root) {
+      if (!root || !root.querySelectorAll) return;
+      if (root.matches && root.matches("script,style,noscript,textarea,input")) return;
+
+      if (root.childNodes && root.childNodes.length === 1 && root.firstChild.nodeType === 3) {
+        cleanTextNode(root.firstChild);
+      }
+
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (node) {
+          var parent = node.parentElement;
+          if (!parent || parent.closest("script,style,noscript,textarea,input")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          installmentTextRe.lastIndex = 0;
+          return installmentTextRe.test(node.nodeValue || "")
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        }
+      });
+
+      var node;
+      var nodes = [];
+      while ((node = walker.nextNode())) nodes.push(node);
+      for (var i = 0; i < nodes.length; i++) cleanTextNode(nodes[i]);
+    }
+
+    function scanCartInstallments() {
+      var roots = collectCartRoots();
+      for (var i = 0; i < roots.length; i++) scanRoot(roots[i]);
+    }
+
+    function queueScan(delay) {
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(scanCartInstallments, delay || 80);
+    }
+
+    window.addEventListener("vnda:cart-drawer-loaded", function () { queueScan(80); });
+    window.addEventListener("vnda:cart-drawer-opened", function () { queueScan(80); });
+
+    if (window.fetch && !window.__vtxCartInstallmentFetchPatched) {
+      var originalFetch = window.fetch;
+      window.__vtxCartInstallmentFetchPatched = true;
+      window.fetch = function () {
+        var result = originalFetch.apply(this, arguments);
+        var url = typeof arguments[0] === "string" ? arguments[0] : (arguments[0] && arguments[0].url) || "";
+        if (url.indexOf("/carrinho") !== -1 || url.indexOf("/cart") !== -1) {
+          result.then(function () { queueScan(250); }).catch(function () {});
+        }
+        return result;
+      };
+    }
+
+    if (window.MutationObserver) {
+      var observer = new MutationObserver(function (mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var target = mutations[i].target;
+          var el = target && target.nodeType === 1 ? target : target && target.parentElement;
+          if (el && (isCartScopedRoot(el) || (el.closest && el.closest("#component-cart-drawer-root,#cart,#cart-drawer,.cart,.cart-drawer,.CartDrawer,.drawer-cart,.side-cart,.minicart,[data-cart-drawer],[data-cart]")))) {
+            queueScan(80);
+            return;
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+    }
+
+    queueScan(120);
+    setTimeout(scanCartInstallments, 700);
+    setTimeout(scanCartInstallments, 1600);
+  }
+
 
   // Inline geometric SVGs for storefront utility/benefit icons.
   var GB_ICONS = {
@@ -6529,6 +6686,7 @@
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
       hidePdpShippingCalculator();
+      initCartInstallmentHider();
       init();
       initGiftBar();
       initPromoTags();
@@ -6541,6 +6699,7 @@
     });
   } else {
     hidePdpShippingCalculator();
+    initCartInstallmentHider();
     init();
     initGiftBar();
     initPromoTags();
