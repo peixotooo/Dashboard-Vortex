@@ -1659,8 +1659,8 @@ function calcPeriodMarginalMer({
       value: null,
       spendDelta,
       revenueDelta,
-      label: "sem aumento",
-      detail: `mídia não subiu vs ${periodLabel} anteriores`,
+      label: "não aplicável",
+      detail: `mídia ${formatCurrency(currentSpend)} vs ${formatCurrency(previousSpend)} nos ${periodLabel} anteriores`,
     };
   }
 
@@ -1693,16 +1693,20 @@ function calcRecentMarginalMer(data: DailyRow[], windowDays = 3) {
   const sum = (items: DailyRow[], key: "totalSpend" | "revenue") =>
     items.reduce((total, row) => total + (row[key] || 0), 0);
 
-  const spendDelta = sum(currentWindow, "totalSpend") - sum(previousWindow, "totalSpend");
-  const revenueDelta = sum(currentWindow, "revenue") - sum(previousWindow, "revenue");
+  const currentSpend = sum(currentWindow, "totalSpend");
+  const previousSpend = sum(previousWindow, "totalSpend");
+  const currentRevenue = sum(currentWindow, "revenue");
+  const previousRevenue = sum(previousWindow, "revenue");
+  const spendDelta = currentSpend - previousSpend;
+  const revenueDelta = currentRevenue - previousRevenue;
 
   if (spendDelta <= 0) {
     return {
       value: null,
       spendDelta,
       revenueDelta,
-      label: "sem aumento",
-      detail: `mídia não subiu nos últimos ${windowDays} dias`,
+      label: "não aplicável",
+      detail: `mídia ${formatCurrency(currentSpend)} vs ${formatCurrency(previousSpend)} nos ${windowDays}d anteriores`,
       windowDays,
     };
   }
@@ -2028,6 +2032,7 @@ function FunnelSection({
   const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
   const currentMer = investment > 0 ? revenue / investment : null;
   const marginalMer = calcRecentMarginalMer(trendData, 3);
+  const marginalMerDisplay = marginalMer.value == null ? "N/A" : formatMerMultiple(marginalMer.value);
   const periodMarginalMer = calcPeriodMarginalMer({
     currentRevenue: revenue,
     currentSpend: investment,
@@ -2207,12 +2212,15 @@ function FunnelSection({
   const mediaDecision =
     marginalMer.value == null
       ? {
-          title: "Não decidir escala ainda",
+          title: marginalMer.label === "não aplicável" ? "Sem aumento de mídia" : "Não decidir escala ainda",
           badge: marginalMer.label,
           className: "border-border border-l-muted bg-card text-foreground",
           badgeClass: "bg-muted text-foreground",
           titleClass: "text-foreground",
-          helper: marginalMer.detail,
+          helper:
+            marginalMer.label === "não aplicável"
+              ? `${marginalMer.detail}. MER marginal só existe quando há R$ a mais investido.`
+              : marginalMer.detail,
         }
       : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
         ? {
@@ -2271,17 +2279,17 @@ function FunnelSection({
           />
           <FunnelMetricTile
             label="MER marginal recente"
-            value={formatMerMultiple(marginalMer.value)}
+            value={marginalMerDisplay}
             detail={marginalMer.detail}
             toneClass={marginalMerTone}
             status={marginalMerStatus}
             info={
               <>
                 <p>
-                  Mede se o aumento recente de mídia compensou: variação de receita dividida pela variação de investimento.
+                  Mede se o aumento recente de mídia compensou: variação de receita dividida pela variação de investimento nos últimos 3 dias contra os 3 dias anteriores.
                 </p>
                 <p className="mt-1">
-                  Verde significa que ficou acima do MER de break-even de mídia ({formatMerMultiple(merMarketingBreakeven)}). Não usa todo o período do funil para não diluir decisão de escala em 30/60/90 dias.
+                  Se a mídia não aumentou, aparece N/A porque não existe R$ incremental para medir. Nesse caso, acompanhe o MER do período abaixo.
                 </p>
                 <p className="mt-1">
                   Comparativo do período selecionado vs anterior: {formatMerMultiple(periodMarginalMer.value)}.
@@ -2463,7 +2471,7 @@ function FunnelSection({
                 <div className="grid grid-cols-3 gap-2 text-right">
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground">Marginal</p>
-                    <p className="text-lg font-bold tabular-nums text-foreground">{formatMerMultiple(marginalMer.value)}</p>
+                    <p className="text-lg font-bold tabular-nums text-foreground">{marginalMerDisplay}</p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground">Mínimo</p>
