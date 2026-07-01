@@ -1106,7 +1106,6 @@ export default function OverviewPage() {
         trendData={data.trendData}
         sessions={data.sessions}
         users={data.users}
-        pageViews={data.pageViews}
         produtos={data.productViewers}
         addToCarts={data.addToCarts}
         checkouts={data.checkouts}
@@ -1120,7 +1119,6 @@ export default function OverviewPage() {
         previousInvestment={prevTotalInvestment}
         previous={{
           users: gc?.users ?? 0,
-          pageViews: gc?.pageViews ?? 0,
           sessions: gc?.sessions ?? 0,
           produtos: gc?.productViewers ?? 0,
           addToCarts: gc?.addToCarts ?? 0,
@@ -1913,7 +1911,6 @@ function FunnelSection({
   trendData,
   sessions,
   users,
-  pageViews,
   produtos,
   addToCarts,
   checkouts,
@@ -1937,7 +1934,6 @@ function FunnelSection({
   trendData: DailyRow[];
   sessions: number;
   users: number;
-  pageViews: number;
   produtos: number;
   addToCarts: number;
   checkouts: number;
@@ -1951,7 +1947,6 @@ function FunnelSection({
   previousInvestment?: number;
   previous: {
     users: number;
-    pageViews: number;
     sessions: number;
     produtos: number;
     addToCarts: number;
@@ -2016,9 +2011,6 @@ function FunnelSection({
 
   const visitorBase = users > 0 ? users : sessions;
   const previousVisitorBase = previous.users > 0 ? previous.users : previous.sessions;
-  const pagesPerUser = visitorBase > 0 ? pageViews / visitorBase : null;
-  const previousPagesPerUser =
-    previousVisitorBase > 0 ? previous.pageViews / previousVisitorBase : null;
 
   // Taxas usadas pelos cards de contexto/benchmark (base em sessões/pedidos).
   const addToCartRate = safeRate(addToCarts, sessions);
@@ -2031,10 +2023,7 @@ function FunnelSection({
 
   const targetOrdersGoodBrazil =
     sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil / 100);
-  const targetOrdersExcellentBrazil =
-    sessions * (FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil / 100);
   const ordersToFashionGoodBrazil = targetGap(pedidos, targetOrdersGoodBrazil);
-  const ordersToFashionExcellentBrazil = targetGap(pedidos, targetOrdersExcellentBrazil);
   const effectiveTicket = ticketMedio || (pedidos > 0 ? revenue / pedidos : 0);
   const potentialRevenue = ordersToFashionGoodBrazil * effectiveTicket;
   const currentMer = investment > 0 ? revenue / investment : null;
@@ -2199,24 +2188,8 @@ function FunnelSection({
     finSettings.tax_pct +
     finSettings.other_expenses_pct;
   const cmPreAdsPct = Math.max(0, 100 - variableCostPct);
-  const periodFixedCost = finSettings.monthly_fixed_costs * (Math.max(1, periodDays) / 30.4375);
-  const fixedCostPct = revenue > 0 ? (periodFixedCost / revenue) * 100 : 0;
   const mediaRoomPct = cmPreAdsPct;
-  const businessRoomPct = cmPreAdsPct - fixedCostPct;
   const merMarketingBreakeven = mediaRoomPct > 0 ? 100 / mediaRoomPct : null;
-  const merBusinessBreakeven = businessRoomPct > 0 ? 100 / businessRoomPct : null;
-  const merHealthyRoomPct = businessRoomPct - Math.max(0, finSettings.safety_margin_pct);
-  const merHealthy = merHealthyRoomPct > 0 ? 100 / merHealthyRoomPct : null;
-  const merStatus =
-    currentMer == null
-      ? "sem mídia"
-      : merHealthy != null && currentMer >= merHealthy
-        ? "saudável"
-        : merBusinessBreakeven != null && currentMer >= merBusinessBreakeven
-          ? "breakeven geral"
-          : merMarketingBreakeven != null && currentMer >= merMarketingBreakeven
-            ? "margem ok"
-            : "abaixo margem";
   const marginalMerStatus =
     marginalMer.value == null
       ? marginalMer.label
@@ -2231,18 +2204,34 @@ function FunnelSection({
       : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
         ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
         : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-
-  const pixelCheckoutSessions = checkoutInsights?.totals.checkout_sessions ?? 0;
-  const pixelPurchases = checkoutInsights?.totals.purchased_sessions ?? 0;
-  const pixelCompletionRate = checkoutInsights?.totals.completion_rate ?? null;
-  const ga4VsPixelCheckoutGap =
-    checkouts > 0 && pixelCheckoutSessions > 0
-      ? ((pixelCheckoutSessions - checkouts) / Math.max(checkouts, pixelCheckoutSessions)) * 100
-      : null;
-  const ordersVsPixelPurchaseGap =
-    pedidos > 0 && pixelPurchases > 0
-      ? ((pixelPurchases - pedidos) / Math.max(pedidos, pixelPurchases)) * 100
-      : null;
+  const mediaDecision =
+    marginalMer.value == null
+      ? {
+          title: "Não decidir escala ainda",
+          badge: marginalMer.label,
+          className: "border-border bg-muted/40 text-foreground",
+          helper: marginalMer.detail,
+        }
+      : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven * 1.1
+        ? {
+            title: "Pode escalar mídia",
+            badge: "positivo",
+            className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+            helper: `MER marginal ${formatMerMultiple(marginalMer.value)} acima do mínimo ${formatMerMultiple(merMarketingBreakeven)}.`,
+          }
+        : merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven
+          ? {
+              title: "Escalar com cautela",
+              badge: "no limite",
+              className: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+              helper: `Está acima do mínimo ${formatMerMultiple(merMarketingBreakeven)}, mas sem folga grande.`,
+            }
+          : {
+              title: "Não escalar agora",
+              badge: "negativo",
+              className: "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-200",
+              helper: `MER marginal ${formatMerMultiple(marginalMer.value)} abaixo do mínimo ${formatMerMultiple(merMarketingBreakeven)}.`,
+            };
 
   const gridCols = "grid grid-cols-[1.1fr_4.25rem_4.25rem_1.1fr_5.5rem] gap-2";
 
@@ -2257,21 +2246,13 @@ function FunnelSection({
               <span className="font-semibold text-zinc-500 dark:text-zinc-400">Meta</span> — régua inicial realista para moda BR, ajustável por etapa.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">
-              Brasil CVR bom {FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente {FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%
-            </Badge>
-            <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
-              Meta atual {formatFunnelRate(targetSiteConversionRate)}
-            </Badge>
-            <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-              Abandono mercado {FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–{FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%
-            </Badge>
-          </div>
+          <Badge variant="outline" className="w-fit border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
+            Meta atual {formatFunnelRate(targetSiteConversionRate)}
+          </Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <FunnelMetricTile
             label="CVR site"
             value={formatFunnelRate(siteConversionRate)}
@@ -2307,26 +2288,6 @@ function FunnelSection({
             toneClass={cartAbandonTone.className}
             status={cartAbandonTone.label}
             info="Percentual de adições ao carrinho que não viraram pedido. Aqui, menor é melhor. Acima da referência de mercado entra em atenção/crítico."
-          />
-          <FunnelMetricTile
-            label="Páginas / usuário"
-            value={pagesPerUser == null ? "—" : pagesPerUser.toFixed(1)}
-            detail={`vs anterior: ${
-              pagesPerUser == null || previousPagesPerUser == null
-                ? "sem comparativo"
-                : `${pagesPerUser - previousPagesPerUser >= 0 ? "+" : ""}${(pagesPerUser - previousPagesPerUser).toFixed(1)}`
-            }`}
-            toneClass="border-border bg-muted/40 text-foreground"
-            status="engaj."
-            info="Média de páginas vistas por usuário/sessão no período. Ajuda a ler profundidade de navegação, mas não substitui conversão."
-          />
-          <FunnelMetricTile
-            label="Receita potencial"
-            value={formatCurrency(Math.max(0, potentialRevenue))}
-            detail={`se CVR chegar a ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}%`}
-            toneClass="border-primary/20 bg-primary/10 text-primary"
-            status={`${formatNumber(ordersToFashionGoodBrazil)} pedidos`}
-            info="Estimativa de receita adicional se a conversão chegar ao patamar bom de moda BR, usando o ticket médio atual. É potencial, não previsão garantida."
           />
         </div>
 
@@ -2479,207 +2440,68 @@ function FunnelSection({
               })}
             </div>
 
-            {/* Rodapé: MER blended + pisos financeiros separados */}
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t pt-3 md:grid-cols-4 xl:grid-cols-8">
-              <FunnelSummaryTile
-                tone="violet"
-                label="MER atual"
-                value={formatMerMultiple(currentMer)}
-                title="Marketing Efficiency Ratio: receita total / investimento total em marketing no período."
-                info="MER blended do período selecionado: receita real total dividida pelo investimento total em mídia. Bom para visão geral do negócio, mas não decide sozinho se vale escalar mais."
-              />
-              <FunnelSummaryTile
-                tone={marginalMer.value != null && merMarketingBreakeven != null && marginalMer.value >= merMarketingBreakeven ? "teal" : "gray"}
-                label="MER marginal rec."
-                value={formatMerMultiple(marginalMer.value)}
-                title="Incremento dos últimos 3 dias vs 3 dias anteriores: delta de receita dividido pelo delta de marketing."
-                info={
-                  <>
-                    <p>MER marginal recente: aumento de receita dividido pelo aumento de mídia nos últimos 3 dias contra os 3 dias anteriores.</p>
-                    <p className="mt-1">Período selecionado contra período anterior: {formatMerMultiple(periodMarginalMer.value)}.</p>
-                  </>
-                }
-              />
-              <FunnelSummaryTile
-                tone="gray"
-                label="MER BE mídia"
-                value={formatMerMultiple(merMarketingBreakeven)}
-                title="Break-even de mídia: 1 / margem de contribuição. Não inclui custo fixo."
-                info="MER mínimo para a mídia se pagar antes dos custos fixos. Fórmula: 1 dividido pela margem de contribuição pré-mídia. Se o MER marginal fica abaixo disso, escalar tende a queimar margem."
-              />
-              <FunnelSummaryTile
-                tone="gray"
-                label="MER BE geral"
-                value={formatMerMultiple(merBusinessBreakeven)}
-                title="Breakeven geral: inclui custo fixo proporcional ao período."
-                info="MER de break-even incluindo custo fixo proporcional ao período. Serve para leitura de caixa/negócio, não para decidir o próximo real de mídia."
-              />
-              <FunnelSummaryTile
-                tone={merStatus === "saudável" ? "teal" : "gray"}
-                label="MER saudável"
-                value={merHealthy != null ? `${merHealthy.toFixed(2)}x` : merStatus}
-                title="Breakeven geral acrescido da margem de segurança configurada."
-                info="MER acima do break-even geral com a margem de segurança configurada. É uma régua conservadora para saúde financeira."
-              />
-              <FunnelSummaryTile
-                tone="violet"
-                label="Receita"
-                value={revenue > 0 ? formatCurrency(revenue) : "—"}
-                info="Receita real do período selecionado, priorizando a fonte da loja/VNDA."
-              />
-              <FunnelSummaryTile
-                tone="teal"
-                label="TKM"
-                value={ticketMedio > 0 ? formatCurrency(ticketMedio) : "—"}
-                info="Ticket médio do período: receita dividida por pedidos."
-              />
-              <FunnelSummaryTile
-                tone="gray"
-                label="Receita meta"
-                value={idealRevenue > 0 ? formatCurrency(idealRevenue) : "—"}
-                info="Receita estimada se o funil atingir as metas configuradas por etapa, usando o ticket médio atual."
-              />
+            <div className={`mt-4 rounded-lg border p-4 ${mediaDecision.className}`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider opacity-75">Decisão de mídia</p>
+                    <span className="rounded bg-background/60 px-2 py-0.5 text-[10px] font-semibold">
+                      {mediaDecision.badge}
+                    </span>
+                  </div>
+                  <h3 className="mt-1 text-xl font-bold">{mediaDecision.title}</h3>
+                  <p className="mt-1 text-sm opacity-80">{mediaDecision.helper}</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-right">
+                  <div>
+                    <p className="text-[10px] uppercase opacity-70">Marginal</p>
+                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(marginalMer.value)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase opacity-70">Mínimo</p>
+                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(merMarketingBreakeven)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase opacity-70">Período</p>
+                    <p className="text-lg font-bold tabular-nums">{formatMerMultiple(currentMer)}</p>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-3 text-xs opacity-70">
+                Regra simples: marginal acima do mínimo = dá para escalar; abaixo do mínimo = segura mídia e melhora oferta/funil.
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="rounded-lg border bg-muted/20 p-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Diagnóstico CRO</p>
-            <p className="mt-2 text-lg font-semibold">
-              {mainLeak ? mainLeak.label : "Sem gargalo claro ainda"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Atacar primeiro</p>
+            <h3 className="mt-2 text-xl font-bold">
+              {mainLeak ? mainLeak.label : "Sem gargalo claro"}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
               {mainLeak
                 ? mainLeak.action
-                : "Assim que houver volume em todas as etapas, o funil aponta a maior perda relativa."}
+                : "Ainda falta volume para apontar uma prioridade com segurança."}
             </p>
           </div>
 
           <div className="rounded-lg border bg-muted/20 p-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Benchmark moda</p>
-            <div className="mt-3 space-y-2 text-sm">
-              <BenchmarkLine
-                label="Conversão site"
-                actual={siteConversionRate}
-                benchmark={`bom ${FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}% · excelente ${FASHION_FUNNEL_BENCHMARKS.fashionCvrExcellentBrazil.toFixed(1)}%`}
-              />
-              <BenchmarkLine
-                label="Add-to-cart"
-                actual={addToCartRate}
-                benchmark={`${FASHION_FUNNEL_BENCHMARKS.addToCartRate.toFixed(1)}%`}
-              />
-              <BenchmarkLine
-                label="Checkout completion"
-                actual={checkoutCompletionRate}
-                benchmark={`${FASHION_FUNNEL_BENCHMARKS.checkoutCompletionRate.toFixed(0)}%`}
-              />
-              <BenchmarkLine
-                label="Abandono carrinho"
-                actual={cartAbandonmentRate}
-                benchmark={`${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentGood.toFixed(0)}–${FASHION_FUNNEL_BENCHMARKS.cartAbandonmentWatch.toFixed(0)}%`}
-              />
-            </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-              Referências: IRP Fashion Clothing & Accessories, Dynamic Yield e Baymard. Use como régua de contexto, não como meta cega.
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Oportunidade clara</p>
+            <h3 className="mt-2 text-xl font-bold">
+              {formatNumber(ordersToFashionGoodBrazil)} pedidos a mais
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Se a conversão chegar ao nível bom para moda BR ({FASHION_FUNNEL_BENCHMARKS.fashionCvrGoodBrazil.toFixed(1)}%),
+              o potencial é de {formatCurrency(Math.max(0, potentialRevenue))} no período.
             </p>
-          </div>
-
-          <div className="rounded-lg border bg-muted/20 p-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedidos adicionais</p>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground">até CVR bom 1,4%</p>
-                <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionGoodBrazil)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">até CVR excelente 2,0%</p>
-                <p className="text-xl font-bold tabular-nums">{formatNumber(ordersToFashionExcellentBrazil)}</p>
-              </div>
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Projeção usa o ticket médio atual e não considera ruptura de estoque ou mix de canal.
-            </p>
-          </div>
-        </div>
-
-        <div className="rounded-lg border bg-muted/20 p-4">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Validação do funil</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                GA4 mede topo/meio, o pixel audita checkout e a loja valida pedidos/faturamento.
-              </p>
-            </div>
-            <Badge variant="outline" className={merStatus === "saudável" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-border bg-background text-muted-foreground"}>
-              MER {merStatus}
-            </Badge>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="rounded-md border bg-background/60 p-3">
-              <p className="text-xs text-muted-foreground">Checkout GA4 × pixel</p>
-              <p className="mt-1 text-xl font-bold tabular-nums">
-                {formatNumber(checkouts)} × {formatNumber(pixelCheckoutSessions)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                diferença {formatSignedFunnelRate(ga4VsPixelCheckoutGap)}
-              </p>
-            </div>
-            <div className="rounded-md border bg-background/60 p-3">
-              <p className="text-xs text-muted-foreground">Pedido loja × pixel</p>
-              <p className="mt-1 text-xl font-bold tabular-nums">
-                {formatNumber(pedidos)} × {formatNumber(pixelPurchases)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                diferença {formatSignedFunnelRate(ordersVsPixelPurchaseGap)}
-              </p>
-            </div>
-            <div className="rounded-md border bg-background/60 p-3">
-              <p className="text-xs text-muted-foreground">Conclusão checkout</p>
-              <p className="mt-1 text-xl font-bold tabular-nums">
-                {formatFunnelRate(pixelCompletionRate)}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                pixel independente do GA4 para detectar fricção
-              </p>
-            </div>
           </div>
         </div>
 
         <CheckoutFrictionPanel insights={checkoutInsights} />
       </CardContent>
     </Card>
-  );
-}
-
-function FunnelSummaryTile({
-  tone,
-  label,
-  value,
-  title,
-  info,
-}: {
-  tone: "violet" | "teal" | "gray";
-  label: string;
-  value: string;
-  title?: string;
-  info?: ReactNode;
-}) {
-  const toneClass =
-    tone === "violet"
-      ? "bg-violet-500 text-white dark:bg-violet-600"
-      : tone === "teal"
-        ? "bg-teal-500 text-white dark:bg-teal-600"
-        : "border bg-muted text-foreground";
-  const labelClass = tone === "gray" ? "text-muted-foreground" : "text-white/80";
-  return (
-    <div className={`min-w-0 rounded-md px-2.5 py-2 ${toneClass}`} title={title}>
-      <div className={`flex min-w-0 items-center gap-1 ${labelClass}`}>
-        <p className="truncate text-[10px] font-medium uppercase tracking-wide">{label}</p>
-        {info && <InfoTooltip className={tone === "gray" ? "text-muted-foreground" : "text-white/80"}>{info}</InfoTooltip>}
-      </div>
-      <p className="truncate text-sm font-bold leading-tight tabular-nums">{value}</p>
-    </div>
   );
 }
 
@@ -2711,26 +2533,6 @@ function FunnelMetricTile({
       </div>
       <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
       <p className="mt-1 text-xs opacity-80">{detail}</p>
-    </div>
-  );
-}
-
-function BenchmarkLine({
-  label,
-  actual,
-  benchmark,
-}: {
-  label: string;
-  actual: number | null;
-  benchmark: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">
-        <strong className="font-semibold">{formatFunnelRate(actual)}</strong>
-        <span className="ml-2 text-xs text-muted-foreground">ref. {benchmark}</span>
-      </span>
     </div>
   );
 }
@@ -2804,6 +2606,20 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
   const topShipping =
     insights?.shipping_methods?.find((method) => method.last_before_exit > 0) ||
     insights?.shipping_methods?.[0];
+  const topField = topFields[0] || null;
+  const topFieldAffected = topField ? Math.max(topField.errors, topField.last_before_exit) : 0;
+  const firstCause = topStep
+    ? checkoutLabel(topStep.step)
+    : topPayment?.last_before_exit
+      ? `Pagamento: ${checkoutLabel(topPayment.payment_method)}`
+      : topShipping?.last_before_exit
+        ? `Frete: ${checkoutLabel(topShipping.shipping_method)}`
+        : "Sem causa clara";
+  const firstCauseDetail = topStep
+    ? `${formatNumber(topStep.abandon_sessions)} saídas nessa etapa`
+    : unclassifiedExits > 0
+      ? `${formatNumber(unclassifiedExits)} saídas ainda sem etapa`
+      : "aguardando mais volume";
 
   return (
     <div className="rounded-lg border bg-muted/20 p-4">
@@ -2812,9 +2628,9 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Checkout pixel
           </p>
-          <h3 className="mt-1 text-base font-semibold">Abandono por etapa e campo</h3>
+          <h3 className="mt-1 text-base font-semibold">Onde o checkout está travando?</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Leitura sem PII: etapa, campo normalizado, validações, frete e pagamento.
+            Leitura simples para priorizar correções. Sem dados pessoais.
           </p>
         </div>
         <Badge variant="outline">
@@ -2826,13 +2642,12 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
 
       {!hasData ? (
         <div className="mt-4 rounded-md border border-dashed bg-background/50 p-4 text-sm text-muted-foreground">
-          O pixel já fica pronto para medir quando o script carregar no checkout.
-          Após as primeiras sessões, este bloco mostra onde as pessoas travam:
-          frete, cadastro, Pix, cartão ou campo específico.
+          Aguardando volume no checkout. Quando houver sessões suficientes, este bloco aponta a etapa/campo mais provável de abandono.
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-4">
-          <div className="rounded-md border bg-background/60 p-3">
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded-md border bg-background/60 p-4">
             <p className="text-xs text-muted-foreground">Abandono checkout</p>
             <p className="mt-1 text-2xl font-bold tabular-nums">
               {insights!.totals.abandonment_rate.toFixed(1)}%
@@ -2843,100 +2658,52 @@ function CheckoutFrictionPanel({ insights }: { insights: CheckoutInsights | null
             </p>
           </div>
 
-          <div className="rounded-md border bg-background/60 p-3">
-            <p className="text-xs text-muted-foreground">Etapa crítica</p>
-            <p className="mt-1 text-lg font-semibold">
-              {topStep ? checkoutLabel(topStep.step) : "Sem etapa útil"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {topStep
-                ? `${formatNumber(topStep.abandon_sessions)} saídas · ${topStep.abandon_rate.toFixed(1)}%`
-                : unclassifiedExits > 0
-                  ? `${formatNumber(unclassifiedExits)} saídas sem classificação`
-                  : "sem volume suficiente"}
-            </p>
+          <div className="rounded-md border bg-background/60 p-4">
+            <p className="text-xs text-muted-foreground">Olhar primeiro</p>
+            <p className="mt-1 text-xl font-bold">{firstCause}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{firstCauseDetail}</p>
           </div>
 
-          <div className="rounded-md border bg-background/60 p-3">
-            <p className="text-xs text-muted-foreground">Pagamento associado</p>
-            <p className="mt-1 text-lg font-semibold">
-              {topPayment ? checkoutLabel(topPayment.payment_method) : "Sem dado"}
+          <div className="rounded-md border bg-background/60 p-4">
+            <p className="text-xs text-muted-foreground">Campo para revisar</p>
+            <p className="mt-1 text-xl font-bold">
+              {topField ? checkoutLabel(topField.field_key) : "Sem campo crítico"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {topPayment
-                ? `${formatNumber(topPayment.last_before_exit)} saídas após seleção`
-                : "ainda não selecionado"}
+              {topField
+                ? `${formatNumber(topFieldAffected)} sessões impactadas`
+                : "sem validações relevantes"}
             </p>
           </div>
-
-          <div className="rounded-md border bg-background/60 p-3">
-            <p className="text-xs text-muted-foreground">Frete associado</p>
-            <p className="mt-1 text-lg font-semibold">
-              {topShipping ? checkoutLabel(topShipping.shipping_method) : "Sem dado"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {topShipping
-                ? `${formatNumber(topShipping.last_before_exit)} saídas após seleção`
-                : "ainda não selecionado"}
-            </p>
           </div>
 
           {unclassifiedExits > 0 && (
-            <div className="rounded-md border border-amber-300/60 bg-amber-50/70 p-3 text-sm text-amber-950 lg:col-span-4 dark:border-amber-400/30 dark:bg-amber-950/20 dark:text-amber-100">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <p className="font-semibold">Coleta a calibrar</p>
-                <p className="text-xs font-medium">
-                  {unclassifiedRate.toFixed(0)}% dos abandonos sem etapa detectada
-                </p>
-              </div>
-              <p className="mt-1 text-xs opacity-80">
-                Esses casos ficam fora do ranking de etapa crítica para não gerar conclusão falsa.
-                Os próximos eventos já devem chegar melhor classificados pelo pixel.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Coleta ainda calibrando: {unclassifiedRate.toFixed(0)}% dos abandonos sem etapa detectada.
+            </p>
           )}
 
-          <div className="lg:col-span-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Campos / validações mais críticas
-            </p>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-              {topFields.length > 0 ? (
-                topFields.map((field) => {
-                  const affected = Math.max(field.errors, field.last_before_exit);
-                  return (
-                    <div key={field.field_key} className="rounded-md border bg-background/60 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-semibold">
-                          {checkoutLabel(field.field_key)}
-                        </p>
-                        <span className="rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
-                          {formatNumber(affected)} sessões
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatNumber(field.errors)} c/ validação ·{" "}
-                        {formatNumber(field.last_before_exit)} saídas
-                      </p>
-                      <p className="mt-1 text-[10px] text-muted-foreground/80">
-                        {field.touches > 0
-                          ? `${field.error_rate.toFixed(0)}% das sessões que tocaram`
-                          : "sem base de toque suficiente"}
-                      </p>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
-                  Sem erros/campos críticos ainda.
-                </div>
-              )}
+          <details className="rounded-md border bg-background/50 px-3 py-2 text-sm">
+            <summary className="cursor-pointer font-medium text-muted-foreground">Ver detalhes técnicos</summary>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Pagamento associado</p>
+                <p className="font-semibold">{topPayment ? checkoutLabel(topPayment.payment_method) : "Sem dado"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Frete associado</p>
+                <p className="font-semibold">{topShipping ? checkoutLabel(topShipping.shipping_method) : "Sem dado"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Conclusão checkout</p>
+                <p className="font-semibold">{formatFunnelRate(insights!.totals.completion_rate)}</p>
+              </div>
             </div>
-            <p className="mt-2 text-[10px] text-muted-foreground">
-              Validação aqui significa fricção percebida no checkout, não erro técnico do sistema.
+            <p className="mt-2 text-xs text-muted-foreground">
+              Validação significa fricção percebida no checkout, não necessariamente erro técnico.
             </p>
+          </details>
           </div>
-        </div>
       )}
     </div>
   );
