@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import {
   shiftDays,
   daysBetween,
+  spDateString,
   toLabel,
   makeDelta,
   refByDaysAgo,
@@ -68,7 +69,8 @@ export async function GET(request: NextRequest) {
       730,
       Math.max(7, parseInt(request.nextUrl.searchParams.get("days") || "90", 10) || 90)
     );
-    const since = shiftDays(new Date().toISOString().slice(0, 10), -days);
+    const today = spDateString();
+    const since = shiftDays(today, -days);
 
     const { data: snapRows } = await admin
       .from("whatsapp_group_member_snapshots")
@@ -85,6 +87,8 @@ export async function GET(request: NextRequest) {
         connected: cfg?.connected ?? false,
         hasData: false,
         asOf: null,
+        lastSnapshotAgeDays: null,
+        stale: false,
         totals: null,
         groups: [],
       });
@@ -140,6 +144,7 @@ export async function GET(request: NextRequest) {
     const tFirst = totalSeries[0];
     const tSpan = Math.max(1, daysBetween(tFirst.date, tCurrent.date));
     const tPeriodNet = tCurrent.members - tFirst.members;
+    const lastSnapshotAgeDays = Math.max(0, daysBetween(tCurrent.date, today));
 
     const totals = {
       memberCount: tCurrent.members,
@@ -163,6 +168,8 @@ export async function GET(request: NextRequest) {
       connected: cfg?.connected ?? false,
       hasData: true,
       asOf: tCurrent.date,
+      lastSnapshotAgeDays,
+      stale: lastSnapshotAgeDays > 1,
       totals,
       groups,
     });

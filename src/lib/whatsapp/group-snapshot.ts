@@ -14,6 +14,8 @@ import {
   listGroups,
   getGroupMetadata,
   updateWapiConnected,
+  normalizeWapiGroups,
+  isWapiDisconnectedError,
   type WapiConfig,
 } from "@/lib/wapi-api";
 import { spDateString } from "@/lib/series-utils";
@@ -32,7 +34,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** jids dos grupos do workspace: cache wapi_groups; se vazio, lista na W-API. */
+/** jids dos grupos do workspace: tenta W-API primeiro e usa cache como fallback. */
 async function getGroupJids(
   db: SupabaseClient,
   workspaceId: string,
@@ -43,39 +45,38 @@ async function getGroupJids(
     .select("group_jid, group_name")
     .eq("workspace_id", workspaceId);
 
-  if (cached && cached.length > 0) {
-    return cached.map((g) => ({ jid: g.group_jid as string, name: (g.group_name as string) || "" }));
+  const cachedGroups =
+    cached?.map((g) => ({
+      jid: g.group_jid as string,
+      name: (g.group_name as string) || "",
+    })) || [];
+
+  try {
+    const raw = await listGroups(config);
+    const list = normalizeWapiGroups(raw).map((g) => ({
+      jid: g.id,
+      name: g.name || "Sem nome",
+    }));
+
+    if (list.length > 0) {
+      const now = new Date().toISOString();
+      await db.from("wapi_groups").upsert(
+        list.map((g) => ({
+          workspace_id: workspaceId,
+          group_jid: g.jid,
+          group_name: g.name || "Sem nome",
+          synced_at: now,
+        })),
+        { onConflict: "workspace_id,group_jid" }
+      );
+
+      return list;
+    }
+  } catch (err) {
+    if (cachedGroups.length === 0) throw err;
   }
 
-  // Cache vazio — busca da W-API e popula.
-  const raw = await listGroups(config);
-  const arr: Array<Record<string, unknown>> = Array.isArray(raw)
-    ? raw
-    : ((((raw as Record<string, unknown>)?.groups ||
-        (raw as Record<string, unknown>)?.data ||
-        (raw as Record<string, unknown>)?.result) as Array<Record<string, unknown>>) || []);
-
-  const list = arr
-    .map((g) => ({
-      jid: (g.id || g.jid || g.groupId || "") as string,
-      name: (g.name || g.subject || g.groupName || "") as string,
-    }))
-    .filter((g) => g.jid && g.jid.includes("@g.us"));
-
-  if (list.length > 0) {
-    const now = new Date().toISOString();
-    await db.from("wapi_groups").upsert(
-      list.map((g) => ({
-        workspace_id: workspaceId,
-        group_jid: g.jid,
-        group_name: g.name || "Sem nome",
-        synced_at: now,
-      })),
-      { onConflict: "workspace_id,group_jid" }
-    );
-  }
-
-  return list;
+  return cachedGroups;
 }
 
 /**
@@ -132,7 +133,29 @@ export async function captureGroupSnapshots(
     };
   }
 
-  const groups = await getGroupJids(db, workspaceId, config);
+  let groups: Array<{ jid: string; name: string }> = [];
+  try {
+    groups = await getGroupJids(db, workspaceId, config);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (isWapiDisconnectedError(err)) {
+      await updateWapiConnected(workspaceId, false);
+      return {
+        configured: true,
+        connected: false,
+        groupsCaptured: 0,
+        totalMembers: 0,
+        errors: [{ groupJid: "*", error }],
+      };
+    }
+    return {
+      configured: true,
+      connected: true,
+      groupsCaptured: 0,
+      totalMembers: 0,
+      errors: [{ groupJid: "*", error }],
+    };
+  }
   const capturedOn = spDateString();
   const now = new Date().toISOString();
 
@@ -170,7 +193,18 @@ export async function captureGroupSnapshots(
           .eq("group_jid", jid);
       }
     } catch (err) {
-      errors.push({ groupJid: jid, error: err instanceof Error ? err.message : String(err) });
+      const error = err instanceof Error ? err.message : String(err);
+      errors.push({ groupJid: jid, error });
+      if (isWapiDisconnectedError(err)) {
+        await updateWapiConnected(workspaceId, false);
+        return {
+          configured: true,
+          connected: false,
+          groupsCaptured,
+          totalMembers,
+          errors,
+        };
+      }
     }
 
     if (i < groups.length - 1 && throttleMs > 0) await sleep(throttleMs);

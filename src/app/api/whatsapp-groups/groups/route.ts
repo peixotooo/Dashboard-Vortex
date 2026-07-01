@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { getWapiConfig, listGroups } from "@/lib/wapi-api";
+import { getWapiConfig, listGroups, normalizeWapiGroups } from "@/lib/wapi-api";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -68,29 +68,7 @@ export async function GET(request: NextRequest) {
 
     const raw = await listGroups(config);
 
-    // Normalize W-API response
-    let groupList: Array<{ id: string; name: string }> = [];
-
-    if (Array.isArray(raw)) {
-      groupList = raw.map((g: Record<string, unknown>) => ({
-        id: (g.id || g.jid || g.groupId || "") as string,
-        name: (g.name || g.subject || g.groupName || "Sem nome") as string,
-      }));
-    } else if (raw && typeof raw === "object") {
-      const obj = raw as Record<string, unknown>;
-      const arr = (obj.groups || obj.data || obj.result || []) as Array<
-        Record<string, unknown>
-      >;
-      if (Array.isArray(arr)) {
-        groupList = arr.map((g) => ({
-          id: (g.id || g.jid || g.groupId || "") as string,
-          name: (g.name || g.subject || g.groupName || "Sem nome") as string,
-        }));
-      }
-    }
-
-    // Filter valid groups
-    groupList = groupList.filter((g) => g.id && g.id.includes("@g.us"));
+    const groupList = normalizeWapiGroups(raw);
 
     // Upsert into wapi_groups cache
     const now = new Date().toISOString();

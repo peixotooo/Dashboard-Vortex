@@ -166,6 +166,191 @@ export async function listGroups(config: WapiConfig): Promise<unknown> {
   return wapiRequest(config, "/group/get-all-groups");
 }
 
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is AnyRecord {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+
+  const cleaned = value.trim().replace(",", ".");
+  if (!cleaned) return null;
+
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
+}
+
+function firstNonEmptyString(
+  records: AnyRecord[],
+  keys: string[]
+): string | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number") return String(value);
+    }
+  }
+  return null;
+}
+
+function collectRecordCandidates(raw: unknown): AnyRecord[] {
+  const out: AnyRecord[] = [];
+  const seen = new Set<unknown>();
+  const priorityKeys = [
+    "group",
+    "data",
+    "result",
+    "metadata",
+    "groupMetadata",
+    "group_metadata",
+    "response",
+  ];
+
+  function add(value: unknown, depth = 0) {
+    if (!isRecord(value) || seen.has(value) || depth > 3) return;
+    seen.add(value);
+    out.push(value);
+
+    for (const key of priorityKeys) {
+      add(value[key], depth + 1);
+    }
+  }
+
+  add(raw);
+  return out;
+}
+
+function groupRecordScore(record: AnyRecord): number {
+  const countKeys = [
+    "size",
+    "participantsCount",
+    "participantCount",
+    "participants_count",
+    "memberCount",
+    "membersCount",
+    "member_count",
+    "members_count",
+    "totalParticipants",
+    "totalMembers",
+    "total",
+    "count",
+  ];
+  const participantKeys = ["participants", "members", "users"];
+  const nameKeys = ["subject", "name", "groupName", "title"];
+  const idKeys = ["id", "jid", "groupId", "groupJid", "remoteJid", "_id"];
+
+  let score = 0;
+  if (countKeys.some((key) => record[key] != null)) score += 5;
+  if (participantKeys.some((key) => record[key] != null)) score += 4;
+  if (nameKeys.some((key) => record[key] != null)) score += 2;
+  if (idKeys.some((key) => record[key] != null)) score += 1;
+  return score;
+}
+
+function rankedGroupRecords(raw: unknown): AnyRecord[] {
+  return collectRecordCandidates(raw).sort(
+    (a, b) => groupRecordScore(b) - groupRecordScore(a)
+  );
+}
+
+function getArrayLikeValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (isRecord(value)) return Object.values(value);
+  return [];
+}
+
+function firstArrayLike(records: AnyRecord[], keys: string[]): unknown[] {
+  for (const record of records) {
+    for (const key of keys) {
+      const values = getArrayLikeValues(record[key]);
+      if (values.length > 0) return values;
+    }
+  }
+  return [];
+}
+
+function findFirstNumber(records: AnyRecord[], keys: string[]): number | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const number = toFiniteNumber(record[key]);
+      if (number != null) return number;
+    }
+  }
+  return null;
+}
+
+export function normalizeWapiGroups(raw: unknown): WapiGroup[] {
+  const arrays: unknown[][] = [];
+
+  if (Array.isArray(raw)) arrays.push(raw);
+
+  for (const record of collectRecordCandidates(raw)) {
+    for (const key of ["groups", "data", "result", "items", "list"]) {
+      const value = record[key];
+      if (Array.isArray(value)) arrays.push(value);
+      if (isRecord(value)) {
+        for (const nestedKey of ["groups", "items", "list"]) {
+          const nested = value[nestedKey];
+          if (Array.isArray(nested)) arrays.push(nested);
+        }
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  const groups: WapiGroup[] = [];
+  for (const source of arrays) {
+    for (const item of source) {
+      if (!isRecord(item)) continue;
+      const candidates = rankedGroupRecords(item);
+      const id = firstNonEmptyString(candidates, [
+        "id",
+        "jid",
+        "groupId",
+        "groupJid",
+        "remoteJid",
+        "_id",
+      ]);
+      if (!id || !id.includes("@g.us") || seen.has(id)) continue;
+
+      const name =
+        firstNonEmptyString(candidates, ["name", "subject", "groupName", "title"]) ||
+        "Sem nome";
+      const participants = findFirstNumber(candidates, [
+        "size",
+        "participantsCount",
+        "participantCount",
+        "participants_count",
+        "memberCount",
+        "membersCount",
+        "member_count",
+        "members_count",
+      ]);
+
+      seen.add(id);
+      groups.push({
+        id,
+        name,
+        ...(participants != null ? { participants } : {}),
+      });
+    }
+  }
+
+  return groups;
+}
+
+export function isWapiDisconnectedError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /whatsapp\s+n[aã]o\s+conectado|not\s+connected|disconnected/i.test(
+    message
+  );
+}
+
 const WHATSAPP_INVITE_URL_RE =
   /https?:\/\/(?:chat\.whatsapp\.com|wa\.me\/joinchat)\/[^\s"'<>]+/i;
 const INVITE_CODE_RE = /^[A-Za-z0-9_-]{10,}$/;
@@ -336,24 +521,66 @@ export function extractGroupMetadata(
   raw: Record<string, unknown>,
   fallbackId: string
 ): WapiGroupMetadata {
-  const g = ((raw?.group as Record<string, unknown>) || raw || {}) as Record<
-    string,
-    unknown
-  >;
-  const participants = Array.isArray(g.participants)
-    ? (g.participants as Array<Record<string, unknown>>)
-    : [];
+  const candidates = rankedGroupRecords(raw);
+  const participants = firstArrayLike(candidates, [
+    "participants",
+    "members",
+    "users",
+  ]);
   const size =
-    typeof g.size === "number"
-      ? (g.size as number)
-      : typeof g.participantsCount === "number"
-        ? (g.participantsCount as number)
-        : participants.length;
-  const adminsCount = participants.filter((p) => Boolean(p?.admin)).length;
-  const name = (g.subject || g.name || g.groupName || "") as string;
+    findFirstNumber(candidates, [
+      "size",
+      "participantsCount",
+      "participantCount",
+      "participants_count",
+      "participant_count",
+      "memberCount",
+      "membersCount",
+      "member_count",
+      "members_count",
+      "usersCount",
+      "userCount",
+      "totalParticipants",
+      "total_members",
+      "totalMembers",
+      "total",
+      "count",
+    ]) ?? participants.length;
+  const explicitAdminsCount = findFirstNumber(candidates, [
+    "adminsCount",
+    "adminCount",
+    "admins_count",
+    "admin_count",
+  ]);
+  const adminsCount =
+    explicitAdminsCount ??
+    participants.filter((participant) => {
+      if (!isRecord(participant)) return false;
+      const role = String(
+        participant.admin || participant.role || participant.type || ""
+      ).toLowerCase();
+      return (
+        participant.admin === true ||
+        participant.isAdmin === true ||
+        participant.isSuperAdmin === true ||
+        role === "admin" ||
+        role === "superadmin"
+      );
+    }).length;
+  const name =
+    firstNonEmptyString(candidates, ["subject", "name", "groupName", "title"]) ||
+    "";
 
   return {
-    id: (g.id as string) || fallbackId,
+    id:
+      firstNonEmptyString(candidates, [
+        "id",
+        "jid",
+        "groupId",
+        "groupJid",
+        "remoteJid",
+        "_id",
+      ]) || fallbackId,
     name,
     memberCount: size,
     adminsCount,

@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getWapiConfig, listGroups, revokeGroupInvite } from "@/lib/wapi-api";
+import {
+  getWapiConfig,
+  listGroups,
+  normalizeWapiGroups,
+  revokeGroupInvite,
+} from "@/lib/wapi-api";
 
 export type PoolGroupStatus = "active" | "paused" | "full" | "archived";
 export type PoolInviteJobStatus = "queued" | "processing" | "retrying" | "failed";
@@ -145,11 +150,6 @@ type WapiGroupRow = {
   group_name: string;
 };
 
-type NormalizedWapiGroup = {
-  id: string;
-  name: string;
-};
-
 type SnapshotRow = {
   group_jid: string;
   member_count: number;
@@ -245,25 +245,6 @@ function normalizeInviteUrl(value: unknown): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeWapiGroupList(raw: unknown): NormalizedWapiGroup[] {
-  let source: Array<Record<string, unknown>> = [];
-
-  if (Array.isArray(raw)) {
-    source = raw as Array<Record<string, unknown>>;
-  } else if (raw && typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    const candidate = obj.groups || obj.data || obj.result || [];
-    if (Array.isArray(candidate)) source = candidate as Array<Record<string, unknown>>;
-  }
-
-  return source
-    .map((group) => ({
-      id: String(group.id || group.jid || group.groupId || ""),
-      name: String(group.name || group.subject || group.groupName || "Sem nome"),
-    }))
-    .filter((group) => group.id && group.id.includes("@g.us"));
 }
 
 async function latestSnapshotsByGroup(
@@ -510,7 +491,7 @@ export async function syncPoolGroupsFromWapi(
   if (!wapiConfig) throw new Error("W-API not configured");
 
   const raw = await listGroups(wapiConfig);
-  const groupList = normalizeWapiGroupList(raw);
+  const groupList = normalizeWapiGroups(raw);
   const syncedAt = new Date().toISOString();
 
   if (groupList.length > 0) {

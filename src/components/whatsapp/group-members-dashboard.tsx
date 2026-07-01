@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Settings,
+  AlertTriangle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -71,6 +72,8 @@ interface Resp {
   connected: boolean;
   hasData: boolean;
   asOf: string | null;
+  lastSnapshotAgeDays: number | null;
+  stale: boolean;
   totals: {
     memberCount: number;
     groupCount: number;
@@ -103,6 +106,10 @@ function signed(n: number): string {
 function signedPct(n: number | null | undefined): string {
   if (n == null) return "—";
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+}
+function toPtDate(date: string): string {
+  const [y, m, d] = date.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 function GrowthVerdict({ delta, periodDays }: { delta: DeltaValue | null; periodDays: number }) {
@@ -312,6 +319,11 @@ export function GroupMembersDashboard({
   const disconnected =
     !initialLoading && data?.configured && !data.connected && !data.hasData;
   const noData = !initialLoading && data?.configured && !data.hasData;
+  const staleData =
+    !initialLoading &&
+    data?.configured &&
+    data?.hasData &&
+    (data.connected === false || data.stale);
   const totals = data?.totals;
 
   return (
@@ -364,6 +376,51 @@ export function GroupMembersDashboard({
         <Card>
           <CardContent className="py-4">
             <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {staleData && (
+        <Card className="border-amber-200 bg-amber-50 text-amber-950">
+          <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium">
+                  Dados de membros podem estar congelados
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  Último snapshot: {data?.asOf ? toPtDate(data.asOf) : "sem data"}
+                  {data?.lastSnapshotAgeDays != null
+                    ? ` (${data.lastSnapshotAgeDays} dia${data.lastSnapshotAgeDays === 1 ? "" : "s"} atrás)`
+                    : ""}
+                  .{" "}
+                  {!data?.connected
+                    ? "A W-API está desconectada; reconecte a instância e capture novamente."
+                    : "Clique em Atualizar agora para buscar a contagem atual."}
+                </p>
+              </div>
+            </div>
+            {!data?.connected ? (
+              <Button asChild size="sm" variant="outline" className="shrink-0 bg-white">
+                <Link href="/whatsapp-groups">Reconectar</Link>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCapture}
+                disabled={refreshing}
+                className="shrink-0 bg-white"
+              >
+                {refreshing ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Atualizar agora
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
