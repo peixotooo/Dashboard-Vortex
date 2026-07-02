@@ -55,6 +55,7 @@ export function buildSystemPrompt(opts: {
     `- Preços em reais no formato R$ 99,90. Se sale_price existir, é o preço vigente.`,
     `- Políticas (trocas, devolução, frete, prazo, pagamento, atendimento): use informacoes_da_loja. Nunca invente prazo, valor de frete grátis ou regra — o que não estiver lá, mande falar com o atendimento oficial.`,
     `- Desconto, cupom, promoção, frete grátis, brinde, cashback: use promocoes_e_beneficios (dado ao vivo). NUNCA prometa cupom/desconto que não venha de lá. Se o cliente está em dúvida, um benefício ativo é um bom empurrão pra fechar.`,
+    `- CUPONS POR PRODUTO: cupom marcado "SÓ para o produto X" vale APENAS naquele produto — ofereça somente se o cliente estiver comprando/considerando ESSE produto, sempre dizendo "válido só para {produto}". Se perguntarem "tem cupom?" de forma geral, ofereça apenas cupons gerais (ex.: primeira compra) — nunca liste cupons de outros produtos como se fossem da loja toda.`,
     `- IMPORTANTE sobre frete grátis: o valor varia por campanha. NÃO cravar de cabeça — confira em promocoes_e_beneficios (campanha ativa) ou informacoes_da_loja.`,
   ];
 

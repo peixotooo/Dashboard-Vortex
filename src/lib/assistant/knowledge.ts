@@ -16,6 +16,9 @@ export interface ActiveCoupon {
   code: string;
   discount: string; // "10%" ou "R$ 20,00"
   expiresAt: string | null;
+  /** Cupons auto são quase sempre por produto — null = cupom geral. */
+  productId: string | null;
+  productName: string | null;
 }
 
 export interface ActiveKnowledge {
@@ -48,7 +51,9 @@ export async function getActiveKnowledge(
     resolveActiveCampaign(workspaceId, pageType, now).catch(() => null),
     admin
       .from("promo_active_coupons")
-      .select("vnda_coupon_code, discount_pct, discount_unit, discount_value_brl, expires_at")
+      .select(
+        "vnda_coupon_code, discount_pct, discount_unit, discount_value_brl, expires_at, product_id"
+      )
       .eq("workspace_id", workspaceId)
       .eq("status", "active")
       .gt("expires_at", nowIso)
@@ -91,6 +96,27 @@ export async function getActiveKnowledge(
   }
 
   // --- Cupons ativos (públicos: já viram badge na loja) ---
+  // Cupons auto são por PRODUTO — resolve o nome pra o vendedor deixar claro
+  // "válido só para X" em vez de oferecer como desconto geral.
+  const couponProductIds = [
+    ...new Set(
+      (couponsRes.data || [])
+        .map((r) => (r.product_id != null ? String(r.product_id) : null))
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  const productNames = new Map<string, string>();
+  if (couponProductIds.length) {
+    const { data: prodRows } = await admin
+      .from("shelf_products")
+      .select("product_id, name")
+      .eq("workspace_id", workspaceId)
+      .in("product_id", couponProductIds);
+    for (const p of prodRows || []) {
+      productNames.set(String(p.product_id), String(p.name));
+    }
+  }
+
   const coupons: ActiveCoupon[] = (couponsRes.data || [])
     .filter((r) => r.vnda_coupon_code)
     .map((r) => {
@@ -101,10 +127,13 @@ export async function getActiveKnowledge(
           : r.discount_pct != null
           ? `${Number(r.discount_pct)}%`
           : "";
+      const productId = r.product_id != null ? String(r.product_id) : null;
       return {
         code: String(r.vnda_coupon_code).toUpperCase(),
         discount,
         expiresAt: r.expires_at ? String(r.expires_at) : null,
+        productId,
+        productName: productId ? productNames.get(productId) || null : null,
       };
     })
     .filter((c) => c.discount);
@@ -194,11 +223,22 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
     }
   }
 
-  if (k.coupons.length) {
-    lines.push("CUPONS ATIVOS:");
-    k.coupons.forEach((c) => {
+  // Cupom por produto sem nome resolvido não é apresentável — descarta em vez
+  // de arriscar o vendedor oferecer desconto que não aplica no carrinho.
+  const presentable = k.coupons.filter((c) => !c.productId || c.productName);
+  if (presentable.length) {
+    lines.push(
+      "CUPONS ATIVOS (ATENÇÃO: cupom marcado 'SÓ para' um produto NÃO vale para o resto da loja — ofereça APENAS quando o cliente estiver comprando aquele produto exato; nunca apresente como desconto geral):"
+    );
+    presentable.forEach((c) => {
       const exp = c.expiresAt ? ` (expira em ${c.expiresAt})` : "";
-      lines.push(`- ${c.code}: ${c.discount} de desconto${exp}`);
+      if (c.productId && c.productName) {
+        lines.push(
+          `- ${c.code}: ${c.discount} SÓ para o produto "${c.productName}" (id ${c.productId})${exp}`
+        );
+      } else {
+        lines.push(`- ${c.code}: ${c.discount} de desconto${exp}`);
+      }
     });
   }
 
