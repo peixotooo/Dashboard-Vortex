@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/forgot-password", "/reset-password", "/avaliar", "/bio"];
+const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/assistant.js", "/forgot-password", "/reset-password", "/avaliar", "/bio"];
 const GROUPS_PUBLIC_HOSTS = (
   process.env.WHATSAPP_GROUPS_PUBLIC_HOSTS || "grupos.bulking.com.br"
 )
@@ -155,6 +155,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|shelves\\.js|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|shelves\\.js|assistant\\.js|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
