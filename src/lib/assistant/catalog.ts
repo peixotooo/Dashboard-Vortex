@@ -51,8 +51,13 @@ function tagList(raw: unknown): Array<{ name: string; type: string }> {
     .map((t) => {
       if (typeof t === "string") return { name: t, type: "" };
       if (t && typeof t === "object") {
-        const o = t as { name?: unknown; type?: unknown };
-        return { name: String(o.name || ""), type: String(o.type || "") };
+        // shelf_products (espelho) usa `tag_type`; a search da VNDA usa `type`.
+        // Aceita os dois pra não depender da fonte.
+        const o = t as { name?: unknown; type?: unknown; tag_type?: unknown };
+        return {
+          name: String(o.name || ""),
+          type: String(o.tag_type || o.type || ""),
+        };
       }
       return { name: "", type: "" };
     })
