@@ -18,6 +18,7 @@ import { getAssistantSettings, isProductAllowed } from "@/lib/assistant/settings
 import {
   hashIp,
   scrubPiiForStorage,
+  validateCustomerName,
   validateUserMessage,
 } from "@/lib/assistant/guardrails";
 import { checkIpRateLimit, getDailyMessageCount } from "@/lib/assistant/rate-limit";
@@ -38,6 +39,7 @@ interface ChatBody {
   product_id?: unknown;
   page_url?: unknown;
   message?: unknown;
+  customer_name?: unknown;
 }
 
 function json(
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest) {
     typeof body.session_id === "string" && /^[\w-]{16,64}$/.test(body.session_id)
       ? body.session_id
       : null;
+  const customerName = validateCustomerName(body.customer_name);
 
   const admin = createAdminClient();
 
@@ -125,10 +128,14 @@ export async function POST(request: NextRequest) {
   let activeSessionKey: string;
   let messageCount = 0;
 
+  let activeName: string | null = customerName;
+
   if (sessionKey) {
+    // select("*") pra não quebrar se customer_name ainda não existir (migration
+    // 128 pendente) — coluna ausente vira undefined em vez de erro.
     const { data: conv } = await admin
       .from("assistant_conversations")
-      .select("id, session_key, message_count")
+      .select("*")
       .eq("workspace_id", workspaceId)
       .eq("session_key", sessionKey)
       .maybeSingle();
@@ -139,6 +146,8 @@ export async function POST(request: NextRequest) {
     conversationId = conv.id as string;
     activeSessionKey = conv.session_key as string;
     messageCount = Number(conv.message_count) || 0;
+    // Nome já capturado na sessão tem prioridade sobre o do payload
+    activeName = (conv.customer_name as string | null) || customerName;
   } else {
     if (!isProductAllowed(settings, productId)) {
       return json(request, 403, { ok: false, error: "assistant not available here" });
@@ -161,6 +170,18 @@ export async function POST(request: NextRequest) {
       return json(request, 500, { ok: false, reply: BUSY_REPLY });
     }
     conversationId = created.id as string;
+
+    // Persiste o nome à parte (best-effort): se a coluna ainda não existir,
+    // ignora — o nome do payload já vai pro prompt de qualquer forma.
+    if (customerName) {
+      const { error: nameError } = await admin
+        .from("assistant_conversations")
+        .update({ customer_name: customerName })
+        .eq("id", conversationId);
+      if (nameError) {
+        console.warn("[assistant] customer_name não persistido:", nameError.message);
+      }
+    }
   }
 
   // 7. Teto por sessão
@@ -197,6 +218,7 @@ export async function POST(request: NextRequest) {
       history,
       userMessage: message,
       currentProductId: productId,
+      customerName: activeName,
     });
   } catch (err) {
     console.error("[assistant] turn failed:", err instanceof Error ? err.message : err);

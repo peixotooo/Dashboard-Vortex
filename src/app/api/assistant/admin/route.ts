@@ -66,6 +66,7 @@ export async function PUT(request: NextRequest) {
     // Whitelist de campos editáveis — nada além disso entra no banco
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (typeof body.enabled === "boolean") update.enabled = body.enabled;
+    if (typeof body.ask_name === "boolean") update.ask_name = body.ask_name;
     if (Array.isArray(body.product_ids)) {
       update.product_ids = body.product_ids
         .filter((p) => typeof p === "string" && /^(\*|[\w-]{1,40})$/.test(p))

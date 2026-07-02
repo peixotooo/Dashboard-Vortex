@@ -16,6 +16,8 @@ export interface AssistantSettings {
   storeInfo: string;
   /** Base de conhecimento institucional curada (trocas, frete, FAQ, ...). */
   institutionalKb: string;
+  /** Pedir o primeiro nome do cliente antes de conversar. */
+  askName: boolean;
   maxMessagesPerSession: number;
   dailyMessageCap: number;
 }

@@ -87,6 +87,7 @@
 
   var SS_SESSION = "bkAssistSession";
   var SS_MSGS = "bkAssistMsgs";
+  var SS_NAME = "bkAssistName";
 
   function ssGet(key) {
     try {
@@ -156,9 +157,11 @@
     var TITLE = config.title || "Assistente";
     var WELCOME = config.welcome_message || "Como posso ajudar?";
     var SUGGESTIONS = Array.isArray(config.suggestions) ? config.suggestions.slice(0, 4) : [];
+    var ASK_NAME = config.ask_name !== false;
 
     var busy = false;
     var msgs = loadMsgs();
+    var customerName = ssGet(SS_NAME) || "";
 
     injectStyles();
 
@@ -213,13 +216,73 @@
     adjustLauncherPosition();
     window.addEventListener("resize", adjustLauncherPosition);
 
-    // Restaura conversa da sessão ou mostra boas-vindas
-    if (msgs.length === 0) {
-      addBubble("assistant", WELCOME, null, false);
-      renderChips();
-    } else {
+    // Estado inicial: retoma sessão, ou pede o nome, ou já mostra boas-vindas
+    if (msgs.length > 0) {
       for (var i = 0; i < msgs.length; i++) {
         addBubble(msgs[i].role, msgs[i].text, msgs[i].products || null, false);
+      }
+    } else if (ASK_NAME && !customerName) {
+      addBubble("assistant", WELCOME, null, false);
+      showNameGate();
+    } else {
+      addBubble("assistant", WELCOME, null, false);
+      renderChips();
+    }
+
+    // --- Etapa de captura de nome (antes de liberar o chat) ---
+    function showNameGate() {
+      form.style.display = "none";
+      chips.innerHTML = "";
+      var gate = document.createElement("form");
+      gate.id = "bk-assist-namegate";
+      gate.innerHTML =
+        '<label for="bk-assist-name">Como podemos te chamar?</label>' +
+        '<div class="bk-assist-namerow">' +
+        '<input id="bk-assist-name" type="text" maxlength="40" placeholder="Seu nome" autocomplete="given-name" />' +
+        '<button type="submit">Começar</button>' +
+        "</div>";
+      chips.appendChild(gate);
+      var nameInput = gate.querySelector("#bk-assist-name");
+      try {
+        nameInput.focus();
+      } catch (e) {
+        /* ignore */
+      }
+      gate.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        submitName(nameInput.value, gate, nameInput);
+      });
+    }
+
+    function submitName(raw, gate, nameInput) {
+      // Primeiro nome: letras (com acento), sem dígitos, máx 40 chars
+      var cleaned = String(raw || "").replace(/\s+/g, " ").trim();
+      var first = cleaned.split(" ")[0] || "";
+      if (!first || /\d/.test(cleaned) || !/^[A-Za-zÀ-ÿ'’-]{1,40}$/.test(first)) {
+        nameInput.value = "";
+        nameInput.setAttribute("placeholder", "Digite só o seu nome");
+        try {
+          nameInput.focus();
+        } catch (e) {
+          /* ignore */
+        }
+        return;
+      }
+      customerName = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+      ssSet(SS_NAME, customerName);
+      if (gate && gate.parentNode) gate.parentNode.removeChild(gate);
+      form.style.display = "";
+      addBubble(
+        "assistant",
+        "Prazer, " + customerName + "! Me conta: o que você procura ou qual sua dúvida?",
+        null,
+        false
+      );
+      renderChips();
+      try {
+        input.focus();
+      } catch (e) {
+        /* ignore */
       }
     }
 
@@ -395,6 +458,7 @@
         page_url: String(window.location.href).slice(0, 300),
         message: text,
       };
+      if (customerName) payload.customer_name = customerName;
       var session = ssGet(SS_SESSION);
       if (session) payload.session_id = session;
 
@@ -474,6 +538,12 @@
       "#bk-assist-chips:empty{padding:0}" +
       ".bk-assist-chip{background:#fff;border:1px solid #d9d9d9;border-radius:999px;padding:7px 12px;font-size:12px;color:#111;cursor:pointer;transition:border-color .15s ease}" +
       ".bk-assist-chip:hover{border-color:#111}" +
+      "#bk-assist-namegate{width:100%;padding:0 12px 10px;background:#f6f6f6}" +
+      "#bk-assist-namegate label{display:block;font-size:12px;color:#555;margin-bottom:6px}" +
+      ".bk-assist-namerow{display:flex;gap:8px}" +
+      "#bk-assist-name{flex:1;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff}" +
+      "#bk-assist-name:focus{border-color:#111}" +
+      "#bk-assist-namegate button{background:#111;color:#fff;border:none;border-radius:999px;padding:0 18px;font-size:13px;cursor:pointer;white-space:nowrap}" +
       "#bk-assist-form{display:flex;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #ececec;flex-shrink:0}" +
       "#bk-assist-input{flex:1;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff}" +
       "#bk-assist-input:focus{border-color:#111}" +
