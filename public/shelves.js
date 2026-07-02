@@ -694,6 +694,7 @@
       ".vtx-swiper .swiper-button-next, .vtx-swiper .swiper-button-prev { color: #333 !important; width: 34px; height: 34px; background: #fff; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity 0.2s; }" +
       ".vtx-swiper .swiper-button-next:after, .vtx-swiper .swiper-button-prev:after { font-size: 14px; font-weight: bold; }" +
       "[data-mbz-button-popup-wrapper] { width: 40px !important; height: 90px !important; right: 0 !important; bottom: 96px !important; z-index: 9998 !important; display: flex !important; flex-direction: column !important; align-items: stretch !important; justify-content: flex-start !important; background: rgba(255,255,255,.96) !important; border: 1px solid #d7d7d7 !important; border-right: 0 !important; border-radius: 0 !important; box-shadow: 0 6px 14px rgba(0,0,0,.08) !important; overflow: hidden !important; box-sizing: border-box !important; }" +
+      "@media (max-width: 768px) { [data-mbz-button-popup-wrapper] { bottom: 176px !important; } }" +
       "[data-mbz-button-popup-wrapper]::before { content: 'Ajuda' !important; flex: 1 1 auto !important; min-height: 52px !important; display: flex !important; align-items: center !important; justify-content: center !important; color: #222 !important; background: transparent !important; border-bottom: 1px solid #e1e1e1 !important; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; font-weight: 500 !important; line-height: 1 !important; letter-spacing: .01em !important; writing-mode: vertical-rl !important; transform: rotate(180deg) !important; pointer-events: none !important; }" +
       "[data-mbz-popup-button] { position: relative !important; inset: auto !important; width: 100% !important; height: 38px !important; min-width: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; color: transparent !important; font-size: 0 !important; line-height: 0 !important; overflow: hidden !important; animation: none !important; transform: none !important; }" +
       "[data-mbz-popup-button]::before { content: '' !important; width: 24px !important; height: 24px !important; display: block !important; border-radius: 999px !important; background: #222 url('" + helpPhoneIcon + "') center / 13px 13px no-repeat !important; box-shadow: none !important; transform: none !important; opacity: 1 !important; }" +
@@ -894,6 +895,10 @@
       el.style.setProperty(prop, value, "important");
     }
 
+    function getHelpTabBottom() {
+      return window.innerWidth <= 768 ? "176px" : "96px";
+    }
+
     function applyHelpTabStyles() {
       var wrappers = document.querySelectorAll("[data-mbz-button-popup-wrapper]");
       for (var i = 0; i < wrappers.length; i++) {
@@ -905,7 +910,7 @@
         setImportant(wrapper, "height", "90px");
         setImportant(wrapper, "right", "0");
         if (!wrapper.classList.contains("bk-buybar-floating-lift")) {
-          setImportant(wrapper, "bottom", "96px");
+          setImportant(wrapper, "bottom", getHelpTabBottom());
         }
         setImportant(wrapper, "z-index", "9998");
         setImportant(wrapper, "display", "flex");
@@ -1517,6 +1522,130 @@
     return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + parts[1];
   }
 
+  function normalizeInlineText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function extractBRLPrices(text) {
+    var out = [];
+    var re = /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+    var match;
+    while ((match = re.exec(String(text || "")))) {
+      var value = parseFloat(match[1].replace(/\./g, "").replace(",", "."));
+      if (isFinite(value) && value > 0) out.push(value);
+    }
+    return out;
+  }
+
+  function isElementHidden(el) {
+    if (!el || el.nodeType !== 1 || !window.getComputedStyle) return false;
+    var style = window.getComputedStyle(el);
+    return style.display === "none" || style.visibility === "hidden";
+  }
+
+  function isLineThroughElement(el) {
+    var node = el;
+    for (var i = 0; node && node.nodeType === 1 && i < 3; i++) {
+      var cls = typeof node.className === "string" ? node.className.toLowerCase() : "";
+      if (/(^|\s)(old|compare|de|was|line-through)(\s|$)|line-through|riscad/.test(cls)) return true;
+      if (window.getComputedStyle) {
+        var deco = window.getComputedStyle(node).textDecorationLine || window.getComputedStyle(node).textDecoration || "";
+        if (String(deco).indexOf("line-through") !== -1) return true;
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  function collectVisibleBRLPrices(root, skipLineThrough) {
+    var prices = [];
+    if (!root || !root.querySelectorAll) return prices;
+    var nodes = [root].concat(Array.prototype.slice.call(root.querySelectorAll("*")));
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (isElementHidden(el)) continue;
+      if (skipLineThrough && isLineThroughElement(el)) continue;
+      var text = normalizeInlineText(el.textContent);
+      if (!/R\$/.test(text) || text.length > 90) continue;
+      if (el.querySelector && el.querySelector("*")) {
+        var childHasPrice = false;
+        var children = el.children || [];
+        for (var c = 0; c < children.length; c++) {
+          if (/R\$/.test(children[c].textContent || "")) {
+            childHasPrice = true;
+            break;
+          }
+        }
+        if (childHasPrice) continue;
+      }
+      var found = extractBRLPrices(text);
+      for (var p = 0; p < found.length; p++) prices.push(found[p]);
+    }
+    return prices;
+  }
+
+  function findLabeledBRLPrice(root, labelRe) {
+    if (!root || !root.querySelectorAll) return 0;
+    var nodes = Array.prototype.slice.call(root.querySelectorAll("p,div,span,section,button,td,tr"));
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (isElementHidden(el)) continue;
+      var text = normalizeInlineText(el.textContent);
+      if (!labelRe.test(text) || text.length > 180) continue;
+      var prices = extractBRLPrices(text);
+      if (prices.length) return prices[0];
+      var parent = el.parentElement;
+      for (var depth = 0; parent && depth < 4; depth++) {
+        var parentText = normalizeInlineText(parent.textContent);
+        if (labelRe.test(parentText) && /R\$/.test(parentText) && parentText.length <= 220) {
+          var parentPrices = extractBRLPrices(parentText);
+          if (parentPrices.length) return parentPrices[0];
+        }
+        parent = parent.parentElement;
+      }
+    }
+    return 0;
+  }
+
+  function readCartItemsSubtotal(root) {
+    if (!root || !root.querySelectorAll) return 0;
+    var total = 0;
+    var selectors = [
+      ".cart-item",
+      ".line-item",
+      "tr.line-item",
+      "[class*='cart-list-item']",
+      "[class*='line-item']",
+      "[data-cart-item]"
+    ];
+    for (var s = 0; s < selectors.length; s++) {
+      var items = root.querySelectorAll(selectors[s]);
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item.closest && item.closest("#vtx-gift-bar,#vtx-gift-bar-drawer,.summary-total,.cta-section")) continue;
+        var prices = collectVisibleBRLPrices(item, true);
+        if (prices.length) total += prices[prices.length - 1];
+      }
+      if (total > 0) return total;
+    }
+    return 0;
+  }
+
+  function readCartBenefitTotalSync(root) {
+    root = root || document;
+    var subtotal = findLabeledBRLPrice(root, /(^|\s)subtotal(?:\s+do\s+pedido)?(?=\s|R\$|$)/i);
+    if (subtotal > 0) return subtotal;
+    var itemsSubtotal = readCartItemsSubtotal(root);
+    if (itemsSubtotal > 0) return itemsSubtotal;
+    return 0;
+  }
+
+  function getCartBenefitTotal(callback) {
+    var value = readCartBenefitTotalSync(document);
+    if (value > 0) return callback(value);
+    getCartTotal(callback);
+  }
+
   function querySelectorAllDeep(selector, root) {
     root = root || document;
     var elements = Array.prototype.slice.call(root.querySelectorAll(selector));
@@ -1589,7 +1718,8 @@
     }
   }
 
-  function setupCartListeners(onUpdate) {
+  function setupCartListeners(onUpdate, readTotal) {
+    readTotal = readTotal || getCartTotal;
     // The current store theme only dispatches `vnda:cart-drawer-loaded`
     // (re-fired whenever the drawer re-renders after an add/remove/update).
     // The old `vnda:cart-drawer-*-item` / `-coupon-*` names are no longer
@@ -1602,7 +1732,7 @@
     function debouncedUpdate() {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(function () {
-        getCartTotal(onUpdate);
+        readTotal(onUpdate);
       }, 500);
     }
 
@@ -1622,7 +1752,7 @@
           result.then(function () {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(function () {
-              getCartTotal(onUpdate);
+              readTotal(onUpdate);
             }, 800);
           }).catch(function () {});
         }
@@ -1649,14 +1779,17 @@
         "#component-cart-drawer-root .cart-drawer-installments," +
         "#component-cart-drawer-root [class*='cart-drawer-installments']," +
         ".vnda-cart-drawer .cart-drawer-installments," +
-        ".vnda-cart-drawer [class*='cart-drawer-installments']{" +
+        ".vnda-cart-drawer [class*='cart-drawer-installments']," +
+        "body.vtx-cart-installment-hider-page .summary-total .installments," +
+        "body.vtx-cart-installment-hider-page .cta-section [data-vtx-hide-cart-installments='1']," +
+        "body.vtx-cart-installment-hider-page [data-vtx-hide-cart-installments='1']{" +
           "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
         "}";
       document.head.appendChild(style);
     }
 
-    var installmentTextRe = /\s*ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}/gi;
-    var exactInstallmentTextRe = /^ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}$/i;
+    var installmentTextRe = /\s*(?:ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|em\s+at[eé]\s+\d{1,2}x(?:\s+de)?(?:\s+R\$)?\s*\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?)/gi;
+    var exactInstallmentTextRe = /^(?:ou(?:\s+em)?\s+\d{1,2}x(?:\s+de)?\s+R\$\s*\d{1,3}(?:\.\d{3})*,\d{2}|em\s+at[eé]\s+\d{1,2}x(?:\s+de)?(?:\s+R\$)?\s*\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?)$/i;
     var scanTimer = null;
 
     function normalizeText(value) {
@@ -1764,6 +1897,9 @@
     }
 
     function scanCartInstallments() {
+      if (detectPageType() === "cart") {
+        document.body.classList.add("vtx-cart-installment-hider-page");
+      }
       var roots = collectCartRoots();
       for (var i = 0; i < roots.length; i++) scanRoot(roots[i]);
     }
@@ -2210,24 +2346,12 @@
       return bar;
     }
 
-    // Reads the largest "R$ X,YY" looking number inside the drawer — on
-    // VNDA cart drawers the subtotal is the highest visible price.
+    // Prefer the merchandise subtotal. Do not use the largest visible number:
+    // sale cards can contain a crossed old price above the free-shipping goal.
     function readDrawerTotal() {
-      var max = 0;
-      var nodes = drawerRoot.querySelectorAll("*");
-      var seen = {};
-      for (var i = 0; i < nodes.length; i++) {
-        var t = nodes[i].textContent || "";
-        if (t.length > 200) continue;
-        var m = t.match(/R\$\s*([\d.]+,\d{2})/);
-        if (!m) continue;
-        var v = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
-        if (!isFinite(v) || v <= 0) continue;
-        if (seen[m[0]]) continue;
-        seen[m[0]] = true;
-        if (v > max) max = v;
-      }
-      return max;
+      var subtotal = readCartBenefitTotalSync(drawerRoot);
+      if (subtotal > 0) return subtotal;
+      return 0;
     }
 
     function updateBar(bar, total) {
@@ -2682,11 +2806,11 @@
           }
         }
 
-        getCartTotal(function (total) {
+        getCartBenefitTotal(function (total) {
           updateBar(total);
-          if (total === 0) setTimeout(function () { getCartTotal(updateBar); }, 2000);
+          if (total === 0) setTimeout(function () { getCartBenefitTotal(updateBar); }, 2000);
         });
-        setupCartListeners(updateBar);
+        setupCartListeners(updateBar, getCartBenefitTotal);
 
         console.log("[GiftBar] Initialized, position:", cfg.position, "steps:", hasSteps ? steps.length : "(legacy)");
       })
