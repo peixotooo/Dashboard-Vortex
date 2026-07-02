@@ -340,10 +340,37 @@ function sanitizeDescription(html: unknown): string | null {
   return text ? text.slice(0, 700) : null;
 }
 
+// Cache TTL de detalhes de produto. Cada mensagem do chat busca o detalhe do
+// produto da página (disponibilidade por tamanho) na VNDA AO VIVO — sem cache,
+// N usuários vendo o mesmo produto = N chamadas VNDA. Um TTL curto (90s) mata
+// o re-fetch dentro do mesmo turno (harness + tool detalhes_produto) e reduz
+// drasticamente a carga na VNDA ao liberar em todos os produtos. 90s é seguro:
+// disponibilidade de tamanho mudar dentro de 1,5min é aceitável pro vendedor.
+// Módulo-level = sobrevive entre requests numa instância "quente" (Vercel).
+const DETAIL_TTL_MS = 90_000;
+const detailCache = new Map<
+  string,
+  { at: number; value: AssistantProductDetails | null }
+>();
+
 export async function getProductDetails(
   workspaceId: string,
   productId: string
 ): Promise<AssistantProductDetails | null> {
+  const key = `${workspaceId}:${productId}`;
+  const cached = detailCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.at < DETAIL_TTL_MS) {
+    return cached.value;
+  }
+
+  // Evita o Map crescer sem limite numa instância de vida longa
+  if (detailCache.size > 2000) {
+    for (const [k, v] of detailCache) {
+      if (now - v.at > DETAIL_TTL_MS) detailCache.delete(k);
+    }
+  }
+
   const admin = createAdminClient();
   const { data } = await admin
     .from("shelf_products")
@@ -352,7 +379,10 @@ export async function getProductDetails(
     .eq("product_id", String(productId))
     .maybeSingle();
 
-  if (!data) return null;
+  if (!data) {
+    detailCache.set(key, { at: now, value: null });
+    return null;
+  }
   const row = data as ShelfProductRow;
   const summary = toSummary(row);
 
@@ -371,5 +401,7 @@ export async function getProductDetails(
     // VNDA fora do ar → devolve o que temos do espelho
   }
 
-  return { ...summary, description, sizes };
+  const value = { ...summary, description, sizes };
+  detailCache.set(key, { at: now, value });
+  return value;
 }
