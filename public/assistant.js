@@ -280,6 +280,22 @@
       return /^https?:\/\//i.test(s) ? s : "";
     }
 
+    // Markdown mínimo → HTML seguro. Escapa ANTES de qualquer transformação,
+    // então os únicos <strong>/<em>/<br> no resultado são os que criamos aqui.
+    function renderMarkdown(raw) {
+      var s = escapeHtml(raw);
+      // **negrito** e __negrito__
+      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+      // *itálico* (evita casar bullets " * " — exige colado ao texto)
+      s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, "$1<em>$2</em>");
+      // bullets "- " ou "* " no início da linha → •
+      s = s.replace(/^[ \t]*[-*][ \t]+/gm, "• ");
+      // quebras de linha
+      s = s.replace(/\n/g, "<br>");
+      return s;
+    }
+
     function formatPrice(n) {
       try {
         return "R$ " + Number(n).toFixed(2).replace(".", ",");
@@ -294,12 +310,9 @@
 
       var bubble = document.createElement("div");
       bubble.className = "bk-assist-bubble";
-      // Sempre textContent — nada de HTML vindo do servidor/LLM
-      var parts = String(text || "").split("\n");
-      for (var i = 0; i < parts.length; i++) {
-        if (i > 0) bubble.appendChild(document.createElement("br"));
-        bubble.appendChild(document.createTextNode(parts[i]));
-      }
+      // Markdown básico e SEGURO: escapa tudo primeiro (nenhum HTML do LLM
+      // sobrevive), depois reintroduz só <strong>/<em>/quebras que nós criamos.
+      bubble.innerHTML = renderMarkdown(String(text || ""));
       wrap.appendChild(bubble);
 
       if (products && products.length) {
@@ -319,7 +332,7 @@
             p.sale_price != null && p.price != null && Number(p.sale_price) < Number(p.price);
           if (hasSale) {
             priceHtml =
-              '<em>' + escapeHtml(formatPrice(p.price)) + "</em> <strong>" +
+              '<span class="bk-assist-old">' + escapeHtml(formatPrice(p.price)) + "</span> <strong>" +
               escapeHtml(formatPrice(p.sale_price)) + "</strong>";
           } else if (p.price != null || p.sale_price != null) {
             priceHtml =
@@ -426,7 +439,12 @@
       "#bk-assist-launcher{position:fixed;right:20px;bottom:20px;z-index:999998;width:56px;height:56px;border-radius:50%;background:#111;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 24px rgba(0,0,0,.28);transition:transform .18s ease}" +
       "#bk-assist-launcher:hover{transform:scale(1.06)}" +
       "#bk-assist-launcher.-hidden{display:none}" +
-      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:999999;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif}" +
+      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:999999;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
+      // O tema da loja herda um peso pesado; forçamos normal e deixamos só
+      // strong em negrito (!important vence o CSS do tema).
+      "#bk-assist-panel,#bk-assist-panel p,#bk-assist-panel span,#bk-assist-panel div,#bk-assist-panel a,#bk-assist-panel input{font-weight:400!important;letter-spacing:normal}" +
+      "#bk-assist-panel strong,#bk-assist-header-txt strong{font-weight:700!important}" +
+      "#bk-assist-panel em{font-weight:400!important}" +
       "#bk-assist-panel.-open{display:flex}" +
       "@media(max-width:767px){#bk-assist-panel{right:0;left:0;bottom:0!important;width:100%;max-width:100%;height:82vh;max-height:82vh;border-radius:16px 16px 0 0}}" +
       "#bk-assist-header{background:#111;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}" +
@@ -449,7 +467,7 @@
       ".bk-assist-card-name{font-size:12px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}" +
       ".bk-assist-card-price{font-size:12.5px}" +
       ".bk-assist-card-price strong{font-weight:700}" +
-      ".bk-assist-card-price em{font-style:normal;text-decoration:line-through;color:#999;font-size:11px;margin-right:2px}" +
+      ".bk-assist-old{text-decoration:line-through;color:#999;font-size:11px;margin-right:2px}" +
       ".bk-assist-card-price i{font-style:normal;color:#b91c1c;font-size:10.5px;font-weight:600;text-transform:uppercase}" +
       ".bk-assist-card svg{flex-shrink:0;color:#999}" +
       "#bk-assist-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px;background:#f6f6f6;flex-shrink:0}" +

@@ -116,11 +116,26 @@ function normalize(s: string): string {
     .replace(/[̀-ͯ]/g, "");
 }
 
+// A PDP da VNDA vive em /produto/{slug}-{id}. O shelf_products guarda a URL
+// SEM o -{id} (só o slug), então o link cairia numa rota sem produto. Garante
+// o sufixo -{id} quando faltar.
+function buildProductUrl(productUrl: string | null, productId: string): string {
+  const url = (productUrl || "").trim();
+  if (!url) return "";
+  const id = String(productId).trim();
+  if (!id) return url;
+  // já termina com -{id}? mantém
+  if (new RegExp(`-${id}(/|\\?|#|$)`).test(url)) return url;
+  // remove barra/query/hash final antes de anexar
+  const [base, tail = ""] = url.split(/(?=[?#])/);
+  return `${base.replace(/\/+$/, "")}-${id}${tail}`;
+}
+
 function toSummary(row: ShelfProductRow): AssistantProductSummary {
   return {
     id: String(row.product_id),
     name: row.name,
-    url: row.product_url || "",
+    url: buildProductUrl(row.product_url, String(row.product_id)),
     image_url: row.image_url,
     price: row.price !== null ? Number(row.price) : null,
     sale_price: row.sale_price !== null ? Number(row.sale_price) : null,
