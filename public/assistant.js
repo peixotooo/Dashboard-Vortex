@@ -750,8 +750,10 @@
       "#bk-assist-panel.-open{display:flex}" +
       // Mobile-first: tela cheia (100dvh), sem raio, nada por cima
       "@media(max-width:767px){#bk-assist-panel{right:0;left:0;top:0;bottom:0!important;width:100%;max-width:100%;height:100vh;height:100dvh;max-height:none;border-radius:0}}" +
-      // Com o chat aberto, nada sobrepõe: some buybar, aba, mbz e whatsapp do tema
-      "body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb']{display:none!important}" +
+      // Com o chat aberto, nada sobrepõe: some buybar, aba, mbz, whatsapp,
+      // stories E o topbar promocional (fixo no top, senão empurra o chat e
+      // esconde o campo de texto no mobile)
+      "body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb'],body.bk-assist-open #vtx-topbar,body.bk-assist-open .top-bar,body.bk-assist-open section.top-bar{display:none!important}" +
       // Buybar visível → aba/teaser/launcher sobem (fallback imediato; o
       // shelves.js depois ajusta o valor exato via inline style)
       "@media(max-width:767px){body.bk-buybar-on #bk-assist-tab{bottom:150px!important}body.bk-buybar-on #bk-assist-teaser{bottom:158px!important}body.bk-buybar-on #bk-assist-launcher{bottom:150px!important}}" +
