@@ -31,7 +31,11 @@ export interface ActiveKnowledge {
     message: string | null;
   };
   benefits: string[];
-  cashbackPercent: number;
+  cashback: {
+    percent: number;
+    depositDelayDays: number;
+    validityDays: number;
+  } | null;
   giftRequestActive: boolean;
 }
 
@@ -69,7 +73,7 @@ export async function getActiveKnowledge(
       .maybeSingle(),
     admin
       .from("cashback_config")
-      .select("percentage")
+      .select("percentage, deposit_delay_days, validity_days")
       .eq("workspace_id", workspaceId)
       .maybeSingle(),
     admin
@@ -188,9 +192,17 @@ export async function getActiveKnowledge(
     }
   }
 
-  const cashbackPercent = cashbackRes.data?.percentage
+  const cashbackPct = cashbackRes.data?.percentage
     ? Number(cashbackRes.data.percentage)
     : 0;
+  const cashback =
+    cashbackPct > 0
+      ? {
+          percent: cashbackPct,
+          depositDelayDays: Number(cashbackRes.data?.deposit_delay_days) || 15,
+          validityDays: Number(cashbackRes.data?.validity_days) || 30,
+        }
+      : null;
 
   const giftRequestActive = Boolean(
     giftReqRes.data?.enabled && giftReqRes.data?.wa_template_id
@@ -206,7 +218,7 @@ export async function getActiveKnowledge(
       message: giftBarData?.enabled ? giftBarData.message_progress || null : null,
     },
     benefits,
-    cashbackPercent,
+    cashback,
     giftRequestActive,
   };
 }
@@ -249,9 +261,12 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
     );
   }
 
-  if (k.cashbackPercent > 0) {
+  if (k.cashback) {
     lines.push(
-      `CASHBACK: ${k.cashbackPercent}% do valor da compra vira crédito pra próxima compra.`
+      `CASHBACK: ${k.cashback.percent}% do valor da compra vira crédito pra usar na próxima compra. ` +
+        `Regras: o crédito é liberado cerca de ${k.cashback.depositDelayDays} dias após a confirmação do pagamento ` +
+        `(depois do prazo de troca) e fica válido por ${k.cashback.validityDays} dias após a liberação. ` +
+        `Sempre cite essas regras (prazo pra liberar e validade) quando falar de cashback.`
     );
   }
 
@@ -262,7 +277,8 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
 
   if (k.giftRequestActive) {
     lines.push(
-      "PEDIR DE PRESENTE: o cliente pode pedir que alguém o presenteie: há um botão 'Pedir de presente' na página do produto que avisa a pessoa pelo WhatsApp."
+      "PEDIR DE PRESENTE (mecânica EXATA, não confunda): é um botão 'Pedir de presente' na página do produto, ao lado do botão de comprar. Serve pra quem ESTÁ VENDO o produto e QUER GANHAR ele de presente. A pessoa clica, e a loja envia por WhatsApp um recado do produto pra alguém que ela escolhe (namorado(a), amigo(a), familiar), sinalizando 'gostei disso e aceito de presente'. " +
+        "NÃO é a loja entregando pra outra pessoa. NÃO é o cliente comprando pra presentear alguém. É o INTERESSADO mandando uma indireta/pedido de presente pra outra pessoa. Se o cliente disser 'quero ganhar de presente', explique exatamente assim e mande ele usar esse botão na página do produto."
     );
   }
 
