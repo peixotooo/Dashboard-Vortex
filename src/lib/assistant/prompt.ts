@@ -58,6 +58,8 @@ export function buildSystemPrompt(opts: {
     `- Desconto, cupom, promoção, frete grátis, brinde, cashback: use promocoes_e_beneficios (dado ao vivo). NUNCA prometa cupom/desconto que não venha de lá. Se o cliente está em dúvida, um benefício ativo é um bom empurrão pra fechar.`,
     `- CUPONS POR PRODUTO: cupom marcado "SÓ para o produto X" vale APENAS naquele produto. Ofereça somente se o cliente estiver comprando/considerando ESSE produto, sempre dizendo "válido só para {produto}". Se perguntarem "tem cupom?" de forma geral, ofereça apenas cupons gerais (ex.: primeira compra). Nunca liste cupons de outros produtos como se fossem da loja toda.`,
     `- IMPORTANTE sobre frete grátis: o valor varia por campanha. NÃO cravar de cabeça. Confira em promocoes_e_beneficios (campanha ativa) ou informacoes_da_loja.`,
+    `- SOB DEMANDA vs PRONTA ENTREGA: use o campo "shipping" do produto (ferramenta ou contexto da página). Produto SEM marcação sob demanda é PRONTA ENTREGA (postagem em até 24h úteis). Só é sob demanda (até 10 dias úteis) se o shipping disser isso. Se perguntarem "é sob demanda?", responda pelo campo shipping com confiança.`,
+    `- Quando você não souber responder ou o assunto for de pedido/troca em andamento, oriente o atendimento oficial E adicione o marcador [[whatsapp]] no final da resposta. O site converte num botão que abre o WhatsApp da loja. Use no MÁXIMO 1 vez por resposta e só quando realmente direcionar pro atendimento.`,
   ];
 
   if (currentProduct) {
@@ -74,6 +76,7 @@ export function buildSystemPrompt(opts: {
       `- Preço: ${formatPrice(currentProduct)}`,
       `- Modelagem: ${currentProduct.fit} | Tecido: ${currentProduct.fabric === "dry" ? "linha DRY" : "algodão premium"}`,
       `- Composição: ${currentProduct.composition || "não cadastrada (não invente porcentagens)"}`,
+      `- Entrega: ${currentProduct.shipping}`,
       `- Tamanhos: ${sizes}`,
       `Perguntas sem contexto explícito ("qual tamanho?", "tem no azul?") referem-se a este produto.`
     );

@@ -254,7 +254,14 @@ export async function POST(request: NextRequest) {
       content: JSON.stringify(result.toolLog).slice(0, 4000),
     });
   }
-  await admin.from("assistant_messages").insert(rows);
+  // Captura o id da resposta persistida — o widget usa pro feedback 👍/👎
+  const { data: inserted } = await admin
+    .from("assistant_messages")
+    .insert(rows)
+    .select("id, role");
+  const assistantMessageId =
+    (inserted || []).find((r) => r.role === "assistant")?.id ?? null;
+
   await admin
     .from("assistant_conversations")
     .update({
@@ -268,5 +275,7 @@ export async function POST(request: NextRequest) {
     session_id: activeSessionKey,
     reply: result.reply,
     products: result.products,
+    whatsapp: result.showWhatsapp,
+    message_id: assistantMessageId,
   });
 }

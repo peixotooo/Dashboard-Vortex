@@ -39,6 +39,8 @@ export interface AssistantProductSummary extends AssistantProductCard {
   fabric: "dry" | "algodao";
   /** Composição derivada da tag ficha-tecnica (ex.: "96% ALGODÃO · 4% ELASTANO") ou null. */
   composition: string | null;
+  /** Prazo de postagem derivado da tag sob-demanda (pronta entrega vs sob demanda). */
+  shipping: string;
 }
 
 export interface AssistantSizeAvailability {
@@ -54,6 +56,8 @@ export interface AssistantProductDetails extends AssistantProductSummary {
 export interface AssistantChatResult {
   reply: string;
   products: AssistantProductCard[];
+  /** Modelo direcionou pro atendimento: widget mostra botão de WhatsApp. */
+  showWhatsapp: boolean;
   /** Telemetria (persistida como role='tool', nunca replayada ao LLM). */
   toolLog: Array<{ name: string; input: unknown; ok: boolean }>;
 }

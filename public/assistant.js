@@ -220,7 +220,11 @@
     // Estado inicial: retoma sessão, ou pede o nome, ou já mostra boas-vindas
     if (msgs.length > 0) {
       for (var i = 0; i < msgs.length; i++) {
-        addBubble(msgs[i].role, msgs[i].text, msgs[i].products || null, false);
+        addBubble(msgs[i].role, msgs[i].text, msgs[i].products || null, false, {
+          whatsapp: !!msgs[i].wa,
+          messageId: msgs[i].mid || null,
+          feedback: msgs[i].fb || 0,
+        });
       }
     } else if (ASK_NAME && !customerName) {
       addBubble("assistant", WELCOME, null, false);
@@ -568,7 +572,7 @@
       }
     }
 
-    function addBubble(role, text, products, persist) {
+    function addBubble(role, text, products, persist, opts) {
       var wrap = document.createElement("div");
       wrap.className = "bk-assist-msg -" + role;
 
@@ -619,12 +623,86 @@
         }
       }
 
+      // Modelo direcionou pro atendimento → botão direto pro WhatsApp
+      if (opts && opts.whatsapp) {
+        var waBtn = document.createElement("button");
+        waBtn.type = "button";
+        waBtn.className = "bk-assist-wa-btn";
+        waBtn.innerHTML =
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>' +
+          "<span>Falar no WhatsApp</span>";
+        waBtn.addEventListener("click", triggerWhatsApp);
+        wrap.appendChild(waBtn);
+      }
+
+      // Feedback 👍/👎 nas respostas do assistente (monitoramento de satisfação)
+      if (role === "assistant" && opts && opts.messageId) {
+        wrap.appendChild(buildFeedbackRow(opts.messageId, opts.feedback || 0));
+      }
+
       body.appendChild(wrap);
       body.scrollTop = body.scrollHeight;
 
       if (persist !== false) {
-        msgs.push({ role: role, text: text, products: products || null });
+        msgs.push({
+          role: role,
+          text: text,
+          products: products || null,
+          wa: !!(opts && opts.whatsapp),
+          mid: (opts && opts.messageId) || null,
+          fb: (opts && opts.feedback) || 0,
+        });
         saveMsgs(msgs);
+      }
+    }
+
+    function buildFeedbackRow(messageId, current) {
+      var row = document.createElement("div");
+      row.className = "bk-assist-fb" + (current ? " -done" : "");
+      row.innerHTML =
+        '<button type="button" data-fb="1" aria-label="Resposta útil"' +
+        (current === 1 ? ' class="-sel"' : "") +
+        '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg></button>' +
+        '<button type="button" data-fb="-1" aria-label="Resposta não útil"' +
+        (current === -1 ? ' class="-sel"' : "") +
+        '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path></svg></button>';
+      row.addEventListener("click", function (ev) {
+        var btn = ev.target && ev.target.closest ? ev.target.closest("[data-fb]") : null;
+        if (!btn || row.className.indexOf("-done") !== -1) return;
+        var rating = parseInt(btn.getAttribute("data-fb"), 10);
+        btn.className = "-sel";
+        row.className = "bk-assist-fb -done";
+        sendFeedback(messageId, rating);
+        // atualiza a cópia persistida pra restaurar o estado ao reabrir
+        for (var i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].mid === messageId) {
+            msgs[i].fb = rating;
+            break;
+          }
+        }
+        saveMsgs(msgs);
+      });
+      return row;
+    }
+
+    function sendFeedback(messageId, rating) {
+      try {
+        var session = ssGet(SS_SESSION);
+        if (!session || !messageId) return;
+        fetch(API_BASE + "/api/assistant/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: API_KEY,
+            session_id: session,
+            message_id: messageId,
+            rating: rating,
+          }),
+        }).catch(function () {
+          /* silêncio */
+        });
+      } catch (e) {
+        /* ignore */
       }
     }
 
@@ -674,7 +752,10 @@
           var data = res.data || {};
           if (data.session_id) ssSet(SS_SESSION, data.session_id);
           if (data.reply) {
-            addBubble("assistant", data.reply, data.products || null, true);
+            addBubble("assistant", data.reply, data.products || null, true, {
+              whatsapp: data.whatsapp === true,
+              messageId: data.message_id || null,
+            });
           } else {
             addBubble(
               "assistant",
@@ -750,10 +831,13 @@
       "#bk-assist-panel.-open{display:flex}" +
       // Mobile-first: tela cheia (100dvh), sem raio, nada por cima
       "@media(max-width:767px){#bk-assist-panel{right:0;left:0;top:0;bottom:0!important;width:100%;max-width:100%;height:100vh;height:100dvh;max-height:none;border-radius:0}}" +
-      // Com o chat aberto, nada sobrepõe: some buybar, aba, mbz, whatsapp,
-      // stories E o topbar promocional (fixo no top, senão empurra o chat e
-      // esconde o campo de texto no mobile)
-      "body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb'],body.bk-assist-open #vtx-topbar,body.bk-assist-open .top-bar,body.bk-assist-open section.top-bar{display:none!important}" +
+      // Com o chat aberto, nada sobrepõe: some aba, teaser, mbz e whatsapp
+      // (em qualquer tela — ficam atrás/do lado do chat)
+      "body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb']{display:none!important}" +
+      // SÓ NO MOBILE (chat em tela cheia): some também buybar e topbar (fixo
+      // no top, empurrava o chat e escondia o campo de texto). No desktop o
+      // chat é um card no canto — topbar e buybar continuam visíveis.
+      "@media(max-width:767px){body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #vtx-topbar,body.bk-assist-open .top-bar,body.bk-assist-open section.top-bar{display:none!important}}" +
       // Buybar visível → aba/teaser/launcher sobem (fallback imediato; o
       // shelves.js depois ajusta o valor exato via inline style)
       "@media(max-width:767px){body.bk-buybar-on #bk-assist-tab{bottom:150px!important}body.bk-buybar-on #bk-assist-teaser{bottom:158px!important}body.bk-buybar-on #bk-assist-launcher{bottom:150px!important}}" +
@@ -782,6 +866,17 @@
       ".bk-assist-old{text-decoration:line-through;color:#999;font-size:11px;margin-right:2px}" +
       ".bk-assist-card-price i{font-style:normal;color:#b91c1c;font-size:10.5px;font-weight:600;text-transform:uppercase}" +
       ".bk-assist-card svg{flex-shrink:0;color:#999}" +
+      // Botão WhatsApp (quando o assistente direciona pro atendimento)
+      ".bk-assist-wa-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:#25d366;color:#fff;border:none;border-radius:12px;padding:11px 14px;font-size:13px;font-weight:600!important;cursor:pointer;transition:filter .15s ease}" +
+      ".bk-assist-wa-btn:hover{filter:brightness(.95)}" +
+      ".bk-assist-wa-btn span{font-weight:600!important}" +
+      // Feedback 👍/👎 discreto sob a resposta
+      ".bk-assist-fb{display:flex;gap:4px;margin-top:-2px}" +
+      ".bk-assist-fb button{background:none;border:none;padding:5px;cursor:pointer;color:#b3b3b3;border-radius:8px;display:flex;align-items:center;justify-content:center}" +
+      ".bk-assist-fb button:hover{color:#111;background:#ececec}" +
+      ".bk-assist-fb button.-sel{color:#111;background:#e4e4e4}" +
+      ".bk-assist-fb.-done button{pointer-events:none;opacity:.55}" +
+      ".bk-assist-fb.-done button.-sel{opacity:1}" +
       "#bk-assist-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px;background:#f6f6f6;flex-shrink:0}" +
       "#bk-assist-chips:empty{padding:0}" +
       ".bk-assist-chip{background:#fff;border:1px solid #d9d9d9;border-radius:999px;padding:7px 12px;font-size:12px;color:#111;cursor:pointer;transition:border-color .15s ease}" +

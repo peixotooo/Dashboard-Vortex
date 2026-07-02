@@ -88,6 +88,25 @@ export function extractProductMarkers(text: string): {
   return { cleanText, productIds: ids };
 }
 
+/**
+ * Extrai o marcador [[whatsapp]] (modelo direcionando pro atendimento).
+ * O widget converte num botão que abre o WhatsApp da loja.
+ */
+export function extractWhatsappMarker(text: string): {
+  cleanText: string;
+  showWhatsapp: boolean;
+} {
+  let showWhatsapp = false;
+  const cleanText = text
+    .replace(/\[\[\s*whatsapp\s*\]\]/gi, () => {
+      showWhatsapp = true;
+      return "";
+    })
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { cleanText, showWhatsapp };
+}
+
 /** Hash de IP com salt do servidor — nunca armazenamos IP em claro. */
 export function hashIp(ip: string): string {
   const salt = process.env.ENCRYPTION_KEY || "assistant-salt";

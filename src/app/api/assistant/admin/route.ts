@@ -24,9 +24,11 @@ export async function GET(request: NextRequest) {
       if (!conv) {
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
+      // select("*") pra incluir feedback sem quebrar se a migration-129
+      // ainda não tiver sido aplicada (coluna ausente vira undefined)
       const { data: messages } = await admin
         .from("assistant_messages")
-        .select("id, role, content, created_at")
+        .select("*")
         .eq("conversation_id", conversationId)
         .eq("workspace_id", workspaceId)
         .order("id", { ascending: true })
@@ -34,23 +36,58 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ conversation: conv, messages: messages || [] });
     }
 
-    const [settingsRes, convsRes] = await Promise.all([
-      admin
-        .from("assistant_settings")
-        .select("*")
-        .eq("workspace_id", workspaceId)
-        .maybeSingle(),
-      admin
-        .from("assistant_conversations")
-        .select("id, product_id, page_url, message_count, created_at, last_message_at")
-        .eq("workspace_id", workspaceId)
-        .order("last_message_at", { ascending: false })
-        .limit(50),
-    ]);
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [settingsRes, convsRes, convs7dRes, msgs7dRes, fbUpRes, fbDownRes] =
+      await Promise.all([
+        admin
+          .from("assistant_settings")
+          .select("*")
+          .eq("workspace_id", workspaceId)
+          .maybeSingle(),
+        admin
+          .from("assistant_conversations")
+          .select("id, product_id, page_url, message_count, created_at, last_message_at, customer_name")
+          .eq("workspace_id", workspaceId)
+          .order("last_message_at", { ascending: false })
+          .limit(50),
+        admin
+          .from("assistant_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
+          .gte("created_at", since7d),
+        admin
+          .from("assistant_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
+          .eq("role", "user")
+          .gte("created_at", since7d),
+        admin
+          .from("assistant_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
+          .eq("feedback", 1)
+          .gte("created_at", since7d),
+        admin
+          .from("assistant_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
+          .eq("feedback", -1)
+          .gte("created_at", since7d),
+      ]);
+
+    // Contagens de feedback falham sem a migration-129 (coluna feedback) —
+    // devolve 0 em vez de quebrar o dashboard.
+    const metrics = {
+      conversations_7d: convs7dRes.count || 0,
+      user_messages_7d: msgs7dRes.count || 0,
+      feedback_up_7d: fbUpRes.error ? 0 : fbUpRes.count || 0,
+      feedback_down_7d: fbDownRes.error ? 0 : fbDownRes.count || 0,
+    };
 
     return NextResponse.json({
       settings: settingsRes.data || null,
       conversations: convsRes.data || [],
+      metrics,
     });
   } catch (error) {
     return handleAuthError(error);
@@ -59,9 +96,24 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId, userId } = await getWorkspaceContext(request);
     const body = (await request.json()) as Record<string, unknown>;
     const admin = createAdminClient();
+
+    // Alinha com a RLS ("Admins manage assistant_settings"): member comum não
+    // pode ligar/desligar, mudar modelo nem subir o cap diário de custo.
+    const { data: membership } = await admin
+      .from("workspace_members")
+      .select("role")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!membership || !["owner", "admin"].includes(String(membership.role))) {
+      return NextResponse.json(
+        { error: "Apenas owner/admin podem alterar o assistente" },
+        { status: 403 }
+      );
+    }
 
     // Whitelist de campos editáveis — nada além disso entra no banco
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
