@@ -61,6 +61,7 @@ export async function runAssistantTurn(opts: {
   const toolCtx: ToolContext = {
     workspaceId,
     settings,
+    pageType: currentProductId ? "product" : "home",
     seenProducts: new Map(),
   };
   const toolLog: AssistantChatResult["toolLog"] = [];

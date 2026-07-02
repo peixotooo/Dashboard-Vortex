@@ -35,6 +35,7 @@ export async function getAssistantSettings(
       welcomeMessage: DEFAULTS.welcomeMessage,
       suggestions: DEFAULTS.suggestions,
       storeInfo: "",
+      institutionalKb: "",
       maxMessagesPerSession: DEFAULTS.maxMessagesPerSession,
       dailyMessageCap: DEFAULTS.dailyMessageCap,
     };
@@ -53,6 +54,8 @@ export async function getAssistantSettings(
       ? (data.suggestions as unknown[]).filter((s) => typeof s === "string").slice(0, 4) as string[]
       : DEFAULTS.suggestions,
     storeInfo: typeof data.store_info === "string" ? data.store_info : "",
+    institutionalKb:
+      typeof data.institutional_kb === "string" ? data.institutional_kb : "",
     maxMessagesPerSession:
       Number(data.max_messages_per_session) > 0
         ? Number(data.max_messages_per_session)

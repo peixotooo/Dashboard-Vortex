@@ -7,6 +7,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { searchCatalog, getProductDetails } from "./catalog";
+import { getActiveKnowledge, formatActiveKnowledge } from "./knowledge";
 import type { AssistantProductCard, AssistantSettings } from "./types";
 
 export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
@@ -79,7 +80,22 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "informacoes_da_loja",
     description:
-      "Informações oficiais da loja: trocas, devoluções, frete e pagamento. Use quando o cliente perguntar sobre políticas. Se a informação não estiver aqui, orientar o cliente a falar com o atendimento oficial.",
+      "Informações institucionais oficiais da loja: trocas e devoluções, prazos de frete/entrega, formas de pagamento, FAQ, política de privacidade e atendimento. Use quando o cliente perguntar sobre política/prazo/como funciona. Se a informação não estiver aqui, orientar o cliente a falar com o atendimento oficial.",
+    input_schema: {
+      type: "object",
+      properties: {
+        assunto: {
+          type: "string",
+          description:
+            "Tópico da dúvida, ex: 'trocas', 'frete', 'pagamento', 'atendimento' (opcional — ajuda a focar)",
+        },
+      },
+    },
+  },
+  {
+    name: "promocoes_e_beneficios",
+    description:
+      "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback — ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
     input_schema: { type: "object", properties: {} },
   },
 ];
@@ -118,6 +134,8 @@ const SIZE_GUIDE_REGULAR = {
 export interface ToolContext {
   workspaceId: string;
   settings: AssistantSettings;
+  /** Tipo da página onde o cliente está (product/home/...) — usado no topbar. */
+  pageType: string;
   /** Acumula produtos vistos pelas tools no turno — vira card no widget. */
   seenProducts: Map<string, AssistantProductCard>;
 }
@@ -206,15 +224,29 @@ export async function executeAssistantTool(
       }
 
       case "informacoes_da_loja": {
-        const info = ctx.settings.storeInfo.trim();
-        if (!info) {
+        const parts = [ctx.settings.storeInfo.trim(), ctx.settings.institutionalKb.trim()]
+          .filter(Boolean)
+          .join("\n\n");
+        if (!parts) {
           return JSON.stringify({
             informacoes: null,
             instrucao:
               "Não há políticas cadastradas. Diga ao cliente que para trocas, devoluções e prazos ele deve falar com o atendimento oficial da loja. NÃO invente políticas.",
           });
         }
-        return JSON.stringify({ informacoes: info });
+        // A KB pode ser longa; corta pra caber no contexto sem estourar tokens.
+        return JSON.stringify({ informacoes: parts.slice(0, 6000) });
+      }
+
+      case "promocoes_e_beneficios": {
+        const knowledge = await withTimeout(
+          getActiveKnowledge(ctx.workspaceId, ctx.pageType)
+        );
+        return JSON.stringify({
+          ativos: formatActiveKnowledge(knowledge),
+          instrucao:
+            "Comunique só o que está listado. Se vazio, não invente cupom/desconto — ofereça ajuda com o produto.",
+        });
       }
 
       default:
