@@ -151,6 +151,55 @@ function withTimeout<T>(p: Promise<T>): Promise<T> {
   ]);
 }
 
+// A KB institucional é longa (~12k chars) e a página de termos começa com
+// legalês (privacidade) antes do útil (trocas/prazos/pagamento). Quando o
+// cliente pergunta um assunto, devolve uma janela centrada na 1ª ocorrência
+// de uma palavra-chave do assunto — assim a seção certa nunca é cortada.
+const KB_MAX = 6500;
+
+function normalizeForSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+function focusKb(kb: string, assunto: string): string {
+  if (!kb) return "";
+  if (kb.length <= KB_MAX) return kb;
+
+  const hay = normalizeForSearch(kb);
+  const words = normalizeForSearch(assunto)
+    .split(/\s+/)
+    .filter((w) => w.length > 3);
+  // termos comuns de política pra ancorar a busca mesmo sem 'assunto'
+  const anchors = ["troca", "devoluc", "frete", "entrega", "prazo", "envio", "pagament", "cupom", "cashback"];
+  const candidates = words.length ? words : [];
+
+  let pos = -1;
+  for (const w of candidates) {
+    const i = hay.indexOf(w);
+    if (i >= 0) {
+      pos = i;
+      break;
+    }
+  }
+  if (pos < 0) {
+    for (const a of anchors) {
+      const i = hay.indexOf(a);
+      if (i >= 0) {
+        pos = i;
+        break;
+      }
+    }
+  }
+  if (pos < 0) return kb.slice(0, KB_MAX);
+
+  const start = Math.max(0, pos - 1500);
+  const slice = kb.slice(start, start + KB_MAX);
+  return (start > 0 ? "…" : "") + slice;
+}
+
 function rememberProduct(ctx: ToolContext, p: AssistantProductCard) {
   if (!ctx.seenProducts.has(p.id)) {
     ctx.seenProducts.set(p.id, {
@@ -224,18 +273,19 @@ export async function executeAssistantTool(
       }
 
       case "informacoes_da_loja": {
-        const parts = [ctx.settings.storeInfo.trim(), ctx.settings.institutionalKb.trim()]
-          .filter(Boolean)
-          .join("\n\n");
-        if (!parts) {
+        const store = ctx.settings.storeInfo.trim();
+        const kb = ctx.settings.institutionalKb.trim();
+        if (!store && !kb) {
           return JSON.stringify({
             informacoes: null,
             instrucao:
               "Não há políticas cadastradas. Diga ao cliente que para trocas, devoluções e prazos ele deve falar com o atendimento oficial da loja. NÃO invente políticas.",
           });
         }
-        // A KB pode ser longa; corta pra caber no contexto sem estourar tokens.
-        return JSON.stringify({ informacoes: parts.slice(0, 6000) });
+        const assunto = typeof args.assunto === "string" ? args.assunto : "";
+        const kbFocused = focusKb(kb, assunto);
+        const informacoes = [store, kbFocused].filter(Boolean).join("\n\n");
+        return JSON.stringify({ informacoes });
       }
 
       case "promocoes_e_beneficios": {
