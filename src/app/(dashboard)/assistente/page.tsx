@@ -48,6 +48,7 @@ interface ConversationSummary {
   message_count: number;
   created_at: string;
   last_message_at: string;
+  customer_name: string | null;
 }
 
 interface TranscriptMessage {
@@ -55,7 +56,23 @@ interface TranscriptMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   created_at: string;
+  /** Só em mensagens do assistente: 1 = útil, -1 = não útil */
+  feedback?: 1 | -1 | null;
 }
+
+interface AdminMetrics {
+  conversations_7d: number;
+  user_messages_7d: number;
+  feedback_up_7d: number;
+  feedback_down_7d: number;
+}
+
+const EMPTY_METRICS: AdminMetrics = {
+  conversations_7d: 0,
+  user_messages_7d: 0,
+  feedback_up_7d: 0,
+  feedback_down_7d: 0,
+};
 
 interface SettingsUpdatePayload {
   enabled: boolean;
@@ -152,8 +169,9 @@ export default function AssistentePage() {
   const [dailyCapText, setDailyCapText] = useState(String(DEFAULT_DAILY_CAP));
   const [modelText, setModelText] = useState("");
 
-  // Conversas
+  // Conversas + métricas
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [metrics, setMetrics] = useState<AdminMetrics>(EMPTY_METRICS);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -202,9 +220,11 @@ export default function AssistentePage() {
       const data = (await res.json()) as {
         settings: ApiSettings | null;
         conversations: ConversationSummary[];
+        metrics?: AdminMetrics;
       };
       applySettings(data.settings);
       setConversations(data.conversations || []);
+      setMetrics({ ...EMPTY_METRICS, ...(data.metrics || {}) });
     } catch (err) {
       console.error("Failed to load assistant admin data:", err);
     }
@@ -293,6 +313,21 @@ export default function AssistentePage() {
     );
   }
 
+  // Métricas derivadas (7d)
+  const feedbackTotal = metrics.feedback_up_7d + metrics.feedback_down_7d;
+  const satisfactionValue =
+    feedbackTotal > 0
+      ? `${Math.round((metrics.feedback_up_7d / feedbackTotal) * 100)}%`
+      : "—";
+  const satisfactionSubtitle =
+    feedbackTotal > 0
+      ? `${metrics.feedback_up_7d} 👍 · ${metrics.feedback_down_7d} 👎`
+      : "sem avaliações ainda";
+  const msgsPerConversation =
+    metrics.conversations_7d > 0
+      ? (metrics.user_messages_7d / metrics.conversations_7d).toFixed(1)
+      : "—";
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -305,6 +340,45 @@ export default function AssistentePage() {
             recomende produtos
           </p>
         </div>
+      </div>
+
+      {/* ==================== Métricas (7d) ==================== */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-3xl font-bold">{metrics.conversations_7d}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Conversas (7d)
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-3xl font-bold">{metrics.user_messages_7d}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Mensagens de clientes (7d)
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-3xl font-bold">{satisfactionValue}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Satisfação (7d)
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {satisfactionSubtitle}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-3xl font-bold">{msgsPerConversation}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Msgs por conversa (7d)
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ==================== Seção 1: Configuração ==================== */}
@@ -461,6 +535,7 @@ export default function AssistentePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Última mensagem</TableHead>
+                  <TableHead>Cliente</TableHead>
                   <TableHead>Produto</TableHead>
                   <TableHead className="text-right">Mensagens</TableHead>
                   <TableHead>Página</TableHead>
@@ -475,6 +550,9 @@ export default function AssistentePage() {
                   >
                     <TableCell className="whitespace-nowrap">
                       {formatDate(conv.last_message_at)}
+                    </TableCell>
+                    <TableCell className="max-w-[160px] truncate">
+                      {conv.customer_name || "—"}
                     </TableCell>
                     <TableCell>{conv.product_id || "—"}</TableCell>
                     <TableCell className="text-right">
@@ -540,10 +618,15 @@ export default function AssistentePage() {
                   );
                 }
                 const isUser = msg.role === "user";
+                const showFeedback =
+                  msg.role === "assistant" &&
+                  (msg.feedback === 1 || msg.feedback === -1);
                 return (
                   <div
                     key={msg.id}
-                    className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                    className={`flex flex-col ${
+                      isUser ? "items-end" : "items-start"
+                    }`}
                   >
                     <div
                       className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
@@ -554,6 +637,18 @@ export default function AssistentePage() {
                     >
                       {msg.content}
                     </div>
+                    {showFeedback && (
+                      <Badge
+                        variant="outline"
+                        className={`mt-1 text-xs font-normal ${
+                          msg.feedback === 1
+                            ? "border-green-600/60 text-green-700 dark:text-green-400"
+                            : "border-red-600/60 text-red-700 dark:text-red-400"
+                        }`}
+                      >
+                        {msg.feedback === 1 ? "👍 útil" : "👎 não útil"}
+                      </Badge>
+                    )}
                   </div>
                 );
               })

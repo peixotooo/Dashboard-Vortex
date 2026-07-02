@@ -78,6 +78,19 @@ function detectFit(name: string): "oversized" | "regular" {
   return /oversized/i.test(name) ? "oversized" : "regular";
 }
 
+// Sob demanda = tag "sob-demanda" (43 produtos) ou linha dropbits. O RESTO é
+// pronta entrega com o badge "ENVIO EM 24H" da PDP — nunca dizer que produto
+// sem a tag é sob demanda.
+function detectShipping(raw: unknown): string {
+  const tags = tagList(raw);
+  const onDemand = tags.some(
+    (t) => t.name === "sob-demanda" || t.name === "banner-produto-dropbits"
+  );
+  return onDemand
+    ? "sob demanda (produzido após o pedido): postagem em até 10 dias úteis"
+    : "pronta entrega: postagem em até 24h úteis após a confirmação do pagamento";
+}
+
 function detectFabric(name: string): "dry" | "algodao" {
   return /\bdry\b/i.test(name) ? "dry" : "algodao";
 }
@@ -143,6 +156,7 @@ function toSummary(row: ShelfProductRow): AssistantProductSummary {
     fit: detectFit(row.name),
     fabric: detectFabric(row.name),
     composition: parseFichaTecnica(row.tags),
+    shipping: detectShipping(row.tags),
   };
 }
 

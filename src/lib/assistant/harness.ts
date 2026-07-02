@@ -9,6 +9,7 @@ import { callLLM } from "@/lib/agent/llm-provider";
 import { getProductDetails } from "./catalog";
 import {
   extractProductMarkers,
+  extractWhatsappMarker,
   sanitizeReply,
 } from "./guardrails";
 import { buildSystemPrompt } from "./prompt";
@@ -119,12 +120,15 @@ export async function runAssistantTurn(opts: {
   }
 
   if (!finalText) {
-    return { reply: FALLBACK_REPLY, products: [], toolLog };
+    return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog };
   }
+
+  // Marcador [[whatsapp]] → botão de atendimento no widget
+  const { cleanText: textAfterWa, showWhatsapp } = extractWhatsappMarker(finalText);
 
   // Marcadores [[produto:ID]] → cards (só de produtos que as tools realmente
   // retornaram neste turno ou que existem no catálogo — nada inventado)
-  const { cleanText, productIds } = extractProductMarkers(finalText);
+  const { cleanText, productIds } = extractProductMarkers(textAfterWa);
   const products: AssistantProductCard[] = [];
   for (const id of productIds) {
     const seen = toolCtx.seenProducts.get(id);
@@ -149,6 +153,7 @@ export async function runAssistantTurn(opts: {
   return {
     reply: sanitizeReply(cleanText) || FALLBACK_REPLY,
     products,
+    showWhatsapp,
     toolLog,
   };
 }
