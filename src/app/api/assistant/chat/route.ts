@@ -251,7 +251,9 @@ export async function POST(request: NextRequest) {
       conversation_id: conversationId,
       workspace_id: workspaceId,
       role: "tool",
-      content: JSON.stringify(result.toolLog).slice(0, 4000),
+      // Scrub também na telemetria: o input de consultar_pedido carrega o
+      // e-mail do cliente — mascara igual às mensagens (achado da revisão)
+      content: scrubPiiForStorage(JSON.stringify(result.toolLog)).slice(0, 4000),
     });
   }
   // Captura o id da resposta persistida — o widget usa pro feedback 👍/👎

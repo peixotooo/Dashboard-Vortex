@@ -549,7 +549,7 @@
     }
 
     // Markdown mínimo → HTML seguro. Escapa ANTES de qualquer transformação,
-    // então os únicos <strong>/<em>/<br> no resultado são os que criamos aqui.
+    // então os únicos <strong>/<em>/<br>/<a> no resultado são os que criamos.
     function renderMarkdown(raw) {
       var s = escapeHtml(raw);
       // **negrito** e __negrito__
@@ -559,6 +559,18 @@
       s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, "$1<em>$2</em>");
       // bullets "- " ou "* " no início da linha → •
       s = s.replace(/^[ \t]*[-*][ \t]+/gm, "• ");
+      // Links clicáveis SÓ para domínios da loja (allowlist anti-phishing:
+      // mesmo que injetem uma URL maliciosa no modelo, ela não vira link)
+      s = s.replace(
+        /https:\/\/(?:www\.)?(bulking\.com\.br|bulking\.troque\.app\.br|wa\.me)(\/[^\s<]*)?/g,
+        function (match) {
+          var clean = match.replace(/[.,;!?)]+$/, "");
+          var tail = match.slice(clean.length);
+          return (
+            '<a href="' + clean + '" target="_blank" rel="noopener">' + clean + "</a>" + tail
+          );
+        }
+      );
       // quebras de linha
       s = s.replace(/\n/g, "<br>");
       return s;
@@ -856,6 +868,7 @@
       ".bk-assist-bubble{padding:10px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;word-wrap:break-word}" +
       ".bk-assist-msg.-assistant .bk-assist-bubble{background:#fff;color:#111;border:1px solid #e8e8e8;border-bottom-left-radius:4px}" +
       ".bk-assist-msg.-user .bk-assist-bubble{background:#111;color:#fff;border-bottom-right-radius:4px}" +
+      ".bk-assist-bubble a{color:inherit;text-decoration:underline;font-weight:600!important;word-break:break-all}" +
       ".bk-assist-card{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e3e3e3;border-radius:12px;padding:8px 10px;text-decoration:none;color:#111;transition:border-color .15s ease}" +
       ".bk-assist-card:hover{border-color:#111}" +
       ".bk-assist-card img,.bk-assist-card-noimg{width:48px;height:60px;object-fit:cover;border-radius:8px;background:#eee;flex-shrink:0}" +

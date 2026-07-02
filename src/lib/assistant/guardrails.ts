@@ -66,6 +66,14 @@ export function scrubPiiForStorage(text: string): string {
   for (const pattern of PII_PATTERNS) {
     out = out.replace(pattern, "[dado pessoal removido]");
   }
+  // E-mails (o cliente digita o e-mail pra consultar pedido): mascara mantendo
+  // 1º caractere + domínio (j***@gmail.com) — dá contexto no QA sem guardar
+  // o endereço em claro. Nota: o replay do histórico usa o texto mascarado,
+  // então o fluxo pede número+e-mail na MESMA mensagem (tool roda no turno).
+  out = out.replace(
+    /\b([^\s@])[^\s@]*@([^\s@]+\.[^\s@]{2,})\b/g,
+    (_m, first: string, domain: string) => `${first}***@${domain}`
+  );
   return out;
 }
 
