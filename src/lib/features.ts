@@ -215,6 +215,13 @@ export const FEATURES: Feature[] = [
     routes: ["/reviews"],
     parent: "loja",
   },
+  {
+    id: "loja.assistente",
+    label: "Assistente IA",
+    description: "Vendedor virtual com IA na loja",
+    routes: ["/assistente"],
+    parent: "loja",
+  },
 
   // ===== CRM =====
   {
