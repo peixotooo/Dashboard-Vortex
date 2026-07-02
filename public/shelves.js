@@ -1417,6 +1417,19 @@
     // Enhance the native mobile sticky buy bar (Aramis-style) on PDPs
     if (pageType === "product") enhanceMobileBuyBar(productId);
 
+    // Assistente de vendas (widget de chat) — o assistant.js decide sozinho
+    // se aparece (config por produto no dashboard) e falha em silêncio.
+    if (pageType === "product") {
+      try {
+        var assistScript = document.createElement("script");
+        assistScript.async = true;
+        assistScript.src = API_BASE + "/assistant.js";
+        document.head.appendChild(assistScript);
+      } catch (e) {
+        /* nunca quebrar a loja */
+      }
+    }
+
     // Fetch config
     fetchConfig(pageType)
       .then(function (configData) {
