@@ -1643,6 +1643,12 @@
       style.textContent =
         "[data-vtx-hide-cart-installments='1']{" +
           "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
+        "}" +
+        "#component-cart-drawer-root .cart-drawer-installments," +
+        "#component-cart-drawer-root [class*='cart-drawer-installments']," +
+        ".vnda-cart-drawer .cart-drawer-installments," +
+        ".vnda-cart-drawer [class*='cart-drawer-installments']{" +
+          "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
         "}";
       document.head.appendChild(style);
     }
@@ -1721,6 +1727,16 @@
     function scanRoot(root) {
       if (!root || !root.querySelectorAll) return;
       if (root.matches && root.matches("script,style,noscript,textarea,input")) return;
+
+      var knownInstallments = root.querySelectorAll(
+        ".cart-drawer-installments,[class*='cart-drawer-installments']"
+      );
+      for (var k = 0; k < knownInstallments.length; k++) {
+        var knownText = normalizeText(knownInstallments[k].textContent);
+        if (exactInstallmentTextRe.test(knownText) || /(^|\s)ou\s+\d{1,2}x\s+R\$/.test(knownText)) {
+          knownInstallments[k].setAttribute("data-vtx-hide-cart-installments", "1");
+        }
+      }
 
       if (root.childNodes && root.childNodes.length === 1 && root.firstChild.nodeType === 3) {
         cleanTextNode(root.firstChild);
