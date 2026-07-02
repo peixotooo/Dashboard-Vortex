@@ -8,6 +8,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { searchCatalog, getProductDetails } from "./catalog";
 import { getActiveKnowledge, formatActiveKnowledge } from "./knowledge";
+import { lookupOrder } from "./orders";
 import type { AssistantProductCard, AssistantSettings } from "./types";
 
 export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
@@ -93,6 +94,25 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
     },
   },
   {
+    name: "consultar_pedido",
+    description:
+      "Consulta o status de UM pedido do PRÓPRIO cliente (rastreio/WISMO). EXIGE número do pedido E o e-mail usado na compra, que precisam bater. Retorna: status, código de rastreio, itens e se algum item é sob demanda (produção mais demorada). Use quando o cliente perguntar 'cadê meu pedido', 'pedido atrasado', 'já foi enviado?'. Se o cliente não deu os dois dados, PEÇA os dois numa mensagem só antes de chamar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        numero_pedido: {
+          type: "string",
+          description: "Número/código do pedido informado pelo cliente",
+        },
+        email: {
+          type: "string",
+          description: "E-mail usado na compra (precisa bater com o do pedido)",
+        },
+      },
+      required: ["numero_pedido", "email"],
+    },
+  },
+  {
     name: "promocoes_e_beneficios",
     description:
       "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback, ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
@@ -138,6 +158,8 @@ export interface ToolContext {
   pageType: string;
   /** Acumula produtos vistos pelas tools no turno — vira card no widget. */
   seenProducts: Map<string, AssistantProductCard>;
+  /** Tentativas de consulta de pedido no turno (anti-enumeração: máx 2). */
+  orderLookups?: number;
 }
 
 const TOOL_TIMEOUT_MS = 8000;
@@ -286,6 +308,37 @@ export async function executeAssistantTool(
         const kbFocused = focusKb(kb, assunto);
         const informacoes = [store, kbFocused].filter(Boolean).join("\n\n");
         return JSON.stringify({ informacoes });
+      }
+
+      case "consultar_pedido": {
+        // Anti-enumeração: no máximo 2 tentativas por turno
+        ctx.orderLookups = (ctx.orderLookups || 0) + 1;
+        if (ctx.orderLookups > 2) {
+          return JSON.stringify({
+            erro: "limite de consultas atingido",
+            instrucao:
+              "Diga ao cliente pra conferir com calma o número do pedido e o e-mail da compra e tentar de novo, ou falar com o atendimento. Adicione [[whatsapp]] no final.",
+          });
+        }
+        const order = await withTimeout(
+          lookupOrder(ctx.workspaceId, args.numero_pedido, args.email)
+        );
+        if (!order) {
+          return JSON.stringify({
+            resultado: "pedido não encontrado com esse número + e-mail",
+            instrucao:
+              "NÃO diga qual dado está errado. Peça pra conferir o número do pedido (está no e-mail de confirmação) e o e-mail usado na compra. Se falhar de novo, oriente o atendimento com [[whatsapp]].",
+          });
+        }
+        return JSON.stringify({
+          pedido: order,
+          instrucao:
+            order.has_sob_demanda && !order.dispatched
+              ? "IMPORTANTE: o pedido tem item SOB DEMANDA (produzido após a compra, postagem em até 10 dias úteis). Explique isso com empatia como o motivo do prazo maior, diga qual item é, reforce que está tudo certo com o pedido e que avisamos por e-mail quando postar. Tranquilize; a peça está sendo produzida especialmente pra ele."
+              : order.dispatched
+              ? "Pedido já despachado: informe o código de rastreio e diga que dá pra acompanhar no site da transportadora/Correios."
+              : "Explique o status atual com clareza e o próximo passo.",
+        });
       }
 
       case "promocoes_e_beneficios": {
