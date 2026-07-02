@@ -842,7 +842,9 @@
     var whatsapp = document.querySelectorAll(
       ".whatsapp, .whatsapp-button, .whatsapp-link, [class*='whatsapp'], " +
       "[data-mbz-button-popup-wrapper], [data-mbz-popup-button], [aria-label*='WhatsApp'], " +
-      "a[href*='wa.me'], a[href*='api.whatsapp.com'], a[href*='whatsapp']"
+      "a[href*='wa.me'], a[href*='api.whatsapp.com'], a[href*='whatsapp'], " +
+      // Elementos do assistente de vendas (assistant.js) — sobem junto com a buybar
+      "#bk-assist-tab, #bk-assist-teaser, #bk-assist-launcher"
     );
     for (var j = 0; j < whatsapp.length; j++) {
       addUniqueEl(targets, findFixedAncestor(whatsapp[j]));
