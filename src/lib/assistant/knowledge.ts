@@ -89,7 +89,7 @@ export async function getActiveKnowledge(
       fallbackLinkLabel: c.link_label,
     });
     topbarMessages = slides
-      .map((s) => [s.title, s.message].filter(Boolean).join(" — "))
+      .map((s) => [s.title, s.message].filter(Boolean).join(": "))
       .filter((m) => m.trim().length > 0)
       .slice(0, 6);
     topbarCountdownTarget = topbar.countdownTarget || effectiveCountdownTarget(c, now);
@@ -228,7 +228,7 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
   const presentable = k.coupons.filter((c) => !c.productId || c.productName);
   if (presentable.length) {
     lines.push(
-      "CUPONS ATIVOS (ATENÇÃO: cupom marcado 'SÓ para' um produto NÃO vale para o resto da loja — ofereça APENAS quando o cliente estiver comprando aquele produto exato; nunca apresente como desconto geral):"
+      "CUPONS ATIVOS (ATENÇÃO: cupom marcado 'SÓ para' um produto NÃO vale para o resto da loja. Ofereça APENAS quando o cliente estiver comprando aquele produto exato; nunca apresente como desconto geral):"
     );
     presentable.forEach((c) => {
       const exp = c.expiresAt ? ` (expira em ${c.expiresAt})` : "";
@@ -245,7 +245,7 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
   if (k.giftBar.active) {
     lines.push("RÉGUA DE BRINDE (ganha brinde ao atingir valor no carrinho):");
     k.giftBar.steps.forEach((s) =>
-      lines.push(`- gastando ${fmtBrl(s.threshold)} → ganha ${s.gift}`)
+      lines.push(`- gastando ${fmtBrl(s.threshold)} ganha ${s.gift}`)
     );
   }
 
@@ -262,7 +262,7 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
 
   if (k.giftRequestActive) {
     lines.push(
-      "PEDIR DE PRESENTE: o cliente pode pedir que alguém o presenteie — há um botão 'Pedir de presente' na página do produto que avisa a pessoa pelo WhatsApp."
+      "PEDIR DE PRESENTE: o cliente pode pedir que alguém o presenteie: há um botão 'Pedir de presente' na página do produto que avisa a pessoa pelo WhatsApp."
     );
   }
 

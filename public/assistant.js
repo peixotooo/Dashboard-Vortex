@@ -330,14 +330,17 @@
       window.scrollTo(0, savedScrollY);
     }
 
-    // Teclado no iOS/Android: encolhe o painel pra altura visível, assim o
-    // input nunca fica escondido atrás do teclado.
+    // Teclado no iOS/Android: prende o painel EXATAMENTE no viewport visível
+    // (altura + deslocamento). Sem isso o iOS deixa o input atrás do teclado
+    // ou da barra do Safari.
     function vvResize() {
       try {
         if (!isMobile() || panel.className !== "-open") return;
         var vv = window.visualViewport;
         if (!vv) return;
         panel.style.height = Math.round(vv.height) + "px";
+        panel.style.transform =
+          "translateY(" + Math.round(vv.offsetTop || 0) + "px)";
         body.scrollTop = body.scrollHeight;
       } catch (e) {
         /* ignore */
@@ -345,6 +348,7 @@
     }
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", vvResize);
+      window.visualViewport.addEventListener("scroll", vvResize);
     }
 
     function open() {
@@ -374,6 +378,7 @@
       }
       panel.className = "";
       panel.style.height = "";
+      panel.style.transform = "";
       if (!hubMode) launcher.className = "";
       document.body.classList.remove("bk-assist-open");
       unlockScroll();
@@ -432,7 +437,7 @@
         '<button type="button" class="bk-assist-hub-opt" data-opt="assistant">' +
         '<span class="bk-assist-hub-ico -dark">' + CHAT_ICON + "</span>" +
         '<span class="bk-assist-hub-txt"><strong>Assistente da loja <em>resposta na hora</em></strong>' +
-        "<span>Tamanho ideal, tecido, disponibilidade e sugestões de peças — pergunte e resolva em segundos, sem sair da página.</span></span>" +
+        "<span>Tamanho ideal, tecido, disponibilidade e sugestões de peças. Pergunte e resolva em segundos, sem sair da página.</span></span>" +
         '<svg class="bk-assist-hub-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>' +
         "</button>" +
         '<button type="button" class="bk-assist-hub-opt" data-opt="whatsapp">' +
@@ -504,7 +509,7 @@
           teaserEl.innerHTML =
             '<button type="button" id="bk-assist-teaser-x" aria-label="Dispensar">&times;</button>' +
             "<strong>Dúvida de tamanho ou tecido?</strong>" +
-            "<span>Pergunta aqui — resposta na hora.</span>";
+            "<span>Pergunta aqui e resolve na hora.</span>";
           document.body.appendChild(teaserEl);
           teaserEl.addEventListener("click", function (ev) {
             var isX = ev.target && ev.target.id === "bk-assist-teaser-x";
@@ -515,7 +520,7 @@
         } catch (e) {
           /* ignore */
         }
-      }, 4000);
+      }, 8000);
     }
 
     setupHelpTab();
@@ -716,8 +721,8 @@
       // ===== Hub (menu Assistente x WhatsApp) =====
       "#bk-assist-hub{display:none}" +
       "#bk-assist-hub.-open{display:block}" +
-      "#bk-assist-hub-backdrop{position:fixed;inset:0;z-index:2147483400;background:rgba(0,0,0,.45)}" +
-      "#bk-assist-hub-sheet{position:fixed;z-index:2147483401;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;box-shadow:0 -10px 40px rgba(0,0,0,.25);right:0;left:0;bottom:0;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}" +
+      "#bk-assist-hub-backdrop{position:fixed;inset:0;z-index:2147483643;background:rgba(0,0,0,.45)}" +
+      "#bk-assist-hub-sheet{position:fixed;z-index:2147483644;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;box-shadow:0 -10px 40px rgba(0,0,0,.25);right:0;left:0;bottom:0;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}" +
       "@media(min-width:768px){#bk-assist-hub-sheet{left:auto;right:20px;bottom:100px;width:340px;border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.28)}}" +
       "#bk-assist-hub-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}" +
       "#bk-assist-hub-head strong{font-size:15px;font-weight:700!important;color:#111}" +
@@ -734,7 +739,9 @@
       ".bk-assist-hub-txt>span{font-size:12px;font-weight:400!important;color:#555;line-height:1.4}" +
       ".bk-assist-hub-chev{color:#999;flex-shrink:0}" +
       // ===== Painel do chat =====
-      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:2147483500;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
+      // z-index acima do topbar do shelves (2147483600) — com o chat aberto
+      // NADA fica por cima dele
+      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:2147483646;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
       // O tema da loja herda um peso pesado; forçamos normal e deixamos só
       // strong em negrito (!important vence o CSS do tema).
       "#bk-assist-panel,#bk-assist-panel p,#bk-assist-panel span,#bk-assist-panel div,#bk-assist-panel a,#bk-assist-panel input{font-weight:400!important;letter-spacing:normal}" +
@@ -745,6 +752,9 @@
       "@media(max-width:767px){#bk-assist-panel{right:0;left:0;top:0;bottom:0!important;width:100%;max-width:100%;height:100vh;height:100dvh;max-height:none;border-radius:0}}" +
       // Com o chat aberto, nada sobrepõe: some buybar, aba, mbz e whatsapp do tema
       "body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb']{display:none!important}" +
+      // Buybar visível → aba/teaser/launcher sobem (fallback imediato; o
+      // shelves.js depois ajusta o valor exato via inline style)
+      "@media(max-width:767px){body.bk-buybar-on #bk-assist-tab{bottom:150px!important}body.bk-buybar-on #bk-assist-teaser{bottom:158px!important}body.bk-buybar-on #bk-assist-launcher{bottom:150px!important}}" +
       "#bk-assist-header{background:#111;color:#fff;padding:12px 8px 12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;min-height:56px;box-sizing:border-box}" +
       "#bk-assist-header-txt{display:flex;flex-direction:column;gap:2px}" +
       "#bk-assist-header-txt strong{font-size:15px;font-weight:700;letter-spacing:.2px}" +

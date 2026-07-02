@@ -87,7 +87,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
         assunto: {
           type: "string",
           description:
-            "Tópico da dúvida, ex: 'trocas', 'frete', 'pagamento', 'atendimento' (opcional — ajuda a focar)",
+            "Tópico da dúvida, ex: 'trocas', 'frete', 'pagamento', 'atendimento' (opcional, ajuda a focar)",
         },
       },
     },
@@ -95,7 +95,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "promocoes_e_beneficios",
     description:
-      "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback — ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
+      "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback, ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
     input_schema: { type: "object", properties: {} },
   },
 ];
@@ -116,7 +116,7 @@ const SIZE_GUIDE_OVERSIZED = {
   observacao:
     "Medidas tiradas da peça fora do corpo; variação de até 2 cm pela margem de costura. Largura de peito é medida reta de axila a axila (dobrar em 2 ≈ circunferência).",
   referencia_rapida:
-    "Referência prática: até ~1,70m e 70kg → P ou M; 1,70–1,80m e 70–85kg → M ou G; 1,80–1,90m ou 85–100kg → G ou GG; acima disso → GG ou XGG. Ajustar pela preferência de caimento.",
+    "Referência prática: até 1,70m e 70kg: P ou M. De 1,70 a 1,80m e 70 a 85kg: M ou G. De 1,80 a 1,90m ou 85 a 100kg: G ou GG. Acima disso: GG ou XGG. Ajustar pela preferência de caimento.",
 };
 
 const SIZE_GUIDE_REGULAR = {
@@ -125,7 +125,7 @@ const SIZE_GUIDE_REGULAR = {
     "Modelagem regular veste no tamanho usual do cliente. Em dúvida entre dois tamanhos, sugerir o maior para conforto.",
   medidas_cm: null,
   observacao:
-    "Não há tabela de medidas específica cadastrada para modelagem regular — orientar pelo tamanho que o cliente costuma usar.",
+    "Não há tabela de medidas específica cadastrada para modelagem regular. Orientar pelo tamanho que o cliente costuma usar.",
   referencia_rapida: null,
 };
 
@@ -295,7 +295,7 @@ export async function executeAssistantTool(
         return JSON.stringify({
           ativos: formatActiveKnowledge(knowledge),
           instrucao:
-            "Comunique só o que está listado. Se vazio, não invente cupom/desconto — ofereça ajuda com o produto.",
+            "Comunique só o que está listado. Se vazio, não invente cupom/desconto. Ofereça ajuda com o produto.",
         });
       }
 
@@ -304,7 +304,7 @@ export async function executeAssistantTool(
     }
   } catch {
     return JSON.stringify({
-      erro: "falha temporária ao consultar os dados — tente responder sem essa informação ou avise o cliente",
+      erro: "falha temporária ao consultar os dados. Tente responder sem essa informação ou avise o cliente",
     });
   }
 }
