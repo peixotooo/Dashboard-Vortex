@@ -62,11 +62,60 @@ async function fetchPage(storeHost: string, slug: string): Promise<string | null
       console.warn(`  ! ${slug}: conteúdo curto (${text.length} chars), pulando`);
       return null;
     }
-    return text.slice(0, 8000);
+    return text.slice(0, 30000);
   } catch (err) {
     console.warn(`  ! ${slug}: ${err instanceof Error ? err.message : err}`);
     return null;
   }
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// A página /p/termos junta tudo (privacidade, termos, trocas, FAQ, prazos,
+// promoções) num blob de ~23k chars, com um MENU no topo que repete todos os
+// títulos. Segmenta por seção, fica com o útil pro cliente e descarta o legalês
+// pesado — assim a KB é completa E enxuta.
+const TERMOS_LABELS = [
+  "Políticas de privacidade",
+  "Termos de Uso",
+  "Trocas e Devoluções",
+  "Perguntas Frequentes",
+  "Prazos de Envio",
+  "Promoções e Cupons",
+];
+// Ordem útil pro vendedor; 'Termos de Uso' e a privacidade longa saem/encurtam.
+const TERMOS_KEEP = [
+  "Trocas e Devoluções",
+  "Prazos de Envio",
+  "Promoções e Cupons",
+  "Perguntas Frequentes",
+];
+
+function segmentTermos(text: string): string {
+  const re = new RegExp("(" + TERMOS_LABELS.map(escapeRe).join("|") + ")", "g");
+  const marks: Array<{ label: string; pos: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) marks.push({ label: m[1], pos: m.index });
+
+  // Fica com o TRECHO MAIS LONGO de cada label (o menu gera trechos curtinhos).
+  const seg: Record<string, string> = {};
+  for (let i = 0; i < marks.length; i++) {
+    const start = marks[i].pos;
+    const end = i + 1 < marks.length ? marks[i + 1].pos : text.length;
+    const content = text.slice(start, end).trim();
+    if (!seg[marks[i].label] || content.length > seg[marks[i].label].length) {
+      seg[marks[i].label] = content;
+    }
+  }
+
+  const out: string[] = [];
+  for (const label of TERMOS_KEEP) {
+    if (seg[label] && seg[label].length > 60) out.push(seg[label].slice(0, 4000));
+  }
+  // se a segmentação falhar (layout mudou), cai no texto cru
+  return out.length ? out.join("\n\n") : text.slice(0, 8000);
 }
 
 (async () => {
@@ -95,9 +144,11 @@ async function fetchPage(storeHost: string, slug: string): Promise<string | null
   const sections: string[] = [];
   for (const p of PAGES) {
     process.stdout.write(`buscando /p/${p.slug} ... `);
-    const text = await fetchPage(storeHost, p.slug);
-    if (text) {
-      console.log(`ok (${text.length} chars)`);
+    const raw = await fetchPage(storeHost, p.slug);
+    if (raw) {
+      // termos: segmenta e fica com as seções úteis; demais páginas: cap simples
+      const text = p.slug === "termos" ? segmentTermos(raw) : raw.slice(0, 3000);
+      console.log(`ok (${raw.length}→${text.length} chars)`);
       sections.push(`### ${p.label}\n${text}`);
     }
   }
