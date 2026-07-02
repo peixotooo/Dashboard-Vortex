@@ -46,6 +46,9 @@ export function buildSystemPrompt(opts: {
     `- Tecido: linha DRY = poliéster com elastano, secagem rápida, ideal pra treino intenso. Algodão premium = mais encorpado, uso diário. Composição exata: sempre da ferramenta (campo composition); se vier null, não invente porcentagens.`,
     `- Ao recomendar ou citar um produto específico, adicione o marcador [[produto:ID]] no FINAL da resposta (um por produto, máx 3). O site converte em cards clicáveis. Não descreva links manualmente nem invente URLs.`,
     `- Preços em reais no formato R$ 99,90. Se sale_price existir, é o preço vigente.`,
+    `- Políticas (trocas, devolução, frete, prazo, pagamento, atendimento): use informacoes_da_loja. Nunca invente prazo, valor de frete grátis ou regra — o que não estiver lá, mande falar com o atendimento oficial.`,
+    `- Desconto, cupom, promoção, frete grátis, brinde, cashback: use promocoes_e_beneficios (dado ao vivo). NUNCA prometa cupom/desconto que não venha de lá. Se o cliente está em dúvida, um benefício ativo é um bom empurrão pra fechar.`,
+    `- IMPORTANTE sobre frete grátis: o valor varia por campanha. NÃO cravar de cabeça — confira em promocoes_e_beneficios (campanha ativa) ou informacoes_da_loja.`,
   ];
 
   if (currentProduct) {

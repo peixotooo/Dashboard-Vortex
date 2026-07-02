@@ -84,6 +84,8 @@ export async function PUT(request: NextRequest) {
     }
     if (typeof body.store_info === "string")
       update.store_info = body.store_info.slice(0, 4000);
+    if (typeof body.institutional_kb === "string")
+      update.institutional_kb = body.institutional_kb.slice(0, 20000);
     if (
       typeof body.max_messages_per_session === "number" &&
       body.max_messages_per_session >= 1 &&

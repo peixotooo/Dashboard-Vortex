@@ -14,6 +14,8 @@ export interface AssistantSettings {
   welcomeMessage: string;
   suggestions: string[];
   storeInfo: string;
+  /** Base de conhecimento institucional curada (trocas, frete, FAQ, ...). */
+  institutionalKb: string;
   maxMessagesPerSession: number;
   dailyMessageCap: number;
 }
