@@ -88,6 +88,7 @@
   var SS_SESSION = "bkAssistSession";
   var SS_MSGS = "bkAssistMsgs";
   var SS_NAME = "bkAssistName";
+  var SS_TEASER = "bkAssistTeaser";
 
   function ssGet(key) {
     try {
@@ -303,18 +304,79 @@
       }
     }
 
-    function open() {
-      panel.className = "-open";
-      launcher.className = "-hidden";
+    // --- Abrir/fechar (mobile: tela cheia + trava o scroll da página) ---
+
+    function isMobile() {
+      return window.innerWidth < 768;
+    }
+
+    var savedScrollY = 0;
+    function lockScroll() {
+      if (!isMobile()) return;
+      savedScrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      document.body.style.position = "fixed";
+      document.body.style.top = -savedScrollY + "px";
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+    }
+    function unlockScroll() {
+      if (document.body.style.position !== "fixed") return;
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.style.width = "";
+      window.scrollTo(0, savedScrollY);
+    }
+
+    // Teclado no iOS/Android: encolhe o painel pra altura visível, assim o
+    // input nunca fica escondido atrás do teclado.
+    function vvResize() {
       try {
-        input.focus();
+        if (!isMobile() || panel.className !== "-open") return;
+        var vv = window.visualViewport;
+        if (!vv) return;
+        panel.style.height = Math.round(vv.height) + "px";
+        body.scrollTop = body.scrollHeight;
       } catch (e) {
         /* ignore */
       }
     }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", vvResize);
+    }
+
+    function open() {
+      hideTeaser();
+      closeHub();
+      panel.className = "-open";
+      launcher.className = "-hidden";
+      document.body.classList.add("bk-assist-open");
+      lockScroll();
+      vvResize();
+      body.scrollTop = body.scrollHeight;
+      // Desktop: foca direto. Mobile: deixa o cliente tocar (evita o teclado
+      // pular na cara antes de ele ler a mensagem).
+      if (!isMobile()) {
+        try {
+          input.focus();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
     function close() {
+      try {
+        input.blur(); // solta o teclado no mobile antes de fechar
+      } catch (e) {
+        /* ignore */
+      }
       panel.className = "";
-      launcher.className = "";
+      panel.style.height = "";
+      if (!hubMode) launcher.className = "";
+      document.body.classList.remove("bk-assist-open");
+      unlockScroll();
     }
 
     launcher.addEventListener("click", open);
@@ -324,6 +386,140 @@
       ev.preventDefault();
       sendMessage(input.value);
     });
+
+    // --- Hub de ajuda: substitui a aba lateral "Ajuda" (widget mbz/WhatsApp) ---
+    // Em vez de interceptar cliques do widget de terceiro (frágil), escondemos
+    // a aba original via CSS e renderizamos a NOSSA, visualmente igual. O clique
+    // abre um menu: Assistente (resposta na hora) ou WhatsApp (dispara o botão
+    // real do mbz escondido; fallback = link oficial da loja).
+    var MBZ_WRAPPER = "[data-mbz-button-popup-wrapper]";
+    var WA_FALLBACK = "https://wa.me/5562942630062"; // WhatsApp oficial (site /p/atendimento)
+    var hubMode = false;
+    var hubEl = null;
+
+    var CHAT_ICON =
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+    var WA_ICON =
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>';
+
+    function triggerWhatsApp() {
+      try {
+        var mbzTab = document.querySelector(MBZ_WRAPPER);
+        var btn = mbzTab ? mbzTab.querySelector("[data-mbz-popup-button]") : null;
+        if (btn) {
+          btn.click();
+          return;
+        }
+      } catch (e) {
+        /* cai no fallback */
+      }
+      try {
+        window.open(WA_FALLBACK, "_blank", "noopener");
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    function buildHub() {
+      if (hubEl) return hubEl;
+      hubEl = document.createElement("div");
+      hubEl.id = "bk-assist-hub";
+      hubEl.innerHTML =
+        '<div id="bk-assist-hub-backdrop"></div>' +
+        '<div id="bk-assist-hub-sheet" role="dialog" aria-label="Ajuda">' +
+        '<div id="bk-assist-hub-head"><strong>Como podemos te ajudar?</strong>' +
+        '<button type="button" id="bk-assist-hub-close" aria-label="Fechar">&times;</button></div>' +
+        '<button type="button" class="bk-assist-hub-opt" data-opt="assistant">' +
+        '<span class="bk-assist-hub-ico -dark">' + CHAT_ICON + "</span>" +
+        '<span class="bk-assist-hub-txt"><strong>Assistente da loja <em>resposta na hora</em></strong>' +
+        "<span>Tamanho ideal, tecido, disponibilidade e sugestões de peças — pergunte e resolva em segundos, sem sair da página.</span></span>" +
+        '<svg class="bk-assist-hub-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>' +
+        "</button>" +
+        '<button type="button" class="bk-assist-hub-opt" data-opt="whatsapp">' +
+        '<span class="bk-assist-hub-ico -wa">' + WA_ICON + "</span>" +
+        '<span class="bk-assist-hub-txt"><strong>WhatsApp</strong>' +
+        "<span>Falar com nossa equipe sobre pedidos, trocas e outros assuntos.</span></span>" +
+        '<svg class="bk-assist-hub-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>' +
+        "</button>" +
+        "</div>";
+      document.body.appendChild(hubEl);
+      hubEl.querySelector("#bk-assist-hub-backdrop").addEventListener("click", closeHub);
+      hubEl.querySelector("#bk-assist-hub-close").addEventListener("click", closeHub);
+      hubEl
+        .querySelector('[data-opt="assistant"]')
+        .addEventListener("click", function () {
+          closeHub();
+          open();
+        });
+      hubEl
+        .querySelector('[data-opt="whatsapp"]')
+        .addEventListener("click", function () {
+          closeHub();
+          triggerWhatsApp();
+        });
+      return hubEl;
+    }
+
+    function openHub() {
+      hideTeaser();
+      buildHub().className = "-open";
+    }
+    function closeHub() {
+      if (hubEl) hubEl.className = "";
+    }
+
+    function setupHelpTab() {
+      hubMode = true;
+      launcher.className = "-hidden";
+      // Esconde a aba mbz original (a nossa assume o lugar)
+      document.documentElement.classList.add("bk-assist-hub-on");
+      var tab = document.createElement("button");
+      tab.id = "bk-assist-tab";
+      tab.type = "button";
+      tab.setAttribute("aria-label", "Ajuda");
+      tab.innerHTML =
+        "<span id='bk-assist-tab-label'>Ajuda</span><span id='bk-assist-tab-ico'>" +
+        CHAT_ICON +
+        "</span>";
+      document.body.appendChild(tab);
+      tab.addEventListener("click", openHub);
+    }
+
+    // --- Teaser proativo (1x por sessão): torna o assistente visível mesmo
+    // morando dentro do "Ajuda" ---
+    var teaserEl = null;
+    function hideTeaser() {
+      if (teaserEl && teaserEl.parentNode) teaserEl.parentNode.removeChild(teaserEl);
+      teaserEl = null;
+    }
+    function maybeShowTeaser() {
+      if (ssGet(SS_TEASER)) return;
+      setTimeout(function () {
+        try {
+          if (panel.className === "-open") return;
+          if (hubEl && hubEl.className === "-open") return;
+          ssSet(SS_TEASER, "1");
+          teaserEl = document.createElement("div");
+          teaserEl.id = "bk-assist-teaser";
+          teaserEl.innerHTML =
+            '<button type="button" id="bk-assist-teaser-x" aria-label="Dispensar">&times;</button>' +
+            "<strong>Dúvida de tamanho ou tecido?</strong>" +
+            "<span>Pergunta aqui — resposta na hora.</span>";
+          document.body.appendChild(teaserEl);
+          teaserEl.addEventListener("click", function (ev) {
+            var isX = ev.target && ev.target.id === "bk-assist-teaser-x";
+            hideTeaser();
+            if (!isX) open();
+          });
+          setTimeout(hideTeaser, 15000);
+        } catch (e) {
+          /* ignore */
+        }
+      }, 4000);
+    }
+
+    setupHelpTab();
+    maybeShowTeaser();
 
     // Escapa para uso seguro em TEXTO e em ATRIBUTO (aspas incluídas).
     // textContent→innerHTML não escapa " nem ' — sem isso um valor com aspas
@@ -500,24 +696,64 @@
 
   function injectStyles() {
     var css =
-      "#bk-assist-launcher{position:fixed;right:20px;bottom:20px;z-index:999998;width:56px;height:56px;border-radius:50%;background:#111;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 24px rgba(0,0,0,.28);transition:transform .18s ease}" +
+      // ===== Launcher (fallback quando não há aba de Ajuda) =====
+      "#bk-assist-launcher{position:fixed;right:20px;bottom:20px;z-index:2147483200;width:56px;height:56px;border-radius:50%;background:#111;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 24px rgba(0,0,0,.28);transition:transform .18s ease}" +
       "#bk-assist-launcher:hover{transform:scale(1.06)}" +
       "#bk-assist-launcher.-hidden{display:none}" +
-      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:999999;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
+      // ===== Aba lateral "Ajuda" (nossa; a mbz original fica escondida) =====
+      "html.bk-assist-hub-on [data-mbz-button-popup-wrapper]{display:none!important;visibility:hidden!important;pointer-events:none!important}" +
+      "#bk-assist-tab{position:fixed;right:0;bottom:96px;z-index:2147483200;width:44px;height:96px;padding:0;margin:0;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;background:rgba(255,255,255,.97);border:1px solid #d7d7d7;border-right:0;border-radius:10px 0 0 10px;box-shadow:0 6px 14px rgba(0,0,0,.10);cursor:pointer;overflow:hidden;box-sizing:border-box}" +
+      "#bk-assist-tab-label{flex:1 1 auto;min-height:52px;display:flex;align-items:center;justify-content:center;color:#222;border-bottom:1px solid #e1e1e1;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:500!important;line-height:1;letter-spacing:.01em;writing-mode:vertical-rl;transform:rotate(180deg)}" +
+      "#bk-assist-tab-ico{height:40px;display:flex;align-items:center;justify-content:center}" +
+      "#bk-assist-tab-ico svg{width:22px;height:22px;padding:5px;border-radius:999px;background:#111;color:#fff;box-sizing:border-box}" +
+      // ===== Teaser proativo =====
+      "#bk-assist-teaser{position:fixed;right:54px;bottom:104px;z-index:2147483300;max-width:230px;background:#111;color:#fff;border-radius:14px;padding:12px 34px 12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.30);cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;animation:bkAssistPop .25s ease}" +
+      "#bk-assist-teaser strong{display:block;font-size:13px;font-weight:700!important;margin-bottom:2px}" +
+      "#bk-assist-teaser span{display:block;font-size:12px;font-weight:400!important;color:#d4d4d4;line-height:1.35}" +
+      "#bk-assist-teaser:after{content:'';position:absolute;right:-6px;bottom:18px;width:12px;height:12px;background:#111;transform:rotate(45deg)}" +
+      "#bk-assist-teaser-x{position:absolute;top:4px;right:6px;background:none;border:none;color:#999;font-size:18px;line-height:1;cursor:pointer;padding:4px}" +
+      "@keyframes bkAssistPop{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}" +
+      // ===== Hub (menu Assistente x WhatsApp) =====
+      "#bk-assist-hub{display:none}" +
+      "#bk-assist-hub.-open{display:block}" +
+      "#bk-assist-hub-backdrop{position:fixed;inset:0;z-index:2147483400;background:rgba(0,0,0,.45)}" +
+      "#bk-assist-hub-sheet{position:fixed;z-index:2147483401;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;box-shadow:0 -10px 40px rgba(0,0,0,.25);right:0;left:0;bottom:0;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}" +
+      "@media(min-width:768px){#bk-assist-hub-sheet{left:auto;right:20px;bottom:100px;width:340px;border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.28)}}" +
+      "#bk-assist-hub-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}" +
+      "#bk-assist-hub-head strong{font-size:15px;font-weight:700!important;color:#111}" +
+      "#bk-assist-hub-close{background:none;border:none;color:#666;font-size:26px;line-height:1;cursor:pointer;padding:6px 10px;margin:-6px -10px}" +
+      ".bk-assist-hub-opt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#fff;border:1px solid #e2e2e2;border-radius:14px;padding:13px 12px;cursor:pointer;transition:border-color .15s ease}" +
+      ".bk-assist-hub-opt+.bk-assist-hub-opt{margin-top:10px}" +
+      ".bk-assist-hub-opt:hover{border-color:#111}" +
+      ".bk-assist-hub-ico{width:40px;height:40px;border-radius:999px;display:flex;align-items:center;justify-content:center;flex-shrink:0}" +
+      ".bk-assist-hub-ico.-dark{background:#111;color:#fff}" +
+      ".bk-assist-hub-ico.-wa{background:#25d366;color:#fff}" +
+      ".bk-assist-hub-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}" +
+      ".bk-assist-hub-txt strong{font-size:13.5px;font-weight:700!important;color:#111;display:flex;align-items:center;gap:6px;flex-wrap:wrap}" +
+      ".bk-assist-hub-txt strong em{font-style:normal;font-weight:700!important;font-size:10px;letter-spacing:.03em;text-transform:uppercase;background:#e7f9d1;color:#3f6212;border-radius:999px;padding:3px 8px}" +
+      ".bk-assist-hub-txt>span{font-size:12px;font-weight:400!important;color:#555;line-height:1.4}" +
+      ".bk-assist-hub-chev{color:#999;flex-shrink:0}" +
+      // ===== Painel do chat =====
+      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:2147483500;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
       // O tema da loja herda um peso pesado; forçamos normal e deixamos só
       // strong em negrito (!important vence o CSS do tema).
       "#bk-assist-panel,#bk-assist-panel p,#bk-assist-panel span,#bk-assist-panel div,#bk-assist-panel a,#bk-assist-panel input{font-weight:400!important;letter-spacing:normal}" +
       "#bk-assist-panel strong,#bk-assist-header-txt strong{font-weight:700!important}" +
       "#bk-assist-panel em{font-weight:400!important}" +
       "#bk-assist-panel.-open{display:flex}" +
-      "@media(max-width:767px){#bk-assist-panel{right:0;left:0;bottom:0!important;width:100%;max-width:100%;height:82vh;max-height:82vh;border-radius:16px 16px 0 0}}" +
-      "#bk-assist-header{background:#111;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}" +
+      // Mobile-first: tela cheia (100dvh), sem raio, nada por cima
+      "@media(max-width:767px){#bk-assist-panel{right:0;left:0;top:0;bottom:0!important;width:100%;max-width:100%;height:100vh;height:100dvh;max-height:none;border-radius:0}}" +
+      // Com o chat aberto, nada sobrepõe: some buybar, aba, mbz e whatsapp do tema
+      "body.bk-assist-open #bk-sticky-buy,body.bk-assist-open #bk-assist-tab,body.bk-assist-open #bk-assist-teaser,body.bk-assist-open [data-mbz-button-popup-wrapper],body.bk-assist-open .whatsapp,body.bk-assist-open [class*='stories-video-planweb']{display:none!important}" +
+      "#bk-assist-header{background:#111;color:#fff;padding:12px 8px 12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;min-height:56px;box-sizing:border-box}" +
       "#bk-assist-header-txt{display:flex;flex-direction:column;gap:2px}" +
       "#bk-assist-header-txt strong{font-size:15px;font-weight:700;letter-spacing:.2px}" +
       "#bk-assist-header-txt span{font-size:11px;color:#a3e635;display:flex;align-items:center;gap:4px}" +
       "#bk-assist-header-txt span:before{content:'';width:6px;height:6px;border-radius:50%;background:#a3e635}" +
-      "#bk-assist-close{background:none;border:none;color:#fff;font-size:26px;line-height:1;cursor:pointer;padding:0 4px}" +
-      "#bk-assist-body{flex:1;overflow-y:auto;padding:16px 12px;background:#f6f6f6;display:flex;flex-direction:column;gap:10px}" +
+      // Alvo de toque 44px pro fechar (mobile-first)
+      "#bk-assist-close{background:none;border:none;color:#fff;font-size:28px;line-height:1;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px}" +
+      "#bk-assist-close:active{background:rgba(255,255,255,.14)}" +
+      "#bk-assist-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 12px;background:#f6f6f6;display:flex;flex-direction:column;gap:10px}" +
       ".bk-assist-msg{display:flex;flex-direction:column;gap:8px;max-width:88%}" +
       ".bk-assist-msg.-assistant{align-self:flex-start}" +
       ".bk-assist-msg.-user{align-self:flex-end;align-items:flex-end}" +
@@ -545,10 +781,13 @@
       "#bk-assist-name:focus{border-color:#111}" +
       "#bk-assist-namegate button{background:#111;color:#fff;border:none;border-radius:999px;padding:0 18px;font-size:13px;cursor:pointer;white-space:nowrap}" +
       "#bk-assist-form{display:flex;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #ececec;flex-shrink:0}" +
-      "#bk-assist-input{flex:1;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff}" +
+      "#bk-assist-input{flex:1;min-width:0;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff;-webkit-appearance:none;appearance:none}" +
       "#bk-assist-input:focus{border-color:#111}" +
-      "#bk-assist-send{width:40px;height:40px;border-radius:50%;background:#111;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}" +
+      "#bk-assist-send{width:44px;height:44px;border-radius:50%;background:#111;color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}" +
+      "#bk-assist-send:active{transform:scale(.94)}" +
       "#bk-assist-foot{text-align:center;font-size:10px;color:#999;padding:0 12px 8px;background:#fff;flex-shrink:0}" +
+      // Mobile: fonte 16px no input (iOS não dá zoom) + safe area embaixo
+      "@media(max-width:767px){#bk-assist-input,#bk-assist-name{font-size:16px}#bk-assist-foot{padding-bottom:calc(8px + env(safe-area-inset-bottom))}#bk-assist-form{padding-bottom:10px}}" +
       ".bk-assist-typing{display:flex;gap:4px;align-items:center;min-height:20px}" +
       ".bk-assist-typing span{width:7px;height:7px;border-radius:50%;background:#bbb;animation:bkAssistDot 1.2s infinite}" +
       ".bk-assist-typing span:nth-child(2){animation-delay:.2s}" +
