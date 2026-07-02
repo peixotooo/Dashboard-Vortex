@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
       title: settings.title,
       welcome_message: settings.welcomeMessage,
       suggestions: settings.suggestions,
+      ask_name: settings.askName,
     },
     {
       status: 200,

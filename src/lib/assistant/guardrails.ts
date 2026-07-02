@@ -17,6 +17,21 @@ export function validateUserMessage(raw: unknown): string | null {
   return cleaned;
 }
 
+/**
+ * Valida o primeiro nome do cliente. Aceita só letras (com acento), espaço,
+ * apóstrofo e hífen; devolve o PRIMEIRO nome capitalizado. Rejeita dígitos
+ * (evita CPF/telefone colados no campo). null = inválido.
+ */
+export function validateCustomerName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const cleaned = raw.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  if (!cleaned || cleaned.length > 40) return null;
+  if (/\d/.test(cleaned)) return null;
+  const first = cleaned.split(/\s+/)[0];
+  if (!/^[\p{L}][\p{L}'-]{0,23}$/u.test(first)) return null;
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
 // Padrões que NUNCA devem aparecer numa resposta legítima de vendedor.
 // Se aparecer, é sinal de vazamento/injeção — redigimos por segurança.
 const SECRET_PATTERNS: RegExp[] = [

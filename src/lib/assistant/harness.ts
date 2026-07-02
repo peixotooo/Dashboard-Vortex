@@ -36,8 +36,9 @@ export async function runAssistantTurn(opts: {
   history: AssistantHistoryMessage[];
   userMessage: string;
   currentProductId: string | null;
+  customerName?: string | null;
 }): Promise<AssistantChatResult> {
-  const { workspaceId, settings, storeHost, history, userMessage, currentProductId } = opts;
+  const { workspaceId, settings, storeHost, history, userMessage, currentProductId, customerName } = opts;
 
   // Contexto do produto da página — a maioria das perguntas é sobre ele
   let currentProduct = null;
@@ -49,7 +50,7 @@ export async function runAssistantTurn(opts: {
     }
   }
 
-  const system = buildSystemPrompt({ settings, storeHost, currentProduct });
+  const system = buildSystemPrompt({ settings, storeHost, currentProduct, customerName });
 
   // Histórico replayado: só texto user/assistant persistido pelo servidor.
   // Tool calls de turnos anteriores NÃO são replayados (contexto se regenera).
