@@ -1430,7 +1430,7 @@
       try {
         var assistScript = document.createElement("script");
         assistScript.async = true;
-        assistScript.src = API_BASE + "/assistant.js";
+        assistScript.src = API_BASE + "/assistant.js?v=20260703-mobile-input";
         document.head.appendChild(assistScript);
       } catch (e) {
         /* nunca quebrar a loja */
