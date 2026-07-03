@@ -399,14 +399,12 @@
         if (panel.className !== "-open") return;
         var vv = window.visualViewport;
         var frameHeight = vv && vv.height ? vv.height : window.innerHeight || document.documentElement.clientHeight || 0;
-        var frameWidth = vv && vv.width ? vv.width : window.innerWidth || document.documentElement.clientWidth || 0;
-        var frameTop = vv && typeof vv.offsetTop === "number" ? vv.offsetTop : 0;
-        var frameLeft = vv && typeof vv.offsetLeft === "number" ? vv.offsetLeft : 0;
+        var frameWidth = window.innerWidth || document.documentElement.clientWidth || (vv && vv.width) || 0;
         var height = Math.max(360, Math.round(frameHeight));
         var width = Math.max(280, Math.round(frameWidth));
-        panel.style.setProperty("left", Math.round(frameLeft) + "px", "important");
+        panel.style.setProperty("left", "0px", "important");
         panel.style.setProperty("right", "auto", "important");
-        panel.style.setProperty("top", Math.round(frameTop) + "px", "important");
+        panel.style.setProperty("top", "0px", "important");
         panel.style.setProperty("bottom", "auto", "important");
         panel.style.setProperty("width", width + "px", "important");
         panel.style.setProperty("max-width", width + "px", "important");
