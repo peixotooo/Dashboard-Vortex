@@ -251,11 +251,14 @@
         "</div>";
       chips.appendChild(gate);
       var nameInput = gate.querySelector("#bk-assist-name");
-      try {
-        nameInput.focus();
-      } catch (e) {
-        /* ignore */
+      if (!isMobile()) {
+        try {
+          nameInput.focus();
+        } catch (e) {
+          /* ignore */
+        }
       }
+      bindMobileKeyboardField(nameInput);
       gate.addEventListener("submit", function (ev) {
         ev.preventDefault();
         submitName(nameInput.value, gate, nameInput);
@@ -287,10 +290,12 @@
         false
       );
       renderChips();
-      try {
-        input.focus();
-      } catch (e) {
-        /* ignore */
+      if (!isMobile()) {
+        try {
+          input.focus();
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
 
@@ -320,6 +325,7 @@
     var savedScrollY = 0;
     var scrollLockState = null;
     var touchTrapActive = false;
+    var keyboardBaseBound = false;
 
     function preventBackgroundTouch(ev) {
       try {
@@ -366,6 +372,7 @@
       panel.style.removeProperty("right");
       panel.style.removeProperty("top");
       panel.style.removeProperty("bottom");
+      panel.style.removeProperty("position");
       panel.style.removeProperty("width");
       panel.style.removeProperty("max-width");
       panel.style.removeProperty("height");
@@ -382,10 +389,37 @@
       var vv = window.visualViewport;
       var innerH = window.innerHeight || document.documentElement.clientHeight || 0;
       if (vv && innerH) {
+        if (innerH - vv.height > 140) return 0;
         var hiddenBottom = Math.max(0, innerH - vv.height - (vv.offsetTop || 0));
         if (hiddenBottom > 0 && hiddenBottom < 140) return Math.round(hiddenBottom);
       }
       return 72;
+    }
+
+    function visualPageTop() {
+      var vv = window.visualViewport;
+      if (vv && typeof vv.pageTop === "number") return vv.pageTop;
+      return (window.pageYOffset || document.documentElement.scrollTop || 0) + (vv ? vv.offsetTop || 0 : 0);
+    }
+
+    function bindMobileKeyboardField(field) {
+      if (!field) return;
+      var resync = function () {
+        syncMobileFrame();
+        setTimeout(syncMobileFrame, 60);
+        setTimeout(syncMobileFrame, 260);
+        setTimeout(syncMobileFrame, 520);
+      };
+      if (!keyboardBaseBound) {
+        input.addEventListener("focus", resync);
+        input.addEventListener("blur", resync);
+        keyboardBaseBound = true;
+      }
+      if (field !== input && !field.getAttribute("data-bk-keyboard-bound")) {
+        field.setAttribute("data-bk-keyboard-bound", "1");
+        field.addEventListener("focus", resync);
+        field.addEventListener("blur", resync);
+      }
     }
 
     // Teclado no iOS/Android: prende o painel no viewport realmente visível.
@@ -400,11 +434,13 @@
         var vv = window.visualViewport;
         var frameHeight = vv && vv.height ? vv.height : window.innerHeight || document.documentElement.clientHeight || 0;
         var frameWidth = window.innerWidth || document.documentElement.clientWidth || (vv && vv.width) || 0;
+        var frameTop = visualPageTop();
         var height = Math.max(360, Math.round(frameHeight));
         var width = Math.max(280, Math.round(frameWidth));
+        panel.style.setProperty("position", "absolute", "important");
         panel.style.setProperty("left", "0px", "important");
         panel.style.setProperty("right", "auto", "important");
-        panel.style.setProperty("top", "0px", "important");
+        panel.style.setProperty("top", Math.round(frameTop) + "px", "important");
         panel.style.setProperty("bottom", "auto", "important");
         panel.style.setProperty("width", width + "px", "important");
         panel.style.setProperty("max-width", width + "px", "important");
@@ -425,6 +461,8 @@
       window.visualViewport.addEventListener("resize", syncMobileFrame);
       window.visualViewport.addEventListener("scroll", syncMobileFrame);
     }
+    window.addEventListener("scroll", syncMobileFrame, true);
+    bindMobileKeyboardField(input);
 
     function open() {
       hideTeaser();
