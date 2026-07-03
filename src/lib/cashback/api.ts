@@ -314,42 +314,119 @@ export function findExcludingTag(
   return null;
 }
 
-const DEFAULT_MEMBER_BENEFIT_COUPON_PATTERNS = ["CLUB", "VIP", "BULKINGCLUB", "BKCLUB"];
+const DEFAULT_MEMBER_PROMOTION_ID = 7;
+const VNDA_COUPON_LOOKUP_TTL_MS = 5 * 60 * 1000;
+
+type VndaCouponLookup = {
+  discountId: number | null;
+  error?: string;
+};
+
+const vndaCouponLookupCache = new Map<
+  string,
+  { expiresAt: number; result: VndaCouponLookup }
+>();
 
 function normalizeCouponCode(couponCode: string | null | undefined): string {
   return String(couponCode || "")
     .trim()
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+    .replace(/\s+/g, "");
 }
 
-export function getMemberBenefitCouponPatterns(): string[] {
-  const raw = process.env.CASHBACK_MEMBER_COUPON_PATTERNS;
-  const source = raw && raw.trim() ? raw.split(",") : DEFAULT_MEMBER_BENEFIT_COUPON_PATTERNS;
-  return source
-    .map((pattern) => normalizeCouponCode(pattern))
-    .filter(Boolean);
+export function getCashbackMemberPromotionId(): number {
+  const raw = Number(process.env.CASHBACK_MEMBER_PROMOTION_ID);
+  return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_MEMBER_PROMOTION_ID;
 }
 
-export function isMemberBenefitCoupon(couponCode: string | null | undefined): boolean {
+export function extractVndaCouponDiscountId(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const obj = body as Record<string, unknown>;
+  const nestedDiscount =
+    obj.discount && typeof obj.discount === "object"
+      ? (obj.discount as Record<string, unknown>).id
+      : null;
+  const raw =
+    obj.discount_id ??
+    obj.discountId ??
+    obj.promotion_id ??
+    obj.promotionId ??
+    nestedDiscount;
+  const numeric = typeof raw === "string" ? Number(raw) : raw;
+  return typeof numeric === "number" && Number.isFinite(numeric) ? numeric : null;
+}
+
+async function getVndaCouponDiscountId(
+  workspaceId: string,
+  couponCode: string | null | undefined
+): Promise<VndaCouponLookup> {
   const normalizedCoupon = normalizeCouponCode(couponCode);
-  if (!normalizedCoupon) return false;
-  return getMemberBenefitCouponPatterns().some((pattern) => normalizedCoupon.includes(pattern));
+  if (!normalizedCoupon) return { discountId: null };
+
+  const cacheKey = `${workspaceId}:${normalizedCoupon}`;
+  const cached = vndaCouponLookupCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  try {
+    const { getVndaConfigAdmin } = await import("@/lib/vnda-api");
+    const config = await getVndaConfigAdmin(workspaceId);
+    if (!config) return { discountId: null, error: "missing_vnda_config" };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `https://api.vnda.com.br/api/v2/coupon_codes/${encodeURIComponent(normalizedCoupon)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          Accept: "application/json",
+          "X-Shop-Host": config.storeHost,
+        },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
+
+    if (res.status === 404) return { discountId: null };
+
+    const text = await res.text();
+    if (!res.ok) {
+      return { discountId: null, error: `vnda_${res.status}:${text.slice(0, 120)}` };
+    }
+
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      return { discountId: null, error: "invalid_vnda_coupon_json" };
+    }
+
+    const result = { discountId: extractVndaCouponDiscountId(body) };
+    vndaCouponLookupCache.set(cacheKey, {
+      expiresAt: Date.now() + VNDA_COUPON_LOOKUP_TTL_MS,
+      result,
+    });
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "unknown_error";
+    return { discountId: null, error: message };
+  }
 }
 
 /**
  * A client tag alone must not block cashback. Bulking Club members should only
- * be excluded when the order also used a Club/VIP benefit coupon, avoiding
- * double incentive while preserving cashback for common store coupons.
+ * be excluded when the order used a coupon that belongs to the configured VNDA
+ * member promotion (default: discount/promotion id 7).
  */
 export function findCashbackBlockingMemberTag(
   clientTags: string[],
   excludedTags: string[],
-  couponCode?: string | null
+  couponDiscountId: number | null | undefined,
+  memberPromotionId = getCashbackMemberPromotionId()
 ): string | null {
   const excludingTag = findExcludingTag(clientTags, excludedTags);
   if (!excludingTag) return null;
-  return isMemberBenefitCoupon(couponCode) ? excludingTag : null;
+  return couponDiscountId === memberPromotionId ? excludingTag : null;
 }
 
 export interface CreateCashbackResult {
@@ -376,19 +453,33 @@ export async function createCashbackFromOrder(
 
   const cfg = await getOrCreateConfig(workspaceId, admin);
 
-  // Membership exclusion only when the member used a Club/VIP benefit coupon.
-  // A common coupon (e.g. BKOFF12) should still generate cashback.
+  // Membership exclusion only when the member used a coupon from the Bulking
+  // Club promotion in VNDA. A common coupon (e.g. BKOFF12) still generates
+  // cashback, even if the customer has the bulking-club tag.
   const clientTags = parseClientTags(payload.client_tags);
-  const excludingTag = findCashbackBlockingMemberTag(
-    clientTags,
-    cfg.excluded_client_tags || [],
-    payload.coupon_code
-  );
-  if (excludingTag) {
-    return {
-      created: false,
-      reason: `excluded_member_coupon:${excludingTag}:${normalizeCouponCode(payload.coupon_code)}`,
-    };
+  const taggedForMemberCheck = findExcludingTag(clientTags, cfg.excluded_client_tags || []);
+  if (taggedForMemberCheck && payload.coupon_code) {
+    const memberPromotionId = getCashbackMemberPromotionId();
+    const couponLookup = await getVndaCouponDiscountId(workspaceId, payload.coupon_code);
+    const excludingTag = findCashbackBlockingMemberTag(
+      clientTags,
+      cfg.excluded_client_tags || [],
+      couponLookup.discountId,
+      memberPromotionId
+    );
+    if (excludingTag) {
+      return {
+        created: false,
+        reason: `excluded_member_coupon:${excludingTag}:promotion_${memberPromotionId}:${normalizeCouponCode(payload.coupon_code)}`,
+      };
+    }
+    if (couponLookup.error) {
+      console.warn("[cashback] VNDA coupon lookup failed; cashback kept eligible", {
+        workspaceId,
+        coupon: normalizeCouponCode(payload.coupon_code),
+        error: couponLookup.error,
+      });
+    }
   }
 
   const valorCashback = calculateCashbackAmount(cfg, {

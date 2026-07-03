@@ -2,7 +2,7 @@ import {
   parseClientTags,
   findExcludingTag,
   findCashbackBlockingMemberTag,
-  isMemberBenefitCoupon,
+  extractVndaCouponDiscountId,
 } from "../src/lib/cashback/api";
 
 const cases: Array<{ raw: unknown; excluded: string[]; expected: string | null; label: string }> = [
@@ -30,55 +30,80 @@ for (const c of cases) {
 const couponCases: Array<{
   raw: unknown;
   excluded: string[];
-  coupon: string | null;
+  couponDiscountId: number | null;
   expected: string | null;
   label: string;
 }> = [
   {
     raw: "bulking-club,optin-checkout",
     excluded: ["bulking-club"],
-    coupon: "BKOFF12",
+    couponDiscountId: 189,
     expected: null,
-    label: "club + cupom comum → elegível",
+    label: "club + cupom comum de outra promoção → elegível",
   },
   {
     raw: "bulking-club,optin-checkout",
     excluded: ["bulking-club"],
-    coupon: null,
+    couponDiscountId: null,
     expected: null,
     label: "club sem cupom → elegível",
   },
   {
     raw: "bulking-club,optin-checkout",
     excluded: ["bulking-club"],
-    coupon: "COPAVIP",
+    couponDiscountId: 7,
     expected: "bulking-club",
-    label: "club + cupom VIP → bloqueado",
+    label: "club + cupom da promoção VNDA 7 → bloqueado",
   },
   {
     raw: "bulking-club,optin-checkout",
     excluded: ["bulking-club"],
-    coupon: "BULKING-CLUB-15",
+    couponDiscountId: 7,
     expected: "bulking-club",
-    label: "club + cupom CLUB → bloqueado",
+    label: "club + outro cupom da promoção VNDA 7 → bloqueado",
   },
   {
     raw: "optin-checkout",
     excluded: ["bulking-club"],
-    coupon: "COPAVIP",
+    couponDiscountId: 7,
     expected: null,
-    label: "não club + cupom VIP → elegível pela tag",
+    label: "não club + cupom da promoção VNDA 7 → elegível pela tag",
   },
 ];
 
 for (const c of couponCases) {
   const tags = parseClientTags(c.raw);
-  const got = findCashbackBlockingMemberTag(tags, c.excluded, c.coupon);
+  const got = findCashbackBlockingMemberTag(tags, c.excluded, c.couponDiscountId, 7);
   const ok = got === c.expected;
   if (!ok) fail++;
-  console.log(`${ok ? "✅" : "❌"}  ${c.label}\n   tags=${JSON.stringify(tags)} coupon=${JSON.stringify(c.coupon)} memberCoupon=${isMemberBenefitCoupon(c.coupon)} → ${JSON.stringify(got)} (esperado ${JSON.stringify(c.expected)})`);
+  console.log(`${ok ? "✅" : "❌"}  ${c.label}\n   tags=${JSON.stringify(tags)} couponDiscountId=${JSON.stringify(c.couponDiscountId)} → ${JSON.stringify(got)} (esperado ${JSON.stringify(c.expected)})`);
 }
 
-const total = cases.length + couponCases.length;
+const discountIdCases: Array<{ body: unknown; expected: number | null; label: string }> = [
+  {
+    body: { id: 3081, code: "BKOFF12", discount_id: 189 },
+    expected: 189,
+    label: "VNDA coupon_codes response com discount_id",
+  },
+  {
+    body: { code: "CLUB", discount: { id: 7 } },
+    expected: 7,
+    label: "VNDA response com discount.id aninhado",
+  },
+  {
+    body: { code: "SEM-ID" },
+    expected: null,
+    label: "VNDA response sem promoção",
+  },
+];
+
+for (const c of discountIdCases) {
+  const got = extractVndaCouponDiscountId(c.body);
+  const ok = got === c.expected;
+  if (!ok) fail++;
+  console.log(`${ok ? "✅" : "❌"}  ${c.label}\n   got=${JSON.stringify(got)} (esperado ${JSON.stringify(c.expected)})`);
+}
+
+const total = cases.length + couponCases.length + discountIdCases.length;
 console.log(`\n${total - fail}/${total} ok`);
 process.exit(fail > 0 ? 1 : 0);
