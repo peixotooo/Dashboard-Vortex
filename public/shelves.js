@@ -5560,6 +5560,7 @@
         for (var i = 0; i < all.length; i++) {
           var el = all[i];
           if (el === bar || bar.contains(el)) continue;
+          if (el.id && el.id.indexOf("bk-assist") === 0) continue;
           var cs = getComputedStyle(el);
           if (cs.position !== "fixed" && cs.position !== "sticky") continue;
           // Só considera elementos efetivamente colados no top
