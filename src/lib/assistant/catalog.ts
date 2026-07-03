@@ -350,11 +350,23 @@ async function fetchProductDetail(
 const SIZE_LINE_RE =
   /\b(PP|P|M|G|GG|XGG|EGG|EG|XG|3G|4G|U|ÚNICO|UNICO)\b\s*[:\-–]\s*([^<>\n]*?\d+\s*cm[^<>\n]*)/gi;
 
+const PDP_FETCH_HEADERS = {
+  // UA de browser real: a vitrine fica atrás de Cloudflare e trata o fetch do
+  // datacenter (Vercel) como bot sem isso.
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "pt-BR,pt;q=0.9",
+};
+
 async function fetchSizeGuideFromPdp(productUrl: string): Promise<string | null> {
   const url = (productUrl || "").trim();
   if (!/^https?:\/\//i.test(url)) return null;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(url, {
+      headers: PDP_FETCH_HEADERS,
+      signal: AbortSignal.timeout(6000),
+    });
     if (!res.ok) return null;
     const html = await res.text();
 
@@ -414,6 +426,45 @@ const detailCache = new Map<
   string,
   { at: number; value: AssistantProductDetails | null }
 >();
+
+// Disponibilidade por tamanho — versão LEVE (só variantes da API v2, sem o
+// fetch da PDP nem descrição). Usada pra filtrar recomendações pelo tamanho do
+// cliente sem estourar custo/latência (paraleliza + cacheia).
+const sizesCache = new Map<string, { at: number; value: AssistantSizeAvailability[] }>();
+
+export async function getSizeAvailability(
+  workspaceId: string,
+  productId: string
+): Promise<AssistantSizeAvailability[]> {
+  const key = `${workspaceId}:${productId}`;
+  const now = Date.now();
+  const cached = sizesCache.get(key);
+  if (cached && now - cached.at < DETAIL_TTL_MS) return cached.value;
+
+  let sizes: AssistantSizeAvailability[] = [];
+  try {
+    const config = await getVndaConfigAdmin(workspaceId);
+    if (config) {
+      const detail = await fetchProductDetail(config, String(productId));
+      if (detail) sizes = variantsToSizes(detail.variants);
+    }
+  } catch {
+    // VNDA fora → devolve vazio (o chamador trata como "não sei", não filtra)
+  }
+  if (sizesCache.size > 2000) {
+    for (const [k, v] of sizesCache) if (now - v.at > DETAIL_TTL_MS) sizesCache.delete(k);
+  }
+  sizesCache.set(key, { at: now, value: sizes });
+  return sizes;
+}
+
+/** Normaliza o tamanho digitado pelo cliente (ex.: "gg", "eg") pro padrão. */
+export function normalizeSize(raw: string): string | null {
+  const s = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const map: Record<string, string> = { EG: "XG", EGG: "XGG" };
+  const norm = map[s] || s;
+  return /^(PP|P|M|G|GG|XGG|XG|3G|4G|U)$/.test(norm) ? norm : null;
+}
 
 export async function getProductDetails(
   workspaceId: string,
