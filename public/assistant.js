@@ -215,7 +215,10 @@
     var input = panel.querySelector("#bk-assist-input");
 
     adjustLauncherPosition();
-    window.addEventListener("resize", adjustLauncherPosition);
+    window.addEventListener("resize", function () {
+      adjustLauncherPosition();
+      syncMobileFrame();
+    });
 
     // Estado inicial: retoma sessão, ou pede o nome, ou já mostra boas-vindas
     if (msgs.length > 0) {
@@ -315,44 +318,114 @@
     }
 
     var savedScrollY = 0;
+    var scrollLockState = null;
+    var touchTrapActive = false;
+
+    function preventBackgroundTouch(ev) {
+      try {
+        if (!panel.contains(ev.target)) ev.preventDefault();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
     function lockScroll() {
       if (!isMobile()) return;
       savedScrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      document.body.style.position = "fixed";
-      document.body.style.top = -savedScrollY + "px";
-      document.body.style.left = "0";
-      document.body.style.right = "0";
-      document.body.style.width = "100%";
+      if (!scrollLockState) {
+        scrollLockState = {
+          htmlOverflow: document.documentElement.style.overflow,
+          bodyOverflow: document.body.style.overflow,
+          bodyOverscroll: document.body.style.overscrollBehavior,
+        };
+      }
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+      document.body.style.overscrollBehavior = "none";
+      if (!touchTrapActive) {
+        document.addEventListener("touchmove", preventBackgroundTouch, { passive: false });
+        touchTrapActive = true;
+      }
     }
     function unlockScroll() {
-      if (document.body.style.position !== "fixed") return;
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.left = "";
-      document.body.style.right = "";
-      document.body.style.width = "";
+      if (touchTrapActive) {
+        document.removeEventListener("touchmove", preventBackgroundTouch);
+        touchTrapActive = false;
+      }
+      if (scrollLockState) {
+        document.documentElement.style.overflow = scrollLockState.htmlOverflow;
+        document.body.style.overflow = scrollLockState.bodyOverflow;
+        document.body.style.overscrollBehavior = scrollLockState.bodyOverscroll;
+        scrollLockState = null;
+      }
       window.scrollTo(0, savedScrollY);
     }
 
-    // Teclado no iOS/Android: prende o painel EXATAMENTE no viewport visível
-    // (altura + deslocamento). Sem isso o iOS deixa o input atrás do teclado
-    // ou da barra do Safari.
-    function vvResize() {
+    function resetMobileFrame() {
+      panel.style.removeProperty("left");
+      panel.style.removeProperty("right");
+      panel.style.removeProperty("top");
+      panel.style.removeProperty("bottom");
+      panel.style.removeProperty("width");
+      panel.style.removeProperty("max-width");
+      panel.style.removeProperty("height");
+      panel.style.removeProperty("max-height");
+      panel.style.removeProperty("border-radius");
+      panel.style.removeProperty("transform");
+      document.documentElement.style.removeProperty("--bk-assist-mobile-bottom-pad");
+    }
+
+    function mobileBottomPad() {
+      var ua = navigator.userAgent || "";
+      var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      if (!isIOS) return 0;
+      var vv = window.visualViewport;
+      var innerH = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (vv && innerH) {
+        var hiddenBottom = Math.max(0, innerH - vv.height - (vv.offsetTop || 0));
+        if (hiddenBottom > 0 && hiddenBottom < 140) return Math.round(hiddenBottom);
+      }
+      return 72;
+    }
+
+    // Teclado no iOS/Android: prende o painel no viewport realmente visível.
+    // O padding inferior evita que a barra do navegador cubra o input/nome.
+    function syncMobileFrame() {
       try {
-        if (!isMobile() || panel.className !== "-open") return;
+        if (!isMobile()) {
+          resetMobileFrame();
+          return;
+        }
+        if (panel.className !== "-open") return;
         var vv = window.visualViewport;
-        if (!vv) return;
-        panel.style.height = Math.round(vv.height) + "px";
-        panel.style.transform =
-          "translateY(" + Math.round(vv.offsetTop || 0) + "px)";
+        var frameHeight = vv && vv.height ? vv.height : window.innerHeight || document.documentElement.clientHeight || 0;
+        var frameWidth = vv && vv.width ? vv.width : window.innerWidth || document.documentElement.clientWidth || 0;
+        var frameTop = vv && typeof vv.offsetTop === "number" ? vv.offsetTop : 0;
+        var frameLeft = vv && typeof vv.offsetLeft === "number" ? vv.offsetLeft : 0;
+        var height = Math.max(360, Math.round(frameHeight));
+        var width = Math.max(280, Math.round(frameWidth));
+        panel.style.setProperty("left", Math.round(frameLeft) + "px", "important");
+        panel.style.setProperty("right", "auto", "important");
+        panel.style.setProperty("top", Math.round(frameTop) + "px", "important");
+        panel.style.setProperty("bottom", "auto", "important");
+        panel.style.setProperty("width", width + "px", "important");
+        panel.style.setProperty("max-width", width + "px", "important");
+        panel.style.setProperty("height", height + "px", "important");
+        panel.style.setProperty("max-height", height + "px", "important");
+        panel.style.setProperty("border-radius", "0", "important");
+        panel.style.setProperty("transform", "none", "important");
+        document.documentElement.style.setProperty(
+          "--bk-assist-mobile-bottom-pad",
+          mobileBottomPad() + "px"
+        );
         body.scrollTop = body.scrollHeight;
       } catch (e) {
         /* ignore */
       }
     }
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", vvResize);
-      window.visualViewport.addEventListener("scroll", vvResize);
+      window.visualViewport.addEventListener("resize", syncMobileFrame);
+      window.visualViewport.addEventListener("scroll", syncMobileFrame);
     }
 
     function open() {
@@ -362,7 +435,9 @@
       launcher.className = "-hidden";
       document.body.classList.add("bk-assist-open");
       lockScroll();
-      vvResize();
+      syncMobileFrame();
+      setTimeout(syncMobileFrame, 80);
+      setTimeout(syncMobileFrame, 320);
       body.scrollTop = body.scrollHeight;
       // Desktop: foca direto. Mobile: deixa o cliente tocar (evita o teclado
       // pular na cara antes de ele ler a mensagem).
@@ -381,11 +456,11 @@
         /* ignore */
       }
       panel.className = "";
-      panel.style.height = "";
-      panel.style.transform = "";
+      resetMobileFrame();
       if (!hubMode) launcher.className = "";
       document.body.classList.remove("bk-assist-open");
       unlockScroll();
+      adjustLauncherPosition();
     }
 
     launcher.addEventListener("click", open);
@@ -834,7 +909,7 @@
       // ===== Painel do chat =====
       // z-index acima do topbar do shelves (2147483600) — com o chat aberto
       // NADA fica por cima dele
-      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:2147483646;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
+      "#bk-assist-panel{position:fixed;right:20px;bottom:86px;z-index:2147483646;width:376px;max-width:calc(100vw - 24px);height:560px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.30);display:none;flex-direction:column;overflow:hidden;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}" +
       // O tema da loja herda um peso pesado; forçamos normal e deixamos só
       // strong em negrito (!important vence o CSS do tema).
       "#bk-assist-panel,#bk-assist-panel p,#bk-assist-panel span,#bk-assist-panel div,#bk-assist-panel a,#bk-assist-panel input{font-weight:400!important;letter-spacing:normal}" +
@@ -861,7 +936,7 @@
       // Alvo de toque 44px pro fechar (mobile-first)
       "#bk-assist-close{background:none;border:none;color:#fff;font-size:28px;line-height:1;cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px}" +
       "#bk-assist-close:active{background:rgba(255,255,255,.14)}" +
-      "#bk-assist-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 12px;background:#f6f6f6;display:flex;flex-direction:column;gap:10px}" +
+      "#bk-assist-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 12px;background:#f6f6f6;display:flex;flex-direction:column;gap:10px}" +
       ".bk-assist-msg{display:flex;flex-direction:column;gap:8px;max-width:88%}" +
       ".bk-assist-msg.-assistant{align-self:flex-start}" +
       ".bk-assist-msg.-user{align-self:flex-end;align-items:flex-end}" +
@@ -890,11 +965,11 @@
       ".bk-assist-fb button.-sel{color:#111;background:#e4e4e4}" +
       ".bk-assist-fb.-done button{pointer-events:none;opacity:.55}" +
       ".bk-assist-fb.-done button.-sel{opacity:1}" +
-      "#bk-assist-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px;background:#f6f6f6;flex-shrink:0}" +
+      "#bk-assist-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px;background:#f6f6f6;flex:0 0 auto;max-height:45%;overflow-y:auto;-webkit-overflow-scrolling:touch}" +
       "#bk-assist-chips:empty{padding:0}" +
       ".bk-assist-chip{background:#fff;border:1px solid #d9d9d9;border-radius:999px;padding:7px 12px;font-size:12px;color:#111;cursor:pointer;transition:border-color .15s ease}" +
       ".bk-assist-chip:hover{border-color:#111}" +
-      "#bk-assist-namegate{width:100%;padding:0 12px 10px;background:#f6f6f6}" +
+      "#bk-assist-namegate{width:100%;padding:0 12px 10px;background:#f6f6f6;box-sizing:border-box}" +
       "#bk-assist-namegate label{display:block;font-size:12px;color:#555;margin-bottom:6px}" +
       ".bk-assist-namerow{display:flex;gap:8px}" +
       "#bk-assist-name{flex:1;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff}" +
@@ -907,7 +982,7 @@
       "#bk-assist-send:active{transform:scale(.94)}" +
       "#bk-assist-foot{text-align:center;font-size:10px;color:#999;padding:0 12px 8px;background:#fff;flex-shrink:0}" +
       // Mobile: fonte 16px no input (iOS não dá zoom) + safe area embaixo
-      "@media(max-width:767px){#bk-assist-input,#bk-assist-name{font-size:16px}#bk-assist-foot{padding-bottom:calc(8px + env(safe-area-inset-bottom))}#bk-assist-form{padding-bottom:10px}}" +
+      "@media(max-width:767px){#bk-assist-input,#bk-assist-name{font-size:16px}#bk-assist-body{padding:14px 12px 12px}#bk-assist-foot{display:none}#bk-assist-form{padding-bottom:calc(10px + env(safe-area-inset-bottom) + var(--bk-assist-mobile-bottom-pad,0px))}#bk-assist-namegate{padding-bottom:calc(12px + env(safe-area-inset-bottom) + var(--bk-assist-mobile-bottom-pad,0px))}.bk-assist-namerow{align-items:stretch}#bk-assist-namegate button{min-height:44px}}" +
       ".bk-assist-typing{display:flex;gap:4px;align-items:center;min-height:20px}" +
       ".bk-assist-typing span{width:7px;height:7px;border-radius:50%;background:#bbb;animation:bkAssistDot 1.2s infinite}" +
       ".bk-assist-typing span:nth-child(2){animation-delay:.2s}" +
