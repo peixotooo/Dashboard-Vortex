@@ -343,6 +343,54 @@ async function fetchProductDetail(
   return null;
 }
 
+// A tabela de medidas REAL vive no HTML da PDP (popup guia-de-medidas), por
+// molde (ex.: "P: 74 cm de comprimento / 52 cm de tórax"), e NÃO vem na API
+// v2. Buscar do HTML resolve pra qualquer produto (oversized, regular, regata,
+// bermuda) sem hardcode. Extrai as linhas "TAMANHO: ... cm ...".
+const SIZE_LINE_RE =
+  /\b(PP|P|M|G|GG|XGG|EGG|EG|XG|3G|4G|U|ÚNICO|UNICO)\b\s*[:\-–]\s*([^<>\n]*?\d+\s*cm[^<>\n]*)/gi;
+
+async function fetchSizeGuideFromPdp(productUrl: string): Promise<string | null> {
+  const url = (productUrl || "").trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const lines: string[] = [];
+    const seen = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = SIZE_LINE_RE.exec(html)) !== null) {
+      const size = m[1].toUpperCase().replace("UNICO", "ÚNICO");
+      const measures = m[2]
+        .replace(/&nbsp;/gi, " ")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/[.;]\s*$/, "")
+        .trim();
+      const key = `${size}:${measures}`;
+      if (!seen.has(key) && measures.length < 90) {
+        seen.add(key);
+        lines.push(`${size}: ${measures}`);
+      }
+    }
+    if (!lines.length) return null;
+    // dedupe por tamanho (o popup aparece repetido no HTML), mantém a 1ª
+    const bySize = new Map<string, string>();
+    for (const l of lines) {
+      const size = l.split(":")[0];
+      if (!bySize.has(size)) bySize.set(size, l);
+    }
+    const ordered = [...bySize.values()].slice(0, 8);
+    return ordered.length
+      ? `${ordered.join("\n")}\n(medidas da peça fora do corpo; até 2 cm de variação pela costura)`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeDescription(html: unknown): string | null {
   if (typeof html !== "string" || !html.trim()) return null;
   const text = html
@@ -402,20 +450,25 @@ export async function getProductDetails(
 
   let sizes: AssistantSizeAvailability[] = [];
   let description: string | null = null;
+  let sizeGuide: string | null = null;
   try {
     const config = await getVndaConfigAdmin(workspaceId);
-    if (config) {
-      const detail = await fetchProductDetail(config, String(productId));
-      if (detail) {
-        description = detail.description;
-        sizes = variantsToSizes(detail.variants);
-      }
+    // Detalhe (API v2: variantes+descrição) e tabela de medidas (HTML da PDP)
+    // em paralelo — os dois cabem no mesmo cache de 90s.
+    const [detail, guide] = await Promise.all([
+      config ? fetchProductDetail(config, String(productId)) : Promise.resolve(null),
+      summary.url ? fetchSizeGuideFromPdp(summary.url) : Promise.resolve(null),
+    ]);
+    if (detail) {
+      description = detail.description;
+      sizes = variantsToSizes(detail.variants);
     }
+    sizeGuide = guide;
   } catch {
-    // VNDA fora do ar → devolve o que temos do espelho
+    // VNDA/PDP fora do ar → devolve o que temos do espelho
   }
 
-  const value = { ...summary, description, sizes };
+  const value = { ...summary, description, sizes, sizeGuide };
   detailCache.set(key, { at: now, value });
   return value;
 }

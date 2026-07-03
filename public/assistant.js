@@ -431,6 +431,11 @@
           return;
         }
         if (panel.className !== "-open") return;
+        // Só re-ancora no fim se o cliente JÁ estava perto do fim. Sem isso, o
+        // listener de scroll (capture) forçava scrollTop=scrollHeight a cada
+        // rolagem, prendendo o chat no fundo e impedindo ver mensagens antigas.
+        var nearBottom =
+          body.scrollHeight - body.scrollTop - body.clientHeight < 48;
         var vv = window.visualViewport;
         var frameHeight = vv && vv.height ? vv.height : window.innerHeight || document.documentElement.clientHeight || 0;
         var frameWidth = window.innerWidth || document.documentElement.clientWidth || (vv && vv.width) || 0;
@@ -452,7 +457,7 @@
           "--bk-assist-mobile-bottom-pad",
           mobileBottomPad() + "px"
         );
-        body.scrollTop = body.scrollHeight;
+        if (nearBottom) body.scrollTop = body.scrollHeight;
       } catch (e) {
         /* ignore */
       }

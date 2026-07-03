@@ -80,6 +80,9 @@ export function buildSystemPrompt(opts: {
       `- Composição: ${currentProduct.composition || "não cadastrada (não invente porcentagens)"}`,
       `- Entrega: ${currentProduct.shipping}`,
       `- Tamanhos: ${sizes}`,
+      currentProduct.sizeGuide
+        ? `- Tabela de medidas OFICIAL deste produto (use ESTA, não a genérica):\n${currentProduct.sizeGuide}`
+        : `- Tabela de medidas: não cadastrada pra este produto; use guia_de_tamanhos ou oriente pela referência de altura/peso, sem inventar cm.`,
       `Perguntas sem contexto explícito ("qual tamanho?", "tem no azul?") referem-se a este produto.`
     );
   }

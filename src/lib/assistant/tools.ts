@@ -66,14 +66,18 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "guia_de_tamanhos",
     description:
-      "Tabela de medidas oficial da loja (largura de peito e comprimento por tamanho) e regras de caimento. Use para ajudar o cliente a escolher o tamanho certo com base na altura/peso/preferência dele.",
+      "Tabela de medidas por tamanho (comprimento e tórax em cm) e regras de caimento. Passe o produto_id pra pegar a tabela REAL daquele produto (recomendado, funciona pra qualquer modelagem). Sem produto_id, cai na referência genérica oversized. Use pra ajudar o cliente a escolher o tamanho pela altura/peso/preferência.",
     input_schema: {
       type: "object",
       properties: {
+        produto_id: {
+          type: "string",
+          description: "ID do produto pra pegar a tabela de medidas oficial dele (recomendado)",
+        },
         modelagem: {
           type: "string",
           enum: ["oversized", "regular"],
-          description: "Modelagem da peça em questão (padrão: oversized)",
+          description: "Fallback se não tiver produto_id (padrão: oversized)",
         },
       },
     },
@@ -289,6 +293,24 @@ export async function executeAssistantTool(
       }
 
       case "guia_de_tamanhos": {
+        // Com produto_id → tabela REAL da PDP (qualquer modelagem). Sem → genérica.
+        const pid = String(args.produto_id || "").trim();
+        if (pid && /^[\w-]{1,40}$/.test(pid)) {
+          const details = await withTimeout(getProductDetails(ctx.workspaceId, pid));
+          if (details?.sizeGuide) {
+            return JSON.stringify({
+              produto: details.name,
+              modelagem: details.fit,
+              tabela_de_medidas: details.sizeGuide,
+              aviso:
+                details.fit === "oversized"
+                  ? "Modelagem oversized veste mais largo. Quem prefere caimento mais justo pode pegar um tamanho abaixo do usual."
+                  : "Modelagem regular veste no tamanho usual. Em dúvida entre dois, o maior dá mais conforto.",
+              instrucao:
+                "Use ESTAS medidas (são as oficiais deste produto). Cruze com a altura/peso do cliente e recomende um tamanho.",
+            });
+          }
+        }
         const guide =
           args.modelagem === "regular" ? SIZE_GUIDE_REGULAR : SIZE_GUIDE_OVERSIZED;
         return JSON.stringify(guide);

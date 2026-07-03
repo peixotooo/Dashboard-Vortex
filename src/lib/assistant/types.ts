@@ -51,6 +51,8 @@ export interface AssistantSizeAvailability {
 export interface AssistantProductDetails extends AssistantProductSummary {
   description: string | null;
   sizes: AssistantSizeAvailability[];
+  /** Tabela de medidas REAL do produto (do popup da PDP), por molde, ou null. */
+  sizeGuide: string | null;
 }
 
 export interface AssistantChatResult {
