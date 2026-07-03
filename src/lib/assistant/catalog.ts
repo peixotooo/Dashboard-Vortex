@@ -344,63 +344,64 @@ async function fetchProductDetail(
 }
 
 // A tabela de medidas REAL vive no HTML da PDP (popup guia-de-medidas), por
-// molde (ex.: "P: 74 cm de comprimento / 52 cm de tórax"), e NÃO vem na API
-// v2. Buscar do HTML resolve pra qualquer produto (oversized, regular, regata,
-// bermuda) sem hardcode. Extrai as linhas "TAMANHO: ... cm ...".
+// molde (ex.: "P: 74 cm de comprimento / 52 cm de tórax"), e NÃO vem na API v2.
+// A vitrine está atrás de Cloudflare, que bloqueia o fetch do datacenter da
+// Vercel (mesmo com UA de browser). Então NÃO buscamos em runtime: um script
+// (scripts/assistant-sizeguide-sync.ts, rodado de IP confiável) extrai por
+// MOLDE e grava em assistant_size_guides; aqui a gente só LÊ do banco.
 const SIZE_LINE_RE =
   /\b(PP|P|M|G|GG|XGG|EGG|EG|XG|3G|4G|U|ÚNICO|UNICO)\b\s*[:\-–]\s*([^<>\n]*?\d+\s*cm[^<>\n]*)/gi;
 
-const PDP_FETCH_HEADERS = {
-  // UA de browser real: a vitrine fica atrás de Cloudflare e trata o fetch do
-  // datacenter (Vercel) como bot sem isso.
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "pt-BR,pt;q=0.9",
-};
-
-async function fetchSizeGuideFromPdp(productUrl: string): Promise<string | null> {
-  const url = (productUrl || "").trim();
-  if (!/^https?:\/\//i.test(url)) return null;
-  try {
-    const res = await fetch(url, {
-      headers: PDP_FETCH_HEADERS,
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    const lines: string[] = [];
-    const seen = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = SIZE_LINE_RE.exec(html)) !== null) {
-      const size = m[1].toUpperCase().replace("UNICO", "ÚNICO");
-      const measures = m[2]
-        .replace(/&nbsp;/gi, " ")
-        .replace(/<[^>]*>/g, " ")
-        .replace(/\s+/g, " ")
-        .replace(/[.;]\s*$/, "")
-        .trim();
-      const key = `${size}:${measures}`;
-      if (!seen.has(key) && measures.length < 90) {
-        seen.add(key);
-        lines.push(`${size}: ${measures}`);
-      }
+/** Extrai a tabela de medidas do HTML de uma PDP (usado pelo script de sync). */
+export function extractSizeGuideFromHtml(html: string): string | null {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = SIZE_LINE_RE.exec(html)) !== null) {
+    const size = m[1].toUpperCase().replace("UNICO", "ÚNICO");
+    const measures = m[2]
+      .replace(/&nbsp;/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[.;]\s*$/, "")
+      .trim();
+    const k = `${size}:${measures}`;
+    if (!seen.has(k) && measures.length < 90) {
+      seen.add(k);
+      lines.push(`${size}: ${measures}`);
     }
-    if (!lines.length) return null;
-    // dedupe por tamanho (o popup aparece repetido no HTML), mantém a 1ª
-    const bySize = new Map<string, string>();
-    for (const l of lines) {
-      const size = l.split(":")[0];
-      if (!bySize.has(size)) bySize.set(size, l);
-    }
-    const ordered = [...bySize.values()].slice(0, 8);
-    return ordered.length
-      ? `${ordered.join("\n")}\n(medidas da peça fora do corpo; até 2 cm de variação pela costura)`
-      : null;
-  } catch {
-    return null;
   }
+  if (!lines.length) return null;
+  const bySize = new Map<string, string>();
+  for (const l of lines) {
+    const size = l.split(":")[0];
+    if (!bySize.has(size)) bySize.set(size, l);
+  }
+  const ordered = [...bySize.values()].slice(0, 8);
+  return ordered.length
+    ? `${ordered.join("\n")}\n(medidas da peça fora do corpo; até 2 cm de variação pela costura)`
+    : null;
+}
+
+/** Slug do molde do produto (tag guia-de-medidas), pra buscar a tabela no banco. */
+function moldeFromTags(raw: unknown): string | null {
+  const g = tagList(raw).find((t) => t.type === "guia-de-medidas");
+  return g?.name || null;
+}
+
+async function readSizeGuide(
+  workspaceId: string,
+  molde: string | null
+): Promise<string | null> {
+  if (!molde) return null;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("assistant_size_guides")
+    .select("guide")
+    .eq("workspace_id", workspaceId)
+    .eq("molde", molde)
+    .maybeSingle();
+  return typeof data?.guide === "string" && data.guide.trim() ? data.guide : null;
 }
 
 function sanitizeDescription(html: unknown): string | null {
@@ -504,11 +505,11 @@ export async function getProductDetails(
   let sizeGuide: string | null = null;
   try {
     const config = await getVndaConfigAdmin(workspaceId);
-    // Detalhe (API v2: variantes+descrição) e tabela de medidas (HTML da PDP)
-    // em paralelo — os dois cabem no mesmo cache de 90s.
+    // Detalhe (API v2: variantes+descrição) e tabela de medidas (banco, por
+    // molde) em paralelo — os dois cabem no mesmo cache de 90s.
     const [detail, guide] = await Promise.all([
       config ? fetchProductDetail(config, String(productId)) : Promise.resolve(null),
-      summary.url ? fetchSizeGuideFromPdp(summary.url) : Promise.resolve(null),
+      readSizeGuide(workspaceId, moldeFromTags(row.tags)),
     ]);
     if (detail) {
       description = detail.description;
@@ -516,7 +517,7 @@ export async function getProductDetails(
     }
     sizeGuide = guide;
   } catch {
-    // VNDA/PDP fora do ar → devolve o que temos do espelho
+    // VNDA/banco fora do ar → devolve o que temos do espelho
   }
 
   const value = { ...summary, description, sizes, sizeGuide };
