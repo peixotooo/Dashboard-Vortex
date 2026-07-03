@@ -314,6 +314,44 @@ export function findExcludingTag(
   return null;
 }
 
+const DEFAULT_MEMBER_BENEFIT_COUPON_PATTERNS = ["CLUB", "VIP", "BULKINGCLUB", "BKCLUB"];
+
+function normalizeCouponCode(couponCode: string | null | undefined): string {
+  return String(couponCode || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+export function getMemberBenefitCouponPatterns(): string[] {
+  const raw = process.env.CASHBACK_MEMBER_COUPON_PATTERNS;
+  const source = raw && raw.trim() ? raw.split(",") : DEFAULT_MEMBER_BENEFIT_COUPON_PATTERNS;
+  return source
+    .map((pattern) => normalizeCouponCode(pattern))
+    .filter(Boolean);
+}
+
+export function isMemberBenefitCoupon(couponCode: string | null | undefined): boolean {
+  const normalizedCoupon = normalizeCouponCode(couponCode);
+  if (!normalizedCoupon) return false;
+  return getMemberBenefitCouponPatterns().some((pattern) => normalizedCoupon.includes(pattern));
+}
+
+/**
+ * A client tag alone must not block cashback. Bulking Club members should only
+ * be excluded when the order also used a Club/VIP benefit coupon, avoiding
+ * double incentive while preserving cashback for common store coupons.
+ */
+export function findCashbackBlockingMemberTag(
+  clientTags: string[],
+  excludedTags: string[],
+  couponCode?: string | null
+): string | null {
+  const excludingTag = findExcludingTag(clientTags, excludedTags);
+  if (!excludingTag) return null;
+  return isMemberBenefitCoupon(couponCode) ? excludingTag : null;
+}
+
 export interface CreateCashbackResult {
   created: boolean;
   cashbackId?: string;
@@ -338,11 +376,19 @@ export async function createCashbackFromOrder(
 
   const cfg = await getOrCreateConfig(workspaceId, admin);
 
-  // Membership exclusion (e.g. Bulking Club members already have other benefits)
+  // Membership exclusion only when the member used a Club/VIP benefit coupon.
+  // A common coupon (e.g. BKOFF12) should still generate cashback.
   const clientTags = parseClientTags(payload.client_tags);
-  const excludingTag = findExcludingTag(clientTags, cfg.excluded_client_tags || []);
+  const excludingTag = findCashbackBlockingMemberTag(
+    clientTags,
+    cfg.excluded_client_tags || [],
+    payload.coupon_code
+  );
   if (excludingTag) {
-    return { created: false, reason: `excluded_member:${excludingTag}` };
+    return {
+      created: false,
+      reason: `excluded_member_coupon:${excludingTag}:${normalizeCouponCode(payload.coupon_code)}`,
+    };
   }
 
   const valorCashback = calculateCashbackAmount(cfg, {

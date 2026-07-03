@@ -1,4 +1,9 @@
-import { parseClientTags, findExcludingTag } from "../src/lib/cashback/api";
+import {
+  parseClientTags,
+  findExcludingTag,
+  findCashbackBlockingMemberTag,
+  isMemberBenefitCoupon,
+} from "../src/lib/cashback/api";
 
 const cases: Array<{ raw: unknown; excluded: string[]; expected: string | null; label: string }> = [
   { raw: null, excluded: ["bulking-club"], expected: null, label: "tags null → eligible" },
@@ -21,5 +26,59 @@ for (const c of cases) {
   if (!ok) fail++;
   console.log(`${ok ? "✅" : "❌"}  ${c.label}\n   tags=${JSON.stringify(tags)} excluded=${JSON.stringify(c.excluded)} → ${JSON.stringify(got)} (esperado ${JSON.stringify(c.expected)})`);
 }
-console.log(`\n${cases.length - fail}/${cases.length} ok`);
+
+const couponCases: Array<{
+  raw: unknown;
+  excluded: string[];
+  coupon: string | null;
+  expected: string | null;
+  label: string;
+}> = [
+  {
+    raw: "bulking-club,optin-checkout",
+    excluded: ["bulking-club"],
+    coupon: "BKOFF12",
+    expected: null,
+    label: "club + cupom comum → elegível",
+  },
+  {
+    raw: "bulking-club,optin-checkout",
+    excluded: ["bulking-club"],
+    coupon: null,
+    expected: null,
+    label: "club sem cupom → elegível",
+  },
+  {
+    raw: "bulking-club,optin-checkout",
+    excluded: ["bulking-club"],
+    coupon: "COPAVIP",
+    expected: "bulking-club",
+    label: "club + cupom VIP → bloqueado",
+  },
+  {
+    raw: "bulking-club,optin-checkout",
+    excluded: ["bulking-club"],
+    coupon: "BULKING-CLUB-15",
+    expected: "bulking-club",
+    label: "club + cupom CLUB → bloqueado",
+  },
+  {
+    raw: "optin-checkout",
+    excluded: ["bulking-club"],
+    coupon: "COPAVIP",
+    expected: null,
+    label: "não club + cupom VIP → elegível pela tag",
+  },
+];
+
+for (const c of couponCases) {
+  const tags = parseClientTags(c.raw);
+  const got = findCashbackBlockingMemberTag(tags, c.excluded, c.coupon);
+  const ok = got === c.expected;
+  if (!ok) fail++;
+  console.log(`${ok ? "✅" : "❌"}  ${c.label}\n   tags=${JSON.stringify(tags)} coupon=${JSON.stringify(c.coupon)} memberCoupon=${isMemberBenefitCoupon(c.coupon)} → ${JSON.stringify(got)} (esperado ${JSON.stringify(c.expected)})`);
+}
+
+const total = cases.length + couponCases.length;
+console.log(`\n${total - fail}/${total} ok`);
 process.exit(fail > 0 ? 1 : 0);

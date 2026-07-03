@@ -245,7 +245,21 @@ export async function POST(request: NextRequest) {
         } else if (creditUsed > 0) {
           await markAsUsedFromOrder(workspaceId, payload, { admin });
         } else {
-          await createCashbackFromOrder(workspaceId, payload, { admin });
+          const cashbackResult = await createCashbackFromOrder(workspaceId, payload, { admin });
+          if (
+            !cashbackResult.created &&
+            cashbackResult.reason &&
+            cashbackResult.reason !== "duplicate"
+          ) {
+            await logWebhook(
+              admin,
+              workspaceId,
+              orderId,
+              "cashback_skipped",
+              null,
+              cashbackResult.reason
+            );
+          }
         }
       } catch (cashbackErr) {
         console.error(

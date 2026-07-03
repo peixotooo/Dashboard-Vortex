@@ -3,11 +3,13 @@
  * webhook endpoint:
  *
  *   1. Reads cashback_config.excluded_client_tags from DB (proof migration ran)
- *   2. Fires synthetic webhook A with client_tags="bulking-club"
- *      → expected: NO cashback_transaction row created
- *   3. Fires synthetic webhook B with client_tags="optin-checkout"
+ *   2. Fires synthetic webhook A with client_tags="bulking-club" + common coupon
  *      → expected: cashback_transaction row IS created
- *   4. Cleans up the synthetic row from B
+ *   3. Fires synthetic webhook B with client_tags="bulking-club" + VIP/Club coupon
+ *      → expected: NO cashback_transaction row created
+ *   4. Fires synthetic webhook C with client_tags="optin-checkout"
+ *      → expected: cashback_transaction row IS created
+ *   5. Cleans up synthetic rows
  */
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
@@ -42,7 +44,7 @@ async function main() {
 
   const webhookUrl = `${BASE_URL}/api/webhooks/vnda/orders?token=${webhookToken}`;
 
-  function makePayload(suffix: string, tags: string | null) {
+  function makePayload(suffix: string, tags: string | null, couponCode: string | null = null) {
     const orderId = 990000000000 + Math.floor(Math.random() * 1_000_000_000);
     return {
       orderId,
@@ -56,19 +58,20 @@ async function main() {
         email: `probe+club-filter-${suffix}-${Date.now()}@bulkingclub.com.br`,
         client_tags: tags,
         subtotal: 100,
-        discount_price: 0,
         total: 110,
         taxes: 0,
         shipping_price: 10,
+        coupon_code: couponCode,
+        discount_price: couponCode ? 12 : 0,
         confirmed_at: new Date().toISOString(),
         items: [{ id: 1, reference: "X", product_name: "X", sku: "X", variant_name: "-", quantity: 1, price: 100, original_price: 100, total: 100, weight: 0.5 }],
       },
     };
   }
 
-  // === 2. Bulking-club tagged webhook → must NOT create ===
-  console.log("\n→ Cenário A: client_tags=\"bulking-club\" (deve ser bloqueado)");
-  const a = makePayload("club", "bulking-club");
+  // === 2. Club member + common coupon → must create ===
+  console.log("\n→ Cenário A: client_tags=\"bulking-club\" + cupom comum BKOFF12 (deve criar)");
+  const a = makePayload("club-common", "bulking-club", "BKOFF12");
   const resA = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -80,20 +83,20 @@ async function main() {
   await new Promise((r) => setTimeout(r, 800));
   const { data: createdA } = await db
     .from("cashback_transactions")
-    .select("id, status")
+    .select("id, status, valor_cashback")
     .eq("workspace_id", workspaceId)
     .eq("source_order_id", String(a.orderId))
     .maybeSingle();
 
   if (createdA) {
-    console.log(`   ❌ FALHA: cashback foi criado mesmo com tag bulking-club (id=${createdA.id})`);
+    console.log(`   ✅ Cashback criado · id=${createdA.id} · valor=R$${createdA.valor_cashback} · status=${createdA.status}`);
   } else {
-    console.log("   ✅ NENHUM cashback_transaction criado — filtro bloqueou corretamente");
+    console.log("   ❌ FALHA: club + cupom comum não deveria bloquear cashback");
   }
 
-  // === 3. Non-club tagged webhook → must create ===
-  console.log("\n→ Cenário B: client_tags=\"optin-checkout\" (deve criar)");
-  const b = makePayload("nonclub", "optin-checkout");
+  // === 3. Club member + VIP/Club coupon → must NOT create ===
+  console.log("\n→ Cenário B: client_tags=\"bulking-club\" + cupom COPAVIP (deve bloquear)");
+  const b = makePayload("club-vip", "bulking-club", "COPAVIP");
   const resB = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -111,25 +114,51 @@ async function main() {
     .maybeSingle();
 
   if (createdB) {
-    console.log(`   ✅ Cashback criado · id=${createdB.id} · valor=R$${createdB.valor_cashback} · status=${createdB.status}`);
+    console.log(`   ❌ FALHA: cashback foi criado mesmo com cupom VIP/Club (id=${createdB.id})`);
+  } else {
+    console.log("   ✅ NENHUM cashback_transaction criado — filtro bloqueou corretamente");
+  }
+
+  // === 4. Non-club tagged webhook → must create ===
+  console.log("\n→ Cenário C: client_tags=\"optin-checkout\" (deve criar)");
+  const c = makePayload("nonclub", "optin-checkout");
+  const resC = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(c.payload),
+  });
+  const bodyC = await resC.json().catch(() => null);
+  console.log(`   HTTP ${resC.status}  ${JSON.stringify(bodyC)}`);
+
+  await new Promise((r) => setTimeout(r, 800));
+  const { data: createdC } = await db
+    .from("cashback_transactions")
+    .select("id, status, valor_cashback")
+    .eq("workspace_id", workspaceId)
+    .eq("source_order_id", String(c.orderId))
+    .maybeSingle();
+
+  if (createdC) {
+    console.log(`   ✅ Cashback criado · id=${createdC.id} · valor=R$${createdC.valor_cashback} · status=${createdC.status}`);
   } else {
     console.log("   ❌ FALHA: nenhum cashback criado mesmo com cliente não-Club");
   }
 
-  // === 4. Cleanup ===
+  // === 5. Cleanup ===
   console.log("\n→ Cleanup");
-  if (createdB) {
-    await db.from("cashback_events").delete().eq("cashback_id", createdB.id);
-    await db.from("cashback_transactions").delete().eq("id", createdB.id);
+  for (const row of [createdA, createdB, createdC].filter(Boolean) as Array<{ id: string }>) {
+    await db.from("cashback_events").delete().eq("cashback_id", row.id);
+    await db.from("cashback_transactions").delete().eq("id", row.id);
   }
-  await db.from("crm_vendas").delete().eq("workspace_id", workspaceId).in("source_order_id", [String(a.orderId), String(b.orderId)]);
-  await db.from("vnda_webhook_logs").delete().eq("workspace_id", workspaceId).in("order_id", [String(a.orderId), String(b.orderId)]);
+  await db.from("crm_vendas").delete().eq("workspace_id", workspaceId).in("source_order_id", [String(a.orderId), String(b.orderId), String(c.orderId)]);
+  await db.from("vnda_webhook_logs").delete().eq("workspace_id", workspaceId).in("order_id", [String(a.orderId), String(b.orderId), String(c.orderId)]);
   console.log("   ✅ rows synthetic removidas\n");
 
-  const okA = !createdA;
-  const okB = !!createdB;
-  if (okA && okB) {
-    console.log("✅ Filtro do Club valido em produção — Cenário A bloqueia, Cenário B passa.");
+  const okA = !!createdA;
+  const okB = !createdB;
+  const okC = !!createdC;
+  if (okA && okB && okC) {
+    console.log("✅ Filtro do Club valido em produção — cupom comum passa, cupom VIP/Club bloqueia.");
     process.exit(0);
   }
   console.log("❌ Algum cenário falhou — investigar.");
