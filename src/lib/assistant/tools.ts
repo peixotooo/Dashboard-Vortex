@@ -6,7 +6,12 @@
 // com o mesmo rigor.
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { searchCatalog, getProductDetails } from "./catalog";
+import {
+  searchCatalog,
+  getProductDetails,
+  getSizeAvailability,
+  normalizeSize,
+} from "./catalog";
 import { getActiveKnowledge, formatActiveKnowledge } from "./knowledge";
 import { lookupOrder } from "./orders";
 import type { AssistantProductCard, AssistantSettings } from "./types";
@@ -40,6 +45,11 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
         preco_max: {
           type: "number",
           description: "Preço máximo em reais",
+        },
+        tamanho: {
+          type: "string",
+          description:
+            "Tamanho do cliente (P, M, G, GG, XGG...). Se informado, retorna SÓ produtos disponíveis nesse tamanho. Passe sempre que souber o tamanho dele.",
         },
         limite: {
           type: "number",
@@ -255,6 +265,14 @@ export async function executeAssistantTool(
   try {
     switch (name) {
       case "buscar_produtos": {
+        const wantSize =
+          typeof args.tamanho === "string" ? normalizeSize(args.tamanho) : null;
+        const displayLimit = Math.min(
+          Math.max(typeof args.limite === "number" ? args.limite : 6, 1),
+          6
+        );
+        // Com filtro de tamanho, busca um POOL maior e filtra por
+        // disponibilidade real; sem, busca direto o número pedido.
         const products = await withTimeout(
           searchCatalog(ctx.workspaceId, {
             query: typeof args.busca === "string" ? args.busca.slice(0, 120) : undefined,
@@ -266,9 +284,37 @@ export async function executeAssistantTool(
                 ? args.modelagem
                 : undefined,
             maxPrice: typeof args.preco_max === "number" ? args.preco_max : undefined,
-            limit: typeof args.limite === "number" ? args.limite : undefined,
+            limit: wantSize ? 10 : typeof args.limite === "number" ? args.limite : undefined,
           })
         );
+
+        if (wantSize && products.length > 0) {
+          // Checa disponibilidade do tamanho em paralelo (leve, cacheado) e
+          // mantém só os que têm o tamanho do cliente.
+          const avail = await withTimeout(
+            Promise.all(
+              products.map((p) =>
+                getSizeAvailability(ctx.workspaceId, p.id)
+                  .then((sizes) => ({
+                    p,
+                    ok: sizes.some((s) => s.size === wantSize && s.available),
+                  }))
+                  .catch(() => ({ p, ok: false }))
+              )
+            )
+          );
+          const inSize = avail.filter((a) => a.ok).map((a) => a.p).slice(0, displayLimit);
+          inSize.forEach((p) => rememberProduct(ctx, p));
+          if (inSize.length === 0) {
+            return JSON.stringify({
+              resultado: `nenhum produto desses filtros está disponível no tamanho ${wantSize}`,
+              instrucao:
+                "Diga que no tamanho pedido essas opções esgotaram e ofereça buscar em outra cor/modelagem, ou avise que pode conferir outro tamanho. NÃO recomende produto sem o tamanho do cliente.",
+            });
+          }
+          return JSON.stringify({ produtos: inSize, filtro_tamanho: wantSize });
+        }
+
         products.forEach((p) => rememberProduct(ctx, p));
         if (products.length === 0) {
           return JSON.stringify({
