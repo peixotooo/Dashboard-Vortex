@@ -1,7 +1,30 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bot, Check, Loader2, MessageSquare, Save, Wrench } from "lucide-react";
+import {
+  Bot,
+  Check,
+  Clock,
+  Loader2,
+  MessageSquare,
+  Save,
+  ThumbsDown,
+  TrendingDown,
+  TrendingUp,
+  Wrench,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -23,7 +47,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 import { useWorkspace } from "@/lib/workspace-context";
 
 // --- Types (contrato da API /api/assistant/admin) ---
@@ -74,6 +100,67 @@ const EMPTY_METRICS: AdminMetrics = {
   feedback_down_7d: 0,
 };
 
+// --- Types do dashboard analítico ---
+
+interface DashboardKpis {
+  conversations_7d: number;
+  conversations_prev7d: number;
+  user_messages_7d: number;
+  user_messages_prev7d: number;
+  feedback_up_30d: number;
+  feedback_down_30d: number;
+  avg_msgs_per_conversation_30d: number;
+  messages_today: number;
+  daily_cap: number;
+  named_rate_30d: number;
+}
+
+interface DailyPoint {
+  date: string;
+  conversas: number;
+  mensagens: number;
+}
+
+interface IntentPoint {
+  intent: string;
+  conversations: number;
+  pct: number;
+}
+
+interface TopProduct {
+  product_id: string;
+  name: string;
+  conversations: number;
+}
+
+interface HourlyPoint {
+  hour: number;
+  count: number;
+}
+
+interface NegativeFeedbackItem {
+  message_id: number;
+  conversation_id: string;
+  excerpt: string;
+  created_at: string;
+}
+
+interface DashboardData {
+  kpis: DashboardKpis;
+  daily: DailyPoint[];
+  intents: IntentPoint[];
+  top_products: TopProduct[];
+  hourly: HourlyPoint[];
+  negative_feedback: NegativeFeedbackItem[];
+}
+
+interface AdminResponse {
+  settings: ApiSettings | null;
+  conversations: ConversationSummary[];
+  metrics?: AdminMetrics;
+  dashboard?: DashboardData | null;
+}
+
 interface SettingsUpdatePayload {
   enabled: boolean;
   product_ids: string[];
@@ -99,6 +186,11 @@ const DEFAULT_SUGGESTIONS = [
 const DEFAULT_MAX_MESSAGES = 30;
 const DEFAULT_DAILY_CAP = 1500;
 
+// Cores de série (visíveis em ambos os temas)
+const COLOR_CONVERSAS = "#6366f1";
+const COLOR_MENSAGENS = "#22c55e";
+const COLOR_HOURLY = "#f97316";
+
 // --- Helpers ---
 
 function parseProductIds(text: string): string[] {
@@ -118,6 +210,29 @@ function formatDate(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatRelative(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) return formatDate(iso);
+  const min = Math.round(diffMs / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const days = Math.round(h / 24);
+  if (days < 30) return `há ${days} d`;
+  return formatDate(iso);
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString("pt-BR");
+}
+
+function formatDecimal(n: number): string {
+  return n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
 function truncateUrl(url: string | null): string {
@@ -149,10 +264,44 @@ function parseToolNames(content: string): string[] {
   }
 }
 
+// --- Subcomponentes leves ---
+
+/** Delta % vs período anterior. Verde ▲ / vermelho ▼; trata prev = 0. */
+function Delta({ current, prev }: { current: number; prev: number }) {
+  if (prev === 0) {
+    if (current === 0) {
+      return <span className="text-xs text-muted-foreground">—</span>;
+    }
+    return (
+      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-green-600 dark:text-green-400">
+        <TrendingUp className="h-3 w-3" />
+        novo
+      </span>
+    );
+  }
+  const rounded = Math.round(((current - prev) / prev) * 100);
+  if (rounded === 0) {
+    return <span className="text-xs text-muted-foreground">0% vs 7d ant.</span>;
+  }
+  const up = rounded > 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-xs font-medium ${
+        up ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+      }`}
+    >
+      {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {up ? "+" : ""}
+      {rounded}% vs 7d ant.
+    </span>
+  );
+}
+
 // --- Componente ---
 
 export default function AssistentePage() {
   const { workspace } = useWorkspace();
+  const chart = useChartTheme();
 
   // Form (settings)
   const [enabled, setEnabled] = useState(false);
@@ -169,9 +318,10 @@ export default function AssistentePage() {
   const [dailyCapText, setDailyCapText] = useState(String(DEFAULT_DAILY_CAP));
   const [modelText, setModelText] = useState("");
 
-  // Conversas + métricas
+  // Conversas + métricas + dashboard
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [metrics, setMetrics] = useState<AdminMetrics>(EMPTY_METRICS);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -217,14 +367,11 @@ export default function AssistentePage() {
     if (!workspace?.id) return;
     try {
       const res = await fetch("/api/assistant/admin", { headers: headers() });
-      const data = (await res.json()) as {
-        settings: ApiSettings | null;
-        conversations: ConversationSummary[];
-        metrics?: AdminMetrics;
-      };
+      const data = (await res.json()) as AdminResponse;
       applySettings(data.settings);
       setConversations(data.conversations || []);
       setMetrics({ ...EMPTY_METRICS, ...(data.metrics || {}) });
+      setDashboard(data.dashboard ?? null);
     } catch (err) {
       console.error("Failed to load assistant admin data:", err);
     }
@@ -305,6 +452,22 @@ export default function AssistentePage() {
     }
   }
 
+  /** Abre a transcrição a partir de um conversation_id (usado pela fila de 👎). */
+  function openTranscriptById(conversationId: string) {
+    const existing = conversations.find((c) => c.id === conversationId);
+    const now = new Date().toISOString();
+    const conv: ConversationSummary = existing ?? {
+      id: conversationId,
+      product_id: null,
+      page_url: null,
+      message_count: 0,
+      created_at: now,
+      last_message_at: now,
+      customer_name: null,
+    };
+    void openTranscript(conv);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -313,20 +476,58 @@ export default function AssistentePage() {
     );
   }
 
-  // Métricas derivadas (7d)
-  const feedbackTotal = metrics.feedback_up_7d + metrics.feedback_down_7d;
+  // --- KPIs (dashboard OU fallback para métricas 7d) ---
+  const k: DashboardKpis = dashboard?.kpis ?? {
+    conversations_7d: metrics.conversations_7d,
+    conversations_prev7d: 0,
+    user_messages_7d: metrics.user_messages_7d,
+    user_messages_prev7d: 0,
+    feedback_up_30d: metrics.feedback_up_7d,
+    feedback_down_30d: metrics.feedback_down_7d,
+    avg_msgs_per_conversation_30d:
+      metrics.conversations_7d > 0
+        ? metrics.user_messages_7d / metrics.conversations_7d
+        : 0,
+    messages_today: 0,
+    daily_cap: Number(dailyCapText) || DEFAULT_DAILY_CAP,
+    named_rate_30d: 0,
+  };
+
+  const feedbackTotal = k.feedback_up_30d + k.feedback_down_30d;
   const satisfactionValue =
     feedbackTotal > 0
-      ? `${Math.round((metrics.feedback_up_7d / feedbackTotal) * 100)}%`
+      ? `${Math.round((k.feedback_up_30d / feedbackTotal) * 100)}%`
       : "—";
   const satisfactionSubtitle =
     feedbackTotal > 0
-      ? `${metrics.feedback_up_7d} 👍 · ${metrics.feedback_down_7d} 👎`
+      ? `${formatNumber(k.feedback_up_30d)} 👍 · ${formatNumber(
+          k.feedback_down_30d
+        )} 👎`
       : "sem avaliações ainda";
-  const msgsPerConversation =
-    metrics.conversations_7d > 0
-      ? (metrics.user_messages_7d / metrics.conversations_7d).toFixed(1)
-      : "—";
+  const namedPct = Math.round((k.named_rate_30d || 0) * 100);
+  const capUsedPct =
+    k.daily_cap > 0
+      ? Math.min(100, Math.round((k.messages_today / k.daily_cap) * 100))
+      : 0;
+
+  // --- Dados dos gráficos ---
+  const daily = dashboard?.daily ?? [];
+  const hasDaily = daily.some((d) => d.conversas > 0 || d.mensagens > 0);
+
+  const intents = dashboard?.intents ?? [];
+  const maxIntentPct = Math.max(1, ...intents.map((i) => i.pct));
+
+  const topProducts = dashboard?.top_products ?? [];
+  const maxProd = Math.max(1, ...topProducts.map((p) => p.conversations));
+
+  const hourlyRaw = dashboard?.hourly ?? [];
+  const hasHourly = hourlyRaw.some((h) => h.count > 0);
+  const hourlyData = Array.from({ length: 24 }, (_, hour) => {
+    const found = hourlyRaw.find((x) => x.hour === hour);
+    return { hora: `${hour}h`, mensagens: found?.count ?? 0 };
+  });
+
+  const negativeFeedback = dashboard?.negative_feedback ?? [];
 
   return (
     <div className="space-y-6 p-6">
@@ -342,237 +543,579 @@ export default function AssistentePage() {
         </div>
       </div>
 
-      {/* ==================== Métricas (7d) ==================== */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-bold">{metrics.conversations_7d}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Conversas (7d)
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-bold">{metrics.user_messages_7d}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Mensagens de clientes (7d)
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-bold">{satisfactionValue}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Satisfação (7d)
-            </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {satisfactionSubtitle}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-bold">{msgsPerConversation}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Msgs por conversa (7d)
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Visão geral</TabsTrigger>
+          <TabsTrigger value="conversas">Conversas</TabsTrigger>
+          <TabsTrigger value="config">Configuração</TabsTrigger>
+        </TabsList>
 
-      {/* ==================== Seção 1: Configuração ==================== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Configuração</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex items-center gap-3">
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
-            <div className="flex items-center gap-2">
-              <Label>Ativar assistente</Label>
-              <Badge variant={enabled ? "default" : "secondary"}>
-                {enabled ? "Ativo" : "Inativo"}
-              </Badge>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="product-ids">
-              Produtos liberados (IDs VNDA, separados por vírgula)
-            </Label>
-            <Input
-              id="product-ids"
-              value={productIdsText}
-              onChange={(e) => setProductIdsText(e.target.value)}
-              placeholder="1271, 1305"
-            />
+        {/* ==================== TAB 1: Visão geral ==================== */}
+        <TabsContent value="overview" className="space-y-6">
+          {!dashboard && (
             <p className="text-xs text-muted-foreground">
-              Comece com 1 produto. Use * para liberar em todas as PDPs.
+              Métricas detalhadas indisponíveis no momento — mostrando resumo dos
+              últimos 7 dias.
             </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="widget-title">Título do widget</Label>
-            <Input
-              id="widget-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={60}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="welcome-message">Mensagem de boas-vindas</Label>
-            <Textarea
-              id="welcome-message"
-              value={welcomeMessage}
-              onChange={(e) => setWelcomeMessage(e.target.value)}
-              maxLength={300}
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="suggestions">
-              Sugestões iniciais (uma por linha, máx 4)
-            </Label>
-            <Textarea
-              id="suggestions"
-              value={suggestionsText}
-              onChange={(e) => setSuggestionsText(e.target.value)}
-              rows={4}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="store-info">
-              Políticas da loja (trocas, frete, pagamento)
-            </Label>
-            <Textarea
-              id="store-info"
-              value={storeInfo}
-              onChange={(e) => setStoreInfo(e.target.value)}
-              maxLength={4000}
-              rows={5}
-              placeholder="Ex.: Primeira troca grátis em até 30 dias. Frete grátis acima de R$ 299 (Sudeste)..."
-            />
-            <p className="text-xs text-muted-foreground">
-              O assistente SÓ afirma políticas escritas aqui. Vazio = ele
-              orienta procurar o atendimento.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="max-messages">Máx. mensagens por conversa</Label>
-              <Input
-                id="max-messages"
-                type="number"
-                min={1}
-                max={200}
-                value={maxMessagesText}
-                onChange={(e) => setMaxMessagesText(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="daily-cap">Cap diário de mensagens</Label>
-              <Input
-                id="daily-cap"
-                type="number"
-                min={10}
-                max={50000}
-                value={dailyCapText}
-                onChange={(e) => setDailyCapText(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="model">Modelo (OpenRouter)</Label>
-            <Input
-              id="model"
-              value={modelText}
-              onChange={(e) => setModelText(e.target.value)}
-              placeholder="anthropic/claude-haiku-4.5 (padrão)"
-            />
-          </div>
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : saved ? (
-                <Check className="h-4 w-4 mr-2" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              {saved ? "Salvo!" : "Salvar"}
-            </Button>
-            {saveError && (
-              <p className="text-sm text-red-600">{saveError}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ==================== Seção 2: Conversas ==================== */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" />
-            Conversas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {conversations.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              Nenhuma conversa ainda. Ative o assistente em um produto e teste
-              na loja.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Última mensagem</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Produto</TableHead>
-                  <TableHead className="text-right">Mensagens</TableHead>
-                  <TableHead>Página</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {conversations.map((conv) => (
-                  <TableRow
-                    key={conv.id}
-                    className="cursor-pointer"
-                    onClick={() => openTranscript(conv)}
-                  >
-                    <TableCell className="whitespace-nowrap">
-                      {formatDate(conv.last_message_at)}
-                    </TableCell>
-                    <TableCell className="max-w-[160px] truncate">
-                      {conv.customer_name || "—"}
-                    </TableCell>
-                    <TableCell>{conv.product_id || "—"}</TableCell>
-                    <TableCell className="text-right">
-                      {conv.message_count}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-[280px] truncate text-muted-foreground"
-                      title={conv.page_url || undefined}
-                    >
-                      {truncateUrl(conv.page_url)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           )}
-        </CardContent>
-      </Card>
 
-      {/* ==================== Dialog: Transcrição ==================== */}
+          {/* KPI row */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">
+                  {formatNumber(k.conversations_7d)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Conversas (7d)
+                </div>
+                <div className="mt-1">
+                  <Delta
+                    current={k.conversations_7d}
+                    prev={k.conversations_prev7d}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">
+                  {formatNumber(k.user_messages_7d)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Mensagens de clientes (7d)
+                </div>
+                <div className="mt-1">
+                  <Delta
+                    current={k.user_messages_7d}
+                    prev={k.user_messages_prev7d}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{satisfactionValue}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Satisfação (30d)
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {satisfactionSubtitle}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">
+                  {formatDecimal(k.avg_msgs_per_conversation_30d)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Msgs por conversa (30d)
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {namedPct}% informaram o nome
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">
+                  {formatNumber(k.messages_today)}
+                  <span className="text-base font-normal text-muted-foreground">
+                    {" "}
+                    / {formatNumber(k.daily_cap)}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Uso hoje (custo)
+                </div>
+                <Progress value={capUsedPct} className="mt-2 h-1.5" />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Volume chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Volume — últimos 14 dias
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {hasDaily ? (
+                <div className="h-[260px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={daily}
+                      margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="grad-conversas"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor={COLOR_CONVERSAS}
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor={COLOR_CONVERSAS}
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                        <linearGradient
+                          id="grad-mensagens"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor={COLOR_MENSAGENS}
+                            stopOpacity={0.3}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor={COLOR_MENSAGENS}
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                      <XAxis
+                        dataKey="date"
+                        stroke={chart.axis}
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        stroke={chart.axis}
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip contentStyle={chart.tooltipStyle} />
+                      <Legend />
+                      <Area
+                        type="monotone"
+                        dataKey="conversas"
+                        name="Conversas"
+                        stroke={COLOR_CONVERSAS}
+                        fill="url(#grad-conversas)"
+                        strokeWidth={2}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="mensagens"
+                        name="Mensagens"
+                        stroke={COLOR_MENSAGENS}
+                        fill="url(#grad-mensagens)"
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground py-12 text-center">
+                  Sem volume nos últimos 14 dias.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Two-column: intenções + horários */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Intenções */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  O que os clientes buscam
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  % das conversas (30d) que usaram cada recurso
+                </p>
+              </CardHeader>
+              <CardContent>
+                {intents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-12 text-center">
+                    Sem dados de intenção ainda.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {intents.map((it) => (
+                      <div key={it.intent} className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="truncate">{it.intent}</span>
+                          <span className="shrink-0 text-muted-foreground tabular-nums">
+                            {formatNumber(it.conversations)} ·{" "}
+                            {Math.round(it.pct)}%
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{
+                              width: `${Math.max(
+                                2,
+                                (it.pct / maxIntentPct) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Horários de pico */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Horários de maior movimento
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Mensagens de clientes por hora (fuso de São Paulo, 14d)
+                </p>
+              </CardHeader>
+              <CardContent>
+                {hasHourly ? (
+                  <div className="h-[220px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={hourlyData}
+                        margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke={chart.grid}
+                        />
+                        <XAxis
+                          dataKey="hora"
+                          stroke={chart.axis}
+                          fontSize={10}
+                          tickLine={false}
+                          interval={1}
+                        />
+                        <YAxis
+                          stroke={chart.axis}
+                          fontSize={12}
+                          tickLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          contentStyle={chart.tooltipStyle}
+                          formatter={(v) => [formatNumber(Number(v)), "Mensagens"]}
+                        />
+                        <Bar
+                          dataKey="mensagens"
+                          name="Mensagens"
+                          fill={COLOR_HOURLY}
+                          radius={[3, 3, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-12 text-center">
+                    Sem movimento registrado ainda.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Top produtos */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Produtos que mais geram conversa
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {topProducts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Nenhum produto com conversas ainda.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {topProducts.map((p) => (
+                    <div key={p.product_id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate">
+                          {p.name || `Produto ${p.product_id}`}
+                        </span>
+                        <span className="shrink-0 text-muted-foreground tabular-nums">
+                          {formatNumber(p.conversations)}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{
+                            width: `${Math.max(
+                              2,
+                              (p.conversations / maxProd) * 100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fila de insatisfação */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ThumbsDown className="h-4 w-4" />
+                Respostas marcadas com 👎 — revisar
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {negativeFeedback.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Nenhuma resposta negativa. 🎉
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {negativeFeedback.map((nf) => (
+                    <button
+                      key={nf.message_id}
+                      type="button"
+                      onClick={() => openTranscriptById(nf.conversation_id)}
+                      className="w-full text-left rounded-lg border border-border p-3 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm text-foreground line-clamp-2">
+                          {nf.excerpt || "(sem texto)"}
+                        </p>
+                        <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatRelative(nf.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== TAB 2: Conversas ==================== */}
+        <TabsContent value="conversas" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="h-4 w-4" />
+                Conversas
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {conversations.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Nenhuma conversa ainda. Ative o assistente em um produto e
+                  teste na loja.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Última mensagem</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead className="text-right">Mensagens</TableHead>
+                      <TableHead>Página</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {conversations.map((conv) => (
+                      <TableRow
+                        key={conv.id}
+                        className="cursor-pointer"
+                        onClick={() => openTranscript(conv)}
+                      >
+                        <TableCell className="whitespace-nowrap">
+                          {formatDate(conv.last_message_at)}
+                        </TableCell>
+                        <TableCell className="max-w-[160px] truncate">
+                          {conv.customer_name || "—"}
+                        </TableCell>
+                        <TableCell>{conv.product_id || "—"}</TableCell>
+                        <TableCell className="text-right">
+                          {conv.message_count}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[280px] truncate text-muted-foreground"
+                          title={conv.page_url || undefined}
+                        >
+                          {truncateUrl(conv.page_url)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== TAB 3: Configuração ==================== */}
+        <TabsContent value="config" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Configuração</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex items-center gap-3">
+                <Switch checked={enabled} onCheckedChange={setEnabled} />
+                <div className="flex items-center gap-2">
+                  <Label>Ativar assistente</Label>
+                  <Badge variant={enabled ? "default" : "secondary"}>
+                    {enabled ? "Ativo" : "Inativo"}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="product-ids">
+                  Produtos liberados (IDs VNDA, separados por vírgula)
+                </Label>
+                <Input
+                  id="product-ids"
+                  value={productIdsText}
+                  onChange={(e) => setProductIdsText(e.target.value)}
+                  placeholder="1271, 1305"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Comece com 1 produto. Use * para liberar em todas as PDPs.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="widget-title">Título do widget</Label>
+                <Input
+                  id="widget-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={60}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="welcome-message">Mensagem de boas-vindas</Label>
+                <Textarea
+                  id="welcome-message"
+                  value={welcomeMessage}
+                  onChange={(e) => setWelcomeMessage(e.target.value)}
+                  maxLength={300}
+                  rows={3}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="suggestions">
+                  Sugestões iniciais (uma por linha, máx 4)
+                </Label>
+                <Textarea
+                  id="suggestions"
+                  value={suggestionsText}
+                  onChange={(e) => setSuggestionsText(e.target.value)}
+                  rows={4}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="store-info">
+                  Políticas da loja (trocas, frete, pagamento)
+                </Label>
+                <Textarea
+                  id="store-info"
+                  value={storeInfo}
+                  onChange={(e) => setStoreInfo(e.target.value)}
+                  maxLength={4000}
+                  rows={5}
+                  placeholder="Ex.: Primeira troca grátis em até 30 dias. Frete grátis acima de R$ 299 (Sudeste)..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  O assistente SÓ afirma políticas escritas aqui. Vazio = ele
+                  orienta procurar o atendimento.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="max-messages">
+                    Máx. mensagens por conversa
+                  </Label>
+                  <Input
+                    id="max-messages"
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={maxMessagesText}
+                    onChange={(e) => setMaxMessagesText(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="daily-cap">Cap diário de mensagens</Label>
+                  <Input
+                    id="daily-cap"
+                    type="number"
+                    min={10}
+                    max={50000}
+                    value={dailyCapText}
+                    onChange={(e) => setDailyCapText(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="model">Modelo (OpenRouter)</Label>
+                <Input
+                  id="model"
+                  value={modelText}
+                  onChange={(e) => setModelText(e.target.value)}
+                  placeholder="anthropic/claude-haiku-4.5 (padrão)"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : saved ? (
+                    <Check className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  {saved ? "Salvo!" : "Salvar"}
+                </Button>
+                {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* ==================== Dialog: Transcrição (compartilhado) ==================== */}
       <Dialog
         open={openConversation !== null}
         onOpenChange={(open) => {

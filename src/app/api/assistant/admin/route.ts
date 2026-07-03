@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { buildAssistantDashboard } from "@/lib/assistant/dashboard";
+import { getDailyMessageCount } from "@/lib/assistant/rate-limit";
 
 export async function GET(request: NextRequest) {
   try {
@@ -84,10 +86,25 @@ export async function GET(request: NextRequest) {
       feedback_down_7d: fbDownRes.error ? 0 : fbDownRes.count || 0,
     };
 
+    // Agregados completos do dashboard (série diária, intenções, top produtos,
+    // horários, fila de 👎). Best-effort: falhou → página cai nos `metrics`.
+    const dailyCap = Number(settingsRes.data?.daily_message_cap) || 1500;
+    let dashboard = null;
+    try {
+      const messagesToday = await getDailyMessageCount(workspaceId);
+      dashboard = await buildAssistantDashboard(admin, workspaceId, dailyCap, messagesToday);
+    } catch (err) {
+      console.warn(
+        "[assistant/admin] dashboard aggregates failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+
     return NextResponse.json({
       settings: settingsRes.data || null,
       conversations: convsRes.data || [],
       metrics,
+      dashboard,
     });
   } catch (error) {
     return handleAuthError(error);
