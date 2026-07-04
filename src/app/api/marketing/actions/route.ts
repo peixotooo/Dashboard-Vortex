@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { listMarketingActions, createMarketingAction, getCategoryColor } from "@/lib/agent/memory";
 import { syncMarketingToProjectContext } from "@/lib/agent/marketing-sync";
 
@@ -21,12 +22,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/marketing/actions?start=2026-03-01&end=2026-03-31&category=campanha&status=planned
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const url = new URL(request.url);
     const ptParam = url.searchParams.get("planning_type");
@@ -50,6 +47,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ actions: actionsWithColor });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -58,17 +56,13 @@ export async function GET(request: NextRequest) {
 // POST /api/marketing/actions
 export async function POST(request: NextRequest) {
   try {
+    const { workspaceId, userId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
     const action = await createMarketingAction(supabase, workspaceId, {
       ...body,
-      created_by: user.id,
+      created_by: userId,
     });
 
     // Sync to project context (non-blocking)
@@ -79,6 +73,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

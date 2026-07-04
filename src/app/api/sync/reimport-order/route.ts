@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { pushOrderToEccosys } from "@/lib/hub/push-order";
 import type { HubOrder } from "@/types/hub";
@@ -14,9 +15,11 @@ export const maxDuration = 60;
  * in Eccosys — this creates a NEW order with the latest payload.
  */
 export async function POST(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const body = await req.json();

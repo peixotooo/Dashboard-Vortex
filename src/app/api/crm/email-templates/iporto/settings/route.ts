@@ -11,6 +11,7 @@ import {
   type UpdateIportoSettingsInput,
 } from "@/lib/iporto/settings";
 import { ping } from "@/lib/iporto/email-marketing";
+import { validatePublicHttpUrl } from "@/lib/security/external-url";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,16 @@ export async function PUT(req: NextRequest) {
       if (!token) {
         return NextResponse.json(
           { error: "token obrigatório pra testar" },
+          { status: 400 }
+        );
+      }
+      // Anti-SSRF: base_url vem do cliente e o ping envia o token; bloqueia
+      // host interno/IP privado (metadata da nuvem, localhost, rede interna).
+      try {
+        await validatePublicHttpUrl(base_url, "base_url");
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "base_url inválida" },
           { status: 400 }
         );
       }

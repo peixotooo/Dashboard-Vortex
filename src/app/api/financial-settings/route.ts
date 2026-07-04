@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { AuthError, getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 const DEFAULTS = {
   monthly_fixed_costs: 160000,
@@ -43,12 +44,8 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const { data, error } = await supabase
       .from("workspace_financial_settings")
@@ -67,6 +64,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ...data, isDefault: false });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ ...DEFAULTS, isDefault: true, error: message });
   }
@@ -74,12 +72,8 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
 
@@ -124,6 +118,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ ...data, isDefault: false });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 const SIM_DEFAULTS = {
   piso_margem_pct: 15,
@@ -34,13 +35,15 @@ function createSupabase(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(request));
+  } catch (error) {
+    return handleAuthError(error);
+  }
+
   try {
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const [simRes, finRes] = await Promise.all([
       supabase
@@ -95,18 +98,14 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const { userId, workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const { data: membership } = await supabase
       .from("workspace_members")
       .select("role")
       .eq("workspace_id", workspaceId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (!membership || !["owner", "admin"].includes(membership.role)) {
@@ -139,7 +138,6 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ ...data, isDefault: false });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

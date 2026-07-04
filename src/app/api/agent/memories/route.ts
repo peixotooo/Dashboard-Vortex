@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { loadCoreMemories, deleteMemoryById, deleteAllMemories } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -20,12 +21,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/agent/memories?account_id=xxx
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const accountId = new URL(request.url).searchParams.get("account_id") || "";
     if (!accountId) return NextResponse.json({ error: "account_id is required" }, { status: 400 });
@@ -33,6 +30,7 @@ export async function GET(request: NextRequest) {
     const memories = await loadCoreMemories(supabase, workspaceId, accountId);
     return NextResponse.json({ memories, count: memories.length });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -41,12 +39,8 @@ export async function GET(request: NextRequest) {
 // DELETE /api/agent/memories?id=xxx  OR  ?account_id=xxx&all=true
 export async function DELETE(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const url = new URL(request.url);
     const memoryId = url.searchParams.get("id");
@@ -65,6 +59,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ error: "Provide id or account_id+all=true" }, { status: 400 });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

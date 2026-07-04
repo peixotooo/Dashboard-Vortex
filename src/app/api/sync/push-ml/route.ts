@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import { applyPromoPrice } from "@/lib/ml/promo";
@@ -407,9 +408,11 @@ function buildSimpleUPPayload(
  * Body: { skus: string[], category_id: string, listing_type_id?: string, validate_only?: boolean }
  */
 export async function POST(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
   const safeWorkspaceId = workspaceId;
 

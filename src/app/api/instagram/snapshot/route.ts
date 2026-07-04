@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getApifyConfigAdmin } from "@/lib/apify-api";
 import {
@@ -11,31 +11,11 @@ import {
 // Apify run-sync (perfil + posts) pode levar até ~60s.
 export const maxDuration = 120;
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
 // POST /api/instagram/snapshot — captura on-demand do dia.
 // Body opcional: { username } (default = perfil acompanhado pelo workspace).
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json().catch(() => ({}));
     const admin = createAdminClient();
@@ -64,6 +44,7 @@ export async function POST(request: NextRequest) {
       postsCount: captured.posts.length,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

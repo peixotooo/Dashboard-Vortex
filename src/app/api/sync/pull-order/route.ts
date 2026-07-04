@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import type { HubOrderItem, HubProduct } from "@/types/hub";
@@ -65,9 +66,11 @@ interface MLBillingInfo {
  * Body: { resource: "/orders/123" } (from webhook) OR { ml_order_id: 123 }
  */
 export async function POST(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const body = await req.json();

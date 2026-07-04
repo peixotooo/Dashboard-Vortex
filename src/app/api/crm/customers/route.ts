@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import type { RfmCustomer } from "@/lib/crm-rfm";
 
@@ -10,21 +10,6 @@ const DEFAULT_LIMIT = 70000;
 const MAX_LIMIT = 100000;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 type SegmentRow = {
   email: string;
@@ -82,18 +67,7 @@ function toCustomer(row: SegmentRow): RfmCustomer {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const limitParamRaw = request.nextUrl.searchParams.get("limit");
     const pageParamRaw = request.nextUrl.searchParams.get("page");
@@ -265,6 +239,7 @@ export async function GET(request: NextRequest) {
       { headers: { "Cache-Control": "private, max-age=300" } }
     );
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Customers]", message);
     return NextResponse.json({ error: message }, { status: 500 });

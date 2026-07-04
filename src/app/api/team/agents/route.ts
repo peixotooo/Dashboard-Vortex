@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { listAgents, seedTeamAgents } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -21,19 +22,8 @@ function createSupabase(request: NextRequest) {
 // ?slim=true — returns only agent info without stats (faster for chat sidebar, filters)
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
 
     // Seed team agents if they don't exist yet (fast count check, skips if synced)
     await seedTeamAgents(supabase, workspaceId);
@@ -87,8 +77,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ agents: agentsWithStats });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   hydratePromoTagRuleModal,
@@ -10,21 +10,6 @@ import {
   normalizePromoTagComboTiers,
   withPromoTagComboTiersMetadata,
 } from "@/lib/promo-tags/combo-tiers";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 function isMissingModalColumn(message: string): boolean {
   return (
@@ -63,21 +48,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const { id } = await params;
     const body = await request.json();
@@ -151,8 +122,7 @@ export async function PATCH(
 
     return NextResponse.json({ rule: hydratePromoTagRule(result.data) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
@@ -161,21 +131,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const { id } = await params;
 
@@ -192,7 +148,6 @@ export async function DELETE(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

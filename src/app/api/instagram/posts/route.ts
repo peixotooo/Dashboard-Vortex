@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { getApifyConfig, scrapeInstagramPosts } from "@/lib/apify-api";
 import type { InstagramPost } from "@/lib/apify-api";
 
@@ -23,12 +24,8 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // GET /api/instagram/posts?username=xxx&limit=30
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const username = request.nextUrl.searchParams.get("username") || "";
     if (!username) return NextResponse.json({ error: "username is required" }, { status: 400 });
@@ -108,6 +105,7 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

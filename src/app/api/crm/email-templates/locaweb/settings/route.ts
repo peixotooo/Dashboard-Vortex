@@ -12,6 +12,7 @@ import {
   type UpdateSettingsInput,
 } from "@/lib/locaweb/settings";
 import { ping } from "@/lib/locaweb/email-marketing";
+import { validatePublicHttpUrl } from "@/lib/security/external-url";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,15 @@ export async function PUT(req: NextRequest) {
       if (!account_id || !token) {
         return NextResponse.json(
           { error: "account_id e token obrigatórios pra testar" },
+          { status: 400 }
+        );
+      }
+      // Anti-SSRF: base_url é controlada pelo cliente e o ping envia o token.
+      try {
+        await validatePublicHttpUrl(base_url, "base_url");
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "base_url inválida" },
           { status: 400 }
         );
       }

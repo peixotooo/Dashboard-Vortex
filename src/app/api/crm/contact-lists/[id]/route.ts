@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
 
 // GET = read one list (with full contacts)
 export async function GET(
@@ -22,12 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await ctx.params;
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
     const { data: list, error } = await admin
@@ -54,12 +36,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await ctx.params;
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json();
     const updates: Record<string, unknown> = {};
@@ -109,12 +86,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await ctx.params;
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
     const { error } = await admin

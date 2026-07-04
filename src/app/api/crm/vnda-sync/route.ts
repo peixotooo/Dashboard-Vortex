@@ -1,24 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { runVndaCrmImport } from "@/lib/crm/vnda-import";
 
 export const maxDuration = 300;
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    },
-  );
-}
 
 type SyncBody = {
   startDate?: string;
@@ -34,16 +19,7 @@ type SyncBody = {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     let body: SyncBody = {};
     try {
@@ -83,6 +59,7 @@ export async function POST(request: NextRequest) {
         : `Importacao VNDA concluida: ${result.orders.upserted} pedidos inseridos/atualizados.`,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[VNDA Sync]", message);
     return NextResponse.json({ error: message }, { status: 500 });

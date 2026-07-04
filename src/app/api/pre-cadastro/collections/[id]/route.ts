@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const { id } = await params;
@@ -31,9 +34,11 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const { id } = await params;
@@ -67,9 +72,11 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const { id } = await params;

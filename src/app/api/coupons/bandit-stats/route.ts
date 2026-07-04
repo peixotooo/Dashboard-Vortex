@@ -1,41 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { getBanditStats } from "@/lib/coupons/bandit";
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
-
 export async function GET(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-
-  const stats = await getBanditStats(workspaceId);
-  return NextResponse.json({ stats });
+  try {
+    const { workspaceId } = await getWorkspaceContext(request);
+    const stats = await getBanditStats(workspaceId);
+    return NextResponse.json({ stats });
+  } catch (error) {
+    return handleAuthError(error);
+  }
 }
 
 // POST = force recompute now
 export async function POST(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-  return NextResponse.json({
-    queued: true,
-    message:
-      "A recomputação do bandit roda pelo worker no ciclo de atribuição de cupons.",
-  });
+  try {
+    await getWorkspaceContext(request);
+    return NextResponse.json({
+      queued: true,
+      message:
+        "A recomputação do bandit roda pelo worker no ciclo de atribuição de cupons.",
+    });
+  } catch (error) {
+    return handleAuthError(error);
+  }
 }

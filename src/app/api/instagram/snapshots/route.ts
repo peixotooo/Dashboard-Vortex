@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { resolveTrackedUsername } from "@/lib/instagram/snapshot";
 import {
@@ -9,21 +9,6 @@ import {
   makeDelta,
   refByDaysAgo,
 } from "@/lib/series-utils";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 interface SnapshotRow {
   captured_on: string;
@@ -50,12 +35,7 @@ interface SeriesPoint {
 // GET /api/instagram/snapshots?username=xxx&days=90
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
     const username = await resolveTrackedUsername(
@@ -195,6 +175,7 @@ export async function GET(request: NextRequest) {
       engagement,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

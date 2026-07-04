@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { datePresetToTimeRange, getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
@@ -67,21 +67,6 @@ const ABC_PRESET_DAYS: Partial<Record<DatePreset, number>> = {
   last_90d: 90,
 };
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
 function customerKey(row: Pick<VendaRow, "email">): string | null {
   const email = row.email?.trim().toLowerCase();
   if (email && email.includes("@")) return `email:${email}`;
@@ -113,18 +98,7 @@ function rangeToDates(since: string, until: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const { searchParams } = new URL(request.url);
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
@@ -430,6 +404,7 @@ export async function GET(request: NextRequest) {
       { headers: { "Cache-Control": "private, max-age=60" } }
     );
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Overview Summary] Error:", message);
     return NextResponse.json({ ...EMPTY, error: message }, { status: 500 });

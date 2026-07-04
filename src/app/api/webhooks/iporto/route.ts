@@ -162,6 +162,10 @@ export async function POST(req: NextRequest) {
     let dispatchId: string;
     let workspaceId: string;
 
+    // Escrita do status do envio fica PENDENTE até o segredo ser verificado
+    // (nada de escrever antes da auth).
+    let pendingEnvioUpdate: { id: number; status: string } | null = null;
+
     if (envio) {
       const e = envio as {
         id: number;
@@ -172,16 +176,9 @@ export async function POST(req: NextRequest) {
       dispatchId = e.dispatch_id;
       workspaceId = e.workspace_id;
 
-      // Atualiza status terminal do envio (delivered=sent, bounced=failed).
       const envioStatus = ENVIO_TERMINAL_EVENTS[eventType];
       if (envioStatus && e.status !== envioStatus) {
-        await admin
-          .from("email_template_iporto_envios")
-          .update({
-            status: envioStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", e.id);
+        pendingEnvioUpdate = { id: e.id, status: envioStatus };
       }
     } else {
       // 2. Fallback pro dispatch antigo (síncrono) que armazenava todos
@@ -213,6 +210,17 @@ export async function POST(req: NextRequest) {
 
     const auth = await verifySecret(admin, workspaceId, req);
     if (!auth.ok) return auth.res;
+
+    // Segredo verificado → agora sim aplica a escrita de status do envio.
+    if (pendingEnvioUpdate) {
+      await admin
+        .from("email_template_iporto_envios")
+        .update({
+          status: pendingEnvioUpdate.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pendingEnvioUpdate.id);
+    }
 
     // 3. Agrega no stats do dispatch (idempotente via event_log).
     const { data: dispatch } = await admin

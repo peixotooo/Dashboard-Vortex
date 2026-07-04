@@ -1,24 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { recomputeRfmSnapshot } from "@/lib/crm-compute";
 
 export const maxDuration = 120;
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 /**
  * POST /api/crm/compute
@@ -28,18 +13,7 @@ function createSupabase(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
     const result = await recomputeRfmSnapshot(admin, workspaceId);
@@ -51,6 +25,7 @@ export async function POST(request: NextRequest) {
       computedAt: new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Compute] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });

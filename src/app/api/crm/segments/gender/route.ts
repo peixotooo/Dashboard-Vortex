@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 // Segmentação por gênero inferido.
@@ -20,19 +20,6 @@ export const maxDuration = 15;
 const CONFIDENCE_ORDER = ["low", "medium", "high"] as const;
 type Confidence = (typeof CONFIDENCE_ORDER)[number];
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
-
 function allowedConfidences(min: Confidence): Confidence[] {
   const idx = CONFIDENCE_ORDER.indexOf(min);
   return CONFIDENCE_ORDER.slice(idx);
@@ -40,12 +27,7 @@ function allowedConfidences(min: Confidence): Confidence[] {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const sp = request.nextUrl.searchParams;
     const gender = (sp.get("gender") || "female") as "female" | "male" | "unknown";
@@ -112,9 +94,7 @@ export async function GET(request: NextRequest) {
       offset,
       rows: data ?? [],
     }, { headers: { "Cache-Control": "private, max-age=120" } });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    console.error("[CRM segments/gender] Error:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    return handleAuthError(error);
   }
 }

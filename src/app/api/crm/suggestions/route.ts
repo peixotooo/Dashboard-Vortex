@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { callLLM, resolveModel, DEFAULT_PROVIDER_CONFIG } from "@/lib/agent/llm-provider";
 import type { RfmCustomer } from "@/lib/crm-rfm";
 import { getCooldownPhones, getExcludedPhones } from "@/lib/wa-compliance";
@@ -23,18 +24,8 @@ function createSupabase(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
 
     const body = await request.json().catch(() => ({}));
     const question: string | undefined = body.question;
@@ -264,6 +255,7 @@ Responda EXCLUSIVAMENTE com JSON valido (sem markdown, sem texto extra):
 
     return NextResponse.json({ ...parsed, excludedCount, cooldownDays });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Suggestions] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });

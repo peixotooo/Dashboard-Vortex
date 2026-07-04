@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { eccosys } from "@/lib/eccosys/client";
 
 export async function GET(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  try {
+    await getWorkspaceContext(req);
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const { searchParams } = req.nextUrl;

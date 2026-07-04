@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { getVndaConfig, getVndaDailyReport } from "@/lib/vnda-api";
 import { getPreviousPeriodDates } from "@/lib/utils";
 import type { DatePreset } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const { searchParams } = new URL(request.url);
     const datePreset = (searchParams.get("date_preset") || "last_30d") as DatePreset;
     const sinceParam = searchParams.get("since") || "";
     const untilParam = searchParams.get("until") || "";
     const customRange = sinceParam && untilParam ? { since: sinceParam, until: untilParam } : undefined;
     const includeComparison = searchParams.get("include_comparison") === "true";
-    const workspaceId = request.headers.get("x-workspace-id") || "";
 
     const config = await getVndaConfig(workspaceId);
     if (!config) {
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
       configured: true,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[VNDA Insights] Error:", message);
     return NextResponse.json({

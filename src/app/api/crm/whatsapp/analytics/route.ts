@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { getWaConfig } from "@/lib/whatsapp-api";
 import {
   getPricingAnalytics,
@@ -7,19 +7,6 @@ import {
   getMonthlySpendSummary,
   toTimestamp,
 } from "@/lib/wa-analytics";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
 
 /**
  * GET /api/crm/whatsapp/analytics
@@ -33,12 +20,7 @@ function createSupabase(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const config = await getWaConfig(workspaceId);
     if (!config) {
@@ -135,9 +117,7 @@ export async function GET(request: NextRequest) {
       headers: { "Cache-Control": "private, max-age=300" },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    console.error("[WA Analytics]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 

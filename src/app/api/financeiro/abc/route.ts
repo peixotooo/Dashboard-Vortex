@@ -22,7 +22,7 @@
 //   ?orders_limit=200       → cap em 1000
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 export const maxDuration = 60;
@@ -63,21 +63,6 @@ interface SnapshotFull extends SnapshotSummary {
 
 const CACHE_HEADERS = { "Cache-Control": "private, max-age=300" };
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
 function emptyResponse(message?: string) {
   return NextResponse.json(
     {
@@ -96,18 +81,7 @@ function emptyResponse(message?: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const view = request.nextUrl.searchParams.get("view") ?? "summary";
     const ordersStatus = request.nextUrl.searchParams.get("orders_status");
@@ -249,9 +223,6 @@ export async function GET(request: NextRequest) {
       { headers: CACHE_HEADERS }
     );
   } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
+    return handleAuthError(err);
   }
 }
