@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { ml } from "@/lib/ml/client";
 
 interface CategoryPrediction {
@@ -9,9 +10,11 @@ interface CategoryPrediction {
 }
 
 export async function GET(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const title = req.nextUrl.searchParams.get("title");

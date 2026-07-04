@@ -120,10 +120,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Rate limit por IP (anti-flood)
+  // Rate limit por IP (anti-flood). x-real-ip é setado pela Vercel
+  // (não-spoofável); o 1º valor do x-forwarded-for é controlado pelo cliente
+  // (dá pra furar o limite trocando o header) — usa o ÚLTIMO como fallback.
   const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     "0.0.0.0";
   const ipHash = hashIp(ip, auth.workspaceId);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

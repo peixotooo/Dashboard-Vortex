@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   ensureStateList,
@@ -20,27 +20,9 @@ import {
 
 export const maxDuration = 60;
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json().catch(() => ({}));
     const state = typeof body.state === "string" ? body.state.trim().toUpperCase() : "";
@@ -56,9 +38,7 @@ export async function POST(request: NextRequest) {
       list: { id: list.id, name: list.name, created: list.created },
       seed: seedStats,
     });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    console.error("[materialize state list]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    return handleAuthError(error);
   }
 }

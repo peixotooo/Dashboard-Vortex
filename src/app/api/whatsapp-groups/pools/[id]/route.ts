@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   deleteGroupPool,
@@ -8,34 +8,6 @@ import {
   syncPoolGroupsFromWapi,
   updateGroupPool,
 } from "@/lib/whatsapp/group-pools";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
-async function authenticate(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", status: 401 as const };
-
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return { error: "Workspace not specified", status: 400 as const };
-
-  return { user, workspaceId };
-}
 
 async function ensurePoolWorkspace(
   admin: ReturnType<typeof createAdminClient>,
@@ -60,14 +32,11 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const auth = await authenticate(request);
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json();
     const admin = createAdminClient();
-    const existing = await ensurePoolWorkspace(admin, id, auth.workspaceId);
+    const existing = await ensurePoolWorkspace(admin, id, workspaceId);
     const parsed = JSON.parse((existing.name || "").replace(/^__pool__:/, "") || "{}") as Record<string, unknown>;
     const nextSlug = "slug" in body ? slugifyGroupPool(String(body.slug || "")) : String(parsed.slug || "");
     const nextConfig = {
@@ -106,21 +75,20 @@ export async function PATCH(
     }
 
     const syncResult =
-      body.sync === true ? await syncPoolGroupsFromWapi(admin, auth.workspaceId) : null;
+      body.sync === true ? await syncPoolGroupsFromWapi(admin, workspaceId) : null;
 
     await updateGroupPool(
       admin,
-      auth.workspaceId,
+      workspaceId,
       id,
       nextConfig,
       Array.isArray(body.groups) ? (body.groups as Array<Record<string, unknown>>) : []
     );
 
-    const pools = await listGroupPools(admin, auth.workspaceId, request.nextUrl.origin);
+    const pools = await listGroupPools(admin, workspaceId, request.nextUrl.origin);
     return NextResponse.json({ pools, syncResult });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
@@ -130,19 +98,15 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const auth = await authenticate(request);
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
-    await ensurePoolWorkspace(admin, id, auth.workspaceId);
-    await deleteGroupPool(admin, auth.workspaceId, id);
+    await ensurePoolWorkspace(admin, id, workspaceId);
+    await deleteGroupPool(admin, workspaceId, id);
 
-    const pools = await listGroupPools(admin, auth.workspaceId, request.nextUrl.origin);
+    const pools = await listGroupPools(admin, workspaceId, request.nextUrl.origin);
     return NextResponse.json({ pools });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

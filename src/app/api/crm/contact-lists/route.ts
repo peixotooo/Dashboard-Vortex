@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
 
 interface Contact {
   phone?: string;
@@ -68,12 +55,7 @@ function sanitizeContacts(input: unknown): Contact[] {
 // GET = list all contact lists for the workspace
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
     const { data: lists, error } = await admin
@@ -85,6 +67,7 @@ export async function GET(request: NextRequest) {
     if (error) throw new Error(error.message);
     return NextResponse.json({ lists: lists || [] });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -93,12 +76,7 @@ export async function GET(request: NextRequest) {
 // POST = create a contact list
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
+    const { workspaceId, userId } = await getWorkspaceContext(request);
 
     const body = await request.json();
     const { name, description, contacts } = body;
@@ -132,7 +110,7 @@ export async function POST(request: NextRequest) {
         total_count: cleaned.length,
         phone_count: phoneCount,
         email_count: emailCount,
-        created_by: user.id,
+        created_by: userId,
       })
       .select("id, name, description, total_count, phone_count, email_count, locaweb_list_id, created_at, updated_at")
       .single();
@@ -140,6 +118,7 @@ export async function POST(request: NextRequest) {
     if (error) throw new Error(error.message);
     return NextResponse.json({ list });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

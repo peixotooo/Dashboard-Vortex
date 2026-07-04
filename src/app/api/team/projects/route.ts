@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { listProjects, createProject } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -20,19 +21,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/team/projects?status=planning
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
 
     const url = new URL(request.url);
     const status = url.searchParams.get("status") || undefined;
@@ -40,35 +30,20 @@ export async function GET(request: NextRequest) {
     const projects = await listProjects(supabase, workspaceId, { status });
     return NextResponse.json({ projects });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 // POST /api/team/projects
 export async function POST(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
 
     const body = await request.json();
     const project = await createProject(supabase, workspaceId, body);
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

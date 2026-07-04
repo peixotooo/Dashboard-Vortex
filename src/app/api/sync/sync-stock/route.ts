@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { ml } from "@/lib/ml/client";
@@ -11,13 +12,11 @@ export const maxDuration = 300;
  * Body: { workspace_id: "..." } (or from x-workspace-id header)
  */
 export async function POST(req: NextRequest) {
-  const workspaceId =
-    req.headers.get("x-workspace-id") ||
-    ((await req.json().catch(() => ({}))) as Record<string, string>)
-      .workspace_id;
-
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const supabase = createAdminClient();

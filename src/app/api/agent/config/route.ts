@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 import { loadDocument, upsertDocument, loadAgentDocument, upsertAgentDocument } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -20,12 +21,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/agent/config?doc_type=soul  (or omit for all 3)
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const accountId = new URL(request.url).searchParams.get("account_id") || "";
     const docType = new URL(request.url).searchParams.get("doc_type") as string | null;
@@ -87,6 +84,7 @@ export async function GET(request: NextRequest) {
       project_context: projectContext ? { content: projectContext, doc_type: "project_context" } : null,
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -95,12 +93,8 @@ export async function GET(request: NextRequest) {
 // PUT /api/agent/config  { doc_type, content }
 export async function PUT(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
 
     const body = await request.json();
     const { doc_type, content, agent_id } = body as { doc_type: string; content: string; agent_id?: string };
@@ -158,6 +152,7 @@ export async function PUT(request: NextRequest) {
     const doc = await upsertDocument(supabase, workspaceId, null, doc_type as "soul" | "agent_rules" | "user_profile" | "project_context", content);
     return NextResponse.json({ document: doc });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { listDeliverables } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -20,19 +21,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/team/deliverables?agent_id=xxx&deliverable_type=copy&status=final
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
 
     const url = new URL(request.url);
     const filters = {
@@ -50,8 +40,6 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json({ deliverables });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

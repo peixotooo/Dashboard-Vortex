@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -18,18 +19,8 @@ function createSupabase(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { userId, workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
 
     const body = await request.json();
     const { export_type, filters, record_count } = body;
@@ -40,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const { error } = await supabase.from("crm_export_logs").insert({
       workspace_id: workspaceId,
-      exported_by: user.id,
+      exported_by: userId,
       export_type,
       filters: filters || null,
       record_count,
@@ -53,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Export Log] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
@@ -61,18 +53,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
 
     const { data, error } = await supabase
       .from("crm_export_logs")
@@ -88,6 +70,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ logs: data || [] });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Export Log] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });

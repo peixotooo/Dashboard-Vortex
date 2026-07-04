@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   hydratePromoTagRuleModal,
@@ -10,21 +10,6 @@ import {
   normalizePromoTagComboTiers,
   withPromoTagComboTiersMetadata,
 } from "@/lib/promo-tags/combo-tiers";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 function isMissingModalColumn(message: string): boolean {
   return (
@@ -60,23 +45,10 @@ function hydratePromoTagRule<T extends Record<string, unknown>>(rule: T) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
+    const admin = createAdminClient();
 
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
-
-    const { data: rules, error } = await supabase
+    const { data: rules, error } = await admin
       .from("promo_tag_configs")
       .select("*")
       .eq("workspace_id", workspaceId)
@@ -90,28 +62,13 @@ export async function GET(request: NextRequest) {
       rules: (rules || []).map((rule) => hydratePromoTagRule(rule)),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json();
 
@@ -179,7 +136,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ rule: hydratePromoTagRule(result.data) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

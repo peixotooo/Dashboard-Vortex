@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getInsights, runWithToken } from "@/lib/meta-api";
-import { resolveTokenForAccount } from "@/lib/api-auth";
+import { resolveTokenForAccount, getWorkspaceContext, handleAuthError, AuthError } from "@/lib/api-auth";
 
 export const maxDuration = 60;
 const AD_SPEND_TIMEOUT_MS = 3500;
@@ -24,18 +24,8 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
 
     const months = parseInt(request.nextUrl.searchParams.get("months") || "12");
 
@@ -111,6 +101,7 @@ export async function GET(request: NextRequest) {
       headers: { "Cache-Control": "private, max-age=300" },
     });
   } catch (error) {
+    if (error instanceof AuthError) return handleAuthError(error);
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[CRM Cohort] Error:", message);
     return NextResponse.json(

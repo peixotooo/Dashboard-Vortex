@@ -1,26 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createTemplateOnMeta, getWaConfig } from "@/lib/whatsapp-api";
 import {
   UTILITY_TEMPLATE_BODY,
   UTILITY_TEMPLATE_EXAMPLE_BODY_TEXT,
 } from "@/lib/cart-recovery/recommended";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 // POST — cria 1 template UTILITY genérico ("{{1}}\n\n{{2}}") na Meta,
 // armazena em wa_templates, e linka todos os steps de WhatsApp da régua
@@ -37,19 +22,7 @@ function createSupabase(request: NextRequest) {
 // Body do request: { apply_to_steps?: boolean } (default true)
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json().catch(() => ({}));
     const applyToSteps = body.apply_to_steps !== false;
@@ -165,7 +138,6 @@ export async function POST(request: NextRequest) {
           : "Template enviado pra Meta. Aprovação costuma sair em minutos. Quando aprovar, a régua começa a disparar automaticamente.",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

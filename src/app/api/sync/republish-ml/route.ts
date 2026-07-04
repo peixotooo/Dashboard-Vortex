@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct } from "@/types/hub";
@@ -13,9 +14,11 @@ export const maxDuration = 120;
  * Body: { skus: string[], listing_type_id: string }
  */
 export async function POST(req: NextRequest) {
-  const workspaceId = req.headers.get("x-workspace-id");
-  if (!workspaceId) {
-    return NextResponse.json({ error: "workspace_id required" }, { status: 401 });
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await getWorkspaceContext(req));
+  } catch (error) {
+    return handleAuthError(error);
   }
 
   const body = await req.json();
@@ -171,11 +174,14 @@ export async function POST(req: NextRequest) {
   };
 
   const origin = req.nextUrl.origin;
+  // Forward the caller's session cookie so push-ml's membership guard
+  // (getWorkspaceContext) authorizes this internal request.
   const pushRes = await fetch(`${origin}/api/sync/push-ml`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-workspace-id": workspaceId,
+      ...(req.headers.get("cookie") ? { cookie: req.headers.get("cookie")! } : {}),
     },
     body: JSON.stringify(pushBody),
   });

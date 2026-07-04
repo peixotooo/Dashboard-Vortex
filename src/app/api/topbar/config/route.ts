@@ -1,34 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, AuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { packCountdownSpacing } from "@/lib/topbar/countdown-spacing";
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
+// Verifica sessão + membership no workspace (getWorkspaceContext) e devolve
+// o workspaceId confiável. Não confia no header x-workspace-id cru.
 async function authorize(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", status: 401 as const };
-
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return { error: "Workspace not specified", status: 400 as const };
-
-  return { user, workspaceId };
+  try {
+    const { workspaceId } = await getWorkspaceContext(request);
+    return { workspaceId };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { error: error.message, status: error.status };
+    }
+    return { error: "Internal server error", status: 500 as const };
+  }
 }
 
 export async function GET(request: NextRequest) {

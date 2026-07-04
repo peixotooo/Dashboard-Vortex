@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   createGroupPool,
@@ -7,57 +7,22 @@ import {
   slugifyGroupPool,
 } from "@/lib/whatsapp/group-pools";
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
-
-async function authenticate(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", status: 401 as const };
-
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return { error: "Workspace not specified", status: 400 as const };
-
-  return { user, workspaceId };
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const auth = await authenticate(request);
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const admin = createAdminClient();
-    const pools = await listGroupPools(admin, auth.workspaceId, request.nextUrl.origin);
+    const pools = await listGroupPools(admin, workspaceId, request.nextUrl.origin);
 
     return NextResponse.json({ pools });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await authenticate(request);
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json();
     const name = String(body.name || "").trim();
@@ -84,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createAdminClient();
-    await createGroupPool(admin, auth.workspaceId, {
+    await createGroupPool(admin, workspaceId, {
       name,
       slug,
       matchPattern: matchPattern || null,
@@ -93,11 +58,10 @@ export async function POST(request: NextRequest) {
       active: true,
       groupOverrides: {},
     });
-    const pools = await listGroupPools(admin, auth.workspaceId, request.nextUrl.origin);
+    const pools = await listGroupPools(admin, workspaceId, request.nextUrl.origin);
 
     return NextResponse.json({ pools });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

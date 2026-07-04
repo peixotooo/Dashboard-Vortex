@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createTemplateOnMeta, getWaConfig } from "@/lib/whatsapp-api";
 import {
@@ -7,21 +7,6 @@ import {
   UTILITY_TEMPLATE_EXAMPLE_BODY_TEXT,
   DEFAULT_VARIABLE_MAPPING,
 } from "@/lib/gift-request/recommended";
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 // POST — cria template UTILITY genérico ("{{1}}\n\n{{2}}") na Meta, persiste
 // em wa_templates e (se apply_to_config=true, default) linka no
@@ -33,19 +18,7 @@ function createSupabase(request: NextRequest) {
 // variável de runtime.
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
+    const { workspaceId } = await getWorkspaceContext(request);
 
     const body = await request.json().catch(() => ({}));
     const applyToConfig = body.apply_to_config !== false;
@@ -152,7 +125,6 @@ export async function POST(request: NextRequest) {
           : "Template enviado pra Meta. Aprovação costuma sair em minutos.",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

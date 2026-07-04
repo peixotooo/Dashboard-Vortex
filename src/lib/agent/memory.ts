@@ -104,7 +104,9 @@ export async function searchMemories(
   accountId: string,
   query: string
 ): Promise<CoreMemory[]> {
-  const pattern = `%${query}%`;
+  // Sanitiza chars da gramática de filtro do PostgREST (vírgula/parênteses/
+  // wildcards) pra o termo não injetar condições OR extras.
+  const pattern = `%${query.replace(/[%_,().*]/g, "")}%`;
   const { data, error } = await supabase
     .from("agent_core_memory")
     .select("*")

@@ -1,50 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getCouponSettings } from "@/lib/coupons/settings";
 import { logCouponAudit } from "@/lib/coupons/audit";
 
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return request.cookies.getAll(); },
-        setAll() {},
-      },
-    }
-  );
-}
-
-async function authed(request: NextRequest) {
-  const supabase = createSupabase(request);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", status: 401 } as const;
-  const workspaceId = request.headers.get("x-workspace-id") || "";
-  if (!workspaceId) return { error: "Workspace not specified", status: 400 } as const;
-  return { user, workspaceId } as const;
-}
-
 export async function GET(request: NextRequest) {
-  const ctx = await authed(request);
-  if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("promo_coupon_plans")
-    .select("*")
-    .eq("workspace_id", ctx.workspaceId)
-    .order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ plans: data || [] });
+  try {
+    const { workspaceId } = await getWorkspaceContext(request);
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("promo_coupon_plans")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ plans: data || [] });
+  } catch (error) {
+    return handleAuthError(error);
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const ctx = await authed(request);
-  if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+  try {
+    const { workspaceId, userId } = await getWorkspaceContext(request);
 
-  const body = await request.json();
-  const settings = await getCouponSettings(ctx.workspaceId);
+    const body = await request.json();
+    const settings = await getCouponSettings(workspaceId);
 
   // Validations
   if (!body.name || typeof body.name !== "string") {
@@ -71,7 +52,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await admin
     .from("promo_coupon_plans")
     .insert({
-      workspace_id: ctx.workspaceId,
+      workspace_id: workspaceId,
       name: body.name,
       enabled: body.enabled ?? true,
       mode,
@@ -97,17 +78,20 @@ export async function POST(request: NextRequest) {
     playbook_run_id: typeof body.playbook_run_id === "string" ? body.playbook_run_id : null,
     playbook_name: typeof body.playbook_name === "string" ? body.playbook_name : null,
   };
-  await logCouponAudit({
-    workspaceId: ctx.workspaceId,
-    action: "plan_created",
-    actor: ctx.user.id,
-    planId: data.id,
-    details: {
-      name: data.name,
-      mode: data.mode,
-      target: data.target,
-      ...(playbookContext.playbook_run_id ? playbookContext : {}),
-    },
-  });
-  return NextResponse.json({ plan: data });
+    await logCouponAudit({
+      workspaceId: workspaceId,
+      action: "plan_created",
+      actor: userId,
+      planId: data.id,
+      details: {
+        name: data.name,
+        mode: data.mode,
+        target: data.target,
+        ...(playbookContext.playbook_run_id ? playbookContext : {}),
+      },
+    });
+    return NextResponse.json({ plan: data });
+  } catch (error) {
+    return handleAuthError(error);
+  }
 }

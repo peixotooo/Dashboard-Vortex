@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { listSavedCreatives, getSavedCreativeTiers } from "@/lib/agent/memory";
 
 function createSupabase(request: NextRequest) {
@@ -21,19 +22,8 @@ function createSupabase(request: NextRequest) {
 // GET /api/creatives/saved?tiers_only=true  (lightweight for frontend badges)
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId)
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
 
     const url = new URL(request.url);
 
@@ -57,8 +47,6 @@ export async function GET(request: NextRequest) {
     const creatives = await listSavedCreatives(supabase, workspaceId, filters);
     return NextResponse.json({ creatives, count: creatives.length });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

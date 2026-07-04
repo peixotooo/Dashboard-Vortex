@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 
 function createSupabase(request: NextRequest) {
   return createServerClient(
@@ -19,21 +20,8 @@ function createSupabase(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
 
     const { data: configs, error } = await supabase
       .from("shelf_configs")
@@ -48,28 +36,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ configs: configs || [] });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json(
-        { error: "Workspace not specified" },
-        { status: 400 }
-      );
-    }
 
     const body = await request.json();
     const { page_type, position, anchor_selector, algorithm, title, max_products, enabled, tags, price_min, price_max } = body;
@@ -124,7 +98,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ config: data }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAuthError(error);
   }
 }

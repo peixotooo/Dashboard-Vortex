@@ -13,7 +13,7 @@
 // falha, devolve 500 com a mensagem.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   recomputeAbcSnapshot,
@@ -26,21 +26,6 @@ import type { CrmVendaRow } from "@/lib/crm-rfm";
 export const maxDuration = 300;
 
 const PAGE_SIZE = 1000;
-
-function createSupabase(request: NextRequest) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-}
 
 function parsePeriodDays(value: string | null | undefined): number {
   const raw = String(value ?? "").trim();
@@ -55,18 +40,7 @@ function parsePeriodDays(value: string | null | undefined): number {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createSupabase(request);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const workspaceId = request.headers.get("x-workspace-id") || "";
-    if (!workspaceId) {
-      return NextResponse.json({ error: "Workspace not specified" }, { status: 400 });
-    }
+    const { workspaceId } = await getWorkspaceContext(request);
 
     let bodyPeriod: string | null = null;
     try {
@@ -122,6 +96,9 @@ export async function POST(request: NextRequest) {
       computedAt: new Date().toISOString(),
     });
   } catch (err) {
+    if (err && typeof err === "object" && "status" in err) {
+      return handleAuthError(err);
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[financeiro/abc/recompute] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
