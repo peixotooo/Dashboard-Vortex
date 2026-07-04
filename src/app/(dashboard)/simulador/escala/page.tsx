@@ -22,6 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency, datePresetToTimeRange } from "@/lib/utils";
 import { useAccount } from "@/lib/account-context";
 import { useWorkspace } from "@/lib/workspace-context";
+import { useChartTheme } from "@/hooks/use-chart-theme";
 
 // --- Types ---
 
@@ -111,9 +112,6 @@ export default function EscalaPage() {
   const { workspace } = useWorkspace();
   const [loading, setLoading] = useState(true);
   const [trendData, setTrendData] = useState<DailyRow[]>([]);
-  const [totalInvestment, setTotalInvestment] = useState(0);
-  const [vndaShipping, setVndaShipping] = useState(0);
-  const [vndaDiscount, setVndaDiscount] = useState(0);
   const [vndaConfigured, setVndaConfigured] = useState(false);
   const [ga4Configured, setGa4Configured] = useState(false);
   const [finSettings, setFinSettings] = useState<FinancialSettings>(FIN_DEFAULTS);
@@ -122,6 +120,7 @@ export default function EscalaPage() {
   const [simInvestTouched, setSimInvestTouched] = useState(false);
   const [cpsDecay, setCpsDecay] = useState(15);   // % inflacao CPS ao dobrar invest
   const [convDecay, setConvDecay] = useState(10);  // % queda TX Conv ao dobrar invest
+  const chart = useChartTheme();
 
   useEffect(() => {
     if (!accountId || accounts.length === 0 || !workspace?.id) return;
@@ -214,8 +213,6 @@ export default function EscalaPage() {
             revenue: (row.revenue as number) || 0,
           }));
         const vndaTotals = vndaData.totals || { orders: 0, revenue: 0, shipping: 0, discount: 0 };
-        setVndaShipping(vndaTotals.shipping || 0);
-        setVndaDiscount(vndaTotals.discount || 0);
 
         // Merge daily data
         const normDate = (raw: string) =>
@@ -265,8 +262,6 @@ export default function EscalaPage() {
         });
 
         setTrendData(trend);
-        // Total investment from last_30d (same as Overview)
-        setTotalInvestment(totalSpend + gadsTotalCost);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
       } finally {
@@ -323,17 +318,28 @@ export default function EscalaPage() {
     const totalInvestUntilYesterday = enrichedUntilYesterday.reduce((s, d) => s + d.totalSpend, 0);
     const totalEbitdaUntilYesterday = enrichedUntilYesterday.reduce((s, d) => s + d.ebitda, 0);
     const ebitdaPctUntilYesterday = totalReceitaUntilYesterday > 0 ? totalEbitdaUntilYesterday / totalReceitaUntilYesterday : 0;
-    const avgReceitaDia = daysWithData > 0 ? totalReceita / daysWithData : 0;
-    const avgInvestDia = daysWithData > 0 ? totalInvest / daysWithData : 0;
-    const diasRestantes = daysInMonth - daysWithData;
-    const projReceita = totalReceita + (avgReceitaDia * diasRestantes);
+
+    // --- Base "dias fechados": exclui hoje (parcial) de TODAS as medias/projecoes ---
+    const isPartialToday = hasTodayRow && daysUntilYesterday > 0;
+    const closedDays = isPartialToday ? daysUntilYesterday : daysWithData;
+    const closedReceita = isPartialToday ? totalReceitaUntilYesterday : totalReceita;
+    const closedInvest = isPartialToday ? totalInvestUntilYesterday : totalInvest;
+    const closedEbitda = isPartialToday ? totalEbitdaUntilYesterday : totalEbitda;
+    const closedEbitdaPct = isPartialToday ? ebitdaPctUntilYesterday : ebitdaPctGlobal;
+    const closedRows = isPartialToday ? enrichedUntilYesterday : enriched;
+    const closedSessions = closedRows.reduce((s, d) => s + d.sessions, 0);
+    const closedPedidos = closedRows.reduce((s, d) => s + d.pedidos, 0);
+
+    const avgReceitaDia = closedDays > 0 ? closedReceita / closedDays : 0;
+    const avgInvestDia = closedDays > 0 ? closedInvest / closedDays : 0;
+    const diasRestantes = Math.max(0, daysInMonth - closedDays);
+    const projReceita = closedReceita + (avgReceitaDia * diasRestantes);
     const avgRoas = totalInvest > 0 ? totalReceita / totalInvest : 0;
-    const totalSessions = enriched.reduce((s, d) => s + d.sessions, 0);
-    const totalPedidos = enriched.reduce((s, d) => s + d.pedidos, 0);
-    const avgTicket = totalPedidos > 0 ? totalReceita / totalPedidos : 0;
-    const avgTxConv = totalSessions > 0 ? (totalPedidos / totalSessions) * 100 : 0;
-    const avgCps = totalSessions > 0 ? totalInvest / totalSessions : 0;
-    const diasAbaixo = enriched.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
+    const mer = closedInvest > 0 ? closedReceita / closedInvest : 0;
+    const avgTicket = closedPedidos > 0 ? closedReceita / closedPedidos : 0;
+    const avgTxConv = closedSessions > 0 ? (closedPedidos / closedSessions) * 100 : 0;
+    const avgCps = closedSessions > 0 ? closedInvest / closedSessions : 0;
+    const diasAbaixo = closedRows.filter((d) => d.ebitdaPct < EBITDA_MIN).length;
 
     // --- META: top-down, FIXA no mês ---
     const seasonalityWeight = (monthly_seasonality?.[currentMonth] ?? 8.33) / 100;
@@ -362,7 +368,7 @@ export default function EscalaPage() {
       accReceita += d.revenue;
       accumData.push({ dia: i + 1, data: d.date, receitaAcum: accReceita, projecao: false });
     });
-    const avgDia = daysWithData > 0 ? accReceita / daysWithData : 0;
+    const avgDia = avgReceitaDia; // usa a media de dias fechados (exclui hoje parcial)
     for (let i = daysWithData + 1; i <= daysInMonth; i++) {
       accReceita += avgDia;
       accumData.push({ dia: i, data: `${String(i).padStart(2, "0")}/${currentMonthStr}`, receitaAcum: accReceita, projecao: true });
@@ -425,6 +431,13 @@ export default function EscalaPage() {
       totalInvest,
       totalEbitda,
       ebitdaPctGlobal,
+      isPartialToday,
+      closedDays,
+      closedReceita,
+      closedInvest,
+      closedEbitda,
+      closedEbitdaPct,
+      mer,
       hasTodayRow,
       daysUntilYesterday,
       totalReceitaUntilYesterday,
@@ -453,6 +466,7 @@ export default function EscalaPage() {
       accumData,
       simData,
       pontoOtimo,
+      validScenariosCount: validScenarios.length,
       progPE,
       progMeta,
       investMin,
@@ -513,6 +527,37 @@ export default function EscalaPage() {
   const peBarPct = barScale > 0 ? (calc.breakEven / barScale) * 100 : 0;
   const receitaBarPct = barScale > 0 ? (calc.totalReceita / barScale) * 100 : 0;
   const metaBarPct = barScale > 0 ? (calc.monthTarget / barScale) * 100 : 0;
+  // PE e Meta muito proximos → escalona os rotulos p/ nao sobrepor
+  const labelsCollide = Math.abs(peBarPct - metaBarPct) < 8;
+
+  // --- Bandas de cor (contraste: borda + texto sempre do mesmo tom) ---
+  const BAND = {
+    success: { border: "border-success/20 bg-gradient-to-br from-success/10 to-success/[0.02]", text: "text-success", chip: "bg-success/10" },
+    warning: { border: "border-warning/20 bg-gradient-to-br from-warning/10 to-warning/[0.02]", text: "text-warning", chip: "bg-warning/10" },
+    destructive: { border: "border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/[0.02]", text: "text-destructive", chip: "bg-destructive/10" },
+  } as const;
+  type BandKey = keyof typeof BAND;
+
+  const ebitdaBand: BandKey = calc.closedEbitdaPct >= EBITDA_IDEAL ? "success" : calc.closedEbitdaPct >= EBITDA_MIN ? "warning" : "destructive";
+  const merBand: BandKey = calc.mer >= 1.8 ? "success" : calc.mer >= 1.4 ? "warning" : "destructive";
+
+  // --- Bloco heroi: a UNICA resposta ("quanto posso investir hoje?") ---
+  const rec = calc.pontoOtimo;
+  const noSolution = calc.validScenariosCount === 0;
+  const canScale = rec != null && rec.invest > calc.avgInvestDia * 1.1 && calc.closedEbitdaPct >= EBITDA_MIN;
+  const mustRetreat = calc.closedEbitdaPct < EBITDA_MIN || noSolution;
+  const decision: "ESCALAR" | "RECUAR" | "MANTER" = canScale ? "ESCALAR" : mustRetreat ? "RECUAR" : "MANTER";
+  const decisionBand: BandKey = decision === "ESCALAR" ? "success" : decision === "RECUAR" ? "destructive" : "warning";
+  const DecisionIcon = decision === "ESCALAR" ? TrendingUp : decision === "RECUAR" ? Target : CheckCircle2;
+  const decisionSub =
+    decision === "ESCALAR"
+      ? `pode subir de ${fmtInt(calc.avgInvestDia)}/dia para ~${rec ? fmtInt(rec.invest) : "—"}/dia`
+      : decision === "RECUAR"
+      ? noSolution
+        ? "sem cenario >=8% na faixa simulada — reduzir spend"
+        : "EBITDA abaixo de 8% — reduzir spend"
+      : `perto do otimo, manter ~${fmtInt(calc.avgInvestDia)}/dia`;
+  const decisionEbitdaProj = rec ? rec.ebitdaPct : calc.closedEbitdaPct;
 
   return (
     <div className="space-y-5">
@@ -533,6 +578,46 @@ export default function EscalaPage() {
         </p>
       </div>
 
+      {/* Bloco heroi — a UNICA resposta primeiro */}
+      <Card className={BAND[decisionBand].border}>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-6">
+            <div className="flex items-center gap-3">
+              <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${BAND[decisionBand].chip} ${BAND[decisionBand].text}`}>
+                <DecisionIcon className="h-6 w-6" />
+              </span>
+              <div>
+                <p className={`text-[10px] font-bold uppercase tracking-[1.5px] ${BAND[decisionBand].text}`}>
+                  Quanto investir hoje?
+                </p>
+                <p className={`text-3xl font-black leading-none mt-1 ${BAND[decisionBand].text}`}>{decision}</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground lg:border-l lg:border-border/40 lg:pl-6 lg:max-w-[220px]">
+              {decisionSub}
+            </p>
+            <div className="grid grid-cols-3 gap-4 lg:ml-auto">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[1px] text-muted-foreground mb-1">Investindo</p>
+                <p className="text-base font-black text-foreground leading-none">{fmtInt(calc.avgInvestDia)}<span className="text-[10px] text-muted-foreground">/dia</span></p>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[1px] text-muted-foreground mb-1">Recomendado</p>
+                <p className={`text-base font-black leading-none ${BAND[decisionBand].text}`}>
+                  {rec && !noSolution ? <>{fmtInt(rec.invest)}<span className="text-[10px] text-muted-foreground">/dia</span></> : "recuar"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[1px] text-muted-foreground mb-1">EBITDA proj.</p>
+                <p className={`text-base font-black leading-none ${decisionEbitdaProj >= EBITDA_IDEAL ? "text-success" : decisionEbitdaProj >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
+                  {pct(decisionEbitdaProj)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 4 KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/[0.02]">
@@ -543,37 +628,60 @@ export default function EscalaPage() {
           </CardContent>
         </Card>
 
-        <Card className={calc.ebitdaPctGlobal >= EBITDA_MIN ? "border-success/20 bg-gradient-to-br from-success/10 to-success/[0.02]" : "border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/[0.02]"}>
+        {/* EBITDA combinado: % primario + R$ secundario */}
+        <Card className={BAND[ebitdaBand].border}>
           <CardContent className="pt-5 pb-4">
-            <p className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-success" : "text-destructive"}`}>
+            <p className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${BAND[ebitdaBand].text}`}>
               EBITDA % Periodo <MetricInfo k="ebitda" />
             </p>
-            <p className={`text-2xl font-black leading-none ${calc.ebitdaPctGlobal >= EBITDA_IDEAL ? "text-success" : calc.ebitdaPctGlobal >= EBITDA_MIN ? "text-warning" : "text-destructive"}`}>
-              {pct(calc.ebitdaPctGlobal)}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-2">{fmtInt(calc.totalEbitda)} em {calc.daysWithData} dias</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-purple-500/[0.02]">
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-purple-500 mb-2">EBITDA R$ Acum.</p>
-            <p className={`text-2xl font-black leading-none ${calc.totalEbitda >= 0 ? "text-purple-500" : "text-destructive"}`}>
-              {fmtInt(calc.totalEbitda)}
+            <p className={`text-2xl font-black leading-none ${BAND[ebitdaBand].text}`}>
+              {pct(calc.closedEbitdaPct)}
             </p>
             <p className="text-[11px] text-muted-foreground mt-2">
+              {fmtInt(calc.closedEbitda)} em {calc.closedDays} dias
+              {calc.isPartialToday && <span className="text-muted-foreground/70"> · hoje parcial à parte</span>}
+            </p>
+            <p className="text-[10px] text-muted-foreground/80 mt-0.5">
               {calc.diasAbaixo > 0 ? `${calc.diasAbaixo} dia(s) abaixo de 8%` : "todos os dias acima de 8%"}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="border-warning/20 bg-gradient-to-br from-warning/10 to-warning/[0.02]">
+        {/* MER blended — bussola do media buyer */}
+        <Card className={BAND[merBand].border}>
           <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-bold uppercase tracking-[1.5px] text-warning mb-2">Invest. Otimo (Max Receita c/ 8%)</p>
-            <p className="text-2xl font-black text-warning leading-none">
-              {calc.pontoOtimo ? fmtInt(calc.pontoOtimo.invest) : "—"}<span className="text-sm text-muted-foreground">/dia</span>
+            <p className={`text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${BAND[merBand].text}`}>MER (receita real ÷ midia)</p>
+            <p className={`text-2xl font-black leading-none ${BAND[merBand].text}`}>
+              {calc.mer > 0 ? `${calc.mer.toFixed(1)}×` : "—"}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-2">atual: {fmtInt(calc.avgInvestDia)}/dia</p>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              breakeven ~1,8× · {calc.mer >= 1.8 ? "saudavel" : calc.mer >= 1.4 ? "apertado" : "abaixo"}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Invest Otimo — com estados de fronteira / sem solucao */}
+        <Card className={noSolution ? BAND.destructive.border : "border-warning/20 bg-gradient-to-br from-warning/10 to-warning/[0.02]"}>
+          <CardContent className="pt-5 pb-4">
+            <p className={`text-[10px] font-bold uppercase tracking-[1.5px] mb-2 ${noSolution ? "text-destructive" : "text-warning"}`}>Invest. Otimo (Max Receita c/ 8%)</p>
+            {noSolution ? (
+              <>
+                <p className="text-2xl font-black text-destructive leading-none">recuar</p>
+                <p className="text-[11px] text-destructive/80 mt-2">sem cenario ≥8% na faixa · atual: {fmtInt(calc.avgInvestDia)}/dia</p>
+              </>
+            ) : rec && rec.invest === calc.investMax ? (
+              <>
+                <p className="text-2xl font-black text-warning leading-none">≥ {fmtInt(calc.investMax)}<span className="text-sm text-muted-foreground">/dia</span></p>
+                <p className="text-[11px] text-muted-foreground mt-2">fora da faixa · atual: {fmtInt(calc.avgInvestDia)}/dia</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-black text-warning leading-none">
+                  {rec ? fmtInt(rec.invest) : "—"}<span className="text-sm text-muted-foreground">/dia</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-2">atual: {fmtInt(calc.avgInvestDia)}/dia</p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -631,7 +739,7 @@ export default function EscalaPage() {
                 <>
                   <p className="text-lg font-black text-success">PE Atingido</p>
                   <p className="text-[11px] text-muted-foreground mt-1">
-                    Custos fixos cobertos — cada R$ 1 de receita extra gera R$ {calc.mcPosAdsPct.toFixed(2)} de lucro
+                    Custos fixos cobertos — margem de contribuição média: R$ {calc.mcPosAdsPct.toFixed(2)} por R$ 1 de receita
                   </p>
                 </>
               ) : (
@@ -683,7 +791,7 @@ export default function EscalaPage() {
             {/* Meta marker */}
             <div className="absolute top-0 h-full" style={{ left: `${metaBarPct}%` }}>
               <div className="h-full w-0.5 bg-blue-500" />
-              <span className="absolute -top-4 -translate-x-1/2 text-[9px] text-blue-500 font-bold whitespace-nowrap">Meta</span>
+              <span className={`absolute -translate-x-1/2 text-[9px] text-blue-500 font-bold whitespace-nowrap ${labelsCollide ? "-top-8" : "-top-4"}`}>Meta</span>
             </div>
             {/* Receita fill */}
             <div
@@ -716,9 +824,9 @@ export default function EscalaPage() {
             <div className="h-[220px]" style={{ overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={calc.accumData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
-                  <XAxis dataKey="dia" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="dia" tick={{ fill: chart.axis, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
                     allowEscapeViewBox={{ x: false, y: true }}
                     wrapperStyle={{ zIndex: 50 }}
@@ -735,10 +843,10 @@ export default function EscalaPage() {
                     }}
                   />
                   {calc.breakEven > 0 && (
-                    <ReferenceLine y={calc.breakEven} stroke="#ef4444" strokeDasharray="6 4" strokeWidth={2} label={{ value: "PE", fill: "#ef4444", fontSize: 10, position: "right" }} />
+                    <ReferenceLine y={calc.breakEven} stroke="#ef4444" strokeDasharray="6 4" strokeWidth={2} ifOverflow="extendDomain" label={{ value: "PE", fill: "#ef4444", fontSize: 10, position: "right" }} />
                   )}
                   {calc.monthTarget > 0 && (
-                    <ReferenceLine y={calc.monthTarget} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} label={{ value: "Meta", fill: "#3b82f6", fontSize: 10, position: "right" }} />
+                    <ReferenceLine y={calc.monthTarget} stroke="#3b82f6" strokeDasharray="6 4" strokeWidth={2} ifOverflow="extendDomain" label={{ value: "Meta", fill: "#3b82f6", fontSize: 10, position: "right" }} />
                   )}
                   <Area type="monotone" dataKey="receitaAcum" stroke="#22c55e" fill="rgba(34,197,94,0.1)" strokeWidth={2.5} name="Receita" />
                 </AreaChart>
@@ -761,9 +869,9 @@ export default function EscalaPage() {
             <div className="h-[220px]" style={{ overflow: "visible" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={calc.enriched} barSize={28}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
-                  <XAxis dataKey="date" tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#555", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
+                  <XAxis dataKey="date" tick={{ fill: chart.axis, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: chart.axis, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
                   <Tooltip
                     allowEscapeViewBox={{ x: false, y: true }}
                     wrapperStyle={{ zIndex: 50 }}
@@ -944,18 +1052,18 @@ export default function EscalaPage() {
               <div className="h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={calc.simData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} />
                     <XAxis
                       dataKey="invest"
-                      tick={{ fill: "#555", fontSize: 10 }}
+                      tick={{ fill: chart.axis, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`}
-                      label={{ value: "Investimento/dia", position: "insideBottom", offset: -5, fill: "#555", fontSize: 10 }}
+                      label={{ value: "Investimento/dia", position: "insideBottom", offset: -5, fill: chart.axis, fontSize: 10 }}
                     />
                     <YAxis
                       yAxisId="receita"
-                      tick={{ fill: "#555", fontSize: 10 }}
+                      tick={{ fill: chart.axis, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
@@ -963,7 +1071,7 @@ export default function EscalaPage() {
                     <YAxis
                       yAxisId="ebitda"
                       orientation="right"
-                      tick={{ fill: "#555", fontSize: 10 }}
+                      tick={{ fill: chart.axis, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
@@ -1010,9 +1118,9 @@ export default function EscalaPage() {
                         );
                       }}
                     />
-                    <ReferenceLine yAxisId="ebitda" y={EBITDA_IDEAL} stroke="#22c55e" strokeDasharray="6 4" label={{ value: "10%", fill: "#22c55e", fontSize: 10, position: "left" }} />
-                    <ReferenceLine yAxisId="ebitda" y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "left" }} />
-                    <ReferenceLine yAxisId="ebitda" y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} />
+                    <ReferenceLine yAxisId="ebitda" y={EBITDA_IDEAL} stroke="#22c55e" strokeDasharray="6 4" ifOverflow="extendDomain" label={{ value: "10%", fill: "#22c55e", fontSize: 10, position: "left" }} />
+                    <ReferenceLine yAxisId="ebitda" y={EBITDA_MIN} stroke="#f59e0b" strokeDasharray="6 4" ifOverflow="extendDomain" label={{ value: "8%", fill: "#f59e0b", fontSize: 10, position: "left" }} />
+                    <ReferenceLine yAxisId="ebitda" y={0} stroke="rgba(239,68,68,0.4)" strokeWidth={1.5} ifOverflow="extendDomain" />
                     {calc.avgInvestDia > 0 && (
                       <ReferenceLine x={Math.round(calc.avgInvestDia / calc.investStep) * calc.investStep} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: "ATUAL", fill: "#f59e0b", fontSize: 10, position: "top" }} />
                     )}
