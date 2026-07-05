@@ -29,9 +29,14 @@ const MAX_TOOL_ITERATIONS = 4;
 const MAX_REPLY_TOKENS = 700;
 const HISTORY_WINDOW = 12;
 
+// Widget de PDP (v1): haiku (validado na curva-A, não mexer).
 const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
+// Chat global (v2): base = GLM-5.2 via OpenRouter — mais barato que o haiku
+// (input $0.18 vs $1.00/M), 1M de contexto e bom em tool-calling. Sobrescrevível
+// por env se precisar voltar pro haiku (ASSISTANT_GLOBAL_MODEL=anthropic/claude-haiku-4.5).
+const DEFAULT_GLOBAL_MODEL = process.env.ASSISTANT_GLOBAL_MODEL || "z-ai/glm-5.2";
 // Modelo forte pra turnos difíceis (fechamento/look/comparação/objeção). Via
-// OpenRouter; sobrescrevível por env. Haiku roda a maior parte; Sonnet entra só
+// OpenRouter; sobrescrevível por env. Base roda a maior parte; Sonnet entra só
 // quando o turno é de dinheiro/decisão — melhor roteamento e menos erro.
 const DEFAULT_ESCALATION_MODEL =
   process.env.ASSISTANT_ESCALATION_MODEL || "anthropic/claude-sonnet-4.5";
@@ -134,7 +139,12 @@ export async function runAssistantTurn(opts: {
   // só no chat global E quando o turno é difícil (fechamento/look/comparação/
   // objeção). Se o workspace fixou um modelo (settings.model), respeita e NÃO
   // escala (override manual manda).
-  const baseModel = settings.model || process.env.ASSISTANT_MODEL || DEFAULT_MODEL;
+  // Base por superfície: v1 widget = haiku; chat global = GLM-5.2. Override
+  // manual (settings.model) ou env ASSISTANT_MODEL sempre vence.
+  const baseModel =
+    settings.model ||
+    process.env.ASSISTANT_MODEL ||
+    (surface === "global" ? DEFAULT_GLOBAL_MODEL : DEFAULT_MODEL);
   // activeModel pode cair pro baseModel se o modelo forte falhar (fail-safe).
   let activeModel =
     !settings.model && surface === "global" && needsEscalation(userMessage, history)
