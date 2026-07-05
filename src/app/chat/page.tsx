@@ -10,6 +10,7 @@ import { validateApiKey } from "@/lib/shelves/api-key";
 import { getAssistantSettings } from "@/lib/assistant/settings";
 import { getVndaConfigAdmin } from "@/lib/vnda-api";
 import { getActiveKnowledge } from "@/lib/assistant/knowledge";
+import { getVitrine } from "@/lib/assistant/commerce";
 import ChatCommerce, { type ChatBootstrap } from "./ChatCommerce";
 
 export const runtime = "nodejs";
@@ -33,10 +34,13 @@ async function loadBootstrap(): Promise<ChatBootstrap | null> {
   const settings = await getAssistantSettings(auth.workspaceId);
   if (!settings.enabled || !settings.globalEnabled) return null;
 
-  // storeHost (checkout) + régua de brinde (barra de progresso) em paralelo.
-  const [vnda, knowledge] = await Promise.all([
+  // storeHost (checkout) + régua de brinde + MAIS VENDIDOS pro onboarding, em
+  // paralelo. O carrossel de mais vendidos aparece já na tela inicial pra o
+  // cliente entender na hora que o chat vende a loja toda.
+  const [vnda, knowledge, bestsellers] = await Promise.all([
     getVndaConfigAdmin(auth.workspaceId).catch(() => null),
     getActiveKnowledge(auth.workspaceId, "home").catch(() => null),
+    getVitrine(auth.workspaceId, "mais_vendidos", 8).catch(() => []),
   ]);
 
   const storeHost = vnda?.storeHost || "www.bulking.com.br";
@@ -52,6 +56,7 @@ async function loadBootstrap(): Promise<ChatBootstrap | null> {
     storeUrl: `https://${storeHost}`,
     whatsapp: WA_FALLBACK,
     giftSteps: knowledge?.giftBar?.active ? knowledge.giftBar.steps : [],
+    bestsellers,
   };
 }
 

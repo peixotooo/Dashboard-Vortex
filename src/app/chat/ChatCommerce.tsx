@@ -24,6 +24,10 @@ import {
   BadgePercent,
   MessageCircle,
   Trash2,
+  Flame,
+  Shirt,
+  Venus,
+  Wand2,
 } from "lucide-react";
 
 // ---- Tipos (espelho de AssistantBlock, lado cliente) ----
@@ -37,7 +41,19 @@ export interface ChatBootstrap {
   storeUrl: string;
   whatsapp: string;
   giftSteps: Array<{ threshold: number; gift: string }>;
+  /** Mais vendidos pré-carregados pro onboarding (carrossel na tela inicial). */
+  bestsellers?: ProductCard[];
 }
+
+// Atalhos de categoria do onboarding: cada um manda uma pergunta pro assistente.
+const ONBOARDING_SHORTCUTS: Array<{ label: string; query: string; icon: React.ReactNode }> = [
+  { label: "Mais vendidos", query: "Quais são os mais vendidos?", icon: <Flame className="h-4 w-4" /> },
+  { label: "Lançamentos", query: "Me mostra os lançamentos", icon: <Sparkles className="h-4 w-4" /> },
+  { label: "Camisetas", query: "Me mostra as camisetas", icon: <Shirt className="h-4 w-4" /> },
+  { label: "Feminino", query: "Quero ver a linha feminina", icon: <Venus className="h-4 w-4" /> },
+  { label: "Promoções", query: "Quais as promoções de hoje?", icon: <BadgePercent className="h-4 w-4" /> },
+  { label: "Montar um look", query: "Me ajuda a montar um look", icon: <Wand2 className="h-4 w-4" /> },
+];
 
 interface ProductCard {
   id: string;
@@ -925,12 +941,14 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
             <WelcomeHero
               welcome={welcome}
               suggestions={suggestions}
-              askName={askName && !nameAsked}
               pendingIntent={pendingIntent}
               name={name}
               setName={setName}
               onConfirmName={confirmName}
               onPick={startWith}
+              bestsellers={bootstrap.bestsellers || []}
+              onProductView={openProductDetail}
+              onProductAdd={(p) => addToCart(p, null)}
             />
           ) : (
             messages.map((m) =>
@@ -1139,73 +1157,130 @@ function ProductCardView({
 function WelcomeHero({
   welcome,
   suggestions,
-  askName,
   pendingIntent,
   name,
   setName,
   onConfirmName,
   onPick,
+  bestsellers,
+  onProductView,
+  onProductAdd,
 }: {
   welcome: string;
   suggestions: string[];
-  askName: boolean;
   pendingIntent: string | null;
   name: string;
   setName: (s: string) => void;
   onConfirmName: () => void;
   onPick: (s: string) => void;
+  bestsellers: ProductCard[];
+  onProductView: (p: ProductCard) => void;
+  onProductAdd: (p: ProductCard) => void;
 }) {
-  return (
-    <div className="pt-6 pb-2">
-      <div className="h-12 w-12 rounded-2xl bg-white text-neutral-900 flex items-center justify-center font-black text-xl mb-4">
-        B
-      </div>
-      <h1 className="text-[22px] font-bold text-white leading-tight mb-2">
-        {name ? `Fala, ${name.split(" ")[0]}!` : "Bem-vindo à Bulking"}
-      </h1>
-      <p className="text-[15px] text-neutral-300 leading-relaxed mb-5">{welcome}</p>
-
-      {askName || pendingIntent ? (
+  // Pediu o nome só quando o cliente ENGAJA (tem uma intenção pendente) — a tela
+  // inicial mostra valor primeiro (atalhos + mais vendidos), sem gate na cara.
+  if (pendingIntent) {
+    return (
+      <div className="pt-6 pb-2">
+        <div className="h-12 w-12 rounded-2xl bg-white text-neutral-900 flex items-center justify-center font-black text-xl mb-4">
+          B
+        </div>
+        <h1 className="text-[22px] font-bold text-white leading-tight mb-2">Só uma coisa antes…</h1>
+        <p className="text-[15px] text-neutral-300 leading-relaxed mb-5">
+          Como posso te chamar? Assim o atendimento fica mais pessoal. (opcional)
+        </p>
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-          <p className="text-[13.5px] text-neutral-300">Como posso te chamar?</p>
           <div className="flex gap-2">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && name.trim()) onConfirmName();
+                if (e.key === "Enter") onConfirmName();
               }}
-              placeholder="Seu nome"
+              placeholder="Seu primeiro nome"
               maxLength={40}
+              autoFocus
               className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2.5 text-[15px] text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/30"
             />
             <button
               onClick={onConfirmName}
-              disabled={!name.trim()}
-              className="rounded-xl bg-white text-neutral-900 px-4 text-[14px] font-semibold disabled:opacity-40"
+              className="rounded-xl bg-white text-neutral-900 px-4 text-[14px] font-semibold"
             >
-              Ok
+              Continuar
             </button>
           </div>
           <button onClick={onConfirmName} className="text-[12.5px] text-neutral-500 hover:text-neutral-300">
             Pular
           </button>
         </div>
-      ) : (
-        suggestions.length > 0 && (
-          <div className="grid gap-2">
-            {suggestions.slice(0, 5).map((s) => (
-              <button
-                key={s}
-                onClick={() => onPick(s)}
-                className="w-full text-left rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-[14.5px] text-neutral-100 hover:bg-white/[0.06] hover:border-white/20 transition-colors flex items-center justify-between gap-2"
-              >
-                <span>{s}</span>
-                <ArrowRight className="h-4 w-4 text-neutral-500 shrink-0" />
-              </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-6 pb-2 space-y-6">
+      <div>
+        <div className="h-12 w-12 rounded-2xl bg-white text-neutral-900 flex items-center justify-center font-black text-xl mb-4">
+          B
+        </div>
+        <h1 className="text-[22px] font-bold text-white leading-tight mb-2">
+          {name ? `Fala, ${name.split(" ")[0]}!` : "Bem-vindo à Bulking"}
+        </h1>
+        <p className="text-[15px] text-neutral-300 leading-relaxed">
+          {welcome} Escolhe por onde começar ou me diz o que procura, e eu monto tudo aqui no chat.
+        </p>
+      </div>
+
+      {/* Atalhos de categoria — onboarding: o cliente entende na hora o que dá pra fazer */}
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400 mb-2">Explorar</p>
+        <div className="grid grid-cols-2 gap-2">
+          {ONBOARDING_SHORTCUTS.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => onPick(s.query)}
+              className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[14px] text-neutral-100 hover:bg-white/[0.06] hover:border-white/20 transition-colors text-left"
+            >
+              <span className="text-neutral-400 shrink-0">{s.icon}</span>
+              <span className="truncate">{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Mais vendidos — já mostra produtos reais na abertura */}
+      {bestsellers.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400 px-0.5">
+            Mais vendidos agora
+          </p>
+          <div className="flex gap-3 overflow-x-auto -mx-1 px-1 pb-1 snap-x">
+            {bestsellers.map((p) => (
+              <ProductCardView
+                key={p.id}
+                p={p}
+                carousel
+                onAdd={() => onProductAdd(p)}
+                onView={() => onProductView(p)}
+              />
             ))}
           </div>
-        )
+        </div>
+      )}
+
+      {/* Sugestões custom do lojista (texto), se houver */}
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {suggestions.slice(0, 4).map((s) => (
+            <button
+              key={s}
+              onClick={() => onPick(s)}
+              className="rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-[12.5px] text-neutral-300 hover:bg-white/[0.06] hover:text-neutral-100 transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
