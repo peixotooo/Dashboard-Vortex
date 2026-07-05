@@ -1347,6 +1347,8 @@ function ProductDetailSheet({
   onAdd: (size: string | null) => void;
 }) {
   const [size, setSize] = useState<string | null>(null);
+  const sizeRef = useRef<HTMLDivElement>(null);
+  const [flashSize, setFlashSize] = useState(false);
   const p = view.data?.product;
   const reviews = view.data?.reviews || null;
   const benefits = view.data?.benefits || [];
@@ -1466,14 +1468,24 @@ function ProductDetailSheet({
 
           {/* Seletor de tamanho */}
           {hasSizes && (
-            <div>
-              <p className="text-[12px] text-neutral-400 mb-1.5">Tamanho</p>
+            <div
+              ref={sizeRef}
+              className={`rounded-2xl -mx-1 px-1 py-1 transition-all ${
+                flashSize ? "ring-2 ring-white/60 bg-white/[0.04]" : ""
+              }`}
+            >
+              <p className="text-[12px] text-neutral-400 mb-1.5">
+                Tamanho{flashSize && !size ? " · escolha um pra continuar" : ""}
+              </p>
               <div className="grid grid-cols-5 gap-2">
                 {sizes.map((s) => (
                   <button
                     key={s.size}
                     disabled={!s.available}
-                    onClick={() => setSize(s.size)}
+                    onClick={() => {
+                      setSize(s.size);
+                      setFlashSize(false);
+                    }}
                     className={`rounded-xl border py-2.5 text-[14px] font-semibold transition-colors ${
                       size === s.size
                         ? "bg-white text-neutral-900 border-white"
@@ -1492,9 +1504,18 @@ function ProductDetailSheet({
 
         <div className="border-t border-white/10 px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2 shrink-0">
           <button
-            onClick={() => onAdd(hasSizes ? size : null)}
-            disabled={hasSizes && !size}
-            className="w-full rounded-full bg-white text-neutral-900 py-3 text-[15px] font-bold flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-neutral-200 transition-colors"
+            onClick={() => {
+              // Sem tamanho escolhido: em vez de botão morto, ROLA até o seletor
+              // e destaca — o cliente vê onde escolher sem procurar.
+              if (hasSizes && !size) {
+                sizeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                setFlashSize(true);
+                window.setTimeout(() => setFlashSize(false), 1600);
+                return;
+              }
+              onAdd(hasSizes ? size : null);
+            }}
+            className="w-full rounded-full bg-white text-neutral-900 py-3 text-[15px] font-bold flex items-center justify-center gap-2 hover:bg-neutral-200 transition-colors"
           >
             <Plus className="h-4.5 w-4.5" />
             {hasSizes && !size ? "Escolha o tamanho" : "Adicionar à sacola"}
