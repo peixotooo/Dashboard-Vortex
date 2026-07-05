@@ -93,6 +93,22 @@ function brl(v: number | null | undefined): string {
   return `R$ ${v.toFixed(2).replace(".", ",")}`;
 }
 
+// UTMs em TODO link que sai pra loja (card, "ver na loja", handoff) pra o GA4
+// da loja atribuir a visita/compra ao chat.
+function withUtm(url: string, productId?: string): string {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set("utm_source", "chat");
+    u.searchParams.set("utm_medium", "assistant");
+    u.searchParams.set("utm_campaign", "chat_commerce");
+    if (productId) u.searchParams.set("utm_content", productId);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 // Faixa de valor (nunca o R$ cru no cliente — o valor real entra server-side
 // via webhook VNDA). Alinha com o value_bucket do funil de tracking.
 function valueBucket(v: number): string {
@@ -120,6 +136,35 @@ interface ResolveResult {
   sale_price: number | null;
   image_url: string | null;
   url: string | null;
+}
+
+interface ProductDetail {
+  id: string;
+  name: string;
+  url: string;
+  price: number | null;
+  sale_price: number | null;
+  available: boolean;
+  images: string[];
+  composition: string | null;
+  fit: string;
+  fabric: string;
+  shipping: string;
+  description: string | null;
+  sizes: Array<{ size: string; available: boolean }>;
+  size_guide: string | null;
+  badges: string[];
+}
+
+interface ProductDetailResponse {
+  product: ProductDetail;
+  reviews: {
+    average: number;
+    count: number;
+    highlights: Array<{ rating: number; body: string; author: string }>;
+  } | null;
+  benefits: string[];
+  cashback_percent: number;
 }
 
 function cardFromResolve(r: ResolveResult): ProductCard {
@@ -203,6 +248,12 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   const [cartOpen, setCartOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [sizePicker, setSizePicker] = useState<{ product: ProductCard; sizes: string[]; auto?: boolean } | null>(null);
+  // Detalhe de produto aberto no chat (galeria/medidas/avaliações/benefícios).
+  const [detailView, setDetailView] = useState<{
+    product: ProductCard;
+    data: ProductDetailResponse | null;
+    loading: boolean;
+  } | null>(null);
   // Intenção guardada quando pedimos o nome antes da primeira mensagem
   const [pendingIntent, setPendingIntent] = useState<string | null>(null);
   // Blocos [[carrinho]] cujo auto-add falhou (productId → motivo curto)
@@ -428,6 +479,35 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
     [publicKey, addResolvedToCart]
   );
 
+  // Abre o detalhe de produto no chat: registra o clique (funil) e busca os
+  // dados ricos (galeria, medidas, avaliações, benefícios).
+  const openProductDetail = useCallback(
+    async (product: ProductCard) => {
+      sendAssistantEvent("product_card_click", { product_id: product.id });
+      setDetailView({ product, data: null, loading: true });
+      try {
+        const res = await fetch("/api/assistant/product-detail", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: publicKey, product_id: product.id }),
+        });
+        const d = await res.json();
+        if (d.ok) {
+          setDetailView((cur) =>
+            cur && cur.product.id === product.id
+              ? { product, data: d as ProductDetailResponse, loading: false }
+              : cur
+          );
+        } else {
+          setDetailView((cur) => (cur && cur.product.id === product.id ? { ...cur, loading: false } : cur));
+        }
+      } catch {
+        setDetailView((cur) => (cur && cur.product.id === product.id ? { ...cur, loading: false } : cur));
+      }
+    },
+    [publicKey, sendAssistantEvent]
+  );
+
   const setQty = (sku: string, delta: number) =>
     setCart((prev) =>
       prev
@@ -491,8 +571,8 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
     // cookie de atribuição; shelves.js antigo (em cache) ignora sem quebrar.
     const atk = sessionId ? `&vtx_atk=${encodeURIComponent(sessionId)}` : "";
     const url = hash
-      ? `${storeUrl}/#vtx_cart=${encodeURIComponent(hash)}${atk}`
-      : `${storeUrl}/carrinho`;
+      ? withUtm(`${storeUrl}/#vtx_cart=${encodeURIComponent(hash)}${atk}`)
+      : withUtm(`${storeUrl}/carrinho`);
     window.location.href = url;
   }, [cart, cartSubtotal, storeUrl, sessionId, name, sendAssistantEvent]);
 
@@ -641,7 +721,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
                   p={p}
                   carousel={carousel}
                   onAdd={() => addToCart(p, null)}
-                  onView={() => sendAssistantEvent("product_card_click", { product_id: p.id })}
+                  onView={() => openProductDetail(p)}
                 />
               ))}
             </div>
@@ -924,6 +1004,20 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         </div>
       )}
 
+      {/* Detalhe de produto (galeria, medidas, avaliações, benefícios) */}
+      {detailView && (
+        <ProductDetailSheet
+          view={detailView}
+          storeHref={withUtm(detailView.product.url || storeUrl, detailView.product.id)}
+          onClose={() => setDetailView(null)}
+          onAdd={(size) => {
+            const prod = detailView.product;
+            setDetailView(null);
+            addToCart(prod, size);
+          }}
+        />
+      )}
+
       {/* Seletor de tamanho */}
       {sizePicker && (
         <SizePickerSheet
@@ -994,7 +1088,7 @@ function ProductCardView({
       className={`${carousel ? "w-40 shrink-0 snap-start" : "w-full flex gap-3"} rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden`}
     >
       <div className={carousel ? "" : "shrink-0"}>
-        <a href={p.url || "#"} target="_blank" rel="noopener noreferrer" onClick={onView}>
+        <button type="button" onClick={onView} className="block w-full text-left" aria-label={`Ver ${p.name}`}>
           {p.image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -1007,12 +1101,12 @@ function ProductCardView({
               sem foto
             </div>
           )}
-        </a>
+        </button>
       </div>
       <div className={`${carousel ? "p-2.5" : "flex-1 py-2.5 pr-2.5"} flex flex-col min-w-0`}>
-        <a href={p.url || "#"} target="_blank" rel="noopener noreferrer" className="min-w-0">
-          <p className="text-[12.5px] font-medium text-neutral-100 leading-tight line-clamp-2">{p.name}</p>
-        </a>
+        <button type="button" onClick={onView} className="min-w-0 text-left">
+          <p className="text-[12.5px] font-medium text-neutral-100 leading-tight line-clamp-2 hover:text-white">{p.name}</p>
+        </button>
         <div className="mt-1 mb-2">
           {hasSale && <span className="text-[11px] text-neutral-500 line-through mr-1">{brl(p.price)}</span>}
           <span className="text-[13.5px] font-bold text-white">
@@ -1148,6 +1242,184 @@ function SizePickerSheet({
               {s}
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductDetailSheet({
+  view,
+  storeHref,
+  onClose,
+  onAdd,
+}: {
+  view: { product: ProductCard; data: ProductDetailResponse | null; loading: boolean };
+  storeHref: string;
+  onClose: () => void;
+  onAdd: (size: string | null) => void;
+}) {
+  const [size, setSize] = useState<string | null>(null);
+  const p = view.data?.product;
+  const reviews = view.data?.reviews || null;
+  const benefits = view.data?.benefits || [];
+  const cashback = view.data?.cashback_percent || 0;
+  const card = view.product;
+
+  const price = p ? (p.sale_price ?? p.price) : effectivePrice(card);
+  const listPrice = p ? p.price : card.price;
+  const hasSale = p ? p.sale_price !== null && p.price !== null && p.sale_price < p.price : false;
+  const images = p?.images && p.images.length ? p.images : card.image_url ? [card.image_url] : [];
+  const sizes = p?.sizes || [];
+  const hasSizes = sizes.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60" />
+      <div
+        className="relative w-full sm:max-w-md bg-neutral-900 border-t sm:border border-white/10 rounded-t-3xl sm:rounded-3xl flex flex-col max-h-[92dvh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/10 shrink-0">
+          <p className="text-[15px] font-semibold text-white truncate pr-3">{p?.name || card.name}</p>
+          <button onClick={onClose} className="text-neutral-500 hover:text-white p-1 shrink-0" aria-label="Fechar">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Galeria */}
+          {images.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto -mx-1 px-1 snap-x">
+              {images.map((src, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={src}
+                  alt=""
+                  className="h-56 aspect-[3/4] object-cover rounded-xl shrink-0 snap-start bg-white/5"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Preço */}
+          <div className="flex items-baseline gap-2">
+            {hasSale && <span className="text-sm text-neutral-500 line-through">{brl(listPrice)}</span>}
+            <span className="text-[22px] font-bold text-white">
+              {price !== null && price !== undefined ? brl(price) : "Sob consulta"}
+            </span>
+          </div>
+
+          {/* Etiquetas */}
+          {p?.badges && p.badges.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {p.badges.map((b, i) => (
+                <span key={i} className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[11.5px] text-neutral-200">
+                  {b}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {view.loading && !p && (
+            <div className="flex items-center gap-2 text-[13px] text-neutral-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Carregando detalhes…
+            </div>
+          )}
+
+          {/* Descrição */}
+          {p?.description && (
+            <p className="text-[13.5px] text-neutral-300 leading-relaxed line-clamp-6">{p.description}</p>
+          )}
+
+          {/* Tabela de medidas */}
+          {p?.size_guide && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <p className="text-[12px] font-semibold text-neutral-300 mb-1.5">Tabela de medidas</p>
+              <pre className="text-[12px] text-neutral-300 whitespace-pre-wrap font-sans leading-snug">{p.size_guide}</pre>
+            </div>
+          )}
+
+          {/* Benefícios */}
+          {(benefits.length > 0 || cashback > 0) && (
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5 space-y-1.5">
+              {cashback > 0 && (
+                <div className="flex items-start gap-2 text-[13px] text-neutral-100">
+                  <Check className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <span><b>{cashback}% de cashback</b> pra próxima compra</span>
+                </div>
+              )}
+              {benefits.map((b, i) => (
+                <div key={i} className="flex items-start gap-2 text-[13px] text-neutral-100">
+                  <Check className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <span>{b}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Avaliações */}
+          {reviews && reviews.count > 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <Stars value={reviews.average} size={15} />
+                <span className="text-sm font-semibold text-white">{reviews.average.toFixed(1)}</span>
+                <span className="text-xs text-neutral-400">· {reviews.count} avaliações</span>
+              </div>
+              {reviews.highlights.map((h, i) => (
+                <div key={i} className="rounded-xl bg-white/[0.03] border border-white/5 p-2.5">
+                  <Stars value={h.rating} />
+                  <p className="text-[13px] text-neutral-200 mt-1 leading-snug">“{h.body}”</p>
+                  <p className="text-[11px] text-neutral-500 mt-1">— {h.author}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Seletor de tamanho */}
+          {hasSizes && (
+            <div>
+              <p className="text-[12px] text-neutral-400 mb-1.5">Tamanho</p>
+              <div className="grid grid-cols-5 gap-2">
+                {sizes.map((s) => (
+                  <button
+                    key={s.size}
+                    disabled={!s.available}
+                    onClick={() => setSize(s.size)}
+                    className={`rounded-xl border py-2.5 text-[14px] font-semibold transition-colors ${
+                      size === s.size
+                        ? "bg-white text-neutral-900 border-white"
+                        : s.available
+                        ? "border-white/15 bg-white/5 text-white hover:bg-white/10"
+                        : "border-white/5 bg-white/[0.02] text-neutral-600 line-through cursor-not-allowed"
+                    }`}
+                  >
+                    {s.size}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/10 px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2 shrink-0">
+          <button
+            onClick={() => onAdd(hasSizes ? size : null)}
+            disabled={hasSizes && !size}
+            className="w-full rounded-full bg-white text-neutral-900 py-3 text-[15px] font-bold flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-neutral-200 transition-colors"
+          >
+            <Plus className="h-4.5 w-4.5" />
+            {hasSizes && !size ? "Escolha o tamanho" : "Adicionar à sacola"}
+          </button>
+          <a
+            href={storeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full text-center text-[13px] text-neutral-400 hover:text-white py-1"
+          >
+            Ver na loja
+          </a>
         </div>
       </div>
     </div>

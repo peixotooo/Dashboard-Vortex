@@ -93,6 +93,8 @@ export interface AssistantProductDetails extends AssistantProductSummary {
   sizes: AssistantSizeAvailability[];
   /** Tabela de medidas REAL do produto (do popup da PDP), por molde, ou null. */
   sizeGuide: string | null;
+  /** Galeria de imagens (VNDA), ordenada; fallback [image_url]. */
+  images: string[];
 }
 
 export interface AssistantChatResult {

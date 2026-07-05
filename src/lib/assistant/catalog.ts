@@ -83,6 +83,19 @@ function detectFit(name: string): "oversized" | "regular" {
 // "bolso/utilitária", "moletom" casa "blusa de frio"). NÃO inventam produto:
 // se nenhum token casar em nome/tag, o produto continua fora do resultado.
 const TYPE_SYNONYMS: Record<string, string[]> = {
+  // Estilo "clean/minimalista" = linha BASIC da Bulking (peças lisas, sem
+  // estampa grande). Mapeia pra "basic" (aparece no nome dos básicos) pra não
+  // devolver as gráficas (HUSTLE etc.) quando o cliente pede algo clean.
+  clean: ["basic", "basica", "basico", "liso", "lisa"],
+  basic: ["basic", "basica", "basico", "liso"],
+  basica: ["basic", "basica", "basico", "liso"],
+  basico: ["basic", "basica", "basico", "liso"],
+  liso: ["basic", "liso", "lisa"],
+  lisa: ["basic", "liso", "lisa"],
+  minimalista: ["basic", "liso"],
+  minimal: ["basic", "liso"],
+  neutro: ["basic", "liso"],
+  neutra: ["basic", "liso"],
   cargo: ["cargo", "bolso", "utilitaria", "utilitario"],
   jogger: ["jogger", "calca"],
   calca: ["calca", "jogger", "legging"],
@@ -433,10 +446,34 @@ function variantsToSizes(variants: unknown[]): AssistantSizeAvailability[] {
     .map(([size, available]) => ({ size, available }));
 }
 
+// Extrai URLs de imagem do payload de produto da VNDA (campo images[], ordenado
+// por position). Dado público (aparece na PDP). Dedup + cap.
+function extractImages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const withPos = raw
+    .map((im) => {
+      const o = (im || {}) as { url?: unknown; position?: unknown };
+      const url = typeof o.url === "string" ? o.url.trim() : "";
+      const pos = Number.isFinite(Number(o.position)) ? Number(o.position) : 999;
+      return { url, pos };
+    })
+    .filter((x) => x.url);
+  withPos.sort((a, b) => a.pos - b.pos);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of withPos) {
+    if (seen.has(x.url)) continue;
+    seen.add(x.url);
+    out.push(x.url);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 async function fetchProductDetail(
   config: VndaConfig,
   productId: string
-): Promise<{ variants: unknown[]; description: string | null } | null> {
+): Promise<{ variants: unknown[]; description: string | null; images: string[] } | null> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${config.apiToken}`,
     Accept: "application/json",
@@ -458,10 +495,12 @@ async function fetchProductDetail(
       const json = (await res.json()) as {
         variants?: unknown[];
         description?: string;
+        images?: unknown;
       };
       return {
         variants: Array.isArray(json?.variants) ? json.variants : [],
         description: sanitizeDescription(json?.description),
+        images: extractImages(json?.images),
       };
     } catch {
       // tenta próxima URL; falha total → null (widget segue funcionando)
@@ -666,10 +705,11 @@ export async function getProductDetails(
   let sizes: AssistantSizeAvailability[] = [];
   let description: string | null = null;
   let sizeGuide: string | null = null;
+  let images: string[] = [];
   try {
     const config = await getVndaConfigAdmin(workspaceId);
-    // Detalhe (API v2: variantes+descrição) e tabela de medidas (banco, por
-    // molde) em paralelo — os dois cabem no mesmo cache de 90s.
+    // Detalhe (API v2: variantes+descrição+imagens) e tabela de medidas (banco,
+    // por molde) em paralelo — os dois cabem no mesmo cache de 90s.
     const [detail, guide] = await Promise.all([
       config ? fetchProductDetail(config, String(productId)) : Promise.resolve(null),
       readSizeGuide(workspaceId, moldeFromTags(row.tags)),
@@ -677,13 +717,17 @@ export async function getProductDetails(
     if (detail) {
       description = detail.description;
       sizes = variantsToSizes(detail.variants);
+      images = detail.images;
     }
     sizeGuide = guide;
   } catch {
     // VNDA/banco fora do ar → devolve o que temos do espelho
   }
 
-  const value = { ...summary, description, sizes, sizeGuide };
+  // Galeria: imagens da VNDA; fallback pro espelho (image_url) se vazio.
+  if (images.length === 0 && summary.image_url) images = [summary.image_url];
+
+  const value = { ...summary, description, sizes, sizeGuide, images };
   detailCache.set(key, { at: now, value });
   return value;
 }
