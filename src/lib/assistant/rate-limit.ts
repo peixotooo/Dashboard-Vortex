@@ -40,11 +40,35 @@ export function checkIpRateLimit(ipHash: string): boolean {
   return true;
 }
 
-/** Mensagens de user+assistant do workspace hoje (UTC) — cap de custo diário. */
-export async function getDailyMessageCount(workspaceId: string): Promise<number> {
+/**
+ * Mensagens de user+assistant do workspace hoje (UTC) — cap de custo diário.
+ *
+ * `surface` separa o orçamento: o chat global (v2) NÃO pode consumir a cota do
+ * widget de PDP (v1) e vice-versa. Cada superfície tem seu próprio teto, então
+ * uma rajada no /chat não derruba o assistente das páginas de produto.
+ *
+ * Resiliente à migration-132: se a coluna `surface` ainda não existir, a query
+ * filtrada falha e a gente cai na contagem sem filtro (comportamento pré-v2).
+ */
+export async function getDailyMessageCount(
+  workspaceId: string,
+  surface?: "pdp" | "global"
+): Promise<number> {
   const admin = createAdminClient();
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
+
+  if (surface) {
+    const { count, error } = await admin
+      .from("assistant_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("surface", surface)
+      .in("role", ["user", "assistant"])
+      .gte("created_at", startOfDay.toISOString());
+    if (!error) return count || 0;
+    // coluna ausente (migration pendente) → cai no fallback sem filtro
+  }
 
   const { count } = await admin
     .from("assistant_messages")

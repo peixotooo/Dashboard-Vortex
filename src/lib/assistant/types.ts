@@ -20,7 +20,47 @@ export interface AssistantSettings {
   askName: boolean;
   maxMessagesPerSession: number;
   dailyMessageCap: number;
+  /** Chat Commerce v2: modo global (página /chat vende a loja toda). */
+  globalEnabled: boolean;
+  globalWelcome: string;
+  globalSuggestions: string[];
 }
+
+// ---- Chat Commerce v2: blocos ricos ----
+// O harness devolve uma lista de blocos que a página /chat renderiza. Cada
+// bloco é 100% dado público de vitrine (mesma fronteira de segurança).
+
+export interface ReviewsBlockData {
+  scope: "product" | "store";
+  productName?: string;
+  average: number;
+  count: number;
+  highlights: Array<{ rating: number; body: string; author: string }>;
+}
+
+export interface BenefitsBlockData {
+  items: string[];
+  cashbackPercent: number;
+}
+
+export interface PromoBlockData {
+  lines: string[];
+}
+
+/** Produto que o modelo pediu pra adicionar à sacola (cliente resolve a variante). */
+export interface CartAddData {
+  productId: string;
+  size: string | null;
+}
+
+export type AssistantBlock =
+  | { type: "text"; text: string }
+  | { type: "products"; layout: "carousel" | "cards"; title?: string; products: AssistantProductCard[] }
+  | { type: "reviews"; data: ReviewsBlockData }
+  | { type: "benefits"; data: BenefitsBlockData }
+  | { type: "promo"; data: PromoBlockData }
+  | { type: "cart_add"; data: CartAddData }
+  | { type: "whatsapp" };
 
 /** Card de produto exibido no widget — só dados públicos da vitrine. */
 export interface AssistantProductCard {
@@ -62,6 +102,8 @@ export interface AssistantChatResult {
   showWhatsapp: boolean;
   /** Telemetria (persistida como role='tool', nunca replayada ao LLM). */
   toolLog: Array<{ name: string; input: unknown; ok: boolean }>;
+  /** Chat Commerce v2: blocos ricos ordenados pra página /chat (v1 ignora). */
+  blocks?: AssistantBlock[];
 }
 
 export interface AssistantHistoryMessage {

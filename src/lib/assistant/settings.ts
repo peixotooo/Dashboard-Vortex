@@ -39,6 +39,9 @@ export async function getAssistantSettings(
       askName: true,
       maxMessagesPerSession: DEFAULTS.maxMessagesPerSession,
       dailyMessageCap: DEFAULTS.dailyMessageCap,
+      globalEnabled: false,
+      globalWelcome: "",
+      globalSuggestions: [],
     };
   }
 
@@ -66,6 +69,14 @@ export async function getAssistantSettings(
       Number(data.daily_message_cap) > 0
         ? Number(data.daily_message_cap)
         : DEFAULTS.dailyMessageCap,
+    globalEnabled: data.global_enabled === true,
+    globalWelcome:
+      typeof data.global_welcome === "string" && data.global_welcome.trim()
+        ? data.global_welcome
+        : "Bem-vindo à Bulking. Sou seu assistente de compras: me diz o que você procura, ou toca numa sugestão aqui embaixo.",
+    globalSuggestions: Array.isArray(data.global_suggestions)
+      ? (data.global_suggestions as unknown[]).filter((s) => typeof s === "string").slice(0, 6) as string[]
+      : ["O que tem de mais vendido?", "Camiseta oversized preta", "Tem cupom hoje?", "Me ajuda a escolher um look"],
   };
 }
 

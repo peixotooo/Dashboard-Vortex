@@ -152,6 +152,16 @@ export async function PUT(request: NextRequest) {
         .map((s) => (s as string).slice(0, 80))
         .slice(0, 4);
     }
+    // Chat Commerce v2 (modo global / página /chat)
+    if (typeof body.global_enabled === "boolean") update.global_enabled = body.global_enabled;
+    if (typeof body.global_welcome === "string")
+      update.global_welcome = body.global_welcome.slice(0, 400);
+    if (Array.isArray(body.global_suggestions)) {
+      update.global_suggestions = body.global_suggestions
+        .filter((s) => typeof s === "string" && s.trim())
+        .map((s) => (s as string).slice(0, 80))
+        .slice(0, 6);
+    }
     if (typeof body.store_info === "string")
       update.store_info = body.store_info.slice(0, 4000);
     if (typeof body.institutional_kb === "string")

@@ -459,6 +459,42 @@ export async function getSizeAvailability(
   return sizes;
 }
 
+// --- Variantes p/ carrinho do Chat Commerce v2 ---
+// SKU de variante é dado PÚBLICO (aparece no <form add-to-cart> de toda PDP da
+// loja). É o que a VNDA precisa pra POST /carrinho/adicionar. Continuamos SEM
+// expor quantidade: só o SKU e o boolean available.
+
+export interface CartVariant {
+  sku: string;
+  size: string | null;
+  available: boolean;
+}
+
+/** SKUs de variante por tamanho, pra montar o carrinho no chat (add-to-cart VNDA). */
+export async function getCartVariants(
+  workspaceId: string,
+  productId: string
+): Promise<CartVariant[]> {
+  try {
+    const config = await getVndaConfigAdmin(workspaceId);
+    if (!config) return [];
+    const detail = await fetchProductDetail(config, String(productId));
+    if (!detail) return [];
+    const out: CartVariant[] = [];
+    const seen = new Set<string>();
+    for (const raw of detail.variants) {
+      const v = unwrapVariant(raw);
+      const sku = typeof v.sku === "string" ? v.sku.trim() : "";
+      if (!sku || seen.has(sku)) continue;
+      seen.add(sku);
+      out.push({ sku, size: extractSize(v), available: variantHasStock(v) });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Normaliza o tamanho digitado pelo cliente (ex.: "gg", "eg") pro padrão. */
 export function normalizeSize(raw: string): string | null {
   const s = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
