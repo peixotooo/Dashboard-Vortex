@@ -149,6 +149,23 @@ interface NegativeFeedbackItem {
   created_at: string;
 }
 
+interface FunnelData {
+  window_days: number;
+  steps: {
+    sessions: number;
+    viewed_product: number;
+    added_to_cart: number;
+    checkout: number;
+    purchased: number;
+  };
+  rates: { atc_rate: number; handoff_rate: number; conversion_rate: number };
+  revenue_confirmed: number;
+  orders_confirmed: number;
+  avg_ticket: number;
+  pending_attribution: number;
+  top_products: Array<{ sku: string; name: string; orders: number; revenue: number }>;
+}
+
 interface DashboardData {
   kpis: DashboardKpis;
   daily: DailyPoint[];
@@ -156,6 +173,7 @@ interface DashboardData {
   top_products: TopProduct[];
   hourly: HourlyPoint[];
   negative_feedback: NegativeFeedbackItem[];
+  funnel?: FunnelData | null;
 }
 
 interface AdminResponse {
@@ -240,6 +258,14 @@ function formatNumber(n: number): string {
 
 function formatDecimal(n: number): string {
   return n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
+function formatBRL(n: number): string {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatPct(fraction: number): string {
+  return `${(fraction * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
 function truncateUrl(url: string | null): string {
@@ -542,6 +568,9 @@ export default function AssistentePage() {
   const topProducts = dashboard?.top_products ?? [];
   const maxProd = Math.max(1, ...topProducts.map((p) => p.conversations));
 
+  // --- Funil de conversão (Chat Commerce) ---
+  const funnel = dashboard?.funnel ?? null;
+
   const hourlyRaw = dashboard?.hourly ?? [];
   const hasHourly = hourlyRaw.some((h) => h.count > 0);
   const hourlyData = Array.from({ length: 24 }, (_, hour) => {
@@ -568,6 +597,7 @@ export default function AssistentePage() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Visão geral</TabsTrigger>
+          <TabsTrigger value="funil">Funil</TabsTrigger>
           <TabsTrigger value="conversas">Conversas</TabsTrigger>
           <TabsTrigger value="config">Configuração</TabsTrigger>
         </TabsList>
@@ -939,6 +969,171 @@ export default function AssistentePage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ==================== TAB: Funil de conversão ==================== */}
+        <TabsContent value="funil" className="space-y-6">
+          {!funnel || funnel.steps.sessions === 0 ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">
+                  Sem dados de funil ainda.
+                </p>
+                <p>
+                  O funil mede a conversão real do Chat Commerce (/chat): sessão →
+                  viu produto → adicionou à sacola → checkout → compra, com a
+                  receita real vinda do webhook da VNDA.
+                </p>
+                <p>
+                  Para ativar: aplique a migration <code>133-assistant-funnel</code>{" "}
+                  e deixe o chat receber conversas. Os números aparecem aqui em
+                  seguida.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* KPIs de conversão */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-3xl font-bold">
+                      {formatNumber(funnel.steps.sessions)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Sessões engajadas ({funnel.window_days}d)
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-3xl font-bold">
+                      {formatPct(funnel.rates.atc_rate)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Adicionou à sacola
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-3xl font-bold">
+                      {formatPct(funnel.rates.conversion_rate)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Conversão sessão → pedido
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-3xl font-bold">
+                      {formatBRL(funnel.revenue_confirmed)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Receita atribuída (real)
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {formatNumber(funnel.orders_confirmed)} pedidos
+                      {funnel.pending_attribution > 0
+                        ? ` · ${formatNumber(funnel.pending_attribution)} aguardando`
+                        : ""}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-3xl font-bold">
+                      {formatBRL(funnel.avg_ticket)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Ticket médio (chat)
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Funil visual */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Funil de conversão ({funnel.window_days} dias)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(() => {
+                    const s = funnel.steps;
+                    const base = Math.max(1, s.sessions);
+                    const rows: Array<{ label: string; value: number; hint?: string }> = [
+                      { label: "Sessões engajadas", value: s.sessions },
+                      { label: "Viu produto", value: s.viewed_product },
+                      { label: "Adicionou à sacola", value: s.added_to_cart },
+                      { label: "Foi ao checkout", value: s.checkout },
+                      { label: "Comprou", value: s.purchased },
+                    ];
+                    return rows.map((r) => {
+                      const pct = Math.round((r.value / base) * 100);
+                      return (
+                        <div key={r.label} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span>{r.label}</span>
+                            <span className="tabular-nums text-muted-foreground">
+                              {formatNumber(r.value)} · {pct}%
+                            </span>
+                          </div>
+                          <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-primary transition-all"
+                              style={{ width: `${Math.min(100, pct)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Taxa de handoff (checkout ÷ sacola): {formatPct(funnel.rates.handoff_rate)}.
+                    Receita confirmada pelo webhook da VNDA (valor real, não estimado).
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Top produtos que converteram */}
+              {funnel.top_products.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      Produtos que mais converteram no chat
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {funnel.top_products.map((p) => {
+                        const maxRev = Math.max(1, ...funnel.top_products.map((x) => x.revenue));
+                        return (
+                          <div key={p.sku} className="space-y-1">
+                            <div className="flex items-center justify-between text-sm gap-3">
+                              <span className="truncate">{p.name}</span>
+                              <span className="tabular-nums text-muted-foreground shrink-0">
+                                {formatBRL(p.revenue)} · {formatNumber(p.orders)}{" "}
+                                {p.orders === 1 ? "pedido" : "pedidos"}
+                              </span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-primary/70"
+                                style={{ width: `${Math.round((p.revenue / maxRev) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
         </TabsContent>
 
         {/* ==================== TAB 2: Conversas ==================== */}
