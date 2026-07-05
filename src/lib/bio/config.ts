@@ -141,6 +141,27 @@ export function normalizeBioBlocks(value: unknown): BioBlockConfig[] {
     .filter((block): block is BioBlockConfig => Boolean(block));
 }
 
+// Garante o bloco de chat na bio: se a config (do DB) ainda não tem um bloco
+// "chat", injeta um logo após o hero. Assim o link do chat.bulking.com.br
+// aparece na bio SEM o lojista precisar mexer no editor. Se ele NÃO quiser,
+// basta deixar um bloco chat desabilitado (isso já conta como "tem chat" e
+// para de injetar). Deletar por completo faz reaparecer (opt-out = desabilitar).
+function ensureChatBlock(blocks: BioBlockConfig[]): BioBlockConfig[] {
+  if (blocks.some((block) => block.type === "chat")) return blocks;
+  const chat: BioBlockConfig = {
+    id: "chat",
+    type: "chat",
+    enabled: true,
+    title: "Comprar pelo chat",
+    subtitle: "Fale com o assistente e monte sua sacola em segundos.",
+    cta_label: "Abrir chat",
+    url: "https://chat.bulking.com.br",
+  };
+  const heroIdx = blocks.findIndex((block) => block.type === "hero");
+  const at = heroIdx >= 0 ? heroIdx + 1 : 0;
+  return [...blocks.slice(0, at), chat, ...blocks.slice(at)];
+}
+
 export function normalizeBioConfig(row: Partial<BioConfigRow> | null, workspaceId: string): BioPageConfig {
   const fallback = getDefaultBioConfig(workspaceId);
   if (!row) return fallback;
@@ -156,7 +177,7 @@ export function normalizeBioConfig(row: Partial<BioConfigRow> | null, workspaceI
     subtitle: cleanText(row.subtitle, fallback.subtitle),
     avatar_url: cleanText(row.avatar_url) || null,
     default_utm_campaign: cleanText(row.default_utm_campaign, BIO_DEFAULT_UTM_CAMPAIGN),
-    blocks: normalizeBioBlocks(row.blocks),
+    blocks: ensureChatBlock(normalizeBioBlocks(row.blocks)),
     theme: normalizeTheme(row.theme),
     updated_at: row.updated_at || null,
   };
