@@ -43,6 +43,7 @@ const BLOCK_TYPES: Array<{ value: BioBlockType; label: string }> = [
   { value: "hero", label: "Hero/oferta" },
   { value: "products", label: "Produtos" },
   { value: "categories", label: "Categorias" },
+  { value: "chat", label: "Chat / Assistente" },
   { value: "group", label: "Grupo WhatsApp" },
   { value: "club", label: "Bulking Club" },
   { value: "shipping", label: "Frete/beneficio" },
@@ -97,6 +98,18 @@ function makeBlock(type: BioBlockType): BioBlockConfig {
       title: "Avaliacoes",
       subtitle: "",
       limit: 5,
+    };
+  }
+  if (type === "chat") {
+    return {
+      id,
+      type,
+      enabled: true,
+      title: "Comprar pelo chat",
+      subtitle: "Fale com o assistente e monte sua sacola em segundos.",
+      cta_label: "Abrir chat",
+      url: "https://chat.bulking.com.br",
+      source: "manual",
     };
   }
   return {

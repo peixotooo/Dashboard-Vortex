@@ -783,9 +783,12 @@ async function resolveBlock(
     };
   }
 
-  const url = block.type === "group"
-    ? await resolveGroupUrl(ctx.workspaceId, block)
-    : withStoreBase(block.url || "/", storeBaseUrl);
+  const url =
+    block.type === "group"
+      ? await resolveGroupUrl(ctx.workspaceId, block)
+      : block.type === "chat"
+      ? block.url || "https://chat.bulking.com.br" // absoluto, não prefixa store base
+      : withStoreBase(block.url || "/", storeBaseUrl);
 
   return {
     id: block.id,

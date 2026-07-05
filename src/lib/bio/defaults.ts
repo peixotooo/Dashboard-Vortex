@@ -40,6 +40,15 @@ export const BIO_DEFAULT_BLOCKS: BioBlockConfig[] = [
     source: "active_topbar",
   },
   {
+    id: "chat",
+    type: "chat",
+    enabled: true,
+    title: "Comprar pelo chat",
+    subtitle: "Fale com o assistente e monte sua sacola em segundos.",
+    cta_label: "Abrir chat",
+    url: "https://chat.bulking.com.br",
+  },
+  {
     id: "benefits",
     type: "benefits",
     enabled: true,
