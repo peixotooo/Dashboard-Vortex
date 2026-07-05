@@ -50,9 +50,11 @@ export async function POST(request: NextRequest) {
   if (!auth) return json(request, 401, { ok: false, error: "invalid key" });
   const { workspaceId } = auth;
 
+  // Habilitado basta: o cart-resolve serve tanto o /chat (v2) quanto o
+  // add-to-cart do widget de PDP (v1). Só devolve dado público (SKU de variante).
   const settings = await getAssistantSettings(workspaceId);
-  if (!settings.enabled || !settings.globalEnabled) {
-    return json(request, 403, { ok: false, error: "chat commerce disabled" });
+  if (!settings.enabled) {
+    return json(request, 403, { ok: false, error: "assistant disabled" });
   }
 
   const ip =

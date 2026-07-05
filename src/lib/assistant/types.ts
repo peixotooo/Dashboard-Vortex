@@ -110,6 +110,8 @@ export interface AssistantChatResult {
   recentProducts?: Array<{ id: string; name: string; sizes?: string[] }>;
   /** Modelo LLM usado no turno (haiku padrão ou o forte quando escala). */
   modelUsed?: string;
+  /** Widget PDP (v1): produto+tamanho pra adicionar à sacola da loja (same-origin). */
+  cartAdd?: { productId: string; size: string | null } | null;
 }
 
 export interface AssistantHistoryMessage {

@@ -146,8 +146,11 @@ export async function runAssistantTurn(opts: {
     process.env.ASSISTANT_MODEL ||
     (surface === "global" ? DEFAULT_GLOBAL_MODEL : DEFAULT_MODEL);
   // activeModel pode cair pro baseModel se o modelo forte falhar (fail-safe).
+  // Escala nos turnos difíceis (fechamento/look/objeção) nas DUAS superfícies —
+  // inclusive o add-to-cart do widget de PDP, onde emitir o marcador certo é
+  // dinheiro. Turnos normais seguem no base (haiku no v1, GLM no global).
   let activeModel =
-    !settings.model && surface === "global" && needsEscalation(userMessage, history)
+    !settings.model && needsEscalation(userMessage, history)
       ? DEFAULT_ESCALATION_MODEL
       : baseModel;
 
@@ -334,6 +337,12 @@ export async function runAssistantTurn(opts: {
     currentProduct
   );
 
+  // cart_add pro widget de PDP (v1): o marcador [[carrinho:ID:TAM]] vira um
+  // add-to-cart same-origin na loja. Pega o primeiro cart_add montado.
+  const cartAddBlock = blocks.find((b) => b.type === "cart_add");
+  const cartAdd =
+    cartAddBlock && cartAddBlock.type === "cart_add" ? cartAddBlock.data : null;
+
   return {
     reply: sanitizeReply(replyText) || FALLBACK_REPLY,
     products,
@@ -342,6 +351,7 @@ export async function runAssistantTurn(opts: {
     blocks,
     recentProducts,
     modelUsed: activeModel,
+    cartAdd,
   };
 }
 
