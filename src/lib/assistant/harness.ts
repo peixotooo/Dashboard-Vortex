@@ -30,6 +30,33 @@ const MAX_REPLY_TOKENS = 700;
 const HISTORY_WINDOW = 12;
 
 const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
+// Modelo forte pra turnos difíceis (fechamento/look/comparação/objeção). Via
+// OpenRouter; sobrescrevível por env. Haiku roda a maior parte; Sonnet entra só
+// quando o turno é de dinheiro/decisão — melhor roteamento e menos erro.
+const DEFAULT_ESCALATION_MODEL =
+  process.env.ASSISTANT_ESCALATION_MODEL || "anthropic/claude-sonnet-4.5";
+
+// Decide se o turno merece o modelo forte. Barato (regex), sem custo extra.
+function needsEscalation(userMessage: string, history: AssistantHistoryMessage[]): boolean {
+  const m = userMessage.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Fechamento / carrinho (dinheiro na mesa — precisa do produto/id CERTO)
+  if (
+    /(adicion|coloca na sacola|bota na sacola|quero (essa|esse|a |o |comprar|levar)|fecha|finaliz|comprar|checkout|pode adicionar|vou levar|leva ela|leva essa|manda essa)/.test(
+      m
+    )
+  )
+    return true;
+  // Confirmação curta num contexto já em andamento (o "sim, pode adicionar")
+  if (history.length > 0 && /^(sim|pode|isso|aham|blz|beleza|ok|fechad|bora|manda|isso mesmo|quero)\b/.test(m))
+    return true;
+  // Montar look / combinar / comparar (raciocínio multi-produto)
+  if (/(montar? um? look|combina|combinar|conjunto|combo|com o que (uso|fica)|qual (combina|fica melhor|e melhor|voce recomenda)|compar|diferenca entre)/.test(m))
+    return true;
+  // Objeção / ajuda de decisão (venda consultiva)
+  if (/(muito caro|ta caro|vale a pena|sera que serve|sera que veste|na duvida|em duvida|to indecis|me ajuda a (escolher|decidir)|nao sei qual)/.test(m))
+    return true;
+  return false;
+}
 
 const FALLBACK_REPLY =
   "Não consegui processar sua pergunta agora. Pode tentar de novo em instantes?";
@@ -103,18 +130,50 @@ export async function runAssistantTurn(opts: {
       : ASSISTANT_TOOLS.filter((t) => t.name !== "vitrine" && t.name !== "avaliacoes");
   const toolLog: AssistantChatResult["toolLog"] = [];
 
-  const model = settings.model || process.env.ASSISTANT_MODEL || DEFAULT_MODEL;
+  // Roteamento inteligente de modelo: haiku por padrão; escala pro modelo forte
+  // só no chat global E quando o turno é difícil (fechamento/look/comparação/
+  // objeção). Se o workspace fixou um modelo (settings.model), respeita e NÃO
+  // escala (override manual manda).
+  const baseModel = settings.model || process.env.ASSISTANT_MODEL || DEFAULT_MODEL;
+  // activeModel pode cair pro baseModel se o modelo forte falhar (fail-safe).
+  let activeModel =
+    !settings.model && surface === "global" && needsEscalation(userMessage, history)
+      ? DEFAULT_ESCALATION_MODEL
+      : baseModel;
 
   let finalText = "";
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const response = await callLLM({
-      provider: "openrouter",
-      model,
-      maxTokens: MAX_REPLY_TOKENS,
-      system,
-      tools,
-      messages,
-    });
+    let response;
+    try {
+      response = await callLLM({
+        provider: "openrouter",
+        model: activeModel,
+        maxTokens: MAX_REPLY_TOKENS,
+        system,
+        tools,
+        messages,
+      });
+    } catch (err) {
+      // Modelo forte indisponível (ID errado / sem crédito / rate) → cai pro
+      // haiku no MESMO turno pra não quebrar a venda. Só uma vez.
+      if (activeModel !== baseModel) {
+        console.warn(
+          "[assistant] escalation model falhou, caindo pro base:",
+          err instanceof Error ? err.message : err
+        );
+        activeModel = baseModel;
+        response = await callLLM({
+          provider: "openrouter",
+          model: activeModel,
+          maxTokens: MAX_REPLY_TOKENS,
+          system,
+          tools,
+          messages,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const toolUses = response.content.filter(
       (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
@@ -162,7 +221,7 @@ export async function runAssistantTurn(opts: {
     try {
       const closing = await callLLM({
         provider: "openrouter",
-        model,
+        model: activeModel,
         maxTokens: MAX_REPLY_TOKENS,
         system,
         tools: [],
@@ -179,7 +238,7 @@ export async function runAssistantTurn(opts: {
   }
 
   if (!finalText) {
-    return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog, recentProducts: incomingRecent };
+    return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog, recentProducts: incomingRecent, modelUsed: activeModel };
   }
 
   // Marcador [[whatsapp]] → botão de atendimento no widget
@@ -272,6 +331,7 @@ export async function runAssistantTurn(opts: {
     toolLog,
     blocks,
     recentProducts,
+    modelUsed: activeModel,
   };
 }
 
