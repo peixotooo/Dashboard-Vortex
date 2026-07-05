@@ -8,7 +8,8 @@ export type BioBlockType =
   | "club"
   | "shipping"
   | "reviews"
-  | "benefits";
+  | "benefits"
+  | "chat";
 
 export type BioProductAlgorithm =
   | "bestsellers"
@@ -128,6 +129,10 @@ export interface BioResolvedLinkBlock extends BioResolvedBlockBase {
   type: "group" | "club" | "shipping";
 }
 
+export interface BioResolvedChatBlock extends BioResolvedBlockBase {
+  type: "chat";
+}
+
 export interface BioResolvedReviewsBlock extends BioResolvedBlockBase {
   type: "reviews";
   reviews: BioReview[];
@@ -153,6 +158,7 @@ export type BioResolvedBlock =
   | BioResolvedProductsBlock
   | BioResolvedCategoriesBlock
   | BioResolvedLinkBlock
+  | BioResolvedChatBlock
   | BioResolvedReviewsBlock
   | BioResolvedBenefitsBlock;
 

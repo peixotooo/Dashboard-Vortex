@@ -277,6 +277,29 @@ function BenefitsBlock({ block }: { block: Extract<BioResolvedBlock, { type: "be
   );
 }
 
+function ChatBlock({ data, block }: { data: BioPageData; block: Extract<BioResolvedBlock, { type: "chat" }> }) {
+  const cta = block.cta_label || "Abrir chat";
+  return (
+    <a data-bio-block={block.id} data-bio-type={block.type}
+      href={getClickHref({ data, block, url: block.url || "https://chat.bulking.com.br", event: "bio_chat_clicked" })}
+      className="flex items-center gap-3.5 rounded-2xl bg-neutral-950 p-4 shadow-lg transition active:scale-[0.99]">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-neutral-950">
+        <MessageCircle className="h-[22px] w-[22px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-[15px] font-black leading-tight text-white">
+          {block.title}
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-950">
+            <span className="h-1 w-1 rounded-full bg-neutral-950" /> online
+          </span>
+        </span>
+        {block.subtitle ? <span className="mt-0.5 block text-[12.5px] font-medium leading-snug text-white/70">{block.subtitle}</span> : null}
+      </span>
+      <span className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[12px] font-black uppercase tracking-tight text-neutral-950">{cta}</span>
+    </a>
+  );
+}
+
 function ResolvedBlock({ data, block }: { data: BioPageData; block: BioResolvedBlock }) {
   if (block.type === "hero") return <HeroBlock data={data} block={block} />;
   if (block.type === "products") return <ProductsBlock data={data} block={block} />;
@@ -284,6 +307,7 @@ function ResolvedBlock({ data, block }: { data: BioPageData; block: BioResolvedB
   if (block.type === "reviews") return <ReviewsBlock block={block} />;
   if (block.type === "benefits") return <BenefitsBlock block={block} />;
   if (block.type === "shipping") return <ShippingBar data={data} block={block} />;
+  if (block.type === "chat") return <ChatBlock data={data} block={block} />;
   return <LinkBlock data={data} block={block} />;
 }
 
