@@ -908,7 +908,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   };
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-neutral-950 text-neutral-100 [color-scheme:dark]">
+    <div className="fixed inset-0 flex flex-col overflow-x-hidden bg-neutral-950 text-neutral-100 [color-scheme:dark]">
       {/* Header */}
       <header className="shrink-0 flex items-center justify-between gap-3 px-4 h-14 border-b border-white/10 bg-neutral-950/90 backdrop-blur">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -937,8 +937,8 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
       </header>
 
       {/* Mensagens */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
-        <div className="max-w-2xl mx-auto px-4 py-5 space-y-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain w-full">
+        <div className="max-w-2xl mx-auto w-full px-4 py-5 space-y-4">
           {showWelcome ? (
             <WelcomeHero
               welcome={welcome}
@@ -996,26 +996,29 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
 
       {/* Composer */}
       <div className="shrink-0 border-t border-white/10 bg-neutral-950/95 backdrop-blur px-3 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="max-w-2xl mx-auto flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                startWith(input);
-              }
-            }}
-            rows={1}
-            placeholder="Escreva o que você procura…"
-            className="flex-1 resize-none rounded-2xl border border-white/15 bg-white/[0.04] px-4 py-3 text-[15px] text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/30 max-h-32"
-            style={{ minHeight: 48 }}
-          />
+        <div className="max-w-2xl mx-auto w-full flex items-end gap-2">
+          <div className="relative flex-1 min-w-0">
+            <MessageCircle className="pointer-events-none absolute left-3.5 top-[15px] h-[18px] w-[18px] text-neutral-400" />
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  startWith(input);
+                }
+              }}
+              rows={1}
+              placeholder="Fale com o assistente: pergunte ou peça uma peça…"
+              className="w-full resize-none rounded-2xl border-2 border-white/25 bg-white/[0.07] pl-11 pr-4 py-3 text-[15px] text-white placeholder:text-neutral-300 focus:outline-none focus:border-white/60 focus:bg-white/[0.1] max-h-32 transition-colors"
+              style={{ minHeight: 50 }}
+            />
+          </div>
           <button
             onClick={() => startWith(input)}
             disabled={sending || !input.trim()}
-            className="h-12 w-12 shrink-0 rounded-2xl bg-white text-neutral-900 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-200 transition-colors"
+            className="h-[50px] w-[50px] shrink-0 rounded-2xl bg-white text-neutral-900 flex items-center justify-center shadow-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neutral-200 transition-colors"
             aria-label="Enviar"
           >
             {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
