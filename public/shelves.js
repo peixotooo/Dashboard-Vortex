@@ -11,6 +11,193 @@
 (function () {
   "use strict";
 
+  // --- Chat Commerce v2: handoff da sacola (#vtx_cart) ---
+  // Recebe uma sacola montada na página /chat (no dash) e a materializa no
+  // carrinho da loja com POSTs same-origin, depois manda pro checkout. É a
+  // ponte cross-origin segura: nenhuma chamada CORS, nenhum dado sensível.
+  (function handleChatCartHandoff() {
+    try {
+      var m = /[#&]vtx_cart=([^&]+)/.exec(window.location.hash || "");
+      if (!m) return;
+      var items;
+      try {
+        items = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
+      } catch (e) {
+        return;
+      }
+      if (!Array.isArray(items) || items.length === 0) return;
+      // Limpa o hash na hora (não reprocessa em refresh, não fica no histórico)
+      try {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      } catch (e) {}
+
+      var ov = document.createElement("div");
+      ov.style.cssText =
+        "position:fixed;inset:0;z-index:2147483647;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;font-size:15px;text-align:center;padding:24px";
+      function setOverlay(html) {
+        ov.innerHTML = html;
+      }
+      setOverlay(
+        "<div><div style='width:34px;height:34px;border:3px solid rgba(255,255,255,.2);border-top-color:#34d399;border-radius:50%;animation:vtxspin 1s linear infinite;margin:0 auto 14px'></div>Preparando sua sacola…</div><style>@keyframes vtxspin{to{transform:rotate(360deg)}}</style>"
+      );
+      (document.body || document.documentElement).appendChild(ov);
+
+      var added = 0;
+      var failed = 0;
+
+      function addNext(i) {
+        if (i >= items.length) {
+          finish();
+          return;
+        }
+        var it = items[i] || {};
+        var sku = String(it.sku || "");
+        var qty = Math.max(1, Math.min(20, parseInt(it.quantity, 10) || 1));
+        if (!sku) {
+          addNext(i + 1);
+          return;
+        }
+        fetch("/carrinho/adicionar", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: "sku=" + encodeURIComponent(sku) + "&quantity=" + qty,
+          credentials: "same-origin",
+        })
+          .then(function (res) {
+            if (res && res.ok) added++;
+            else failed++;
+          })
+          .catch(function () {
+            failed++;
+          })
+          .then(function () {
+            addNext(i + 1);
+          });
+      }
+
+      function finish() {
+        if (added === 0) {
+          // Nada entrou no carrinho: não manda pro checkout vazio.
+          setOverlay(
+            "<div><p style='font-weight:600;margin:0 0 6px'>Não consegui montar sua sacola</p>" +
+              "<p style='color:#a3a3a3;margin:0 0 16px;max-width:280px'>Alguns itens podem ter esgotado. Tente de novo pelo chat.</p>" +
+              "<a href='/carrinho' style='display:inline-block;background:#fff;color:#0a0a0a;border-radius:999px;padding:10px 18px;font-weight:600;text-decoration:none'>Ver meu carrinho</a></div>"
+          );
+          return;
+        }
+        // Alguns itens falharam (ex.: esgotaram): manda pro carrinho pra revisar,
+        // não direto pro checkout. Tudo certo → checkout.
+        window.location.href = failed > 0 ? "/carrinho" : "/checkout";
+      }
+
+      // Antes de adicionar, ESVAZIA o carrinho da loja pra a sacola do chat ser a
+      // fonte da verdade (evita somar itens de uma sessão anterior / duplicar numa
+      // segunda finalização). Lê o /carrinho como HTML (mesmo padrão já usado no
+      // resto do arquivo) e extrai os SKUs das linhas. Best-effort: falha ao
+      // limpar NÃO bloqueia; segue pra adição.
+      function skusFromCartHtml(html) {
+        var out = [];
+        var seen = {};
+        try {
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          // 1) atributos data-sku / data-variant-sku em qualquer nó
+          var attrNodes = doc.querySelectorAll("[data-sku],[data-variant-sku],[data-item-sku]");
+          for (var a = 0; a < attrNodes.length; a++) {
+            var ds =
+              attrNodes[a].getAttribute("data-sku") ||
+              attrNodes[a].getAttribute("data-variant-sku") ||
+              attrNodes[a].getAttribute("data-item-sku") ||
+              "";
+            ds = String(ds).trim();
+            if (ds && !seen[ds]) {
+              seen[ds] = 1;
+              out.push(ds);
+            }
+          }
+          // 2) inputs hidden name="sku" dentro de forms de remoção
+          var inputs = doc.querySelectorAll('input[name="sku"],input[name="variant_sku"]');
+          for (var b = 0; b < inputs.length; b++) {
+            var iv = String(inputs[b].value || "").trim();
+            if (iv && !seen[iv]) {
+              seen[iv] = 1;
+              out.push(iv);
+            }
+          }
+        } catch (e) {}
+        return out;
+      }
+
+      function clearCartThen(next) {
+        var done = false;
+        var guard = setTimeout(function () {
+          if (!done) {
+            done = true;
+            next();
+          }
+        }, 4000);
+        fetch("/carrinho?include_bundle_items=true", { credentials: "same-origin" })
+          .then(function (r) {
+            return r && r.ok ? r.text() : "";
+          })
+          .then(function (html) {
+            var lineSkus = skusFromCartHtml(html);
+            if (lineSkus.length === 0) {
+              if (!done) {
+                done = true;
+                clearTimeout(guard);
+                next();
+              }
+              return;
+            }
+            var j = 0;
+            function removeNext() {
+              if (j >= lineSkus.length) {
+                if (!done) {
+                  done = true;
+                  clearTimeout(guard);
+                  next();
+                }
+                return;
+              }
+              var lineSku = lineSkus[j++];
+              fetch("/carrinho/remover", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                  "X-Requested-With": "XMLHttpRequest",
+                },
+                body: "sku=" + encodeURIComponent(lineSku),
+                credentials: "same-origin",
+              })
+                .then(function () {})
+                .catch(function () {})
+                .then(function () {
+                  removeNext();
+                });
+            }
+            removeNext();
+          })
+          .catch(function () {
+            if (!done) {
+              done = true;
+              clearTimeout(guard);
+              next();
+            }
+          });
+      }
+
+      clearCartThen(function () {
+        addNext(0);
+      });
+      return;
+    } catch (e) {
+      /* noop */
+    }
+  })();
+
   // --- Config ---
   var API_KEY = window._shelvesKey || "";
   var API_BASE = window._shelvesBase || "";

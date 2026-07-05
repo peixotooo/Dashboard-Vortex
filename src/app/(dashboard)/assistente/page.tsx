@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ArrowUpRight,
   Bot,
   Check,
   Clock,
@@ -65,6 +66,9 @@ interface ApiSettings {
   store_info: string | null;
   max_messages_per_session: number | null;
   daily_message_cap: number | null;
+  global_enabled?: boolean | null;
+  global_welcome?: string | null;
+  global_suggestions?: string[] | null;
 }
 
 interface ConversationSummary {
@@ -171,6 +175,9 @@ interface SettingsUpdatePayload {
   store_info: string;
   max_messages_per_session?: number;
   daily_message_cap?: number;
+  global_enabled?: boolean;
+  global_welcome?: string;
+  global_suggestions?: string[];
 }
 
 // --- Defaults (espelham src/lib/assistant/settings.ts) ---
@@ -318,6 +325,11 @@ export default function AssistentePage() {
   const [dailyCapText, setDailyCapText] = useState(String(DEFAULT_DAILY_CAP));
   const [modelText, setModelText] = useState("");
 
+  // Chat Commerce v2 (modo global / página /chat)
+  const [globalEnabled, setGlobalEnabled] = useState(false);
+  const [globalWelcome, setGlobalWelcome] = useState("");
+  const [globalSuggestionsText, setGlobalSuggestionsText] = useState("");
+
   // Conversas + métricas + dashboard
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [metrics, setMetrics] = useState<AdminMetrics>(EMPTY_METRICS);
@@ -361,6 +373,9 @@ export default function AssistentePage() {
     );
     setDailyCapText(String(s.daily_message_cap ?? DEFAULT_DAILY_CAP));
     setModelText(s.model || "");
+    setGlobalEnabled(s.global_enabled === true);
+    setGlobalWelcome(s.global_welcome || "");
+    setGlobalSuggestionsText((s.global_suggestions || []).join("\n"));
   }, []);
 
   const loadData = useCallback(async () => {
@@ -401,6 +416,13 @@ export default function AssistentePage() {
           .filter(Boolean)
           .slice(0, 4),
         store_info: storeInfo,
+        global_enabled: globalEnabled,
+        global_welcome: globalWelcome.trim(),
+        global_suggestions: globalSuggestionsText
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 6),
       };
       const maxMessages = Number(maxMessagesText);
       if (Number.isFinite(maxMessages) && maxMessages >= 1) {
@@ -1095,6 +1117,61 @@ export default function AssistentePage() {
                   onChange={(e) => setModelText(e.target.value)}
                   placeholder="anthropic/claude-haiku-4.5 (padrão)"
                 />
+              </div>
+
+              {/* ===== Chat Commerce v2 (página /chat global) ===== */}
+              <div className="rounded-lg border border-dashed p-4 space-y-4 mt-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-base">Chat Commerce (página /chat)</Label>
+                      <Badge variant={globalEnabled ? "default" : "secondary"}>
+                        {globalEnabled ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-prose">
+                      Vitrine + vendedor + carrinho numa página de chat só sua, pra
+                      onde você direciona tráfego. Separado do widget da PDP (que
+                      continua igual). Requer a migration-132 e a env
+                      ASSISTANT_PUBLIC_KEY.
+                    </p>
+                  </div>
+                  <Switch checked={globalEnabled} onCheckedChange={setGlobalEnabled} />
+                </div>
+
+                <a
+                  href="/chat"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                >
+                  Abrir /chat <ArrowUpRight className="h-3.5 w-3.5" />
+                </a>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="global-welcome">Boas-vindas do chat global</Label>
+                  <Textarea
+                    id="global-welcome"
+                    value={globalWelcome}
+                    onChange={(e) => setGlobalWelcome(e.target.value)}
+                    maxLength={400}
+                    rows={3}
+                    placeholder="Bem-vindo à Bulking. Me diz o que você procura ou toca numa sugestão aqui embaixo."
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="global-suggestions">
+                    Sugestões do chat global (uma por linha, máx 6)
+                  </Label>
+                  <Textarea
+                    id="global-suggestions"
+                    value={globalSuggestionsText}
+                    onChange={(e) => setGlobalSuggestionsText(e.target.value)}
+                    rows={5}
+                    placeholder={"O que tem de mais vendido?\nCamiseta oversized preta\nTem cupom hoje?\nMe ajuda a escolher um look"}
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-3 pt-2">

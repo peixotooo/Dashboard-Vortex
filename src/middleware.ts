@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/assistant.js", "/forgot-password", "/reset-password", "/avaliar", "/bio"];
+const PUBLIC_ROUTES = ["/login", "/auth/callback", "/invite", "/g", "/shelves.js", "/assistant.js", "/forgot-password", "/reset-password", "/avaliar", "/bio", "/chat"];
 const GROUPS_PUBLIC_HOSTS = (
   process.env.WHATSAPP_GROUPS_PUBLIC_HOSTS || "grupos.bulking.com.br"
 )

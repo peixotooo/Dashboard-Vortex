@@ -12,9 +12,14 @@ import {
   getSizeAvailability,
   normalizeSize,
 } from "./catalog";
-import { getActiveKnowledge, formatActiveKnowledge } from "./knowledge";
+import { getActiveKnowledge, formatActiveKnowledge, type ActiveKnowledge } from "./knowledge";
 import { lookupOrder } from "./orders";
-import type { AssistantProductCard, AssistantSettings } from "./types";
+import { getVitrine, getReviewsForChat } from "./commerce";
+import type {
+  AssistantProductCard,
+  AssistantSettings,
+  ReviewsBlockData,
+} from "./types";
 
 export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
@@ -132,6 +137,33 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
       "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback, ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "vitrine",
+    description:
+      "Prateleira de produtos da loja pra montar um CARROSSEL no chat: mais vendidos, novidades, ofertas, populares. Use quando o cliente pede recomendação ampla, 'o que tem', 'mais vendidos', 'novidades', 'promoções', ou pra abrir a conversa mostrando a loja. Depois de chamar, coloque o marcador [[vitrine]] no texto onde o carrossel deve aparecer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prateleira: {
+          type: "string",
+          enum: ["mais_vendidos", "camisetas_mais_vendidas", "novidades", "ofertas", "populares"],
+          description: "Qual prateleira mostrar",
+        },
+      },
+      required: ["prateleira"],
+    },
+  },
+  {
+    name: "avaliacoes",
+    description:
+      "Prova social: nota média e depoimentos reais de clientes. Sem produto_id = destaques da loja inteira; com produto_id = avaliações daquele produto. Use pra dar confiança, responder 'é bom?', 'vale a pena?', ou pra fechar a venda. Depois coloque o marcador [[avaliacoes]] onde o bloco deve aparecer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        produto_id: { type: "string", description: "ID do produto (opcional; vazio = loja)" },
+      },
+    },
+  },
 ];
 
 // --- Dados estáticos (guia de medidas, molde oversized padrão Bulking) ---
@@ -174,6 +206,12 @@ export interface ToolContext {
   seenProducts: Map<string, AssistantProductCard>;
   /** Tentativas de consulta de pedido no turno (anti-enumeração: máx 2). */
   orderLookups?: number;
+  /** "global" = página /chat (blocos ricos). "pdp"/undefined = widget v1. */
+  surface?: "pdp" | "global";
+  // --- Chat Commerce v2: acumuladores pra montar blocos ricos ---
+  seenVitrine?: { title: string; products: AssistantProductCard[] };
+  seenReviews?: ReviewsBlockData;
+  seenKnowledge?: ActiveKnowledge;
 }
 
 const TOOL_TIMEOUT_MS = 8000;
@@ -413,10 +451,60 @@ export async function executeAssistantTool(
         const knowledge = await withTimeout(
           getActiveKnowledge(ctx.workspaceId, ctx.pageType)
         );
+        ctx.seenKnowledge = knowledge; // pros blocos [[beneficios]]/[[promo]] do chat v2
+        // A instrução de marcadores ricos ([[promo]]/[[beneficios]]) SÓ vale no
+        // chat global — no PDP (v1) o widget não os renderiza e o cliente veria
+        // o texto literal do marcador.
+        const baseInstr =
+          "Comunique só o que está listado. Se vazio, não invente cupom/desconto. Ofereça ajuda com o produto.";
         return JSON.stringify({
           ativos: formatActiveKnowledge(knowledge),
           instrucao:
-            "Comunique só o que está listado. Se vazio, não invente cupom/desconto. Ofereça ajuda com o produto.",
+            ctx.surface === "global"
+              ? `${baseInstr} No chat, use [[promo]] pra mostrar as promoções e [[beneficios]] pros benefícios.`
+              : baseInstr,
+        });
+      }
+
+      case "vitrine": {
+        const prateleira = String(args.prateleira || "mais_vendidos");
+        const titles: Record<string, string> = {
+          mais_vendidos: "Mais vendidos",
+          camisetas_mais_vendidas: "Camisetas mais vendidas",
+          novidades: "Novidades",
+          ofertas: "Ofertas",
+          populares: "Em alta",
+        };
+        const products = await withTimeout(getVitrine(ctx.workspaceId, prateleira, 8));
+        products.forEach((p) => rememberProduct(ctx, p));
+        ctx.seenVitrine = { title: titles[prateleira] || "Destaques", products };
+        if (products.length === 0) {
+          return JSON.stringify({ resultado: "prateleira vazia no momento" });
+        }
+        return JSON.stringify({
+          prateleira: titles[prateleira],
+          produtos: products.map((p) => ({ id: p.id, nome: p.name, preco: p.sale_price ?? p.price })),
+          instrucao:
+            "Apresente a prateleira e coloque o marcador [[vitrine]] no texto onde o carrossel deve aparecer. Comente 1-2 destaques.",
+        });
+      }
+
+      case "avaliacoes": {
+        const pid =
+          typeof args.produto_id === "string" && /^[\w-]{1,40}$/.test(args.produto_id)
+            ? args.produto_id
+            : null;
+        const reviews = await withTimeout(getReviewsForChat(ctx.workspaceId, pid));
+        if (!reviews) {
+          return JSON.stringify({ resultado: "sem avaliações suficientes pra mostrar" });
+        }
+        ctx.seenReviews = reviews;
+        return JSON.stringify({
+          media: reviews.average,
+          total: reviews.count,
+          escopo: reviews.scope,
+          instrucao:
+            "Cite a nota média e o total, e coloque [[avaliacoes]] onde o bloco de depoimentos deve aparecer. Use como prova social pra dar confiança.",
         });
       }
 

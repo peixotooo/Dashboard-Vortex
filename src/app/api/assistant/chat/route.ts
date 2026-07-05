@@ -40,6 +40,8 @@ interface ChatBody {
   page_url?: unknown;
   message?: unknown;
   customer_name?: unknown;
+  /** Chat Commerce v2: página /chat global (vende a loja toda). */
+  global?: unknown;
 }
 
 function json(
@@ -102,6 +104,10 @@ export async function POST(request: NextRequest) {
     return json(request, 400, { ok: false, error: "invalid message" });
   }
 
+  // Modo global (Chat Commerce v2): só vale se o workspace habilitou. Nesse
+  // modo não há produto de página e o gate por produto é dispensado.
+  const wantsGlobal = body.global === true && settings.globalEnabled;
+
   const productId =
     typeof body.product_id === "string" && /^[\w-]{1,40}$/.test(body.product_id)
       ? body.product_id
@@ -116,9 +122,11 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // 5. Cap diário de custo do workspace — ANTES de criar sessão, pra um
-  // abusador acima do cap não conseguir nem inserir linhas de conversa.
-  const dailyCount = await getDailyMessageCount(workspaceId);
+  // 5. Cap diário de custo — SEPARADO por superfície: uma rajada no chat global
+  // (v2) não pode estourar a cota e derrubar o widget de PDP (v1). Cada um tem
+  // seu próprio teto diário.
+  const capSurface: "pdp" | "global" = wantsGlobal ? "global" : "pdp";
+  const dailyCount = await getDailyMessageCount(workspaceId, capSurface);
   if (dailyCount >= settings.dailyMessageCap) {
     return json(request, 429, { ok: false, reply: BUSY_REPLY });
   }
@@ -127,6 +135,8 @@ export async function POST(request: NextRequest) {
   let conversationId: string;
   let activeSessionKey: string;
   let messageCount = 0;
+  // Superfície da conversa: fixada na criação e mantida por toda a sessão.
+  let surface: "pdp" | "global" = wantsGlobal ? "global" : "pdp";
 
   let activeName: string | null = customerName;
 
@@ -148,21 +158,31 @@ export async function POST(request: NextRequest) {
     messageCount = Number(conv.message_count) || 0;
     // Nome já capturado na sessão tem prioridade sobre o do payload
     activeName = (conv.customer_name as string | null) || customerName;
+    // Superfície vem da sessão (coluna surface pode não existir se migration-132
+    // pendente → cai no default 'pdp', comportamento v1 seguro).
+    if (conv.surface === "global") surface = "global";
+    else if (conv.surface === "pdp") surface = "pdp";
   } else {
-    if (!isProductAllowed(settings, productId)) {
-      return json(request, 403, { ok: false, error: "assistant not available here" });
+    // No modo global o gate por produto é dispensado (a página vende a loja
+    // toda); fora dele, mantém o gate estrito do widget v1.
+    if (!surface || surface === "pdp") {
+      if (!isProductAllowed(settings, productId)) {
+        return json(request, 403, { ok: false, error: "assistant not available here" });
+      }
     }
     activeSessionKey = randomBytes(24).toString("base64url");
+    const insertRow: Record<string, unknown> = {
+      workspace_id: workspaceId,
+      session_key: activeSessionKey,
+      product_id: surface === "global" ? null : productId,
+      page_url: pageUrl,
+      ip_hash: ipHash,
+      user_agent: (request.headers.get("user-agent") || "").slice(0, 250),
+    };
+    if (surface === "global") insertRow.surface = "global";
     const { data: created, error: createError } = await admin
       .from("assistant_conversations")
-      .insert({
-        workspace_id: workspaceId,
-        session_key: activeSessionKey,
-        product_id: productId,
-        page_url: pageUrl,
-        ip_hash: ipHash,
-        user_agent: (request.headers.get("user-agent") || "").slice(0, 250),
-      })
+      .insert(insertRow)
       .select("id")
       .single();
 
@@ -217,8 +237,9 @@ export async function POST(request: NextRequest) {
       storeHost: vndaConfig?.storeHost || "a loja",
       history,
       userMessage: message,
-      currentProductId: productId,
+      currentProductId: surface === "global" ? null : productId,
       customerName: activeName,
+      surface,
     });
   } catch (err) {
     console.error("[assistant] turn failed:", err instanceof Error ? err.message : err);
@@ -229,13 +250,17 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // 10. Persiste transcrição (PII limpa) + telemetria de tools
+  // 10. Persiste transcrição (PII limpa) + telemetria de tools.
+  // surface só é gravado no modo global (coluna da migration-132) — no v1 cai
+  // no DEFAULT 'pdp' da coluna, então nada quebra se a migration não rodou.
+  const surfaceCol = surface === "global" ? { surface: "global" } : {};
   const rows: Array<Record<string, unknown>> = [
     {
       conversation_id: conversationId,
       workspace_id: workspaceId,
       role: "user",
       content: scrubPiiForStorage(message),
+      ...surfaceCol,
     },
     {
       conversation_id: conversationId,
@@ -244,6 +269,7 @@ export async function POST(request: NextRequest) {
       // Scrub também a resposta: se o modelo repetir um dado que o cliente
       // digitou, não guardamos em claro na transcrição (LGPD).
       content: scrubPiiForStorage(result.reply),
+      ...surfaceCol,
     },
   ];
   if (result.toolLog.length > 0) {
@@ -254,6 +280,7 @@ export async function POST(request: NextRequest) {
       // Scrub também na telemetria: o input de consultar_pedido carrega o
       // e-mail do cliente — mascara igual às mensagens (achado da revisão)
       content: scrubPiiForStorage(JSON.stringify(result.toolLog)).slice(0, 4000),
+      ...surfaceCol,
     });
   }
   // Captura o id da resposta persistida — o widget usa pro feedback 👍/👎
@@ -279,5 +306,7 @@ export async function POST(request: NextRequest) {
     products: result.products,
     whatsapp: result.showWhatsapp,
     message_id: assistantMessageId,
+    // Chat Commerce v2: blocos ricos ordenados (a página /chat usa; o widget ignora)
+    blocks: result.blocks || [],
   });
 }
