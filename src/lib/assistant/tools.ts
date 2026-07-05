@@ -305,6 +305,9 @@ export async function executeAssistantTool(
       case "buscar_produtos": {
         const wantSize =
           typeof args.tamanho === "string" ? normalizeSize(args.tamanho) : null;
+        const busca = typeof args.busca === "string" ? args.busca.slice(0, 120) : undefined;
+        // Kit/combo só entra se o cliente pediu (a busca padrão recomenda peças).
+        const allowKits = !!busca && /\b(kit|combo|conjunto)\b/i.test(busca);
         const displayLimit = Math.min(
           Math.max(typeof args.limite === "number" ? args.limite : 6, 1),
           6
@@ -313,7 +316,7 @@ export async function executeAssistantTool(
         // disponibilidade real; sem, busca direto o número pedido.
         const products = await withTimeout(
           searchCatalog(ctx.workspaceId, {
-            query: typeof args.busca === "string" ? args.busca.slice(0, 120) : undefined,
+            query: busca,
             color: typeof args.cor === "string" ? args.cor.slice(0, 40) : undefined,
             fabric:
               args.tecido === "dry" || args.tecido === "algodao" ? args.tecido : undefined,
@@ -322,6 +325,7 @@ export async function executeAssistantTool(
                 ? args.modelagem
                 : undefined,
             maxPrice: typeof args.preco_max === "number" ? args.preco_max : undefined,
+            allowKits,
             limit: wantSize ? 10 : typeof args.limite === "number" ? args.limite : undefined,
           })
         );
@@ -485,7 +489,7 @@ export async function executeAssistantTool(
           prateleira: titles[prateleira],
           produtos: products.map((p) => ({ id: p.id, nome: p.name, preco: p.sale_price ?? p.price })),
           instrucao:
-            "Apresente a prateleira e coloque o marcador [[vitrine]] no texto onde o carrossel deve aparecer. Comente 1-2 destaques.",
+            "Apresente a prateleira e coloque o marcador [[vitrine]] no texto onde o carrossel deve aparecer. Você PODE dizer que estes são os mais vendidos/populares (é o ranking REAL da loja). Comente 1-2 peças pelo BENEFÍCIO (tecido, caimento, versatilidade), não por urgência inventada. NÃO diga 'sai rápido', 'últimas peças', 'estoque baixo' nem número de vendas.",
         });
       }
 

@@ -12,7 +12,7 @@ import {
   extractWhatsappMarker,
   sanitizeReply,
 } from "./guardrails";
-import { buildSystemPrompt } from "./prompt";
+import { buildSystemPrompt, type RecentProduct } from "./prompt";
 import { ASSISTANT_TOOLS, executeAssistantTool, type ToolContext } from "./tools";
 import type { ActiveKnowledge } from "./knowledge";
 import type {
@@ -43,9 +43,12 @@ export async function runAssistantTurn(opts: {
   customerName?: string | null;
   /** "global" = página /chat (Chat Commerce v2). Default "pdp" (widget). */
   surface?: "pdp" | "global";
+  /** Produtos mostrados em turnos anteriores desta sessão (IDs duráveis). */
+  recentProducts?: RecentProduct[];
 }): Promise<AssistantChatResult> {
   const { workspaceId, settings, storeHost, history, userMessage, currentProductId, customerName } = opts;
   const surface = opts.surface === "global" ? "global" : "pdp";
+  const incomingRecent = Array.isArray(opts.recentProducts) ? opts.recentProducts : [];
 
   // Contexto do produto da página — a maioria das perguntas é sobre ele
   let currentProduct = null;
@@ -57,7 +60,14 @@ export async function runAssistantTurn(opts: {
     }
   }
 
-  const system = buildSystemPrompt({ settings, storeHost, currentProduct, customerName, surface });
+  const system = buildSystemPrompt({
+    settings,
+    storeHost,
+    currentProduct,
+    customerName,
+    surface,
+    recentProducts: incomingRecent,
+  });
 
   // Histórico replayado: só texto user/assistant persistido pelo servidor.
   // Tool calls de turnos anteriores NÃO são replayados (contexto se regenera).
@@ -134,8 +144,32 @@ export async function runAssistantTurn(opts: {
     }
   }
 
+  // Loop esgotou com dados de ferramenta mas SEM texto final: em vez de descartar
+  // tudo num fallback genérico, faz UMA chamada final SEM ferramentas pra o modelo
+  // transformar o que já buscou numa resposta. As tools já rodaram (seenProducts
+  // etc. estão populados), então os cards/blocos continuam válidos.
   if (!finalText) {
-    return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog };
+    try {
+      const closing = await callLLM({
+        provider: "openrouter",
+        model,
+        maxTokens: MAX_REPLY_TOKENS,
+        system,
+        tools: [],
+        messages,
+      });
+      finalText = closing.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+    } catch {
+      // segue pro fallback abaixo
+    }
+  }
+
+  if (!finalText) {
+    return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog, recentProducts: incomingRecent };
   }
 
   // Marcador [[whatsapp]] → botão de atendimento no widget
@@ -174,13 +208,53 @@ export async function runAssistantTurn(opts: {
   // resíduo (o produto/whatsapp já foram extraídos acima).
   const replyText = stripRichMarkers(cleanText);
 
+  // Índice durável de produtos mostrados nesta sessão: mescla o que já vinha com
+  // o que este turno mostrou (seenProducts + vitrine + produto da página). Dedup
+  // por id, mantém os mais recentes no fim, cap 20. O route persiste isso e o
+  // próximo turno injeta no prompt → o modelo resolve "a primeira/a preta" pelo
+  // ID EXATO sem re-buscar (fim do bug de adicionar a peça errada).
+  const recentProducts = mergeRecentProducts(
+    incomingRecent,
+    toolCtx,
+    currentProduct
+  );
+
   return {
     reply: sanitizeReply(replyText) || FALLBACK_REPLY,
     products,
     showWhatsapp,
     toolLog,
     blocks,
+    recentProducts,
   };
+}
+
+// Mescla o índice de produtos mostrados (antigos + os deste turno).
+function mergeRecentProducts(
+  incoming: RecentProduct[],
+  ctx: ToolContext,
+  currentProduct: AssistantProductDetails | null
+): RecentProduct[] {
+  const byId = new Map<string, RecentProduct>();
+  for (const p of incoming) {
+    if (p && p.id) byId.set(String(p.id), { id: String(p.id), name: p.name, sizes: p.sizes });
+  }
+  const addCard = (id: string, name: string, sizes?: string[]) => {
+    // Reinserir move pro fim (mais recente) e atualiza tamanhos se vierem.
+    const prev = byId.get(id);
+    byId.delete(id);
+    byId.set(id, { id, name, sizes: sizes && sizes.length ? sizes : prev?.sizes });
+  };
+  for (const [id, card] of ctx.seenProducts) addCard(String(id), card.name);
+  if (ctx.seenVitrine) for (const p of ctx.seenVitrine.products) addCard(String(p.id), p.name);
+  if (currentProduct) {
+    addCard(
+      currentProduct.id,
+      currentProduct.name,
+      currentProduct.sizes.filter((s) => s.available).map((s) => s.size)
+    );
+  }
+  return [...byId.values()].slice(-20);
 }
 
 // ---- Montagem de blocos ricos (Chat Commerce v2) ----

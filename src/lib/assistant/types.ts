@@ -104,6 +104,8 @@ export interface AssistantChatResult {
   toolLog: Array<{ name: string; input: unknown; ok: boolean }>;
   /** Chat Commerce v2: blocos ricos ordenados pra página /chat (v1 ignora). */
   blocks?: AssistantBlock[];
+  /** Índice durável {id,name,sizes} dos produtos mostrados na sessão (p/ o carrinho). */
+  recentProducts?: Array<{ id: string; name: string; sizes?: string[] }>;
 }
 
 export interface AssistantHistoryMessage {

@@ -338,6 +338,8 @@ export async function getRecommendations(
       return getBestsellers(params);
     case "bestseller_camisetas":
       return getBestsellerCamisetas(params);
+    case "bestsellers_store":
+      return getBestsellersStore(params);
     case "news":
       return getNews(params);
     case "offers":
@@ -497,6 +499,89 @@ async function getBestsellerCamisetas(
   }
 
   if (results.length === 0) return getBestsellers(params);
+
+  return withCatalogImages(params.workspaceId, results);
+}
+
+/**
+ * BestsellersStore: LOJA INTEIRA mais vendida por UNIDADES (crm_abc_snapshots,
+ * janela ~30d, pré-computada), em estoque, na ordem de vendas. Diferente de
+ * getBestsellers (receita 7d, volátil e enviesada por ticket/promoção) e sem o
+ * filtro de camisetas do getBestsellerCamisetas. Usado pelo Chat Commerce como
+ * "mais vendidos" estável. NÃO completa a prateleira com produto arbitrário:
+ * o déficit cai em getNews. NÃO altera getBestsellers (compartilhado com o
+ * storefront: home/produto/categoria/carrinho/bio/seed).
+ */
+async function getBestsellersStore(
+  params: RecommendationParams
+): Promise<ShelfProduct[]> {
+  const admin = createAdminClient();
+
+  const { data: snap } = await admin
+    .from("crm_abc_snapshots")
+    .select("products")
+    .eq("workspace_id", params.workspaceId)
+    .order("computed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const snapProducts =
+    (snap?.products as Array<{ name?: string; qty_sold?: number; revenue?: number }> | undefined) || [];
+  const rankedNames = snapProducts
+    .filter((p) => p.name)
+    .sort((a, b) => (b.qty_sold ?? 0) - (a.qty_sold ?? 0) || (b.revenue ?? 0) - (a.revenue ?? 0))
+    .map((p) => normalizeProductName(p.name as string));
+
+  if (rankedNames.length === 0) return getNews(params);
+
+  // Catálogo em estoque indexado por nome normalizado (loja inteira).
+  const PAGE = 1000;
+  const byName = new Map<string, ShelfProduct>();
+  let from = 0;
+  while (true) {
+    const { data, error } = await admin
+      .from("shelf_products")
+      .select("product_id, name, price, sale_price, image_url, image_url_2, product_url, category, tags, in_stock")
+      .eq("workspace_id", params.workspaceId)
+      .eq("active", true)
+      .eq("in_stock", true)
+      .order("product_id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    for (const p of data as ShelfProduct[]) {
+      const key = normalizeProductName(p.name);
+      if (!byName.has(key)) byName.set(key, p);
+    }
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  const results: ShelfProduct[] = [];
+  const used = new Set<string>();
+  for (const key of rankedNames) {
+    const p = byName.get(key);
+    if (p && !used.has(p.product_id)) {
+      results.push(p);
+      used.add(p.product_id);
+    }
+    if (results.length >= params.limit) break;
+  }
+
+  // Déficit (raro, snapshot de 30d costuma cobrir): completa com NOVIDADES em
+  // estoque — nunca com o topo arbitrário do catálogo rotulado como bestseller.
+  if (results.length < params.limit) {
+    const news = await getNews(params).catch(() => [] as ShelfProduct[]);
+    for (const p of news) {
+      if (results.length >= params.limit) break;
+      if (!used.has(p.product_id)) {
+        results.push(p);
+        used.add(p.product_id);
+      }
+    }
+  }
+
+  if (results.length === 0) return getNews(params);
 
   return withCatalogImages(params.workspaceId, results);
 }

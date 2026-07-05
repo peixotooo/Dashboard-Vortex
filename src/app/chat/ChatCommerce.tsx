@@ -93,6 +93,16 @@ function brl(v: number | null | undefined): string {
   return `R$ ${v.toFixed(2).replace(".", ",")}`;
 }
 
+// Faixa de valor (nunca o R$ cru no cliente — o valor real entra server-side
+// via webhook VNDA). Alinha com o value_bucket do funil de tracking.
+function valueBucket(v: number): string {
+  if (v < 100) return "0-99";
+  if (v < 200) return "100-199";
+  if (v < 350) return "200-349";
+  if (v < 600) return "350-599";
+  return "600+";
+}
+
 function effectivePrice(p: ProductCard): number | null {
   if (p.sale_price !== null && p.price !== null && p.sale_price < p.price) return p.sale_price;
   if (p.sale_price !== null) return p.sale_price;
@@ -192,7 +202,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [sizePicker, setSizePicker] = useState<{ product: ProductCard; sizes: string[] } | null>(null);
+  const [sizePicker, setSizePicker] = useState<{ product: ProductCard; sizes: string[]; auto?: boolean } | null>(null);
   // Intenção guardada quando pedimos o nome antes da primeira mensagem
   const [pendingIntent, setPendingIntent] = useState<string | null>(null);
   // Blocos [[carrinho]] cujo auto-add falhou (productId → motivo curto)
@@ -203,19 +213,87 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const processedCartAdds = useRef<Set<string>>(new Set());
+  // SKUs já adicionados por marcador/seletor (dedup do fluxo automático). Impede
+  // a cobrança dupla quando o modelo repete o [[carrinho]] sem→com tamanho.
+  const autoAddedSkus = useRef<Set<string>>(new Set());
+
+  // Telemetria de funil: POST best-effort pra /api/assistant/events. Nunca
+  // bloqueia a UI nem quebra se o endpoint falhar (adblock/rede).
+  const sendAssistantEvent = useCallback(
+    (eventType: string, fields?: Record<string, unknown>) => {
+      // atk = sessionId é obrigatório na tabela; sem sessão ainda (antes da 1ª
+      // mensagem) não há o que atribuir. O server já emite session_started.
+      if (!sessionId) return;
+      try {
+        // O endpoint lê product_id/value_bucket/product_ids como COLUNAS de topo
+        // (não dentro de metadata) — separa esses campos aqui; o resto vira
+        // metadata (allowlist no servidor).
+        const { product_id, value_bucket, product_ids, ...meta } = fields || {};
+        const body = JSON.stringify({
+          key: publicKey,
+          event_type: eventType,
+          session_id: sessionId,
+          surface: "global",
+          product_id,
+          value_bucket,
+          product_ids,
+          path: typeof window !== "undefined" ? window.location.pathname : undefined,
+          metadata: meta,
+          occurred_at: new Date().toISOString(),
+        });
+        if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+          navigator.sendBeacon("/api/assistant/events", new Blob([body], { type: "application/json" }));
+        } else {
+          fetch("/api/assistant/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [publicKey, sessionId]
+  );
 
   // Restaura sessão/sacola/nome (localStorage) — refresh não perde a sacola.
+  // Se houver carimbo de handoff (cliente já foi mandado pro checkout da loja),
+  // limpa a sacola AGORA (no retorno ao /chat), não antes do bridge rodar.
+  const restoredRef = useRef(false);
   useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
     try {
       const raw = localStorage.getItem("bk_chat_v2");
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (typeof s.sessionId === "string") setSessionId(s.sessionId);
-        if (Array.isArray(s.cart)) setCart(s.cart);
-        if (typeof s.name === "string" && s.name) {
-          setName(s.name);
-          setNameAsked(true);
-        }
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (typeof s.sessionId === "string") setSessionId(s.sessionId);
+      if (typeof s.name === "string" && s.name) {
+        setName(s.name);
+        setNameAsked(true);
+      }
+      const handedOff = typeof s.handoffAt === "number" && s.handoffAt > 0;
+      if (handedOff) {
+        // Já finalizou (ou tentou) na loja: começa a sacola zerada e apaga o carimbo.
+        setCart([]);
+        localStorage.setItem(
+          "bk_chat_v2",
+          JSON.stringify({ sessionId: s.sessionId, cart: [], name: s.name })
+        );
+      } else if (Array.isArray(s.cart)) {
+        // Valida o schema da sacola salva (evita NaN/sku undefined no checkout).
+        setCart(
+          s.cart.filter(
+            (i: unknown): i is CartItem =>
+              !!i &&
+              typeof (i as CartItem).sku === "string" &&
+              Number.isFinite((i as CartItem).price) &&
+              Number.isFinite((i as CartItem).qty) &&
+              (i as CartItem).qty > 0
+          )
+        );
       }
     } catch {
       /* ignore */
@@ -243,6 +321,12 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Funil: cliente abriu a sacola.
+  useEffect(() => {
+    if (cartOpen) sendAssistantEvent("cart_viewed");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartOpen]);
+
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const cartSubtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
 
@@ -259,16 +343,23 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   // ---- Carrinho ----
 
   const addResolvedToCart = useCallback(
-    (r: {
-      sku: string;
-      size: string | null;
-      product_id: string;
-      name: string;
-      price: number | null;
-      sale_price: number | null;
-      image_url: string | null;
-      url: string | null;
-    }) => {
+    (
+      r: {
+        sku: string;
+        size: string | null;
+        product_id: string;
+        name: string;
+        price: number | null;
+        sale_price: number | null;
+        image_url: string | null;
+        url: string | null;
+      },
+      dedupe = false
+    ) => {
+      // dedupe = fluxo automático (marcador/seletor): se o SKU já entrou por esse
+      // caminho, NÃO soma de novo (evita a cobrança dupla do sem-tamanho→tamanho).
+      if (dedupe && autoAddedSkus.current.has(r.sku)) return;
+      autoAddedSkus.current.add(r.sku);
       const price =
         r.sale_price !== null && r.price !== null && r.sale_price < r.price
           ? r.sale_price
@@ -295,13 +386,18 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         ];
       });
       setToast(`Adicionado à sacola: ${r.name}${r.size ? ` (${r.size})` : ""}`);
+      sendAssistantEvent("add_to_cart", {
+        product_id: r.product_id,
+        size_present: !!r.size,
+      });
     },
-    []
+    [sendAssistantEvent]
   );
 
   // Resolve produto+tamanho no SKU e adiciona. Sem tamanho e multi-size → abre picker.
+  // dedupe = veio do fluxo automático (marcador do modelo) — não pode somar 2x.
   const addToCart = useCallback(
-    async (product: ProductCard, size: string | null) => {
+    async (product: ProductCard, size: string | null, dedupe = false) => {
       try {
         const res = await fetch("/api/assistant/cart-resolve", {
           method: "POST",
@@ -310,13 +406,13 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         });
         const d = await res.json();
         if (d.ok) {
-          addResolvedToCart(d);
+          addResolvedToCart(d, dedupe);
           return;
         }
         if (d.error === "need_size" || d.error === "size_unavailable") {
           const sizes: string[] = Array.isArray(d.available_sizes) ? d.available_sizes.filter(Boolean) : [];
           if (sizes.length) {
-            setSizePicker({ product, sizes });
+            setSizePicker({ product, sizes, auto: dedupe });
             return;
           }
         }
@@ -338,7 +434,28 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         .map((i) => (i.sku === sku ? { ...i, qty: i.qty + delta } : i))
         .filter((i) => i.qty > 0)
     );
-  const removeItem = (sku: string) => setCart((prev) => prev.filter((i) => i.sku !== sku));
+  const removeItem = (sku: string) => {
+    // Libera o SKU (dedup por SKU) E as chaves de marcador (dedup por
+    // produto:tamanho) do item removido, pra ele poder ser re-adicionado depois
+    // pelo mesmo [[carrinho:ID:tam]]. Sem limpar processedCartAdds, o marcador
+    // repetido seria ignorado e o item nunca voltaria.
+    autoAddedSkus.current.delete(sku);
+    setCart((prev) => {
+      const item = prev.find((i) => i.sku === sku);
+      if (item) {
+        const sz = item.size || "";
+        processedCartAdds.current.delete(`${item.productId}:${sz}`);
+        processedCartAdds.current.delete(`${item.productId}:`);
+        setCartAddFailed((f) => {
+          if (!(item.productId in f)) return f;
+          const next = { ...f };
+          delete next[item.productId];
+          return next;
+        });
+      }
+      return prev.filter((i) => i.sku !== sku);
+    });
+  };
 
   // ---- Checkout handoff ----
   // Leva os itens pro carrinho da loja via hash. O shelves.js (já presente em
@@ -353,20 +470,31 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
     } catch {
       hash = "";
     }
-    // Zera a sacola ANTES de navegar (síncrono no localStorage): se o cliente
-    // voltar pro /chat, um segundo "Finalizar" não re-injeta os mesmos itens
-    // (o bridge já esvazia+remonta o carrinho, mas a sacola local não pode
-    // ressurgir e duplicar quantidades). Não espera o efeito async de persistência.
+    // Telemetria de funil: início de checkout (fire-and-forget, não bloqueia).
+    sendAssistantEvent("checkout_handoff", {
+      cart_lines: cart.length,
+      cart_qty: cart.reduce((s, i) => s + i.qty, 0),
+      value_bucket: valueBucket(cartSubtotal),
+    });
+    // NÃO zera a sacola aqui: se o bridge (shelves.js) não rodar na página de
+    // destino, o cliente não perde tudo. Carimba o handoff; a sacola é limpa no
+    // PRÓXIMO mount do /chat (quando o cliente volta), não antes do bridge.
     try {
-      localStorage.setItem("bk_chat_v2", JSON.stringify({ sessionId, cart: [], name }));
+      localStorage.setItem(
+        "bk_chat_v2",
+        JSON.stringify({ sessionId, cart, name, handoffAt: Date.now() })
+      );
     } catch {
       /* ignore */
     }
-    setCart([]);
-    processedCartAdds.current.clear();
-    const url = hash ? `${storeUrl}/#vtx_cart=${encodeURIComponent(hash)}` : `${storeUrl}/carrinho`;
+    // atk (= sessionId) num parâmetro SEPARADO do hash: shelves.js novo grava o
+    // cookie de atribuição; shelves.js antigo (em cache) ignora sem quebrar.
+    const atk = sessionId ? `&vtx_atk=${encodeURIComponent(sessionId)}` : "";
+    const url = hash
+      ? `${storeUrl}/#vtx_cart=${encodeURIComponent(hash)}${atk}`
+      : `${storeUrl}/carrinho`;
     window.location.href = url;
-  }, [cart, storeUrl, sessionId, name]);
+  }, [cart, cartSubtotal, storeUrl, sessionId, name, sendAssistantEvent]);
 
   // ---- Envio de mensagem ----
 
@@ -419,7 +547,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
             .then((r) => r.json())
             .then((cr) => {
               if (cr.ok) {
-                addResolvedToCart(cr);
+                addResolvedToCart(cr, true);
                 return;
               }
               // Falha: nunca deixa o bloco mentir "Adicionado". Se dá pra escolher
@@ -428,7 +556,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
                 ? cr.available_sizes.filter(Boolean)
                 : [];
               if ((cr.error === "need_size" || cr.error === "size_unavailable") && sizes.length && cr.product_id) {
-                setSizePicker({ product: cardFromResolve(cr), sizes });
+                setSizePicker({ product: cardFromResolve(cr), sizes, auto: true });
                 // remove da lista de processados pra o retry pelo picker valer
                 processedCartAdds.current.delete(key);
               } else {
@@ -513,6 +641,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
                   p={p}
                   carousel={carousel}
                   onAdd={() => addToCart(p, null)}
+                  onView={() => sendAssistantEvent("product_card_click", { product_id: p.id })}
                 />
               ))}
             </div>
@@ -591,7 +720,13 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
       }
 
       case "cart_add": {
-        const item = cart.find((i) => i.productId === block.data.productId);
+        // Casa por produto E tamanho: senão um "Adicionado" de outro tamanho do
+        // mesmo produto mostraria o tamanho errado no card.
+        const wantSize = block.data.size ? block.data.size.toUpperCase() : null;
+        const item =
+          cart.find(
+            (i) => i.productId === block.data.productId && (!wantSize || (i.size || "").toUpperCase() === wantSize)
+          ) || cart.find((i) => i.productId === block.data.productId);
         const failed = cartAddFailed[block.data.productId];
         // Só diz "Adicionado" quando o item REALMENTE está na sacola.
         if (!item) {
@@ -605,9 +740,15 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
                   <ShoppingBag className="h-5 w-5 text-amber-300" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-white">Não deu pra adicionar</p>
+                  <p className="text-[13px] font-semibold text-white">
+                    {failed === "need_size" ? "Escolha o tamanho" : "Não deu pra adicionar"}
+                  </p>
                   <p className="text-[12px] text-neutral-400">
-                    {failed === "esgotado" ? "Esse tamanho esgotou." : "Item indisponível agora."}
+                    {failed === "esgotado"
+                      ? "Esse tamanho esgotou."
+                      : failed === "need_size"
+                      ? "Me diga o tamanho no chat que eu adiciono."
+                      : "Item indisponível agora."}
                   </p>
                 </div>
               </div>
@@ -682,7 +823,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
           className="relative flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-[13px] font-semibold hover:bg-white/10 transition-colors"
         >
           <ShoppingBag className="h-4 w-4" />
-          <span className="hidden xs:inline">Sacola</span>
+          <span className="hidden sm:inline">Sacola</span>
           {cartCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-400 text-neutral-950 text-[11px] font-bold flex items-center justify-center">
               {cartCount}
@@ -790,10 +931,18 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
           sizes={sizePicker.sizes}
           onPick={(sz) => {
             const p = sizePicker.product;
+            const auto = sizePicker.auto;
             setSizePicker(null);
-            addToCart(p, sz);
+            addToCart(p, sz, auto);
           }}
-          onClose={() => setSizePicker(null)}
+          onClose={() => {
+            // Fechou sem escolher um add AUTOMÁTICO: não deixa o bloco "Adicionando…"
+            // girando pra sempre — marca como pendente de escolha.
+            if (sizePicker.auto) {
+              setCartAddFailed((prev) => ({ ...prev, [sizePicker.product.id]: "need_size" }));
+            }
+            setSizePicker(null);
+          }}
         />
       )}
 
@@ -826,7 +975,17 @@ function Dot({ delay = 0 }: { delay?: number }) {
   );
 }
 
-function ProductCardView({ p, carousel, onAdd }: { p: ProductCard; carousel: boolean; onAdd: () => void }) {
+function ProductCardView({
+  p,
+  carousel,
+  onAdd,
+  onView,
+}: {
+  p: ProductCard;
+  carousel: boolean;
+  onAdd: () => void;
+  onView?: () => void;
+}) {
   const price = effectivePrice(p);
   const hasSale = p.sale_price !== null && p.price !== null && p.sale_price < p.price;
   const [adding, setAdding] = useState(false);
@@ -835,7 +994,7 @@ function ProductCardView({ p, carousel, onAdd }: { p: ProductCard; carousel: boo
       className={`${carousel ? "w-40 shrink-0 snap-start" : "w-full flex gap-3"} rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden`}
     >
       <div className={carousel ? "" : "shrink-0"}>
-        <a href={p.url || "#"} target="_blank" rel="noopener noreferrer">
+        <a href={p.url || "#"} target="_blank" rel="noopener noreferrer" onClick={onView}>
           {p.image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -856,7 +1015,9 @@ function ProductCardView({ p, carousel, onAdd }: { p: ProductCard; carousel: boo
         </a>
         <div className="mt-1 mb-2">
           {hasSale && <span className="text-[11px] text-neutral-500 line-through mr-1">{brl(p.price)}</span>}
-          <span className="text-[13.5px] font-bold text-white">{brl(price)}</span>
+          <span className="text-[13.5px] font-bold text-white">
+            {price !== null && price !== undefined ? brl(price) : "Sob consulta"}
+          </span>
         </div>
         <button
           onClick={async () => {
