@@ -257,6 +257,15 @@ export interface CatalogSearchOptions {
   allowKits?: boolean;
   /** Manter itens esgotados no resultado (padrão false). */
   includeOutOfStock?: boolean;
+  /** Filtra por prazo de envio: "pronta" (24h) ou "sob_demanda" (~10 dias). */
+  shipping?: "pronta" | "sob_demanda";
+}
+
+// sob demanda = tag sob-demanda / banner dropbits (o resto é pronta entrega).
+function isSobDemanda(raw: unknown): boolean {
+  return tagList(raw).some(
+    (t) => t.name === "sob-demanda" || t.name === "banner-produto-dropbits"
+  );
 }
 
 // Texto pesquisável do produto: nome + nomes das tags (tipo/coleção/etc).
@@ -351,6 +360,11 @@ export async function searchCatalog(
       return Number.isFinite(effective) && effective <= opts.maxPrice!;
     });
   }
+  if (opts.shipping) {
+    candidates = candidates.filter((r) =>
+      opts.shipping === "sob_demanda" ? isSobDemanda(r.tags) : !isSobDemanda(r.tags)
+    );
+  }
 
   // Ranking por tokens da busca (nome pesa 2, tags pesam 1), com sinônimos de
   // tipo. Se HÁ query mas NADA casa, retorna vazio de propósito — assim o
@@ -417,6 +431,13 @@ function unwrapVariant(v: unknown): VndaVariantRaw {
 }
 
 function variantHasStock(v: VndaVariantRaw): boolean {
+  // O flag `available` da VNDA é a fonte da verdade de "comprável" e PRECEDE a
+  // quantidade: produtos SOB DEMANDA / sem controle de estoque vêm com
+  // available=true e quantidade 0 (a loja produz após a compra, então NUNCA
+  // esgotam). Priorizar a quantidade marcava esses como esgotados por engano e
+  // sumia com muitos produtos. Regra: available===true → comprável (mesmo com
+  // qtd 0); available===false → indisponível; sem o flag → decide pela qtd.
+  if (v.available === true) return true;
   if (v.available === false) return false;
   const candidates = [v.quantity, v.balance, v.available_quantity, v.stock];
   for (const c of candidates) {
@@ -424,7 +445,6 @@ function variantHasStock(v: VndaVariantRaw): boolean {
       return Number(c) > 0;
     }
   }
-  // Sem campo de estoque → confia no flag available (≠ false, já checado acima)
   return true;
 }
 

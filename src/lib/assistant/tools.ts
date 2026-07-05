@@ -56,6 +56,12 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
           description:
             "Tamanho do cliente (P, M, G, GG, XGG...). Se informado, retorna SÓ produtos disponíveis nesse tamanho. Passe sempre que souber o tamanho dele.",
         },
+        entrega: {
+          type: "string",
+          enum: ["pronta", "sob_demanda"],
+          description:
+            "Prazo de envio: 'pronta' = pronta entrega (postagem em 24h úteis, a MAIORIA da loja); 'sob_demanda' = produzido após a compra (~10 dias úteis). Use quando o cliente perguntar por pronta entrega.",
+        },
         limite: {
           type: "number",
           description: "Quantos produtos retornar (1 a 10, padrão 6)",
@@ -325,6 +331,10 @@ export async function executeAssistantTool(
                 ? args.modelagem
                 : undefined,
             maxPrice: typeof args.preco_max === "number" ? args.preco_max : undefined,
+            shipping:
+              args.entrega === "pronta" || args.entrega === "sob_demanda"
+                ? args.entrega
+                : undefined,
             allowKits,
             limit: wantSize ? 10 : typeof args.limite === "number" ? args.limite : undefined,
           })

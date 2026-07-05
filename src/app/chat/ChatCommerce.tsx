@@ -262,7 +262,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   const [nameAsked, setNameAsked] = useState(!askName);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null);
   const [sizePicker, setSizePicker] = useState<{ product: ProductCard; sizes: string[]; auto?: boolean } | null>(null);
   // Detalhe de produto aberto no chat (galeria/medidas/avaliações/benefícios).
   const [detailView, setDetailView] = useState<{
@@ -455,7 +455,7 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
           },
         ];
       });
-      setToast(`Adicionado à sacola: ${r.name}${r.size ? ` (${r.size})` : ""}`);
+      setToast({ text: `Adicionado à sacola: ${r.name}${r.size ? ` (${r.size})` : ""}`, ok: true });
       sendAssistantEvent("add_to_cart", {
         product_id: r.product_id,
         size_present: !!r.size,
@@ -486,13 +486,15 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
             return;
           }
         }
-        setToast(
-          d.error === "unavailable" || d.error === "size_unavailable"
-            ? "Esse item esgotou no tamanho escolhido."
-            : "Não consegui adicionar esse item agora."
-        );
+        setToast({
+          text:
+            d.error === "unavailable" || d.error === "size_unavailable" || d.error === "need_size"
+              ? "Esse item está esgotado no momento."
+              : "Não consegui adicionar agora. Tenta de novo?",
+          ok: false,
+        });
       } catch {
-        setToast("Falha ao adicionar à sacola. Tenta de novo.");
+        setToast({ text: "Falha ao adicionar à sacola. Tenta de novo.", ok: false });
       }
     },
     [publicKey, addResolvedToCart]
@@ -1021,10 +1023,14 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         </div>
       </div>
 
-      {/* Toast */}
+      {/* Toast — verde+check no sucesso, âmbar+X no erro (nunca "falha" verde) */}
       {toast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-full bg-emerald-400 text-neutral-950 px-4 py-2 text-[13px] font-semibold shadow-lg flex items-center gap-2 animate-in fade-in">
-          <Check className="h-4 w-4" /> {toast}
+        <div
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-full px-4 py-2 text-[13px] font-semibold shadow-lg flex items-center gap-2 animate-in fade-in ${
+            toast.ok ? "bg-emerald-400 text-neutral-950" : "bg-amber-500 text-neutral-950"
+          }`}
+        >
+          {toast.ok ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />} {toast.text}
         </div>
       )}
 
