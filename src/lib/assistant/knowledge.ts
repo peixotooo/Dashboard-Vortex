@@ -255,10 +255,18 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
   }
 
   if (k.giftBar.active) {
-    lines.push("RÉGUA DE BRINDE (ganha brinde ao atingir valor no carrinho):");
-    k.giftBar.steps.forEach((s) =>
-      lines.push(`- gastando ${fmtBrl(s.threshold)} ganha ${s.gift}`)
-    );
+    lines.push("RÉGUA DE BRINDE/FRETE (indicadores da barra de progresso da loja ao atingir valor no carrinho):");
+    k.giftBar.steps.forEach((s) => {
+      if (/frete/i.test(s.gift)) {
+        // O degrau "Frete Grátis*" da régua é um TEASER com asterisco; o frete
+        // grátis real varia por região. Não deixar o modelo cravar esse valor.
+        lines.push(
+          `- a barra da loja sinaliza "${s.gift}" a partir de ${fmtBrl(s.threshold)}, mas ATENÇÃO: isso é um indicador com asterisco. O frete grátis REAL varia por REGIÃO e tem valor mínimo maior. NUNCA prometa frete grátis num valor único a partir desse número; consulte informacoes_da_loja (política de frete) ou oriente pela região/CEP do cliente.`
+        );
+      } else {
+        lines.push(`- gastando ${fmtBrl(s.threshold)} ganha ${s.gift}`);
+      }
+    });
   }
 
   if (k.cashback) {

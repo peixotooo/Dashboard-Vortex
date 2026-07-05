@@ -300,11 +300,14 @@ function assembleBlocks(
       const card = cardFor(id);
       if (card) pendingCards.push(card);
     } else if (token.startsWith("carrinho:")) {
-      // [[carrinho:ID]] ou [[carrinho:ID:tam]]
+      // [[carrinho:ID]] ou [[carrinho:ID:tam]]. NÃO exige que o produto tenha
+      // sido buscado neste turno (num "sim" de confirmação ele não é) — o
+      // cliente resolve o ID no cart-resolve, que valida de verdade. Só checa
+      // que o ID tem forma de id de produto (evita marcador com nome/lixo).
       const rest = m[1].split(":").slice(1);
       const id = String(rest[0] || "").trim();
       const size = rest[1] ? String(rest[1]).trim() : null;
-      if (id && cardFor(id)) {
+      if (id && /^[\w-]{1,40}$/.test(id)) {
         flushCards();
         blocks.push({ type: "cart_add", data: { productId: id, size } });
       }
