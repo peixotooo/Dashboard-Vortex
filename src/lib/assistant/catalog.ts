@@ -487,6 +487,30 @@ function extractImages(raw: unknown): string[] {
   return out;
 }
 
+// Galeria COMPLETA do produto (frente, costas, detalhes) — endpoint dedicado
+// /products/{id}/images. O /products/{id} só traz a imagem principal; é o mesmo
+// endpoint que o catalog-sync usa pra montar a galeria do shelf. Dado público.
+async function fetchProductImages(config: VndaConfig, productId: string): Promise<string[]> {
+  try {
+    const res = await fetch(
+      `https://api.vnda.com.br/api/v2/products/${encodeURIComponent(productId)}/images`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          Accept: "application/json",
+          "X-Shop-Host": config.storeHost,
+        },
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return extractImages(data);
+  } catch {
+    return [];
+  }
+}
+
 async function fetchProductDetail(
   config: VndaConfig,
   productId: string
@@ -725,24 +749,31 @@ export async function getProductDetails(
   let images: string[] = [];
   try {
     const config = await getVndaConfigAdmin(workspaceId);
-    // Detalhe (API v2: variantes+descrição+imagens) e tabela de medidas (banco,
-    // por molde) em paralelo — os dois cabem no mesmo cache de 90s.
-    const [detail, guide] = await Promise.all([
+    // Detalhe (variantes+descrição), galeria COMPLETA (endpoint /images) e tabela
+    // de medidas (banco, por molde) em paralelo — cabem no mesmo cache de 90s.
+    const [detail, gallery, guide] = await Promise.all([
       config ? fetchProductDetail(config, String(productId)) : Promise.resolve(null),
+      config ? fetchProductImages(config, String(productId)) : Promise.resolve([] as string[]),
       readSizeGuide(workspaceId, moldeFromTags(row.tags)),
     ]);
     if (detail) {
       description = detail.description;
       sizes = variantsToSizes(detail.variants);
-      images = detail.images;
     }
+    // Galeria completa primeiro; se o endpoint /images falhar, cai no que o
+    // /products/{id} trouxe; por último o espelho (image_url_2 + image_url).
+    images = gallery.length ? gallery : detail?.images || [];
     sizeGuide = guide;
   } catch {
     // VNDA/banco fora do ar → devolve o que temos do espelho
   }
 
-  // Galeria: imagens da VNDA; fallback pro espelho (image_url) se vazio.
-  if (images.length === 0 && summary.image_url) images = [summary.image_url];
+  // Fallback final: imagens do espelho local (image_url_2 + image_url).
+  if (images.length === 0) {
+    const mirror = [row.image_url, (row as { image_url_2?: string | null }).image_url_2]
+      .filter((u): u is string => Boolean(u));
+    if (mirror.length) images = [...new Set(mirror)];
+  }
 
   const value = { ...summary, description, sizes, sizeGuide, images };
   detailCache.set(key, { at: now, value });

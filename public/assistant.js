@@ -244,13 +244,26 @@
       var gate = document.createElement("form");
       gate.id = "bk-assist-namegate";
       gate.innerHTML =
-        '<label for="bk-assist-name">Como podemos te chamar?</label>' +
+        '<label for="bk-assist-name">Pra começar, como posso te chamar?</label>' +
         '<div class="bk-assist-namerow">' +
-        '<input id="bk-assist-name" type="text" maxlength="40" placeholder="Seu nome" autocomplete="given-name" />' +
+        '<input id="bk-assist-name" type="text" maxlength="40" placeholder="Digite seu primeiro nome" autocomplete="given-name" />' +
         '<button type="submit">Começar</button>' +
-        "</div>";
+        "</div>" +
+        '<p id="bk-assist-nameerr" class="bk-assist-nameerr" style="display:none"></p>' +
+        '<button type="button" id="bk-assist-skip" class="bk-assist-skip">Pular e ir direto ao chat</button>';
       chips.appendChild(gate);
       var nameInput = gate.querySelector("#bk-assist-name");
+      var skipBtn = gate.querySelector("#bk-assist-skip");
+      if (skipBtn) {
+        skipBtn.addEventListener("click", function () {
+          skipName(gate);
+        });
+      }
+      // Some com o feedback de erro assim que o cliente volta a digitar.
+      nameInput.addEventListener("input", function () {
+        var errEl = gate.querySelector("#bk-assist-nameerr");
+        if (errEl && errEl.style.display !== "none") errEl.style.display = "none";
+      });
       if (!isMobile()) {
         try {
           nameInput.focus();
@@ -265,13 +278,29 @@
       });
     }
 
+    // Palavras que NÃO são nome (saudação/comando) — se o cliente digitar isso no
+    // campo de nome, a gente NÃO trava: trata como a primeira mensagem dele.
+    var NOT_A_NAME = /^(oi|ola|ol[aá]|opa|eai|e a[íi]|eae|hey|hi|hello|al[oô]|bom dia|boa tarde|boa noite|teste|test|quero|queria|tem|preciso|ajuda|help|pre[çc]o|tamanho|comprar|ver|mostra|me mostra|sim|n[aã]o|ok|blz|beleza|obrigad[oa]|vlw)$/i;
+
+    // Classifica o que o cliente digitou no campo de nome:
+    //  "name"    → nome válido (um token só de letras)
+    //  "message" → saudação/frase/pergunta/comando → vira a 1ª mensagem
+    //  "invalid" → tentativa de nome com número/símbolo (ex.: "Gui2") → feedback
+    function classifyNameInput(cleaned, first) {
+      var isMessage =
+        cleaned.split(" ").length >= 2 ||
+        /[?!.,]/.test(cleaned) ||
+        NOT_A_NAME.test(cleaned) ||
+        cleaned.length > 24;
+      if (isMessage) return "message";
+      if (!/\d/.test(cleaned) && /^[A-Za-zÀ-ÿ'’-]{1,40}$/.test(first)) return "name";
+      return "invalid";
+    }
+
     function submitName(raw, gate, nameInput) {
-      // Primeiro nome: letras (com acento), sem dígitos, máx 40 chars
       var cleaned = String(raw || "").replace(/\s+/g, " ").trim();
-      var first = cleaned.split(" ")[0] || "";
-      if (!first || /\d/.test(cleaned) || !/^[A-Za-zÀ-ÿ'’-]{1,40}$/.test(first)) {
-        nameInput.value = "";
-        nameInput.setAttribute("placeholder", "Digite só o seu nome");
+      var errEl = gate ? gate.querySelector("#bk-assist-nameerr") : null;
+      if (!cleaned) {
         try {
           nameInput.focus();
         } catch (e) {
@@ -279,16 +308,55 @@
         }
         return;
       }
-      customerName = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
-      ssSet(SS_NAME, customerName);
+      var first = cleaned.split(" ")[0] || "";
+      var kind = classifyNameInput(cleaned, first);
+
+      if (kind === "invalid") {
+        // Tentativa de nome inválida (ex.: número/símbolo): NÃO trava em silêncio.
+        // Dá feedback claro e deixa tentar de novo (ou usar o "Pular").
+        if (errEl) {
+          errEl.textContent = "Pode ser só o seu primeiro nome, sem números ou símbolos. Ou toque em Pular.";
+          errEl.style.display = "block";
+        }
+        try {
+          nameInput.focus();
+        } catch (e) {
+          /* ignore */
+        }
+        return;
+      }
+
+      // A partir daqui libera o chat (remove o gate).
       if (gate && gate.parentNode) gate.parentNode.removeChild(gate);
       form.style.display = "";
-      addBubble(
-        "assistant",
-        "Prazer, " + customerName + "! Me conta: o que você procura ou qual sua dúvida?",
-        null,
-        false
-      );
+      if (kind === "name") {
+        customerName = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+        ssSet(SS_NAME, customerName);
+        addBubble(
+          "assistant",
+          "Prazer, " + customerName + "! Me conta: o que você procura ou qual sua dúvida?",
+          null,
+          false
+        );
+        renderChips();
+        if (!isMobile()) {
+          try {
+            input.focus();
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      } else {
+        // "message": saudação/frase → entra como a 1ª mensagem e já responde.
+        renderChips();
+        sendMessage(cleaned);
+      }
+    }
+
+    // Pula o nome e vai direto pro chat.
+    function skipName(gate) {
+      if (gate && gate.parentNode) gate.parentNode.removeChild(gate);
+      form.style.display = "";
       renderChips();
       if (!isMobile()) {
         try {
@@ -1016,6 +1084,9 @@
       "#bk-assist-name{flex:1;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff}" +
       "#bk-assist-name:focus{border-color:#111}" +
       "#bk-assist-namegate button{background:#111;color:#fff;border:none;border-radius:999px;padding:0 18px;font-size:13px;cursor:pointer;white-space:nowrap}" +
+      "#bk-assist-namegate button.bk-assist-skip{background:transparent;color:#888;padding:8px 2px 0;font-size:12px;text-decoration:underline;white-space:normal;border-radius:0}" +
+      "#bk-assist-namegate button.bk-assist-skip:hover{color:#555}" +
+      ".bk-assist-nameerr{margin:8px 0 0;font-size:12px;line-height:1.35;color:#c0392b}" +
       "#bk-assist-form{display:flex;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #ececec;flex-shrink:0}" +
       "#bk-assist-input{flex:1;min-width:0;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff;-webkit-appearance:none;appearance:none}" +
       "#bk-assist-input:focus{border-color:#111}" +

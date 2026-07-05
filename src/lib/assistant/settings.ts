@@ -4,7 +4,7 @@ import type { AssistantSettings } from "./types";
 const DEFAULTS = {
   title: "Assistente Bulking",
   welcomeMessage:
-    "Fala! Sou o assistente da loja. Posso te ajudar com tamanho, tecido, disponibilidade e recomendações. O que você precisa?",
+    "Oi! Sou o assistente da Bulking. Te ajudo a achar o tamanho certo, tirar dúvida de tecido e caimento e escolher a peça ideal. Como posso ajudar?",
   suggestions: [
     "Qual tamanho ideal pra mim?",
     "Esse tecido é dry ou algodão?",
@@ -53,7 +53,15 @@ export async function getAssistantSettings(
       : [],
     model: typeof data.model === "string" && data.model.trim() ? data.model.trim() : null,
     title: data.title || DEFAULTS.title,
-    welcomeMessage: data.welcome_message || DEFAULTS.welcomeMessage,
+    // A string legada "Fala! ..." veio do DEFAULT da coluna (migration-126) —
+    // trata como não-customizada pra o texto novo valer sem mexer no banco. Se
+    // o lojista escreveu um welcome próprio, esse é respeitado.
+    welcomeMessage:
+      typeof data.welcome_message === "string" &&
+      data.welcome_message.trim() &&
+      !data.welcome_message.startsWith("Fala! Sou o assistente da loja.")
+        ? data.welcome_message
+        : DEFAULTS.welcomeMessage,
     suggestions: Array.isArray(data.suggestions)
       ? (data.suggestions as unknown[]).filter((s) => typeof s === "string").slice(0, 4) as string[]
       : DEFAULTS.suggestions,
