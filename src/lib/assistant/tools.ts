@@ -25,7 +25,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "buscar_produtos",
     description:
-      "Busca produtos no catálogo da loja por texto livre e/ou filtros (cor, tecido, modelagem, preço máximo). Use para recomendar produtos ou verificar o que existe na loja. Retorna nome, preço, disponibilidade (sim/não), composição e link.",
+      "Busca produtos no catálogo por texto livre e/ou filtros (cor, tecido, modelagem, preço). Use para QUALQUER pedido de categoria, tipo ou gênero: 'produtos femininos', 'linha feminina', 'legging', 'moletom', 'calça cargo', 'camiseta preta'. Entende sinônimos (feminino→linha SEAMLESS) e cor em inglês (rosa→ROSE, preto→BLACK). É a ferramenta padrão pra mostrar/recomendar peças. Retorna nome, preço, disponibilidade, composição e link.",
     input_schema: {
       type: "object",
       properties: {
@@ -140,7 +140,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "vitrine",
     description:
-      "Prateleira de produtos da loja pra montar um CARROSSEL no chat: mais vendidos, novidades, ofertas, populares. Use quando o cliente pede recomendação ampla, 'o que tem', 'mais vendidos', 'novidades', 'promoções', ou pra abrir a conversa mostrando a loja. Depois de chamar, coloque o marcador [[vitrine]] no texto onde o carrossel deve aparecer.",
+      "Prateleira GENÉRICA da loja pra montar um CARROSSEL: mais vendidos, novidades, ofertas, populares. Use SÓ pra pedido AMPLO e sem categoria específica: 'o que tem de bom', 'mais vendidos', 'novidades', 'promoções', ou pra abrir a conversa. NÃO use pra categoria/gênero/tipo específico (ex.: 'produtos femininos', 'legging', 'moletom') — nesses casos use buscar_produtos. Depois de chamar, coloque o marcador [[vitrine]] onde o carrossel deve aparecer.",
     input_schema: {
       type: "object",
       properties: {
