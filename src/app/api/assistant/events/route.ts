@@ -65,6 +65,7 @@ function allowedOrigins(): string[] {
         "https://www.bulking.com.br",
         "https://checkout.bulking.com.br",
         "https://dash.bulking.com.br",
+        "https://chat.bulking.com.br",
         "https://dashboard-vortex.vercel.app",
       ];
 }
