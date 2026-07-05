@@ -139,6 +139,10 @@ export async function POST(request: NextRequest) {
   let surface: "pdp" | "global" = wantsGlobal ? "global" : "pdp";
 
   let activeName: string | null = customerName;
+  let isNewSession = false;
+  // Índice durável de produtos mostrados na sessão (IDs pro carrinho). Coluna
+  // recent_products pode não existir se migration-133 pendente → cai em [].
+  let recentProducts: Array<{ id: string; name: string; sizes?: string[] }> = [];
 
   if (sessionKey) {
     // select("*") pra não quebrar se customer_name ainda não existir (migration
@@ -162,6 +166,17 @@ export async function POST(request: NextRequest) {
     // pendente → cai no default 'pdp', comportamento v1 seguro).
     if (conv.surface === "global") surface = "global";
     else if (conv.surface === "pdp") surface = "pdp";
+    if (Array.isArray(conv.recent_products)) {
+      recentProducts = (conv.recent_products as unknown[])
+        .filter((p): p is { id: string; name: string; sizes?: string[] } =>
+          Boolean(p && typeof p === "object" && (p as { id?: unknown }).id))
+        .map((p) => ({
+          id: String(p.id),
+          name: String(p.name || ""),
+          sizes: Array.isArray(p.sizes) ? p.sizes.map(String) : undefined,
+        }))
+        .slice(-20);
+    }
   } else {
     // No modo global o gate por produto é dispensado (a página vende a loja
     // toda); fora dele, mantém o gate estrito do widget v1.
@@ -190,6 +205,7 @@ export async function POST(request: NextRequest) {
       return json(request, 500, { ok: false, reply: BUSY_REPLY });
     }
     conversationId = created.id as string;
+    isNewSession = true;
 
     // Persiste o nome à parte (best-effort): se a coluna ainda não existir,
     // ignora — o nome do payload já vai pro prompt de qualquer forma.
@@ -240,6 +256,7 @@ export async function POST(request: NextRequest) {
       currentProductId: surface === "global" ? null : productId,
       customerName: activeName,
       surface,
+      recentProducts,
     });
   } catch (err) {
     console.error("[assistant] turn failed:", err instanceof Error ? err.message : err);
@@ -291,13 +308,70 @@ export async function POST(request: NextRequest) {
   const assistantMessageId =
     (inserted || []).find((r) => r.role === "assistant")?.id ?? null;
 
-  await admin
+  // Atualiza contador + índice de produtos mostrados. recent_products (migration
+  // 133) é best-effort: se a coluna não existir, refaz o update sem ela pra não
+  // perder a contagem de mensagens.
+  const baseUpdate = {
+    message_count: messageCount + 1,
+    last_message_at: new Date().toISOString(),
+  };
+  const nextRecent = Array.isArray(result.recentProducts)
+    ? result.recentProducts.slice(-20)
+    : recentProducts;
+  const { error: updErr } = await admin
     .from("assistant_conversations")
-    .update({
-      message_count: messageCount + 1,
-      last_message_at: new Date().toISOString(),
-    })
+    .update({ ...baseUpdate, recent_products: nextRecent })
     .eq("id", conversationId);
+  if (updErr) {
+    await admin
+      .from("assistant_conversations")
+      .update(baseUpdate)
+      .eq("id", conversationId);
+  }
+
+  // Telemetria de funil (server-side, autoritativa — à prova de adblock). Best-
+  // effort: tabela pode não existir se migration-133 pendente → ignora o erro.
+  try {
+    const events: Array<Record<string, unknown>> = [];
+    if (isNewSession) {
+      events.push({
+        workspace_id: workspaceId,
+        atk: activeSessionKey,
+        event_type: "session_started",
+        surface,
+        ip_hash: ipHash,
+      });
+    }
+    events.push({
+      workspace_id: workspaceId,
+      atk: activeSessionKey,
+      event_type: "message_sent",
+      surface,
+      ip_hash: ipHash,
+      metadata: { msg_index: messageCount + 1 },
+    });
+    // Produtos mostrados neste turno (cards + carrosséis) — mede a qualidade da
+    // recomendação (a razão de existir do agente).
+    const shownIds = new Set<string>();
+    for (const p of result.products || []) if (p.id) shownIds.add(String(p.id));
+    for (const b of result.blocks || []) {
+      if (b.type === "products") for (const p of b.products) if (p.id) shownIds.add(String(p.id));
+    }
+    if (shownIds.size > 0) {
+      events.push({
+        workspace_id: workspaceId,
+        atk: activeSessionKey,
+        event_type: "products_shown",
+        surface,
+        ip_hash: ipHash,
+        product_ids: [...shownIds].slice(0, 30),
+        metadata: { count: shownIds.size },
+      });
+    }
+    await admin.from("assistant_events").insert(events);
+  } catch {
+    // telemetria nunca quebra a resposta ao cliente
+  }
 
   return json(request, 200, {
     ok: true,

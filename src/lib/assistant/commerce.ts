@@ -8,9 +8,12 @@ import { createAdminClient } from "@/lib/supabase-admin";
 import { getRecommendations } from "@/lib/shelves/algorithms";
 import type { AssistantProductCard, ReviewsBlockData } from "./types";
 
-// Rótulos amigáveis → algoritmo do motor de prateleiras
+// Rótulos amigáveis → algoritmo do motor de prateleiras.
+// "mais_vendidos" usa bestsellers_store (loja inteira, UNIDADES, ~30d) — estável
+// e sem viés de ticket/promoção do bestsellers (receita 7d). "ofertas" continua
+// no que está com desconto de verdade.
 const VITRINE_ALGOS: Record<string, string> = {
-  mais_vendidos: "bestsellers",
+  mais_vendidos: "bestsellers_store",
   camisetas_mais_vendidas: "bestseller_camisetas",
   novidades: "news",
   ofertas: "offers",

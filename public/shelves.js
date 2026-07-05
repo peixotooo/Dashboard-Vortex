@@ -26,6 +26,14 @@
         return;
       }
       if (!Array.isArray(items) || items.length === 0) return;
+      // Atribuição (Chat Commerce v2): o /chat manda &vtx_atk=<sessionId>. Grava
+      // num cookie first-party (same-origin) pra a página de confirmação atribuir
+      // o pedido à sessão do chat. Opaco, sem PII.
+      try {
+        var atkMatch = /[#&]vtx_atk=([^&]+)/.exec(window.location.hash || "");
+        var atk = atkMatch ? decodeURIComponent(atkMatch[1]) : null;
+        if (atk && /^[A-Za-z0-9_-]{8,128}$/.test(atk)) setCookie("vtx_atk", atk, 7);
+      } catch (e) {}
       // Limpa o hash na hora (não reprocessa em refresh, não fica no histórico)
       try {
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -144,6 +152,18 @@
           })
           .then(function (html) {
             var lineSkus = skusFromCartHtml(html);
+            // Remove APENAS os SKUs que a sacola do chat vai remontar (interseção).
+            // Assim itens que o cliente já tinha adicionado navegando pela loja
+            // SOBREVIVEM, e os itens do chat não duplicam numa 2ª finalização
+            // (são removidos e re-adicionados). Sem interseção = destruía itens
+            // legítimos da loja.
+            var chatSkus = {};
+            for (var ci = 0; ci < items.length; ci++) {
+              if (items[ci] && items[ci].sku) chatSkus[String(items[ci].sku)] = 1;
+            }
+            lineSkus = lineSkus.filter(function (s) {
+              return chatSkus[s];
+            });
             if (lineSkus.length === 0) {
               if (!done) {
                 done = true;
@@ -4528,6 +4548,7 @@
       sendCheckoutEvent("checkout_purchase_completed", {
         step: "confirmation",
       }, { throttleMs: 0, flush: true });
+      sendAssistantOrderPlaced();
     }
 
     scanCheckoutDom();
@@ -4551,6 +4572,7 @@
         state.completed = true;
         sendCheckoutEvent("checkout_purchase_completed", { step: "confirmation" }, { throttleMs: 0, flush: true });
       }
+      if (isCheckoutConfirmationPath()) sendAssistantOrderPlaced();
       scanCheckoutDom();
     }, 2500);
   }
@@ -5224,6 +5246,38 @@
       }
     } catch (e) { /* swallow */ }
     return null;
+  }
+
+  // Chat Commerce v2: atribui o pedido à sessão do chat. Lê o cookie vtx_atk
+  // (gravado no handoff) + o código do pedido e dispara order_placed. O endpoint
+  // materializa a atribuição; a receita REAL entra depois pelo webhook VNDA.
+  // Idempotente (dispara uma vez; o servidor ignora duplicado por order_code).
+  var vtxOrderPlacedSent = false;
+  function sendAssistantOrderPlaced() {
+    if (vtxOrderPlacedSent || !API_BASE) return;
+    var atk = getCookie("vtx_atk");
+    if (!atk) return;
+    var orderCode = extractOrderCode();
+    if (!orderCode) return;
+    vtxOrderPlacedSent = true;
+    try {
+      var body = JSON.stringify({
+        key: API_KEY,
+        event_type: "order_placed",
+        session_id: atk,
+        surface: "global",
+        order_code: orderCode,
+        path: window.location.pathname,
+      });
+      var url = API_BASE + "/api/assistant/events";
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+      } else {
+        fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body, keepalive: true, credentials: "omit" });
+      }
+      // Consome o cookie: não re-atribui um pedido futuro à mesma sessão antiga.
+      setCookie("vtx_atk", "", -1);
+    } catch (e) {}
   }
 
   function sendCAPI(eventType, data) {

@@ -43,15 +43,27 @@ const SECRET_PATTERNS: RegExp[] = [
   /service_role/gi,
 ];
 
+// Emoji/pictogramas: a marca pede "sem emoji" e o modelo às vezes ignora.
+// Strip determinístico. Extended_Pictographic pega emoji sem tocar em dígitos,
+// pontuação, acentos ou colchetes de marcadores [[...]].
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}\u{20E3}]/gu;
+
 /** Sanitiza a resposta final do LLM antes de enviar ao widget. */
 export function sanitizeReply(text: string): string {
   let out = text.trim();
   for (const pattern of SECRET_PATTERNS) {
     out = out.replace(pattern, "[removido]");
   }
+  // Travessão/meia-risca entre palavras → vírgula (estilo de chat). Usa [ \t]
+  // (NÃO \s) pra não atravessar quebra de linha: um bullet "\n– item" viraria
+  // ", item" e juntaria a lista numa linha só. Travessão residual (inclusive em
+  // início de linha) vira hífen simples.
+  out = out.replace(/[ \t]+[—–][ \t]+/g, ", ").replace(/[—–]/g, "-");
+  // Remove emoji e espaços órfãos que sobrarem.
+  out = out.replace(EMOJI_RE, "").replace(/[ \t]{2,}/g, " ").replace(/ +([.,!?])/g, "$1");
   // Resposta de chat não precisa passar de ~2000 chars
   if (out.length > 2000) out = out.slice(0, 2000).trim();
-  return out;
+  return out.trim();
 }
 
 // PII óbvia que o cliente possa colar no chat — scrub ANTES de persistir a

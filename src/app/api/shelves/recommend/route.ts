@@ -12,6 +12,7 @@ const CORS_HEADERS = {
 const CACHE_TTL: Record<string, number> = {
   bestsellers: 300,
   bestseller_camisetas: 300,
+  bestsellers_store: 300,
   news: 600,
   offers: 600,
   most_popular: 300,

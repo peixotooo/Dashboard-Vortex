@@ -269,6 +269,51 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Chat Commerce v2: anexa a RECEITA REAL (ground-truth, bússola MER) à
+    // atribuição criada pelo order_placed do /chat. Keyed pelo code do pedido
+    // (o mesmo que o shelves.js extrai de /pedido/<code>). Isolado: nunca quebra
+    // o webhook. Só confirma receita de sessões que o cliente já atribuiu; se a
+    // coluna/tabela não existir (migration-133 pendente), ignora.
+    try {
+      const p = payload as unknown as Record<string, unknown>;
+      const orderCode = String((p.code as string) || orderId);
+      const num = (v: unknown): number | null => {
+        const n = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const rawItems = Array.isArray(p.items) ? (p.items as Array<Record<string, unknown>>) : [];
+      const orderItems = rawItems.slice(0, 60).map((it) => ({
+        sku: String(it.sku || ""),
+        qty: num(it.quantity) ?? 1,
+        total: num(it.total) ?? num(it.price) ?? 0,
+      }));
+      // UPSERT (não UPDATE): se o webhook chega ANTES da confirmação client-side,
+      // cria a linha só com a receita (atk fica NULL até o beacon do /chat
+      // preencher). Se a linha já existe, anexa a receita sem tocar no atk. Assim
+      // a ordem de chegada webhook/cliente não perde a receita (bússola MER).
+      await admin
+        .from("assistant_attributions")
+        .upsert(
+          {
+            workspace_id: workspaceId,
+            order_code: orderCode,
+            order_total: num(p.total),
+            order_subtotal: num(p.subtotal),
+            order_discount: num(p.discount) ?? num(p.discount_price),
+            order_items: orderItems,
+            revenue_confirmed: true,
+            confirmed_at: new Date().toISOString(),
+          },
+          { onConflict: "workspace_id,order_code" }
+        );
+      console.log(`[VNDA Webhook] Chat attribution revenue upserted for order ${orderCode}`);
+    } catch (attrErr) {
+      console.error(
+        `[VNDA Webhook] Chat attribution update failed for order ${orderId}:`,
+        attrErr instanceof Error ? attrErr.message : attrErr
+      );
+    }
+
     return NextResponse.json({ ok: true, status: "created" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
