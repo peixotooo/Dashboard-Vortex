@@ -171,19 +171,22 @@ function detectFabric(name: string, tags?: unknown): "dry" | "algodao" {
 // Tokens já normalizados (sem acento). Ambíguos por substring ("off", "cru")
 // são casados por FRONTEIRA DE PALAVRA pra não classificar "OFF WHITE" como bege
 // nem "cruz" como cru. "off white"/"off-white" ficam em branco (não bege).
+// Inclui nomes de cor em INGLÊS: a linha feminina SEAMLESS (e outras novas)
+// nomeia as cores em inglês (BLACK, ROSE, LILAC...), então uma query em pt
+// ("rosa") precisa casar "ROSE" no nome.
 const COLOR_TOKENS: Record<string, string[]> = {
   preto: ["preta", "preto", "black"],
   branco: ["branca", "branco", "off white", "off-white", "off", "white"],
-  cinza: ["cinza", "chumbo", "mescla", "grafite"],
-  azul: ["azul", "marinho", "navy", "royal"],
-  verde: ["verde", "militar", "oliva"],
-  vermelho: ["vermelha", "vermelho", "bordo", "vinho"],
-  bege: ["bege", "areia", "cru", "caqui", "nude"],
-  marrom: ["marrom", "caramelo", "chocolate", "terra"],
-  rosa: ["rosa", "pink"],
-  amarelo: ["amarela", "amarelo", "mostarda"],
-  roxo: ["roxa", "roxo", "lilas"],
-  laranja: ["laranja"],
+  cinza: ["cinza", "chumbo", "mescla", "grafite", "gray", "grey"],
+  azul: ["azul", "marinho", "navy", "royal", "blue"],
+  verde: ["verde", "militar", "oliva", "green"],
+  vermelho: ["vermelha", "vermelho", "bordo", "vinho", "red"],
+  bege: ["bege", "areia", "cru", "caqui", "nude", "beige", "sand"],
+  marrom: ["marrom", "caramelo", "chocolate", "terra", "brown"],
+  rosa: ["rosa", "pink", "rose"],
+  amarelo: ["amarela", "amarelo", "mostarda", "yellow"],
+  roxo: ["roxa", "roxo", "lilas", "lilac", "purple", "lavanda"],
+  laranja: ["laranja", "orange"],
 };
 
 // Casa a cor por FRONTEIRA DE PALAVRA (não substring), sobre o nome já
