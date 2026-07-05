@@ -14,6 +14,13 @@ const BIO_PUBLIC_HOSTS = (
   .split(",")
   .map((host) => host.trim().toLowerCase())
   .filter(Boolean);
+// Subdomínio dedicado do Chat Commerce (/chat) — URL limpa pra bio/divulgação.
+const CHAT_PUBLIC_HOSTS = (
+  process.env.CHAT_PUBLIC_HOSTS || "chat.bulking.com.br"
+)
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
 const GROUPS_DEFAULT_SLUG = process.env.WHATSAPP_GROUPS_DEFAULT_SLUG || "vip";
 
 function isGroupsPublicHost(host: string): boolean {
@@ -24,6 +31,11 @@ function isGroupsPublicHost(host: string): boolean {
 function isBioPublicHost(host: string): boolean {
   const normalized = host.split(":")[0].toLowerCase();
   return BIO_PUBLIC_HOSTS.includes(normalized);
+}
+
+function isChatPublicHost(host: string): boolean {
+  const normalized = host.split(":")[0].toLowerCase();
+  return CHAT_PUBLIC_HOSTS.includes(normalized);
 }
 
 export async function middleware(request: NextRequest) {
@@ -44,6 +56,14 @@ export async function middleware(request: NextRequest) {
   if (isBioPublicHost(host) && pathname === "/") {
     const url = request.nextUrl.clone();
     url.pathname = "/bio";
+    return NextResponse.rewrite(url);
+  }
+
+  // chat.bulking.com.br → serve o Chat Commerce (/chat). Qualquer path do
+  // subdomínio que não seja o próprio /chat cai na raiz do chat.
+  if (isChatPublicHost(host) && !pathname.startsWith("/chat")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/chat";
     return NextResponse.rewrite(url);
   }
 
