@@ -27,6 +27,12 @@ export async function GET(
     if (!skuOrCode) {
       return NextResponse.json({ error: "Código vazio" }, { status: 400 });
     }
+    // SKU/product_id são alfanuméricos (+ `.` `-` `_`). Rejeita qualquer outra
+    // coisa pra o valor não injetar condições extras no filtro .or() do
+    // PostgREST (vírgula/parênteses/operadores).
+    if (!/^[\w.-]+$/.test(skuOrCode)) {
+      return NextResponse.json({ error: "Código inválido" }, { status: 400 });
+    }
 
     const { workspaceId } = await getWorkspaceContext(request);
     const supabase = createSupabase(request);

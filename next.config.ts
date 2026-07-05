@@ -26,6 +26,21 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Anti-clickjacking no app autenticado. Exclui os widgets/páginas
+        // embeddáveis nas lojas (shelves.js, assistant.js, /bio, /chat,
+        // /avaliar, /g) — precisam continuar carregáveis em iframe de
+        // terceiros. `bio|chat|avaliar` são ancorados em `/` ou fim de path
+        // pra NÃO exemptar rotas do dashboard como /bio-inteligente; `g/`
+        // (com barra) não pega /ga4, /gift-bar, /google-ads. api/_next não
+        // são documentos framáveis.
+        source:
+          "/((?!api/|_next/|shelves\\.js|assistant\\.js|bio(?:/|$)|chat(?:/|$)|avaliar(?:/|$)|g/).*)",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      },
     ];
   },
 };

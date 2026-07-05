@@ -121,6 +121,12 @@ export async function GET(request: NextRequest) {
       vndaConnection.webhook_token = newToken;
     }
 
+    // O webhook_token é um segredo que autentica webhooks de pedido/cashback.
+    // Só owner/admin podem vê-lo — membro comum recebe a conexão sem o token.
+    if (vndaConnection && !isAdminRole(role)) {
+      vndaConnection.webhook_token = null;
+    }
+
     // Get workspace custom domain
     const { data: wsData } = await supabase
       .from("workspaces")

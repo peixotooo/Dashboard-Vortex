@@ -27,7 +27,12 @@ export async function GET(request: NextRequest) {
     if (status) query = query.eq("status", status);
     if (productId) query = query.eq("product_id", productId);
     if (source) query = query.eq("source", source);
-    if (search) query = query.or(`title.ilike.%${search}%,body.ilike.%${search}%,author_name.ilike.%${search}%`);
+    if (search) {
+      // Sanitiza os chars da gramática de filtro do PostgREST pra o input não
+      // injetar condições extras no .or() (mesmo padrão de hub/products).
+      const s = search.replace(/[%_,().*]/g, "");
+      if (s) query = query.or(`title.ilike.%${s}%,body.ilike.%${s}%,author_name.ilike.%${s}%`);
+    }
 
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
