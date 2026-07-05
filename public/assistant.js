@@ -916,6 +916,75 @@
       if (t && t.parentNode) t.parentNode.removeChild(t);
     }
 
+    // --- Adicionar à sacola direto da PDP (o widget roda na loja: same-origin) ---
+    function handleCartAdd(cartAdd) {
+      // 1) Resolve produto+tamanho no SKU de variante (endpoint público).
+      fetchJSON(API_BASE + "/api/assistant/cart-resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: API_KEY,
+          product_id: cartAdd.productId,
+          size: cartAdd.size || undefined,
+        }),
+      })
+        .then(function (res) {
+          var d = res.data || {};
+          if (d.ok && d.sku) {
+            addToStoreCart(d.sku, d.name || "", cartAdd.size);
+          } else if (d.error === "unavailable" || d.error === "size_unavailable") {
+            showCartNotice("Esse tamanho esgotou. Posso te sugerir outro?");
+          } else {
+            showCartNotice("Não consegui adicionar agora. Tenta de novo?");
+          }
+        })
+        .catch(function () {
+          showCartNotice("Não consegui adicionar agora. Tenta de novo?");
+        });
+    }
+
+    function addToStoreCart(sku, name, size) {
+      // POST na LOJA (origem da página, mesmo padrão do shelves.js). API_BASE é o
+      // dash; /carrinho/adicionar é da loja — URL relativa = same-origin.
+      fetch("/carrinho/adicionar", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: "sku=" + encodeURIComponent(sku) + "&quantity=1",
+        credentials: "same-origin",
+      })
+        .then(function (r) {
+          if (r && r.ok) showCartSuccess(name, size);
+          else showCartNotice("Não consegui adicionar agora. Tenta de novo?");
+        })
+        .catch(function () {
+          showCartNotice("Não consegui adicionar agora. Tenta de novo?");
+        });
+    }
+
+    function showCartSuccess(name, size) {
+      var card = document.createElement("div");
+      card.className = "bk-assist-msg -assistant";
+      var label = (name || "Produto") + (size ? " · " + String(size).toUpperCase() : "");
+      card.innerHTML =
+        '<div class="bk-assist-cartok">' +
+        '<div class="bk-assist-cartok-top"><span class="bk-assist-cartok-check">✓</span>' +
+        '<span><b>Adicionado à sacola</b><br><span class="bk-assist-cartok-name"></span></span></div>' +
+        '<div class="bk-assist-cartok-actions">' +
+        '<a class="bk-assist-cartok-btn -primary" href="/checkout">Finalizar compra</a>' +
+        '<a class="bk-assist-cartok-btn" href="/carrinho">Ver sacola</a>' +
+        "</div></div>";
+      card.querySelector(".bk-assist-cartok-name").textContent = label;
+      body.appendChild(card);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function showCartNotice(msg) {
+      addBubble("assistant", msg, null, false);
+    }
+
     function sendMessage(raw) {
       var text = String(raw || "").replace(/\s+/g, " ").trim();
       if (!text || busy) return;
@@ -948,10 +1017,14 @@
           var data = res.data || {};
           if (data.session_id) ssSet(SS_SESSION, data.session_id);
           if (data.reply) {
-            addBubble("assistant", data.reply, data.products || null, true, {
+            // Se o assistente vai adicionar à sacola, NÃO mostra o card do
+            // produto (que reabriria a PDP) — mostra o add-to-cart.
+            var willAddToCart = data.cart_add && data.cart_add.productId;
+            addBubble("assistant", data.reply, willAddToCart ? null : data.products || null, true, {
               whatsapp: data.whatsapp === true,
               messageId: data.message_id || null,
             });
+            if (willAddToCart) handleCartAdd(data.cart_add);
           } else {
             addBubble(
               "assistant",
@@ -1087,6 +1160,13 @@
       "#bk-assist-namegate button.bk-assist-skip{background:transparent;color:#888;padding:8px 2px 0;font-size:12px;text-decoration:underline;white-space:normal;border-radius:0}" +
       "#bk-assist-namegate button.bk-assist-skip:hover{color:#555}" +
       ".bk-assist-nameerr{margin:8px 0 0;font-size:12px;line-height:1.35;color:#c0392b}" +
+      ".bk-assist-cartok{border:1px solid #cde6d5;background:#f2fbf5;border-radius:14px;padding:12px 14px;max-width:88%}" +
+      ".bk-assist-cartok-top{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:#14532d;line-height:1.4}" +
+      ".bk-assist-cartok-check{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#16a34a;color:#fff;font-size:13px;flex:0 0 auto}" +
+      ".bk-assist-cartok-name{color:#3f6b4e;font-size:12.5px}" +
+      ".bk-assist-cartok-actions{display:flex;gap:8px;margin-top:10px}" +
+      ".bk-assist-cartok-btn{flex:1;text-align:center;text-decoration:none;border-radius:999px;padding:9px 12px;font-size:13px;font-weight:600;border:1px solid #cde6d5;color:#14532d;background:#fff}" +
+      ".bk-assist-cartok-btn.-primary{background:#16a34a;color:#fff;border-color:#16a34a}" +
       "#bk-assist-form{display:flex;gap:8px;padding:10px 12px;background:#fff;border-top:1px solid #ececec;flex-shrink:0}" +
       "#bk-assist-input{flex:1;min-width:0;border:1px solid #d9d9d9;border-radius:999px;padding:10px 14px;font-size:13.5px;outline:none;color:#111;background:#fff;-webkit-appearance:none;appearance:none}" +
       "#bk-assist-input:focus{border-color:#111}" +

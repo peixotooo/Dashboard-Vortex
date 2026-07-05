@@ -386,5 +386,7 @@ export async function POST(request: NextRequest) {
     message_id: assistantMessageId,
     // Chat Commerce v2: blocos ricos ordenados (a página /chat usa; o widget ignora)
     blocks: result.blocks || [],
+    // Widget PDP (v1): produto+tamanho pra adicionar à sacola da loja same-origin.
+    cart_add: result.cartAdd || null,
   });
 }

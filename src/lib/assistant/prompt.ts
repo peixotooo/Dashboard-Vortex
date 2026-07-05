@@ -106,7 +106,10 @@ export function buildSystemPrompt(opts: {
       currentProduct.sizeGuide
         ? `- Tabela de medidas OFICIAL deste produto (use ESTA, não a genérica):\n${currentProduct.sizeGuide}`
         : `- Tabela de medidas: não cadastrada pra este produto; use guia_de_tamanhos ou oriente pela referência de altura/peso, sem inventar cm.`,
-      `Perguntas sem contexto explícito ("qual tamanho?", "tem no azul?") referem-se a este produto.`
+      `Perguntas sem contexto explícito ("qual tamanho?", "tem no azul?") referem-se a este produto.`,
+      ``,
+      `## ADICIONAR À SACOLA (você está na página deste produto)`,
+      `Quando o cliente CONFIRMAR que quer ESTE produto num tamanho ("quero em M", "vou levar", "pode ser G", "sim, quero", "adiciona"), adicione à sacola dele emitindo o marcador [[carrinho:${currentProduct.id}:TAMANHO]] no FINAL da resposta (ex.: [[carrinho:${currentProduct.id}:M]]). O site adiciona de verdade na sacola da loja — NÃO mande ele "ir pro produto" nem só mostre o card; adicione. Só emita o marcador quando souber o tamanho; se não souber, pergunte o tamanho antes. NÃO diga "adicionei" sem emitir o marcador na MESMA mensagem. Depois de adicionar, confirme curto (ex.: "Adicionei na sua sacola! Tamanho M.") e avise que é só finalizar a compra.`
     );
   }
 
