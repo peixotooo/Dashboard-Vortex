@@ -149,8 +149,7 @@ interface NegativeFeedbackItem {
   created_at: string;
 }
 
-interface FunnelData {
-  window_days: number;
+interface FunnelStats {
   steps: {
     sessions: number;
     viewed_product: number;
@@ -158,12 +157,18 @@ interface FunnelData {
     checkout: number;
     purchased: number;
   };
-  rates: { atc_rate: number; handoff_rate: number; conversion_rate: number };
+  rates: { atc_rate: number; conversion_rate: number };
   revenue_confirmed: number;
   orders_confirmed: number;
   avg_ticket: number;
   pending_attribution: number;
   top_products: Array<{ sku: string; name: string; orders: number; revenue: number }>;
+}
+
+interface FunnelData {
+  window_days: number;
+  global: FunnelStats;
+  pdp: FunnelStats;
 }
 
 interface DashboardData {
@@ -266,6 +271,146 @@ function formatBRL(n: number): string {
 
 function formatPct(fraction: number): string {
   return `${(fraction * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
+
+// Uma seção de funil (KPIs + barras + top produtos) de UMA superfície.
+function FunnelSurfaceView({
+  title,
+  subtitle,
+  stats,
+  windowDays,
+  showCheckout,
+}: {
+  title: string;
+  subtitle: string;
+  stats: FunnelStats;
+  windowDays: number;
+  showCheckout: boolean;
+}) {
+  const s = stats.steps;
+  const base = Math.max(1, s.sessions);
+  const rows = [
+    { label: "Sessões engajadas", value: s.sessions },
+    { label: "Viu produto", value: s.viewed_product },
+    { label: "Adicionou à sacola", value: s.added_to_cart },
+    ...(showCheckout ? [{ label: "Foi ao checkout", value: s.checkout }] : []),
+    { label: "Comprou", value: s.purchased },
+  ];
+  const maxRev = Math.max(1, ...stats.top_products.map((x) => x.revenue));
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-semibold">{title}</h3>
+        <p className="text-xs text-muted-foreground">
+          {subtitle} · últimos {windowDays} dias
+        </p>
+      </div>
+      {s.sessions === 0 ? (
+        <Card>
+          <CardContent className="pt-6 text-sm text-muted-foreground">
+            Ainda sem sessões nesta superfície no período.
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{formatNumber(s.sessions)}</div>
+                <div className="text-xs text-muted-foreground mt-1">Sessões engajadas</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{formatPct(stats.rates.atc_rate)}</div>
+                <div className="text-xs text-muted-foreground mt-1">Adicionou à sacola</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{formatPct(stats.rates.conversion_rate)}</div>
+                <div className="text-xs text-muted-foreground mt-1">Conversão sessão → pedido</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{formatBRL(stats.revenue_confirmed)}</div>
+                <div className="text-xs text-muted-foreground mt-1">Receita atribuída (real)</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {formatNumber(stats.orders_confirmed)} pedidos
+                  {stats.pending_attribution > 0
+                    ? ` · ${formatNumber(stats.pending_attribution)} aguardando`
+                    : ""}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-3xl font-bold">{formatBRL(stats.avg_ticket)}</div>
+                <div className="text-xs text-muted-foreground mt-1">Ticket médio</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardContent className="pt-6 space-y-3">
+              {rows.map((r) => {
+                const pct = Math.round((r.value / base) * 100);
+                return (
+                  <div key={r.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>{r.label}</span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {formatNumber(r.value)} · {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-xs text-muted-foreground pt-1">
+                Receita confirmada pelo webhook da VNDA (valor real, não estimado).
+              </p>
+            </CardContent>
+          </Card>
+
+          {stats.top_products.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Produtos que mais converteram</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {stats.top_products.map((p) => (
+                    <div key={p.sku} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm gap-3">
+                        <span className="truncate">{p.name}</span>
+                        <span className="tabular-nums text-muted-foreground shrink-0">
+                          {formatBRL(p.revenue)} · {formatNumber(p.orders)}{" "}
+                          {p.orders === 1 ? "pedido" : "pedidos"}
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary/70"
+                          style={{ width: `${Math.round((p.revenue / maxRev) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function truncateUrl(url: string | null): string {
@@ -972,166 +1117,40 @@ export default function AssistentePage() {
         </TabsContent>
 
         {/* ==================== TAB: Funil de conversão ==================== */}
-        <TabsContent value="funil" className="space-y-6">
-          {!funnel || funnel.steps.sessions === 0 ? (
+        <TabsContent value="funil" className="space-y-8">
+          {!funnel || (funnel.global.steps.sessions === 0 && funnel.pdp.steps.sessions === 0) ? (
             <Card>
               <CardContent className="pt-6 text-sm text-muted-foreground space-y-1">
-                <p className="font-medium text-foreground">
-                  Sem dados de funil ainda.
+                <p className="font-medium text-foreground">Sem dados de funil ainda.</p>
+                <p>
+                  Aqui aparece a conversão REAL de cada superfície, separada:{" "}
+                  <b className="text-foreground">/chat</b> (a página que vende a loja
+                  toda) e o <b className="text-foreground">assistente da PDP</b> (o
+                  widget nas páginas de produto). Sessão → viu produto → adicionou à
+                  sacola → compra, com a receita vinda do webhook da VNDA.
                 </p>
                 <p>
-                  O funil mede a conversão real do Chat Commerce (/chat): sessão →
-                  viu produto → adicionou à sacola → checkout → compra, com a
-                  receita real vinda do webhook da VNDA.
-                </p>
-                <p>
-                  Para ativar: aplique a migration <code>133-assistant-funnel</code>{" "}
-                  e deixe o chat receber conversas. Os números aparecem aqui em
-                  seguida.
+                  Para ativar: aplique a migration <code>133-assistant-funnel</code> e
+                  deixe os assistentes receberem conversas.
                 </p>
               </CardContent>
             </Card>
           ) : (
             <>
-              {/* KPIs de conversão */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-3xl font-bold">
-                      {formatNumber(funnel.steps.sessions)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Sessões engajadas ({funnel.window_days}d)
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-3xl font-bold">
-                      {formatPct(funnel.rates.atc_rate)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Adicionou à sacola
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-3xl font-bold">
-                      {formatPct(funnel.rates.conversion_rate)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Conversão sessão → pedido
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-3xl font-bold">
-                      {formatBRL(funnel.revenue_confirmed)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Receita atribuída (real)
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {formatNumber(funnel.orders_confirmed)} pedidos
-                      {funnel.pending_attribution > 0
-                        ? ` · ${formatNumber(funnel.pending_attribution)} aguardando`
-                        : ""}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-3xl font-bold">
-                      {formatBRL(funnel.avg_ticket)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Ticket médio (chat)
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Funil visual */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    Funil de conversão ({funnel.window_days} dias)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(() => {
-                    const s = funnel.steps;
-                    const base = Math.max(1, s.sessions);
-                    const rows: Array<{ label: string; value: number; hint?: string }> = [
-                      { label: "Sessões engajadas", value: s.sessions },
-                      { label: "Viu produto", value: s.viewed_product },
-                      { label: "Adicionou à sacola", value: s.added_to_cart },
-                      { label: "Foi ao checkout", value: s.checkout },
-                      { label: "Comprou", value: s.purchased },
-                    ];
-                    return rows.map((r) => {
-                      const pct = Math.round((r.value / base) * 100);
-                      return (
-                        <div key={r.label} className="space-y-1">
-                          <div className="flex items-center justify-between text-sm">
-                            <span>{r.label}</span>
-                            <span className="tabular-nums text-muted-foreground">
-                              {formatNumber(r.value)} · {pct}%
-                            </span>
-                          </div>
-                          <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-primary transition-all"
-                              style={{ width: `${Math.min(100, pct)}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                  <p className="text-xs text-muted-foreground pt-1">
-                    Taxa de handoff (checkout ÷ sacola): {formatPct(funnel.rates.handoff_rate)}.
-                    Receita confirmada pelo webhook da VNDA (valor real, não estimado).
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Top produtos que converteram */}
-              {funnel.top_products.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      Produtos que mais converteram no chat
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {funnel.top_products.map((p) => {
-                        const maxRev = Math.max(1, ...funnel.top_products.map((x) => x.revenue));
-                        return (
-                          <div key={p.sku} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm gap-3">
-                              <span className="truncate">{p.name}</span>
-                              <span className="tabular-nums text-muted-foreground shrink-0">
-                                {formatBRL(p.revenue)} · {formatNumber(p.orders)}{" "}
-                                {p.orders === 1 ? "pedido" : "pedidos"}
-                              </span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-primary/70"
-                                style={{ width: `${Math.round((p.revenue / maxRev) * 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              <FunnelSurfaceView
+                title="/chat — Chat Commerce"
+                subtitle="Página de chat que vende a loja inteira (checkout no próprio chat)"
+                stats={funnel.global}
+                windowDays={funnel.window_days}
+                showCheckout
+              />
+              <FunnelSurfaceView
+                title="Assistente da PDP"
+                subtitle="Widget de chat nas páginas de produto (add-to-cart direto)"
+                stats={funnel.pdp}
+                windowDays={funnel.window_days}
+                showCheckout={false}
+              />
             </>
           )}
         </TabsContent>
