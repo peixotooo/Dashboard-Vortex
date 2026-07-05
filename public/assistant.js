@@ -916,6 +916,49 @@
       if (t && t.parentNode) t.parentNode.removeChild(t);
     }
 
+    // --- Telemetria de funil do widget PDP (surface=pdp) ---
+    // Mede a conversão do assistente da PDP SEPARADA do /chat. O server já emite
+    // session_started/message_sent/products_shown com surface=pdp; aqui emitimos
+    // o evento de cliente (add_to_cart) e gravamos o cookie de atribuição.
+    function sendPdpEvent(eventType, fields) {
+      var session = ssGet(SS_SESSION);
+      if (!session || !API_BASE || !API_KEY) return;
+      try {
+        var f = fields || {};
+        var payload = JSON.stringify({
+          key: API_KEY,
+          event_type: eventType,
+          session_id: session,
+          surface: "pdp",
+          product_id: f.product_id,
+          path: window.location.pathname,
+          metadata: f.metadata || {},
+        });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(API_BASE + "/api/assistant/events", new Blob([payload], { type: "application/json" }));
+        } else {
+          fetch(API_BASE + "/api/assistant/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(function () {});
+        }
+      } catch (e) {}
+    }
+
+    // Cookie de atribuição same-origin (o widget roda na loja): liga a compra à
+    // sessão do assistente da PDP. O shelves.js na confirmação (/pedido/<code>)
+    // lê esse cookie e dispara order_placed → atribuição + receita pelo webhook.
+    function setPdpAttributionCookie() {
+      var session = ssGet(SS_SESSION);
+      if (!session) return;
+      try {
+        document.cookie =
+          "vtx_atk=" + encodeURIComponent(session) + "; Max-Age=604800; Path=/; SameSite=Lax";
+      } catch (e) {}
+    }
+
     // --- Adicionar à sacola direto da PDP (o widget roda na loja: same-origin) ---
     function handleCartAdd(cartAdd) {
       // 1) Resolve produto+tamanho no SKU de variante (endpoint público).
@@ -956,12 +999,23 @@
         credentials: "same-origin",
       })
         .then(function (r) {
-          if (r && r.ok) showCartSuccess(name, size);
-          else showCartNotice("Não consegui adicionar agora. Tenta de novo?");
+          if (r && r.ok) {
+            // Funil PDP: registra o add-to-cart e carimba a atribuição (a compra
+            // que vier a seguir na loja é creditada a esta sessão do widget PDP).
+            sendPdpEvent("add_to_cart", { product_id: skuParentId(sku), metadata: { size_present: !!size } });
+            setPdpAttributionCookie();
+            showCartSuccess(name, size);
+          } else showCartNotice("Não consegui adicionar agora. Tenta de novo?");
         })
         .catch(function () {
           showCartNotice("Não consegui adicionar agora. Tenta de novo?");
         });
+    }
+
+    // SKU-pai a partir da variante ("778165581-2" → "778165581").
+    function skuParentId(sku) {
+      var m = String(sku || "").match(/^(.+)-\d{1,5}$/);
+      return m ? m[1] : String(sku || "");
     }
 
     function showCartSuccess(name, size) {

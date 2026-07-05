@@ -38,25 +38,30 @@ export interface AssistantDashboard {
   funnel: AssistantFunnel | null;
 }
 
-export interface AssistantFunnel {
-  window_days: number;
+export interface FunnelStats {
   steps: {
     sessions: number;
     viewed_product: number;
     added_to_cart: number;
-    checkout: number;
+    checkout: number; // só no /chat (global); no PDP o cliente vai pro checkout nativo
     purchased: number;
   };
   rates: {
     atc_rate: number; // add-to-cart / sessions
-    handoff_rate: number; // checkout / add-to-cart
     conversion_rate: number; // comprou / sessions
   };
   revenue_confirmed: number;
   orders_confirmed: number;
   avg_ticket: number;
-  pending_attribution: number; // pedidos atribuídos ainda sem receita confirmada
+  pending_attribution: number;
   top_products: Array<{ sku: string; name: string; orders: number; revenue: number }>;
+}
+
+// Dois funis separados: /chat global (vende a loja) e assistente da PDP (widget).
+export interface AssistantFunnel {
+  window_days: number;
+  global: FunnelStats;
+  pdp: FunnelStats;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -290,42 +295,37 @@ function parentSku(sku: string): string {
   return m ? m[1] : String(sku || "");
 }
 
+const rate = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 1000) / 1000 : 0);
+
 async function buildFunnel(
   admin: SupabaseClient,
   workspaceId: string,
   d30: string
 ): Promise<AssistantFunnel | null> {
-  // Eventos do funil (30d). Volume pequeno no início; agrega em JS como o resto.
+  // Eventos do funil (30d) COM a superfície pra separar /chat (global) do widget
+  // de PDP (pdp). Volume pequeno no início; agrega em JS como o resto.
   const { data: eventRows, error: evErr } = await admin
     .from("assistant_events")
-    .select("atk, event_type")
+    .select("atk, event_type, surface")
     .eq("workspace_id", workspaceId)
     .gte("occurred_at", d30)
     .limit(100000);
   if (evErr) return null; // tabela ausente (migration-133 pendente) → sem funil
 
-  // Conjunto de tipos de evento por sessão (atk).
-  const byAtk = new Map<string, Set<string>>();
+  // Por sessão (atk): superfície + conjunto de tipos de evento.
+  const byAtk = new Map<string, { surface: string; types: Set<string> }>();
   for (const r of eventRows || []) {
     const atk = String(r.atk || "");
     if (!atk) continue;
-    if (!byAtk.has(atk)) byAtk.set(atk, new Set());
-    byAtk.get(atk)!.add(String(r.event_type || ""));
-  }
-  const has = (types: Set<string>, ...names: string[]) => names.some((n) => types.has(n));
-  let sessions = 0;
-  let viewed = 0;
-  let added = 0;
-  let checkout = 0;
-  for (const types of byAtk.values()) {
-    // "sessão" = engajou (mandou mensagem) ou o server marcou session_started.
-    if (has(types, "session_started", "message_sent")) sessions++;
-    if (types.has("products_shown")) viewed++;
-    if (types.has("add_to_cart")) added++;
-    if (types.has("checkout_handoff")) checkout++;
+    let rec = byAtk.get(atk);
+    if (!rec) {
+      rec = { surface: String(r.surface || "global"), types: new Set() };
+      byAtk.set(atk, rec);
+    }
+    if (r.surface) rec.surface = String(r.surface);
+    rec.types.add(String(r.event_type || ""));
   }
 
-  // Atribuições (30d): pedidos ligados a uma sessão do chat.
   const { data: attrRows } = await admin
     .from("assistant_attributions")
     .select("atk, order_total, order_items, revenue_confirmed")
@@ -334,65 +334,86 @@ async function buildFunnel(
     .not("atk", "is", null)
     .limit(20000);
 
-  const purchasedAtk = new Set<string>();
-  let revenue = 0;
-  let ordersConfirmed = 0;
-  let pending = 0;
-  const skuAgg = new Map<string, { orders: number; revenue: number }>();
+  // Nomes de SKU-pai (uma consulta só, cobre os dois funis).
+  const allSkus = new Set<string>();
   for (const r of attrRows || []) {
-    const atk = String(r.atk || "");
-    if (atk) purchasedAtk.add(atk);
-    if (r.revenue_confirmed) {
-      ordersConfirmed++;
-      revenue += Number(r.order_total) || 0;
-      const items = Array.isArray(r.order_items) ? (r.order_items as Array<Record<string, unknown>>) : [];
-      for (const it of items) {
-        const sku = parentSku(String(it.sku || ""));
-        if (!sku) continue;
-        const agg = skuAgg.get(sku) || { orders: 0, revenue: 0 };
-        agg.orders += 1;
-        agg.revenue += Number(it.total) || 0;
-        skuAgg.set(sku, agg);
-      }
-    } else {
-      pending++;
+    if (!r.revenue_confirmed) continue;
+    const items = Array.isArray(r.order_items) ? (r.order_items as Array<Record<string, unknown>>) : [];
+    for (const it of items) {
+      const sku = parentSku(String(it.sku || ""));
+      if (sku) allSkus.add(sku);
     }
   }
-  const purchased = purchasedAtk.size;
-
-  // Nomes dos SKUs-pai que mais converteram (best-effort via shelf_products.sku).
-  const topSkus = [...skuAgg.entries()]
-    .sort((a, b) => b[1].revenue - a[1].revenue)
-    .slice(0, 8);
   const skuNames = new Map<string, string>();
-  if (topSkus.length) {
+  if (allSkus.size) {
     const { data: prods } = await admin
       .from("shelf_products")
       .select("sku, name")
       .eq("workspace_id", workspaceId)
-      .in("sku", topSkus.map(([sku]) => sku));
+      .in("sku", [...allSkus]);
     for (const p of prods || []) skuNames.set(String(p.sku), String(p.name));
   }
 
-  const rate = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 1000) / 1000 : 0);
-
-  return {
-    window_days: 30,
-    steps: { sessions, viewed_product: viewed, added_to_cart: added, checkout, purchased },
-    rates: {
-      atc_rate: rate(added, sessions),
-      handoff_rate: rate(checkout, added),
-      conversion_rate: rate(purchased, sessions),
-    },
-    revenue_confirmed: Math.round(revenue * 100) / 100,
-    orders_confirmed: ordersConfirmed,
-    avg_ticket: ordersConfirmed > 0 ? Math.round((revenue / ordersConfirmed) * 100) / 100 : 0,
-    pending_attribution: pending,
-    top_products: topSkus.map(([sku, agg]) => ({
-      sku,
-      name: skuNames.get(sku) || `SKU ${sku}`,
-      orders: agg.orders,
-      revenue: Math.round(agg.revenue * 100) / 100,
-    })),
+  const build = (surface: "global" | "pdp"): FunnelStats => {
+    const atks = new Set<string>();
+    let sessions = 0;
+    let viewed = 0;
+    let added = 0;
+    let checkout = 0;
+    for (const [atk, rec] of byAtk) {
+      if (rec.surface !== surface) continue;
+      atks.add(atk);
+      if (rec.types.has("session_started") || rec.types.has("message_sent")) sessions++;
+      if (rec.types.has("products_shown")) viewed++;
+      if (rec.types.has("add_to_cart")) added++;
+      if (rec.types.has("checkout_handoff")) checkout++;
+    }
+    const purchasedAtk = new Set<string>();
+    let revenue = 0;
+    let ordersConfirmed = 0;
+    let pending = 0;
+    const skuAgg = new Map<string, { orders: number; revenue: number }>();
+    for (const r of attrRows || []) {
+      const atk = String(r.atk || "");
+      // Superfície da atribuição = superfície da sessão que a gerou.
+      if (byAtk.get(atk)?.surface !== surface) continue;
+      purchasedAtk.add(atk);
+      if (r.revenue_confirmed) {
+        ordersConfirmed++;
+        revenue += Number(r.order_total) || 0;
+        const items = Array.isArray(r.order_items) ? (r.order_items as Array<Record<string, unknown>>) : [];
+        for (const it of items) {
+          const sku = parentSku(String(it.sku || ""));
+          if (!sku) continue;
+          const agg = skuAgg.get(sku) || { orders: 0, revenue: 0 };
+          agg.orders += 1;
+          agg.revenue += Number(it.total) || 0;
+          skuAgg.set(sku, agg);
+        }
+      } else {
+        pending++;
+      }
+    }
+    const purchased = purchasedAtk.size;
+    const topProducts = [...skuAgg.entries()]
+      .sort((a, b) => b[1].revenue - a[1].revenue)
+      .slice(0, 8)
+      .map(([sku, agg]) => ({
+        sku,
+        name: skuNames.get(sku) || `SKU ${sku}`,
+        orders: agg.orders,
+        revenue: Math.round(agg.revenue * 100) / 100,
+      }));
+    return {
+      steps: { sessions, viewed_product: viewed, added_to_cart: added, checkout, purchased },
+      rates: { atc_rate: rate(added, sessions), conversion_rate: rate(purchased, sessions) },
+      revenue_confirmed: Math.round(revenue * 100) / 100,
+      orders_confirmed: ordersConfirmed,
+      avg_ticket: ordersConfirmed > 0 ? Math.round((revenue / ordersConfirmed) * 100) / 100 : 0,
+      pending_attribution: pending,
+      top_products: topProducts,
+    };
   };
+
+  return { window_days: 30, global: build("global"), pdp: build("pdp") };
 }
