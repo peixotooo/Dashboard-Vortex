@@ -25,10 +25,18 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
+  // webhook_token (VNDA e Troque) é um segredo que autentica webhooks de
+  // pedido/reembolso do motor de cashback. Só owner/admin podem vê-lo.
+  const isAdmin = auth!.role === "owner" || auth!.role === "admin";
+  const vndaSafe = (vnda ?? []).map((c) =>
+    isAdmin ? c : { ...c, webhook_token: null }
+  );
+
   const origin = request.nextUrl.origin;
-  const troqueWebhookUrl = troque?.webhook_token
-    ? `${origin}/api/webhooks/troquecommerce?token=${troque.webhook_token}`
-    : null;
+  const troqueWebhookUrl =
+    isAdmin && troque?.webhook_token
+      ? `${origin}/api/webhooks/troquecommerce?token=${troque.webhook_token}`
+      : null;
 
   // Recent webhook activity (last 7 days)
   const sevenDaysAgo = new Date();
@@ -40,7 +48,7 @@ export async function GET(request: NextRequest) {
     .gte("created_at", sevenDaysAgo.toISOString());
 
   return NextResponse.json({
-    vnda: vnda ?? [],
+    vnda: vndaSafe,
     smtp: smtp ?? null,
     troque: troque
       ? { base_url: troque.base_url, updated_at: troque.updated_at, webhook_url: troqueWebhookUrl }
