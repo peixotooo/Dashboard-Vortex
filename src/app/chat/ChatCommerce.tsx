@@ -335,16 +335,19 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
         );
       } else if (Array.isArray(s.cart)) {
         // Valida o schema da sacola salva (evita NaN/sku undefined no checkout).
-        setCart(
-          s.cart.filter(
-            (i: unknown): i is CartItem =>
-              !!i &&
-              typeof (i as CartItem).sku === "string" &&
-              Number.isFinite((i as CartItem).price) &&
-              Number.isFinite((i as CartItem).qty) &&
-              (i as CartItem).qty > 0
-          )
+        const restored = s.cart.filter(
+          (i: unknown): i is CartItem =>
+            !!i &&
+            typeof (i as CartItem).sku === "string" &&
+            Number.isFinite((i as CartItem).price) &&
+            Number.isFinite((i as CartItem).qty) &&
+            (i as CartItem).qty > 0
         );
+        setCart(restored);
+        // Semeia o dedup com os SKUs já na sacola: sem isso, após um reload o
+        // autoAddedSkus (ref em memória) zera e um [[carrinho]] repetido do
+        // modelo re-somaria itens que o cliente já tinha (bug da sacola dobrada).
+        for (const i of restored) autoAddedSkus.current.add(i.sku);
       }
     } catch {
       /* ignore */
@@ -509,11 +512,14 @@ export default function ChatCommerce({ bootstrap }: { bootstrap: ChatBootstrap }
   );
 
   const setQty = (sku: string, delta: number) =>
-    setCart((prev) =>
-      prev
+    setCart((prev) => {
+      const next = prev
         .map((i) => (i.sku === sku ? { ...i, qty: i.qty + delta } : i))
-        .filter((i) => i.qty > 0)
-    );
+        .filter((i) => i.qty > 0);
+      // Item zerado sai do dedup, pra poder voltar por marcador depois.
+      if (!next.some((i) => i.sku === sku)) autoAddedSkus.current.delete(sku);
+      return next;
+    });
   const removeItem = (sku: string) => {
     // Libera o SKU (dedup por SKU) E as chaves de marcador (dedup por
     // produto:tamanho) do item removido, pra ele poder ser re-adicionado depois

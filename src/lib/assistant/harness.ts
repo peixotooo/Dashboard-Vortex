@@ -14,6 +14,7 @@ import {
 } from "./guardrails";
 import { buildSystemPrompt, type RecentProduct } from "./prompt";
 import { ASSISTANT_TOOLS, executeAssistantTool, type ToolContext } from "./tools";
+import { getVitrine } from "./commerce";
 import type { ActiveKnowledge } from "./knowledge";
 import type {
   AssistantBlock,
@@ -32,6 +33,15 @@ const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 
 const FALLBACK_REPLY =
   "Não consegui processar sua pergunta agora. Pode tentar de novo em instantes?";
+
+// Intenção de DESCOBERTA genérica ("o que tem", "mais vendidos", "novidades",
+// "recomenda") — não é busca específica. Usada pra rede de segurança da vitrine.
+function isDiscoveryIntent(msg: string): boolean {
+  const m = msg.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return /(mais vendid|o que (voce |vc )?(tem|ha|vende)|o que (tem|ha) de (bom|novo|legal|bacana)|novidade|recomend|o que sai mais|populares|em alta|top de|melhores pecas|tem de bom|o que voces vend|me mostra o que)/.test(
+    m
+  );
+}
 
 export async function runAssistantTurn(opts: {
   workspaceId: string;
@@ -202,6 +212,42 @@ export async function runAssistantTurn(opts: {
   // Chat Commerce v2: blocos ordenados (texto + vitrine + reviews + benefícios
   // + promo + cart_add + whatsapp). v1 ignora `blocks`; usa reply/products.
   const blocks = assembleBlocks(finalText, toolCtx, currentProduct);
+
+  // Rede de segurança nº1 (chat global): o haiku RECITA produtos em texto e
+  // esquece o marcador visual — o cliente vê nome/preço mas nenhum card/foto.
+  // Se as ferramentas ACHARAM produtos neste turno e nenhum card foi mostrado,
+  // exibe esses produtos como cards mesmo assim. Determinístico (usa o que a
+  // tool retornou de fato), então "achei que tinha rosa"/"cade as fotos" sempre
+  // rende cards. Só no modo global (o widget v1 usa `products`, não `blocks`).
+  if (surface === "global") {
+    const shownIds = new Set<string>();
+    for (const b of blocks) if (b.type === "products") for (const p of b.products) shownIds.add(p.id);
+    const missed = [...toolCtx.seenProducts.values()].filter((p) => !shownIds.has(p.id));
+    if (missed.length > 0) {
+      const slice = missed.slice(0, 8);
+      blocks.push({
+        type: "products",
+        layout: slice.length >= 3 ? "carousel" : "cards",
+        products: slice,
+      });
+      for (const p of slice) shownIds.add(p.id);
+    }
+
+    // Rede de segurança nº2: descoberta genérica ("o que tem / mais vendido")
+    // em que o modelo NEM chamou ferramenta (nada em seenProducts) → busca os
+    // mais vendidos pra nunca deixar a descoberta sem vitrine.
+    if (isDiscoveryIntent(userMessage) && !blocks.some((b) => b.type === "products" || b.type === "cart_add")) {
+      try {
+        const vit = await getVitrine(workspaceId, "mais_vendidos", 8);
+        if (vit.length > 0) {
+          for (const p of vit) if (!toolCtx.seenProducts.has(p.id)) toolCtx.seenProducts.set(p.id, p);
+          blocks.push({ type: "products", layout: "carousel", title: "Mais vendidos", products: vit });
+        }
+      } catch {
+        // sem rede: segue com o que tem
+      }
+    }
+  }
 
   // Defesa: nenhum marcador rico do v2 pode sobrar no texto do reply. O widget
   // v1 não os renderiza; o cliente veria "[[promo]]" literal. Remove qualquer
