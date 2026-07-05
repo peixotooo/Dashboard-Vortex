@@ -348,7 +348,11 @@ export async function POST(request: NextRequest) {
       event_type: "message_sent",
       surface,
       ip_hash: ipHash,
-      metadata: { msg_index: messageCount + 1 },
+      metadata: {
+        msg_index: messageCount + 1,
+        // Modelo usado no turno — mede a taxa de escalada haiku→sonnet (custo).
+        ...(result.modelUsed ? { model: String(result.modelUsed).slice(0, 60) } : {}),
+      },
     });
     // Produtos mostrados neste turno (cards + carrosséis) — mede a qualidade da
     // recomendação (a razão de existir do agente).

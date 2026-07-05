@@ -108,6 +108,8 @@ export interface AssistantChatResult {
   blocks?: AssistantBlock[];
   /** Índice durável {id,name,sizes} dos produtos mostrados na sessão (p/ o carrinho). */
   recentProducts?: Array<{ id: string; name: string; sizes?: string[] }>;
+  /** Modelo LLM usado no turno (haiku padrão ou o forte quando escala). */
+  modelUsed?: string;
 }
 
 export interface AssistantHistoryMessage {
