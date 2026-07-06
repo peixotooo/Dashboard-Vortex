@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getSyncWorkspace, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { pushOrderToEccosys } from "@/lib/hub/push-order";
 import type { HubOrder } from "@/types/hub";
@@ -11,9 +11,11 @@ export const maxDuration = 60;
  * Body: { ml_order_id: 2000003508419013 }
  */
 export async function POST(req: NextRequest) {
+  // Dashboard uses the session; ops/backfill jobs (no session) present the
+  // internal service secret.
   let workspaceId: string;
   try {
-    ({ workspaceId } = await getWorkspaceContext(req));
+    ({ workspaceId } = await getSyncWorkspace(req));
   } catch (error) {
     return handleAuthError(error);
   }
