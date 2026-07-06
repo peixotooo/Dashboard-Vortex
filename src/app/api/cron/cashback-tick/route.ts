@@ -212,12 +212,14 @@ async function runDeferredFirstReminder(
   summary: TickSummary
 ) {
   if (!vndaOrderCfg) return; // sem como checar despacho → não segura nada
+  const secondReminderWindow = daysAhead(cfg.reminder_2_day);
   const { data: rows } = await admin
     .from("cashback_transactions")
     .select("*")
     .eq("workspace_id", workspaceId)
     .eq("status", "ATIVO")
     .is("lembrete1_enviado_em", null)
+    .gt("expira_em", secondReminderWindow)
     .order("depositado_em", { ascending: true, nullsFirst: false })
     .limit(40);
 
