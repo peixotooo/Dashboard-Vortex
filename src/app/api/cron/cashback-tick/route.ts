@@ -218,6 +218,7 @@ async function runDeferredFirstReminder(
     .eq("workspace_id", workspaceId)
     .eq("status", "ATIVO")
     .is("lembrete1_enviado_em", null)
+    .order("depositado_em", { ascending: true, nullsFirst: false })
     .limit(40);
 
   const failOpenCutoff = daysAgo(14);
@@ -238,15 +239,17 @@ async function runSecondReminder(
   cfg: CashbackConfigRow,
   summary: TickSummary
 ) {
-  const offset = Math.max(1, cfg.reminder_2_day - cfg.deposit_delay_days);
-  const threshold = daysAgo(offset);
+  const horizon = daysAhead(cfg.reminder_2_day);
+  const thirdReminderWindow = daysAhead(cfg.reminder_3_day);
   const { data: rows } = await admin
     .from("cashback_transactions")
     .select("*")
     .eq("workspace_id", workspaceId)
-    .eq("status", "ATIVO")
+    .in("status", ["ATIVO", "REATIVADO"])
     .is("lembrete2_enviado_em", null)
-    .lte("depositado_em", threshold)
+    .gt("expira_em", thirdReminderWindow)
+    .lte("expira_em", horizon)
+    .order("expira_em", { ascending: true })
     .limit(BATCH);
 
   for (const c of (rows || []) as CashbackTransactionRow[]) {
@@ -262,14 +265,17 @@ async function runThirdReminder(
   cfg: CashbackConfigRow,
   summary: TickSummary
 ) {
-  const horizon = daysAhead(1); // expires within 24h
+  const now = new Date().toISOString();
+  const horizon = daysAhead(cfg.reminder_3_day);
   const { data: rows } = await admin
     .from("cashback_transactions")
     .select("*")
     .eq("workspace_id", workspaceId)
     .in("status", ["ATIVO", "REATIVADO"])
     .is("lembrete3_enviado_em", null)
+    .gt("expira_em", now)
     .lte("expira_em", horizon)
+    .order("expira_em", { ascending: true })
     .limit(BATCH);
 
   for (const c of (rows || []) as CashbackTransactionRow[]) {
@@ -293,6 +299,7 @@ async function runRefundExpired(
     .eq("workspace_id", workspaceId)
     .in("status", ["ATIVO", "REATIVADO"])
     .lte("expira_em", now)
+    .order("expira_em", { ascending: true })
     .limit(BATCH);
 
   for (const c of (rows || []) as CashbackTransactionRow[]) {
