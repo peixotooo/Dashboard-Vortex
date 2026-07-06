@@ -239,6 +239,33 @@ export async function getWorkspaceContext(
   return { userId: user.id, workspaceId };
 }
 
+/**
+ * Resolve the workspace for a hub sync route that is legitimately called BOTH
+ * from the dashboard (user session) and from trusted server-to-server callers
+ * with no session — the ML webhook and ops/backfill jobs. Internal callers
+ * present the shared service secret (CRON_SECRET) plus x-workspace-id; everyone
+ * else goes through the normal session + membership check (getWorkspaceContext).
+ *
+ * This restores the pre-#199 server-to-server capability of /api/sync/* without
+ * reopening the IDOR: a raw x-workspace-id header alone is no longer trusted —
+ * the caller must also hold CRON_SECRET.
+ */
+export async function getSyncWorkspace(
+  request: NextRequest
+): Promise<{ workspaceId: string; internal: boolean }> {
+  const secret = request.headers.get("x-internal-secret");
+  if (secret && process.env.CRON_SECRET && secret === process.env.CRON_SECRET) {
+    const workspaceId =
+      request.headers.get("x-workspace-id") ||
+      new URL(request.url).searchParams.get("workspace_id") ||
+      "";
+    if (!workspaceId) throw new AuthError("Workspace not specified", 400);
+    return { workspaceId, internal: true };
+  }
+  const { workspaceId } = await getWorkspaceContext(request);
+  return { workspaceId, internal: false };
+}
+
 export class AuthError extends Error {
   status: number;
   constructor(message: string, status: number) {

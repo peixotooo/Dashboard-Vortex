@@ -51,6 +51,9 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "x-workspace-id": cred.workspace_id,
+        // Internal service auth — pull-order requires a session for dashboard
+        // callers; the webhook has none, so it presents the shared secret.
+        "x-internal-secret": process.env.CRON_SECRET || "",
       },
       body: JSON.stringify({ resource: body.resource }),
     }).catch(() => {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getSyncWorkspace, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import type { HubOrderItem, HubProduct } from "@/types/hub";
@@ -66,9 +66,13 @@ interface MLBillingInfo {
  * Body: { resource: "/orders/123" } (from webhook) OR { ml_order_id: 123 }
  */
 export async function POST(req: NextRequest) {
+  // Auth: dashboard callers use the user session; the ML webhook (no session)
+  // presents the internal service secret. Without the internal path the
+  // webhook's pull-order call 401s (regression from the #199 IDOR hardening)
+  // and orders silently never reach the hub.
   let workspaceId: string;
   try {
-    ({ workspaceId } = await getWorkspaceContext(req));
+    ({ workspaceId } = await getSyncWorkspace(req));
   } catch (error) {
     return handleAuthError(error);
   }
