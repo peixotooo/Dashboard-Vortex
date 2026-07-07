@@ -277,8 +277,13 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Update item as submitted
-      await supabase
+      // Update item as submitted.
+      // IMPORTANT: check the update error. The Eccosys product already exists at
+      // this point, so if persistence fails (e.g. ecc_product_id out of range for
+      // an int4 column) we must surface it as an error — NOT silently report
+      // success, which would strand the item at status='ready' and invite a
+      // duplicate re-submit. See migration 134.
+      const { error: persistErr } = await supabase
         .from("collection_items")
         .update({
           status: "submitted",
@@ -289,6 +294,12 @@ export async function POST(req: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", item.id);
+
+      if (persistErr) {
+        throw new Error(
+          `Produto criado no Eccosys (id=${parentEccId}, codigo=${parentCodigo}) mas falha ao salvar no hub: ${persistErr.message}`
+        );
+      }
 
       submitted++;
       results.push({ id: item.id, status: "submitted", ecc_product_id: parentEccId, children: childrenCreated });
