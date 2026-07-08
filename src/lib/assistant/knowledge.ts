@@ -11,6 +11,7 @@
 import { createAdminClient } from "@/lib/supabase-admin";
 import { resolveActiveCampaign, effectiveCountdownTarget } from "@/lib/topbar/resolve";
 import { normalizeTopbarSlides } from "@/lib/topbar/slides";
+import { extractPromoTagComboTiers, type PromoComboTier } from "@/lib/promo-tags/combo-tiers";
 
 export interface ActiveCoupon {
   code: string;
@@ -37,6 +38,12 @@ export interface ActiveKnowledge {
     validityDays: number;
   } | null;
   giftRequestActive: boolean;
+  /** Régua de combo progressivo ("compre mais, pague menos") ATIVA — degraus completos. */
+  comboTiers: {
+    title: string;
+    subtitle: string;
+    tiers: PromoComboTier[];
+  } | null;
 }
 
 function fmtBrl(n: number): string {
@@ -51,7 +58,7 @@ export async function getActiveKnowledge(
   const now = new Date();
   const nowIso = now.toISOString();
 
-  const [topbar, couponsRes, giftBarRes, cashbackRes, giftReqRes] = await Promise.all([
+  const [topbar, couponsRes, giftBarRes, cashbackRes, giftReqRes, promoTagsRes] = await Promise.all([
     resolveActiveCampaign(workspaceId, pageType, now).catch(() => null),
     admin
       .from("promo_active_coupons")
@@ -81,6 +88,14 @@ export async function getActiveKnowledge(
       .select("enabled, wa_template_id")
       .eq("workspace_id", workspaceId)
       .maybeSingle(),
+    // Régua de combo progressivo ("compre mais, pague menos") — fonte de verdade
+    // que a PDP usa. Leitura leve das regras ativas (sem computePromoTagMatches).
+    admin
+      .from("promo_tag_configs")
+      .select("combo_tiers, show_on_pages, enabled, starts_at, ends_at")
+      .eq("workspace_id", workspaceId)
+      .eq("enabled", true)
+      .limit(50),
   ]);
 
   // --- Topbar (mensagens da campanha ativa) ---
@@ -208,6 +223,22 @@ export async function getActiveKnowledge(
     giftReqRes.data?.enabled && giftReqRes.data?.wa_template_id
   );
 
+  // --- Régua de combo progressivo ("compre mais, pague menos") ---
+  // Fonte de verdade: promo_tag_configs.combo_tiers (o MESMO helper que a PDP
+  // usa). O endpoint repete a mesma escada por regra/produto — dedup: fica com a
+  // PRIMEIRA regra ativa e dentro da janela que tenha tiers habilitados.
+  let comboTiers: ActiveKnowledge["comboTiers"] = null;
+  const nowTs = now.getTime();
+  for (const rule of promoTagsRes.data || []) {
+    if (rule.starts_at && new Date(String(rule.starts_at)).getTime() > nowTs) continue;
+    if (rule.ends_at && new Date(String(rule.ends_at)).getTime() <= nowTs) continue;
+    const cfg = extractPromoTagComboTiers(rule as { combo_tiers?: unknown; show_on_pages?: unknown });
+    if (cfg.enabled && cfg.tiers.length > 0) {
+      comboTiers = { title: cfg.title, subtitle: cfg.subtitle, tiers: cfg.tiers };
+      break;
+    }
+  }
+
   return {
     topbarMessages,
     topbarCountdownTarget,
@@ -220,6 +251,7 @@ export async function getActiveKnowledge(
     benefits,
     cashback,
     giftRequestActive,
+    comboTiers,
   };
 }
 
@@ -229,10 +261,31 @@ export function formatActiveKnowledge(k: ActiveKnowledge): string {
 
   if (k.topbarMessages.length) {
     lines.push("CAMPANHA ATIVA AGORA (barra de topo da loja):");
-    k.topbarMessages.forEach((m) => lines.push(`- ${m}`));
+    k.topbarMessages.forEach((m) => {
+      lines.push(`- ${m}`);
+      // Frete grátis na topbar é chamariz da campanha (varia por região) — mesma
+      // ressalva que a régua de frete já recebe; não deixar o modelo cravar o número.
+      if (/frete\s*gr[aá]tis/i.test(m) && /(r\$|\d)/i.test(m)) {
+        lines.push(
+          "  (ATENÇÃO: esse valor de frete grátis é chamariz da campanha; o frete grátis REAL varia por REGIÃO e o mínimo pode ser MAIOR. NUNCA crave este número como O limite; oriente pela política em informacoes_da_loja e pelo CEP no checkout, ex.: 'a partir de R$X na sua região'.)"
+        );
+      }
+    });
     if (k.topbarCountdownTarget) {
       lines.push(`- (com contador regressivo até ${k.topbarCountdownTarget})`);
     }
+  }
+
+  // COMBO PROGRESSIVO — régua COMPLETA (a topbar só traz um degrau; aqui vem tudo).
+  if (k.comboTiers && k.comboTiers.tiers.length > 0) {
+    lines.push(
+      'COMBO PROGRESSIVO — "compre mais, pague menos" (régua COMPLETA; desconto aplicado no CARRINHO sobre as peças participantes, tipicamente camisetas, pode misturar cores/modelos). Quando o cliente perguntar de combo / "leve mais por menos" / desconto por quantidade / "quanto sai levando N", cite TODOS os degraus abaixo e ofereça SEMPRE o PRÓXIMO degrau. NUNCA diga que uma quantidade menor "não entra na promo" se ela consta aqui, e NUNCA confunda isso com um KIT (produto único de N peças) — o combo é a promoção progressiva no carrinho:'
+    );
+    for (const t of k.comboTiers.tiers) {
+      const each = t.quantity > 0 ? t.total / t.quantity : t.total;
+      lines.push(`- Leve ${t.quantity} por ${fmtBrl(t.total)} (${fmtBrl(each)} cada)`);
+    }
+    lines.push("Desconto aplicado automaticamente no carrinho.");
   }
 
   // Cupom por produto sem nome resolvido não é apresentável — descarta em vez
