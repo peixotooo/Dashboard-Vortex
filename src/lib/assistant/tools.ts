@@ -40,7 +40,8 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
         tecido: {
           type: "string",
           enum: ["dry", "algodao"],
-          description: "dry = poliéster com secagem rápida (linha DRY); algodao = algodão premium",
+          description:
+            "Filtro de LINHA (não é afirmação de composição). dry = linha técnica de secagem rápida pra treino — composição varia por peça (poliamida OU poliéster, quase sempre com elastano), NÃO cravar o material; algodao = linha de algodão premium, mais encorpada. A composição REAL vem da ficha-técnica (campo composition); nunca inferir o material deste rótulo.",
         },
         modelagem: {
           type: "string",
@@ -140,7 +141,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: "promocoes_e_beneficios",
     description:
-      "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, cupons vigentes (código e desconto), régua de brinde (ganhe brinde ao atingir valor), cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre desconto, cupom, promoção, frete grátis, brinde, cashback, ou pra fechar a venda com um empurrão. Consulte SEMPRE aqui em vez de supor.",
+      "Campanhas, cupons e benefícios ATIVOS AGORA na loja: promoção da barra de topo, régua de COMBO PROGRESSIVO 'compre mais, pague menos' (leve 2/3/4/5 por preço fechado, desconto no carrinho), cupons vigentes (código e desconto), régua de brinde, cashback, benefícios do produto e 'pedir de presente'. Use quando o cliente perguntar sobre COMBO, 'leve mais por menos', 'compre mais pague menos', 'quanto sai levando 3/5', desconto por quantidade, cupom, promoção, frete grátis, brinde, cashback, ou pra fechar a venda. Consulte SEMPRE aqui em vez de supor (a régua de combo NÃO é um KIT/produto — é a promoção progressiva).",
     input_schema: { type: "object", properties: {} },
   },
   {
