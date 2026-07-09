@@ -240,6 +240,51 @@ export async function getWorkspaceContext(
 }
 
 /**
+ * Like getWorkspaceContext, but ALSO enforces access to the restricted
+ * "controladoria" feature: owner/admin, or a member whose features array
+ * explicitly includes "controladoria". Members with features === null (legacy
+ * "see everything") do NOT get it. Use in every /api/controladoria/* route so
+ * the access control isn't only client-side.
+ */
+export async function getControladoriaContext(
+  request: NextRequest
+): Promise<{ userId: string; workspaceId: string }> {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll() { return request.cookies.getAll(); }, setAll() {} } }
+  );
+  const authResponse = await withTimeout(supabase.auth.getUser(), 3000);
+  const user = (authResponse as { data?: { user?: { id: string } | null } } | null)?.data?.user ?? null;
+  if (!user) throw new AuthError("Not authenticated", 401);
+
+  const workspaceId =
+    request.headers.get("x-workspace-id") ||
+    new URL(request.url).searchParams.get("workspace_id") ||
+    "";
+  if (!workspaceId) throw new AuthError("Workspace not specified", 400);
+
+  const membership = await withTimeout(
+    supabase
+      .from("workspace_members")
+      .select("role, features")
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", user.id)
+      .single(),
+    2000
+  );
+  const data = (membership as { data?: { role?: string; features?: string[] | null } } | null)?.data;
+  if (!data) throw new AuthError("Not a member of this workspace (or request timed out)", 403);
+
+  const isPrivileged = data.role === "owner" || data.role === "admin";
+  const hasFeature = Array.isArray(data.features) && data.features.includes("controladoria");
+  if (!isPrivileged && !hasFeature) {
+    throw new AuthError("Acesso à Controladoria restrito", 403);
+  }
+  return { userId: user.id, workspaceId };
+}
+
+/**
  * Resolve the workspace for a hub sync route that is legitimately called BOTH
  * from the dashboard (user session) and from trusted server-to-server callers
  * with no session — the ML webhook and ops/backfill jobs. Internal callers

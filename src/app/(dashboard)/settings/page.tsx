@@ -38,6 +38,8 @@ import {
   ALL_FEATURE_IDS,
   PARENT_FEATURES,
   PARENT_FEATURE_IDS,
+  DEFAULT_PARENT_FEATURE_IDS,
+  RESTRICTED_FEATURE_IDS,
   getSubFeatures,
 } from "@/lib/features";
 
@@ -52,7 +54,9 @@ function hasEffectiveFeature(features: string[], featureId: string): boolean {
 
 // Full access = every parent feature is in the array.
 function isFullAccess(features: string[]): boolean {
-  return PARENT_FEATURE_IDS.every((p) => features.includes(p));
+  // "Acesso total" = todos os módulos concedíveis por padrão. Features restritas
+  // (Controladoria) são opt-in e NÃO contam para acesso total.
+  return DEFAULT_PARENT_FEATURE_IDS.every((p) => features.includes(p));
 }
 
 // Toggle a feature on/off applying parent/sub semantics.
@@ -188,7 +192,7 @@ export default function SettingsPage() {
   const [teamError, setTeamError] = useState("");
 
   // Invite feature permissions
-  const [inviteFeatures, setInviteFeatures] = useState<string[]>(PARENT_FEATURE_IDS);
+  const [inviteFeatures, setInviteFeatures] = useState<string[]>(DEFAULT_PARENT_FEATURE_IDS);
 
   // Pending invitations
   interface PendingInvite {
@@ -678,7 +682,7 @@ export default function SettingsPage() {
       } else {
         setTeamMessage("Convite enviado por email!");
         setInviteEmail("");
-        setInviteFeatures(PARENT_FEATURE_IDS);
+        setInviteFeatures(DEFAULT_PARENT_FEATURE_IDS);
         refreshMembers();
         fetchPendingInvites();
       }
@@ -798,12 +802,15 @@ export default function SettingsPage() {
     const member = members.find((m) => m.user_id === userId);
     if (!member || !workspace) return;
 
-    // null = full access; materialize as parent IDs so toggling is granular.
-    const currentFeatures = member.features ?? [...PARENT_FEATURE_IDS];
+    // null = full access; materialize as default parent IDs (sem restritas) para
+    // toggling granular. Restritas (Controladoria) começam desligadas.
+    const currentFeatures = member.features ?? [...DEFAULT_PARENT_FEATURE_IDS];
     const newFeatures = toggleFeature(currentFeatures, featureId, enabled);
 
-    // If user has every parent module, save null (= legacy full access)
-    const featuresToSave = isFullAccess(newFeatures) ? null : newFeatures;
+    // Colapsa para null (full access legado) só se tem todos os módulos padrão E
+    // nenhuma restrita — senão perderíamos o grant explícito da restrita.
+    const hasRestricted = newFeatures.some((f) => RESTRICTED_FEATURE_IDS.includes(f));
+    const featuresToSave = isFullAccess(newFeatures) && !hasRestricted ? null : newFeatures;
 
     try {
       const res = await fetch("/api/workspaces", {
@@ -1792,7 +1799,7 @@ export default function SettingsPage() {
                     .filter((m) => m.role === "member")
                     .map((member) => {
                       const memberFeatures =
-                        member.features ?? PARENT_FEATURE_IDS;
+                        member.features ?? DEFAULT_PARENT_FEATURE_IDS;
                       return (
                         <div
                           key={member.user_id}

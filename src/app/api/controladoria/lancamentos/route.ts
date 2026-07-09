@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getControladoriaContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { invalidateEngineCache } from "@/lib/controladoria/engine";
 
@@ -12,7 +12,7 @@ const SELECT =
 // GET /api/controladoria/lancamentos?page=1&q=&classification_id=&account_id=&status=&due_from=&due_to=
 export async function GET(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const p = request.nextUrl.searchParams;
     const page = Math.max(1, parseInt(p.get("page") ?? "1", 10));
     const pageSize = Math.min(100, parseInt(p.get("pageSize") ?? "50", 10));
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 // POST /api/controladoria/lancamentos — cria lançamento manual
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const body = await request.json();
     const supabase = createAdminClient();
 
