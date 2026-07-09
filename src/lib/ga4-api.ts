@@ -131,6 +131,44 @@ function formatDate(yyyymmdd: string): string {
   return `${day}/${month}`;
 }
 
+type RunReportRequest = Parameters<BetaAnalyticsDataClient["runReport"]>[0];
+
+async function runReportWithRetry(
+  client: BetaAnalyticsDataClient,
+  request: RunReportRequest,
+  label: string,
+  attempts = 2
+) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await client.runReport(request);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`${label} failed: ${message}`);
+}
+
+function createEmptyGA4Row(dateRaw: string): GA4DailyRow {
+  return {
+    date: formatDate(dateRaw),
+    dateRaw,
+    sessions: 0,
+    users: 0,
+    newUsers: 0,
+    transactions: 0,
+    revenue: 0,
+    pageViews: 0,
+    addToCarts: 0,
+    checkouts: 0,
+  };
+}
+
 // --- Main function ---
 
 export async function getGA4DailyReport(args: {
@@ -146,25 +184,36 @@ export async function getGA4DailyReport(args: {
     ? { startDate: args.startDate, endDate: args.endDate }
     : datePresetToRange(args.datePreset || "last_30d");
 
-  const [response] = await client.runReport({
+  const [trafficResponse] = await runReportWithRetry(client, {
     property: `properties/${propertyId}`,
     dimensions: [{ name: "date" }],
     metrics: [
       { name: "sessions" },
       { name: "totalUsers" },
       { name: "newUsers" },
+      { name: "screenPageViews" },
+    ],
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+    orderBys: [{ dimension: { dimensionName: "date", orderType: "NUMERIC" }, desc: false }],
+  }, "GA4 traffic report");
+
+  const ecommerceResult = await runReportWithRetry(client, {
+    property: `properties/${propertyId}`,
+    dimensions: [{ name: "date" }],
+    metrics: [
       { name: "transactions" },
       { name: "purchaseRevenue" },
-      { name: "screenPageViews" },
       { name: "addToCarts" },
       { name: "checkouts" },
     ],
     dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
     orderBys: [{ dimension: { dimensionName: "date", orderType: "NUMERIC" }, desc: false }],
+  }, "GA4 ecommerce report").catch((error) => {
+    console.warn("[GA4] ecommerce metrics unavailable:", error instanceof Error ? error.message : error);
+    return null;
   });
 
-  const rows = response.rows || [];
-  const insights: GA4DailyRow[] = [];
+  const byDate = new Map<string, GA4DailyRow>();
   const totals = {
     sessions: 0,
     users: 0,
@@ -176,40 +225,54 @@ export async function getGA4DailyReport(args: {
     checkouts: 0,
   };
 
-  for (const row of rows) {
+  for (const row of trafficResponse.rows || []) {
     const dateRaw = row.dimensionValues?.[0]?.value || "";
     const sessions = parseInt(row.metricValues?.[0]?.value || "0", 10);
     const users = parseInt(row.metricValues?.[1]?.value || "0", 10);
     const newUsers = parseInt(row.metricValues?.[2]?.value || "0", 10);
-    const transactions = parseInt(row.metricValues?.[3]?.value || "0", 10);
-    const revenue = parseFloat(row.metricValues?.[4]?.value || "0");
-    const pageViews = parseInt(row.metricValues?.[5]?.value || "0", 10);
-    const addToCarts = parseInt(row.metricValues?.[6]?.value || "0", 10);
-    const checkouts = parseInt(row.metricValues?.[7]?.value || "0", 10);
+    const pageViews = parseInt(row.metricValues?.[3]?.value || "0", 10);
+    if (!dateRaw) continue;
 
-    totals.sessions += sessions;
-    totals.users += users;
-    totals.newUsers += newUsers;
-    totals.transactions += transactions;
-    totals.revenue += revenue;
-    totals.pageViews += pageViews;
-    totals.addToCarts += addToCarts;
-    totals.checkouts += checkouts;
-
-    insights.push({
-      date: formatDate(dateRaw),
-      dateRaw,
+    byDate.set(dateRaw, {
+      ...createEmptyGA4Row(dateRaw),
       sessions,
       users,
       newUsers,
-      transactions,
-      revenue: parseFloat(revenue.toFixed(2)),
       pageViews,
-      addToCarts,
-      checkouts,
     });
+    totals.sessions += sessions;
+    totals.users += users;
+    totals.newUsers += newUsers;
+    totals.pageViews += pageViews;
   }
 
+  if (ecommerceResult) {
+    const [ecommerceResponse] = ecommerceResult;
+    for (const row of ecommerceResponse.rows || []) {
+      const dateRaw = row.dimensionValues?.[0]?.value || "";
+      if (!dateRaw) continue;
+      const existing = byDate.get(dateRaw) || createEmptyGA4Row(dateRaw);
+      const transactions = parseInt(row.metricValues?.[0]?.value || "0", 10);
+      const revenue = parseFloat(row.metricValues?.[1]?.value || "0");
+      const addToCarts = parseInt(row.metricValues?.[2]?.value || "0", 10);
+      const checkouts = parseInt(row.metricValues?.[3]?.value || "0", 10);
+
+      existing.transactions = transactions;
+      existing.revenue = parseFloat(revenue.toFixed(2));
+      existing.addToCarts = addToCarts;
+      existing.checkouts = checkouts;
+      byDate.set(dateRaw, existing);
+
+      totals.transactions += transactions;
+      totals.revenue += revenue;
+      totals.addToCarts += addToCarts;
+      totals.checkouts += checkouts;
+    }
+  }
+
+  totals.revenue = parseFloat(totals.revenue.toFixed(2));
+
+  const insights = [...byDate.values()].sort((a, b) => a.dateRaw.localeCompare(b.dateRaw));
   return { insights, totals };
 }
 

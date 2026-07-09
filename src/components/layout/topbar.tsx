@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AccountSelector } from "@/components/settings/account-selector";
 import { WorkspaceSelector } from "@/components/layout/workspace-selector";
@@ -21,6 +21,27 @@ export function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("vortex:open-command"))}
+          className="hidden h-8 w-52 items-center gap-2 rounded-lg border border-border/70 bg-muted/40 px-3 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground md:flex cursor-pointer"
+        >
+          <Search className="size-3.5 shrink-0" />
+          <span className="flex-1 truncate text-left text-xs">
+            Buscar ou navegar…
+          </span>
+          <kbd className="pointer-events-none rounded border border-border bg-background px-1.5 font-mono text-[10px]">
+            ⌘K
+          </kbd>
+        </button>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("vortex:open-command"))}
+          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden cursor-pointer"
+          aria-label="Buscar"
+        >
+          <Search className="size-4" />
+        </button>
         <WorkspaceSelector />
         <Separator orientation="vertical" className="h-4" />
         <AccountSelector />

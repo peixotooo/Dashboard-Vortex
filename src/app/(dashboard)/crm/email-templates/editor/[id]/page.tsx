@@ -425,7 +425,7 @@ export default function EmailEditorPage({ params }: PageProps) {
   }
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col">
+    <div className="h-[calc(100svh-7.5rem)] flex flex-col">
       {/* top bar */}
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-card">
         <a
@@ -631,7 +631,7 @@ export default function EmailEditorPage({ params }: PageProps) {
               className="w-full border-0 bg-white"
               sandbox="allow-scripts"
               title="Preview"
-              style={{ height: "calc(100vh - 9rem)" }}
+              style={{ height: "calc(100svh - 12.5rem)" }}
             />
           </Card>
         </main>

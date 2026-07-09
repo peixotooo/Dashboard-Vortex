@@ -29,6 +29,7 @@ export async function getExcludedPhones(workspaceId: string): Promise<Set<string
       .from("wa_exclusions")
       .select("phone")
       .eq("workspace_id", workspaceId)
+      .order("phone", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
 
     if (data && data.length > 0) {
@@ -70,6 +71,8 @@ export async function getCooldownPhones(
       .eq("workspace_id", workspaceId)
       .in("status", ["sent", "delivered", "read"])
       .gte("sent_at", cutoff.toISOString())
+      .order("sent_at", { ascending: true })
+      .order("phone", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
 
     if (data && data.length > 0) {

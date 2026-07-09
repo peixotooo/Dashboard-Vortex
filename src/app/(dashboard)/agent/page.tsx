@@ -339,7 +339,7 @@ export default function AgentPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)] max-w-4xl mx-auto">
+    <div className="flex flex-col h-[calc(100svh-7.5rem)] max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-border mb-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">

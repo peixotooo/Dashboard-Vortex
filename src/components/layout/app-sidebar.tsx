@@ -501,12 +501,10 @@ function NavUser() {
   );
 }
 
-export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+export function useFilteredNavGroups(): NavGroup[] {
   const { userRole, userFeatures } = useWorkspace();
 
-  const filteredNavGroups = React.useMemo(() => {
+  return React.useMemo(() => {
     return navGroups
       .map((group) => ({
         ...group,
@@ -527,9 +525,15 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       }))
       .filter((group) => group.items.length > 0);
   }, [userRole, userFeatures]);
+}
+
+export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+  const filteredNavGroups = useFilteredNavGroups();
 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible="icon" variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
