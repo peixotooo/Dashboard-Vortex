@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertTriangle, Save } from "lucide-react";
+import { Loader2, AlertTriangle, Save, Bot, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -104,9 +105,14 @@ export default function ControladoriaConfigPage() {
         <Tabs defaultValue="metas">
           <TabsList>
             <TabsTrigger value="metas">Metas</TabsTrigger>
+            <TabsTrigger value="automacao">Automação</TabsTrigger>
             <TabsTrigger value="classificacoes">Classificações ({meta.classifications.length})</TabsTrigger>
             <TabsTrigger value="contas">Contas ({meta.accounts.length})</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="automacao">
+            <AutoReceitasCard workspaceId={workspace?.id ?? ""} />
+          </TabsContent>
 
           <TabsContent value="metas">
             <Card className="max-w-xl">
@@ -226,5 +232,131 @@ export default function ControladoriaConfigPage() {
         </Tabs>
       )}
     </div>
+  );
+}
+
+type AutoCfg = {
+  enabled?: boolean;
+  start_date?: string;
+  last_run?: { at: string; ok: boolean; summary: string };
+};
+
+type SyncRow = { day: string; channel: string; amount: number; action: string; detail?: string };
+
+const ACTION_LABEL: Record<string, string> = {
+  created: "criado", updated: "atualizado", unchanged: "sem mudança", no_sales: "sem vendas",
+  skipped_manual: "já lançado à mão", skipped_deleted: "excluído à mão (respeitado)", error: "erro",
+};
+
+function AutoReceitasCard({ workspaceId }: { workspaceId: string }) {
+  const [cfg, setCfg] = React.useState<AutoCfg | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [syncRows, setSyncRows] = React.useState<SyncRow[] | null>(null);
+  const headers = React.useMemo(
+    () => ({ "x-workspace-id": workspaceId, "Content-Type": "application/json" }),
+    [workspaceId]
+  );
+
+  React.useEffect(() => {
+    if (!workspaceId) return;
+    fetch("/api/controladoria/auto-receitas", { headers, cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setCfg(j.config ?? {}))
+      .catch(() => setCfg({}));
+  }, [workspaceId, headers]);
+
+  const patch = async (p: Partial<AutoCfg>) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/controladoria/auto-receitas", { method: "PATCH", headers, body: JSON.stringify(p) });
+      const j = await res.json();
+      if (res.ok) setCfg(j.config);
+    } finally { setBusy(false); }
+  };
+
+  const syncNow = async () => {
+    setBusy(true);
+    setSyncRows(null);
+    try {
+      const res = await fetch("/api/controladoria/auto-receitas", { method: "POST", headers });
+      const j = await res.json();
+      if (res.ok) {
+        setSyncRows(j.results ?? []);
+        const r = await fetch("/api/controladoria/auto-receitas", { headers, cache: "no-store" }).then((x) => x.json());
+        setCfg(r.config ?? {});
+      } else {
+        setSyncRows([{ day: "-", channel: "-", amount: 0, action: "error", detail: j.error ?? `HTTP ${res.status}` }]);
+      }
+    } finally { setBusy(false); }
+  };
+
+  if (!cfg) {
+    return <div className="flex items-center gap-2 py-8 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</div>;
+  }
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Bot className="h-4 w-4" /> Receitas automáticas (VNDA + Mercado Livre)</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Todo dia de manhã o sistema lança a receita de ONTEM: um lançamento por canal
+          (parceiro VNDA / MERCADO LIVRE, classificação Receita de Vendas, pendente),
+          igual ao lançamento manual do financeiro. Cancelamentos e pedidos tardios são
+          re-verificados por 7 dias — nesse período, não edite o valor dos lançamentos AUTO
+          (o robô sobrescreve); depois disso eles ficam por conta do financeiro.
+          Excluir um lançamento AUTO é respeitado: o robô não o recria.
+        </p>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex items-center gap-2">
+            <Switch checked={!!cfg.enabled} disabled={busy} onCheckedChange={(v) => void patch({ enabled: v })} />
+            <span className="text-sm">{cfg.enabled ? "Ativada" : "Desativada"}</span>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Início (não lança antes desta data)</label>
+            <Input type="date" value={cfg.start_date ?? ""} disabled={busy} className="w-40"
+              onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch {} }}
+              onChange={(e) => void patch({ start_date: e.target.value })} />
+          </div>
+          <Button variant="outline" disabled={busy || !workspaceId} onClick={() => void syncNow()}>
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}
+            Sincronizar agora
+          </Button>
+        </div>
+        {cfg.last_run && (
+          <p className="text-xs text-muted-foreground">
+            Última rodada: {new Date(cfg.last_run.at).toLocaleString("pt-BR")} — {cfg.last_run.summary} {cfg.last_run.ok ? "✓" : "⚠️"}
+          </p>
+        )}
+        {syncRows && (
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dia</TableHead><TableHead>Canal</TableHead>
+                  <TableHead className="text-right">Valor</TableHead><TableHead>Resultado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {syncRows.map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{r.day.split("-").reverse().join("/")}</TableCell>
+                    <TableCell className="uppercase">{r.channel}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </TableCell>
+                    <TableCell>
+                      {ACTION_LABEL[r.action] ?? r.action}
+                      {r.detail ? <span className="text-xs text-muted-foreground"> — {r.detail}</span> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
