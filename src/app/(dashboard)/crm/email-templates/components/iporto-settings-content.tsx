@@ -265,7 +265,7 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
 
       {probeResult && (
         <div
-          className={`flex items-center gap-2 text-sm ${probeResult.ok ? "text-green-700" : "text-red-700"}`}
+          className={`flex items-center gap-2 text-sm ${probeResult.ok ? "text-success" : "text-destructive"}`}
         >
           {probeResult.ok ? (
             <CheckCircle2 className="w-4 h-4" />
@@ -277,7 +277,7 @@ export function IportoSettingsContent({ workspaceId }: { workspaceId: string }) 
       )}
 
       {error && (
-        <div className="flex items-center gap-2 text-sm text-red-700">
+        <div className="flex items-center gap-2 text-sm text-destructive">
           <AlertTriangle className="w-4 h-4" />
           {error}
         </div>
@@ -322,7 +322,7 @@ function WebhookUrlBlock() {
         className="h-7 px-2 gap-1.5 text-[11px]"
       >
         {copied ? (
-          <Check className="w-3.5 h-3.5 text-emerald-600" />
+          <Check className="w-3.5 h-3.5 text-success" />
         ) : (
           <Copy className="w-3.5 h-3.5" />
         )}

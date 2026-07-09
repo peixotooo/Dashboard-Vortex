@@ -88,7 +88,7 @@ export default function HubPage() {
                     <Loader2 className="h-4 w-4 animate-spin mt-1" />
                   ) : stats?.eccosysConnected ? (
                     <div className="flex items-center gap-2 mt-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                       <span className="text-sm font-semibold">
                         {stats.eccosysAmbiente}
                       </span>
@@ -127,7 +127,7 @@ export default function HubPage() {
                     <Loader2 className="h-4 w-4 animate-spin mt-1" />
                   ) : stats?.mlConnected ? (
                     <div className="flex items-center gap-2 mt-1">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                       <span className="text-sm font-semibold">
                         @{stats.mlNickname}
                       </span>
@@ -170,14 +170,14 @@ export default function HubPage() {
           title="Vinculados"
           value={loading ? "..." : String(stats?.linkedProducts ?? 0)}
           icon={ArrowLeftRight}
-          iconColor="text-green-500"
+          iconColor="text-emerald-500"
           loading={loading}
         />
         <KpiCard
           title="Pedidos Pendentes"
           value={loading ? "..." : String(stats?.pendingOrders ?? 0)}
           icon={ShoppingCart}
-          iconColor="text-purple-500"
+          iconColor="text-violet-500"
           loading={loading}
         />
         <KpiCard
@@ -214,13 +214,13 @@ export default function HubPage() {
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
               <Link href="/hub/produtos?action=pull-ml">
-                <ArrowDownToLine className="h-5 w-5 text-yellow-500" />
+                <ArrowDownToLine className="h-5 w-5 text-amber-500" />
                 <span className="text-xs">Puxar do ML</span>
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2" asChild>
               <Link href="/hub/pedidos">
-                <ShoppingCart className="h-5 w-5 text-purple-500" />
+                <ShoppingCart className="h-5 w-5 text-violet-500" />
                 <span className="text-xs">Ver Pedidos</span>
               </Link>
             </Button>

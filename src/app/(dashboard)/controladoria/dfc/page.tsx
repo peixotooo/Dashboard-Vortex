@@ -136,8 +136,8 @@ export default function DfcPage() {
       </div>
 
       {error && (
-        <Card className="border-red-300">
-          <CardContent className="flex items-center gap-2 pt-5 text-red-700">
+        <Card className="border-destructive/30">
+          <CardContent className="flex items-center gap-2 pt-5 text-destructive">
             <AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}
           </CardContent>
         </Card>
@@ -156,15 +156,15 @@ export default function DfcPage() {
             <div className="text-sm font-medium mb-2">Fluxo de Caixa & Índice de Liquidez</div>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                 <XAxis dataKey="mes" fontSize={11} />
                 <YAxis tickFormatter={(v: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v)} fontSize={11} width={56} />
                 <RTooltip formatter={(v) => formatCurrency(Number(v))} />
                 <Legend />
-                <Bar dataKey="Entradas" fill="#3b82f6" />
-                <Bar dataKey="Saídas" fill="#ef4444" />
-                <Bar dataKey="Liquidez" fill="#22c55e" />
-                <Bar dataKey="Saldo acumulado" fill="#f59e0b" />
+                <Bar dataKey="Entradas" fill="var(--chart-2)" />
+                <Bar dataKey="Saídas" fill="var(--chart-5)" />
+                <Bar dataKey="Liquidez" fill="var(--chart-3)" />
+                <Bar dataKey="Saldo acumulado" fill="var(--chart-4)" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -185,22 +185,22 @@ export default function DfcPage() {
               {MONTHS_SHORT.map((m, idx) => (
                 <TableRow key={m}>
                   <TableCell className="font-medium">{m}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-700">{fmtReport(data.entradas[idx])}</TableCell>
-                  <TableCell className="text-right tabular-nums text-red-600/90">{fmtReport(data.saidas[idx])}</TableCell>
-                  <TableCell className={`text-right tabular-nums font-medium ${data.liquidez[idx] < 0 ? "text-red-600" : "text-blue-600"}`}>
+                  <TableCell className="text-right tabular-nums text-success">{fmtReport(data.entradas[idx])}</TableCell>
+                  <TableCell className="text-right tabular-nums text-destructive/90">{fmtReport(data.saidas[idx])}</TableCell>
+                  <TableCell className={`text-right tabular-nums font-medium ${data.liquidez[idx] < 0 ? "text-destructive" : "text-info"}`}>
                     {fmtReport(data.liquidez[idx])}
                   </TableCell>
-                  <TableCell className={`text-right tabular-nums font-medium ${data.saldoAcumulado[idx] < 0 ? "text-red-600" : ""}`}>
+                  <TableCell className={`text-right tabular-nums font-medium ${data.saldoAcumulado[idx] < 0 ? "text-destructive" : ""}`}>
                     {fmtReport(data.saldoAcumulado[idx])}
                   </TableCell>
                 </TableRow>
               ))}
               <TableRow className="bg-muted/60 font-semibold">
                 <TableCell>Totais anuais</TableCell>
-                <TableCell className="text-right tabular-nums text-emerald-700">
+                <TableCell className="text-right tabular-nums text-success">
                   {fmtReport(data.entradas.reduce((a, b) => a + b, 0))}
                 </TableCell>
-                <TableCell className="text-right tabular-nums text-red-600">
+                <TableCell className="text-right tabular-nums text-destructive">
                   {fmtReport(data.saidas.reduce((a, b) => a + b, 0))}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">

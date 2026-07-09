@@ -621,7 +621,7 @@ export default function ShelvesPage() {
                   className={`rounded-lg p-4 mb-4 ${
                     syncResult.errors > 0
                       ? "bg-destructive/10 text-destructive"
-                      : "bg-green-500/10 text-green-600"
+                      : "bg-emerald-500/10 text-emerald-600"
                   }`}
                 >
                   <p className="font-medium">
@@ -666,7 +666,7 @@ export default function ShelvesPage() {
             </CardHeader>
             <CardContent>
               {seedResult && (
-                <div className="rounded-lg p-4 mb-4 bg-green-500/10 text-green-600">
+                <div className="rounded-lg p-4 mb-4 bg-emerald-500/10 text-emerald-600">
                   <p className="font-medium">Rankings populados</p>
                   <p className="text-sm mt-1">
                     {seedResult.bestsellers} mais vendidos ·{" "}
@@ -789,7 +789,7 @@ export default function ShelvesPage() {
                         onClick={() => copyToClipboard(k.key)}
                       >
                         {copiedKey === k.key ? (
-                          <Check className="h-4 w-4 text-green-500" />
+                          <Check className="h-4 w-4 text-emerald-500" />
                         ) : (
                           <Copy className="h-4 w-4" />
                         )}
@@ -833,7 +833,7 @@ document.head.appendChild(s)})();
                     }
                   >
                     {copiedKey?.includes("_shelvesKey") ? (
-                      <Check className="h-4 w-4 text-green-500" />
+                      <Check className="h-4 w-4 text-emerald-500" />
                     ) : (
                       <Copy className="h-4 w-4" />
                     )}

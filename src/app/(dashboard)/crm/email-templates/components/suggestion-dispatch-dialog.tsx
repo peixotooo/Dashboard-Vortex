@@ -707,7 +707,7 @@ export function SuggestionDispatchDialog({
             value={
               <>
                 {retentionContext && (
-                  <div className="mb-1 text-emerald-700 dark:text-emerald-300">
+                  <div className="mb-1 text-success">
                     Playbook · {retentionContext.playbook}
                     {retentionContext.run ? ` · run ${retentionContext.run.slice(0, 8)}` : ""}
                   </div>
@@ -761,12 +761,12 @@ export function SuggestionDispatchDialog({
             label="Teste enviado?"
             value={
               testSentTo ? (
-                <span className="text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                <span className="text-success flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" />
                   Sim, para {testSentTo}
                 </span>
               ) : (
-                <span className="text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                <span className="text-warning flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" />
                   Não — você pulou essa etapa
                 </span>

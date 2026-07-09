@@ -860,12 +860,12 @@ export default function WhatsAppGroupsPage() {
       )}
 
       {successMsg && (
-        <div className="rounded-md border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-400 flex items-start gap-2">
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400 flex items-start gap-2">
           <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="flex-1">{successMsg}</div>
           <button
             onClick={() => setSuccessMsg(null)}
-            className="text-green-400 hover:text-green-300"
+            className="text-emerald-400 hover:text-emerald-300"
           >
             <X className="h-4 w-4" />
           </button>
@@ -913,7 +913,7 @@ export default function WhatsAppGroupsPage() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 {connected ? (
-                  <Wifi className="h-5 w-5 text-green-500" />
+                  <Wifi className="h-5 w-5 text-emerald-500" />
                 ) : (
                   <WifiOff className="h-5 w-5 text-red-500" />
                 )}
@@ -937,7 +937,7 @@ export default function WhatsAppGroupsPage() {
                   <div
                     className={`flex items-center gap-2 text-sm rounded-lg p-3 ${
                       connected
-                        ? "text-green-600 bg-green-50 dark:bg-green-950/20"
+                        ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
                         : "text-red-600 bg-red-50 dark:bg-red-950/20"
                     }`}
                   >
@@ -1421,7 +1421,7 @@ export default function WhatsAppGroupsPage() {
                     )}
 
                     {pool.stats.missingInviteLinks === 0 && pool.stats.routeableGroups > 0 && (
-                      <div className="flex items-start gap-2 rounded-lg border border-green-500/20 bg-green-500/5 p-3 text-sm text-green-700 dark:text-green-300">
+                      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>
                           Link unico pronto: todos os grupos ativos possuem convite e
@@ -1524,7 +1524,7 @@ export default function WhatsAppGroupsPage() {
                                           ? "bg-red-500"
                                           : group.isNearFull
                                             ? "bg-amber-500"
-                                            : "bg-green-500"
+                                            : "bg-emerald-500"
                                       }`}
                                       style={{ width: `${group.fillPct ?? 0}%` }}
                                     />
@@ -2019,7 +2019,7 @@ export default function WhatsAppGroupsPage() {
                       : sendResult.status === "scheduled"
                       ? "border-blue-500/30"
                       : sendResult.failed === 0
-                        ? "border-green-500/30"
+                        ? "border-emerald-500/30"
                         : "border-amber-500/30"
                   }
                 >
@@ -2030,7 +2030,7 @@ export default function WhatsAppGroupsPage() {
                       ) : sendResult.status === "scheduled" ? (
                         <Clock className="h-5 w-5 text-blue-500" />
                       ) : sendResult.failed === 0 ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                       ) : (
                         <AlertCircle className="h-5 w-5 text-amber-500" />
                       )}
@@ -2095,7 +2095,7 @@ export default function WhatsAppGroupsPage() {
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="font-bold text-lg text-green-600">
+                            <div className="font-bold text-lg text-emerald-600">
                               {sendResult.sent}
                             </div>
                             <div className="text-xs text-muted-foreground">
@@ -2171,7 +2171,7 @@ export default function WhatsAppGroupsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {configured && (
-                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 dark:bg-green-950/20 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-3">
                   <CheckCircle2 className="h-4 w-4" />
                   W-API configurado | Instance: {configInstanceId}
                 </div>

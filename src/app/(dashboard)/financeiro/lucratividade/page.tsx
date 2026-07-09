@@ -419,9 +419,9 @@ export default function LucratividadePage() {
                         className={
                           "text-right " +
                           (o.profit > 0
-                            ? "text-green-700"
+                            ? "text-success"
                             : o.profit < 0
-                              ? "text-red-700"
+                              ? "text-destructive"
                               : "text-muted-foreground")
                         }
                       >
@@ -432,11 +432,11 @@ export default function LucratividadePage() {
                       </TableCell>
                       <TableCell>
                         {o.status === "profit" ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                          <span className="inline-flex items-center gap-1 text-xs text-success">
                             <TrendingUp className="h-3 w-3" /> Lucro
                           </span>
                         ) : o.status === "loss" ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-red-700">
+                          <span className="inline-flex items-center gap-1 text-xs text-destructive">
                             <TrendingDown className="h-3 w-3" /> Prejuízo
                           </span>
                         ) : (
@@ -506,9 +506,9 @@ function KpiCard({
 }) {
   const toneClass =
     tone === "positive"
-      ? "text-green-700"
+      ? "text-success"
       : tone === "negative"
-        ? "text-red-700"
+        ? "text-destructive"
         : "";
   return (
     <Card>

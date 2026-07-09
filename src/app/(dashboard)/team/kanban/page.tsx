@@ -39,7 +39,7 @@ const COLUMNS = [
   { key: "todo", label: "To Do", color: "bg-blue-500" },
   { key: "in_progress", label: "Em Progresso", color: "bg-yellow-500" },
   { key: "review", label: "Revisao", color: "bg-purple-500" },
-  { key: "done", label: "Concluido", color: "bg-green-500" },
+  { key: "done", label: "Concluido", color: "bg-emerald-500" },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {

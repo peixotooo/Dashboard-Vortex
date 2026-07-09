@@ -449,9 +449,9 @@ function KpiCard({
 }) {
   const toneClass =
     tone === "positive"
-      ? "text-green-700"
+      ? "text-success"
       : tone === "negative"
-        ? "text-red-700"
+        ? "text-destructive"
         : "";
   return (
     <Card>

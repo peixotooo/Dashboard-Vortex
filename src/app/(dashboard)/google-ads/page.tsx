@@ -42,7 +42,7 @@ import type { DatePreset, CampaignWithMetrics } from "@/lib/types";
 const TIER_CONFIG = {
   champion: { label: "Escalar", description: "ROAS acima de 1.5x a media e alto investimento. Aumente o budget — esta gerando muito retorno com volume.", icon: Trophy, className: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10" },
   potential: { label: "Aumentar", description: "ROAS acima de 1.5x a media, mas investimento baixo. Suba o budget para capturar mais resultado com esse ROAS alto.", icon: Zap, className: "text-blue-500 border-blue-500/30 bg-blue-500/10" },
-  scale: { label: "Manter", description: "Alto investimento com retorno positivo (ROAS >= 1.0). Mantenha o budget atual e monitore variacoes.", icon: BarChart3, className: "text-purple-500 border-purple-500/30 bg-purple-500/10" },
+  scale: { label: "Manter", description: "Alto investimento com retorno positivo (ROAS >= 1.0). Mantenha o budget atual e monitore variacoes.", icon: BarChart3, className: "text-violet-500 border-violet-500/30 bg-violet-500/10" },
   profitable: { label: "Otimizar", description: "ROAS positivo mas abaixo da media. Teste novos criativos, copys ou publicos para melhorar o retorno.", icon: TrendingUp, className: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10" },
   warning: { label: "Revisar", description: "ROAS abaixo de 1.0 — gasta mais do que retorna. Revise segmentacao, criativos e landing page urgente.", icon: AlertTriangle, className: "text-amber-500 border-amber-500/30 bg-amber-500/10" },
   critical: { label: "Pausar", description: "Investimento sem nenhum retorno (ROAS zero). Pause imediatamente e reestruture antes de gastar mais.", icon: OctagonX, className: "text-red-500 border-red-500/30 bg-red-500/10" },
@@ -255,7 +255,7 @@ export default function GoogleAdsPage() {
           title="ROAS Medio"
           value={`${avgRoas.toFixed(2)}x`}
           icon={Target}
-          iconColor="text-purple-400"
+          iconColor="text-violet-400"
           loading={loading}
         />
         <KpiCard

@@ -380,7 +380,7 @@ export default function ComposePage({ params }: { params: Promise<{ id: string }
               {generatingHero ? "Gerando (1-3 min)..." : heroUrl ? "Regenerar hero" : "Gerar hero"}
             </Button>
 
-            {heroErr && <div className="text-xs text-red-500">⚠ {heroErr}</div>}
+            {heroErr && <div className="text-xs text-destructive">⚠ {heroErr}</div>}
 
             {heroUrl && (
               <div className="border rounded overflow-hidden">
@@ -454,7 +454,7 @@ export default function ComposePage({ params }: { params: Promise<{ id: string }
               <span>Preview ao vivo</span>
               {previewLoading && <span>renderizando...</span>}
             </div>
-            <div className="bg-neutral-100" style={{ height: 720 }}>
+            <div className="bg-muted" style={{ height: 720 }}>
               {!primary ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   Selecione um produto principal pra ver o preview.

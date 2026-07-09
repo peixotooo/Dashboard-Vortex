@@ -108,7 +108,7 @@ export function HistoryTable({ workspaceId }: { workspaceId: string }) {
               <TableCell className="max-w-xs truncate">
                 {s.product_snapshot.name}
                 {s.coupon_code && (
-                  <span className="ml-2 text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                  <span className="ml-2 text-[10px] font-mono text-success">
                     🎟 {s.coupon_code}
                   </span>
                 )}

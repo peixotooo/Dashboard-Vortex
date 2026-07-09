@@ -338,7 +338,7 @@ export default function MissionControlPage() {
             <AlertTriangle className="h-4 w-4" />
             Needs COO Review
             {summary?.needsCooReview && summary.needsCooReview.total > 0 && (
-              <span className="ml-1 rounded-full bg-amber-500/90 text-white text-[10px] px-1.5">
+              <span className="ml-1 rounded-full bg-amber-500/90 text-amber-950 text-[10px] px-1.5">
                 {summary.needsCooReview.total}
               </span>
             )}

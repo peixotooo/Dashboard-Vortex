@@ -1032,7 +1032,7 @@ export default function TeamChatPage() {
                       </div>
                     )}
                     {att.status === "done" && (
-                      <div className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-green-500 flex items-center justify-center">
+                      <div className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-emerald-500 flex items-center justify-center">
                         <Check className="h-3 w-3 text-white" />
                       </div>
                     )}

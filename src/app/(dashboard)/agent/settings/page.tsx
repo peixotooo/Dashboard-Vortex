@@ -64,7 +64,7 @@ interface ConversationMessage {
 
 const CATEGORY_COLORS: Record<string, string> = {
   targeting: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  budget: "bg-green-500/10 text-green-500 border-green-500/20",
+  budget: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
   naming: "bg-purple-500/10 text-purple-500 border-purple-500/20",
   preference: "bg-amber-500/10 text-amber-500 border-amber-500/20",
   general: "bg-slate-500/10 text-slate-500 border-slate-500/20",
@@ -318,7 +318,7 @@ export default function AgentSettingsPage() {
       {/* Feedback */}
       {docMessage && (
         <div className={`rounded-lg px-4 py-2 text-sm ${
-          docMessage.includes("Erro") ? "bg-red-500/10 text-red-500" : "bg-green-500/10 text-green-500"
+          docMessage.includes("Erro") ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
         }`}>
           {docMessage}
         </div>
@@ -632,7 +632,7 @@ Usar "voce" em vez de "o usuario".
             <CardContent className="space-y-4">
               {memoryMessage && (
                 <div className={`rounded-lg px-3 py-2 text-sm ${
-                  memoryMessage.includes("Erro") ? "bg-red-500/10 text-red-500" : "bg-green-500/10 text-green-500"
+                  memoryMessage.includes("Erro") ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
                 }`}>
                   {memoryMessage}
                 </div>

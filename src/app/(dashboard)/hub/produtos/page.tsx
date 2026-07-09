@@ -85,10 +85,10 @@ function SyncBadge({ status, eccId, mlItemId, eccSku }: { status: string; eccId?
   // Full chain: Eccosys → Hub → ML
   const isLinked = status === "synced" && !!eccId && !!mlItemId;
   const map: Record<string, { label: string; variant: string; desc: string }> = {
-    draft: { label: "Rascunho", variant: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", desc: "Produto importado, ainda nao publicado no ML" },
+    draft: { label: "Rascunho", variant: "bg-muted text-muted-foreground", desc: "Produto importado, ainda nao publicado no ML" },
     ready: { label: "Pronto", variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", desc: "Dados completos, pronto para publicar" },
-    synced: { label: "Sincronizado", variant: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300", desc: "Publicado e ativo no Mercado Livre" },
-    linked: { label: "Vinculado", variant: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", desc: "Vinculado na cadeia completa: Eccosys \u2194 Hub \u2194 ML" },
+    synced: { label: "Sincronizado", variant: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300", desc: "Publicado e ativo no Mercado Livre" },
+    linked: { label: "Vinculado", variant: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300", desc: "Vinculado na cadeia completa: Eccosys \u2194 Hub \u2194 ML" },
     error: { label: "Erro", variant: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300", desc: "Falha na publicacao ou sincronizacao" },
   };
   const key = isLinked ? "linked" : status;
@@ -125,7 +125,7 @@ function ListingTypeBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; className: string; icon: boolean }> = {
     gold_special: {
       label: "Premium",
-      className: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300",
+      className: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300",
       icon: true,
     },
     gold_pro: {
@@ -135,11 +135,11 @@ function ListingTypeBadge({ type }: { type: string }) {
     },
     free: {
       label: "Gratis",
-      className: "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-400",
+      className: "bg-muted text-muted-foreground border-border",
       icon: false,
     },
   };
-  const badge = map[type] || { label: type, className: "bg-gray-100 text-gray-600 border-gray-300", icon: false };
+  const badge = map[type] || { label: type, className: "bg-muted text-muted-foreground border-border", icon: false };
   return (
     <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badge.className}`}>
       {badge.icon && <Star className="h-2.5 w-2.5" />}
@@ -154,7 +154,7 @@ function ListingTypeBadge({ type }: { type: string }) {
 function ShippingBadge({ mlData }: { mlData: MLData }) {
   if (mlData.logistic_type === "fulfillment") {
     return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-300 dark:bg-green-900/30 dark:text-green-300">
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300">
         <Zap className="h-2.5 w-2.5" />
         Full
       </span>
@@ -162,7 +162,7 @@ function ShippingBadge({ mlData }: { mlData: MLData }) {
   }
   if (mlData.free_shipping) {
     return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 dark:bg-green-900/20 dark:text-green-400">
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400">
         <Truck className="h-2.5 w-2.5" />
         Frete Gratis
       </span>
@@ -179,9 +179,9 @@ function HealthScore({ health }: { health: number | null }) {
   const pct = Math.round(health * 100);
   const color =
     pct >= 80
-      ? "bg-green-500"
+      ? "bg-emerald-500"
       : pct >= 50
-        ? "bg-yellow-500"
+        ? "bg-amber-500"
         : "bg-red-500";
   return (
     <Tooltip>
@@ -219,7 +219,7 @@ function MLDetailChips({ mlData }: { mlData: MLData }) {
       )}
 
       {mlData.catalog_listing && (
-        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200 dark:bg-purple-900/20 dark:text-purple-400">
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400">
           <Crown className="h-2.5 w-2.5" />
           Catalogo
         </span>
@@ -304,7 +304,7 @@ function InlineStockEditor({
         className="w-16 h-7 text-right text-sm font-medium rounded border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
       />
       {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-      {saved && <Check className="h-3 w-3 text-green-500" />}
+      {saved && <Check className="h-3 w-3 text-emerald-500" />}
     </div>
   );
 }
@@ -401,10 +401,10 @@ function InlinePriceEditor({
           className="w-20 h-7 text-right text-sm font-medium rounded border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
         />
         {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-        {saved && <Check className="h-3 w-3 text-green-500" />}
+        {saved && <Check className="h-3 w-3 text-emerald-500" />}
       </div>
       <div className="flex items-center gap-1">
-        <span className="text-[10px] text-green-600 w-4">P</span>
+        <span className="text-[10px] text-emerald-600 w-4">P</span>
         <input
           type="number"
           step="0.01"
@@ -414,7 +414,7 @@ function InlinePriceEditor({
           onBlur={savePromo}
           onKeyDown={(e) => { if (e.key === "Enter") savePromo(); }}
           placeholder="—"
-          className="w-20 h-6 text-right text-xs rounded border border-dashed border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring text-green-600"
+          className="w-20 h-6 text-right text-xs rounded border border-dashed border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring text-emerald-600"
         />
       </div>
     </div>
@@ -1004,7 +1004,7 @@ function ImportFamilyModal({
                         </td>
                         <td className="p-3 text-center">
                           {family.already_in_hub ? (
-                            <Badge variant="outline" className="text-xs text-green-600">
+                            <Badge variant="outline" className="text-xs text-emerald-600">
                               No Hub
                             </Badge>
                           ) : (
@@ -1111,7 +1111,7 @@ function ImportFamilyModal({
                 </p>
               </div>
               {preview.parent.already_in_hub && (
-                <Badge variant="outline" className="text-green-600 border-green-300 text-xs">
+                <Badge variant="outline" className="text-emerald-600 border-emerald-300 text-xs">
                   Ja no Hub
                 </Badge>
               )}
@@ -1152,7 +1152,7 @@ function ImportFamilyModal({
                             {c.already_in_hub ? (
                               <Badge
                                 variant="outline"
-                                className="text-green-600 border-green-300 text-[10px]"
+                                className="text-emerald-600 border-emerald-300 text-[10px]"
                               >
                                 No Hub
                               </Badge>
@@ -1174,7 +1174,7 @@ function ImportFamilyModal({
             <div className="border rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium flex items-center gap-1.5">
-                  <Zap className="h-4 w-4 text-yellow-500" />
+                  <Zap className="h-4 w-4 text-amber-500" />
                   Enriquecimento ML
                 </h4>
                 {preview.cross_ref && (
@@ -1363,8 +1363,8 @@ function ImportFamilyModal({
         {/* Step 3: Result */}
         {step === "result" && result && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <div className="h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <Check className="h-6 w-6 text-green-600" />
+            <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <Check className="h-6 w-6 text-emerald-600" />
             </div>
             <div className="text-center space-y-1">
               <p className="font-medium">Importacao concluida</p>
@@ -1549,7 +1549,7 @@ function PullEccosysModal({
                   >
                     <td className="p-3 text-center">
                       {p.already_in_hub ? (
-                        <Check className="h-4 w-4 text-green-500 mx-auto" />
+                        <Check className="h-4 w-4 text-emerald-500 mx-auto" />
                       ) : (
                         <input
                           type="checkbox"
@@ -1569,7 +1569,7 @@ function PullEccosysModal({
                     </td>
                     <td className="p-3 text-center">
                       {p.already_in_hub ? (
-                        <Badge variant="outline" className="text-xs text-green-600">
+                        <Badge variant="outline" className="text-xs text-emerald-600">
                           No Hub
                         </Badge>
                       ) : (
@@ -1739,14 +1739,14 @@ function PushMLModal({
         {result ? (
           <div className="space-y-3 py-4">
             <div className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-500" />
+              <Check className="h-5 w-5 text-emerald-500" />
               <span className="font-medium">
                 {result.published} publicado(s)
               </span>
             </div>
             {(result.reprocessed ?? 0) > 0 && (
               <div className="flex items-center gap-2">
-                <Check className="h-5 w-5 text-green-500" />
+                <Check className="h-5 w-5 text-emerald-500" />
                 <span className="text-sm text-muted-foreground">
                   {result.reprocessed} reprocessado(s) como novo (anúncio estava
                   excluído no ML)
@@ -2122,7 +2122,7 @@ function LinkEccosysModal({
                               <span className="font-mono text-xs">{mlChild?.sku || m.ml_sku}</span>
                             </td>
                             <td className="p-2 text-center">
-                              <Check className="h-4 w-4 text-green-600 inline" />
+                              <Check className="h-4 w-4 text-emerald-600 inline" />
                             </td>
                             <td className="p-2">
                               <span className="font-mono text-xs">{m.ecc_sku}</span>
@@ -2198,8 +2198,8 @@ function LinkEccosysModal({
         {/* Step 3: Result */}
         {step === "result" && result && (
           <div className="space-y-4 text-center py-8">
-            <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center">
-              <Check className="h-6 w-6 text-green-600" />
+            <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-full mx-auto flex items-center justify-center">
+              <Check className="h-6 w-6 text-emerald-600" />
             </div>
             <div>
               <p className="font-medium text-lg">{result.linked} produto(s) vinculado(s)</p>
@@ -2319,7 +2319,7 @@ function PullMLModal({
         {result ? (
           <div className="space-y-3 py-4">
             <div className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-500" />
+              <Check className="h-5 w-5 text-emerald-500" />
               <span className="font-medium">
                 {result.imported} importado(s)
               </span>
@@ -2386,7 +2386,7 @@ function PullMLModal({
                       >
                         <td className="p-3 text-center">
                           {item.already_in_hub ? (
-                            <Check className="h-4 w-4 text-green-500 mx-auto" />
+                            <Check className="h-4 w-4 text-emerald-500 mx-auto" />
                           ) : (
                             <input
                               type="checkbox"
@@ -2444,13 +2444,13 @@ function PullMLModal({
                               <ListingTypeBadge type={item.listing_type_id} />
                             )}
                             {item.logistic_type === "fulfillment" && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 dark:text-green-400">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
                                 <Zap className="h-2.5 w-2.5" />
                                 Full
                               </span>
                             )}
                             {item.free_shipping && item.logistic_type !== "fulfillment" && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 dark:text-green-400">
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
                                 <Truck className="h-2.5 w-2.5" />
                                 Frete Gratis
                               </span>
@@ -2501,7 +2501,7 @@ function PullMLModal({
                           {item.already_in_hub ? (
                             <Badge
                               variant="outline"
-                              className="text-xs text-green-600 border-green-300"
+                              className="text-xs text-emerald-600 border-emerald-300"
                             >
                               No Hub
                             </Badge>
@@ -2831,7 +2831,7 @@ function BulkPriceSheet({
                         <td className="p-2 text-right text-muted-foreground">
                           {item.current.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </td>
-                        <td className={`p-2 text-right font-medium ${item.newPrice > item.current ? "text-green-600" : item.newPrice < item.current ? "text-red-600" : ""}`}>
+                        <td className={`p-2 text-right font-medium ${item.newPrice > item.current ? "text-emerald-600" : item.newPrice < item.current ? "text-red-600" : ""}`}>
                           {item.newPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </td>
                         {field === "preco" && (
@@ -2858,12 +2858,12 @@ function BulkPriceSheet({
 
           {/* Result */}
           {result && (
-            <div className={`rounded-md p-3 text-sm ${result.errors.length > 0 ? "bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" : "bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800"}`}>
+            <div className={`rounded-md p-3 text-sm ${result.errors.length > 0 ? "bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" : "bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800"}`}>
               <div className="flex items-center gap-2 font-medium">
                 {result.errors.length > 0 ? (
                   <AlertTriangle className="h-4 w-4 text-amber-600" />
                 ) : (
-                  <Check className="h-4 w-4 text-green-600" />
+                  <Check className="h-4 w-4 text-emerald-600" />
                 )}
                 {result.queued
                   ? `${result.matched ?? selectedIds.size} produto(s) enfileirado(s) para o worker`
@@ -4048,7 +4048,7 @@ function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
                           {/* Group header */}
                           <div className="flex items-center justify-between px-3 py-2 border-b border-dashed">
                             <div className="flex items-center gap-1.5">
-                              <span className={`inline-block w-2 h-2 rounded-full ${hasError ? "bg-red-500" : "bg-green-500"}`} />
+                              <span className={`inline-block w-2 h-2 rounded-full ${hasError ? "bg-red-500" : "bg-emerald-500"}`} />
                               <span className="font-semibold">{actionLabel}</span>
                               {group.source ? <span className="text-muted-foreground">({group.source})</span> : null}
                               {isStockSync ? <span className="text-muted-foreground ml-1">— {group.entries.length} SKU{group.entries.length > 1 ? "s" : ""} alterado{group.entries.length > 1 ? "s" : ""}</span> : null}
@@ -4083,12 +4083,12 @@ function SyncLogModal({ mlItemId, productName, workspaceId, onClose }: {
                                     <span className="text-muted-foreground">→</span>
                                     <span className="font-semibold">{String(newS ?? "?")}</span>
                                     {diff !== null && diff !== 0 ? (
-                                      <span className={`font-medium ${diff > 0 ? "text-green-600" : "text-red-500"}`}>
+                                      <span className={`font-medium ${diff > 0 ? "text-emerald-600" : "text-red-500"}`}>
                                         ({diff > 0 ? "+" : ""}{diff})
                                       </span>
                                     ) : null}
                                     {d.paused ? <span className="text-orange-600 font-medium">PAUSADO</span> : null}
-                                    {d.reactivated ? <span className="text-green-600 font-medium">REATIVADO</span> : null}
+                                    {d.reactivated ? <span className="text-emerald-600 font-medium">REATIVADO</span> : null}
                                   </div>
                                 );
                               }

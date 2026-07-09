@@ -357,7 +357,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
                     {d.status === "completed" && d.sent_count > 0 && (
                       <Badge
                         variant="default"
-                        className="text-xs bg-green-600"
+                        className="text-xs bg-emerald-600"
                       >
                         {d.sent_count}
                       </Badge>
@@ -430,7 +430,7 @@ export function DispatchLog({ workspaceId }: DispatchLogProps) {
                             </span>
                             <div className="flex items-center gap-1.5 shrink-0 ml-2">
                               {msg.status === "sent" ? (
-                                <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                               ) : (
                                 <XCircle className="h-3 w-3 text-destructive" />
                               )}

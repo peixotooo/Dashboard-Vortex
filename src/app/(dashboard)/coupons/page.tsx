@@ -543,11 +543,11 @@ export default function CouponsPage() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
       )}
 
       {successMsg && (
-        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700">
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-success/30 bg-success/10 p-3 text-sm text-success">
           <div className="flex items-start gap-2">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{successMsg}</span>
@@ -559,7 +559,7 @@ export default function CouponsPage() {
       )}
 
       {createdPlaybookPlan && (
-        <Card className="border-emerald-500/30 bg-emerald-500/5">
+        <Card className="border-success/30 bg-success/5">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -606,7 +606,7 @@ export default function CouponsPage() {
               </div>
               <p className="mt-1 text-sm text-muted-foreground">{playbookContext.guardrail}</p>
               {!playbookContext.runId && (
-                <p className="mt-1 text-xs text-amber-600">
+                <p className="mt-1 text-xs text-warning">
                   Sem run associado: para medir margem incremental, volte ao CRM e use "Preparar execucao" antes do cupom.
                 </p>
               )}
@@ -663,12 +663,12 @@ export default function CouponsPage() {
                     <Badge variant={p.enabled ? "default" : "secondary"}>{p.enabled ? "Ativo" : "Desabilitado"}</Badge>
                     <Badge variant="outline">{MODE_LABELS[p.mode] || p.mode}</Badge>
                     {p.mode === "smart" && (
-                      <Badge variant="outline" className="border-emerald-500/40 text-emerald-500">
+                      <Badge variant="outline" className="border-success/40 text-success">
                         unit: {p.discount_unit || "pct"}
                       </Badge>
                     )}
                     <Badge variant="outline">{TARGET_LABELS[p.target]}</Badge>
-                    {p.require_manual_approval && <Badge variant="outline" className="border-amber-500/40 text-amber-500">Aprovação manual</Badge>}
+                    {p.require_manual_approval && <Badge variant="outline" className="border-warning/40 text-warning">Aprovação manual</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {p.discount_min_pct}–{p.discount_max_pct}% · {p.duration_hours}h · max {p.max_active_products} ativos · {p.recurring_cron || "sem cron"}
@@ -802,7 +802,7 @@ export default function CouponsPage() {
                           <span className="ml-2">· VNDA promo #{c.vnda_discount_id}</span>
                         )}
                         {c.attributed_units > 0 && (
-                          <span className="ml-2 text-green-600">· {c.attributed_units} venda(s) · {fmtBRL(c.attributed_revenue)}</span>
+                          <span className="ml-2 text-success">· {c.attributed_units} venda(s) · {fmtBRL(c.attributed_revenue)}</span>
                         )}
                       </p>
                     </div>
@@ -840,7 +840,7 @@ export default function CouponsPage() {
                   </div>
                   {v && (
                     <div className={`rounded-md border p-2 text-xs flex items-start gap-2 ${
-                      v.ok ? "border-green-500/30 bg-green-500/10 text-green-500" : "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                      v.ok ? "border-success/30 bg-success/10 text-success" : "border-warning/30 bg-warning/10 text-warning"
                     }`}>
                       {v.ok ? <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
                       <div className="flex-1">
@@ -897,10 +897,10 @@ export default function CouponsPage() {
                       : (banditStats.pct_attempts > 0 ? banditStats.pct_revenue / banditStats.pct_attempts : 0);
                     const winning = rpa > otherRpa && arm.attempts >= 10 && (arm.unit === "pct" ? banditStats.brl_attempts >= 10 : banditStats.pct_attempts >= 10);
                     return (
-                      <div key={arm.unit} className={`rounded-lg border p-4 ${winning ? "border-green-500/40 bg-green-500/5" : ""}`}>
+                      <div key={arm.unit} className={`rounded-lg border p-4 ${winning ? "border-success/40 bg-success/5" : ""}`}>
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-sm font-medium">{arm.label}</span>
-                          {winning && <Badge variant="default" className="bg-green-500/20 text-green-600 border-green-500/40">Vencedor</Badge>}
+                          {winning && <Badge variant="default" className="bg-success/20 text-success border-success/40">Vencedor</Badge>}
                         </div>
                         <div className="space-y-1.5">
                           <div className="flex justify-between text-sm">
@@ -954,7 +954,7 @@ export default function CouponsPage() {
                     <span className="text-xs text-muted-foreground">por {e.actor || "system"}</span>
                   </div>
                   {e.error_message && (
-                    <p className="text-xs text-red-500 mt-1">{e.error_message}</p>
+                    <p className="text-xs text-destructive mt-1">{e.error_message}</p>
                   )}
                   {e.details && Object.keys(e.details).length > 0 && (
                     <details className="mt-1">
@@ -1053,7 +1053,7 @@ export default function CouponsPage() {
                   </div>
                   <p className="mt-1 text-muted-foreground">{playbookContext.guardrail}</p>
                   {!playbookContext.runId && (
-                    <p className="mt-1 text-xs text-amber-600">
+                    <p className="mt-1 text-xs text-warning">
                       Este plano nao ficara ligado a um holdout enquanto nao houver run.
                     </p>
                   )}
@@ -1086,7 +1086,7 @@ export default function CouponsPage() {
                     </SelectContent>
                   </Select>
                   {editing.mode === "smart" && (
-                    <p className="text-[11px] text-emerald-500">
+                    <p className="text-[11px] text-success">
                       Auto-aprova, escolhe % vs R$ via bandit, ajusta por demanda. Roda 1×/24h.
                     </p>
                   )}
@@ -1156,7 +1156,7 @@ export default function CouponsPage() {
                   <Input type="number" min={1} max={80} value={editing.discount_max_pct ?? 20}
                     onChange={(e) => setEditing({ ...editing, discount_max_pct: Number(e.target.value) })} />
                   {settings && (editing.discount_max_pct ?? 0) > settings.global_max_discount_pct && (
-                    <p className="text-xs text-red-500">⚠ Excede o cap do workspace ({settings.global_max_discount_pct}%) — será bloqueado ao salvar</p>
+                    <p className="text-xs text-destructive">⚠ Excede o cap do workspace ({settings.global_max_discount_pct}%) — será bloqueado ao salvar</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1189,7 +1189,7 @@ export default function CouponsPage() {
                 </div>
               )}
               {editing.mode === "smart" && (
-                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-600">
+                <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs text-success">
                   Modo smart: aprovação manual é desligada automaticamente. Cupons vão direto pra VNDA.
                 </div>
               )}

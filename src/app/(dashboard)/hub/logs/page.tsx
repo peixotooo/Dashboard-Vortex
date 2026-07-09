@@ -31,13 +31,13 @@ import type { HubLog } from "@/types/hub";
 const ACTION_LABELS: Record<string, { label: string; icon: typeof ArrowDownToLine; color: string }> = {
   pull_eccosys: { label: "Pull Eccosys", icon: ArrowDownToLine, color: "text-orange-500" },
   push_ml: { label: "Push ML", icon: ArrowUpFromLine, color: "text-blue-500" },
-  pull_ml: { label: "Pull ML", icon: ArrowDownToLine, color: "text-yellow-500" },
-  pull_order: { label: "Pull Pedido", icon: ArrowDownToLine, color: "text-purple-500" },
+  pull_ml: { label: "Pull ML", icon: ArrowDownToLine, color: "text-amber-500" },
+  pull_order: { label: "Pull Pedido", icon: ArrowDownToLine, color: "text-violet-500" },
   push_order_eccosys: { label: "Push Pedido Ecc", icon: ArrowUpFromLine, color: "text-orange-500" },
-  sync_nfe: { label: "Sync NF-e", icon: ArrowLeftRight, color: "text-green-500" },
+  sync_nfe: { label: "Sync NF-e", icon: ArrowLeftRight, color: "text-emerald-500" },
   sync_stock: { label: "Sync Estoque", icon: RefreshCw, color: "text-blue-500" },
-  webhook_received: { label: "Webhook", icon: ArrowDownToLine, color: "text-gray-500" },
-  error: { label: "Erro", icon: XCircle, color: "text-red-500" },
+  webhook_received: { label: "Webhook", icon: ArrowDownToLine, color: "text-muted-foreground" },
+  error: { label: "Erro", icon: XCircle, color: "text-destructive" },
 };
 
 function ActionLabel({ action }: { action: string }) {
@@ -206,7 +206,7 @@ export default function HubLogsPage() {
                   {/* Status icon */}
                   <div className="mt-0.5">
                     {log.status === "ok" ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                     ) : (
                       <XCircle className="h-4 w-4 text-destructive" />
                     )}

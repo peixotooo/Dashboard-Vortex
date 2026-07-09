@@ -128,7 +128,7 @@ function PreviewCard({
         <div className="flex gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
           <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/70" />
-          <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/70" />
         </div>
         <span className="ml-1 font-mono text-[10px] text-muted-foreground/80 truncate">
           inbox · {category.label.toLowerCase()}

@@ -1484,7 +1484,7 @@ export default function WhatsAppPage() {
                              b.category === "UTILITY" ? "Utility" :
                              b.category === "AUTHENTICATION" ? "Auth" : b.category}
                             {b.type !== "REGULAR" && (
-                              <span className="text-green-600 ml-1">
+                              <span className="text-emerald-600 ml-1">
                                 {b.type === "FREE_CUSTOMER_SERVICE" ? "(gratis CSW)" : "(gratis FEP)"}
                               </span>
                             )}
@@ -1933,7 +1933,7 @@ export default function WhatsAppPage() {
                       </CardContent>
                     </Card>
 
-                    <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 rounded-lg p-4">
+                    <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
                       <p className="font-medium text-sm mb-2 flex items-center gap-1.5">
                         <Eye className="h-4 w-4" /> Preview da mensagem
                       </p>
@@ -2173,7 +2173,7 @@ export default function WhatsAppPage() {
                             <div className="text-xs text-muted-foreground">Enviadas</div>
                           </div>
                           <div className="text-center">
-                            <div className="font-bold text-green-600">{c.delivered_count}</div>
+                            <div className="font-bold text-emerald-600">{c.delivered_count}</div>
                             <div className="text-xs text-muted-foreground">Entregues</div>
                           </div>
                           <div className="text-center">
@@ -2333,11 +2333,11 @@ export default function WhatsAppPage() {
                         <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-5 text-xs">
                           <div className="flex items-center gap-1.5">
                             <span className="text-muted-foreground">Conversoes:</span>
-                            <span className="font-semibold text-green-600">{perf.conversions} vendas</span>
+                            <span className="font-semibold text-emerald-600">{perf.conversions} vendas</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="text-muted-foreground">Receita:</span>
-                            <span className="font-semibold text-green-600">
+                            <span className="font-semibold text-emerald-600">
                               R$ {perf.attributed_revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                             </span>
                           </div>
@@ -2361,7 +2361,7 @@ export default function WhatsAppPage() {
                                 ? Math.round(((perf.attributed_revenue - costBrl) / costBrl) * 100)
                                 : 0;
                               return (
-                                <span className={`font-semibold ${roi >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                <span className={`font-semibold ${roi >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                                   {roi.toLocaleString("pt-BR")}%
                                 </span>
                               );
@@ -2604,7 +2604,7 @@ export default function WhatsAppPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {configured && (
-                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 dark:bg-green-950/20 rounded-lg p-3">
+                <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-3">
                   <CheckCircle2 className="h-4 w-4" />
                   WhatsApp configurado
                   {displayPhone && <span>| Numero: {displayPhone}</span>}

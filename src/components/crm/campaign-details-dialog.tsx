@@ -470,7 +470,7 @@ export function CampaignDetailsDialog({
                   <div className="text-xs text-muted-foreground">Enviadas</div>
                 </div>
                 <div>
-                  <div className="font-bold text-green-600">{campaign.delivered_count}</div>
+                  <div className="font-bold text-emerald-600">{campaign.delivered_count}</div>
                   <div className="text-xs text-muted-foreground">Entregues</div>
                 </div>
                 <div>
@@ -552,7 +552,7 @@ export function CampaignDetailsDialog({
                       className={`rounded-md border p-2.5 text-xs ${
                         recheckResult.changed
                           ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                          : "border-green-500/30 bg-green-500/10 text-green-400"
+                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                       }`}
                     >
                       {!recheckResult.ok ? (

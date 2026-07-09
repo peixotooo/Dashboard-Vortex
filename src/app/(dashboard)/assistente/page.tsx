@@ -451,7 +451,7 @@ function Delta({ current, prev }: { current: number; prev: number }) {
       return <span className="text-xs text-muted-foreground">—</span>;
     }
     return (
-      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-green-600 dark:text-green-400">
+      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
         <TrendingUp className="h-3 w-3" />
         novo
       </span>
@@ -465,7 +465,7 @@ function Delta({ current, prev }: { current: number; prev: number }) {
   return (
     <span
       className={`inline-flex items-center gap-0.5 text-xs font-medium ${
-        up ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+        up ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
       }`}
     >
       {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
@@ -1476,7 +1476,7 @@ export default function AssistentePage() {
                         variant="outline"
                         className={`mt-1 text-xs font-normal ${
                           msg.feedback === 1
-                            ? "border-green-600/60 text-green-700 dark:text-green-400"
+                            ? "border-emerald-600/60 text-emerald-700 dark:text-emerald-400"
                             : "border-red-600/60 text-red-700 dark:text-red-400"
                         }`}
                       >

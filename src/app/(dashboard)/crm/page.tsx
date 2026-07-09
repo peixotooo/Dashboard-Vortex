@@ -2642,7 +2642,7 @@ export default function CrmPage() {
                       const sent = row.performance.sent_count || row.campaign.sent_count || 0;
                       const revenuePerSent = sent > 0 ? row.performance.attributed_revenue / sent : 0;
                       const roasColor =
-                        row.performance.roas >= 3 ? "text-green-600" :
+                        row.performance.roas >= 3 ? "text-emerald-600" :
                         row.performance.roas >= 1 ? "text-amber-600" : "text-red-600";
                       return (
                         <tr
@@ -3273,7 +3273,7 @@ export default function CrmPage() {
                               </span>
                             )}
                             {template?.status && (
-                              <span className="rounded border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+                              <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600">
                                 {template.status}
                               </span>
                             )}

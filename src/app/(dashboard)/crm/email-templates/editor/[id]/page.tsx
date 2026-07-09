@@ -618,7 +618,7 @@ export default function EmailEditorPage({ params }: PageProps) {
         )}
 
         {/* center: clickable live preview */}
-        <main className="bg-neutral-100 dark:bg-neutral-900 overflow-y-auto p-6 relative">
+        <main className="bg-muted overflow-y-auto p-6 relative">
           {renderLoading && (
             <div className="absolute right-8 top-8 z-10 flex items-center gap-1.5 bg-card/90 backdrop-blur px-2 py-1 rounded text-[10px] text-muted-foreground border">
               <Loader2 className="w-3 h-3 animate-spin" /> Renderizando
@@ -713,7 +713,7 @@ export default function EmailEditorPage({ params }: PageProps) {
             value={htmlContent}
             onChange={(e) => setHtmlContent(e.target.value)}
             spellCheck={false}
-            className="flex-1 w-full px-4 py-3 font-mono text-[11px] leading-5 bg-neutral-950 text-neutral-100 border-0 outline-none resize-none"
+            className="flex-1 w-full px-4 py-3 font-mono text-[11px] leading-5 bg-background text-foreground border-0 outline-none resize-none"
             style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
           />
         </SheetContent>

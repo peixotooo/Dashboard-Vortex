@@ -402,7 +402,7 @@ export function GroupMembersDashboard({
               </div>
             </div>
             {!data?.connected ? (
-              <Button asChild size="sm" variant="outline" className="shrink-0 bg-white">
+              <Button asChild size="sm" variant="outline" className="shrink-0 bg-card">
                 <Link href="/whatsapp-groups">Reconectar</Link>
               </Button>
             ) : (
@@ -411,7 +411,7 @@ export function GroupMembersDashboard({
                 variant="outline"
                 onClick={handleCapture}
                 disabled={refreshing}
-                className="shrink-0 bg-white"
+                className="shrink-0 bg-card"
               >
                 {refreshing ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

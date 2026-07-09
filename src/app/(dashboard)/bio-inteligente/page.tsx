@@ -414,7 +414,7 @@ export default function BioInteligentePage() {
               {config.blocks.map((block, index) => {
                 const expanded = expandedBlockId === block.id;
                 return (
-                <div key={block.id} className={`rounded-lg border p-4 transition ${expanded ? "border-neutral-900 bg-muted/20" : "bg-background"}`}>
+                <div key={block.id} className={`rounded-lg border p-4 transition ${expanded ? "border-primary bg-muted/20" : "bg-background"}`}>
                   <div className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${expanded ? "mb-4" : ""}`}>
                     <div className="flex items-center gap-3">
                       <GripVertical className="h-5 w-5 text-muted-foreground" />

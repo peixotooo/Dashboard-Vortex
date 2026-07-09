@@ -1078,13 +1078,13 @@ function KpisSection({
           label="Recuperados"
           value={fallbackSummary.recovered || 0}
           icon={<CheckCircle2 className="h-3 w-3" />}
-          tone="text-green-700"
+          tone="text-success"
         />
         <SummaryCard
           label="Expirados"
           value={fallbackSummary.expired || 0}
           icon={<Clock className="h-3 w-3" />}
-          tone="text-amber-700"
+          tone="text-warning"
         />
         <SummaryCard
           label="Fechados"
@@ -1137,7 +1137,7 @@ function KpisSection({
           label="Recuperados"
           primary={BRL.format(recoveredValue)}
           secondary={`${totals.recovered.count} carrinho(s)`}
-          tone="text-green-700"
+          tone="text-success"
           icon={<CheckCircle2 className="h-3 w-3" />}
         />
         <KpiCard
@@ -1150,7 +1150,7 @@ function KpisSection({
           label="Expirados"
           primary={String(totals.expired.count)}
           secondary={BRL.format(totals.expired.value)}
-          tone="text-amber-700"
+          tone="text-warning"
           icon={<Clock className="h-3 w-3" />}
           hint="perderam a janela"
         />
@@ -1272,7 +1272,7 @@ function StepConversionBars({
             </div>
             <div className="h-2 bg-muted rounded overflow-hidden">
               <div
-                className="h-full bg-green-600 rounded"
+                className="h-full bg-emerald-600 rounded"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -1325,7 +1325,7 @@ function CouponBreakdownBars({
       label: "Sem cupom enviado",
       hint: "recuperou antes do step 3 (sem precisar de desconto)",
       ...data.no_coupon_sent,
-      color: "bg-green-500",
+      color: "bg-emerald-500",
     },
   ];
 
@@ -1452,7 +1452,7 @@ function StepCard({
             channels.map((c, i) => (
               <Badge key={i} variant="secondary" className="font-normal">
                 {c.startsWith("WhatsApp") ? (
-                  <MessageCircle className="h-3 w-3 mr-1 text-green-600" />
+                  <MessageCircle className="h-3 w-3 mr-1 text-emerald-600" />
                 ) : (
                   <Mail className="h-3 w-3 mr-1 text-blue-600" />
                 )}
@@ -1746,7 +1746,7 @@ function CartDetailView({ detail }: { detail: CartDetailResponse }) {
                           }`}
                         >
                           {channel === "WhatsApp" ? (
-                            <MessageCircle className="h-3 w-3 text-green-600" />
+                            <MessageCircle className="h-3 w-3 text-emerald-600" />
                           ) : (
                             <Mail className="h-3 w-3 text-blue-600" />
                           )}
@@ -1754,7 +1754,7 @@ function CartDetailView({ detail }: { detail: CartDetailResponse }) {
                           {msg ? (
                             msg.status === "sent" ? (
                               <>
-                                <span className="text-green-700 flex items-center gap-1">
+                                <span className="text-emerald-700 flex items-center gap-1">
                                   <CheckCircle2 className="h-3 w-3" />
                                   enviado{" "}
                                   {new Date(msg.sent_at).toLocaleString(
@@ -1835,7 +1835,7 @@ function RenderedMessagePreview({
             )}
           </div>
         )}
-        <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm whitespace-pre-wrap font-sans">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm whitespace-pre-wrap font-sans">
           {payload.body || (
             <span className="italic text-muted-foreground">
               (sem body renderizado)
@@ -2002,7 +2002,7 @@ function StepEditor({
           <div className="border rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-green-600" />
+                <MessageCircle className="h-4 w-4 text-emerald-600" />
                 WhatsApp
               </Label>
               <Switch
@@ -2181,10 +2181,10 @@ function StepEditor({
           {step.whatsapp_enabled && (
             <div>
               <div className="text-xs uppercase text-muted-foreground mb-2 flex items-center gap-1">
-                <MessageCircle className="h-3 w-3 text-green-600" /> WhatsApp
+                <MessageCircle className="h-3 w-3 text-emerald-600" /> WhatsApp
               </div>
               {template && getTemplateBody(template) ? (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm whitespace-pre-wrap font-sans">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm whitespace-pre-wrap font-sans">
                   {previewWhatsAppBody(
                     getTemplateBody(template),
                     step.whatsapp_variable_mapping,

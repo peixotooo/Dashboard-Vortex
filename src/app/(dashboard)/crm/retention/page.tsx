@@ -687,7 +687,7 @@ type StatTone = "default" | "success" | "warning" | "destructive";
 function statToneClass(tone: StatTone, emphasis?: boolean) {
   // Darker hues in light theme so VALUE text clears WCAG AA (>=4.5:1) on white/muted cards;
   // lighter hues in dark theme. Plain success/warning tokens are too light for body text in light mode.
-  if (tone === "success") return "text-green-700 dark:text-green-400";
+  if (tone === "success") return "text-emerald-700 dark:text-emerald-400";
   if (tone === "warning") return "text-amber-700 dark:text-amber-500";
   if (tone === "destructive") return "text-red-700 dark:text-red-400";
   return emphasis ? "text-primary" : "text-foreground";
@@ -747,7 +747,7 @@ const BANNER_TONE_CLASS: Record<BannerTone, string> = {
 
 const BANNER_ICON_CLASS: Record<BannerTone, string> = {
   // Darker glyph hues in light theme so the status icon clears 3:1 on the matching tint.
-  success: "text-green-700 dark:text-success",
+  success: "text-emerald-700 dark:text-success",
   info: "text-blue-700 dark:text-info",
   warning: "text-amber-700 dark:text-warning",
   destructive: "text-red-700 dark:text-destructive",
@@ -2921,7 +2921,7 @@ function ExecuteRunDialog({
                   <div className="min-w-0">
                     <p className="flex items-center gap-1.5 text-sm font-semibold">
                       {couponReady ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-700 dark:text-success" />
+                        <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-success" />
                       ) : (
                         <Tag className="h-4 w-4 text-muted-foreground" />
                       )}

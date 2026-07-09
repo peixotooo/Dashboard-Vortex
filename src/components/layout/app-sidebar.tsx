@@ -458,7 +458,7 @@ function NavUser() {
               )}
             >
               <Avatar className="h-8 w-8 shrink-0 rounded-lg">
-                <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs">
+                <AvatarFallback className="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-xs font-medium">
                   {initials}
                 </AvatarFallback>
               </Avatar>
@@ -535,13 +535,15 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className={isCollapsed ? "justify-center px-0" : ""}>
               <Link href="/">
-                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 text-white shadow-md shadow-indigo-500/30">
                   <Zap className="size-4" />
                 </div>
                 {!isCollapsed && (
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">Vortex</span>
-                    <span className="truncate text-xs text-sidebar-foreground/60">
+                    <span className="truncate font-display font-bold tracking-tight">
+                      Vortex
+                    </span>
+                    <span className="truncate text-[11px] text-sidebar-foreground/50">
                       Dashboard
                     </span>
                   </div>

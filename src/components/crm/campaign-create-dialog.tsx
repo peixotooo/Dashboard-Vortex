@@ -839,7 +839,7 @@ export function CampaignCreateDialog({
             <div className="space-y-4">
               {templateVars.length === 0 ? (
                 <div className="text-center py-8">
-                  <Check className="h-8 w-8 text-green-400 mx-auto mb-2" />
+                  <Check className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">
                     Este template nao possui variaveis. Prossiga para o proximo passo.
                   </p>
@@ -1048,8 +1048,8 @@ export function CampaignCreateDialog({
           {/* Success */}
           {submitSuccess && (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <div className="h-14 w-14 rounded-full bg-green-500/10 flex items-center justify-center">
-                <Check className="h-7 w-7 text-green-400" />
+              <div className="h-14 w-14 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                <Check className="h-7 w-7 text-emerald-400" />
               </div>
               <h3 className="text-lg font-semibold">Campanha criada!</h3>
               <p className="text-sm text-muted-foreground text-center max-w-xs">

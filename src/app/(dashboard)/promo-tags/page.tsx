@@ -489,7 +489,7 @@ export default function PromoTagsPage() {
           className={`text-sm rounded-md border p-3 flex items-start gap-2 ${
             syncMsg.startsWith("Erro")
               ? "border-red-500/30 bg-red-500/10 text-red-400"
-              : "border-green-500/30 bg-green-500/10 text-green-500"
+              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
           }`}
         >
           <div className="flex-1">{syncMsg}</div>
@@ -687,7 +687,7 @@ export default function PromoTagsPage() {
             <CardContent>
               {hasApiKey ? (
                 <div className="flex items-start gap-3">
-                  <Check className="h-5 w-5 text-green-600 mt-0.5" />
+                  <Check className="h-5 w-5 text-emerald-600 mt-0.5" />
                   <div>
                     <p className="font-medium">Integração pronta</p>
                     <p className="text-sm text-muted-foreground mt-1">

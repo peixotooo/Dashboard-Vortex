@@ -308,7 +308,7 @@ export default function ContactListsPage() {
       </div>
 
       {errorMsg && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5" />
           <span>{errorMsg}</span>
         </div>
@@ -338,22 +338,22 @@ export default function ContactListsPage() {
                       <Users className="h-3 w-3 mr-1" /> {l.total_count}
                     </Badge>
                     {l.phone_count > 0 && (
-                      <Badge variant="outline" className="border-emerald-500/30 text-emerald-400">
+                      <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
                         <Phone className="h-3 w-3 mr-1" /> {l.phone_count}
                       </Badge>
                     )}
                     {l.email_count > 0 && (
-                      <Badge variant="outline" className="border-sky-500/30 text-sky-400">
+                      <Badge variant="outline" className="border-sky-500/30 text-sky-600 dark:text-sky-400">
                         <Mail className="h-3 w-3 mr-1" /> {l.email_count}
                       </Badge>
                     )}
                     {l.locaweb_list_id && (
-                      <Badge variant="outline" className="border-purple-500/30 text-purple-400">
+                      <Badge variant="outline" className="border-purple-500/30 text-purple-600 dark:text-purple-400">
                         <CheckCircle2 className="h-3 w-3 mr-1" /> No Locaweb
                       </Badge>
                     )}
                     {l.auto_segment && (
-                      <Badge variant="outline" className="border-amber-500/30 text-amber-400" title="Lista alimentada automaticamente a cada pedido confirmado">
+                      <Badge variant="outline" className="border-amber-500/30 text-amber-600 dark:text-amber-400" title="Lista alimentada automaticamente a cada pedido confirmado">
                         <RefreshCw className="h-3 w-3 mr-1" /> Auto
                       </Badge>
                     )}
@@ -736,7 +736,7 @@ function UploadDialog({
           )}
 
           {error && (
-            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -865,14 +865,14 @@ function StateListDialog({
           </div>
 
           {errorMsg && (
-            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {lastResult && (
-            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300 space-y-1">
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300 space-y-1">
               <div className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="h-4 w-4" />
                 {lastResult.created ? "Lista criada" : "Lista atualizada"}

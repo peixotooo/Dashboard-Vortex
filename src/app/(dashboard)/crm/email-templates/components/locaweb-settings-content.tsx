@@ -267,7 +267,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
             Testar conexão
           </Button>
           {probeResult?.ok && (
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
+            <span className="text-[11px] text-success">
               ✓ Conectou · {probeResult.lists} lista(s)
             </span>
           )}
@@ -313,7 +313,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
                 className="h-9 text-sm"
               />
               {discoverError.senders && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                <p className="text-[10px] text-warning leading-relaxed">
                   Não foi possível listar senders automaticamente:{" "}
                   {discoverError.senders.slice(0, 100)}
                 </p>
@@ -362,7 +362,7 @@ export function LocawebSettingsContent({ workspaceId }: { workspaceId: string })
                 className="h-9 text-sm font-mono"
               />
               {discoverError.domains && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                <p className="text-[10px] text-warning leading-relaxed">
                   Não foi possível listar domínios automaticamente:{" "}
                   {discoverError.domains.slice(0, 100)}
                 </p>
