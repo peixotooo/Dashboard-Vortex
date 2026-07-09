@@ -7,6 +7,7 @@
 //    só kind='normal' (fora: transferência, depreciação, accrual).
 //  - Saldo bancário = acumulado dos lançamentos (não há saldo inicial cadastral).
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { invalidateEntryTotalsCache } from "./entry-filters";
 
 export interface EngineEntry {
   competence_date: string | null;
@@ -138,6 +139,7 @@ export function invalidateEngineCache(workspaceId: string) {
   for (const key of engineCache.keys()) {
     if (key.startsWith(workspaceId)) engineCache.delete(key);
   }
+  invalidateEntryTotalsCache(workspaceId); // KPIs da lista de lançamentos
 }
 
 export async function fetchEngineData(

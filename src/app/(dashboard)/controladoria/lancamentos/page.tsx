@@ -92,7 +92,8 @@ export default function LancamentosPage() {
   const { workspace } = useWorkspace();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [total, setTotal] = React.useState(0);
-  const [totals, setTotals] = React.useState<{ entradas: number; saidas: number; saldo: number } | null>(null);
+  const [totals, setTotals] = React.useState<{ entradas: number; saidas: number; saldo: number; count: number } | null>(null);
+  const [totalsLoading, setTotalsLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -140,21 +141,27 @@ export default function LancamentosPage() {
     [workspace?.id]
   );
 
+  const filterParams = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (status !== "todos") params.set("status", status);
+    if (clsFilter !== "all") params.set("classification_id", clsFilter);
+    if (accFilter !== "all") params.set("account_id", accFilter);
+    if (dueFrom) params.set("due_from", dueFrom);
+    if (dueTo) params.set("due_to", dueTo);
+    if (paidFrom) params.set("paid_from", paidFrom);
+    if (paidTo) params.set("paid_to", paidTo);
+    if (quick) params.set("quick", quick);
+    return params;
+  }, [q, status, clsFilter, accFilter, dueFrom, dueTo, paidFrom, paidTo, quick]);
+
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ page: String(page) });
-      if (q) params.set("q", q);
-      if (status !== "todos") params.set("status", status);
-      if (clsFilter !== "all") params.set("classification_id", clsFilter);
-      if (accFilter !== "all") params.set("account_id", accFilter);
-      if (dueFrom) params.set("due_from", dueFrom);
-      if (dueTo) params.set("due_to", dueTo);
-      if (paidFrom) params.set("paid_from", paidFrom);
-      if (paidTo) params.set("paid_to", paidTo);
-      if (quick) params.set("quick", quick);
+      const params = filterParams();
+      params.set("page", String(page));
       const res = await fetch(`/api/controladoria/lancamentos?${params}`, {
         headers: { "x-workspace-id": workspace.id },
         cache: "no-store",
@@ -163,15 +170,32 @@ export default function LancamentosPage() {
       const json = await res.json();
       setRows(json.rows);
       setTotal(json.total);
-      setTotals(json.totals ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "erro");
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, paidFrom, paidTo, quick]);
+  }, [workspace?.id, page, filterParams]);
 
   React.useEffect(() => { void load(); }, [load]);
+
+  // Totais do conjunto filtrado — request separado (a tabela não espera a soma)
+  // e independente da página. `reloadTick` força re-busca após mutações.
+  const [reloadTick, setReloadTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!workspace?.id) return;
+    let cancelled = false;
+    setTotalsLoading(true);
+    fetch(`/api/controladoria/lancamentos/totals?${filterParams()}`, {
+      headers: { "x-workspace-id": workspace.id },
+      cache: "no-store",
+    })
+      .then(async (r) => (r.ok ? (await r.json()).totals : null))
+      .then((t) => { if (!cancelled) setTotals(t ?? null); })
+      .catch(() => { if (!cancelled) setTotals(null); })
+      .finally(() => { if (!cancelled) setTotalsLoading(false); });
+    return () => { cancelled = true; };
+  }, [workspace?.id, filterParams, reloadTick]);
 
   const hasActiveFilters =
     !!q || status !== "todos" || clsFilter !== "all" || accFilter !== "all" ||
@@ -211,7 +235,7 @@ export default function LancamentosPage() {
       if (!confirm(`Excluir o lançamento de ${formatCurrency(row.amount)} (${row.classification?.name ?? "?"})? Vai para a lixeira.`)) return;
     }
     await fetch(url, { method: "DELETE", headers });
-    void load();
+    void load(); setReloadTick((t) => t + 1);
   };
 
   const duplicate = (row: Row) => {
@@ -241,7 +265,7 @@ export default function LancamentosPage() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
       setSelected(new Set());
-      void load();
+      void load(); setReloadTick((t) => t + 1);
     } catch (e) {
       alert(e instanceof Error ? e.message : "erro");
     } finally {
@@ -306,7 +330,7 @@ export default function LancamentosPage() {
       const j = await res.json().catch(() => ({}));
       if (j.count > 1) alert(`${j.count} lançamentos criados (repetição).`);
       setForm(null);
-      void load();
+      void load(); setReloadTick((t) => t + 1);
     } catch (e) {
       alert(e instanceof Error ? e.message : "erro ao salvar");
     } finally {
@@ -467,21 +491,24 @@ export default function LancamentosPage() {
       {/* Totais do filtro (entradas / saídas / saldo) — no topo da lista */}
       <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="py-3">
-          <div className="text-xs text-muted-foreground">Entradas {totals && `(${total.toLocaleString("pt-BR")} lanç.)`}</div>
-          <div className="text-lg font-semibold tabular-nums text-emerald-700">{totals ? formatCurrency(totals.entradas) : "—"}</div>
+          <div className="text-xs text-muted-foreground">Entradas {totals && `(${totals.count.toLocaleString("pt-BR")} lanç.)`}</div>
+          <div className="text-lg font-semibold tabular-nums text-emerald-700">
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.entradas) : "—"}
+          </div>
         </CardContent></Card>
         <Card><CardContent className="py-3">
           <div className="text-xs text-muted-foreground">Saídas</div>
-          <div className="text-lg font-semibold tabular-nums text-red-600">{totals ? formatCurrency(totals.saidas) : "—"}</div>
+          <div className="text-lg font-semibold tabular-nums text-red-600">
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.saidas) : "—"}
+          </div>
         </CardContent></Card>
         <Card><CardContent className="py-3">
           <div className="text-xs text-muted-foreground">Saldo (entradas − saídas)</div>
-          <div className={`text-lg font-semibold tabular-nums ${totals && totals.saldo < 0 ? "text-red-600" : "text-blue-600"}`}>{totals ? formatCurrency(totals.saldo) : "—"}</div>
+          <div className={`text-lg font-semibold tabular-nums ${totals && totals.saldo < 0 ? "text-red-600" : "text-blue-600"}`}>
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.saldo) : "—"}
+          </div>
         </CardContent></Card>
       </div>
-      {!totals && total > 0 && (
-        <p className="text-xs text-muted-foreground -mt-1">Aplique um filtro para ver os totais (conjunto muito grande).</p>
-      )}
 
       <div className="overflow-x-auto rounded-md border">
         <Table>
