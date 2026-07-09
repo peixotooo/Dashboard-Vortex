@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getControladoriaContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { invalidateEngineCache } from "@/lib/controladoria/engine";
 
@@ -8,7 +8,7 @@ import { invalidateEngineCache } from "@/lib/controladoria/engine";
 // Ações em lote (equivalente ao "Ações em lote" do SenseBoard).
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const body = await request.json();
     const ids: string[] = Array.isArray(body.ids) ? body.ids.slice(0, 5000) : [];
     const action = body.action as string;
