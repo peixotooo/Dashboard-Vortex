@@ -54,3 +54,4 @@ scripts/.tiktok-create-state.json
 clientes-bulking-*.csv
 scripts/.thesale-tt-state.json
 scripts/.thesale-creatives.json
+output/senseboard-export/

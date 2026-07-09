@@ -178,6 +178,33 @@ Rotas de saída confirmadas na investigação:
 
 Alternativa programática: os endpoints `/{modulo}/ajax` respondem JSON com cookie de sessão — dá para raspar com um script se o Excel se mostrar lossy. Primeira escolha é o export nativo (oficial e completo).
 
+### 4.1 Resultado da Fase 0 — export executado em 2026-07-08 ✅
+
+Arquivos em `output/senseboard-export/` (**gitignored** — dado financeiro não vai pro GitHub):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `lancamentos-completo-2026-07-08.xls.html` + `.csv` | **72.535/72.535 lançamentos** (export único, sem filtro — o endpoint `GET /lancamento/exportar` aceita os mesmos query params do filtro da listagem) |
+| `classificacoes-2026-07-08.xls.html` + `.csv` | 65 classificações (colunas: Classificação, Categoria, Subcategoria, Tipo, **Bloqueado**, Data de Cadastro) |
+| `de-para-classificacoes-2026-07-08.json` | 69 mapeamentos (capturado do DOM — não há endpoint de export) |
+| `contas-bancarias-2026-07-08.json` | 11 contas |
+| `convert_to_csv.py` | conversor/validador (os ".xls" são tabela HTML) |
+
+O export de lançamentos tem **16 colunas**, incluindo trilha de auditoria: Número do Doc., Competência, Vencimento, Parceiro, Descrição, Movimentação, Data de pagamento, Conta bancária, Classificação, Observação, Centro de custo, Tipo, Cadastro, Usuário cadastro, Última edição, Usuário última edição. Risco §8 (export lossy) eliminado.
+
+**Descobertas que mudam o importador:**
+
+1. **A coluna Classificação traz o caminho completo** `Categoria - Subcategoria - Classificação` (2 ou 3 níveis). A árvore inteira vem embutida em cada linha — o join com o cadastro de classificações é por caminho, não por nome.
+2. **Existe um 5º tipo: `Depreciação` (9.048 linhas)** — lançamentos não-caixa gerados automaticamente do imobilizado (ex.: "(21/60) Pistola de pressão"), classificação "Despesas Financeiras - Depreciação", sem conta bancária, agendados até 2032. Entram na DRE, ficam FORA do DFC. O motor precisa desse tratamento (e o cadastro de imobilizado do Vortex deve gerar essas parcelas).
+3. **Tipos `Entrada/Saída - Não Classificado` (5.179 linhas)** = lançamentos importados aguardando revisão (badge ⓘ na UI). Têm classificação atribuída; é um status de confirmação — modelar como flag `needs_review`.
+4. **Horizonte real dos dados**: competência de **2020 a 2032** (recorrências e depreciação lançadas no futuro). Vencimento: 224 linhas sem data.
+5. Volumes de conferência: por vencimento — 2022: 100 · 2023: 39.736 · 2024: 14.344 · 2025: 8.381 · 2026: 5.194 · 2027–2032: 4.556 · sem data: 224. Pendentes (sem data pagamento): 2.843. Sem conta bancária: 10.829 (inclui depreciação). Parceiros distintos nos dados: 1.934.
+6. **Export completo funciona** apesar de um 503 aparente no primeiro clique — o download de 68 MB veio. Não é preciso fatiar por ano.
+
+Pendências da Fase 0 (fazer com o motor pronto, assinatura segue ativa no dual-run): gabaritos "Gerar XLSX Completo" de DRE Anual e DFC (resumido+expandido) por ano para o teste de paridade; parceiros serão derivados do arquivo mestre (CPF/CNPJ/contato vazios no SenseBoard).
+
+**Operação atual**: Raphael (financeiro) opera o SenseBoard **diariamente** — o importador incremental e o cutover precisam do buy-in e treinamento dele.
+
 **Importador**: `scripts/import-senseboard.ts` lendo os XLSX → upsert em `fin_partners` (por nome), `fin_classifications` (por nome), `fin_entries`. Guardar `import_batch_id` para rollback. Validar: contagem por ano, soma de valores por classificação × mês × status **batendo com o gabarito** antes de ativar telas.
 
 ---
