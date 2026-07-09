@@ -262,11 +262,12 @@ Sequência de ativação: aplicar migration-135 → `npx tsx scripts/import-sens
 
 Fora da v1 (documentado, não bloqueia dual-run): import de planilha in-app (usar `scripts/import-senseboard.ts`), recorrência/parcelas no form, comparativo Realizado×Previsto, Caixa Planejado diário, filtro por conta bancária nas visões anuais (o motor já aceita `accounts=`).
 
-**Fase 3 — Dual-run (1 ciclo mensal completo)**
-Time financeiro continua operando o SenseBoard; a cada semana re-importamos o delta (export filtrado por data de cadastro) e comparamos os relatórios do mês corrente. Critério de saída: 1 fechamento mensal inteiro com paridade e o time usando o Vortex para consulta.
-
-**Fase 4 — Cutover**
-Operação passa a lançar SÓ no Vortex (import de planilha + lançamento manual + automações VNDA/MP). Export final completo do SenseBoard como snapshot de arquivo morto. **Cancelar assinatura.**
+**Fase 3/4 — CUTOVER EXECUTADO em 2026-07-08 ~23h (decisão do Guilherme: sem dual-run; Raphael opera o /controladoria a partir de 09/07/2026).**
+- Export final re-baixado às 22:42 do dia do cutover: **byte-idêntico** ao importado (72.535/72.535 — nada mudou no Sense entre a carga e o cutover).
+- `scripts/senseboard-cutover-check.ts`: **43 checks contra gabarito capturado ao vivo das telas** — DFC 2023/2024/2025/2026 (entradas, saídas, saldos finais, meses de amostra) e DRE 2023/2024/2025 (receita, receita líquida, Ebitda, resultado; receita mês a mês de 2023) → 🎯 tudo verde.
+- **Três regras não documentadas do SenseBoard decifradas nessa validação** (agora no motor, ver §3): subcategorias só-caixa fora da DRE; provisões automáticas de 13°/Férias/Multa (1/12, 1/36, 8/225 do salário mensal — resíduo de arredondamento ≤ R$ 4/ano); ajustes de caixa negativos na coluna natural do DFC.
+- ⚠️ **Pós-cutover, NUNCA re-rodar `import-senseboard.ts --apply`**: o full-refresh sobrescreveria edições feitas pelo Raphael em lançamentos importados.
+- Pendência administrativa: **cancelar a assinatura do SenseBoard** (manter acesso alguns dias por segurança; export final arquivado em `output/senseboard-export/`).
 
 ---
 
