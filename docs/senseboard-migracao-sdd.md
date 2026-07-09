@@ -254,8 +254,13 @@ Exportar do SenseBoard: lançamentos por ano, classificações, de>para, XLSX Co
 
 Sequência de ativação: aplicar migration-135 → `npx tsx scripts/import-senseboard.ts --apply` → `npx tsx scripts/senseboard-parity.ts --db` (precisa dar 🎯).
 
-**Fase 2 — Telas core**
-Lançamentos (lista/CRUD/import/export) → DRE → DFC → Dashboard. Nesta ordem: sem confiança nos lançamentos os relatórios não valem nada.
+**Fase 2 — Telas core** — ✅ NO AR em 2026-07-08 (commit 5238cff3), módulo **`/controladoria`** (grupo Financeiro da sidebar; `/financeiro` já era da Curva ABC):
+- `src/lib/controladoria/engine.ts` — motor DRE/DFC/dashboard (smoke `scripts/_controladoria-smoke.ts` 10/10 contra o banco, incl. seções do DFC resumido e saldo inicial de julho idênticos às telas SenseBoard).
+- APIs `/api/controladoria/{report,lancamentos,lancamentos/[id],meta}` (getWorkspaceContext + admin client).
+- Telas: `/controladoria` (dashboard do período: metas×apurado, DRE, distribuição de gastos, saldos), `/controladoria/lancamentos` (filtros, CRUD, toggle pago, lixeira, export CSV), `/controladoria/dre` e `/dfc` (anuais, resumido/expandido, filtro pagos/pendentes), `/controladoria/config` (metas semeadas: MC 60% / Ebitda 5% / Lucro 4%; classificações; contas).
+- Mapeamento DFC-resumido derivado dos dados e validado: fornecedores = CPV + Desp. Operacionais; adm/comerciais = Variáveis + Deduções + Pessoal + Impostos s/ Lucro; investimento = Imobilizado + Investimentos; financiamento = Despesas/Receitas Financeiras.
+
+Fora da v1 (documentado, não bloqueia dual-run): import de planilha in-app (usar `scripts/import-senseboard.ts`), recorrência/parcelas no form, comparativo Realizado×Previsto, Caixa Planejado diário, filtro por conta bancária nas visões anuais (o motor já aceita `accounts=`).
 
 **Fase 3 — Dual-run (1 ciclo mensal completo)**
 Time financeiro continua operando o SenseBoard; a cada semana re-importamos o delta (export filtrado por data de cadastro) e comparamos os relatórios do mês corrente. Critério de saída: 1 fechamento mensal inteiro com paridade e o time usando o Vortex para consulta.
