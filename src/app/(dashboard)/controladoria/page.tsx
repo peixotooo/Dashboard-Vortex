@@ -197,7 +197,7 @@ export default function ControladoriaDashboardPage() {
             <PillCard icon={<Scale className="h-4 w-4" />} tone="blue" title="Ponto de Equilíbrio Financeiro"
               value={formatCurrency(data.pontoEquilibrio)} hint="Cota mínima (Break Even) = Gastos Fixos / Margem de Contribuição%." />
             <PillCard icon={<ThumbsUp className="h-4 w-4" />} tone="blue" title="Ponto de Equilíbrio Ideal"
-              value={formatCurrency(data.pontoEquilibrioIdeal)} hint="Cota objetiva = (Gastos Fixos + Lucro Requerido) / (MC% − Margem de Segurança)." />
+              value={formatCurrency(data.pontoEquilibrioIdeal)} hint="Cota objetiva = (Gastos Fixos + Lucro Requerido) / (MC% − Margem de Segurança). Estimativa — pode variar ~1% do SenseBoard quando a margem do período é baixa." />
             <PillCard icon={<TrendingDown className="h-4 w-4" />} tone="red" title="Total de saídas"
               value={formatCurrency(data.totalSaidas)} hint="Total de saídas que constam no DRE do período." />
           </div>
