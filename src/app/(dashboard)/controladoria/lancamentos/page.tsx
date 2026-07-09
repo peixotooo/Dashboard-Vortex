@@ -28,6 +28,19 @@ function clsLabel(c: { path: string; name: string; category: string }): string {
   return `${c.category} · ${leaf}`;
 }
 
+/** Input de data que abre o calendário ao clicar em qualquer lugar do campo. */
+function DateField({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <Input
+      type="date"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* navegador sem suporte */ } }}
+      className={`cursor-pointer ${className ?? ""}`}
+    />
+  );
+}
+
 type Row = {
   id: string;
   doc_number: string | null;
@@ -159,6 +172,16 @@ export default function LancamentosPage() {
   }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, paidFrom, paidTo, quick]);
 
   React.useEffect(() => { void load(); }, [load]);
+
+  const hasActiveFilters =
+    !!q || status !== "todos" || clsFilter !== "all" || accFilter !== "all" ||
+    !!dueFrom || !!dueTo || !!paidFrom || !!paidTo || !!quick;
+
+  const clearFilters = () => {
+    setQ(""); setStatus("todos"); setClsFilter("all"); setAccFilter("all");
+    setDueFrom(""); setDueTo(""); setPaidFrom(""); setPaidTo(""); setQuick("");
+    setPage(1);
+  };
 
   React.useEffect(() => {
     if (!workspace?.id) return;
@@ -364,22 +387,22 @@ export default function LancamentosPage() {
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Venc. de</label>
-            <Input type="date" value={dueFrom} onChange={(e) => { setDueFrom(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={dueFrom} onChange={(v) => { setDueFrom(v); setPage(1); }} className="w-38" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Venc. até</label>
-            <Input type="date" value={dueTo} onChange={(e) => { setDueTo(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={dueTo} onChange={(v) => { setDueTo(v); setPage(1); }} className="w-38" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Pago de</label>
-            <Input type="date" value={paidFrom} onChange={(e) => { setPaidFrom(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={paidFrom} onChange={(v) => { setPaidFrom(v); setPage(1); }} className="w-38" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Pago até</label>
-            <Input type="date" value={paidTo} onChange={(e) => { setPaidTo(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={paidTo} onChange={(v) => { setPaidTo(v); setPage(1); }} className="w-38" />
           </div>
           {/* filtros rápidos do dia a dia */}
-          <div className="flex w-full flex-wrap gap-1.5 pt-1">
+          <div className="flex w-full flex-wrap items-center gap-1.5 pt-1">
             {[
               { k: "", label: "Tudo" },
               { k: "atraso", label: "Em atraso" },
@@ -398,6 +421,14 @@ export default function LancamentosPage() {
                 {f.label}
               </button>
             ))}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="ml-auto flex items-center gap-1 rounded-full border border-input px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3 w-3" /> Limpar filtros
+              </button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -491,7 +522,17 @@ export default function LancamentosPage() {
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} aria-label="Selecionar" />
                 </TableCell>
                 <TableCell className="max-w-[260px]">
-                  <div className="truncate font-medium">{r.partner?.name ?? "—"}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate font-medium">{r.partner?.name ?? "—"}</span>
+                    {r.doc_number?.startsWith("AUTO-") && (
+                      <span
+                        className="shrink-0 rounded border border-violet-300 bg-violet-50 px-1 text-[10px] font-medium uppercase text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
+                        title="Lançamento automático (receita diária VNDA/Mercado Livre). Valor re-verificado por 7 dias; excluir é respeitado."
+                      >
+                        auto
+                      </span>
+                    )}
+                  </div>
                   {r.description && <div className="truncate text-xs text-muted-foreground">{r.description}</div>}
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDateBR(r.due_date)}</TableCell>
@@ -583,11 +624,11 @@ export default function LancamentosPage() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Vencimento</label>
-                <Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                <DateField value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Competência</label>
-                <Input type="date" value={form.competence_date} onChange={(e) => setForm({ ...form, competence_date: e.target.value })} />
+                <DateField value={form.competence_date} onChange={(v) => setForm({ ...form, competence_date: v })} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Conta bancária</label>
@@ -622,7 +663,7 @@ export default function LancamentosPage() {
               {form.paid && (
                 <div>
                   <label className="text-xs text-muted-foreground">Data de pagamento</label>
-                  <Input type="date" value={form.paid_at} onChange={(e) => setForm({ ...form, paid_at: e.target.value })} />
+                  <DateField value={form.paid_at} onChange={(v) => setForm({ ...form, paid_at: v })} />
                 </div>
               )}
 
