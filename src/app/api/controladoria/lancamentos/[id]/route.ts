@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { invalidateEngineCache } from "@/lib/controladoria/engine";
 
 const SELECT =
   "id, doc_number, description, observation, competence_date, due_date, paid_at, amount, flow, kind, needs_review, source, created_at, " +
@@ -59,6 +60,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
       .select(SELECT)
       .single();
     if (error) throw error;
+    invalidateEngineCache(workspaceId);
     return NextResponse.json({ row: data });
   } catch (err) {
     return handleAuthError(err);
@@ -77,6 +79,7 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: 
       .eq("workspace_id", workspaceId)
       .eq("id", id);
     if (error) throw error;
+    invalidateEngineCache(workspaceId);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleAuthError(err);

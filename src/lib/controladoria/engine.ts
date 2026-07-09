@@ -32,6 +32,29 @@ export interface EngineClassification {
 
 export type StatusFilter = "todos" | "pagos" | "pendentes";
 
+// Subcategorias OFICIAIS da árvore SenseBoard (cadastro exportado + grupos
+// vistos no DRE/DFC Expandido). O importador fatia caminhos por heurística e
+// às vezes promove pedaço do NOME a "subcategoria" (ex.: "13° Salário - Adm");
+// aqui normalizamos: subcategoria fora desta lista volta a fazer parte do nome.
+const KNOWN_SUBCATS = new Set([
+  "Aluguel", "Benefícios - Adm", "Benefícios - Prod/Oper", "Comissões de vendas",
+  "Contabilidade, Jurídico, Consultoria", "Custos Variáveis de Operação",
+  "Despesas bancárias", "Distribuição de lucro", "Estrutural (energia, água, seguro)",
+  "Financiamentos - Entrada", "Financiamentos - Saída", "Fretes e Combustíveis (venda)",
+  "Gastos com Veículos", "Impostos (Federais, Estaduais, Municipais)", "Insumos",
+  "Investimentos - Saída", "Investimentos - Entrada", "Matéria prima / item revenda",
+  "Mão de obra terceirizada", "Outras Despesas Operacionais", "Outras receitas financeiras",
+  "Propaganda e publicidade", "Receita Venda/Revenda", "TI (software, internet, telefone)",
+]);
+
+export function normalizeClassifications(cls: EngineClassification[]): EngineClassification[] {
+  return cls.map((c) =>
+    c.subcategory && !KNOWN_SUBCATS.has(c.subcategory)
+      ? { ...c, name: `${c.subcategory} - ${c.name}`, subcategory: null }
+      : c
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Regras descobertas na paridade multi-ano (DRE Expandido 2023 conferido
 // classificação a classificação contra a tela do SenseBoard):
@@ -104,35 +127,80 @@ export function adjustDreMap(
 }
 
 const PAGE = 1000; // cap de linhas por request do Supabase
+const CONCURRENCY = 10; // páginas buscadas em paralelo
+const CACHE_TTL_MS = 60_000;
+
+type EngineData = { entries: EngineEntry[]; classifications: EngineClassification[] };
+const engineCache = new Map<string, { at: number; data: EngineData }>();
+
+/** Chamar após qualquer mutação em fin_entries/fin_classifications. */
+export function invalidateEngineCache(workspaceId: string) {
+  for (const key of engineCache.keys()) {
+    if (key.startsWith(workspaceId)) engineCache.delete(key);
+  }
+}
 
 export async function fetchEngineData(
   supabase: SupabaseClient,
   workspaceId: string,
   opts: { accountIds?: string[] } = {}
-): Promise<{ entries: EngineEntry[]; classifications: EngineClassification[] }> {
-  const { data: cls, error: cErr } = await supabase
-    .from("fin_classifications")
-    .select("id, path, name, category, subcategory, flow, is_active")
-    .eq("workspace_id", workspaceId);
-  if (cErr) throw cErr;
+): Promise<EngineData> {
+  const cacheKey = `${workspaceId}|${(opts.accountIds ?? []).join(",")}`;
+  const hit = engineCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
-  const entries: EngineEntry[] = [];
-  for (let from = 0; ; from += PAGE) {
+  const base = () => {
     let q = supabase
       .from("fin_entries")
       .select(
         "competence_date, due_date, paid_at, amount, flow, kind, needs_review, classification_id, bank_account_id"
       )
       .eq("workspace_id", workspaceId)
-      .is("deleted_at", null)
-      .range(from, from + PAGE - 1);
+      .is("deleted_at", null);
     if (opts.accountIds?.length) q = q.in("bank_account_id", opts.accountIds);
-    const { data, error } = await q;
-    if (error) throw error;
-    for (const r of data || []) entries.push({ ...r, amount: Number(r.amount) } as EngineEntry);
-    if (!data || data.length < PAGE) break;
+    return q;
+  };
+
+  const [clsRes, countRes] = await Promise.all([
+    supabase
+      .from("fin_classifications")
+      .select("id, path, name, category, subcategory, flow, is_active")
+      .eq("workspace_id", workspaceId),
+    supabase
+      .from("fin_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null),
+  ]);
+  if (clsRes.error) throw clsRes.error;
+  const total = countRes.count ?? 0;
+
+  const pages = Math.ceil(total / PAGE);
+  const entries: EngineEntry[] = new Array(total);
+  for (let batch = 0; batch < pages; batch += CONCURRENCY) {
+    const jobs = [];
+    for (let p = batch; p < Math.min(batch + CONCURRENCY, pages); p++) {
+      jobs.push(
+        base()
+          .order("id", { ascending: true })
+          .range(p * PAGE, p * PAGE + PAGE - 1)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            (data || []).forEach((r, i) => {
+              entries[p * PAGE + i] = { ...r, amount: Number(r.amount) } as EngineEntry;
+            });
+          })
+      );
+    }
+    await Promise.all(jobs);
   }
-  return { entries, classifications: (cls || []) as EngineClassification[] };
+
+  const data: EngineData = {
+    entries: entries.filter(Boolean),
+    classifications: normalizeClassifications((clsRes.data || []) as EngineClassification[]),
+  };
+  engineCache.set(cacheKey, { at: Date.now(), data });
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,19 +312,46 @@ const sub = (a: number[], b: number[]) => a.map((v, i) => v - b[i]);
 function byCategory(
   agg: Map<string, number[]>,
   cls: EngineClassification[],
-  categories: string[]
+  categories: string[],
+  grouped = false
 ): { total: number[]; children: ReportLine[] } {
   const total = zero();
-  const children: ReportLine[] = [];
+  const perCls: { c: EngineClassification; months: number[] }[] = [];
   for (const c of cls) {
     if (!categories.includes(c.category)) continue;
     const months = agg.get(c.id);
     if (!months || months.every((v) => Math.abs(v) < 0.005)) continue;
     for (let i = 0; i < 12; i++) total[i] += months[i];
-    const label = c.subcategory ? `${c.subcategory} · ${c.name}` : c.name;
-    children.push(line(c.id, label, "", months));
+    perCls.push({ c, months });
   }
-  children.sort((a, b) => Math.abs(b.accum) - Math.abs(a.accum));
+  const byAbs = (a: ReportLine, b: ReportLine) => Math.abs(b.accum) - Math.abs(a.accum);
+  let children: ReportLine[];
+  if (!grouped) {
+    children = perCls.map(({ c, months }) =>
+      line(c.id, c.subcategory ? `${c.subcategory} · ${c.name}` : c.name, "", months)
+    );
+  } else {
+    // estrutura do SenseBoard: classificações direto na categoria + grupos
+    // "Subtotal" por subcategoria com as classificações dentro
+    const direct = perCls
+      .filter((x) => !x.c.subcategory)
+      .map((x) => line(x.c.id, x.c.name, "", x.months));
+    const bySub = new Map<string, typeof perCls>();
+    for (const x of perCls) {
+      if (!x.c.subcategory) continue;
+      const arr = bySub.get(x.c.subcategory) ?? [];
+      arr.push(x);
+      bySub.set(x.c.subcategory, arr);
+    }
+    const groups = [...bySub.entries()].map(([sub, items]) => {
+      const t = zero();
+      for (const x of items) x.months.forEach((v, i) => (t[i] += v));
+      const inner = items.map((x) => line(x.c.id, x.c.name, "", x.months)).sort(byAbs);
+      return line(`sub:${categories[0]}:${sub}`, `${sub} · Subtotal`, "=", t, false, inner);
+    });
+    children = [...direct, ...groups];
+  }
+  children.sort(byAbs);
   return { total, children };
 }
 
@@ -267,7 +362,7 @@ export function composeDre(
   expanded: boolean
 ): ReportLine[] {
   const adjusted = adjustDreMap(agg.dre, cls);
-  const g = (cats: string[]) => byCategory(adjusted, cls, cats);
+  const g = (cats: string[]) => byCategory(adjusted, cls, cats, expanded);
   const receita = g(["Receita de Vendas"]);
   const deducoes = g(["Deduções de Vendas"]);
   const cpv = g(["Custo dos Produtos Vendidos"]);
@@ -336,8 +431,8 @@ export function composeDfc(
     if (!c) continue;
     (c.flow === 1 ? inflow : outflow).set(id, months);
   }
-  const gIn = (cats: string[]) => byCategory(inflow, cls, cats);
-  const gOut = (cats: string[]) => byCategory(outflow, cls, cats);
+  const gIn = (cats: string[]) => byCategory(inflow, cls, cats, expanded);
+  const gOut = (cats: string[]) => byCategory(outflow, cls, cats, expanded);
 
   const recebClientes = gIn(["Receita de Vendas"]);
   const fornecedores = gOut(["Custo dos Produtos Vendidos", "Despesas Operacionais"]);

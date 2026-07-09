@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { invalidateEngineCache } from "@/lib/controladoria/engine";
 
 export const maxDuration = 60;
 
@@ -35,9 +36,13 @@ export async function GET(request: NextRequest) {
     if (p.get("due_from")) q = q.gte("due_date", p.get("due_from")!);
     if (p.get("due_to")) q = q.lte("due_date", p.get("due_to")!);
 
+    // Ordenação do SenseBoard: mais recém-CADASTRADOS primeiro (não vencimento —
+    // recorrências/depreciações futuras iriam pro topo). Manuais novos (sem
+    // source_created_at) vêm antes; importados seguem a data de cadastro da origem.
     const { data, count, error } = await q
-      .order("due_date", { ascending: false, nullsFirst: false })
+      .order("source_created_at", { ascending: false, nullsFirst: true })
       .order("created_at", { ascending: false })
+      .order("due_date", { ascending: false, nullsFirst: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
     if (error) throw error;
     return NextResponse.json({ rows: data ?? [], total: count ?? 0, page, pageSize });
@@ -93,10 +98,12 @@ export async function POST(request: NextRequest) {
         flow: cls.flow,
         kind: cls.is_transfer ? "transfer" : cls.is_depreciation ? "depreciation" : "normal",
         source: "manual",
+        source_created_at: new Date().toISOString(), // ordenação uniforme por cadastro
       })
       .select(SELECT)
       .single();
     if (error) throw error;
+    invalidateEngineCache(workspaceId);
     return NextResponse.json({ row: data });
   } catch (err) {
     return handleAuthError(err);
