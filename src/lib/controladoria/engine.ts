@@ -481,40 +481,80 @@ export function composeDfc(
 // ---------------------------------------------------------------------------
 // dashboard de período (livre, não só ano)
 // ---------------------------------------------------------------------------
+export interface PeriodGoals {
+  meta_receita_mensal?: number;
+  meta_mc_pct?: number;
+  meta_ebitda_pct?: number;
+  meta_lucro_pct?: number;
+  lucro_requerido?: number;   // mensal
+  margem_seguranca_pct?: number;
+}
+
 export interface PeriodSummary {
   dre: { key: string; label: string; op: string; value: number; pct: number | null }[];
   gastos: { label: string; value: number }[]; // distribuição de gastos (saídas DRE por classificação)
   dfcEntradas: number;
   dfcSaidas: number;
+  totalSaidas: number;        // total de saídas do DRE (competência)
   saldoInicial: number;
   saldoFinal: number;
+  pontoEquilibrio: number;    // COTA MÍNIMA = Gastos Fixos / MC%
+  pontoEquilibrioIdeal: number; // COTA OBJETIVA = (GF + Lucro Req.) / (MC% - Margem Seg.)
+  metaReceita: number;        // meta do termômetro de receita (mensal escalada, ou PE)
+  mesesFator: number;         // nº de meses (fracionário) no período — escala metas
+  diario: { date: string; entrada: number; saida: number; saldo: number }[]; // DFC por dia
+}
+
+/** Nº de meses fracionário coberto por [from,to] — soma por mês de (dias no período / dias do mês). */
+function monthsSpan(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  let total = 0;
+  let y = fy, m = fm;
+  while (y < ty || (y === ty && m <= tm)) {
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const startDay = y === fy && m === fm ? fd : 1;
+    const endDay = y === ty && m === tm ? td : daysInMonth;
+    total += (endDay - startDay + 1) / daysInMonth;
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return total || 1;
 }
 
 export function composePeriod(
   entries: EngineEntry[],
   cls: EngineClassification[],
   from: string,
-  to: string
+  to: string,
+  goals: PeriodGoals = {},
+  status: StatusFilter = "todos"
 ): PeriodSummary {
   const clsById = new Map(cls.map((c) => [c.id, c]));
   const dreRaw = new Map<string, number[]>(); // valor do período no índice 0
   let dfcEntradas = 0, dfcSaidas = 0, saldoInicial = 0;
+  const diarioMap = new Map<string, { entrada: number; saida: number }>();
 
   for (const e of entries) {
-    if (e.kind !== "transfer" && !e.needs_review && e.competence_date &&
+    // DRE respeita o status (pago/pendente) via mesma regra de caixa
+    const dreStatusOk =
+      status === "todos" || (status === "pagos" ? !!e.paid_at : !e.paid_at);
+    if (e.kind !== "transfer" && !e.needs_review && dreStatusOk && e.competence_date &&
         e.competence_date >= from && e.competence_date <= to) {
       let arr = dreRaw.get(e.classification_id);
       if (!arr) dreRaw.set(e.classification_id, (arr = Array(12).fill(0)));
       arr[0] += e.amount;
     }
     if (e.kind === "normal") {
-      const d = e.paid_at || e.due_date;
+      const d = status === "pagos" ? e.paid_at : status === "pendentes" ? (e.paid_at ? null : e.due_date) : (e.paid_at || e.due_date);
       if (d) {
         if (d >= from && d <= to) {
           const natural = clsById.get(e.classification_id)?.flow ?? e.flow;
           const signed = natural === e.flow ? e.amount : -e.amount;
-          if (natural === 1) dfcEntradas += signed;
-          else dfcSaidas += signed;
+          const day = d.slice(0, 10);
+          const slot = diarioMap.get(day) ?? { entrada: 0, saida: 0 };
+          if (natural === 1) { dfcEntradas += signed; slot.entrada += signed; }
+          else { dfcSaidas += signed; slot.saida += signed; }
+          diarioMap.set(day, slot);
         }
         if (d < from) saldoInicial += e.flow * e.amount;
       }
@@ -564,16 +604,38 @@ export function composePeriod(
     { key: "res_liquido", label: "Resultado operacional líquido", op: "=", value: resLiquido },
   ].map((l) => ({ ...l, pct: (l.value / rl) * 100 }));
 
+  // distribuição de gastos: saídas do DRE por classificação, só > 1% do total (como no Sense)
+  const totalSaidas = [...dreByCls.entries()].reduce((t, [id, v]) => {
+    const c = clsById.get(id);
+    return c && c.flow === -1 ? t + v : t;
+  }, 0);
   const gastos = [...dreByCls.entries()]
     .map(([id, v]) => ({ c: clsById.get(id), v }))
-    .filter((x) => x.c && x.c.flow === -1)
+    .filter((x) => x.c && x.c.flow === -1 && x.v > (totalSaidas || 1) * 0.01)
     .map((x) => ({ label: x.c!.name, value: x.v }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 20);
+    .sort((a, b) => b.value - a.value);
+
+  // Ponto de Equilíbrio: MC% = margem de contribuição / receita líquida
+  const mcPct = receitaLiquida > 0 ? margemContrib / receitaLiquida : 0;
+  const meses = monthsSpan(from, to);
+  const lucroReq = (goals.lucro_requerido ?? 0) * meses;
+  const msPct = (goals.margem_seguranca_pct ?? 0) / 100;
+  const pontoEquilibrio = mcPct > 0 ? gastosFixos / mcPct : 0;
+  const pontoEquilibrioIdeal = mcPct - msPct > 0 ? (gastosFixos + lucroReq) / (mcPct - msPct) : 0;
+  const metaReceita = goals.meta_receita_mensal ? goals.meta_receita_mensal * meses : pontoEquilibrio;
+
+  const diario = [...diarioMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .reduce<{ date: string; entrada: number; saida: number; saldo: number }[]>((acc, [date, v]) => {
+      const prev = acc.length ? acc[acc.length - 1].saldo : saldoInicial;
+      acc.push({ date, entrada: v.entrada, saida: v.saida, saldo: prev + v.entrada - v.saida });
+      return acc;
+    }, []);
 
   return {
-    dre, gastos, dfcEntradas, dfcSaidas,
+    dre, gastos, dfcEntradas, dfcSaidas, totalSaidas,
     saldoInicial,
     saldoFinal: saldoInicial + dfcEntradas - dfcSaidas,
+    pontoEquilibrio, pontoEquilibrioIdeal, metaReceita, mesesFator: meses, diario,
   };
 }

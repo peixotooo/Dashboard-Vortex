@@ -27,13 +27,15 @@ export async function GET(request: NextRequest) {
       const now = new Date();
       const from = p.get("from") ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
       const to = p.get("to") ?? new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      const summary = composePeriod(entries, classifications, from, to);
       const { data: settings } = await supabase
         .from("fin_settings")
         .select("goals")
         .eq("workspace_id", workspaceId)
         .maybeSingle();
-      return NextResponse.json({ from, to, ...summary, goals: settings?.goals ?? {} });
+      const goals = settings?.goals ?? {};
+      const status = (p.get("status") ?? "todos") as StatusFilter;
+      const summary = composePeriod(entries, classifications, from, to, goals, status);
+      return NextResponse.json({ from, to, ...summary, goals });
     }
 
     const year = parseInt(p.get("year") ?? String(new Date().getFullYear()), 10);

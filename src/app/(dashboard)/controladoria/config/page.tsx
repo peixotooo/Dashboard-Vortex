@@ -41,6 +41,8 @@ export default function ControladoriaConfigPage() {
           meta_mc_pct: json.settings.goals?.meta_mc_pct?.toString() ?? "60",
           meta_ebitda_pct: json.settings.goals?.meta_ebitda_pct?.toString() ?? "5",
           meta_lucro_pct: json.settings.goals?.meta_lucro_pct?.toString() ?? "4",
+          lucro_requerido: json.settings.goals?.lucro_requerido?.toString() ?? "",
+          margem_seguranca_pct: json.settings.goals?.margem_seguranca_pct?.toString() ?? "5",
         });
       })
       .catch((e) => setError(e instanceof Error ? e.message : "erro"));
@@ -130,6 +132,20 @@ export default function ControladoriaConfigPage() {
                     <label className="text-xs text-muted-foreground">Lucro ideal (%)</label>
                     <Input value={goals.meta_lucro_pct ?? ""} inputMode="decimal"
                       onChange={(e) => setGoals({ ...goals, meta_lucro_pct: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground">Lucro requerido mensal (R$)</label>
+                    <Input value={goals.lucro_requerido ?? ""} inputMode="decimal"
+                      onChange={(e) => setGoals({ ...goals, lucro_requerido: e.target.value })} placeholder="Ex.: 105000" />
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Usado no Ponto de Equilíbrio Ideal.</p>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Margem de segurança (%)</label>
+                    <Input value={goals.margem_seguranca_pct ?? ""} inputMode="decimal"
+                      onChange={(e) => setGoals({ ...goals, margem_seguranca_pct: e.target.value })} />
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Usado no Ponto de Equilíbrio Ideal.</p>
                   </div>
                 </div>
                 <Button onClick={() => void saveGoals()} disabled={saving}>
