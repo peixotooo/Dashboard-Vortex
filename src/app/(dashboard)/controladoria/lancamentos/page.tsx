@@ -20,6 +20,13 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/utils";
 import { fmtDateBR } from "@/lib/controladoria/format";
 import { PartnerInput } from "../partner-input";
+import { SearchSelect, type Option } from "../search-select";
+
+/** Label legível de uma classificação a partir do caminho completo. */
+function clsLabel(c: { path: string; name: string; category: string }): string {
+  const leaf = c.path.startsWith(c.category + " - ") ? c.path.slice(c.category.length + 3) : c.name;
+  return `${c.category} · ${leaf}`;
+}
 
 type Row = {
   id: string;
@@ -72,6 +79,7 @@ export default function LancamentosPage() {
   const { workspace } = useWorkspace();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [total, setTotal] = React.useState(0);
+  const [totals, setTotals] = React.useState<{ entradas: number; saidas: number; saldo: number } | null>(null);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,7 +92,27 @@ export default function LancamentosPage() {
   const [accFilter, setAccFilter] = React.useState("all");
   const [dueFrom, setDueFrom] = React.useState("");
   const [dueTo, setDueTo] = React.useState("");
+  const [paidFrom, setPaidFrom] = React.useState("");
+  const [paidTo, setPaidTo] = React.useState("");
   const [quick, setQuick] = React.useState("");
+
+  // options de dropdown com busca
+  const clsOptions: Option[] = React.useMemo(
+    () => (meta?.classifications ?? []).map((c) => ({ value: c.id, label: clsLabel(c) })),
+    [meta]
+  );
+  // no form, todas as classificações (não só ativas) com o fluxo indicado —
+  // ativas primeiro; corrige o caso do Raphael (folha/receita não apareciam)
+  const clsFormOptions: Option[] = React.useMemo(() => {
+    const list = (meta?.classifications ?? []).slice().sort((a, b) =>
+      (a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1) || clsLabel(a).localeCompare(clsLabel(b), "pt-BR")
+    );
+    return list.map((c) => ({ value: c.id, label: `${clsLabel(c)} ${c.flow === 1 ? "(entrada)" : "(saída)"}` }));
+  }, [meta]);
+  const accOptions: Option[] = React.useMemo(
+    () => (meta?.accounts ?? []).map((a) => ({ value: a.id, label: a.bank_name ? `${a.code} — ${a.bank_name}` : a.code })),
+    [meta]
+  );
 
   // seleção múltipla
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -111,6 +139,8 @@ export default function LancamentosPage() {
       if (accFilter !== "all") params.set("account_id", accFilter);
       if (dueFrom) params.set("due_from", dueFrom);
       if (dueTo) params.set("due_to", dueTo);
+      if (paidFrom) params.set("paid_from", paidFrom);
+      if (paidTo) params.set("paid_to", paidTo);
       if (quick) params.set("quick", quick);
       const res = await fetch(`/api/controladoria/lancamentos?${params}`, {
         headers: { "x-workspace-id": workspace.id },
@@ -120,12 +150,13 @@ export default function LancamentosPage() {
       const json = await res.json();
       setRows(json.rows);
       setTotal(json.total);
+      setTotals(json.totals ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "erro");
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, quick]);
+  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, paidFrom, paidTo, quick]);
 
   React.useEffect(() => { void load(); }, [load]);
 
@@ -311,27 +342,25 @@ export default function LancamentosPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="w-64">
             <label className="text-xs text-muted-foreground">Classificação</label>
-            <Select value={clsFilter} onValueChange={(v) => { setClsFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-80">
-                <SelectItem value="all">Todas</SelectItem>
-                {meta?.classifications.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.category} · {c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchSelect
+              value={clsFilter === "all" ? "" : clsFilter}
+              onChange={(v) => { setClsFilter(v || "all"); setPage(1); }}
+              options={clsOptions}
+              placeholder="Todas"
+              clearable
+            />
           </div>
-          <div>
+          <div className="w-40">
             <label className="text-xs text-muted-foreground">Conta</label>
-            <Select value={accFilter} onValueChange={(v) => { setAccFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {meta?.accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.code}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <SearchSelect
+              value={accFilter === "all" ? "" : accFilter}
+              onChange={(v) => { setAccFilter(v || "all"); setPage(1); }}
+              options={accOptions}
+              placeholder="Todas"
+              clearable
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Venc. de</label>
@@ -340,6 +369,14 @@ export default function LancamentosPage() {
           <div>
             <label className="text-xs text-muted-foreground">Venc. até</label>
             <Input type="date" value={dueTo} onChange={(e) => { setDueTo(e.target.value); setPage(1); }} className="w-38" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Pago de</label>
+            <Input type="date" value={paidFrom} onChange={(e) => { setPaidFrom(e.target.value); setPage(1); }} className="w-38" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Pago até</label>
+            <Input type="date" value={paidTo} onChange={(e) => { setPaidTo(e.target.value); setPage(1); }} className="w-38" />
           </div>
           {/* filtros rápidos do dia a dia */}
           <div className="flex w-full flex-wrap gap-1.5 pt-1">
@@ -394,6 +431,25 @@ export default function LancamentosPage() {
             <AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}
           </CardContent>
         </Card>
+      )}
+
+      {/* Totais do filtro (entradas / saídas / saldo) — no topo da lista */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Entradas {totals && `(${total.toLocaleString("pt-BR")} lanç.)`}</div>
+          <div className="text-lg font-semibold tabular-nums text-emerald-700">{totals ? formatCurrency(totals.entradas) : "—"}</div>
+        </CardContent></Card>
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Saídas</div>
+          <div className="text-lg font-semibold tabular-nums text-red-600">{totals ? formatCurrency(totals.saidas) : "—"}</div>
+        </CardContent></Card>
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Saldo (entradas − saídas)</div>
+          <div className={`text-lg font-semibold tabular-nums ${totals && totals.saldo < 0 ? "text-red-600" : "text-blue-600"}`}>{totals ? formatCurrency(totals.saldo) : "—"}</div>
+        </CardContent></Card>
+      </div>
+      {!totals && total > 0 && (
+        <p className="text-xs text-muted-foreground -mt-1">Aplique um filtro para ver os totais (conjunto muito grande).</p>
       )}
 
       <div className="overflow-x-auto rounded-md border">
@@ -518,16 +574,12 @@ export default function LancamentosPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="text-xs text-muted-foreground">Classificação *</label>
-                <Select value={form.classification_id} onValueChange={(v) => setForm({ ...form, classification_id: v })}>
-                  <SelectTrigger><SelectValue placeholder="Selecione a classificação" /></SelectTrigger>
-                  <SelectContent className="max-h-80">
-                    {meta?.classifications.filter((c) => c.is_active).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.category} · {c.name} {c.flow === 1 ? "(entrada)" : "(saída)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={form.classification_id}
+                  onChange={(v) => setForm({ ...form, classification_id: v })}
+                  options={clsFormOptions}
+                  placeholder="Digite para buscar a classificação"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Vencimento</label>
@@ -539,13 +591,13 @@ export default function LancamentosPage() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Conta bancária</label>
-                <Select value={form.bank_account_id || "none"} onValueChange={(v) => setForm({ ...form, bank_account_id: v === "none" ? "" : v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem conta</SelectItem>
-                    {meta?.accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.code} — {a.bank_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={form.bank_account_id}
+                  onChange={(v) => setForm({ ...form, bank_account_id: v })}
+                  options={accOptions}
+                  placeholder="Sem conta"
+                  clearable
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Nº do documento</label>
