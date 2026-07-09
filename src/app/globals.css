@@ -8,8 +8,10 @@
 /* ========================================
    VORTEX DESIGN SYSTEM — LIGHT MODE
    ======================================== */
+/* Rampa de profundidade: sidebar (canvas) → background (folha flutuante) →
+   card → popover. O layout inset depende dessa ordem nos dois temas. */
 :root {
-  --background: #f6f6fa;
+  --background: #f8f8fb;
   --foreground: #12121c;
   --card: #ffffff;
   --card-foreground: #12121c;
@@ -39,7 +41,7 @@
   --chart-4: #d97706;
   --chart-5: #e11d48;
 
-  --sidebar: #f2f2f8;
+  --sidebar: #ececf2;
   --sidebar-foreground: #3a3a4c;
   --sidebar-primary: #4f46e5;
   --sidebar-primary-foreground: #ffffff;
@@ -66,55 +68,55 @@
    VORTEX DESIGN SYSTEM — DARK MODE
    ======================================== */
 .dark {
-  --background: #08080d;
+  --background: #0b0b11;
   --foreground: #e7e7ee;
-  --card: #0e0e14;
+  --card: #12121a;
   --card-foreground: #e7e7ee;
-  --popover: #12121a;
+  --popover: #171722;
   --popover-foreground: #e7e7ee;
   --primary: #818cf8;
   --primary-foreground: #0a0a12;
-  --secondary: #17171f;
+  --secondary: #1a1a25;
   --secondary-foreground: #d8d8e4;
-  --muted: #14141c;
-  --muted-foreground: #9c9cb0;
-  --accent: #1b1b26;
+  --muted: #181822;
+  --muted-foreground: #9d9db2;
+  --accent: #1f1f2c;
   --accent-foreground: #e7e7ee;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #20202c;
-  --input: #262634;
+  --border: #23232f;
+  --input: #2a2a38;
   --ring: #818cf8;
   --success: #34d399;
   --warning: #fbbf24;
   --info: #38bdf8;
 
-  /* Categorical chart palette — CVD-validated against #0e0e14 */
+  /* Categorical chart palette — CVD-validated against #12121a */
   --chart-1: #6366f1;
   --chart-2: #0891b2;
   --chart-3: #059669;
   --chart-4: #d97706;
   --chart-5: #f43f5e;
 
-  --sidebar: #0b0b11;
+  --sidebar: #060609;
   --sidebar-foreground: #c9c9d6;
   --sidebar-primary: #818cf8;
   --sidebar-primary-foreground: #0a0a12;
-  --sidebar-accent: #191924;
+  --sidebar-accent: #15151f;
   --sidebar-accent-foreground: #eeeef4;
-  --sidebar-border: #1c1c27;
+  --sidebar-border: #1a1a24;
   --sidebar-ring: #818cf8;
 
-  --chart-grid: #1d1d28;
+  --chart-grid: #20202c;
   --chart-axis: #8c8ca0;
-  --chart-tooltip-bg: #14141d;
-  --chart-tooltip-border: #262634;
+  --chart-tooltip-bg: #171722;
+  --chart-tooltip-border: #2a2a38;
   --chart-tooltip-text: #e7e7ee;
 
-  --shadow-card: inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+  --shadow-card: inset 0 1px 0 0 rgba(255, 255, 255, 0.055),
     0 0 0 1px rgba(255, 255, 255, 0.02),
     0 12px 32px -16px rgba(0, 0, 0, 0.6);
-  --shadow-overlay: inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+  --shadow-overlay: inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
     0 16px 48px -12px rgba(0, 0, 0, 0.7);
 }
 
@@ -250,6 +252,26 @@ body {
   background: color-mix(in srgb, var(--card) 72%, transparent);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+
+/* Textura de ruído sutil — dá materialidade ao canvas no dark */
+.bg-noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @keyframes shimmer {

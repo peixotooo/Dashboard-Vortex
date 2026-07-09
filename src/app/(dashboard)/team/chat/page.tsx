@@ -671,7 +671,7 @@ export default function TeamChatPage() {
 
   if (loadingAgents) {
     return (
-      <div className="flex h-[calc(100vh-4rem)] gap-0">
+      <div className="flex h-[calc(100svh-7.5rem)] gap-0">
         <div className="w-64 border-r border-border bg-card/50 p-3">
           <div className="h-4 w-16 bg-muted animate-pulse rounded mb-3 mx-2" />
           <div className="space-y-2">
@@ -692,7 +692,7 @@ export default function TeamChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] gap-0">
+    <div className="flex h-[calc(100svh-7.5rem)] gap-0">
       {/* Agent sidebar */}
       <div className="w-64 border-r border-border bg-card/50 overflow-y-auto shrink-0">
         <div className="p-3">
