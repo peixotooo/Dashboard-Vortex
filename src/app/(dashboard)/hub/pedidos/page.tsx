@@ -49,27 +49,27 @@ function OrderStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: string }> = {
     pending: {
       label: "Pendente",
-      variant: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300",
+      variant: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
     },
     imported: {
       label: "Importado",
-      variant: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+      variant: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
     },
     error: {
       label: "Erro",
-      variant: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+      variant: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-300",
     },
     ignored: {
       label: "Ignorado",
-      variant: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+      variant: "bg-muted text-muted-foreground",
     },
     tracking_sent: {
       label: "Rastreio Enviado",
-      variant: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+      variant: "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300",
     },
     nfe_sent: {
       label: "NF-e Enviada",
-      variant: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+      variant: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-300",
     },
   };
   const badge = map[status] || map.pending;
@@ -83,10 +83,10 @@ function OrderStatusBadge({ status }: { status: string }) {
 function MLStatusBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-xs text-muted-foreground">-</span>;
   const colorMap: Record<string, string> = {
-    paid: "text-green-600 border-green-300",
-    confirmed: "text-green-600 border-green-300",
-    payment_required: "text-yellow-600 border-yellow-300",
-    payment_in_process: "text-yellow-600 border-yellow-300",
+    paid: "text-emerald-600 border-emerald-300",
+    confirmed: "text-emerald-600 border-emerald-300",
+    payment_required: "text-amber-600 border-amber-300",
+    payment_in_process: "text-amber-600 border-amber-300",
     cancelled: "text-red-600 border-red-300",
   };
   return (
@@ -378,26 +378,26 @@ export default function HubPedidosPage() {
 
       {/* Sync result banner */}
       {syncResult && (
-        <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+        <Card className="border-emerald-300 bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950">
           <CardContent className="p-3 flex items-center justify-between">
             <div className="flex gap-4 text-sm">
               {syncResult.linked > 0 && (
-                <span className="text-green-700 dark:text-green-300">
+                <span className="text-emerald-900 dark:text-emerald-300">
                   {syncResult.linked} vinculado(s)
                 </span>
               )}
               {syncResult.tracking_sent > 0 && (
-                <span className="text-blue-700 dark:text-blue-300">
+                <span className="text-blue-900 dark:text-blue-300">
                   {syncResult.tracking_sent} rastreio(s) enviado(s)
                 </span>
               )}
               {syncResult.nfe_sent > 0 && (
-                <span className="text-purple-700 dark:text-purple-300">
+                <span className="text-violet-900 dark:text-violet-300">
                   {syncResult.nfe_sent} NF-e(s) enviada(s)
                 </span>
               )}
               {syncResult.not_found > 0 && (
-                <span className="text-yellow-700 dark:text-yellow-300">
+                <span className="text-amber-900 dark:text-amber-300">
                   {syncResult.not_found} nao encontrado(s) no Eccosys
                 </span>
               )}
@@ -599,7 +599,7 @@ export default function HubPedidosPage() {
                                 <div>
                                   <span className="text-xs font-mono">{packNfeNumero}</span>
                                   {packOrders.some((o) => o.nfe_xml_sent_at) && (
-                                    <div className="text-[10px] text-green-600">enviada</div>
+                                    <div className="text-[10px] text-success">enviada</div>
                                   )}
                                 </div>
                               ) : (
@@ -645,7 +645,7 @@ export default function HubPedidosPage() {
                                     {packOrders.some((o) => pushingIds.has(o.ml_order_id)) ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
-                                      <FileText className="h-3.5 w-3.5 text-purple-500" />
+                                      <FileText className="h-3.5 w-3.5 text-violet-500" />
                                     )}
                                   </Button>
                                 )}
@@ -672,7 +672,7 @@ export default function HubPedidosPage() {
                                   </Button>
                                 )}
                                 {packOrders.every((o) => o.sync_status === "imported") && (
-                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                  <Check className="h-3.5 w-3.5 text-emerald-500" />
                                 )}
                                 {packOrders.some((o) => o.error_msg) && (
                                   <span title={packOrders.filter((o) => o.error_msg).map((o) => o.error_msg).join("\n")} className="cursor-help">
@@ -792,7 +792,7 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onReimpor
         {order.ecc_nfe_numero ? (
           <div>
             <span className="text-xs font-mono">{order.ecc_nfe_numero}</span>
-            {order.nfe_xml_sent_at ? <div className="text-[10px] text-green-600 mt-0.5">ML ok</div> : <div className="text-[10px] text-muted-foreground mt-0.5">pendente</div>}
+            {order.nfe_xml_sent_at ? <div className="text-[10px] text-success mt-0.5">ML ok</div> : <div className="text-[10px] text-muted-foreground mt-0.5">pendente</div>}
           </div>
         ) : <span className="text-xs text-muted-foreground">-</span>}
       </td>
@@ -823,7 +823,7 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onReimpor
                 disabled={pushingIds.has(order.ml_order_id)}
                 onClick={() => onSendNfe(order.ml_order_id)}
               >
-                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-purple-500" />}
+                {pushingIds.has(order.ml_order_id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5 text-violet-500" />}
               </Button>
             )}
             {onReimport && order.ecc_pedido_id && order.ml_status !== "cancelled" && (
@@ -840,7 +840,7 @@ function OrderRow({ order, pushingIds, onPush, onReprocess, onSendNfe, onReimpor
             )}
             {order.error_msg && <span title={order.error_msg} className="cursor-help"><AlertTriangle className="h-3.5 w-3.5 text-destructive" /></span>}
             {(order.sync_status === "imported" || order.sync_status === "tracking_sent" || order.sync_status === "nfe_sent") && (
-              <Check className="h-3.5 w-3.5 text-green-500" />
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
             )}
           </div>
         )}
@@ -998,12 +998,12 @@ function OrderDetail({ order }: { order: HubOrder }) {
 
         {/* Error */}
         {order.error_msg && (
-          <div className="rounded border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-3">
-            <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 text-xs font-medium mb-1">
+          <div className="rounded border border-red-300 bg-red-100 dark:border-red-900 dark:bg-red-950 p-3">
+            <div className="flex items-center gap-1.5 text-red-900 dark:text-red-300 text-xs font-medium mb-1">
               <AlertTriangle className="h-3.5 w-3.5" />
               Erro
             </div>
-            <p className="text-xs text-red-600 dark:text-red-400">{order.error_msg}</p>
+            <p className="text-xs text-red-900 dark:text-red-300">{order.error_msg}</p>
           </div>
         )}
       </div>

@@ -52,7 +52,7 @@ function GaugeCard({ title, apuradoLabel, metaLabel, ratio, valor, hint }: {
         <div className="mt-1 space-y-1 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">Meta:</span><span className="font-medium tabular-nums">{metaLabel}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Apurado:</span><span className="font-medium tabular-nums">{apuradoLabel}</span></div>
-          {valor && <div className="flex justify-between"><span className="text-muted-foreground">Valor:</span><span className="font-medium tabular-nums text-blue-600">{valor}</span></div>}
+          {valor && <div className="flex justify-between"><span className="text-muted-foreground">Valor:</span><span className="font-medium tabular-nums text-info">{valor}</span></div>}
         </div>
       </CardContent>
     </Card>
@@ -62,8 +62,8 @@ function GaugeCard({ title, apuradoLabel, metaLabel, ratio, valor, hint }: {
 function PillCard({ icon, title, value, tone, hint }: {
   icon: React.ReactNode; title: string; value: string; tone: "blue" | "green" | "red"; hint: string;
 }) {
-  const border = tone === "red" ? "border-red-300" : tone === "green" ? "border-emerald-300" : "border-blue-300";
-  const text = tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-700" : "text-blue-600";
+  const border = tone === "red" ? "border-destructive/40" : tone === "green" ? "border-success/40" : "border-info/40";
+  const text = tone === "red" ? "text-destructive" : tone === "green" ? "text-success" : "text-info";
   return (
     <Card className={`border ${border}`}>
       <CardContent className="pt-5 text-center">
@@ -146,7 +146,7 @@ export default function ControladoriaDashboardPage() {
       </div>
 
       {error && (
-        <Card className="border-red-300"><CardContent className="flex items-center gap-2 pt-5 text-red-700"><AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}</CardContent></Card>
+        <Card className="border-destructive/30"><CardContent className="flex items-center gap-2 pt-5 text-destructive"><AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}</CardContent></Card>
       )}
 
       {data && (
@@ -169,7 +169,7 @@ export default function ControladoriaDashboardPage() {
                         <TableCell className={l.op === "=" ? "font-semibold" : undefined}>
                           <span className="text-muted-foreground text-xs mr-1">({l.op})</span>{l.label}
                         </TableCell>
-                        <TableCell className={`text-right tabular-nums ${l.op === "=" ? (l.value < 0 ? "text-red-600 font-semibold" : "text-blue-600 font-semibold") : l.op === "-" ? "text-red-600/90" : ""}`}>{formatCurrency(l.value)}</TableCell>
+                        <TableCell className={`text-right tabular-nums ${l.op === "=" ? (l.value < 0 ? "text-destructive font-semibold" : "text-info font-semibold") : l.op === "-" ? "text-destructive/90" : ""}`}>{formatCurrency(l.value)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{fmtPct(l.pct)}</TableCell>
                       </TableRow>
                     ))}
@@ -211,7 +211,7 @@ export default function ControladoriaDashboardPage() {
                 <div key={g.label} className="flex items-center gap-2">
                   <div className="w-52 truncate text-xs" title={g.label}>{g.label}</div>
                   <div className="h-4 flex-1 rounded bg-muted overflow-hidden">
-                    <div className="h-full rounded bg-blue-600" style={{ width: `${(g.value / maxGasto) * 100}%` }} />
+                    <div className="h-full rounded bg-primary" style={{ width: `${(g.value / maxGasto) * 100}%` }} />
                   </div>
                   <div className="w-28 text-right text-xs tabular-nums">{formatCurrency(g.value)}</div>
                 </div>
@@ -231,16 +231,16 @@ export default function ControladoriaDashboardPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={data.diario} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
                     <XAxis dataKey="date" tickFormatter={(d: string) => d.slice(8, 10) + "/" + d.slice(5, 7)} fontSize={11} minTickGap={24} />
                     <YAxis tickFormatter={(v: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v)} fontSize={11} width={56} />
                     <RTooltip
                       formatter={(v, n) => [formatCurrency(Number(v)), n === "saldo" ? "Saldo" : n === "entrada" ? "Entrada" : "Saída"] as [string, string]}
                       labelFormatter={(d) => new Date(String(d) + "T00:00:00").toLocaleDateString("pt-BR")}
                     />
-                    <Line type="monotone" dataKey="saldo" stroke="#22c55e" strokeWidth={2} dot={false} name="saldo" />
-                    <Line type="monotone" dataKey="entrada" stroke="#3b82f6" strokeWidth={1.5} dot={false} name="entrada" />
-                    <Line type="monotone" dataKey="saida" stroke="#ef4444" strokeWidth={1.5} dot={false} name="saida" />
+                    <Line type="monotone" dataKey="saldo" stroke="var(--chart-3)" strokeWidth={2} dot={false} name="saldo" />
+                    <Line type="monotone" dataKey="entrada" stroke="var(--chart-2)" strokeWidth={1.5} dot={false} name="entrada" />
+                    <Line type="monotone" dataKey="saida" stroke="var(--chart-5)" strokeWidth={1.5} dot={false} name="saida" />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -250,7 +250,7 @@ export default function ControladoriaDashboardPage() {
           {/* Saldos + atalhos */}
           <div className="grid gap-4 md:grid-cols-2">
             <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Saldo inicial do período</div><div className="text-2xl font-semibold tabular-nums">{formatCurrency(data.saldoInicial)}</div></CardContent></Card>
-            <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Saldo final do período</div><div className={`text-2xl font-semibold tabular-nums ${data.saldoFinal < data.saldoInicial ? "text-red-600" : "text-emerald-700"}`}>{formatCurrency(data.saldoFinal)}</div></CardContent></Card>
+            <Card><CardContent className="pt-5"><div className="text-sm text-muted-foreground">Saldo final do período</div><div className={`text-2xl font-semibold tabular-nums ${data.saldoFinal < data.saldoInicial ? "text-destructive" : "text-success"}`}>{formatCurrency(data.saldoFinal)}</div></CardContent></Card>
           </div>
 
           <div className="flex flex-wrap gap-2">

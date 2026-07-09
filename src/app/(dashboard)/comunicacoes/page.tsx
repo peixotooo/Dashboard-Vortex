@@ -49,10 +49,10 @@ const SOURCE_LABEL: Record<string, string> = {
 
 function StepNode({ step }: { step: Step }) {
   const styles: Record<Step["kind"], string> = {
-    event: "bg-neutral-100 border-neutral-200 text-neutral-700",
-    gate: "bg-amber-100 border-amber-400 text-amber-900",
-    send: "bg-neutral-900 border-neutral-900 text-white",
-    wait: "bg-neutral-50 border-dashed border-neutral-300 text-neutral-500",
+    event: "bg-muted border-border text-foreground",
+    gate: "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+    send: "bg-primary border-primary text-primary-foreground",
+    wait: "bg-muted/50 border-dashed border-border text-muted-foreground",
   };
   const icon =
     step.kind === "gate" ? <Truck className="h-3.5 w-3.5" /> :
@@ -62,7 +62,7 @@ function StepNode({ step }: { step: Step }) {
   return (
     <div className={`shrink-0 rounded-xl border px-3 py-2 min-w-[150px] ${styles[step.kind]}`}>
       <div className="flex items-center gap-1.5 text-[13px] font-semibold">{icon}{step.label}</div>
-      <div className={`text-[11px] mt-0.5 ${step.kind === "send" ? "text-neutral-300" : "text-muted-foreground"}`}>{step.when}</div>
+      <div className={`text-[11px] mt-0.5 ${step.kind === "send" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{step.when}</div>
     </div>
   );
 }
@@ -71,7 +71,7 @@ function FlowLane({ lane }: { lane: Lane }) {
   return (
     <div className="rounded-xl border p-4">
       <div className="flex items-center gap-2 mb-3">
-        <CircleDot className={`h-3.5 w-3.5 ${lane.enabled ? "text-green-500" : "text-neutral-300"}`} />
+        <CircleDot className={`h-3.5 w-3.5 ${lane.enabled ? "text-emerald-500" : "text-muted-foreground/50"}`} />
         <span className="font-semibold text-sm">{lane.label}</span>
         <Badge variant="outline" className="text-[10px] flex items-center gap-1">
           {lane.channel.includes("email") ? <Mail className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
@@ -83,7 +83,7 @@ function FlowLane({ lane }: { lane: Lane }) {
         {lane.steps.map((s, i) => (
           <React.Fragment key={i}>
             <StepNode step={s} />
-            {i < lane.steps.length - 1 && <ChevronRight className="h-4 w-4 text-neutral-300 shrink-0" />}
+            {i < lane.steps.length - 1 && <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />}
           </React.Fragment>
         ))}
       </div>
@@ -154,7 +154,7 @@ export default function ComunicacoesPage() {
             <CardContent className="pt-6 flex items-start justify-between gap-3">
               <div>
                 <div className="font-semibold flex items-center gap-2">
-                  <CircleDot className={`h-3.5 w-3.5 ${r.enabled ? "text-green-500" : "text-neutral-300"}`} />
+                  <CircleDot className={`h-3.5 w-3.5 ${r.enabled ? "text-emerald-500" : "text-muted-foreground/50"}`} />
                   {r.label}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">{r.detail}</div>

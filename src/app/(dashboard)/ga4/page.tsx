@@ -277,7 +277,7 @@ export default function GA4Page() {
         <KpiCard title="Sessões" value={formatNumber(totals.sessions)} change={calcChange(totals.sessions, comparison?.sessions)} icon={Activity} iconColor="text-orange-400" loading={loading} />
         <KpiCard title="Usuários" value={formatNumber(totals.users)} change={calcChange(totals.users, comparison?.users)} icon={Users} iconColor="text-blue-400" loading={loading} />
         <KpiCard title="Novos" value={formatNumber(totals.newUsers)} change={calcChange(totals.newUsers, comparison?.newUsers)} icon={UserPlus} iconColor="text-cyan-400" loading={loading} />
-        <KpiCard title="Pageviews" value={formatNumber(totals.pageViews)} change={calcChange(totals.pageViews, comparison?.pageViews)} icon={Eye} iconColor="text-purple-400" loading={loading} />
+        <KpiCard title="Pageviews" value={formatNumber(totals.pageViews)} change={calcChange(totals.pageViews, comparison?.pageViews)} icon={Eye} iconColor="text-violet-400" loading={loading} />
         <KpiCard title="Pedidos" value={formatNumber(totals.transactions)} change={calcChange(totals.transactions, comparison?.transactions)} icon={ShoppingCart} iconColor="text-warning" loading={loading} />
         <KpiCard title="Receita" value={formatCurrency(totals.revenue)} change={calcChange(totals.revenue, comparison?.revenue)} icon={DollarSign} iconColor="text-success" loading={loading} />
         <KpiCard title="TX Conv." value={formatPercent(txConversao)} change={calcChange(txConversao, prevTxConversao)} icon={Percent} iconColor="text-orange-400" loading={loading} />
@@ -836,10 +836,10 @@ export default function GA4Page() {
         {gadsConfigured && (
           <TabsContent value="google_ads" className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KpiCard title="Investimento" value={`R$ ${gadsTotals.cost.toFixed(2)}`} change={gadsComparison ? ((gadsTotals.cost - gadsComparison.cost) / gadsComparison.cost) * 100 : undefined} icon={DollarSign} iconColor="text-green-400" loading={loading} badge="Google Ads" badgeColor="#4285f4" />
+              <KpiCard title="Investimento" value={`R$ ${gadsTotals.cost.toFixed(2)}`} change={gadsComparison ? ((gadsTotals.cost - gadsComparison.cost) / gadsComparison.cost) * 100 : undefined} icon={DollarSign} iconColor="text-emerald-400" loading={loading} badge="Google Ads" badgeColor="#4285f4" />
               <KpiCard title="Cliques" value={gadsTotals.clicks.toLocaleString("pt-BR")} change={gadsComparison ? ((gadsTotals.clicks - gadsComparison.clicks) / gadsComparison.clicks) * 100 : undefined} icon={MousePointerClick} iconColor="text-blue-400" loading={loading} />
               <KpiCard title="CPC" value={`R$ ${gadsTotals.cpc.toFixed(2)}`} change={gadsComparison && gadsComparison.cpc > 0 ? ((gadsTotals.cpc - gadsComparison.cpc) / gadsComparison.cpc) * 100 : undefined} icon={Receipt} iconColor="text-orange-400" loading={loading} />
-              <KpiCard title="CTR" value={`${gadsTotals.ctr.toFixed(2)}%`} change={gadsComparison && gadsComparison.ctr > 0 ? ((gadsTotals.ctr - gadsComparison.ctr) / gadsComparison.ctr) * 100 : undefined} icon={Percent} iconColor="text-purple-400" loading={loading} />
+              <KpiCard title="CTR" value={`${gadsTotals.ctr.toFixed(2)}%`} change={gadsComparison && gadsComparison.ctr > 0 ? ((gadsTotals.ctr - gadsComparison.ctr) / gadsComparison.ctr) * 100 : undefined} icon={Percent} iconColor="text-violet-400" loading={loading} />
             </div>
 
             <TrendChart

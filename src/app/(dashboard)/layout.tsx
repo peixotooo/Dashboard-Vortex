@@ -41,10 +41,16 @@ export default function DashboardLayout({
       <AccountProvider>
         <SidebarProvider>
           <AppSidebar />
-          <SidebarInset>
+          <SidebarInset className="overflow-x-clip">
             <Topbar />
-            <div className="flex-1 overflow-x-hidden p-6">
-              <PermissionGate>{children}</PermissionGate>
+            <div className="relative flex-1 overflow-x-hidden p-6">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[640px] -translate-x-1/2 rounded-full bg-primary/8 blur-[120px]"
+              />
+              <div className="relative">
+                <PermissionGate>{children}</PermissionGate>
+              </div>
             </div>
           </SidebarInset>
         </SidebarProvider>

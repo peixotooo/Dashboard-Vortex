@@ -56,7 +56,7 @@ interface CalendarEntry {
 const PILLAR_COLORS: Record<string, string> = {
   educativo: "bg-blue-100 border-blue-300 dark:bg-blue-950 dark:border-blue-800",
   inspiracional: "bg-purple-100 border-purple-300 dark:bg-purple-950 dark:border-purple-800",
-  promocional: "bg-green-100 border-green-300 dark:bg-green-950 dark:border-green-800",
+  promocional: "bg-emerald-100 border-emerald-300 dark:bg-emerald-950 dark:border-emerald-800",
   autoridade: "bg-orange-100 border-orange-300 dark:bg-orange-950 dark:border-orange-800",
   engajamento: "bg-pink-100 border-pink-300 dark:bg-pink-950 dark:border-pink-800",
   bastidores: "bg-amber-100 border-amber-300 dark:bg-amber-950 dark:border-amber-800",
@@ -142,7 +142,7 @@ function AuditView({ content }: { content: string }) {
 
         if (trimmed.includes("[OK]") || trimmed.includes("[ok]") || trimmed.includes("✅")) {
           StatusIcon = CheckCircle2;
-          statusColor = "text-green-500";
+          statusColor = "text-emerald-500";
         } else if (trimmed.includes("[WARN]") || trimmed.includes("[warning]") || trimmed.includes("⚠")) {
           StatusIcon = AlertTriangle;
           statusColor = "text-yellow-500";

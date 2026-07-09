@@ -11,11 +11,11 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 export function Topbar() {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/80 backdrop-blur-sm px-4">
+    <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b border-border/60 bg-background/70 px-4 backdrop-blur-xl">
       <div className="flex items-center gap-2">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
-        <h1 className="text-sm font-semibold hidden sm:block">
+        <h1 className="hidden font-display text-sm font-semibold tracking-tight sm:block">
           Dashboard Vortex
         </h1>
       </div>

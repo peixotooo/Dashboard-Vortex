@@ -224,7 +224,7 @@ export default function CollectionDetailPage() {
           <div className="flex items-center gap-2 mr-auto">
             <span className="text-xs text-muted-foreground">{items.length} produtos</span>
             {pendingCount > 0 && <Badge variant="secondary" className="text-xs">{pendingCount} pendentes</Badge>}
-            {readyCount > 0 && <Badge variant="outline" className="text-xs border-green-500 text-green-600">{readyCount} prontos</Badge>}
+            {readyCount > 0 && <Badge variant="outline" className="text-xs border-success text-success">{readyCount} prontos</Badge>}
             {submittedCount > 0 && <Badge className="text-xs">{submittedCount} enviados</Badge>}
           </div>
 
@@ -336,7 +336,7 @@ export default function CollectionDetailPage() {
           {submitting ? (
             <div className="flex flex-col items-center gap-3 py-6"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Criando produtos...</p></div>
           ) : (
-            <div className="flex flex-col items-center gap-3 py-6"><Check className="h-8 w-8 text-green-600" /><p className="text-sm font-medium">Concluido!</p><Button onClick={() => setSubmitDialogOpen(false)}>Fechar</Button></div>
+            <div className="flex flex-col items-center gap-3 py-6"><Check className="h-8 w-8 text-success" /><p className="text-sm font-medium">Concluido!</p><Button onClick={() => setSubmitDialogOpen(false)}>Fechar</Button></div>
           )}
         </DialogContent>
       </Dialog>
@@ -384,12 +384,12 @@ function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze,
         {item.nome && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {item.departamento_nome && <span>{item.departamento_nome}</span>}
-            {item.preco ? <span className="font-medium text-foreground">R$ {Number(item.preco).toFixed(2)}</span> : <span className="text-amber-600">Sem preco</span>}
+            {item.preco ? <span className="font-medium text-foreground">R$ {Number(item.preco).toFixed(2)}</span> : <span className="text-warning">Sem preco</span>}
           </div>
         )}
 
-        {item.error_msg && <p className="text-[10px] text-red-600 line-clamp-1">{item.error_msg}</p>}
-        {item.codigo && item.status === "submitted" && <p className="text-[10px] text-green-600">Eccosys: {item.codigo}</p>}
+        {item.error_msg && <p className="text-[10px] text-destructive line-clamp-1">{item.error_msg}</p>}
+        {item.codigo && item.status === "submitted" && <p className="text-[10px] text-success">Eccosys: {item.codigo}</p>}
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t">
@@ -409,7 +409,7 @@ function GridCard({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze,
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>
           )}
           {item.status !== "submitted" && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500 ml-auto" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive ml-auto" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
           )}
         </div>
       </CardContent>
@@ -438,12 +438,12 @@ function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {item.departamento_nome && <span>{item.departamento_nome}</span>}
           {item.composicao && <span>{item.composicao}</span>}
-          {item.codigo && item.status === "submitted" && <span className="text-green-600">{item.codigo}</span>}
+          {item.codigo && item.status === "submitted" && <span className="text-success">{item.codigo}</span>}
         </div>
       </div>
 
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        {item.preco ? <span className="font-medium text-foreground">R$ {Number(item.preco).toFixed(2)}</span> : <span className="text-amber-600">Sem preco</span>}
+        {item.preco ? <span className="font-medium text-foreground">R$ {Number(item.preco).toFixed(2)}</span> : <span className="text-warning">Sem preco</span>}
       </div>
 
       <Badge variant={badge.variant} className="text-[10px] flex-shrink-0">{badge.label}</Badge>
@@ -455,7 +455,7 @@ function ListRow({ item, showCheckbox, isSelected, onToggle, onEdit, onAnalyze, 
         {(item.status === "ready" || item.status === "edited") && <Button variant="ghost" size="sm" className="h-7 text-xs text-primary" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Enviar</Button>}
         {(item.status === "submitted" || item.status === "error") && item.nome && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onSubmit}><Send className="h-3 w-3 mr-1" />Reenviar</Button>}
         {(item.status === "ready" || item.status === "edited" || item.status === "submitted") && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onRegenerate}><RefreshCw className="h-3 w-3 mr-1" />Re-analisar</Button>}
-        {item.status !== "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs text-red-500" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>}
+        {item.status !== "submitted" && <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>}
       </div>
     </div>
   );

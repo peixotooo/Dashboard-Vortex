@@ -219,14 +219,14 @@ export default function TeamPage() {
                   <div className="mt-3">
                     {agent.active_task_title ? (
                       <div className="flex items-start gap-1.5 text-xs">
-                        <Briefcase className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" />
+                        <Briefcase className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
                         <span className="text-muted-foreground line-clamp-2">
                           {agent.active_task_title}
                         </span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <div className="w-2 h-2 rounded-full bg-gray-400" />
+                        <div className="w-2 h-2 rounded-full bg-muted-foreground/60" />
                         Disponivel
                       </div>
                     )}

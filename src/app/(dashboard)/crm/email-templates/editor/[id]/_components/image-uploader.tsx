@@ -122,7 +122,7 @@ export function ImageUploader({
         {uploading ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
         ) : justFinished ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <CheckCircle2 className="w-3.5 h-3.5 text-success" />
         ) : (
           <Upload className="w-3.5 h-3.5" />
         )}

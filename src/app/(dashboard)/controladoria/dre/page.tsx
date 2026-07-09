@@ -87,8 +87,8 @@ export default function DrePage() {
       </div>
 
       {error && (
-        <Card className="border-red-300">
-          <CardContent className="flex items-center gap-2 pt-5 text-red-700">
+        <Card className="border-destructive/30">
+          <CardContent className="flex items-center gap-2 pt-5 text-destructive">
             <AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}
           </CardContent>
         </Card>

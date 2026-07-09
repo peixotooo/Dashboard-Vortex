@@ -268,12 +268,12 @@ export default function DraftsPage() {
       />
 
       {approvalError && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 flex items-start gap-2">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="flex-1">{approvalError}</div>
           <button
             onClick={() => setApprovalError(null)}
-            className="text-red-400 hover:text-red-300"
+            className="text-destructive hover:text-destructive/80"
           >
             <span className="sr-only">Fechar</span>&times;
           </button>
@@ -283,7 +283,7 @@ export default function DraftsPage() {
       {drafts && drafts.some((d) => d.approval_state === "pending_approval") && (
         <Card className="p-4 space-y-3 border-amber-300/40 bg-amber-50/30 dark:bg-amber-950/10">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <ShieldCheck className="w-4 h-4 text-amber-600" />
+            <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             Pendentes de aprovação
             <Badge variant="outline" className="text-[10px]">
               {drafts.filter((d) => d.approval_state === "pending_approval").length}
@@ -406,7 +406,7 @@ export default function DraftsPage() {
                     {d.approval_state === "pending_approval" && (
                       <Badge
                         variant="outline"
-                        className="text-[10px] gap-1 border-amber-500/40 text-amber-500"
+                        className="text-[10px] gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400"
                       >
                         <ShieldCheck className="w-3 h-3" />
                         Aguardando aprovação
@@ -415,7 +415,7 @@ export default function DraftsPage() {
                     {d.approval_state === "rejected" && (
                       <Badge
                         variant="outline"
-                        className="text-[10px] gap-1 border-red-500/40 text-red-500"
+                        className="text-[10px] gap-1 border-red-500/40 text-red-600 dark:text-red-400"
                         title={d.rejection_reason ?? undefined}
                       >
                         <ShieldX className="w-3 h-3" />

@@ -640,7 +640,7 @@ export default function ReviewsPage() {
           <TabsTrigger value="moderation">
             Moderação
             {(stats?.by_status?.pending || 0) > 0 && (
-              <span className="ml-1.5 rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1.5 py-0.5 leading-none">
+              <span className="ml-1.5 rounded-full bg-amber-500 text-amber-950 text-[10px] font-semibold px-1.5 py-0.5 leading-none">
                 {stats?.by_status?.pending}
               </span>
             )}
@@ -724,7 +724,7 @@ export default function ReviewsPage() {
                         {r.media_kind === "photo" && <Badge variant="outline" className="text-[10px]">📸 Foto</Badge>}
                         {r.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
                         {r.ads_status === "accepted" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS ✓</Badge>}
-                        {r.reward_status === "granted" && <Badge variant="outline" className="text-[10px] text-green-600 border-green-300">🎁 R$ {r.reward_amount}</Badge>}
+                        {r.reward_status === "granted" && <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300">🎁 R$ {r.reward_amount}</Badge>}
                         {r.reward_status === "failed" && <Badge variant="destructive" className="text-[10px]">recompensa falhou</Badge>}
                       </div>
                       {r.status === "pending" && r.media_kind === "video" && r.ads_status === "pending" && (
@@ -808,11 +808,11 @@ export default function ReviewsPage() {
                     <div className="flex flex-col gap-1 shrink-0">
                       {/* Vídeo com consentimento de ADS é aprovado pelos 2 botões acima (decisão de ADS). */}
                       {r.status === "pending" && !(r.media_kind === "video" && r.ads_status === "pending") ? (
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => moderate(r.id, "published")} title="Aprovar e publicar">
+                        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => moderate(r.id, "published")} title="Aprovar e publicar">
                           <CheckCircle2 className="h-4 w-4 mr-1" /> Aprovar
                         </Button>
                       ) : r.status !== "published" && r.status !== "pending" && (
-                        <Button size="sm" variant="outline" className="text-green-600" onClick={() => moderate(r.id, "published")} title="Publicar">
+                        <Button size="sm" variant="outline" className="text-emerald-600" onClick={() => moderate(r.id, "published")} title="Publicar">
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>
                       )}
@@ -897,7 +897,7 @@ export default function ReviewsPage() {
                     <div className="flex justify-between"><span className="text-muted-foreground">Pedidos criados</span><b>{metrics.funnel.created}</b></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Contatados</span><b>{metrics.funnel.contacted}</b></div>
                     <div className="flex justify-between"><span className="text-muted-foreground">Avaliaram (concluídos)</span><b>{metrics.funnel.completed}</b></div>
-                    <div className="flex justify-between border-t pt-2"><span className="text-muted-foreground">Taxa de conversão</span><b className="text-green-600">{metrics.funnel.conversion_rate}%</b></div>
+                    <div className="flex justify-between border-t pt-2"><span className="text-muted-foreground">Taxa de conversão</span><b className="text-emerald-600">{metrics.funnel.conversion_rate}%</b></div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 text-xs text-muted-foreground">
                       {Object.entries(metrics.funnel.by_status).map(([k, v]) => <span key={k}>{k}: {v}</span>)}
                     </div>
@@ -999,7 +999,7 @@ export default function ReviewsPage() {
                     <div className="text-xs font-medium truncate" title={m.product_name || ""}>{m.product_name || "—"}</div>
                     <div className="text-[11px] text-muted-foreground truncate">{m.author_name || "Cliente"}</div>
                     <div className="flex flex-wrap gap-1">
-                      {m.type === "video" && m.ads_status === "accepted" && <Badge className="text-[10px] bg-green-600 hover:bg-green-600">ADS ✓</Badge>}
+                      {m.type === "video" && m.ads_status === "accepted" && <Badge className="text-[10px] bg-emerald-600 hover:bg-emerald-600">ADS ✓</Badge>}
                       {m.type === "video" && m.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
                       {m.type === "video" && m.ads_consent && m.ads_status !== "accepted" && m.ads_status !== "pending" && <Badge variant="outline" className="text-[10px]">autorizou ADS</Badge>}
                       <Badge variant={STATUS_LABELS[m.review_status]?.variant || "secondary"} className="text-[10px]">{STATUS_LABELS[m.review_status]?.label || m.review_status}</Badge>
@@ -1063,7 +1063,7 @@ export default function ReviewsPage() {
                   </div>
                   <div className="flex flex-col gap-1 shrink-0">
                     {r.status !== "published" && (
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => moderateStore(r.id, "published")}>
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => moderateStore(r.id, "published")}>
                         <CheckCircle2 className="h-4 w-4 mr-1" /> Aprovar
                       </Button>
                     )}
@@ -1142,7 +1142,7 @@ export default function ReviewsPage() {
             <CardContent className="space-y-4">
               {connection?.configured ? (
                 <div className="rounded-lg border p-4 bg-muted/40 space-y-1 text-sm">
-                  <div className="flex items-center gap-2 font-medium text-green-600"><Check className="h-4 w-4" /> Conexão configurada</div>
+                  <div className="flex items-center gap-2 font-medium text-emerald-600"><Check className="h-4 w-4" /> Conexão configurada</div>
                   {connection.last_synced_at && (
                     <div className="text-muted-foreground">Última importação: {new Date(connection.last_synced_at).toLocaleString("pt-BR")}</div>
                   )}
@@ -1340,7 +1340,7 @@ export default function ReviewsPage() {
                       </div>
                       <div className="shrink-0 text-right">
                         {tplStatus?.status ? (
-                          <Badge className={`mb-1 ${tplStatus.status === "APPROVED" ? "bg-green-600 hover:bg-green-600" : tplStatus.status === "REJECTED" ? "bg-destructive hover:bg-destructive" : "bg-amber-500 hover:bg-amber-500"}`}>
+                          <Badge className={`mb-1 ${tplStatus.status === "APPROVED" ? "bg-emerald-600 hover:bg-emerald-600" : tplStatus.status === "REJECTED" ? "bg-destructive hover:bg-destructive" : "bg-amber-500 hover:bg-amber-500"}`}>
                             {tplStatus.status === "APPROVED" ? "Aprovado" : tplStatus.status === "REJECTED" ? "Rejeitado" : "Aguardando Meta"}
                           </Badge>
                         ) : settings.wa_template_id ? (
@@ -1360,7 +1360,7 @@ export default function ReviewsPage() {
                         </div>
                       </div>
                     </div>
-                    {tplStatus?.status === "APPROVED" && <div className="text-xs text-green-600">✓ Template aprovado — a régua já pode disparar por WhatsApp.</div>}
+                    {tplStatus?.status === "APPROVED" && <div className="text-xs text-emerald-600">✓ Template aprovado — a régua já pode disparar por WhatsApp.</div>}
                     {tplStatus?.status && tplStatus.status !== "APPROVED" && <div className="text-xs text-amber-600">Template <strong>{tplStatus.status}</strong> na Meta. O WhatsApp da régua aguarda a aprovação.</div>}
                     {tplMsg && <div className="text-xs text-muted-foreground border rounded-md p-2">{tplMsg}</div>}
                   </div>
@@ -1409,7 +1409,7 @@ export default function ReviewsPage() {
                     {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
                     Salvar régua
                   </Button>
-                  {savedSettings && !settingsError && <span className="text-xs text-green-600">Configurações salvas.</span>}
+                  {savedSettings && !settingsError && <span className="text-xs text-emerald-600">Configurações salvas.</span>}
                   {settingsError && <span className="text-xs text-destructive">{settingsError}</span>}
                 </div>
               </CardContent>
@@ -1466,7 +1466,7 @@ export default function ReviewsPage() {
                     {savingSettings ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : savedSettings ? <Check className="h-4 w-4 mr-2" /> : <Save className="h-4 w-4 mr-2" />}
                     Salvar configurações
                   </Button>
-                  {savedSettings && !settingsError && <span className="text-xs text-green-600">Configurações salvas.</span>}
+                  {savedSettings && !settingsError && <span className="text-xs text-emerald-600">Configurações salvas.</span>}
                   {settingsError && <span className="text-xs text-destructive">{settingsError}</span>}
                 </div>
               </CardContent>
@@ -1526,7 +1526,7 @@ export default function ReviewsPage() {
                 <Stars n={lightbox.rating} />
                 <span className="font-semibold text-sm">{lightbox.author_name || "Cliente"}</span>
                 <Badge variant={STATUS_LABELS[lightbox.review_status]?.variant || "secondary"} className="text-[10px]">{STATUS_LABELS[lightbox.review_status]?.label || lightbox.review_status}</Badge>
-                {lightbox.type === "video" && lightbox.ads_status === "accepted" && <Badge className="text-[10px] bg-green-600 hover:bg-green-600">ADS ✓</Badge>}
+                {lightbox.type === "video" && lightbox.ads_status === "accepted" && <Badge className="text-[10px] bg-emerald-600 hover:bg-emerald-600">ADS ✓</Badge>}
                 {lightbox.type === "video" && lightbox.ads_status === "pending" && <Badge className="text-[10px] bg-purple-600 hover:bg-purple-600">ADS: revisar</Badge>}
                 {lightbox.type === "video" && lightbox.ads_consent && lightbox.ads_status !== "accepted" && lightbox.ads_status !== "pending" && <Badge variant="outline" className="text-[10px]">autorizou ADS</Badge>}
               </div>

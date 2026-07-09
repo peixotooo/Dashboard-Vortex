@@ -150,12 +150,12 @@ export function CrmAgentPanel({
   const urgencyColors = {
     alta: "border-red-500/30 bg-red-500/5",
     media: "border-yellow-500/30 bg-yellow-500/5",
-    baixa: "border-green-500/30 bg-green-500/5",
+    baixa: "border-emerald-500/30 bg-emerald-500/5",
   };
   const urgencyBadge = {
     alta: "text-red-400 bg-red-500/10 border-red-500/30",
     media: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
-    baixa: "text-green-400 bg-green-500/10 border-green-500/30",
+    baixa: "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
   };
 
   return (

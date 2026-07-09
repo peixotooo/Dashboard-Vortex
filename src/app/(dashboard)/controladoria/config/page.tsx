@@ -87,8 +87,8 @@ export default function ControladoriaConfigPage() {
       </div>
 
       {error && (
-        <Card className="border-red-300">
-          <CardContent className="flex items-center gap-2 pt-5 text-red-700">
+        <Card className="border-destructive/40">
+          <CardContent className="flex items-center gap-2 pt-5 text-destructive">
             <AlertTriangle className="h-4 w-4" /> {error}
           </CardContent>
         </Card>
@@ -178,18 +178,18 @@ export default function ControladoriaConfigPage() {
                       <TableCell className="text-muted-foreground">{c.subcategory ?? "—"}</TableCell>
                       <TableCell>
                         {c.is_transfer ? (
-                          <Badge variant="outline" className="border-amber-400 text-amber-700">Transferência</Badge>
+                          <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">Transferência</Badge>
                         ) : c.is_depreciation ? (
                           <Badge variant="outline">Depreciação</Badge>
                         ) : c.flow === 1 ? (
-                          <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100">Entrada</Badge>
+                          <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950">Entrada</Badge>
                         ) : (
-                          <Badge className="bg-red-100 text-red-900 hover:bg-red-100">Saída</Badge>
+                          <Badge className="bg-red-100 text-red-900 hover:bg-red-100 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-950">Saída</Badge>
                         )}
                       </TableCell>
                       <TableCell>
                         {c.is_active
-                          ? <Badge variant="outline" className="border-emerald-400 text-emerald-700">ativa</Badge>
+                          ? <Badge variant="outline" className="border-emerald-400 text-emerald-700 dark:text-emerald-400">ativa</Badge>
                           : <Badge variant="outline" className="text-muted-foreground">histórica</Badge>}
                       </TableCell>
                     </TableRow>

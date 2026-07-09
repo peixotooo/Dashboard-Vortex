@@ -192,7 +192,7 @@ export default function TeamAgentSettingsPage() {
           className={`rounded-lg px-4 py-2 text-sm ${
             docMessage.includes("Erro")
               ? "bg-red-500/10 text-red-500"
-              : "bg-green-500/10 text-green-500"
+              : "bg-emerald-500/10 text-emerald-500"
           }`}
         >
           {docMessage}

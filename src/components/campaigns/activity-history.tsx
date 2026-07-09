@@ -58,7 +58,7 @@ const SOURCE_CONFIG: Record<
   other: {
     label: "Outro",
     icon: ExternalLink,
-    className: "text-gray-500 border-gray-500/30 bg-gray-500/10",
+    className: "text-muted-foreground border-border bg-muted/50",
     tooltip: "Alterado via aplicativo externo",
   },
 };

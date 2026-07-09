@@ -134,7 +134,7 @@ export function SuggestionCard({
                 .join(" · ")}
             </div>
             {suggestion.coupon_code && (
-              <div className="text-xs text-emerald-500 mt-1 font-mono">
+              <div className="text-xs text-success mt-1 font-mono">
                 🎟 {suggestion.coupon_code} · {suggestion.coupon_discount_percent}% off
                 {suggestion.coupon_expires_at &&
                   ` · até ${new Date(suggestion.coupon_expires_at).toLocaleString("pt-BR")}`}

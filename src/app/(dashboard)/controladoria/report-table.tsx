@@ -21,9 +21,9 @@ export type ReportLine = {
 
 function valueClass(line: ReportLine, v: number): string {
   if (Math.abs(v) < 0.005) return "text-muted-foreground/50";
-  if (line.op === "=") return v < 0 ? "text-red-600 font-medium" : "text-blue-600 font-medium";
-  if (line.op === "-") return "text-red-600/90";
-  if (line.op === "+") return "text-emerald-700";
+  if (line.op === "=") return v < 0 ? "text-destructive font-medium" : "text-info font-medium";
+  if (line.op === "-") return "text-destructive/90";
+  if (line.op === "+") return "text-success";
   return "";
 }
 
@@ -118,7 +118,7 @@ export function BalanceRow({ label, values, showPct }: { label: string; values: 
         {label}
       </TableCell>
       {values.map((v, m) => (
-        <TableCell key={m} className={`text-right tabular-nums font-medium ${v < 0 ? "text-red-600" : "text-emerald-700"}`}>
+        <TableCell key={m} className={`text-right tabular-nums font-medium ${v < 0 ? "text-destructive" : "text-success"}`}>
           {fmtReport(v)}
         </TableCell>
       ))}

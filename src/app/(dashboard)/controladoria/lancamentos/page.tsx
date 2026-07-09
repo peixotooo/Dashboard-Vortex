@@ -355,7 +355,7 @@ export default function LancamentosPage() {
                 key={f.k}
                 onClick={() => { setQuick(f.k); setPage(1); }}
                 className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                  quick === f.k ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "border-input hover:bg-muted"
+                  quick === f.k ? "border-primary bg-primary/10 text-primary" : "border-input hover:bg-muted"
                 }`}
               >
                 {f.label}
@@ -367,7 +367,7 @@ export default function LancamentosPage() {
 
       {/* barra de ações em lote */}
       {selected.size > 0 && (
-        <Card className="border-blue-300 bg-blue-50/60 dark:bg-blue-950/20">
+        <Card className="border-primary/40 bg-primary/5">
           <CardContent className="flex flex-wrap items-center gap-2 py-3">
             <span className="text-sm font-medium">{selected.size} selecionado(s)</span>
             <div className="flex-1" />
@@ -380,7 +380,7 @@ export default function LancamentosPage() {
             <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk("review_done", "Marcar revisado")}>
               Marcar revisado
             </Button>
-            <Button size="sm" variant="outline" className="text-red-600" disabled={bulkBusy} onClick={() => void runBulk("delete", "Excluir")}>
+            <Button size="sm" variant="outline" className="text-destructive" disabled={bulkBusy} onClick={() => void runBulk("delete", "Excluir")}>
               <Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Limpar</Button>
@@ -389,8 +389,8 @@ export default function LancamentosPage() {
       )}
 
       {error && (
-        <Card className="border-red-300">
-          <CardContent className="flex items-center gap-2 pt-5 text-red-700">
+        <Card className="border-destructive/30">
+          <CardContent className="flex items-center gap-2 pt-5 text-destructive">
             <AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}
           </CardContent>
         </Card>
@@ -430,7 +430,7 @@ export default function LancamentosPage() {
               </TableRow>
             )}
             {!loading && rows.map((r) => (
-              <TableRow key={r.id} className={selected.has(r.id) ? "bg-blue-50/60 dark:bg-blue-950/20" : r.needs_review ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}>
+              <TableRow key={r.id} className={selected.has(r.id) ? "bg-primary/5" : r.needs_review ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}>
                 <TableCell>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} aria-label="Selecionar" />
                 </TableCell>
@@ -440,22 +440,22 @@ export default function LancamentosPage() {
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDateBR(r.due_date)}</TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDateBR(r.competence_date)}</TableCell>
-                <TableCell className={`text-right tabular-nums font-medium ${r.flow === 1 ? "text-emerald-700" : "text-red-600"}`}>
+                <TableCell className={`text-right tabular-nums font-medium ${r.flow === 1 ? "text-success" : "text-destructive"}`}>
                   {formatCurrency(r.amount)}
                 </TableCell>
                 <TableCell>
                   {r.kind === "transfer" ? (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700">Transferência</Badge>
+                    <Badge variant="outline" className="border-warning/60 text-warning">Transferência</Badge>
                   ) : r.kind === "depreciation" ? (
                     <Badge variant="outline">Depreciação</Badge>
                   ) : r.kind === "accrual" ? (
                     <Badge variant="outline">Provisão</Badge>
                   ) : r.flow === 1 ? (
-                    <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100">Entrada</Badge>
+                    <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950">Entrada</Badge>
                   ) : (
-                    <Badge className="bg-red-100 text-red-900 hover:bg-red-100">Saída</Badge>
+                    <Badge className="bg-red-100 text-red-900 hover:bg-red-100 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-950">Saída</Badge>
                   )}
-                  {r.needs_review && <Badge variant="outline" className="ml-1 border-amber-400 text-amber-700">revisar</Badge>}
+                  {r.needs_review && <Badge variant="outline" className="ml-1 border-warning/60 text-warning">revisar</Badge>}
                 </TableCell>
                 <TableCell className="max-w-[240px]">
                   <div className="truncate" title={r.classification?.path}>{r.classification?.name ?? "—"}</div>
@@ -476,7 +476,7 @@ export default function LancamentosPage() {
                     <Button variant="ghost" size="icon" className="h-7 w-7" title="Duplicar" onClick={() => duplicate(r)}>
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" title="Excluir" onClick={() => void remove(r)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" title="Excluir" onClick={() => void remove(r)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>

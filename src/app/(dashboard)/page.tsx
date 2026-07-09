@@ -915,7 +915,7 @@ export default function OverviewPage() {
           className="flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/50"
         >
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white text-sm font-bold">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-amber-950 text-sm font-bold">
               {pendingReviews.total}
             </span>
             <div>
@@ -929,7 +929,7 @@ export default function OverviewPage() {
               </p>
             </div>
           </div>
-          <span className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white">Revisar agora →</span>
+          <span className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950">Revisar agora →</span>
         </Link>
       )}
 
@@ -1008,7 +1008,7 @@ export default function OverviewPage() {
             value={formatCurrency(data.googleAdsCost)}
             change={calcChange(data.googleAdsCost, gadsc?.cost)}
             icon={DollarSign}
-            iconColor="text-green-400"
+            iconColor="text-emerald-400"
             loading={loading}
             badge="Google Ads"
             badgeColor="#4285f4"
@@ -2172,7 +2172,7 @@ function FunnelSection({
             <CardTitle className="text-base">Funil de conversões</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               <span className="font-semibold text-violet-600 dark:text-violet-400">Realizado</span> vs{" "}
-              <span className="font-semibold text-zinc-500 dark:text-zinc-400">Meta</span> — régua inicial realista para moda BR, ajustável por etapa.
+              <span className="font-semibold text-muted-foreground">Meta</span> — régua inicial realista para moda BR, ajustável por etapa.
             </p>
           </div>
           <Badge variant="outline" className="w-fit border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
@@ -2232,7 +2232,7 @@ function FunnelSection({
                 Conversão
                 <InfoTooltip>Taxa entre uma etapa e a próxima. O bloco verde é o realizado; o bloco âmbar é a meta configurada.</InfoTooltip>
               </span>
-              <span className="inline-flex items-center gap-1 text-left text-zinc-500 dark:text-zinc-400">
+              <span className="inline-flex items-center gap-1 text-left text-muted-foreground">
                 Meta
                 <InfoTooltip>Volume esperado se o funil bater as taxas alvo configuradas por etapa.</InfoTooltip>
               </span>
@@ -2332,10 +2332,10 @@ function FunnelSection({
                     {/* Meta (cinza) + quanto falta para bater */}
                     <div className="flex min-w-0 flex-col items-start gap-0.5">
                       <div
-                        className="flex flex-col items-start rounded-md bg-zinc-200 px-3 py-1.5 text-left text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100"
+                        className="flex flex-col items-start rounded-md bg-muted-foreground/25 px-3 py-1.5 text-left text-foreground"
                         style={{ width: `${barWidth}%` }}
                       >
-                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           {row.name}
                         </span>
                         <span className="text-sm font-bold leading-tight tabular-nums">

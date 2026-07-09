@@ -56,7 +56,7 @@ const TYPE_CONFIG: Record<
 > = {
   calendar: { label: "Calendario", icon: Calendar, color: "text-amber-500" },
   copy: { label: "Copy", icon: FileText, color: "text-pink-500" },
-  audit: { label: "Auditoria", icon: Search, color: "text-green-500" },
+  audit: { label: "Auditoria", icon: Search, color: "text-emerald-500" },
   strategy: { label: "Estrategia", icon: Target, color: "text-violet-500" },
   report: { label: "Relatorio", icon: BarChart3, color: "text-blue-500" },
   email_sequence: { label: "Emails", icon: Mail, color: "text-orange-500" },
@@ -307,7 +307,7 @@ export default function DeliverablesPage() {
                 {group.projectStatus === "done" && (
                   <Badge
                     variant="outline"
-                    className="text-[10px] text-green-600 border-green-600/30"
+                    className="text-[10px] text-emerald-600 border-emerald-600/30"
                   >
                     <CheckCircle2 className="h-3 w-3 mr-1" />
                     Concluido

@@ -384,7 +384,7 @@ export default function MediaGalleryPage() {
               {uploads.map((item) => (
                 <div key={item.id} className="flex items-center gap-3 text-sm">
                   {item.status === "done" ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                   ) : item.status === "error" ? (
                     <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                   ) : (
@@ -565,7 +565,7 @@ export default function MediaGalleryPage() {
                         onClick={() => copyHash(selectedItem.image_hash!)}
                       >
                         {copiedHash ? (
-                          <Check className="h-3 w-3 text-green-500" />
+                          <Check className="h-3 w-3 text-emerald-500" />
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}

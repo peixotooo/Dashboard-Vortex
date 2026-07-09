@@ -136,7 +136,7 @@ export default function PreCadastroPage() {
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <div className="flex gap-2">
                         {c.items_pending > 0 && <span>{c.items_pending} pendentes</span>}
-                        {c.items_ready > 0 && <span className="text-green-600">{c.items_ready} prontos</span>}
+                        {c.items_ready > 0 && <span className="text-emerald-600">{c.items_ready} prontos</span>}
                         {c.items_error > 0 && <span className="text-red-600">{c.items_error} erros</span>}
                       </div>
                       <Button

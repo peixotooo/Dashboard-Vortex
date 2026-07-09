@@ -552,7 +552,7 @@ export default function GiftRequestPage() {
             Botão na PDP que envia WhatsApp pra pessoa que vai presentear.
           </p>
         </div>
-        <div className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 shadow-sm">
           <div className="text-right">
             <div className="text-xs text-muted-foreground">Botão na loja</div>
             <div className="flex items-center justify-end gap-1.5 text-sm font-medium">
@@ -685,7 +685,7 @@ export default function GiftRequestPage() {
                           return (
                             <div
                               key={r.id}
-                              className="text-xs border rounded p-2 bg-slate-50"
+                              className="text-xs border rounded p-2 bg-muted/60"
                             >
                               <div className="flex items-center gap-2 font-mono">
                                 <span className="text-muted-foreground">
@@ -757,7 +757,7 @@ export default function GiftRequestPage() {
                                   <summary className="cursor-pointer text-muted-foreground">
                                     variáveis enviadas
                                   </summary>
-                                  <pre className="text-[10px] mt-1 p-2 bg-white border rounded whitespace-pre-wrap">
+                                  <pre className="text-[10px] mt-1 p-2 bg-muted/60 border rounded whitespace-pre-wrap">
                                     {JSON.stringify(r.wa_variables, null, 2)}
                                   </pre>
                                 </details>
@@ -807,7 +807,7 @@ export default function GiftRequestPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-md border bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
                 Quando desativado, o botão some da PDP e novas solicitações são
                 bloqueadas. Essa chave é salva imediatamente.
               </div>
