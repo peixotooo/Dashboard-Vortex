@@ -1,0 +1,99 @@
+"use client";
+
+import * as React from "react";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { useWorkspace } from "@/lib/workspace-context";
+import { ReportTable, type ReportLine } from "../report-table";
+
+const YEARS = Array.from({ length: 11 }, (_, i) => 2022 + i);
+
+export default function DrePage() {
+  const { workspace } = useWorkspace();
+  const [year, setYear] = React.useState(new Date().getFullYear());
+  const [level, setLevel] = React.useState<"resumido" | "expandido">("resumido");
+  const [status, setStatus] = React.useState("todos");
+  const [lines, setLines] = React.useState<ReportLine[] | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    if (!workspace?.id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/controladoria/report?view=dre&year=${year}&level=${level}&status=${status}`,
+        { headers: { "x-workspace-id": workspace.id }, cache: "no-store" }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setLines(json.lines);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "erro");
+    } finally {
+      setLoading(false);
+    }
+  }, [workspace?.id, year, level, status]);
+
+  React.useEffect(() => { void load(); }, [load]);
+
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">DRE Anual — {year}</h1>
+          <p className="text-sm text-muted-foreground">
+            Regime de competência · transferências e lançamentos em revisão ficam fora (regra validada por paridade).
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={String(year)} onValueChange={(v) => setYear(parseInt(v, 10))}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os lançamentos</SelectItem>
+              <SelectItem value="pagos">Somente pagos</SelectItem>
+              <SelectItem value="pendentes">Somente pendentes</SelectItem>
+            </SelectContent>
+          </Select>
+          <Tabs value={level} onValueChange={(v) => setLevel(v as typeof level)}>
+            <TabsList>
+              <TabsTrigger value="resumido">Resumido</TabsTrigger>
+              <TabsTrigger value="expandido">Expandido</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button variant="outline" onClick={() => void load()} disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Atualizar"}
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <Card className="border-red-300">
+          <CardContent className="flex items-center gap-2 pt-5 text-red-700">
+            <AlertTriangle className="h-4 w-4" /> Falha ao carregar: {error}
+          </CardContent>
+        </Card>
+      )}
+
+      {loading && !lines && (
+        <div className="flex items-center gap-2 text-muted-foreground py-16 justify-center">
+          <Loader2 className="h-5 w-5 animate-spin" /> Calculando DRE…
+        </div>
+      )}
+
+      {lines && <ReportTable lines={lines} showPct />}
+    </div>
+  );
+}

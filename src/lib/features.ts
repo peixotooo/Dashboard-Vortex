@@ -328,8 +328,15 @@ export const FEATURES: Feature[] = [
   {
     id: "financeiro",
     label: "Financeiro",
-    description: "Curva ABC, Lucratividade, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
-    routes: ["/financeiro", "/simulador", "/simulador-comercial", "/pricing"],
+    description: "Controladoria, Curva ABC, Lucratividade, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
+    routes: ["/financeiro", "/simulador", "/simulador-comercial", "/pricing", "/controladoria"],
+  },
+  {
+    id: "financeiro.controladoria",
+    label: "Controladoria",
+    description: "Financeiro próprio (ex-SenseBoard): lançamentos, DRE, DFC, metas",
+    routes: ["/controladoria"],
+    parent: "financeiro",
   },
   {
     id: "financeiro.abc",

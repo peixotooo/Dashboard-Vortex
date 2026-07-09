@@ -230,6 +230,18 @@ const navGroups: NavGroup[] = [
     label: "Financeiro",
     items: [
       {
+        title: "Controladoria",
+        href: "/controladoria",
+        icon: Landmark,
+        items: [
+          { title: "Dashboard", href: "/controladoria", icon: PieChart },
+          { title: "Lançamentos", href: "/controladoria/lancamentos", icon: ReceiptText },
+          { title: "DRE", href: "/controladoria/dre", icon: TrendingUp },
+          { title: "DFC", href: "/controladoria/dfc", icon: Banknote },
+          { title: "Config", href: "/controladoria/config", icon: SlidersHorizontal },
+        ],
+      },
+      {
         title: "Curva ABC",
         href: "/financeiro",
         icon: PieChart,
