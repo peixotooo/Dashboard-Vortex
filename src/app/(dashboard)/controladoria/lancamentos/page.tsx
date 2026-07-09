@@ -56,12 +56,15 @@ type FormState = {
   paid_at: string;
   amount: string;
   observation: string;
+  repeat: boolean;
+  repeat_count: string;
+  repeat_keep_competence: boolean;
 };
 
 const EMPTY_FORM: FormState = {
   doc_number: "", description: "", partner_name: "", classification_id: "",
   bank_account_id: "", competence_date: "", due_date: "", paid: false, paid_at: "",
-  amount: "", observation: "",
+  amount: "", observation: "", repeat: false, repeat_count: "12", repeat_keep_competence: false,
 };
 
 export default function LancamentosPage() {
@@ -157,6 +160,7 @@ export default function LancamentosPage() {
       paid_at: row.paid_at ?? "",
       amount: String(row.amount),
       observation: row.observation ?? "",
+      repeat: false, repeat_count: "12", repeat_keep_competence: false,
     });
   };
 
@@ -175,6 +179,8 @@ export default function LancamentosPage() {
         due_date: form.due_date || null,
         paid_at: form.paid ? (form.paid_at || new Date().toISOString().slice(0, 10)) : null,
         amount: parseFloat(form.amount.replace(",", ".")),
+        repeat_count: !form.id && form.repeat ? parseInt(form.repeat_count, 10) || 1 : 1,
+        repeat_keep_competence: form.repeat_keep_competence,
       };
       const res = form.id
         ? await fetch(`/api/controladoria/lancamentos/${form.id}`, { method: "PATCH", headers, body: JSON.stringify(payload) })
@@ -183,6 +189,8 @@ export default function LancamentosPage() {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
+      const j = await res.json().catch(() => ({}));
+      if (j.count > 1) alert(`${j.count} lançamentos criados (repetição).`);
       setForm(null);
       void load();
     } catch (e) {
@@ -434,6 +442,14 @@ export default function LancamentosPage() {
                 <label className="text-xs text-muted-foreground">Descrição</label>
                 <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs text-muted-foreground">Observação</label>
+                <textarea
+                  className="flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={form.observation}
+                  onChange={(e) => setForm({ ...form, observation: e.target.value })}
+                />
+              </div>
               <div className="flex items-center gap-2 pt-1">
                 <Switch checked={form.paid} onCheckedChange={(v) => setForm({ ...form, paid: v })} />
                 <span className="text-sm">Pago</span>
@@ -442,6 +458,35 @@ export default function LancamentosPage() {
                 <div>
                   <label className="text-xs text-muted-foreground">Data de pagamento</label>
                   <Input type="date" value={form.paid_at} onChange={(e) => setForm({ ...form, paid_at: e.target.value })} />
+                </div>
+              )}
+
+              {!form.id && (
+                <div className="sm:col-span-2 rounded-md border p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={form.repeat} onCheckedChange={(v) => setForm({ ...form, repeat: v })} />
+                    <span className="text-sm font-medium">Gerar repetições (parcelas, recorrência)?</span>
+                  </div>
+                  {form.repeat && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Número de repetições (meses)</label>
+                        <Input
+                          type="number" min={1} max={120}
+                          value={form.repeat_count}
+                          onChange={(e) => setForm({ ...form, repeat_count: e.target.value })}
+                        />
+                      </div>
+                      <label className="flex items-end gap-2 pb-2 text-sm cursor-pointer">
+                        <Switch checked={form.repeat_keep_competence} onCheckedChange={(v) => setForm({ ...form, repeat_keep_competence: v })} />
+                        Manter data de competência inicial
+                      </label>
+                      <p className="sm:col-span-2 text-xs text-muted-foreground">
+                        Serão criados {form.repeat_count || 1} lançamentos mensais a partir das datas acima
+                        (vencimento avança 1 mês por parcela{form.repeat_keep_competence ? "; competência fixa na inicial" : "; competência também avança"}).
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

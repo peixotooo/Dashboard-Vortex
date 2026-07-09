@@ -81,30 +81,55 @@ export async function POST(request: NextRequest) {
       partnerId = partner.id;
     }
 
-    const { data, error } = await supabase
+    // Repetições (parcelas/recorrência): N lançamentos mensais compartilhando
+    // recurrence_group. "manter competência" fixa a competência do 1º em todas
+    // as parcelas (ex.: provisão) — como no SenseBoard.
+    const reps = Math.max(1, Math.min(120, parseInt(String(body.repeat_count ?? 1), 10) || 1));
+    const keepCompetence = !!body.repeat_keep_competence;
+    const kind = cls.is_transfer ? "transfer" : cls.is_depreciation ? "depreciation" : "normal";
+    const nowIso = new Date().toISOString();
+    // recurrence_group agrupa as parcelas p/ editar/excluir em bloco (migration-136).
+    // Enquanto essa coluna não existir no banco, degradamos: as parcelas ainda são
+    // criadas e ficam agrupadas pela descrição "(i/N)", como no SenseBoard.
+    const groupId = reps > 1 ? crypto.randomUUID() : null;
+    const hasGroupCol = await supabase
       .from("fin_entries")
-      .insert({
-        workspace_id: workspaceId,
-        doc_number: body.doc_number || null,
-        description: body.description || null,
-        observation: body.observation || null,
-        partner_id: partnerId,
-        classification_id: cls.id,
-        bank_account_id: body.bank_account_id || null,
-        competence_date: body.competence_date || null,
-        due_date: body.due_date || null,
-        paid_at: body.paid_at || null,
-        amount,
-        flow: cls.flow,
-        kind: cls.is_transfer ? "transfer" : cls.is_depreciation ? "depreciation" : "normal",
-        source: "manual",
-        source_created_at: new Date().toISOString(), // ordenação uniforme por cadastro
-      })
-      .select(SELECT)
-      .single();
+      .select("recurrence_group")
+      .limit(1)
+      .then(({ error }) => !error);
+
+    const addMonths = (iso: string | null, n: number): string | null => {
+      if (!iso) return null;
+      const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m - 1 + n, d));
+      // se o dia estourou o mês (ex.: 31 → mês curto), volta pro último dia
+      if (dt.getUTCMonth() !== (m - 1 + n) % 12) dt.setUTCDate(0);
+      return dt.toISOString().slice(0, 10);
+    };
+
+    const rows = Array.from({ length: reps }, (_, i) => ({
+      workspace_id: workspaceId,
+      doc_number: body.doc_number || null,
+      description: reps > 1 && body.description ? `(${i + 1}/${reps}) ${body.description}` : body.description || null,
+      observation: body.observation || null,
+      partner_id: partnerId,
+      classification_id: cls.id,
+      bank_account_id: body.bank_account_id || null,
+      competence_date: keepCompetence ? body.competence_date || null : addMonths(body.competence_date || null, i),
+      due_date: addMonths(body.due_date || null, i),
+      paid_at: i === 0 ? body.paid_at || null : null, // só a 1ª pode nascer paga
+      amount,
+      flow: cls.flow,
+      kind,
+      ...(hasGroupCol ? { recurrence_group: groupId } : {}),
+      source: "manual",
+      source_created_at: nowIso,
+    }));
+
+    const { data, error } = await supabase.from("fin_entries").insert(rows).select(SELECT);
     if (error) throw error;
     invalidateEngineCache(workspaceId);
-    return NextResponse.json({ row: data });
+    return NextResponse.json({ row: data?.[0], count: data?.length ?? 0 });
   } catch (err) {
     return handleAuthError(err);
   }
