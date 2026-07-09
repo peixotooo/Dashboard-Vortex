@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,6 +13,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { useWorkspace } from "@/lib/workspace-context";
+import { formatCurrency } from "@/lib/utils";
 import { ReportTable, BalanceRow, type ReportLine } from "../report-table";
 import { MONTHS_SHORT, fmtReport } from "@/lib/controladoria/format";
 
@@ -25,17 +27,30 @@ type DfcResponse = {
   saldoAcumulado: number[];
   saldoInicial: number[];
   lines: ReportLine[];
+  pmr: number;
+  pmp: number;
+  includesTransfers: boolean;
 };
+
+type Account = { id: string; code: string; bank_name: string | null };
 
 export default function DfcPage() {
   const { workspace } = useWorkspace();
   const [year, setYear] = React.useState(new Date().getFullYear());
   const [view, setView] = React.useState<"consolidado" | "resumido" | "expandido">("consolidado");
   const [status, setStatus] = React.useState("todos");
+  const [account, setAccount] = React.useState("all");
+  const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [data, setData] = React.useState<DfcResponse | null>(null);
   const [hideZeros, setHideZeros] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!workspace?.id) return;
+    void fetch("/api/controladoria/meta", { headers: { "x-workspace-id": workspace.id }, cache: "no-store" })
+      .then((r) => r.json()).then((j) => setAccounts(j.accounts ?? [])).catch(() => null);
+  }, [workspace?.id]);
 
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
@@ -43,8 +58,9 @@ export default function DfcPage() {
     setError(null);
     try {
       const level = view === "expandido" ? "expandido" : "resumido";
+      const acc = account !== "all" ? `&accounts=${account}` : "";
       const res = await fetch(
-        `/api/controladoria/report?view=dfc&year=${year}&level=${level}&status=${status}`,
+        `/api/controladoria/report?view=dfc&year=${year}&level=${level}&status=${status}${acc}`,
         { headers: { "x-workspace-id": workspace.id }, cache: "no-store" }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -54,9 +70,17 @@ export default function DfcPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, year, view, status]);
+  }, [workspace?.id, year, view, status, account]);
 
   React.useEffect(() => { void load(); }, [load]);
+
+  const chartData = React.useMemo(
+    () => data ? MONTHS_SHORT.map((m, i) => ({
+      mes: m, Entradas: data.entradas[i], Saídas: data.saidas[i],
+      Liquidez: data.liquidez[i], "Saldo acumulado": data.saldoAcumulado[i],
+    })) : [],
+    [data]
+  );
 
   return (
     <div className="space-y-4 p-6">
@@ -64,8 +88,10 @@ export default function DfcPage() {
         <div>
           <h1 className="text-2xl font-semibold">DFC — Fluxo de Caixa — {year}</h1>
           <p className="text-sm text-muted-foreground">
-            Regime de caixa (pago → data de pagamento; pendente → vencimento) · transferências entre contas,
-            depreciação e provisões ficam fora (regras validadas por paridade).
+            Regime de caixa (pago → data de pagamento; pendente → vencimento).{" "}
+            {account === "all"
+              ? "Sem filtro de conta, transferências entre contas ficam fora."
+              : "Com filtro de conta, as transferências de/para a conta entram como entrada/saída dela."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -81,6 +107,13 @@ export default function DfcPage() {
               <SelectItem value="todos">Todos os lançamentos</SelectItem>
               <SelectItem value="pagos">Somente pagos</SelectItem>
               <SelectItem value="pendentes">Somente pendentes</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={account} onValueChange={setAccount}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Conta" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as contas</SelectItem>
+              {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.code}{a.bank_name ? ` — ${a.bank_name}` : ""}</SelectItem>)}
             </SelectContent>
           </Select>
           <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
@@ -117,6 +150,26 @@ export default function DfcPage() {
       )}
 
       {data && view === "consolidado" && (
+        <>
+        <Card>
+          <CardContent className="pt-5">
+            <div className="text-sm font-medium mb-2">Fluxo de Caixa & Índice de Liquidez</div>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="mes" fontSize={11} />
+                <YAxis tickFormatter={(v: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(v)} fontSize={11} width={56} />
+                <RTooltip formatter={(v) => formatCurrency(Number(v))} />
+                <Legend />
+                <Bar dataKey="Entradas" fill="#3b82f6" />
+                <Bar dataKey="Saídas" fill="#ef4444" />
+                <Bar dataKey="Liquidez" fill="#22c55e" />
+                <Bar dataKey="Saldo acumulado" fill="#f59e0b" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
         <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
@@ -158,6 +211,7 @@ export default function DfcPage() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
 
       {data && view !== "consolidado" && (

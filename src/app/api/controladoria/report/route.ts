@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
-  fetchEngineData, aggregateYear, composeDre, composeDfc, composePeriod,
+  fetchEngineData, aggregateYear, composeDre, composeDfc, composePeriod, computePrazos,
   type StatusFilter,
 } from "@/lib/controladoria/engine";
 
@@ -41,13 +41,16 @@ export async function GET(request: NextRequest) {
     const year = parseInt(p.get("year") ?? String(new Date().getFullYear()), 10);
     const level = p.get("level") ?? "resumido";
     const status = (p.get("status") ?? "todos") as StatusFilter;
-    const agg = aggregateYear(entries, year, status, classifications);
+    // com filtro de conta, as transferências DE/PARA a conta entram no caixa
+    const hasAccountFilter = !!accounts?.length;
+    const agg = aggregateYear(entries, year, status, classifications, hasAccountFilter);
 
     if (view === "dre") {
       return NextResponse.json({ year, level, lines: composeDre(agg, classifications, level === "expandido") });
     }
     if (view === "dfc") {
       const dfc = composeDfc(agg, classifications, level === "expandido");
+      const { pmr, pmp } = computePrazos(entries, year);
       return NextResponse.json({
         year, level,
         entradas: agg.dfcEntradas,
@@ -56,6 +59,8 @@ export async function GET(request: NextRequest) {
         saldoAcumulado: dfc.saldoFinal,
         saldoInicial: dfc.saldoInicial,
         lines: dfc.lines,
+        pmr, pmp,
+        includesTransfers: hasAccountFilter,
       });
     }
     return NextResponse.json({ error: "view inválida" }, { status: 400 });

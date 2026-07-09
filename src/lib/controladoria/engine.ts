@@ -231,7 +231,8 @@ export function aggregateYear(
   entries: EngineEntry[],
   year: number,
   status: StatusFilter = "todos",
-  classifications?: EngineClassification[]
+  classifications?: EngineClassification[],
+  includeTransfers = false
 ): MonthlyByClassification {
   const dre = new Map<string, number[]>();
   const dfc = new Map<string, number[]>();
@@ -254,8 +255,10 @@ export function aggregateYear(
       const m = monthOf(e.competence_date, year);
       if (m !== null) add(dre, e.classification_id, m, e.amount);
     }
-    // DFC
-    if (e.kind === "normal") {
+    // DFC — só kind normal; transferências entram apenas quando há filtro de
+    // conta (o Sense inclui a transferência DE/PARA a conta selecionada como
+    // saída/entrada real dela). accrual e depreciation nunca entram no caixa.
+    if (e.kind === "normal" || (includeTransfers && e.kind === "transfer")) {
       const d = cashDate(e, status);
       if (d) {
         const m = monthOf(d, year);
@@ -278,6 +281,29 @@ export function aggregateYear(
     acc += dfcEntradas[m] - dfcSaidas[m];
   }
   return { dre, dfc, dfcEntradas, dfcSaidas, saldoInicialAno, saldoInicialMes };
+}
+
+/**
+ * Prazos médios (PMR/PMP): média ponderada por valor dos dias entre a
+ * competência (data da venda/compra) e o pagamento efetivo, sobre lançamentos
+ * pagos do ano. PMR = recebimentos (flow +1); PMP = pagamentos (flow -1).
+ */
+export function computePrazos(entries: EngineEntry[], year: number): { pmr: number; pmp: number } {
+  let recDias = 0, recVal = 0, pagDias = 0, pagVal = 0;
+  for (const e of entries) {
+    if (e.kind !== "normal" || !e.paid_at || !e.competence_date) continue;
+    if (!e.paid_at.startsWith(String(year))) continue;
+    const dias = Math.max(
+      0,
+      Math.round((Date.parse(e.paid_at) - Date.parse(e.competence_date)) / 86400000)
+    );
+    if (e.flow === 1) { recDias += dias * e.amount; recVal += e.amount; }
+    else { pagDias += dias * e.amount; pagVal += e.amount; }
+  }
+  return {
+    pmr: recVal > 0 ? recDias / recVal : 0,
+    pmp: pagVal > 0 ? pagDias / pagVal : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
