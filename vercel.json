@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/whatsapp-group-snapshot",
       "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/cron/fin-receitas",
+      "schedule": "30 9 * * *"
     }
   ]
 }

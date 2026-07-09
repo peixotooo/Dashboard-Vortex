@@ -20,6 +20,26 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/utils";
 import { fmtDateBR } from "@/lib/controladoria/format";
 import { PartnerInput } from "../partner-input";
+import { SearchSelect, type Option } from "../search-select";
+
+/** Label legível de uma classificação a partir do caminho completo. */
+function clsLabel(c: { path: string; name: string; category: string }): string {
+  const leaf = c.path.startsWith(c.category + " - ") ? c.path.slice(c.category.length + 3) : c.name;
+  return `${c.category} · ${leaf}`;
+}
+
+/** Input de data que abre o calendário ao clicar em qualquer lugar do campo. */
+function DateField({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  return (
+    <Input
+      type="date"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* navegador sem suporte */ } }}
+      className={`cursor-pointer ${className ?? ""}`}
+    />
+  );
+}
 
 type Row = {
   id: string;
@@ -72,6 +92,8 @@ export default function LancamentosPage() {
   const { workspace } = useWorkspace();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [total, setTotal] = React.useState(0);
+  const [totals, setTotals] = React.useState<{ entradas: number; saidas: number; saldo: number; count: number } | null>(null);
+  const [totalsLoading, setTotalsLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -84,7 +106,27 @@ export default function LancamentosPage() {
   const [accFilter, setAccFilter] = React.useState("all");
   const [dueFrom, setDueFrom] = React.useState("");
   const [dueTo, setDueTo] = React.useState("");
+  const [paidFrom, setPaidFrom] = React.useState("");
+  const [paidTo, setPaidTo] = React.useState("");
   const [quick, setQuick] = React.useState("");
+
+  // options de dropdown com busca
+  const clsOptions: Option[] = React.useMemo(
+    () => (meta?.classifications ?? []).map((c) => ({ value: c.id, label: clsLabel(c) })),
+    [meta]
+  );
+  // no form, todas as classificações (não só ativas) com o fluxo indicado —
+  // ativas primeiro; corrige o caso do Raphael (folha/receita não apareciam)
+  const clsFormOptions: Option[] = React.useMemo(() => {
+    const list = (meta?.classifications ?? []).slice().sort((a, b) =>
+      (a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1) || clsLabel(a).localeCompare(clsLabel(b), "pt-BR")
+    );
+    return list.map((c) => ({ value: c.id, label: `${clsLabel(c)} ${c.flow === 1 ? "(entrada)" : "(saída)"}` }));
+  }, [meta]);
+  const accOptions: Option[] = React.useMemo(
+    () => (meta?.accounts ?? []).map((a) => ({ value: a.id, label: a.bank_name ? `${a.code} — ${a.bank_name}` : a.code })),
+    [meta]
+  );
 
   // seleção múltipla
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -99,19 +141,27 @@ export default function LancamentosPage() {
     [workspace?.id]
   );
 
+  const filterParams = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (status !== "todos") params.set("status", status);
+    if (clsFilter !== "all") params.set("classification_id", clsFilter);
+    if (accFilter !== "all") params.set("account_id", accFilter);
+    if (dueFrom) params.set("due_from", dueFrom);
+    if (dueTo) params.set("due_to", dueTo);
+    if (paidFrom) params.set("paid_from", paidFrom);
+    if (paidTo) params.set("paid_to", paidTo);
+    if (quick) params.set("quick", quick);
+    return params;
+  }, [q, status, clsFilter, accFilter, dueFrom, dueTo, paidFrom, paidTo, quick]);
+
   const load = React.useCallback(async () => {
     if (!workspace?.id) return;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ page: String(page) });
-      if (q) params.set("q", q);
-      if (status !== "todos") params.set("status", status);
-      if (clsFilter !== "all") params.set("classification_id", clsFilter);
-      if (accFilter !== "all") params.set("account_id", accFilter);
-      if (dueFrom) params.set("due_from", dueFrom);
-      if (dueTo) params.set("due_to", dueTo);
-      if (quick) params.set("quick", quick);
+      const params = filterParams();
+      params.set("page", String(page));
       const res = await fetch(`/api/controladoria/lancamentos?${params}`, {
         headers: { "x-workspace-id": workspace.id },
         cache: "no-store",
@@ -125,9 +175,37 @@ export default function LancamentosPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, quick]);
+  }, [workspace?.id, page, filterParams]);
 
   React.useEffect(() => { void load(); }, [load]);
+
+  // Totais do conjunto filtrado — request separado (a tabela não espera a soma)
+  // e independente da página. `reloadTick` força re-busca após mutações.
+  const [reloadTick, setReloadTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!workspace?.id) return;
+    let cancelled = false;
+    setTotalsLoading(true);
+    fetch(`/api/controladoria/lancamentos/totals?${filterParams()}`, {
+      headers: { "x-workspace-id": workspace.id },
+      cache: "no-store",
+    })
+      .then(async (r) => (r.ok ? (await r.json()).totals : null))
+      .then((t) => { if (!cancelled) setTotals(t ?? null); })
+      .catch(() => { if (!cancelled) setTotals(null); })
+      .finally(() => { if (!cancelled) setTotalsLoading(false); });
+    return () => { cancelled = true; };
+  }, [workspace?.id, filterParams, reloadTick]);
+
+  const hasActiveFilters =
+    !!q || status !== "todos" || clsFilter !== "all" || accFilter !== "all" ||
+    !!dueFrom || !!dueTo || !!paidFrom || !!paidTo || !!quick;
+
+  const clearFilters = () => {
+    setQ(""); setStatus("todos"); setClsFilter("all"); setAccFilter("all");
+    setDueFrom(""); setDueTo(""); setPaidFrom(""); setPaidTo(""); setQuick("");
+    setPage(1);
+  };
 
   React.useEffect(() => {
     if (!workspace?.id) return;
@@ -157,7 +235,7 @@ export default function LancamentosPage() {
       if (!confirm(`Excluir o lançamento de ${formatCurrency(row.amount)} (${row.classification?.name ?? "?"})? Vai para a lixeira.`)) return;
     }
     await fetch(url, { method: "DELETE", headers });
-    void load();
+    void load(); setReloadTick((t) => t + 1);
   };
 
   const duplicate = (row: Row) => {
@@ -187,7 +265,7 @@ export default function LancamentosPage() {
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
       setSelected(new Set());
-      void load();
+      void load(); setReloadTick((t) => t + 1);
     } catch (e) {
       alert(e instanceof Error ? e.message : "erro");
     } finally {
@@ -252,7 +330,7 @@ export default function LancamentosPage() {
       const j = await res.json().catch(() => ({}));
       if (j.count > 1) alert(`${j.count} lançamentos criados (repetição).`);
       setForm(null);
-      void load();
+      void load(); setReloadTick((t) => t + 1);
     } catch (e) {
       alert(e instanceof Error ? e.message : "erro ao salvar");
     } finally {
@@ -311,38 +389,44 @@ export default function LancamentosPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="w-64">
             <label className="text-xs text-muted-foreground">Classificação</label>
-            <Select value={clsFilter} onValueChange={(v) => { setClsFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-80">
-                <SelectItem value="all">Todas</SelectItem>
-                {meta?.classifications.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.category} · {c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchSelect
+              value={clsFilter === "all" ? "" : clsFilter}
+              onChange={(v) => { setClsFilter(v || "all"); setPage(1); }}
+              options={clsOptions}
+              placeholder="Todas"
+              clearable
+            />
           </div>
-          <div>
+          <div className="w-40">
             <label className="text-xs text-muted-foreground">Conta</label>
-            <Select value={accFilter} onValueChange={(v) => { setAccFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {meta?.accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.code}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <SearchSelect
+              value={accFilter === "all" ? "" : accFilter}
+              onChange={(v) => { setAccFilter(v || "all"); setPage(1); }}
+              options={accOptions}
+              placeholder="Todas"
+              clearable
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Venc. de</label>
-            <Input type="date" value={dueFrom} onChange={(e) => { setDueFrom(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={dueFrom} onChange={(v) => { setDueFrom(v); setPage(1); }} className="w-38" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Venc. até</label>
-            <Input type="date" value={dueTo} onChange={(e) => { setDueTo(e.target.value); setPage(1); }} className="w-38" />
+            <DateField value={dueTo} onChange={(v) => { setDueTo(v); setPage(1); }} className="w-38" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Pago de</label>
+            <DateField value={paidFrom} onChange={(v) => { setPaidFrom(v); setPage(1); }} className="w-38" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Pago até</label>
+            <DateField value={paidTo} onChange={(v) => { setPaidTo(v); setPage(1); }} className="w-38" />
           </div>
           {/* filtros rápidos do dia a dia */}
-          <div className="flex w-full flex-wrap gap-1.5 pt-1">
+          <div className="flex w-full flex-wrap items-center gap-1.5 pt-1">
             {[
               { k: "", label: "Tudo" },
               { k: "atraso", label: "Em atraso" },
@@ -361,6 +445,14 @@ export default function LancamentosPage() {
                 {f.label}
               </button>
             ))}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="ml-auto flex items-center gap-1 rounded-full border border-input px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3 w-3" /> Limpar filtros
+              </button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -395,6 +487,28 @@ export default function LancamentosPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Totais do filtro (entradas / saídas / saldo) — no topo da lista */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Entradas {totals && `(${totals.count.toLocaleString("pt-BR")} lanç.)`}</div>
+          <div className="text-lg font-semibold tabular-nums text-emerald-700">
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.entradas) : "—"}
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Saídas</div>
+          <div className="text-lg font-semibold tabular-nums text-red-600">
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.saidas) : "—"}
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="py-3">
+          <div className="text-xs text-muted-foreground">Saldo (entradas − saídas)</div>
+          <div className={`text-lg font-semibold tabular-nums ${totals && totals.saldo < 0 ? "text-red-600" : "text-blue-600"}`}>
+            {totalsLoading ? <Loader2 className="my-1 h-4 w-4 animate-spin text-muted-foreground" /> : totals ? formatCurrency(totals.saldo) : "—"}
+          </div>
+        </CardContent></Card>
+      </div>
 
       <div className="overflow-x-auto rounded-md border">
         <Table>
@@ -435,7 +549,17 @@ export default function LancamentosPage() {
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} aria-label="Selecionar" />
                 </TableCell>
                 <TableCell className="max-w-[260px]">
-                  <div className="truncate font-medium">{r.partner?.name ?? "—"}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate font-medium">{r.partner?.name ?? "—"}</span>
+                    {r.doc_number?.startsWith("AUTO-") && (
+                      <span
+                        className="shrink-0 rounded border border-violet-300 bg-violet-50 px-1 text-[10px] font-medium uppercase text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300"
+                        title="Lançamento automático (receita diária VNDA/Mercado Livre). Valor re-verificado por 7 dias; excluir é respeitado."
+                      >
+                        auto
+                      </span>
+                    )}
+                  </div>
                   {r.description && <div className="truncate text-xs text-muted-foreground">{r.description}</div>}
                 </TableCell>
                 <TableCell className="whitespace-nowrap">{fmtDateBR(r.due_date)}</TableCell>
@@ -518,34 +642,30 @@ export default function LancamentosPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="text-xs text-muted-foreground">Classificação *</label>
-                <Select value={form.classification_id} onValueChange={(v) => setForm({ ...form, classification_id: v })}>
-                  <SelectTrigger><SelectValue placeholder="Selecione a classificação" /></SelectTrigger>
-                  <SelectContent className="max-h-80">
-                    {meta?.classifications.filter((c) => c.is_active).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.category} · {c.name} {c.flow === 1 ? "(entrada)" : "(saída)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={form.classification_id}
+                  onChange={(v) => setForm({ ...form, classification_id: v })}
+                  options={clsFormOptions}
+                  placeholder="Digite para buscar a classificação"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Vencimento</label>
-                <Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                <DateField value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Competência</label>
-                <Input type="date" value={form.competence_date} onChange={(e) => setForm({ ...form, competence_date: e.target.value })} />
+                <DateField value={form.competence_date} onChange={(v) => setForm({ ...form, competence_date: v })} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Conta bancária</label>
-                <Select value={form.bank_account_id || "none"} onValueChange={(v) => setForm({ ...form, bank_account_id: v === "none" ? "" : v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sem conta</SelectItem>
-                    {meta?.accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.code} — {a.bank_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={form.bank_account_id}
+                  onChange={(v) => setForm({ ...form, bank_account_id: v })}
+                  options={accOptions}
+                  placeholder="Sem conta"
+                  clearable
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Nº do documento</label>
@@ -570,7 +690,7 @@ export default function LancamentosPage() {
               {form.paid && (
                 <div>
                   <label className="text-xs text-muted-foreground">Data de pagamento</label>
-                  <Input type="date" value={form.paid_at} onChange={(e) => setForm({ ...form, paid_at: e.target.value })} />
+                  <DateField value={form.paid_at} onChange={(v) => setForm({ ...form, paid_at: v })} />
                 </div>
               )}
 
