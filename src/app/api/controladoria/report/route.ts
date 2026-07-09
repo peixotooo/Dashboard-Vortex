@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     const year = parseInt(p.get("year") ?? String(new Date().getFullYear()), 10);
     const level = p.get("level") ?? "resumido";
     const status = (p.get("status") ?? "todos") as StatusFilter;
-    const agg = aggregateYear(entries, year, status);
+    const agg = aggregateYear(entries, year, status, classifications);
 
     if (view === "dre") {
       return NextResponse.json({ year, level, lines: composeDre(agg, classifications, level === "expandido") });

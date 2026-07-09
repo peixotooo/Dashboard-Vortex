@@ -32,6 +32,77 @@ export interface EngineClassification {
 
 export type StatusFilter = "todos" | "pagos" | "pendentes";
 
+// ---------------------------------------------------------------------------
+// Regras descobertas na paridade multi-ano (DRE Expandido 2023 conferido
+// classificação a classificação contra a tela do SenseBoard):
+//
+// 1. Subcategorias SÓ-CAIXA: alimentam o DFC mas ficam FORA da DRE (a DRE usa
+//    a provisão mensal de CMV; compras reais de tecido/insumo/mão de obra e o
+//    saque de marketplace não entram no resultado — evita dupla contagem).
+// 2. Pessoal PROVISIONADO: a DRE troca os lançamentos reais de 13°/Férias/
+//    Multa Rescisória por provisão mensal sobre o "Salário (s/ encargos)" da
+//    mesma categoria: 13° = 1/12 (8,333%), Férias = 1/36 (2,778%),
+//    Multa = 8/225 (3,556%). Conferido ao centavo (ex.: 89.394×3,5556%=3.178).
+// ---------------------------------------------------------------------------
+export const DRE_CASH_ONLY_SUBCATS = new Set([
+  "Matéria prima / item revenda",
+  "Insumos",
+  "Mão de obra terceirizada",
+  "Receita Venda/Revenda", // saques de marketplace — caixa, não receita nova
+]);
+
+const PROVISION_RATES: { match: RegExp; rate: number }[] = [
+  { match: /^13° Salário/, rate: 1 / 12 },
+  { match: /^Férias/, rate: 1 / 36 },
+  { match: /^Multa Rescisória/, rate: 8 / 225 },
+];
+const PESSOAL_CATEGORIES = ["Gasto com Pessoal - Adm", "Gasto com pessoal - Prod/Oper"];
+
+/** Aplica as regras 1 e 2 sobre o mapa mensal DRE (classification_id → 12 meses). */
+export function adjustDreMap(
+  dre: Map<string, number[]>,
+  cls: EngineClassification[]
+): Map<string, number[]> {
+  const byId = new Map(cls.map((c) => [c.id, c]));
+  const out = new Map<string, number[]>();
+  // Nos caminhos de 2 níveis a "subcategoria" vem como name (ex.: classificação
+  // chamada "Insumos" direto sob a categoria) — o matching olha os dois campos.
+  const leafKey = (c: EngineClassification) => c.subcategory ?? c.name;
+  // salário por categoria de pessoal (base das provisões)
+  const salarioByCat = new Map<string, number[]>();
+  for (const [id, months] of dre) {
+    const c = byId.get(id);
+    if (c && PESSOAL_CATEGORIES.includes(c.category) && leafKey(c).startsWith("Salário (s/ encargos)")) {
+      const acc = salarioByCat.get(c.category) ?? Array(12).fill(0);
+      months.forEach((v, m) => (acc[m] += v));
+      salarioByCat.set(c.category, acc);
+    }
+  }
+  for (const [id, months] of dre) {
+    const c = byId.get(id);
+    if (!c) continue;
+    if (DRE_CASH_ONLY_SUBCATS.has(c.subcategory ?? "") || DRE_CASH_ONLY_SUBCATS.has(c.name)) continue; // regra 1
+    const prov = PESSOAL_CATEGORIES.includes(c.category)
+      ? PROVISION_RATES.find((p) => p.match.test(leafKey(c)))
+      : undefined;
+    if (prov) {
+      const sal = salarioByCat.get(c.category) ?? Array(12).fill(0);
+      out.set(id, sal.map((v) => v * prov.rate)); // regra 2
+    } else {
+      out.set(id, months);
+    }
+  }
+  // provisões existem mesmo sem lançamento real no ano (13°/férias/multa zerados):
+  for (const c of cls) {
+    if (out.has(c.id) || !PESSOAL_CATEGORIES.includes(c.category)) continue;
+    const prov = PROVISION_RATES.find((p) => p.match.test(c.subcategory ?? c.name));
+    if (!prov) continue;
+    const sal = salarioByCat.get(c.category);
+    if (sal) out.set(c.id, sal.map((v) => v * prov.rate));
+  }
+  return out;
+}
+
 const PAGE = 1000; // cap de linhas por request do Supabase
 
 export async function fetchEngineData(
@@ -91,13 +162,18 @@ export interface MonthlyByClassification {
 export function aggregateYear(
   entries: EngineEntry[],
   year: number,
-  status: StatusFilter = "todos"
+  status: StatusFilter = "todos",
+  classifications?: EngineClassification[]
 ): MonthlyByClassification {
   const dre = new Map<string, number[]>();
   const dfc = new Map<string, number[]>();
   const dfcEntradas = Array(12).fill(0);
   const dfcSaidas = Array(12).fill(0);
   let saldoInicialAno = 0;
+  // fluxo natural da classificação: os 4 "ajustes de caixa" importados com o
+  // fluxo invertido (valor negativo na origem) contam como valor NEGATIVO na
+  // coluna natural — igual ao SenseBoard (net idêntico, colunas brutas também).
+  const clsFlow = new Map((classifications ?? []).map((c) => [c.id, c.flow]));
   const add = (map: Map<string, number[]>, id: string, m: number, v: number) => {
     let arr = map.get(id);
     if (!arr) map.set(id, (arr = Array(12).fill(0)));
@@ -116,9 +192,11 @@ export function aggregateYear(
       if (d) {
         const m = monthOf(d, year);
         if (m !== null) {
-          add(dfc, e.classification_id, m, e.amount);
-          if (e.flow === 1) dfcEntradas[m] += e.amount;
-          else dfcSaidas[m] += e.amount;
+          const natural = clsFlow.get(e.classification_id) ?? e.flow;
+          const signed = natural === e.flow ? e.amount : -e.amount;
+          add(dfc, e.classification_id, m, signed);
+          if (natural === 1) dfcEntradas[m] += signed;
+          else dfcSaidas[m] += signed;
         }
         if (d < `${year}-01-01`) saldoInicialAno += e.flow * e.amount;
       }
@@ -188,7 +266,8 @@ export function composeDre(
   cls: EngineClassification[],
   expanded: boolean
 ): ReportLine[] {
-  const g = (cats: string[]) => byCategory(agg.dre, cls, cats);
+  const adjusted = adjustDreMap(agg.dre, cls);
+  const g = (cats: string[]) => byCategory(adjusted, cls, cats);
   const receita = g(["Receita de Vendas"]);
   const deducoes = g(["Deduções de Vendas"]);
   const cpv = g(["Custo dos Produtos Vendidos"]);
@@ -316,25 +395,33 @@ export function composePeriod(
   to: string
 ): PeriodSummary {
   const clsById = new Map(cls.map((c) => [c.id, c]));
-  const dreByCls = new Map<string, number>();
+  const dreRaw = new Map<string, number[]>(); // valor do período no índice 0
   let dfcEntradas = 0, dfcSaidas = 0, saldoInicial = 0;
 
   for (const e of entries) {
     if (e.kind !== "transfer" && !e.needs_review && e.competence_date &&
         e.competence_date >= from && e.competence_date <= to) {
-      dreByCls.set(e.classification_id, (dreByCls.get(e.classification_id) || 0) + e.amount);
+      let arr = dreRaw.get(e.classification_id);
+      if (!arr) dreRaw.set(e.classification_id, (arr = Array(12).fill(0)));
+      arr[0] += e.amount;
     }
     if (e.kind === "normal") {
       const d = e.paid_at || e.due_date;
       if (d) {
         if (d >= from && d <= to) {
-          if (e.flow === 1) dfcEntradas += e.amount;
-          else dfcSaidas += e.amount;
+          const natural = clsById.get(e.classification_id)?.flow ?? e.flow;
+          const signed = natural === e.flow ? e.amount : -e.amount;
+          if (natural === 1) dfcEntradas += signed;
+          else dfcSaidas += signed;
         }
         if (d < from) saldoInicial += e.flow * e.amount;
       }
     }
   }
+
+  // mesmas regras da DRE anual (subcats só-caixa + provisões de pessoal)
+  const dreByCls = new Map<string, number>();
+  for (const [id, arr] of adjustDreMap(dreRaw, cls)) dreByCls.set(id, arr[0]);
 
   const catTotal = (cats: string[]) => {
     let t = 0;

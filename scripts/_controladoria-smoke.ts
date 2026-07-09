@@ -11,7 +11,7 @@ import { WORKSPACE_ID } from "./senseboard-lib";
   const { entries, classifications } = await fetchEngineData(sb, WORKSPACE_ID);
   console.log(`fetch: ${entries.length} lançamentos, ${classifications.length} classificações em ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
-  const agg = aggregateYear(entries, 2026, "todos");
+  const agg = aggregateYear(entries, 2026, "todos", classifications);
   const dre = composeDre(agg, classifications, false);
   const receita = dre.find((l) => l.key === "receita")!;
   const dfc = composeDfc(agg, classifications, false);
