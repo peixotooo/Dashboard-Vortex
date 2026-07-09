@@ -36,6 +36,18 @@ export async function GET(request: NextRequest) {
     if (p.get("due_from")) q = q.gte("due_date", p.get("due_from")!);
     if (p.get("due_to")) q = q.lte("due_date", p.get("due_to")!);
 
+    // filtros rápidos do dia a dia (sobre lançamentos não pagos)
+    const quick = p.get("quick");
+    if (quick) {
+      const today = new Date().toISOString().slice(0, 10);
+      const in7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+      if (quick === "atraso") q = q.is("paid_at", null).lt("due_date", today);
+      if (quick === "hoje") q = q.is("paid_at", null).eq("due_date", today);
+      if (quick === "semana") q = q.is("paid_at", null).gte("due_date", today).lte("due_date", in7);
+      if (quick === "receber") q = q.is("paid_at", null).eq("flow", 1);
+      if (quick === "pagar") q = q.is("paid_at", null).eq("flow", -1);
+    }
+
     // Ordenação do SenseBoard: mais recém-CADASTRADOS primeiro (não vencimento —
     // recorrências/depreciações futuras iriam pro topo). Manuais novos (sem
     // source_created_at) vêm antes; importados seguem a data de cadastro da origem.

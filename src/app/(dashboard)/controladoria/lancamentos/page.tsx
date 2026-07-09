@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertTriangle, Plus, Pencil, Trash2, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, AlertTriangle, Plus, Pencil, Trash2, Copy, Check, X, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
 import { useWorkspace } from "@/lib/workspace-context";
 import { formatCurrency } from "@/lib/utils";
 import { fmtDateBR } from "@/lib/controladoria/format";
+import { PartnerInput } from "../partner-input";
 
 type Row = {
   id: string;
@@ -83,6 +84,11 @@ export default function LancamentosPage() {
   const [accFilter, setAccFilter] = React.useState("all");
   const [dueFrom, setDueFrom] = React.useState("");
   const [dueTo, setDueTo] = React.useState("");
+  const [quick, setQuick] = React.useState("");
+
+  // seleção múltipla
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
 
   // form
   const [form, setForm] = React.useState<FormState | null>(null);
@@ -105,6 +111,7 @@ export default function LancamentosPage() {
       if (accFilter !== "all") params.set("account_id", accFilter);
       if (dueFrom) params.set("due_from", dueFrom);
       if (dueTo) params.set("due_to", dueTo);
+      if (quick) params.set("quick", quick);
       const res = await fetch(`/api/controladoria/lancamentos?${params}`, {
         headers: { "x-workspace-id": workspace.id },
         cache: "no-store",
@@ -118,7 +125,7 @@ export default function LancamentosPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo]);
+  }, [workspace?.id, page, q, status, clsFilter, accFilter, dueFrom, dueTo, quick]);
 
   React.useEffect(() => { void load(); }, [load]);
 
@@ -141,10 +148,63 @@ export default function LancamentosPage() {
 
   const remove = async (row: Row) => {
     if (!workspace?.id) return;
-    if (!confirm(`Excluir o lançamento de ${formatCurrency(row.amount)} (${row.classification?.name ?? "?"})? Ele vai para a lixeira.`)) return;
-    await fetch(`/api/controladoria/lancamentos/${row.id}`, { method: "DELETE", headers });
+    const isSeries = /^\(\d+\/\d+\)/.test(row.description ?? "");
+    let url = `/api/controladoria/lancamentos/${row.id}`;
+    if (isSeries) {
+      const all = confirm(`Este lançamento é uma parcela (${(row.description ?? "").match(/^\(\d+\/\d+\)/)?.[0]}).\n\nOK = excluir a SÉRIE inteira · Cancelar = só este.`);
+      if (all) url += "?series=1";
+    } else {
+      if (!confirm(`Excluir o lançamento de ${formatCurrency(row.amount)} (${row.classification?.name ?? "?"})? Vai para a lixeira.`)) return;
+    }
+    await fetch(url, { method: "DELETE", headers });
     void load();
   };
+
+  const duplicate = (row: Row) => {
+    setForm({
+      doc_number: row.doc_number ?? "",
+      description: row.description?.replace(/^\(\d+\/\d+\)\s*/, "") ?? "",
+      partner_name: row.partner?.name ?? "",
+      classification_id: row.classification?.id ?? "",
+      bank_account_id: row.account?.id ?? "",
+      competence_date: row.competence_date ?? "",
+      due_date: row.due_date ?? "",
+      paid: false, paid_at: "",
+      amount: String(row.amount),
+      observation: row.observation ?? "",
+      repeat: false, repeat_count: "12", repeat_keep_competence: false,
+    });
+  };
+
+  const runBulk = async (action: string, label: string) => {
+    if (!workspace?.id || selected.size === 0) return;
+    if (action === "delete" && !confirm(`${label} ${selected.size} lançamento(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/controladoria/lancamentos/bulk", {
+        method: "POST", headers, body: JSON.stringify({ ids: [...selected], action }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
+      setSelected(new Set());
+      void load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "erro");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const toggleSel = (id: string) =>
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allOnPage = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleAll = () =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allOnPage) rows.forEach((r) => n.delete(r.id));
+      else rows.forEach((r) => n.add(r.id));
+      return n;
+    });
 
   const openEdit = (row: Row) => {
     setForm({
@@ -281,8 +341,52 @@ export default function LancamentosPage() {
             <label className="text-xs text-muted-foreground">Venc. até</label>
             <Input type="date" value={dueTo} onChange={(e) => { setDueTo(e.target.value); setPage(1); }} className="w-38" />
           </div>
+          {/* filtros rápidos do dia a dia */}
+          <div className="flex w-full flex-wrap gap-1.5 pt-1">
+            {[
+              { k: "", label: "Tudo" },
+              { k: "atraso", label: "Em atraso" },
+              { k: "hoje", label: "Vence hoje" },
+              { k: "semana", label: "Vence em 7 dias" },
+              { k: "receber", label: "A receber" },
+              { k: "pagar", label: "A pagar" },
+            ].map((f) => (
+              <button
+                key={f.k}
+                onClick={() => { setQuick(f.k); setPage(1); }}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  quick === f.k ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "border-input hover:bg-muted"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </CardContent>
       </Card>
+
+      {/* barra de ações em lote */}
+      {selected.size > 0 && (
+        <Card className="border-blue-300 bg-blue-50/60 dark:bg-blue-950/20">
+          <CardContent className="flex flex-wrap items-center gap-2 py-3">
+            <span className="text-sm font-medium">{selected.size} selecionado(s)</span>
+            <div className="flex-1" />
+            <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk("pay", "Dar baixa em")}>
+              <Check className="mr-1 h-3.5 w-3.5" /> Dar baixa
+            </Button>
+            <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk("unpay", "Estornar")}>
+              <X className="mr-1 h-3.5 w-3.5" /> Estornar baixa
+            </Button>
+            <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => void runBulk("review_done", "Marcar revisado")}>
+              Marcar revisado
+            </Button>
+            <Button size="sm" variant="outline" className="text-red-600" disabled={bulkBusy} onClick={() => void runBulk("delete", "Excluir")}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Limpar</Button>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <Card className="border-red-300">
@@ -296,6 +400,9 @@ export default function LancamentosPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8">
+                <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label="Selecionar todos" />
+              </TableHead>
               <TableHead>Parceiro / Descrição</TableHead>
               <TableHead>Vencimento</TableHead>
               <TableHead>Competência</TableHead>
@@ -304,26 +411,29 @@ export default function LancamentosPage() {
               <TableHead>Classificação</TableHead>
               <TableHead>Conta</TableHead>
               <TableHead>Pago</TableHead>
-              <TableHead className="w-20" />
+              <TableHead className="w-28" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                   <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                 </TableCell>
               </TableRow>
             )}
             {!loading && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                   Nenhum lançamento com esses filtros.
                 </TableCell>
               </TableRow>
             )}
             {!loading && rows.map((r) => (
-              <TableRow key={r.id} className={r.needs_review ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}>
+              <TableRow key={r.id} className={selected.has(r.id) ? "bg-blue-50/60 dark:bg-blue-950/20" : r.needs_review ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}>
+                <TableCell>
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} aria-label="Selecionar" />
+                </TableCell>
                 <TableCell className="max-w-[260px]">
                   <div className="truncate font-medium">{r.partner?.name ?? "—"}</div>
                   {r.description && <div className="truncate text-xs text-muted-foreground">{r.description}</div>}
@@ -359,11 +469,14 @@ export default function LancamentosPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}>
+                  <div className="flex gap-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Editar" onClick={() => openEdit(r)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => void remove(r)}>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Duplicar" onClick={() => duplicate(r)}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" title="Excluir" onClick={() => void remove(r)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -397,7 +510,7 @@ export default function LancamentosPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="text-xs text-muted-foreground">Parceiro *</label>
-                <Input value={form.partner_name} onChange={(e) => setForm({ ...form, partner_name: e.target.value })} placeholder="Nome do parceiro" />
+                <PartnerInput value={form.partner_name} onChange={(v) => setForm({ ...form, partner_name: v })} />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Valor (R$) *</label>

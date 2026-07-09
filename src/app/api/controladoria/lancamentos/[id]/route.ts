@@ -67,20 +67,47 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   }
 }
 
-// DELETE — lixeira (soft delete; ?hard=1 não é suportado de propósito)
+// DELETE — lixeira (soft delete). ?series=1 exclui a série de parcelas inteira
+// (mesmo recurrence_group), quando a coluna existir.
 export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { workspaceId } = await getWorkspaceContext(request);
     const { id } = await ctx.params;
+    const series = request.nextUrl.searchParams.get("series") === "1";
     const supabase = createAdminClient();
+    const now = new Date().toISOString();
+
+    let affected = 1;
+    if (series) {
+      const { data: row } = await supabase
+        .from("fin_entries")
+        .select("recurrence_group")
+        .eq("workspace_id", workspaceId)
+        .eq("id", id)
+        .maybeSingle();
+      const group = (row as { recurrence_group?: string } | null)?.recurrence_group;
+      if (group) {
+        const { data, error } = await supabase
+          .from("fin_entries")
+          .update({ deleted_at: now })
+          .eq("workspace_id", workspaceId)
+          .eq("recurrence_group", group)
+          .is("deleted_at", null)
+          .select("id");
+        if (error) throw error;
+        affected = data?.length ?? 0;
+        invalidateEngineCache(workspaceId);
+        return NextResponse.json({ ok: true, affected });
+      }
+    }
     const { error } = await supabase
       .from("fin_entries")
-      .update({ deleted_at: new Date().toISOString() })
+      .update({ deleted_at: now })
       .eq("workspace_id", workspaceId)
       .eq("id", id);
     if (error) throw error;
     invalidateEngineCache(workspaceId);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, affected });
   } catch (err) {
     return handleAuthError(err);
   }
