@@ -309,6 +309,8 @@ const sum = (...arrs: number[][]) => {
 };
 const sub = (a: number[], b: number[]) => a.map((v, i) => v - b[i]);
 
+const ptBR = new Intl.Collator("pt-BR", { sensitivity: "base" });
+
 function byCategory(
   agg: Map<string, number[]>,
   cls: EngineClassification[],
@@ -319,20 +321,25 @@ function byCategory(
   const perCls: { c: EngineClassification; months: number[] }[] = [];
   for (const c of cls) {
     if (!categories.includes(c.category)) continue;
-    const months = agg.get(c.id);
-    if (!months || months.every((v) => Math.abs(v) < 0.005)) continue;
+    const months = agg.get(c.id) ?? zero();
+    const hasValue = months.some((v) => Math.abs(v) >= 0.005);
+    // como no SenseBoard: a árvore inteira aparece, mesmo zerada (as zeradas do
+    // cadastro ativo entram com 0; históricas só quando têm movimento no ano)
+    if (!hasValue && !(grouped && c.is_active)) continue;
     for (let i = 0; i < 12; i++) total[i] += months[i];
     perCls.push({ c, months });
   }
   const byAbs = (a: ReportLine, b: ReportLine) => Math.abs(b.accum) - Math.abs(a.accum);
+  const byLabel = (a: ReportLine, b: ReportLine) => ptBR.compare(a.label, b.label);
   let children: ReportLine[];
   if (!grouped) {
     children = perCls.map(({ c, months }) =>
       line(c.id, c.subcategory ? `${c.subcategory} · ${c.name}` : c.name, "", months)
     );
+    children.sort(byAbs);
   } else {
-    // estrutura do SenseBoard: classificações direto na categoria + grupos
-    // "Subtotal" por subcategoria com as classificações dentro
+    // estrutura do SenseBoard: ordem alfabética; classificações direto na
+    // categoria + grupos "Subtotal" por subcategoria com as classificações dentro
     const direct = perCls
       .filter((x) => !x.c.subcategory)
       .map((x) => line(x.c.id, x.c.name, "", x.months));
@@ -346,12 +353,12 @@ function byCategory(
     const groups = [...bySub.entries()].map(([sub, items]) => {
       const t = zero();
       for (const x of items) x.months.forEach((v, i) => (t[i] += v));
-      const inner = items.map((x) => line(x.c.id, x.c.name, "", x.months)).sort(byAbs);
+      const inner = items.map((x) => line(x.c.id, x.c.name, "", x.months)).sort(byLabel);
       return line(`sub:${categories[0]}:${sub}`, `${sub} · Subtotal`, "=", t, false, inner);
     });
     children = [...direct, ...groups];
+    children.sort(byLabel);
   }
-  children.sort(byAbs);
   return { total, children };
 }
 

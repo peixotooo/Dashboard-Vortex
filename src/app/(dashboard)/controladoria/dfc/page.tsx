@@ -33,6 +33,7 @@ export default function DfcPage() {
   const [view, setView] = React.useState<"consolidado" | "resumido" | "expandido">("consolidado");
   const [status, setStatus] = React.useState("todos");
   const [data, setData] = React.useState<DfcResponse | null>(null);
+  const [hideZeros, setHideZeros] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -89,6 +90,12 @@ export default function DfcPage() {
               <TabsTrigger value="expandido">Expandido</TabsTrigger>
             </TabsList>
           </Tabs>
+          {view === "expandido" && (
+            <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer whitespace-nowrap">
+              <input type="checkbox" checked={hideZeros} onChange={(e) => setHideZeros(e.target.checked)} />
+              Ocultar zeradas
+            </label>
+          )}
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Atualizar"}
           </Button>
@@ -157,6 +164,7 @@ export default function DfcPage() {
         <ReportTable
           lines={data.lines}
           showPct={false}
+          hideZeros={hideZeros}
           extraTop={<BalanceRow label="Saldo Inicial" values={data.saldoInicial} showPct={false} />}
         />
       )}

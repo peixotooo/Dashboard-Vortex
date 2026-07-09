@@ -19,6 +19,7 @@ export default function DrePage() {
   const [level, setLevel] = React.useState<"resumido" | "expandido">("resumido");
   const [status, setStatus] = React.useState("todos");
   const [lines, setLines] = React.useState<ReportLine[] | null>(null);
+  const [hideZeros, setHideZeros] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -73,6 +74,12 @@ export default function DrePage() {
               <TabsTrigger value="expandido">Expandido</TabsTrigger>
             </TabsList>
           </Tabs>
+          {level === "expandido" && (
+            <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer whitespace-nowrap">
+              <input type="checkbox" checked={hideZeros} onChange={(e) => setHideZeros(e.target.checked)} />
+              Ocultar zeradas
+            </label>
+          )}
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Atualizar"}
           </Button>
@@ -93,7 +100,7 @@ export default function DrePage() {
         </div>
       )}
 
-      {lines && <ReportTable lines={lines} showPct />}
+      {lines && <ReportTable lines={lines} showPct hideZeros={hideZeros} />}
     </div>
   );
 }

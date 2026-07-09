@@ -73,11 +73,19 @@ function Row({ line, depth, showPct }: { line: ReportLine; depth: number; showPc
   );
 }
 
-export function ReportTable({ lines, showPct = true, extraTop }: {
+function pruneZeros(lines: ReportLine[]): ReportLine[] {
+  return lines
+    .map((l) => (l.children ? { ...l, children: pruneZeros(l.children) } : l))
+    .filter((l) => l.emphasis || Math.abs(l.accum) >= 0.005 || (l.children?.length ?? 0) > 0);
+}
+
+export function ReportTable({ lines: rawLines, showPct = true, extraTop, hideZeros = false }: {
   lines: ReportLine[];
   showPct?: boolean;
   extraTop?: React.ReactNode;
+  hideZeros?: boolean;
 }) {
+  const lines = React.useMemo(() => (hideZeros ? pruneZeros(rawLines) : rawLines), [rawLines, hideZeros]);
   return (
     <div className="overflow-x-auto rounded-md border">
       <Table>
