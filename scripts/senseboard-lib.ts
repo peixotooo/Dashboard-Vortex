@@ -96,14 +96,21 @@ export function loadEntries(): RawEntry[] {
       : isTransfer ? "transfer"
       : isAccrual ? "accrual"
       : "normal";
-    const flow: 1 | -1 = tipo.startsWith("Entrada") ? 1 : -1;
+    let flow: 1 | -1 = tipo.startsWith("Entrada") ? 1 : -1;
+    let amount = parseAmount(r[i["Movimentação"]]);
+    // 4 ajustes de caixa vêm NEGATIVOS no export ("Entrada" de valor negativo);
+    // normalizamos p/ valor absoluto + fluxo invertido (agregação idêntica).
+    if (amount < 0) {
+      amount = -amount;
+      flow = (flow === 1 ? -1 : 1) as 1 | -1;
+    }
     return {
       docNumber: r[i["Número do Doc."]],
       competence: parseDate(r[i["Competência"]]),
       due: parseDate(r[i["Vencimento"]]),
       partner: r[i["Parceiro"]],
       description: r[i["Descrição"]],
-      amount: parseAmount(r[i["Movimentação"]]),
+      amount,
       paidAt: parseDate(r[i["Data de pagamento"]]),
       accountCode: acct ? acct.split(" - Banco:")[0].trim() : null,
       classificationPath: pathStr,

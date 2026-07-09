@@ -90,7 +90,7 @@ async function fromDb(): Promise<Agg> {
   const catById = new Map((cls || []).map((c) => [c.id, c.category]));
 
   const agg = emptyAgg();
-  const PAGE = 5000;
+  const PAGE = 1000; // cap de linhas por request do Supabase
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await sb
       .from("fin_entries")
