@@ -154,9 +154,14 @@ fin_budget_lines      -- Planejamento financeiro (DRE previsto) por classificaç
 fin_fixed_assets      -- imobilizado (10 itens)
 ```
 
-**Motor de relatórios**: DRE e DFC são **agregações de `fin_entries` por classificação → categoria → seção**, filtradas por (a) data de competência (DRE) ou data de vencimento/pagamento (DFC), (b) status pago/pendente, (c) contas bancárias, ignorando `flow = 0` (transferências). Implementar como funções SQL/views materializadas leves + endpoint `/api/financeiro/report?tipo=dre|dfc&nivel=resumido|expandido&...`. Saldo bancário = soma acumulada de todos os lançamentos pagos da conta (não existe saldo inicial cadastral — comprovado no SenseBoard).
+**Motor de relatórios — SEMÂNTICA COMPROVADA POR PARIDADE (37/37 números exatos vs. telas de 08/07/2026; ver `scripts/senseboard-parity.ts`):**
 
-Regra de semântica **importante** (observada): **DRE usa competência; DFC usa caixa (vencimento/pagamento)**. Lançamento tem as duas datas separadas exatamente por isso.
+- **DRE**: agrega por **data de competência**; exclui transferências e lançamentos "Não Classificado" (`needs_review`); **inclui** depreciação e provisões (accrual).
+- **DFC**: agrega por **caixa** — pago entra na data de pagamento, pendente entra no vencimento; só `kind='normal'` (exclui transferências, depreciação e provisões/accrual).
+- **`kind='accrual'`** (descoberta da paridade): as provisões mensais de CMV que o Raphael lança ("CMV - JANEIRO 26" etc., pendente + sem conta + folha "Custo Mercadoria Vendida") entram na DRE pela competência e NUNCA no DFC. 42 linhas na carga.
+- Saldo bancário = soma acumulada dos lançamentos pagos da conta (não existe saldo inicial cadastral — comprovado).
+
+Implementar como funções SQL/views leves + endpoint `/api/financeiro/report?tipo=dre|dfc&nivel=resumido|expandido&...`.
 
 ---
 
@@ -241,8 +246,13 @@ UI: respeitar [[feedback_contrast_color_combos]] (nada de fundo claro + texto cl
 **Fase 0 — Congelar gabarito (1 dia)**
 Exportar do SenseBoard: lançamentos por ano, classificações, de>para, XLSX Completo de DRE/DFC resumido+expandido por ano (2023–2026), parceiros. Guardar em `output/senseboard-export/` (fora do git se sensível).
 
-**Fase 1 — Fundação (migrations + import)**
-migration-135 (tabelas §3, aplicar manualmente no Supabase como de costume), seed de `fin_categories` espelhando a árvore SenseBoard, importador + **teste de paridade automatizado**: para cada mês de 2025–2026, DRE resumida e DFC resumido do Vortex ≡ XLSX do SenseBoard (tolerância R$ 0,01). Sem paridade, nada avança.
+**Fase 1 — Fundação (migrations + import)** — ✅ código pronto em 2026-07-08
+- `supabase/migration-135-financeiro-core.sql` — fin_partners, fin_bank_accounts, fin_classifications (+aliases), fin_import_batches, fin_entries, fin_settings, RLS padrão. **Aplicar manualmente no Supabase.**
+- `scripts/senseboard-lib.ts` — parsing compartilhado (caminho por longest-prefix das 13 categorias; derivação de flow/kind/needs_review).
+- `scripts/import-senseboard.ts` — dry-run validado: 72.535 lançamentos (61.316 normal / 9.048 depreciation / 2.129 transfer / 42 accrual), 111 classificações (59 ativas), 1.934 parceiros, 11 contas, 69 aliases. `--apply` faz full-refresh da fonte 'senseboard' (idempotente p/ re-import semanal).
+- `scripts/senseboard-parity.ts` — `--csv` 🎯 **PARIDADE TOTAL 37/37** (DRE receita jan–jul + deduções jan–jun; DFC entradas/saídas 12 meses + totais anuais). `--db` valida a importação após aplicar a migration.
+
+Sequência de ativação: aplicar migration-135 → `npx tsx scripts/import-senseboard.ts --apply` → `npx tsx scripts/senseboard-parity.ts --db` (precisa dar 🎯).
 
 **Fase 2 — Telas core**
 Lançamentos (lista/CRUD/import/export) → DRE → DFC → Dashboard. Nesta ordem: sem confiança nos lançamentos os relatórios não valem nada.
