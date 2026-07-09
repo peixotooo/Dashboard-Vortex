@@ -9,7 +9,8 @@ const SELECT =
   "id, doc_number, description, observation, competence_date, due_date, paid_at, amount, flow, kind, needs_review, source, created_at, " +
   "partner:fin_partners(id, name), classification:fin_classifications(id, path, name, category), account:fin_bank_accounts(id, code)";
 
-// GET /api/controladoria/lancamentos?page=1&q=&classification_id=&account_id=&status=&due_from=&due_to=
+// GET /api/controladoria/lancamentos?page=1&q=&classification_id=&account_id=
+//   &status=&due_from=&due_to=&paid_from=&paid_to=&quick=
 export async function GET(request: NextRequest) {
   try {
     const { workspaceId } = await getControladoriaContext(request);
@@ -18,46 +19,69 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(100, parseInt(p.get("pageSize") ?? "50", 10));
     const supabase = createAdminClient();
 
-    let q = supabase
-      .from("fin_entries")
-      .select(SELECT, { count: "exact" })
-      .eq("workspace_id", workspaceId)
-      .is("deleted_at", null);
-
-    const text = p.get("q");
-    if (text) q = q.or(`description.ilike.%${text}%,doc_number.ilike.%${text}%`);
-    if (p.get("classification_id")) q = q.eq("classification_id", p.get("classification_id")!);
-    if (p.get("account_id")) q = q.eq("bank_account_id", p.get("account_id")!);
-    if (p.get("partner_id")) q = q.eq("partner_id", p.get("partner_id")!);
-    const status = p.get("status");
-    if (status === "pagos") q = q.not("paid_at", "is", null);
-    if (status === "pendentes") q = q.is("paid_at", null);
-    if (status === "revisao") q = q.eq("needs_review", true);
-    if (p.get("due_from")) q = q.gte("due_date", p.get("due_from")!);
-    if (p.get("due_to")) q = q.lte("due_date", p.get("due_to")!);
-
-    // filtros rápidos do dia a dia (sobre lançamentos não pagos)
-    const quick = p.get("quick");
-    if (quick) {
-      const today = new Date().toISOString().slice(0, 10);
-      const in7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-      if (quick === "atraso") q = q.is("paid_at", null).lt("due_date", today);
-      if (quick === "hoje") q = q.is("paid_at", null).eq("due_date", today);
-      if (quick === "semana") q = q.is("paid_at", null).gte("due_date", today).lte("due_date", in7);
-      if (quick === "receber") q = q.is("paid_at", null).eq("flow", 1);
-      if (quick === "pagar") q = q.is("paid_at", null).eq("flow", -1);
-    }
+    // Mesmos filtros para a query de dados e a de totais.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const applyFilters = <T extends { [k: string]: (...a: any[]) => T }>(query: T): T => {
+      let q = query;
+      q = (q as any).eq("workspace_id", workspaceId).is("deleted_at", null);
+      const text = p.get("q");
+      if (text) q = (q as any).or(`description.ilike.%${text}%,doc_number.ilike.%${text}%`);
+      if (p.get("classification_id")) q = (q as any).eq("classification_id", p.get("classification_id")!);
+      if (p.get("account_id")) q = (q as any).eq("bank_account_id", p.get("account_id")!);
+      if (p.get("partner_id")) q = (q as any).eq("partner_id", p.get("partner_id")!);
+      const status = p.get("status");
+      if (status === "pagos") q = (q as any).not("paid_at", "is", null);
+      if (status === "pendentes") q = (q as any).is("paid_at", null);
+      if (status === "revisao") q = (q as any).eq("needs_review", true);
+      if (p.get("due_from")) q = (q as any).gte("due_date", p.get("due_from")!);
+      if (p.get("due_to")) q = (q as any).lte("due_date", p.get("due_to")!);
+      if (p.get("paid_from")) q = (q as any).gte("paid_at", p.get("paid_from")!);
+      if (p.get("paid_to")) q = (q as any).lte("paid_at", p.get("paid_to")!);
+      const quick = p.get("quick");
+      if (quick) {
+        const today = new Date().toISOString().slice(0, 10);
+        const in7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+        if (quick === "atraso") q = (q as any).is("paid_at", null).lt("due_date", today);
+        if (quick === "hoje") q = (q as any).is("paid_at", null).eq("due_date", today);
+        if (quick === "semana") q = (q as any).is("paid_at", null).gte("due_date", today).lte("due_date", in7);
+        if (quick === "receber") q = (q as any).is("paid_at", null).eq("flow", 1);
+        if (quick === "pagar") q = (q as any).is("paid_at", null).eq("flow", -1);
+      }
+      return q;
+    };
 
     // Ordenação do SenseBoard: mais recém-CADASTRADOS primeiro (não vencimento —
-    // recorrências/depreciações futuras iriam pro topo). Manuais novos (sem
-    // source_created_at) vêm antes; importados seguem a data de cadastro da origem.
-    const { data, count, error } = await q
+    // recorrências/depreciações futuras iriam pro topo).
+    const { data, count, error } = await applyFilters(
+      supabase.from("fin_entries").select(SELECT, { count: "exact" }) as any
+    )
       .order("source_created_at", { ascending: false, nullsFirst: true })
       .order("created_at", { ascending: false })
       .order("due_date", { ascending: false, nullsFirst: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
     if (error) throw error;
-    return NextResponse.json({ rows: data ?? [], total: count ?? 0, page, pageSize });
+
+    // Totais (entradas/saídas/saldo) sobre TODO o conjunto filtrado, não só a
+    // página. Teto de segurança para o caso "sem filtro" (72k lançamentos).
+    let totals: { entradas: number; saidas: number; saldo: number } | null = null;
+    const CAP = 60000;
+    if ((count ?? 0) <= CAP) {
+      let entradas = 0, saidas = 0;
+      for (let from = 0; ; from += 1000) {
+        const { data: chunk, error: e2 } = await applyFilters(
+          supabase.from("fin_entries").select("amount, flow") as any
+        ).range(from, from + 999);
+        if (e2) throw e2;
+        for (const r of (chunk ?? []) as { amount: number; flow: number }[]) {
+          if (r.flow === 1) entradas += Number(r.amount);
+          else saidas += Number(r.amount);
+        }
+        if (!chunk || chunk.length < 1000) break;
+      }
+      totals = { entradas, saidas, saldo: entradas - saidas };
+    }
+
+    return NextResponse.json({ rows: data ?? [], total: count ?? 0, page, pageSize, totals });
   } catch (err) {
     return handleAuthError(err);
   }
