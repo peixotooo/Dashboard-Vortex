@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getControladoriaContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { invalidateEngineCache } from "@/lib/controladoria/engine";
 
@@ -10,7 +10,7 @@ const SELECT =
 // PATCH — edição parcial (toggle pago, revisão, valores, datas, classificação…)
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const { id } = await ctx.params;
     const body = await request.json();
     const supabase = createAdminClient();
@@ -71,7 +71,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
 // (mesmo recurrence_group), quando a coluna existir.
 export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const { id } = await ctx.params;
     const series = request.nextUrl.searchParams.get("series") === "1";
     const supabase = createAdminClient();

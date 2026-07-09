@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getControladoriaContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   fetchEngineData, aggregateYear, composeDre, composeDfc, composePeriod, computePrazos,
@@ -13,7 +13,7 @@ export const maxDuration = 60;
 //   dashboard:  &from=2026-07-01&to=2026-07-31
 export async function GET(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const p = request.nextUrl.searchParams;
     const view = p.get("view") ?? "dashboard";
     const supabase = createAdminClient();

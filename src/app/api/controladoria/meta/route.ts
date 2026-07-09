@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getControladoriaContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 // GET /api/controladoria/meta — classificações, contas e metas (para filtros/forms)
 //   ?partners_q=texto → busca de parceiros (autocomplete)
 export async function GET(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const p = request.nextUrl.searchParams;
     const supabase = createAdminClient();
 
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 // PATCH /api/controladoria/meta — atualiza metas (fin_settings.goals)
 export async function PATCH(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getControladoriaContext(request);
     const body = await request.json();
     const supabase = createAdminClient();
     const { data, error } = await supabase

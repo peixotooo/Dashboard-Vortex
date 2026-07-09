@@ -15,6 +15,13 @@ export interface Feature {
    * workspace permissions.
    */
   legacyParents?: string[];
+  /**
+   * Restricted feature: requires an EXPLICIT grant (feature id present in the
+   * member's features array) or role owner/admin. Unlike normal features,
+   * `features === NULL` (legacy "see everything") does NOT grant it, and it is
+   * never inherited from a parent. Use for sensitive areas (e.g. financials).
+   */
+  restricted?: boolean;
 }
 
 export const FEATURES: Feature[] = [
@@ -324,19 +331,23 @@ export const FEATURES: Feature[] = [
     parent: "hub",
   },
 
+  // ===== Controladoria (feature RESTRITA e independente) =====
+  // Área financeira sensível (ex-SenseBoard). Só owner/admin ou quem tiver o
+  // acesso EXPLÍCITO — não é concedida por features=NULL nem herdada de pai.
+  {
+    id: "controladoria",
+    label: "Controladoria",
+    description: "Financeiro próprio (ex-SenseBoard): lançamentos, DRE, DFC, metas. Acesso restrito.",
+    routes: ["/controladoria"],
+    restricted: true,
+  },
+
   // ===== Financeiro =====
   {
     id: "financeiro",
     label: "Financeiro",
-    description: "Controladoria, Curva ABC, Lucratividade, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
-    routes: ["/financeiro", "/simulador", "/simulador-comercial", "/pricing", "/controladoria"],
-  },
-  {
-    id: "financeiro.controladoria",
-    label: "Controladoria",
-    description: "Financeiro próprio (ex-SenseBoard): lançamentos, DRE, DFC, metas",
-    routes: ["/controladoria"],
-    parent: "financeiro",
+    description: "Curva ABC, Lucratividade, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
+    routes: ["/financeiro", "/simulador", "/simulador-comercial", "/pricing"],
   },
   {
     id: "financeiro.abc",
@@ -414,6 +425,13 @@ export const FEATURES: Feature[] = [
 export const PARENT_FEATURES: Feature[] = FEATURES.filter((f) => !f.parent);
 export const ALL_FEATURE_IDS = FEATURES.map((f) => f.id);
 export const PARENT_FEATURE_IDS = PARENT_FEATURES.map((f) => f.id);
+/**
+ * Parents that a new member gets by default and that count towards "full
+ * access". Restricted features (e.g. Controladoria) are opt-in only — never
+ * granted by default nor implied by "full access".
+ */
+export const DEFAULT_PARENT_FEATURE_IDS = PARENT_FEATURES.filter((f) => !f.restricted).map((f) => f.id);
+export const RESTRICTED_FEATURE_IDS = FEATURES.filter((f) => f.restricted).map((f) => f.id);
 
 const FEATURE_BY_ID = new Map<string, Feature>();
 for (const f of FEATURES) FEATURE_BY_ID.set(f.id, f);
@@ -482,11 +500,15 @@ export function canAccessPath(
   if (role === "owner" || role === "admin") return true;
   const matchedId = getFeatureForPath(pathname);
   if (!matchedId) return true;
+
+  const matched = FEATURE_BY_ID.get(matchedId);
+  // Restricted: exige grant explícito. NULL não concede e não herda de pai.
+  if (matched?.restricted) return !!features && features.includes(matchedId);
+
   if (!features) return true;
 
   if (features.includes(matchedId)) return true;
 
-  const matched = FEATURE_BY_ID.get(matchedId);
   if (matched?.parent && features.includes(matched.parent)) return true;
   if (matched?.legacyParents?.some((parentId) => features.includes(parentId))) {
     return true;
