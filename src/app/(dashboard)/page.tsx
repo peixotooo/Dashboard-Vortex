@@ -1816,7 +1816,7 @@ function TargetInput({
     setDraft((prev) => (parseFloat(prev) === value ? prev : String(value)));
   }, [value]);
   return (
-    <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-violet-400">
+    <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring">
       <input
         type="number"
         min={0}
@@ -2171,11 +2171,11 @@ function FunnelSection({
           <div>
             <CardTitle className="text-base">Funil de conversões</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              <span className="font-semibold text-violet-600 dark:text-violet-400">Realizado</span> vs{" "}
+              <span className="font-semibold text-info">Realizado</span> vs{" "}
               <span className="font-semibold text-muted-foreground">Meta</span> — régua inicial realista para moda BR, ajustável por etapa.
             </p>
           </div>
-          <Badge variant="outline" className="w-fit border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
+          <Badge variant="outline" className="w-fit border-info/30 bg-info/10 text-info">
             Meta atual {formatFunnelRate(targetSiteConversionRate)}
           </Badge>
         </div>
@@ -2224,7 +2224,7 @@ function FunnelSection({
         <div className="overflow-x-auto">
           <div className="min-w-[680px]">
             <div className={`${gridCols} px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider`}>
-              <span className="inline-flex items-center justify-end gap-1 text-right text-violet-600 dark:text-violet-400">
+              <span className="inline-flex items-center justify-end gap-1 text-right text-info">
                 Realizado
                 <InfoTooltip>Volume real medido no período selecionado para cada etapa do funil.</InfoTooltip>
               </span>
@@ -2262,10 +2262,10 @@ function FunnelSection({
                     {/* Realizado (roxo) */}
                     <div className="flex min-w-0 flex-col items-end gap-1">
                       <div
-                        className="flex flex-col items-end rounded-md bg-violet-500 px-3 py-1.5 text-right text-white shadow-sm dark:bg-violet-600"
+                        className="flex flex-col items-end rounded-md bg-info px-3 py-1.5 text-right text-white shadow-sm"
                         style={{ width: `${barWidth}%` }}
                       >
-                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-violet-50/90">
+                        <span className="w-full truncate text-[10px] font-medium uppercase tracking-wide text-white/80">
                           {row.name}
                         </span>
                         <span className="text-sm font-bold leading-tight tabular-nums">

@@ -112,27 +112,23 @@ export default function DesignSystemPage() {
   return (
     <TooltipProvider>
       <div className="relative min-h-screen overflow-x-clip bg-background">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-40 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-primary/12 blur-[120px]"
-        />
         <div className="relative mx-auto max-w-5xl space-y-12 px-6 py-16">
           {/* Hero */}
           <header className="flex flex-wrap items-end justify-between gap-6">
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30">
+                <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-primary text-primary-foreground">
                   <Zap className="size-5" />
                 </div>
                 <Badge>Design System 2026</Badge>
               </div>
-              <h1 className="font-display text-4xl font-bold tracking-tight">
+              <h1 className="text-4xl font-semibold tracking-tight">
                 Vortex <span className="text-gradient">OS</span>
               </h1>
               <p className="max-w-lg text-sm text-muted-foreground">
-                Tokens, tipografia e componentes do dashboard — dark-first,
-                acento indigo/violeta, paleta de gráficos validada para
-                contraste e daltonismo nos dois temas.
+                Tokens, tipografia e componentes do dashboard — ultra-minimal,
+                monocromático, hairlines de 1px, paleta de gráficos validada
+                para contraste e daltonismo nos dois temas.
               </p>
             </div>
             {mounted && (
@@ -169,17 +165,15 @@ export default function DesignSystemPage() {
             <Card>
               <CardContent className="grid gap-6 p-6 sm:grid-cols-3">
                 <div>
-                  <p className="font-display text-3xl font-bold tracking-tight">
-                    Space Grotesk
-                  </p>
+                  <p className="text-3xl font-semibold tracking-tight">Inter</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Display — títulos e números-herói
+                    Títulos — semibold, tracking apertado
                   </p>
                 </div>
                 <div>
-                  <p className="text-3xl font-medium">Inter</p>
+                  <p className="text-3xl font-normal">Inter</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Sans — corpo e interface
+                    Corpo e interface — uma família só
                   </p>
                 </div>
                 <div>

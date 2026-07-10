@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/lib/auth-context";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
@@ -9,12 +9,6 @@ import "./globals.css";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
-  display: "swap",
-});
-
-const grotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-grotesk",
   display: "swap",
 });
 
@@ -33,7 +27,7 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${inter.variable} ${grotesk.variable} ${jbMono.variable}`}
+      className={`${inter.variable} ${jbMono.variable}`}
     >
       <body className="min-h-screen bg-background font-sans antialiased">
         <ThemeProvider
