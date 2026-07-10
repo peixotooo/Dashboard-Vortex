@@ -782,5 +782,8 @@ function formatBrl(value: number): string {
 export function humanizeToken(value: string): string {
   return value
     .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toLocaleUpperCase("pt-BR") + word.slice(1))
+    .join(" ");
 }

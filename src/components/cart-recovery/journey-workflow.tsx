@@ -512,7 +512,7 @@ export function CartRecoveryJourneyWorkflow({ workspaceId }: { workspaceId: stri
                 size={1}
                 color="var(--border)"
               />
-              <Controls showInteractive={false} position="bottom-right" />
+              <Controls showInteractive={false} position="bottom-left" />
               <MiniMap
                 className="hidden md:block"
                 pannable
@@ -1022,7 +1022,12 @@ function modeLabel(value: JourneyResponse["mode"]): string {
 
 function humanize(value: string): string {
   if (!value) return "Não identificado";
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return value
+    .replace(/_/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toLocaleUpperCase("pt-BR") + word.slice(1))
+    .join(" ");
 }
 
 function formatDelay(minutes: number): string {
