@@ -6,18 +6,34 @@
 export interface VndaAbandonedCartItem {
   id?: number;
   product_id?: number;
+  variant_id?: number;
   reference?: string;
+  product_reference?: string;
   product_name?: string;
   name?: string;
   sku?: string;
+  variant_sku?: string;
   variant_name?: string;
   quantity?: number;
   price?: number;
+  variant_price?: number;
   original_price?: number;
   total?: number;
   image_url?: string;
   images?: Array<{ url?: string } | string>;
   url?: string;
+  product_url?: string;
+  available?: boolean;
+  available_quantity?: number;
+  delivery_days?: number;
+  handling_days?: number;
+  variant_handling_days?: number;
+  restocking_active?: boolean;
+  restocking_days?: number;
+  variant_restocking_enabled?: boolean;
+  variant_restocking_days?: number;
+  product_presale_days?: number;
+  tags?: unknown;
 }
 
 export interface VndaAbandonedCartPayload {
@@ -55,6 +71,15 @@ export interface VndaAbandonedCartPayload {
   products?: VndaAbandonedCartItem[];
   subtotal?: number;
   total?: number;
+  shipping_price?: number;
+  shipping_method?: string;
+  shipping_methods?: Array<Record<string, unknown>>;
+  handling_days?: number;
+  delivery_type?: string;
+  shipping_label?: string;
+  payment_attempts?: unknown[];
+  payment_attempts_count?: number;
+  last_refuse_reason?: string | null;
 
   // Link de retomada.
   recovery_url?: string;
@@ -88,11 +113,22 @@ export interface NormalizedCart {
 }
 
 export interface NormalizedCartItem {
+  product_id: string | null;
+  variant_id: string | null;
   name: string | null;
   sku: string | null;
+  product_reference: string | null;
   quantity: number;
   price: number | null;
   image_url: string | null;
+  product_url: string | null;
+  available: boolean | null;
+  available_quantity: number | null;
+  delivery_days: number | null;
+  handling_days: number | null;
+  restocking_active: boolean;
+  restocking_days: number | null;
+  presale_days: number | null;
 }
 
 export type CartRecoveryChannel = "whatsapp" | "email";

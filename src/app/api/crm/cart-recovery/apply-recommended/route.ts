@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceAdminContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   RECOMMENDED_EXPIRE_AFTER_HOURS,
   RECOMMENDED_STEPS,
 } from "@/lib/cart-recovery/recommended";
 
-// POST — aplica a régua recomendada (substitui steps existentes).
+// POST — aplica a régua recomendada como uma nova versão. Steps anteriores
+// são arquivados e o histórico de mensagens permanece intacto.
 // Não ativa a régua automaticamente (enabled fica como estava) pra dar
 // chance do usuário revisar antes de ligar.
 //
@@ -15,7 +16,7 @@ import {
 // são úteis pra mostrar como criar os templates na Meta).
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId, userId } = await getWorkspaceAdminContext(request);
 
     const admin = createAdminClient();
 
@@ -25,30 +26,6 @@ export async function POST(request: NextRequest) {
       .select("id, enabled")
       .eq("workspace_id", workspaceId)
       .maybeSingle();
-
-    const { data: rule, error: ruleErr } = await admin
-      .from("cart_recovery_rules")
-      .upsert(
-        {
-          workspace_id: workspaceId,
-          enabled: existing?.enabled ?? false,
-          expire_after_hours: RECOMMENDED_EXPIRE_AFTER_HOURS,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "workspace_id" }
-      )
-      .select("id")
-      .single();
-
-    if (ruleErr || !rule) {
-      return NextResponse.json(
-        { error: ruleErr?.message || "Failed to upsert rule" },
-        { status: 500 }
-      );
-    }
-
-    // Limpa steps existentes.
-    await admin.from("cart_recovery_steps").delete().eq("rule_id", rule.id);
 
     // Auto-detecta o template UTILITY mais recente criado pelo nosso
     // endpoint create-utility-template (nome começa com bkng_cart_recovery_).
@@ -69,8 +46,6 @@ export async function POST(request: NextRequest) {
     // linka direto; senão, fica null e o usuário linka depois manualmente
     // ou clicando em "Criar template UTILITY automaticamente".
     const rows = RECOMMENDED_STEPS.map((s) => ({
-      workspace_id: workspaceId,
-      rule_id: rule.id,
       step_order: s.step_order,
       delay_minutes: s.delay_minutes,
       whatsapp_enabled: s.whatsapp_enabled,
@@ -83,17 +58,37 @@ export async function POST(request: NextRequest) {
       coupon_validity_hours: s.coupon_validity_hours,
     }));
 
-    const { error: stepsErr } = await admin
-      .from("cart_recovery_steps")
-      .insert(rows);
+    const { data: savedRows, error: saveError } = await admin.rpc(
+      "save_cart_recovery_rule_version",
+      {
+        p_workspace_id: workspaceId,
+        p_enabled: existing?.enabled ?? false,
+        p_expire_after_hours: RECOMMENDED_EXPIRE_AFTER_HOURS,
+        p_steps: rows,
+        p_actor: userId,
+      }
+    );
 
-    if (stepsErr) {
-      return NextResponse.json({ error: stepsErr.message }, { status: 500 });
+    if (saveError) {
+      const migrationMissing =
+        saveError.message.includes("save_cart_recovery_rule_version") ||
+        saveError.message.includes("schema cache");
+      return NextResponse.json(
+        {
+          error: migrationMissing
+            ? "A migration 137 precisa ser aplicada antes de versionar a régua. Nenhum step foi removido."
+            : saveError.message,
+        },
+        { status: migrationMissing ? 503 : 500 }
+      );
     }
+
+    const saved = Array.isArray(savedRows) ? savedRows[0] : savedRows;
 
     return NextResponse.json({
       ok: true,
-      rule_id: rule.id,
+      rule_id: saved?.rule_id || null,
+      version: saved?.version || null,
       expire_after_hours: RECOMMENDED_EXPIRE_AFTER_HOURS,
       auto_linked_template_id: autoTemplateId,
       whatsapp_suggested_bodies: RECOMMENDED_STEPS.map((s) => ({

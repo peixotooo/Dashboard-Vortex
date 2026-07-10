@@ -119,6 +119,16 @@ const maintenanceJobs = [
     running: false,
   },
   {
+    name: "cart-recovery-intelligence",
+    path: "/api/cron/cart-recovery-intelligence",
+    intervalMs: numberEnv(
+      "WA_WORKER_CART_INTELLIGENCE_INTERVAL_MS",
+      5 * 60 * 1000
+    ),
+    nextRunAt: 0,
+    running: false,
+  },
+  {
     name: "gift-request-conversions",
     path: "/api/cron/gift-request-conversions",
     intervalMs: numberEnv("WA_WORKER_GIFT_MAINTENANCE_INTERVAL_MS", 30 * 60 * 1000),

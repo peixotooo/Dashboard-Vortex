@@ -1,5 +1,13 @@
 export const FREE_SHIPPING_THRESHOLD_BRL = 299;
 
+export const FREE_SHIPPING_THRESHOLDS_BRL: Record<string, number> = {
+  Sul: 299,
+  Sudeste: 299,
+  "Centro-Oeste": 299,
+  Nordeste: 345,
+  Norte: 345,
+};
+
 const STATE_TO_REGION: Record<string, string> = {
   PR: "Sul",
   RS: "Sul",
@@ -30,8 +38,6 @@ const STATE_TO_REGION: Record<string, string> = {
   TO: "Norte",
 };
 
-const FREE_SHIPPING_REGIONS = new Set(["Sul", "Sudeste", "Centro-Oeste"]);
-
 const BRL = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
@@ -53,8 +59,16 @@ export function regionForState(state: string | null | undefined): string | null 
 export function isFreeShippingRegion(
   stateOrRegion: string | null | undefined
 ): boolean {
+  return freeShippingThresholdForRegion(stateOrRegion) != null;
+}
+
+export function freeShippingThresholdForRegion(
+  stateOrRegion: string | null | undefined,
+  thresholds: Record<string, number> = FREE_SHIPPING_THRESHOLDS_BRL
+): number | null {
   const region = regionForState(stateOrRegion) || String(stateOrRegion || "").trim();
-  return FREE_SHIPPING_REGIONS.has(region);
+  const threshold = Number(thresholds[region]);
+  return Number.isFinite(threshold) && threshold > 0 ? threshold : null;
 }
 
 export function buildFreeShippingMessage(input: {
@@ -63,9 +77,9 @@ export function buildFreeShippingMessage(input: {
   cartTotal?: number | null;
 }): string {
   const region = input.region || regionForState(input.state);
-  if (!isFreeShippingRegion(region)) return "";
+  const threshold = freeShippingThresholdForRegion(region);
+  if (threshold == null) return "";
 
-  const threshold = FREE_SHIPPING_THRESHOLD_BRL;
   const thresholdFormatted = BRL.format(threshold);
   const cartTotal = Number(input.cartTotal || 0);
 
