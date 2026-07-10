@@ -4,6 +4,7 @@ import {
   buildCartCustomerProfile,
   evaluateCartIntelligence,
   extractCartCommerceSignals,
+  humanizeToken,
   type CartIntelligenceInput,
   type CheckoutJourneySignal,
 } from "../src/lib/cart-recovery/intelligence.ts";
@@ -224,4 +225,9 @@ test("política de frete usa o limite real de cada região", () => {
     buildFreeShippingMessage({ state: "BA", cartTotal: 200 }),
     /R\$\s?345,00/,
   );
+});
+
+test("humaniza palavras acentuadas sem criar maiúsculas no meio", () => {
+  assert.equal(humanizeToken("não selecionado"), "Não Selecionado");
+  assert.equal(humanizeToken("credit_card"), "Credit Card");
 });
