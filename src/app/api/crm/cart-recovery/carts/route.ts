@@ -59,11 +59,20 @@ export async function GET(request: NextRequest) {
     const progressByCart = new Map<string, number>();
 
     if (rule) {
-      const { count: stepCount } = await admin
+      const activeStepCountResult = await admin
         .from("cart_recovery_steps")
         .select("id", { count: "exact", head: true })
-        .eq("rule_id", rule.id);
-      totalSteps = stepCount || 0;
+        .eq("rule_id", rule.id)
+        .eq("active", true);
+      const legacyStepCountResult = activeStepCountResult.error
+        ? await admin
+            .from("cart_recovery_steps")
+            .select("id", { count: "exact", head: true })
+            .eq("rule_id", rule.id)
+        : null;
+      totalSteps = activeStepCountResult.error
+        ? legacyStepCountResult?.count || 0
+        : activeStepCountResult.count || 0;
 
       // Pega messages de todos os carts da página, agrupa por cart_id.
       // Conta steps únicos (não channels) pra progresso real.

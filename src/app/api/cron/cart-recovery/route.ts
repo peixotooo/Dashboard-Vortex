@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // 1. Buscar todas as réguas ativas com seus steps.
-    const { data: rules, error: rulesError } = await admin
+    const versionedRulesResult = await admin
       .from("cart_recovery_rules")
       .select(
         `id, workspace_id, expire_after_hours,
@@ -67,10 +67,32 @@ export async function GET(request: NextRequest) {
            id, workspace_id, rule_id, step_order, delay_minutes,
            whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping,
            email_enabled, email_subject, email_body_html,
-           coupon_pct, coupon_validity_hours
+           coupon_pct, coupon_validity_hours, active
          )`
       )
-      .eq("enabled", true);
+      .eq("enabled", true)
+      .eq("steps.active", true);
+
+    const legacyRulesResult = versionedRulesResult.error
+      ? await admin
+          .from("cart_recovery_rules")
+          .select(
+            `id, workspace_id, expire_after_hours,
+             steps:cart_recovery_steps(
+               id, workspace_id, rule_id, step_order, delay_minutes,
+               whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping,
+               email_enabled, email_subject, email_body_html,
+               coupon_pct, coupon_validity_hours
+             )`
+          )
+          .eq("enabled", true)
+      : null;
+    const rules = versionedRulesResult.error
+      ? legacyRulesResult?.data
+      : versionedRulesResult.data;
+    const rulesError = versionedRulesResult.error
+      ? legacyRulesResult?.error
+      : null;
 
     if (rulesError) {
       console.error("[Cart Recovery]", rulesError.message);

@@ -4190,7 +4190,7 @@
   // receives only normalized step/field/method/error categories.
   // =====================================================================
 
-  var CHECKOUT_TRACKER_VERSION = "2026-06-28.1";
+  var CHECKOUT_TRACKER_VERSION = "2026-07-09.2";
   var CHECKOUT_BATCH_MAX = 12;
   var CHECKOUT_BATCH_FLUSH_MS = 4000;
 
@@ -4487,10 +4487,13 @@
       );
       for (var i = 0; i < nodes.length; i++) {
         var node = nodes[i];
+        if (!isVisibleCheckoutElement(node)) continue;
+        var errorText = elementText(node);
+        if (!errorText && node.getAttribute("aria-invalid") !== "true") continue;
         var target = nearestInputForError(node);
         var info = target ? fieldInfo(target) : { key: state.lastFieldKey, group: null };
         if (!info.key) continue;
-        var errorCode = classifyCheckoutError(info.key, elementText(node));
+        var errorCode = classifyCheckoutError(info.key, errorText);
         var errorKey = info.key + "|" + errorCode;
         if (state.sentFieldErrors[errorKey]) continue;
         var step = stepFromFieldInfo(info) || currentCheckoutStep(detectCheckoutStep());
@@ -4783,9 +4786,9 @@
     if (/telefone|phone|celular/.test(text) || fieldKey === "phone") return "invalid_phone";
     if (/cep|zip|postal/.test(text) || fieldKey === "shipping_zip") return "invalid_zip";
     if (/cupom|coupon|desconto/.test(text) || fieldKey === "coupon") return "invalid_coupon";
+    if (/recusad|declined|nao autoriz|não autoriz|falha.{0,24}(pagamento|payment)|(pagamento|payment).{0,24}(falha|erro)/.test(text)) return "payment_failed";
+    if (/(frete|entrega|shipping).{0,40}(indisponivel|nao disponivel|não disponivel|erro|falha|sem opcao|sem opção)|(indisponivel|nao disponivel|não disponivel).{0,40}(frete|entrega|shipping)/.test(text)) return "shipping_unavailable";
     if (/cartao|cartão|card|cvv|cvc|validade/.test(text) || /^card_/.test(fieldKey || "")) return "invalid_card";
-    if (/pagamento|payment|recusad|declined|autoriz/.test(text)) return "payment_failed";
-    if (/frete|entrega|shipping|indisponivel|nao disponivel/.test(text)) return "shipping_unavailable";
     return "unknown";
   }
 

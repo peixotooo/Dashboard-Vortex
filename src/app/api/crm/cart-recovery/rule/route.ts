@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import {
+  getWorkspaceAdminContext,
+  getWorkspaceContext,
+  handleAuthError,
+} from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 
 interface StepInput {
+  id?: string;
   step_order: number;
   delay_minutes: number;
   whatsapp_enabled: boolean;
@@ -29,11 +34,23 @@ export async function GET(request: NextRequest) {
       .eq("workspace_id", workspaceId)
       .maybeSingle();
 
-    const { data: rule } = await admin
+    const versionedRuleResult = await admin
       .from("cart_recovery_rules")
-      .select("id, workspace_id, enabled, expire_after_hours")
+      .select(
+        "id, workspace_id, enabled, expire_after_hours, current_version, intelligence_mode, rollout_percentage, holdout_percentage, free_shipping_threshold, free_shipping_thresholds"
+      )
       .eq("workspace_id", workspaceId)
       .maybeSingle();
+    const legacyRuleResult = versionedRuleResult.error
+      ? await admin
+          .from("cart_recovery_rules")
+          .select("id, workspace_id, enabled, expire_after_hours")
+          .eq("workspace_id", workspaceId)
+          .maybeSingle()
+      : null;
+    const rule = versionedRuleResult.error
+      ? legacyRuleResult?.data
+      : versionedRuleResult.data;
 
     if (!rule) {
       return NextResponse.json({
@@ -43,13 +60,27 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const { data: steps } = await admin
+    const stepColumns =
+      "id, step_order, delay_minutes, whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping, email_enabled, email_subject, email_body_html, coupon_pct, coupon_validity_hours";
+    const activeStepsResult = await admin
       .from("cart_recovery_steps")
-      .select(
-        "id, step_order, delay_minutes, whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping, email_enabled, email_subject, email_body_html, coupon_pct, coupon_validity_hours"
-      )
+      .select(stepColumns)
       .eq("rule_id", rule.id)
+      .eq("active", true)
       .order("step_order");
+
+    // Compatibilidade durante a janela entre deploy e aplicação da migration
+    // 137. Depois da migration, somente steps ativos são retornados.
+    const legacyStepsResult = activeStepsResult.error
+      ? await admin
+          .from("cart_recovery_steps")
+          .select(stepColumns)
+          .eq("rule_id", rule.id)
+          .order("step_order")
+      : null;
+    const steps = activeStepsResult.error
+      ? legacyStepsResult?.data
+      : activeStepsResult.data;
 
     return NextResponse.json({
       rule,
@@ -61,11 +92,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PUT: substitui rule + todos os steps atomicamente.
+// PUT: salva uma nova versão da rule e arquiva steps removidos atomicamente.
 // Body: { enabled, expire_after_hours, steps: StepInput[] }
 export async function PUT(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId, userId } = await getWorkspaceAdminContext(request);
 
     const body = (await request.json()) as {
       enabled: boolean;
@@ -73,43 +104,8 @@ export async function PUT(request: NextRequest) {
       steps: StepInput[];
     };
 
-    const admin = createAdminClient();
-
-    // Upsert da régua (1 por workspace).
-    const { data: rule, error: ruleErr } = await admin
-      .from("cart_recovery_rules")
-      .upsert(
-        {
-          workspace_id: workspaceId,
-          enabled: !!body.enabled,
-          expire_after_hours: Math.max(1, Number(body.expire_after_hours) || 168),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "workspace_id" }
-      )
-      .select("id")
-      .single();
-
-    if (ruleErr || !rule) {
-      return NextResponse.json(
-        { error: ruleErr?.message || "Failed to save rule" },
-        { status: 500 }
-      );
-    }
-
-    // Replace steps: deleta todos e reinsere. Mensagens já enviadas
-    // (cart_recovery_messages) têm FK em step_id ON DELETE CASCADE —
-    // o histórico de mensagens daquele step será perdido. Aceitável
-    // pois o usuário editou conscientemente. Carts em vôo continuarão
-    // recebendo conforme os novos steps.
-    await admin
-      .from("cart_recovery_steps")
-      .delete()
-      .eq("rule_id", rule.id);
-
-    const stepRows = (body.steps || []).map((s, idx) => ({
-      workspace_id: workspaceId,
-      rule_id: rule.id,
+    const stepRows = (body.steps || []).slice(0, 12).map((s, idx) => ({
+      id: s.id || null,
       step_order: s.step_order ?? idx + 1,
       delay_minutes: Math.max(0, Number(s.delay_minutes) || 0),
       whatsapp_enabled: !!s.whatsapp_enabled,
@@ -125,19 +121,41 @@ export async function PUT(request: NextRequest) {
       ),
     }));
 
-    if (stepRows.length > 0) {
-      const { error: stepsErr } = await admin
-        .from("cart_recovery_steps")
-        .insert(stepRows);
-      if (stepsErr) {
-        return NextResponse.json(
-          { error: stepsErr.message },
-          { status: 500 }
-        );
+    const admin = createAdminClient();
+    const { data, error } = await admin.rpc(
+      "save_cart_recovery_rule_version",
+      {
+        p_workspace_id: workspaceId,
+        p_enabled: !!body.enabled,
+        p_expire_after_hours: Math.max(
+          1,
+          Number(body.expire_after_hours) || 168
+        ),
+        p_steps: stepRows,
+        p_actor: userId,
       }
+    );
+
+    if (error) {
+      const migrationMissing =
+        error.message.includes("save_cart_recovery_rule_version") ||
+        error.message.includes("schema cache");
+      return NextResponse.json(
+        {
+          error: migrationMissing
+            ? "A migration 137 precisa ser aplicada antes de salvar a régua versionada. Nenhum dado foi alterado."
+            : error.message,
+        },
+        { status: migrationMissing ? 503 : 500 }
+      );
     }
 
-    return NextResponse.json({ ok: true, rule_id: rule.id });
+    const saved = Array.isArray(data) ? data[0] : data;
+    return NextResponse.json({
+      ok: true,
+      rule_id: saved?.rule_id || null,
+      version: saved?.version || null,
+    });
   } catch (error) {
     return handleAuthError(error);
   }

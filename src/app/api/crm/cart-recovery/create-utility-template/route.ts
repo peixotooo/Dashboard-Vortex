@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceAdminContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createTemplateOnMeta, getWaConfig } from "@/lib/whatsapp-api";
 import {
@@ -22,7 +22,7 @@ import {
 // Body do request: { apply_to_steps?: boolean } (default true)
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId, userId } = await getWorkspaceAdminContext(request);
 
     const body = await request.json().catch(() => ({}));
     const applyToSteps = body.apply_to_steps !== false;
@@ -116,16 +116,57 @@ export async function POST(request: NextRequest) {
     if (applyToSteps) {
       const { data: rule } = await admin
         .from("cart_recovery_rules")
-        .select("id")
+        .select("id, enabled, expire_after_hours")
         .eq("workspace_id", workspaceId)
         .maybeSingle();
 
       if (rule) {
-        await admin
+        const { data: steps, error: stepsError } = await admin
           .from("cart_recovery_steps")
-          .update({ whatsapp_template_id: template.id })
+          .select(
+            "id, step_order, delay_minutes, whatsapp_enabled, whatsapp_template_id, whatsapp_variable_mapping, email_enabled, email_subject, email_body_html, coupon_pct, coupon_validity_hours"
+          )
           .eq("rule_id", rule.id)
-          .eq("whatsapp_enabled", true);
+          .eq("active", true)
+          .order("step_order");
+
+        if (stepsError) {
+          return NextResponse.json({
+            ok: true,
+            template,
+            message:
+              "Template criado, mas a migration 137 precisa estar aplicada para vinculá-lo sem perder histórico.",
+            warning:
+              "Template criado, mas a migration 137 precisa estar aplicada para vinculá-lo sem perder histórico.",
+          });
+        }
+
+        const nextSteps = (steps || []).map((step) => ({
+          ...step,
+          whatsapp_template_id: step.whatsapp_enabled
+            ? template.id
+            : step.whatsapp_template_id,
+        }));
+        const { error: saveError } = await admin.rpc(
+          "save_cart_recovery_rule_version",
+          {
+            p_workspace_id: workspaceId,
+            p_enabled: rule.enabled,
+            p_expire_after_hours: rule.expire_after_hours,
+            p_steps: nextSteps,
+            p_actor: userId,
+          }
+        );
+        if (saveError) {
+          return NextResponse.json({
+            ok: true,
+            template,
+            message:
+              "Template criado, mas ainda não foi vinculado à régua versionada.",
+            warning:
+              "Template criado, mas não foi vinculado porque a régua versionada ainda não está disponível.",
+          });
+        }
       }
     }
 
