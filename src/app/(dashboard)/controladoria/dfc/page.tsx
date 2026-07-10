@@ -38,7 +38,7 @@ export default function DfcPage() {
   const { workspace } = useWorkspace();
   const [year, setYear] = React.useState(new Date().getFullYear());
   const [view, setView] = React.useState<"consolidado" | "resumido" | "expandido">("consolidado");
-  const [status, setStatus] = React.useState("todos");
+  const [status, setStatus] = React.useState("pagos"); // padrão do dia a dia: caixa realizado
   const [account, setAccount] = React.useState("all");
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [data, setData] = React.useState<DfcResponse | null>(null);
