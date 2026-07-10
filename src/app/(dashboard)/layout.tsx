@@ -48,20 +48,8 @@ export default function DashboardLayout({
             <Topbar />
             <div className="relative flex-1 overflow-x-hidden p-6">
               <div
-                aria-hidden
-                className="pointer-events-none absolute -top-32 left-1/3 h-72 w-[640px] -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]"
-              />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -top-24 right-[-10%] hidden h-56 w-[420px] rounded-full bg-info/6 blur-[110px] dark:block"
-              />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 hidden dark:block bg-noise"
-              />
-              <div
                 key={pathname}
-                className="relative animate-in fade-in-0 slide-in-from-bottom-1 duration-300"
+                className="relative animate-in fade-in-0 duration-200"
               >
                 <PermissionGate>{children}</PermissionGate>
               </div>

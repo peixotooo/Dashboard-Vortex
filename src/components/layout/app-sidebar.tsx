@@ -457,8 +457,8 @@ function NavUser() {
                 isCollapsed && "justify-center px-0"
               )}
             >
-              <Avatar className="h-8 w-8 shrink-0 rounded-lg">
-                <AvatarFallback className="rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-xs font-medium">
+              <Avatar className="h-8 w-8 shrink-0 rounded-md">
+                <AvatarFallback className="rounded-md border border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground text-xs font-medium">
                   {initials}
                 </AvatarFallback>
               </Avatar>
@@ -539,7 +539,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className={isCollapsed ? "justify-center px-0" : ""}>
               <Link href="/">
-                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 text-white shadow-md shadow-indigo-500/30">
+                <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-md border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
                   <Zap className="size-4" />
                 </div>
                 {!isCollapsed && (

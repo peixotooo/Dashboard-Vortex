@@ -189,8 +189,8 @@ export function CommandMenu() {
                     className={cn(
                       "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                       index === active
-                        ? "bg-primary/12 text-primary"
-                        : "text-foreground hover:bg-accent"
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                   >
                     {entry.icon && (
