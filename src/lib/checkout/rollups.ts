@@ -32,6 +32,7 @@ type SessionAccumulator = {
   fieldsErrored: Set<string>;
   errorPairs: Set<string>;
   errorCodes: Map<string, number>;
+  trackerVersions: Map<string, number>;
 };
 
 export type CheckoutSessionRollupRow = {
@@ -50,6 +51,7 @@ export type CheckoutSessionRollupRow = {
   fields_completed: Record<string, number> | null;
   fields_errored: Record<string, number> | null;
   error_codes: Record<string, number> | null;
+  tracker_versions?: Record<string, number> | null;
 };
 
 export type RefreshCheckoutRollupsResult = {
@@ -103,6 +105,9 @@ function applyEvent(acc: SessionAccumulator, event: CheckoutEventRow) {
 
   const step = eventStep(event);
   addCount(acc.stepsSeen, step);
+  if (typeof event.metadata?.tracker_version === "string") {
+    addCount(acc.trackerVersions, event.metadata.tracker_version);
+  }
 
   if (event.payment_method) acc.paymentMethod = event.payment_method;
   if (event.shipping_method) acc.shippingMethod = event.shipping_method;
@@ -150,6 +155,7 @@ function getAccumulator(
       fieldsErrored: new Set(),
       errorPairs: new Set(),
       errorCodes: new Map(),
+      trackerVersions: new Map(),
     };
     sessions.set(key, acc);
   }
@@ -174,6 +180,7 @@ function toUpsertRow(acc: SessionAccumulator) {
     fields_completed: setToCountObject(acc.fieldsCompleted),
     fields_errored: setToCountObject(acc.fieldsErrored),
     error_codes: mapToObject(acc.errorCodes),
+    tracker_versions: mapToObject(acc.trackerVersions),
     refreshed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -226,7 +233,17 @@ export async function refreshCheckoutSessionRollups(
     const { error } = await admin
       .from("checkout_session_rollups")
       .upsert(chunk, { onConflict: "workspace_id,session_id" });
-    if (error) throw new Error(error.message);
+    if (error) {
+      const missingTrackerColumn =
+        error.message.includes("tracker_versions") ||
+        error.message.includes("schema cache");
+      if (!missingTrackerColumn) throw new Error(error.message);
+      const legacyChunk = chunk.map(({ tracker_versions: _ignored, ...row }) => row);
+      const { error: legacyError } = await admin
+        .from("checkout_session_rollups")
+        .upsert(legacyChunk, { onConflict: "workspace_id,session_id" });
+      if (legacyError) throw new Error(legacyError.message);
+    }
   }
 
   return {

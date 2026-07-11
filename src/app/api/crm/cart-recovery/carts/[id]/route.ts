@@ -46,13 +46,24 @@ export async function GET(
     }> = [];
 
     if (rule) {
-      const { data: stepsData } = await admin
+      const stepColumns =
+        "id, step_order, delay_minutes, whatsapp_enabled, email_enabled, coupon_pct, coupon_validity_hours";
+      const activeStepsResult = await admin
         .from("cart_recovery_steps")
-        .select(
-          "id, step_order, delay_minutes, whatsapp_enabled, email_enabled, coupon_pct, coupon_validity_hours"
-        )
+        .select(stepColumns)
         .eq("rule_id", rule.id)
+        .eq("active", true)
         .order("step_order");
+      const legacyStepsResult = activeStepsResult.error
+        ? await admin
+            .from("cart_recovery_steps")
+            .select(stepColumns)
+            .eq("rule_id", rule.id)
+            .order("step_order")
+        : null;
+      const stepsData = activeStepsResult.error
+        ? legacyStepsResult?.data
+        : activeStepsResult.data;
       steps.push(...(stepsData || []));
     }
 

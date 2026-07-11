@@ -55,13 +55,35 @@ function normalizeItem(it: VndaAbandonedCartItem): NormalizedCartItem {
     if (typeof first === "string") imageUrl = first;
     else if (first && typeof first.url === "string") imageUrl = first.url;
   }
+  const handlingDays =
+    numericOrNull(it.variant_handling_days) ?? numericOrNull(it.handling_days);
+  const restockingDays =
+    numericOrNull(it.variant_restocking_days) ?? numericOrNull(it.restocking_days);
   return {
+    product_id: it.product_id != null ? String(it.product_id) : null,
+    variant_id: it.variant_id != null ? String(it.variant_id) : null,
     name: it.product_name || it.name || null,
-    sku: it.sku || null,
+    sku: it.variant_sku || it.sku || null,
+    product_reference: it.product_reference || it.reference || null,
     quantity: Number(it.quantity ?? 1) || 1,
-    price: typeof it.price === "number" ? it.price : null,
+    price: numericOrNull(it.variant_price) ?? numericOrNull(it.price),
     image_url: imageUrl,
+    product_url: it.product_url || it.url || null,
+    available: typeof it.available === "boolean" ? it.available : null,
+    available_quantity: numericOrNull(it.available_quantity),
+    delivery_days: numericOrNull(it.delivery_days),
+    handling_days: handlingDays,
+    restocking_active:
+      it.restocking_active === true || it.variant_restocking_enabled === true,
+    restocking_days: restockingDays,
+    presale_days: numericOrNull(it.product_presale_days),
   };
+}
+
+function numericOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 export function normalizeCart(

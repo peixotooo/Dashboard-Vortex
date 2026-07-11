@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
+import { getWorkspaceAdminContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { recheckTemplateOnMeta } from "@/lib/whatsapp-api";
 
@@ -13,7 +13,7 @@ import { recheckTemplateOnMeta } from "@/lib/whatsapp-api";
 //   - fornecido → re-checa esse template específico
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId } = await getWorkspaceContext(request);
+    const { workspaceId } = await getWorkspaceAdminContext(request);
 
     const body = await request.json().catch(() => ({}));
     let templateId: string | null = body.template_id || null;
@@ -29,15 +29,31 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (rule) {
-        const { data: step } = await admin
+        const columns = "whatsapp_template_id";
+        const activeStepResult = await admin
           .from("cart_recovery_steps")
-          .select("whatsapp_template_id")
+          .select(columns)
           .eq("rule_id", rule.id)
+          .eq("active", true)
           .eq("whatsapp_enabled", true)
           .not("whatsapp_template_id", "is", null)
           .order("step_order")
           .limit(1)
           .maybeSingle();
+        const legacyStepResult = activeStepResult.error
+          ? await admin
+              .from("cart_recovery_steps")
+              .select(columns)
+              .eq("rule_id", rule.id)
+              .eq("whatsapp_enabled", true)
+              .not("whatsapp_template_id", "is", null)
+              .order("step_order")
+              .limit(1)
+              .maybeSingle()
+          : null;
+        const step = activeStepResult.error
+          ? legacyStepResult?.data
+          : activeStepResult.data;
         templateId = step?.whatsapp_template_id || null;
       }
     }

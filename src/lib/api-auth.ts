@@ -240,6 +240,33 @@ export async function getWorkspaceContext(
 }
 
 /**
+ * Workspace context for routes that mutate communication rules or customer
+ * data. getWorkspaceContext proves membership; this second check prevents a
+ * regular member from bypassing the dashboard and calling a service-role route
+ * directly.
+ */
+export async function getWorkspaceAdminContext(
+  request: NextRequest
+): Promise<{ userId: string; workspaceId: string }> {
+  const context = await getWorkspaceContext(request);
+  const admin = createAdminClient();
+  const { data: membership, error } = await admin
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", context.workspaceId)
+    .eq("user_id", context.userId)
+    .maybeSingle();
+
+  if (error || !membership) {
+    throw new AuthError("Not a member of this workspace", 403);
+  }
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new AuthError("Admin role required", 403);
+  }
+  return context;
+}
+
+/**
  * Like getWorkspaceContext, but ALSO enforces access to the restricted
  * "controladoria" feature: owner/admin, or a member whose features array
  * explicitly includes "controladoria". Members with features === null (legacy

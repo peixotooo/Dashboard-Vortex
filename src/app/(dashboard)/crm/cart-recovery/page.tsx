@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
+import { CartRecoveryJourneyWorkflow } from "@/components/cart-recovery/journey-workflow";
 import {
   ShoppingCart,
   Plus,
@@ -389,7 +390,7 @@ export default function CartRecoveryPage() {
   const applyRecommended = async () => {
     if (!workspaceId) return;
     const ok = window.confirm(
-      "Vamos aplicar a régua recomendada (3 steps: 30min, 24h, 72h, WhatsApp + Email cada). Os steps atuais serão substituídos. Continuar?"
+      "Vamos aplicar a régua recomendada (3 steps: 30min, 24h, 72h, WhatsApp + Email cada). Os steps atuais serão arquivados com todo o histórico preservado. Continuar?"
     );
     if (!ok) return;
     setApplyingRecommended(true);
@@ -641,12 +642,25 @@ export default function CartRecoveryPage() {
       />
 
 
-      <Tabs defaultValue="rule">
-        <TabsList>
+      <Tabs defaultValue="journey">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="journey">Jornada inteligente</TabsTrigger>
           <TabsTrigger value="rule">Régua</TabsTrigger>
           <TabsTrigger value="webhook">Webhook VNDA</TabsTrigger>
           <TabsTrigger value="carts">Carrinhos ({carts.length})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="journey" className="space-y-4">
+          {workspaceId ? (
+            <CartRecoveryJourneyWorkflow workspaceId={workspaceId} />
+          ) : (
+            <Card>
+              <CardContent className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
+                Selecione um workspace para visualizar as jornadas.
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         {/* ============================================ */}
         {/* RÉGUA */}
