@@ -74,7 +74,11 @@ const STATUS_CONFIG: Record<
   }
 > = {
   draft: { label: "Rascunho", variant: "outline", icon: FileEdit },
-  completed: { label: "Enviado", variant: "default", icon: CheckCircle2 },
+  completed: {
+    label: "Aceito pela W-API",
+    variant: "default",
+    icon: CheckCircle2,
+  },
   sending: { label: "Enviando", variant: "secondary", icon: Send },
   scheduled: { label: "Agendado", variant: "outline", icon: Clock },
   queued: { label: "Na fila", variant: "outline", icon: Clock },

@@ -4,6 +4,7 @@ import type {
   WapiMessagePayload,
   WapiMessageType,
 } from "@/lib/whatsapp/wapi-message-types";
+import { toWapiWirePayload } from "@/lib/whatsapp/wapi-message-types";
 
 export type { WapiMessageType } from "@/lib/whatsapp/wapi-message-types";
 
@@ -793,8 +794,9 @@ export async function sendWapiMessage(
   payload: WapiMessagePayload,
   delayMessage = 1,
 ): Promise<WapiSendResult> {
+  const wirePayload = toWapiWirePayload(messageType, payload);
   return wapiRequest(config, MESSAGE_ENDPOINTS[messageType], {
     method: "POST",
-    body: { phone, ...payload, delayMessage },
+    body: { phone, ...wirePayload, delayMessage },
   });
 }

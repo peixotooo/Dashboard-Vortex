@@ -24,6 +24,26 @@ export const WAPI_MESSAGE_TYPES = [
 export type WapiMessageType = (typeof WAPI_MESSAGE_TYPES)[number];
 export type WapiMessagePayload = Record<string, unknown>;
 
+/**
+ * Adapta o payload normalizado ao contrato HTTP da W-API.
+ *
+ * A W-API documenta pollMaxOptions como opcional e o exemplo de enquete de
+ * escolha unica omite o campo. Na pratica, enviar explicitamente o valor 1
+ * faz algumas instancias aceitarem a mensagem na fila sem publica-la no
+ * WhatsApp. Para escolha unica, usamos portanto o default do provedor.
+ */
+export function toWapiWirePayload(
+  messageType: WapiMessageType,
+  payload: WapiMessagePayload,
+): WapiMessagePayload {
+  if (messageType !== "poll" || Number(payload.pollMaxOptions) !== 1) {
+    return payload;
+  }
+
+  const { pollMaxOptions: _pollMaxOptions, ...wirePayload } = payload;
+  return wirePayload;
+}
+
 export const WAPI_MESSAGE_TYPE_LABELS: Record<WapiMessageType, string> = {
   text: "Texto / link",
   image: "Imagem",
