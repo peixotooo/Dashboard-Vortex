@@ -148,7 +148,10 @@ function detectShipping(raw: unknown): string {
 // (tag ficha-tecnica, a fonte da verdade da composição). Poliéster/poliamida
 // sem algodão relevante = linha técnica ("dry"); algodão dominante = "algodao".
 // Só cai no nome quando não há ficha (heurística de "DRY" no título).
-function detectFabric(name: string, tags?: unknown): "dry" | "algodao" {
+function detectFabric(
+  name: string,
+  tags?: unknown
+): "dry" | "algodao" | "desconhecido" {
   const composition = parseFichaTecnica(tags);
   if (composition) {
     const c = composition.toLowerCase();
@@ -163,7 +166,10 @@ function detectFabric(name: string, tags?: unknown): "dry" | "algodao" {
     }
     if (hasTecnico) return "dry";
   }
-  return /\bdry\b/i.test(name) ? "dry" : "algodao";
+  // Sem ficha técnica, o nome só prova tecido quando declara DRY. Classificar
+  // todo o restante como algodão fez o agente inventar composição de calças e
+  // outras peças sem ficha cadastrada.
+  return /\bdry\b/i.test(name) ? "dry" : "desconhecido";
 }
 
 // Cores comuns do catálogo Bulking; a query do cliente ("preto") casa com o

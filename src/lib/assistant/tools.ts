@@ -178,7 +178,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
 const SIZE_GUIDE_OVERSIZED = {
   modelagem: "oversized",
   aviso:
-    "Modelagem oversized veste mais largo que o normal. Se o cliente prefere caimento mais justo, sugerir um tamanho ABAIXO do usual. Se gosta do estilo bem amplo, manter o tamanho usual.",
+    "Modelagem oversized veste mais largo que o normal. Altura e peso são apenas referência inicial, não garantia de tamanho. Compare a largura de axila a axila com uma peça que já veste bem no cliente.",
   medidas_cm: [
     { tamanho: "P", largura_peito: 54, comprimento: 76 },
     { tamanho: "M", largura_peito: 56, comprimento: 78 },
@@ -189,7 +189,7 @@ const SIZE_GUIDE_OVERSIZED = {
   observacao:
     "Medidas tiradas da peça fora do corpo; variação de até 2 cm pela margem de costura. Largura de peito é medida reta de axila a axila (dobrar em 2 ≈ circunferência).",
   referencia_rapida:
-    "Referência prática: até 1,70m e 70kg: P ou M. De 1,70 a 1,80m e 70 a 85kg: M ou G. De 1,80 a 1,90m ou 85 a 100kg: G ou GG. Acima disso: GG ou XGG. Ajustar pela preferência de caimento.",
+    "Não decidir só por faixas de peso. Use tamanho habitual + caimento desejado + medida de uma peça do cliente. Com 105 kg ou mais, peça a largura de axila a axila antes de indicar GG/XGG.",
 };
 
 const SIZE_GUIDE_REGULAR = {
@@ -406,7 +406,7 @@ export async function executeAssistantTool(
                   ? "Modelagem oversized veste mais largo. Quem prefere caimento mais justo pode pegar um tamanho abaixo do usual."
                   : "Modelagem regular veste no tamanho usual. Em dúvida entre dois, o maior dá mais conforto.",
               instrucao:
-                "Use ESTAS medidas (são as oficiais deste produto). Cruze com a altura/peso do cliente e recomende um tamanho.",
+                "Use ESTAS medidas oficiais. A largura é da peça deitada, de axila a axila, não o tórax do cliente. Altura/peso dão só uma indicação inicial; compare com uma peça que já veste bem quando houver dúvida.",
             });
           }
         }

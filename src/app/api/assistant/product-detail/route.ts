@@ -48,7 +48,8 @@ function buildBadges(p: {
 }): string[] {
   const badges: string[] = [];
   badges.push(p.fit === "oversized" ? "Oversized" : "Regular");
-  badges.push(p.fabric === "dry" ? "Linha DRY" : "Algodão premium");
+  if (p.fabric === "dry") badges.push("Linha DRY");
+  else if (p.fabric === "algodao") badges.push("Algodão premium");
   badges.push(/sob demanda/i.test(p.shipping) ? "Sob demanda" : "Pronta entrega");
   if (p.composition) badges.push(p.composition);
   return badges;

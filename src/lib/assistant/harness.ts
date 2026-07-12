@@ -13,6 +13,7 @@ import {
   sanitizeReply,
 } from "./guardrails";
 import { buildSystemPrompt, type RecentProduct } from "./prompt";
+import { applyAssistantQualityGuard } from "./quality";
 import { ASSISTANT_TOOLS, executeAssistantTool, type ToolContext } from "./tools";
 import { getVitrine } from "./commerce";
 import type { ActiveKnowledge } from "./knowledge";
@@ -26,7 +27,7 @@ import type {
 } from "./types";
 
 const MAX_TOOL_ITERATIONS = 4;
-const MAX_REPLY_TOKENS = 700;
+const MAX_REPLY_TOKENS = 550;
 const HISTORY_WINDOW = 12;
 
 // Widget de PDP (v1): haiku (validado na curva-A, não mexer).
@@ -254,6 +255,15 @@ export async function runAssistantTurn(opts: {
     return { reply: FALLBACK_REPLY, products: [], showWhatsapp: false, toolLog, recentProducts: incomingRecent, modelUsed: activeModel };
   }
 
+  // Última barreira determinística. Corrige os erros de maior impacto vistos
+  // nas conversas reais mesmo quando o modelo ignora uma instrução do prompt.
+  const quality = applyAssistantQualityGuard({
+    text: finalText,
+    userMessage,
+    history,
+  });
+  finalText = quality.text;
+
   // Marcador [[whatsapp]] → botão de atendimento no widget
   const { cleanText: textAfterWa, showWhatsapp } = extractWhatsappMarker(finalText);
 
@@ -351,6 +361,7 @@ export async function runAssistantTurn(opts: {
     blocks,
     recentProducts,
     modelUsed: activeModel,
+    qualityFlags: quality.flags,
     cartAdd,
   };
 }

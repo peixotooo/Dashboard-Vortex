@@ -17,6 +17,7 @@ import { getVndaConfigAdmin } from "@/lib/vnda-api";
 import { getAssistantSettings, isProductAllowed } from "@/lib/assistant/settings";
 import {
   hashIp,
+  isAssistantTestUserAgent,
   scrubPiiForStorage,
   validateCustomerName,
   validateUserMessage,
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     "unknown";
   const ipHash = hashIp(ip);
+  const userAgent = (request.headers.get("user-agent") || "").slice(0, 250);
   if (!checkIpRateLimit(ipHash)) {
     return json(request, 429, { ok: false, reply: BUSY_REPLY });
   }
@@ -137,6 +139,7 @@ export async function POST(request: NextRequest) {
   let messageCount = 0;
   // Superfície da conversa: fixada na criação e mantida por toda a sessão.
   let surface: "pdp" | "global" = wantsGlobal ? "global" : "pdp";
+  let isTest = isAssistantTestUserAgent(userAgent);
 
   let activeName: string | null = customerName;
   let isNewSession = false;
@@ -166,6 +169,7 @@ export async function POST(request: NextRequest) {
     // pendente → cai no default 'pdp', comportamento v1 seguro).
     if (conv.surface === "global") surface = "global";
     else if (conv.surface === "pdp") surface = "pdp";
+    isTest = conv.is_test === true;
     if (Array.isArray(conv.recent_products)) {
       recentProducts = (conv.recent_products as unknown[])
         .filter((p): p is { id: string; name: string; sizes?: string[] } =>
@@ -192,7 +196,8 @@ export async function POST(request: NextRequest) {
       product_id: surface === "global" ? null : productId,
       page_url: pageUrl,
       ip_hash: ipHash,
-      user_agent: (request.headers.get("user-agent") || "").slice(0, 250),
+      user_agent: userAgent,
+      is_test: isTest,
     };
     if (surface === "global") insertRow.surface = "global";
     const { data: created, error: createError } = await admin
@@ -277,6 +282,7 @@ export async function POST(request: NextRequest) {
       workspace_id: workspaceId,
       role: "user",
       content: scrubPiiForStorage(message),
+      is_test: isTest,
       ...surfaceCol,
     },
     {
@@ -286,6 +292,8 @@ export async function POST(request: NextRequest) {
       // Scrub também a resposta: se o modelo repetir um dado que o cliente
       // digitou, não guardamos em claro na transcrição (LGPD).
       content: scrubPiiForStorage(result.reply),
+      quality_flags: result.qualityFlags || [],
+      is_test: isTest,
       ...surfaceCol,
     },
   ];
@@ -297,6 +305,7 @@ export async function POST(request: NextRequest) {
       // Scrub também na telemetria: o input de consultar_pedido carrega o
       // e-mail do cliente — mascara igual às mensagens (achado da revisão)
       content: scrubPiiForStorage(JSON.stringify(result.toolLog)).slice(0, 4000),
+      is_test: isTest,
       ...surfaceCol,
     });
   }
@@ -340,6 +349,7 @@ export async function POST(request: NextRequest) {
         event_type: "session_started",
         surface,
         ip_hash: ipHash,
+        is_test: isTest,
       });
     }
     events.push({
@@ -348,6 +358,7 @@ export async function POST(request: NextRequest) {
       event_type: "message_sent",
       surface,
       ip_hash: ipHash,
+      is_test: isTest,
       metadata: {
         msg_index: messageCount + 1,
         // Modelo usado no turno — mede a taxa de escalada haiku→sonnet (custo).
@@ -368,6 +379,7 @@ export async function POST(request: NextRequest) {
         event_type: "products_shown",
         surface,
         ip_hash: ipHash,
+        is_test: isTest,
         product_ids: [...shownIds].slice(0, 30),
         metadata: { count: shownIds.size },
       });

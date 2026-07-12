@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateApiKey } from "@/lib/shelves/api-key";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { hashIp } from "@/lib/assistant/guardrails";
+import { linkAssistantSessionToOrder } from "@/lib/assistant/attribution";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -158,7 +159,13 @@ function safeOccurredAt(v: unknown): string {
 
 interface BuiltRow {
   row?: Record<string, unknown>;
-  attribution?: { atk: string; order_code: string };
+  attribution?: {
+    atk: string;
+    order_token: string | null;
+    order_code: string | null;
+    order_id: string | null;
+    occurred_at: string;
+  };
   error?: string;
 }
 
@@ -179,7 +186,15 @@ function buildRow(raw: unknown, body: Record<string, unknown>, workspaceId: stri
   const surface = safeToken(e.surface);
   const bucket = typeof e.value_bucket === "string" ? e.value_bucket : null;
   const productId = safeToken(e.product_id);
-  const orderCode = safeToken(e.order_code);
+  const legacyOrderCode = safeToken(e.order_code);
+  const explicitOrderToken = safeToken(e.order_token);
+  const orderToken =
+    explicitOrderToken ||
+    (eventType === "order_placed" && legacyOrderCode && legacyOrderCode.length >= 24
+      ? legacyOrderCode
+      : null);
+  const orderCode = orderToken === legacyOrderCode ? null : legacyOrderCode;
+  const orderId = safeToken(e.order_id);
   const productIds = Array.isArray(e.product_ids)
     ? (e.product_ids as unknown[])
         .map((p) => safeToken(p))
@@ -187,6 +202,7 @@ function buildRow(raw: unknown, body: Record<string, unknown>, workspaceId: stri
         .slice(0, 30)
     : null;
 
+  const occurredAt = safeOccurredAt(e.occurred_at);
   const row: Record<string, unknown> = {
     workspace_id: workspaceId,
     atk,
@@ -198,13 +214,23 @@ function buildRow(raw: unknown, body: Record<string, unknown>, workspaceId: stri
     path: safePath(e.path),
     metadata: safeMetadata(e.metadata),
     order_code: orderCode,
+    order_token: orderToken,
+    order_id: orderId,
     ip_hash: ipHash,
-    occurred_at: safeOccurredAt(e.occurred_at),
+    occurred_at: occurredAt,
   };
 
   // order_placed com código → materializa a atribuição (idempotente).
   const attribution =
-    eventType === "order_placed" && orderCode ? { atk, order_code: orderCode } : undefined;
+    eventType === "order_placed" && (orderToken || orderCode || orderId)
+      ? {
+          atk,
+          order_token: orderToken,
+          order_code: orderCode,
+          order_id: orderId,
+          occurred_at: occurredAt,
+        }
+      : undefined;
 
   return { row, attribution };
 }
@@ -248,7 +274,7 @@ export async function POST(request: NextRequest) {
 
   const ipHash = hashIp(clientIp(request));
   const rows: Record<string, unknown>[] = [];
-  const attributions: Array<{ atk: string; order_code: string }> = [];
+  const attributions: NonNullable<BuiltRow["attribution"]>[] = [];
   for (const p of payloads) {
     const built = buildRow(p, body, auth.workspaceId, ipHash);
     if (built.error || !built.row) {
@@ -260,24 +286,51 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
   try {
-    await admin.from("assistant_events").insert(rows);
+    // A superfície e a classificação de QA vêm da conversa autoritativa, não
+    // do navegador. Isso impede um order_placed da PDP de virar "global".
+    const atks = [...new Set(rows.map((row) => String(row.atk || "")).filter(Boolean))];
+    const { data: conversations, error: convError } = await admin
+      .from("assistant_conversations")
+      .select("session_key, surface, is_test")
+      .eq("workspace_id", auth.workspaceId)
+      .in("session_key", atks);
+    if (convError) throw convError;
+    const contextByAtk = new Map(
+      (conversations || []).map((conv) => [
+        String(conv.session_key),
+        {
+          surface:
+            conv.surface === "pdp" || conv.surface === "global"
+              ? (conv.surface as "pdp" | "global")
+              : ("unknown" as const),
+          isTest: conv.is_test === true,
+        },
+      ])
+    );
+    for (const row of rows) {
+      const context = contextByAtk.get(String(row.atk || ""));
+      row.is_test = context?.isTest || false;
+      if (context) row.surface = context.surface;
+    }
+
+    const { error: insertError } = await admin.from("assistant_events").insert(rows);
+    if (insertError) throw insertError;
     // Atribuição client-side (fonte determinística): carimba o vínculo
     // sessão→pedido (atk). MERGE, não ignoreDuplicates: se o webhook VNDA já
     // criou a linha só com a receita, este upsert preenche o atk sem apagar a
     // receita (só seta as colunas fornecidas). A receita REAL é do webhook.
     for (const a of attributions) {
-      await admin
-        .from("assistant_attributions")
-        .upsert(
-          {
-            workspace_id: auth.workspaceId,
-            atk: a.atk,
-            order_code: a.order_code,
-            source: "client_confirmation",
-            confidence: 1.0,
-          },
-          { onConflict: "workspace_id,order_code" }
-        );
+      const context = contextByAtk.get(a.atk);
+      await linkAssistantSessionToOrder(admin, {
+        workspaceId: auth.workspaceId,
+        atk: a.atk,
+        orderToken: a.order_token,
+        orderCode: a.order_code,
+        orderId: a.order_id,
+        surface: context?.surface || "unknown",
+        isTest: context?.isTest || false,
+        placedAt: a.occurred_at,
+      });
     }
     return NextResponse.json({ ok: true, inserted: rows.length }, { headers: CORS });
   } catch (err) {

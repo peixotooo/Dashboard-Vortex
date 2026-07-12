@@ -4,10 +4,11 @@ import type { AssistantSettings } from "./types";
 const DEFAULTS = {
   title: "Assistente Bulking",
   welcomeMessage:
-    "Oi! Sou o assistente da Bulking. Te ajudo a achar o tamanho certo, tirar dúvida de tecido e caimento e escolher a peça ideal. Como posso ajudar?",
+    "Oi! Te ajudo a escolher o tamanho, conferir medidas, tecido e prazo desta peça. O que você quer saber?",
   suggestions: [
-    "Qual tamanho ideal pra mim?",
-    "Esse tecido é dry ou algodão?",
+    "Descobrir meu tamanho",
+    "Ver medidas desta peça",
+    "Qual o prazo de envio?",
     "Me recomenda produtos parecidos",
   ],
   maxMessagesPerSession: 30,
@@ -36,7 +37,7 @@ export async function getAssistantSettings(
       suggestions: DEFAULTS.suggestions,
       storeInfo: "",
       institutionalKb: "",
-      askName: true,
+      askName: false,
       maxMessagesPerSession: DEFAULTS.maxMessagesPerSession,
       dailyMessageCap: DEFAULTS.dailyMessageCap,
       globalEnabled: false,
@@ -84,7 +85,12 @@ export async function getAssistantSettings(
         : "Bem-vindo à Bulking. Sou seu assistente de compras: me diz o que você procura, ou toca numa sugestão aqui embaixo.",
     globalSuggestions: Array.isArray(data.global_suggestions)
       ? (data.global_suggestions as unknown[]).filter((s) => typeof s === "string").slice(0, 6) as string[]
-      : ["O que tem de mais vendido?", "Camiseta oversized preta", "Tem cupom hoje?", "Me ajuda a escolher um look"],
+      : [
+          "Quero ajuda com meu tamanho",
+          "O que tem de mais vendido?",
+          "Quero camiseta para treinar",
+          "Tem promoção hoje?",
+        ],
   };
 }
 

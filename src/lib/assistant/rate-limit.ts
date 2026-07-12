@@ -52,30 +52,35 @@ export function checkIpRateLimit(ipHash: string): boolean {
  */
 export async function getDailyMessageCount(
   workspaceId: string,
-  surface?: "pdp" | "global"
+  surface?: "pdp" | "global",
+  includeTests = true
 ): Promise<number> {
   const admin = createAdminClient();
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
 
   if (surface) {
-    const { count, error } = await admin
+    let query = admin
       .from("assistant_messages")
       .select("id", { count: "exact", head: true })
       .eq("workspace_id", workspaceId)
       .eq("surface", surface)
       .in("role", ["user", "assistant"])
       .gte("created_at", startOfDay.toISOString());
+    if (!includeTests) query = query.eq("is_test", false);
+    const { count, error } = await query;
     if (!error) return count || 0;
     // coluna ausente (migration pendente) → cai no fallback sem filtro
   }
 
-  const { count } = await admin
+  let query = admin
     .from("assistant_messages")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", workspaceId)
     .in("role", ["user", "assistant"])
     .gte("created_at", startOfDay.toISOString());
+  if (!includeTests) query = query.eq("is_test", false);
+  const { count } = await query;
 
   return count || 0;
 }
