@@ -8,6 +8,7 @@ import {
   normalizeWapiMessagePayload,
   type WapiMessagePayload,
 } from "@/lib/whatsapp/wapi-message-types";
+import { isVisibleWapiGroupJid } from "@/lib/whatsapp/group-visibility";
 
 export const maxDuration = 120;
 
@@ -68,7 +69,8 @@ export async function POST(request: NextRequest) {
         (group): group is { jid: string; name?: string } =>
           !!group &&
           typeof group.jid === "string" &&
-          group.jid.endsWith("@g.us"),
+          group.jid.endsWith("@g.us") &&
+          isVisibleWapiGroupJid(group.jid),
       )
       .map((group) => ({
         jid: group.jid.trim(),

@@ -9,6 +9,7 @@ import {
   makeDelta,
   refByDaysAgo,
 } from "@/lib/series-utils";
+import { isVisibleWapiGroupJid } from "@/lib/whatsapp/group-visibility";
 
 interface Row {
   group_jid: string;
@@ -47,7 +48,10 @@ export async function GET(request: NextRequest) {
 
     const days = Math.min(
       730,
-      Math.max(7, parseInt(request.nextUrl.searchParams.get("days") || "90", 10) || 90)
+      Math.max(
+        7,
+        parseInt(request.nextUrl.searchParams.get("days") || "90", 10) || 90,
+      ),
     );
     const today = spDateString();
     const since = shiftDays(today, -days);
@@ -59,7 +63,9 @@ export async function GET(request: NextRequest) {
       .gte("captured_on", since)
       .order("captured_on", { ascending: true });
 
-    const rows = (snapRows || []) as Row[];
+    const rows = ((snapRows || []) as Row[]).filter((row) =>
+      isVisibleWapiGroupJid(row.group_jid),
+    );
 
     if (rows.length === 0) {
       return NextResponse.json({
@@ -114,7 +120,10 @@ export async function GET(request: NextRequest) {
     // --- totais (soma por dia entre todos os grupos) ---
     const sumByDate = new Map<string, number>();
     for (const r of rows) {
-      sumByDate.set(r.captured_on, (sumByDate.get(r.captured_on) || 0) + r.member_count);
+      sumByDate.set(
+        r.captured_on,
+        (sumByDate.get(r.captured_on) || 0) + r.member_count,
+      );
     }
     const totalSeries: TotalPoint[] = Array.from(sumByDate.entries())
       .sort((a, b) => (a[0] < b[0] ? -1 : 1))
@@ -139,7 +148,9 @@ export async function GET(request: NextRequest) {
       d30: makeDelta(tCurrent.members, refByDaysAgo(totalSeries, 30)?.members),
       periodNet: tPeriodNet,
       periodPct:
-        tFirst.members > 0 ? Math.round((tPeriodNet / tFirst.members) * 10000) / 100 : null,
+        tFirst.members > 0
+          ? Math.round((tPeriodNet / tFirst.members) * 10000) / 100
+          : null,
       periodDays: tSpan,
     };
 
