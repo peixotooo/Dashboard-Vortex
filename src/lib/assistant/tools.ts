@@ -178,7 +178,7 @@ export const ASSISTANT_TOOLS: Anthropic.Messages.Tool[] = [
 const SIZE_GUIDE_OVERSIZED = {
   modelagem: "oversized",
   aviso:
-    "Modelagem oversized veste mais largo que o normal. Altura e peso são apenas referência inicial, não garantia de tamanho. Compare a largura de axila a axila com uma peça que já veste bem no cliente.",
+    "Modelagem oversized já veste mais larga. Use o tamanho habitual como centro: um tamanho menor para caimento mais certinho e um maior para bem folgado, sempre limitado aos tamanhos disponíveis.",
   medidas_cm: [
     { tamanho: "P", largura_peito: 54, comprimento: 76 },
     { tamanho: "M", largura_peito: 56, comprimento: 78 },
@@ -189,13 +189,13 @@ const SIZE_GUIDE_OVERSIZED = {
   observacao:
     "Medidas tiradas da peça fora do corpo; variação de até 2 cm pela margem de costura. Largura de peito é medida reta de axila a axila (dobrar em 2 ≈ circunferência).",
   referencia_rapida:
-    "Não decidir só por faixas de peso. Use tamanho habitual + caimento desejado + medida de uma peça do cliente. Com 105 kg ou mais, peça a largura de axila a axila antes de indicar GG/XGG.",
+    "Recomende de forma direta com altura, peso, tamanho habitual e caimento desejado. Informe as medidas oficiais do tamanho principal e do tamanho vizinho quando a preferência mudar a escolha. Não peça medidas adicionais ao cliente.",
 };
 
 const SIZE_GUIDE_REGULAR = {
   modelagem: "regular",
   aviso:
-    "Modelagem regular veste no tamanho usual do cliente. Em dúvida entre dois tamanhos, sugerir o maior para conforto.",
+    "Modelagem regular veste no tamanho habitual. Entre dois tamanhos compatíveis, use o menor para caimento mais certinho e o maior para mais conforto e folga.",
   medidas_cm: null,
   observacao:
     "Não há tabela de medidas específica cadastrada para modelagem regular. Orientar pelo tamanho que o cliente costuma usar.",
@@ -404,9 +404,9 @@ export async function executeAssistantTool(
               aviso:
                 details.fit === "oversized"
                   ? "Modelagem oversized veste mais largo. Quem prefere caimento mais justo pode pegar um tamanho abaixo do usual."
-                  : "Modelagem regular veste no tamanho usual. Em dúvida entre dois, o maior dá mais conforto.",
+                  : "Modelagem regular veste no tamanho usual. Entre dois tamanhos compatíveis, use o menor para mais certinho e o maior para mais folgado.",
               instrucao:
-                "Use ESTAS medidas oficiais. A largura é da peça deitada, de axila a axila, não o tórax do cliente. Altura/peso dão só uma indicação inicial; compare com uma peça que já veste bem quando houver dúvida.",
+                "Use ESTAS medidas oficiais e recomende de forma direta. A largura é da peça deitada, de axila a axila, não o tórax do cliente. Entre dois tamanhos compatíveis, indique o menor para caimento mais certinho e o maior para mais folgado. Não peça medidas adicionais.",
             });
           }
         }
