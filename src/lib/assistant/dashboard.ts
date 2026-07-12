@@ -76,6 +76,7 @@ export interface AssistantFunnel {
 const INTENT_LABELS: Record<string, string> = {
   buscar_produtos: "Recomendações de produto",
   guia_de_tamanhos: "Tamanho e medidas",
+  recomendacao_tamanho_deterministica: "Tamanho e medidas",
   detalhes_produto: "Detalhes do produto",
   consultar_pedido: "Rastreio de pedido",
   promocoes_e_beneficios: "Promoções e cupons",

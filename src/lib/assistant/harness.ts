@@ -14,6 +14,11 @@ import {
 } from "./guardrails";
 import { buildSystemPrompt, type RecentProduct } from "./prompt";
 import { applyAssistantQualityGuard } from "./quality";
+import {
+  buildDeterministicSizeReply,
+  extractCustomerSizeProfile,
+  hasSizingIntent,
+} from "./sizing";
 import { ASSISTANT_TOOLS, executeAssistantTool, type ToolContext } from "./tools";
 import { getVitrine } from "./commerce";
 import type { ActiveKnowledge } from "./knowledge";
@@ -103,6 +108,41 @@ export async function runAssistantTurn(opts: {
     }
   }
 
+  const customerSizeProfile = extractCustomerSizeProfile(history, userMessage);
+  if (
+    surface === "pdp" &&
+    currentProduct &&
+    currentProduct.sizes.length > 0 &&
+    customerSizeProfile &&
+    hasSizingIntent(history, userMessage)
+  ) {
+    const deterministic = buildDeterministicSizeReply({
+      product: currentProduct,
+      profile: customerSizeProfile,
+    });
+    return {
+      reply: deterministic.reply,
+      products: [],
+      showWhatsapp: false,
+      toolLog: [
+        {
+          name: "recomendacao_tamanho_deterministica",
+          input: {
+            height_cm: customerSizeProfile.heightCm,
+            weight_kg: customerSizeProfile.weightKg,
+            preference: customerSizeProfile.preference,
+            primary: deterministic.recommendation.primary,
+          },
+          ok: deterministic.recommendation.primary !== null,
+        },
+      ],
+      recentProducts: incomingRecent,
+      modelUsed: "deterministic-sizing-v1",
+      qualityFlags: [],
+      cartAdd: null,
+    };
+  }
+
   const system = buildSystemPrompt({
     settings,
     storeHost,
@@ -125,6 +165,7 @@ export async function runAssistantTurn(opts: {
     pageType: currentProductId ? "product" : "home",
     seenProducts: new Map(),
     surface,
+    customerSizeProfile,
   };
 
   // No PDP (v1) as tools de vitrine/avaliações NÃO são oferecidas — elas emitem
