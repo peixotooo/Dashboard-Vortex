@@ -96,6 +96,12 @@ WHERE c.workspace_id = e.workspace_id
   AND c.session_key = e.atk
   AND e.is_test IS DISTINCT FROM c.is_test;
 
+-- Probes históricos do endpoint foram criados sem conversation correspondente.
+UPDATE public.assistant_events
+SET is_test = true
+WHERE lower(atk) ~ '^testsession_'
+   OR upper(coalesce(order_code, '')) LIKE 'TESTE-QA-%';
+
 UPDATE public.assistant_attributions AS a
 SET
   is_test = c.is_test,
@@ -103,6 +109,11 @@ SET
 FROM public.assistant_conversations AS c
 WHERE c.workspace_id = a.workspace_id
   AND c.session_key = a.atk;
+
+UPDATE public.assistant_attributions
+SET is_test = true
+WHERE lower(coalesce(atk, '')) ~ '^testsession_'
+   OR upper(coalesce(order_code, '')) LIKE 'TESTE-QA-%';
 
 -- Registros antigos guardaram o token da URL na coluna order_code.
 UPDATE public.assistant_events
