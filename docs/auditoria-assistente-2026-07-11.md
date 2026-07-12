@@ -47,9 +47,9 @@ Logo, a receita confirmada direta no período é realmente zero. O rastreamento 
 
 ## Problemas encontrados
 
-### 1. Tamanho com confiança indevida
+### 1. Recomendação de tamanho pouco decisiva
 
-O agente tratava altura e peso como prova suficiente e usava expressões como “tamanho ideal”, inclusive em biotipos acima da referência da grade. A tabela informa largura da peça deitada, mas algumas respostas chamavam a medida de “tórax”, induzindo uma comparação errada com o corpo.
+Algumas respostas devolviam a dúvida ao cliente ou não explicavam como a preferência de caimento mudava a escolha. A tabela informa largura da peça deitada, mas algumas respostas chamavam a medida de “tórax”, induzindo uma comparação errada com o corpo. O comportamento correto é recomendar um tamanho principal e usar o tamanho vizinho como alternativa objetiva: menor para mais certinho, maior para mais folgado.
 
 ### 2. Conhecimento de tecido presumido
 
@@ -90,11 +90,12 @@ A receita direta soma apenas os itens correspondentes, líquida do desconto prop
 ## Melhorias implantadas no agente
 
 - composição desconhecida permanece desconhecida; não vira algodão por padrão;
-- recomendações de tamanho deixam de prometer certeza;
-- acima de 105 kg, sem medida comparável, o agente pede a largura de axila a axila de uma peça que já veste bem;
+- recomendações de tamanho passam a ser diretas, sustentadas pela modelagem, tabela oficial e disponibilidade;
+- entre dois tamanhos compatíveis, o agente indica o menor para caimento mais certinho e o maior para mais folgado;
+- o cliente não precisa tirar medidas de outra peça;
 - “cm de tórax” é corrigido para largura da peça de axila a axila;
 - confirmação de sacola sem ação real é bloqueada;
-- urgência e escassez inventadas são removidas deterministicamente;
+- argumentos de venda continuam persuasivos, mas alegações factuais de estoque, escassez ou popularidade sem dado são reescritas;
 - palavras como “Oi”, “Qual” e “Tamanho” deixam de ser aceitas como nome;
 - erro em vale-troca/cupom de devolução vai para atendimento humano, sem diagnóstico inventado;
 - previsão de reposição nunca é prometida; o agente orienta o “Avise-me”;

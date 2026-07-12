@@ -288,10 +288,10 @@ function formatPct(fraction: number): string {
 function qualityFlagLabel(flag: string): string {
   const labels: Record<string, string> = {
     cart_claim_without_action: "Confirmação de sacola bloqueada",
-    high_risk_size_claim_rewritten: "Palpite de tamanho reescrito",
+    garment_measurement_label_corrected: "Medida da peça corrigida",
     reply_too_long: "Resposta longa",
     too_many_questions: "Perguntas demais",
-    unsupported_urgency_removed: "Urgência não comprovada removida",
+    unsupported_sales_claim_rephrased: "Argumento de venda reescrito",
   };
   return labels[flag] || flag;
 }
