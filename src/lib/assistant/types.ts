@@ -76,7 +76,7 @@ export interface AssistantProductCard {
 /** Produto como o LLM enxerga (resultado de tool). Sem quantidades de estoque. */
 export interface AssistantProductSummary extends AssistantProductCard {
   fit: "oversized" | "regular";
-  fabric: "dry" | "algodao";
+  fabric: "dry" | "algodao" | "desconhecido";
   /** Composição derivada da tag ficha-tecnica (ex.: "96% ALGODÃO · 4% ELASTANO") ou null. */
   composition: string | null;
   /** Prazo de postagem derivado da tag sob-demanda (pronta entrega vs sob demanda). */
@@ -110,6 +110,8 @@ export interface AssistantChatResult {
   recentProducts?: Array<{ id: string; name: string; sizes?: string[] }>;
   /** Modelo LLM usado no turno (haiku padrão ou o forte quando escala). */
   modelUsed?: string;
+  /** Violações detectadas/corrigidas pelo guard determinístico de saída. */
+  qualityFlags?: string[];
   /** Widget PDP (v1): produto+tamanho pra adicionar à sacola da loja (same-origin). */
   cartAdd?: { productId: string; size: string | null } | null;
 }

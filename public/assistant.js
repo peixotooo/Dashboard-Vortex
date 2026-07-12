@@ -280,7 +280,7 @@
 
     // Palavras que NÃO são nome (saudação/comando) — se o cliente digitar isso no
     // campo de nome, a gente NÃO trava: trata como a primeira mensagem dele.
-    var NOT_A_NAME = /^(oi|ola|ol[aá]|opa|eai|e a[íi]|eae|hey|hi|hello|al[oô]|bom dia|boa tarde|boa noite|teste|test|quero|queria|tem|preciso|ajuda|help|pre[çc]o|tamanho|comprar|ver|mostra|me mostra|sim|n[aã]o|ok|blz|beleza|obrigad[oa]|vlw)$/i;
+    var NOT_A_NAME = /^(oi|ola|ol[aá]|opa|eai|e a[íi]|eae|hey|hi|hello|al[oô]|bom dia|boa tarde|boa noite|teste|test|quero|queria|qual|tem|preciso|ajuda|help|pre[çc]o|tamanho|produto|pedido|frete|desconto|promo[çc][aã]o|comprar|compra|ver|mostra|me mostra|sim|n[aã]o|ok|blz|beleza|obrigad[oa]|vlw)$/i;
 
     // Classifica o que o cliente digitou no campo de nome:
     //  "name"    → nome válido (um token só de letras)
@@ -948,7 +948,7 @@
     }
 
     // Cookie de atribuição same-origin (o widget roda na loja): liga a compra à
-    // sessão do assistente da PDP. O shelves.js na confirmação (/pedido/<code>)
+    // sessão do assistente da PDP. O shelves.js na confirmação (/pedido/<token>)
     // lê esse cookie e dispara order_placed → atribuição + receita pelo webhook.
     function setPdpAttributionCookie() {
       var session = ssGet(SS_SESSION);

@@ -13,6 +13,7 @@ import {
 import { dispatchVndaPurchaseToCapi } from "@/lib/meta-capi-vnda";
 import { syncCustomerToAutoSegmentLists } from "@/lib/segments/sync";
 import { normalizeBrazilianWhatsAppPhone } from "@/lib/phone";
+import { recordAssistantWebhookOrder } from "@/lib/assistant/attribution";
 
 export const maxDuration = 30;
 
@@ -269,14 +270,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Chat Commerce v2: anexa a RECEITA REAL (ground-truth, bússola MER) à
-    // atribuição criada pelo order_placed do /chat. Keyed pelo code do pedido
-    // (o mesmo que o shelves.js extrai de /pedido/<code>). Isolado: nunca quebra
-    // o webhook. Só confirma receita de sessões que o cliente já atribuiu; se a
-    // coluna/tabela não existir (migration-133 pendente), ignora.
+    // Assistente: une o token público de /pedido/<token> ao code canônico do
+    // webhook. Funciona nas duas ordens de chegada e nunca aceita valor vindo
+    // do navegador. Cancelamento também revoga a receita confirmada.
     try {
       const p = payload as unknown as Record<string, unknown>;
-      const orderCode = String((p.code as string) || orderId);
       const num = (v: unknown): number | null => {
         const n = typeof v === "number" ? v : Number(v);
         return Number.isFinite(n) ? n : null;
@@ -284,29 +282,29 @@ export async function POST(request: NextRequest) {
       const rawItems = Array.isArray(p.items) ? (p.items as Array<Record<string, unknown>>) : [];
       const orderItems = rawItems.slice(0, 60).map((it) => ({
         sku: String(it.sku || ""),
+        reference: it.reference ? String(it.reference) : null,
         qty: num(it.quantity) ?? 1,
         total: num(it.total) ?? num(it.price) ?? 0,
       }));
-      // UPSERT (não UPDATE): se o webhook chega ANTES da confirmação client-side,
-      // cria a linha só com a receita (atk fica NULL até o beacon do /chat
-      // preencher). Se a linha já existe, anexa a receita sem tocar no atk. Assim
-      // a ordem de chegada webhook/cliente não perde a receita (bússola MER).
-      await admin
-        .from("assistant_attributions")
-        .upsert(
-          {
-            workspace_id: workspaceId,
-            order_code: orderCode,
-            order_total: num(p.total),
-            order_subtotal: num(p.subtotal),
-            order_discount: num(p.discount) ?? num(p.discount_price),
-            order_items: orderItems,
-            revenue_confirmed: true,
-            confirmed_at: new Date().toISOString(),
-          },
-          { onConflict: "workspace_id,order_code" }
-        );
-      console.log(`[VNDA Webhook] Chat attribution revenue upserted for order ${orderCode}`);
+      await recordAssistantWebhookOrder(admin, {
+        workspaceId,
+        orderToken: typeof p.token === "string" ? p.token : null,
+        orderCode: typeof p.code === "string" ? p.code : orderId,
+        orderId,
+        status: p.canceled_at
+          ? "canceled"
+          : typeof p.status === "string"
+          ? p.status
+          : null,
+        total: num(p.total),
+        subtotal: num(p.subtotal),
+        discount: num(p.discount) ?? num(p.discount_price),
+        shipping: num(p.shipping_price),
+        items: orderItems,
+        confirmedAt:
+          typeof p.confirmed_at === "string" ? p.confirmed_at : null,
+      });
+      console.log(`[VNDA Webhook] Assistant attribution reconciled for order ${orderId}`);
     } catch (attrErr) {
       console.error(
         `[VNDA Webhook] Chat attribution update failed for order ${orderId}:`,
