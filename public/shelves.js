@@ -5235,18 +5235,17 @@
     } catch (e) { /* old browsers */ }
   }
 
-  // Extract the VNDA order code from the confirmation page. VNDA's canonical
-  // pattern is /pedido/<code>; some themes also render data-order-id on the
-  // confirmation container.
-  function extractOrderCode() {
+  // A VNDA usa /pedido/<token> na confirmação. Esse token público é diferente
+  // do code canônico recebido no webhook; o servidor faz a junção entre ambos.
+  function extractOrderIdentity() {
     try {
       var m = window.location.pathname.match(/\/pedido\/([A-Za-z0-9_-]+)/);
-      if (m && m[1]) return m[1];
-      var el = document.querySelector("[data-order-code], [data-order-id]");
-      if (el) {
-        var v = el.getAttribute("data-order-code") || el.getAttribute("data-order-id");
-        if (v) return v;
-      }
+      if (m && m[1]) return { order_token: m[1] };
+      var codeEl = document.querySelector("[data-order-code]");
+      var idEl = document.querySelector("[data-order-id]");
+      var code = codeEl && codeEl.getAttribute("data-order-code");
+      var id = idEl && idEl.getAttribute("data-order-id");
+      if (code || id) return { order_code: code || undefined, order_id: id || undefined };
     } catch (e) { /* swallow */ }
     return null;
   }
@@ -5254,33 +5253,48 @@
   // Chat Commerce v2: atribui o pedido à sessão do chat. Lê o cookie vtx_atk
   // (gravado no handoff) + o código do pedido e dispara order_placed. O endpoint
   // materializa a atribuição; a receita REAL entra depois pelo webhook VNDA.
-  // Idempotente (dispara uma vez; o servidor ignora duplicado por order_code).
+  // Só consome o cookie após o servidor confirmar, permitindo retry se falhar.
   var vtxOrderPlacedSent = false;
+  var vtxOrderPlacedInFlight = false;
   function sendAssistantOrderPlaced() {
-    if (vtxOrderPlacedSent || !API_BASE) return;
+    if (vtxOrderPlacedSent || vtxOrderPlacedInFlight || !API_BASE) return;
     var atk = getCookie("vtx_atk");
     if (!atk) return;
-    var orderCode = extractOrderCode();
-    if (!orderCode) return;
-    vtxOrderPlacedSent = true;
+    var orderIdentity = extractOrderIdentity();
+    if (!orderIdentity) return;
+    vtxOrderPlacedInFlight = true;
     try {
       var body = JSON.stringify({
         key: API_KEY,
         event_type: "order_placed",
         session_id: atk,
-        surface: "global",
-        order_code: orderCode,
+        surface: "unknown",
+        order_token: orderIdentity.order_token,
+        order_code: orderIdentity.order_code,
+        order_id: orderIdentity.order_id,
         path: window.location.pathname,
       });
       var url = API_BASE + "/api/assistant/events";
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
-      } else {
-        fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body, keepalive: true, credentials: "omit" });
-      }
-      // Consome o cookie: não re-atribui um pedido futuro à mesma sessão antiga.
-      setCookie("vtx_atk", "", -1);
-    } catch (e) {}
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+        keepalive: true,
+        credentials: "omit",
+      })
+        .then(function (res) {
+          if (!res || !res.ok) throw new Error("assistant attribution failed");
+          vtxOrderPlacedSent = true;
+          vtxOrderPlacedInFlight = false;
+          // Não reatribui um pedido futuro à mesma sessão antiga.
+          setCookie("vtx_atk", "", -1);
+        })
+        .catch(function () {
+          vtxOrderPlacedInFlight = false;
+        });
+    } catch (e) {
+      vtxOrderPlacedInFlight = false;
+    }
   }
 
   function sendCAPI(eventType, data) {

@@ -50,29 +50,34 @@ export async function GET(request: NextRequest) {
           .from("assistant_conversations")
           .select("id, product_id, page_url, message_count, created_at, last_message_at, customer_name")
           .eq("workspace_id", workspaceId)
+          .eq("is_test", false)
           .order("last_message_at", { ascending: false })
           .limit(50),
         admin
           .from("assistant_conversations")
           .select("id", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
+          .eq("is_test", false)
           .gte("created_at", since7d),
         admin
           .from("assistant_messages")
           .select("id", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
+          .eq("is_test", false)
           .eq("role", "user")
           .gte("created_at", since7d),
         admin
           .from("assistant_messages")
           .select("id", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
+          .eq("is_test", false)
           .eq("feedback", 1)
           .gte("created_at", since7d),
         admin
           .from("assistant_messages")
           .select("id", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
+          .eq("is_test", false)
           .eq("feedback", -1)
           .gte("created_at", since7d),
       ]);
@@ -91,6 +96,8 @@ export async function GET(request: NextRequest) {
     const dailyCap = Number(settingsRes.data?.daily_message_cap) || 1500;
     let dashboard = null;
     try {
+      // O card é "Uso hoje (custo)": QA não entra nos KPIs comerciais, mas
+      // continua consumindo modelo e portanto precisa entrar neste cap.
       const messagesToday = await getDailyMessageCount(workspaceId);
       dashboard = await buildAssistantDashboard(admin, workspaceId, dailyCap, messagesToday);
     } catch (err) {

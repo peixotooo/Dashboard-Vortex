@@ -9,6 +9,7 @@ import {
   Loader2,
   MessageSquare,
   Save,
+  ShieldCheck,
   ThumbsDown,
   TrendingDown,
   TrendingUp,
@@ -149,6 +150,14 @@ interface NegativeFeedbackItem {
   created_at: string;
 }
 
+interface QualityAlertItem {
+  message_id: number;
+  conversation_id: string;
+  excerpt: string;
+  flags: string[];
+  created_at: string;
+}
+
 interface FunnelStats {
   steps: {
     sessions: number;
@@ -162,6 +171,8 @@ interface FunnelStats {
   orders_confirmed: number;
   avg_ticket: number;
   pending_attribution: number;
+  influenced_orders: number;
+  cancelled_orders: number;
   top_products: Array<{ sku: string; name: string; orders: number; revenue: number }>;
 }
 
@@ -178,6 +189,7 @@ interface DashboardData {
   top_products: TopProduct[];
   hourly: HourlyPoint[];
   negative_feedback: NegativeFeedbackItem[];
+  quality_alerts: QualityAlertItem[];
   funnel?: FunnelData | null;
 }
 
@@ -273,6 +285,17 @@ function formatPct(fraction: number): string {
   return `${(fraction * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
+function qualityFlagLabel(flag: string): string {
+  const labels: Record<string, string> = {
+    cart_claim_without_action: "Confirmação de sacola bloqueada",
+    garment_measurement_label_corrected: "Medida da peça corrigida",
+    reply_too_long: "Resposta longa",
+    too_many_questions: "Perguntas demais",
+    unsupported_sales_claim_rephrased: "Argumento de venda reescrito",
+  };
+  return labels[flag] || flag;
+}
+
 // Uma seção de funil (KPIs + barras + top produtos) de UMA superfície.
 function FunnelSurfaceView({
   title,
@@ -291,10 +314,10 @@ function FunnelSurfaceView({
   const base = Math.max(1, s.sessions);
   const rows = [
     { label: "Sessões engajadas", value: s.sessions },
-    { label: "Viu produto", value: s.viewed_product },
+    { label: "Recebeu produtos", value: s.viewed_product },
     { label: "Adicionou à sacola", value: s.added_to_cart },
     ...(showCheckout ? [{ label: "Foi ao checkout", value: s.checkout }] : []),
-    { label: "Comprou", value: s.purchased },
+    { label: "Comprou item assistido", value: s.purchased },
   ];
   const maxRev = Math.max(1, ...stats.top_products.map((x) => x.revenue));
   return (
@@ -329,15 +352,15 @@ function FunnelSurfaceView({
             <Card>
               <CardContent className="pt-6">
                 <div className="text-3xl font-bold">{formatPct(stats.rates.conversion_rate)}</div>
-                <div className="text-xs text-muted-foreground mt-1">Conversão sessão → pedido</div>
+                <div className="text-xs text-muted-foreground mt-1">Conversão em compra direta</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
                 <div className="text-3xl font-bold">{formatBRL(stats.revenue_confirmed)}</div>
-                <div className="text-xs text-muted-foreground mt-1">Receita atribuída (real)</div>
+                <div className="text-xs text-muted-foreground mt-1">Receita direta confirmada</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {formatNumber(stats.orders_confirmed)} pedidos
+                  {formatNumber(stats.orders_confirmed)} pedidos com item assistido
                   {stats.pending_attribution > 0
                     ? ` · ${formatNumber(stats.pending_attribution)} aguardando`
                     : ""}
@@ -347,7 +370,7 @@ function FunnelSurfaceView({
             <Card>
               <CardContent className="pt-6">
                 <div className="text-3xl font-bold">{formatBRL(stats.avg_ticket)}</div>
-                <div className="text-xs text-muted-foreground mt-1">Ticket médio</div>
+                <div className="text-xs text-muted-foreground mt-1">Ticket dos itens assistidos</div>
               </CardContent>
             </Card>
           </div>
@@ -374,8 +397,17 @@ function FunnelSurfaceView({
                 );
               })}
               <p className="text-xs text-muted-foreground pt-1">
-                Receita confirmada pelo webhook da VNDA (valor real, não estimado).
+                Só conta pedido pago que contém item adicionado pelo assistente. A
+                receita considera esses itens, líquida do desconto e sem frete.
               </p>
+              {(stats.influenced_orders > 0 || stats.cancelled_orders > 0) && (
+                <p className="text-xs text-muted-foreground">
+                  {stats.influenced_orders > 0
+                    ? `${formatNumber(stats.influenced_orders)} pedido(s) posterior(es) sem item assistido · `
+                    : ""}
+                  {formatNumber(stats.cancelled_orders)} pedido(s) cancelado(s)
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -724,6 +756,7 @@ export default function AssistentePage() {
   });
 
   const negativeFeedback = dashboard?.negative_feedback ?? [];
+  const qualityAlerts = dashboard?.quality_alerts ?? [];
 
   return (
     <div className="space-y-6 p-6">
@@ -1106,6 +1139,51 @@ export default function AssistentePage() {
                         </p>
                         <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
                           {formatRelative(nf.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4" />
+                Correções automáticas de qualidade
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {qualityAlerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Nenhuma intervenção automática registrada.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {qualityAlerts.map((alert) => (
+                    <button
+                      key={alert.message_id}
+                      type="button"
+                      onClick={() => openTranscriptById(alert.conversation_id)}
+                      className="w-full text-left rounded-lg border border-border p-3 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-2">
+                          <p className="text-sm text-foreground line-clamp-2">
+                            {alert.excerpt || "(sem texto)"}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {alert.flags.map((flag) => (
+                              <Badge key={flag} variant="secondary">
+                                {qualityFlagLabel(flag)}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatRelative(alert.created_at)}
                         </span>
                       </div>
                     </button>

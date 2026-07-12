@@ -8,6 +8,34 @@ import { createHash } from "crypto";
 
 export const MAX_MESSAGE_CHARS = 500;
 
+const NON_NAME_WORDS = new Set([
+  "ajuda",
+  "bom",
+  "compra",
+  "comprar",
+  "desconto",
+  "frete",
+  "help",
+  "hey",
+  "oi",
+  "ola",
+  "olá",
+  "opa",
+  "pedido",
+  "preco",
+  "preço",
+  "produto",
+  "promocao",
+  "promoção",
+  "qual",
+  "quero",
+  "sim",
+  "tamanho",
+  "tem",
+  "teste",
+  "ver",
+]);
+
 /** Valida a mensagem do cliente. Retorna a mensagem normalizada ou null. */
 export function validateUserMessage(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -29,7 +57,13 @@ export function validateCustomerName(raw: unknown): string | null {
   if (/\d/.test(cleaned)) return null;
   const first = cleaned.split(/\s+/)[0];
   if (!/^[\p{L}][\p{L}'-]{0,23}$/u.test(first)) return null;
+  if (NON_NAME_WORDS.has(first.toLocaleLowerCase("pt-BR"))) return null;
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
+/** UAs usados pelos roteiros internos. Nunca classifica um navegador comum. */
+export function isAssistantTestUserAgent(userAgent: string | null | undefined): boolean {
+  return /^(curl|node|postman|insomnia)(\/|\s|$)/i.test(String(userAgent || "").trim());
 }
 
 // Padrões que NUNCA devem aparecer numa resposta legítima de vendedor.
