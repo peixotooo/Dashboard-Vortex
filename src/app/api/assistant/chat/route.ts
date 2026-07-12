@@ -282,6 +282,7 @@ export async function POST(request: NextRequest) {
       workspace_id: workspaceId,
       role: "user",
       content: scrubPiiForStorage(message),
+      quality_flags: [],
       is_test: isTest,
       ...surfaceCol,
     },
@@ -305,15 +306,24 @@ export async function POST(request: NextRequest) {
       // Scrub também na telemetria: o input de consultar_pedido carrega o
       // e-mail do cliente — mascara igual às mensagens (achado da revisão)
       content: scrubPiiForStorage(JSON.stringify(result.toolLog)).slice(0, 4000),
+      quality_flags: [],
       is_test: isTest,
       ...surfaceCol,
     });
   }
   // Captura o id da resposta persistida — o widget usa pro feedback 👍/👎
-  const { data: inserted } = await admin
+  const { data: inserted, error: messageInsertError } = await admin
     .from("assistant_messages")
     .insert(rows)
     .select("id, role");
+  if (messageInsertError) {
+    console.error("[assistant] transcript insert failed:", messageInsertError.message);
+    return json(request, 500, {
+      ok: false,
+      session_id: activeSessionKey,
+      reply: "Tive um problema técnico agora. Tenta de novo em instantes.",
+    });
+  }
   const assistantMessageId =
     (inserted || []).find((r) => r.role === "assistant")?.id ?? null;
 
@@ -342,23 +352,24 @@ export async function POST(request: NextRequest) {
   // effort: tabela pode não existir se migration-133 pendente → ignora o erro.
   try {
     const events: Array<Record<string, unknown>> = [];
-    if (isNewSession) {
-      events.push({
-        workspace_id: workspaceId,
-        atk: activeSessionKey,
-        event_type: "session_started",
-        surface,
-        ip_hash: ipHash,
-        is_test: isTest,
-      });
-    }
-    events.push({
+    const eventBase = {
       workspace_id: workspaceId,
       atk: activeSessionKey,
-      event_type: "message_sent",
       surface,
       ip_hash: ipHash,
       is_test: isTest,
+      product_ids: null,
+      metadata: {},
+    };
+    if (isNewSession) {
+      events.push({
+        ...eventBase,
+        event_type: "session_started",
+      });
+    }
+    events.push({
+      ...eventBase,
+      event_type: "message_sent",
       metadata: {
         msg_index: messageCount + 1,
         // Modelo usado no turno — mede a taxa de escalada haiku→sonnet (custo).
@@ -374,19 +385,22 @@ export async function POST(request: NextRequest) {
     }
     if (shownIds.size > 0) {
       events.push({
-        workspace_id: workspaceId,
-        atk: activeSessionKey,
+        ...eventBase,
         event_type: "products_shown",
-        surface,
-        ip_hash: ipHash,
-        is_test: isTest,
         product_ids: [...shownIds].slice(0, 30),
         metadata: { count: shownIds.size },
       });
     }
-    await admin.from("assistant_events").insert(events);
-  } catch {
+    const { error: eventInsertError } = await admin.from("assistant_events").insert(events);
+    if (eventInsertError) {
+      console.error("[assistant] event insert failed:", eventInsertError.message);
+    }
+  } catch (eventError) {
     // telemetria nunca quebra a resposta ao cliente
+    console.error(
+      "[assistant] event insert threw:",
+      eventError instanceof Error ? eventError.message : "unknown error"
+    );
   }
 
   return json(request, 200, {
