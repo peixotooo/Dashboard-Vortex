@@ -15,6 +15,10 @@ import {
 import { getActiveKnowledge, formatActiveKnowledge, type ActiveKnowledge } from "./knowledge";
 import { lookupOrder } from "./orders";
 import { getVitrine, getReviewsForChat } from "./commerce";
+import {
+  recommendDeterministicSize,
+  type CustomerSizeProfile,
+} from "./sizing";
 import type {
   AssistantProductCard,
   AssistantSettings,
@@ -215,6 +219,7 @@ export interface ToolContext {
   orderLookups?: number;
   /** "global" = página /chat (blocos ricos). "pdp"/undefined = widget v1. */
   surface?: "pdp" | "global";
+  customerSizeProfile?: CustomerSizeProfile | null;
   // --- Chat Commerce v2: acumuladores pra montar blocos ricos ---
   seenVitrine?: { title: string; products: AssistantProductCard[] };
   seenReviews?: ReviewsBlockData;
@@ -397,6 +402,9 @@ export async function executeAssistantTool(
         if (pid && /^[\w-]{1,40}$/.test(pid)) {
           const details = await withTimeout(getProductDetails(ctx.workspaceId, pid));
           if (details?.sizeGuide) {
+            const deterministic = ctx.customerSizeProfile
+              ? recommendDeterministicSize(ctx.customerSizeProfile, details.sizes)
+              : null;
             return JSON.stringify({
               produto: details.name,
               modelagem: details.fit,
@@ -407,12 +415,31 @@ export async function executeAssistantTool(
                   : "Modelagem regular veste no tamanho usual. Entre dois tamanhos compatíveis, use o menor para mais certinho e o maior para mais folgado.",
               instrucao:
                 "Use ESTAS medidas oficiais e recomende de forma direta. A largura é da peça deitada, de axila a axila, não o tórax do cliente. Entre dois tamanhos compatíveis, indique o menor para caimento mais certinho e o maior para mais folgado. Não peça medidas adicionais.",
+              recomendacao_deterministica: deterministic
+                ? {
+                    ...deterministic,
+                    regra:
+                      "Use exatamente o tamanho principal calculado. Não troque por outro tamanho na resposta.",
+                  }
+                : null,
             });
           }
         }
         const guide =
           args.modelagem === "regular" ? SIZE_GUIDE_REGULAR : SIZE_GUIDE_OVERSIZED;
-        return JSON.stringify(guide);
+        const deterministic = ctx.customerSizeProfile
+          ? recommendDeterministicSize(ctx.customerSizeProfile)
+          : null;
+        return JSON.stringify({
+          ...guide,
+          recomendacao_deterministica: deterministic
+            ? {
+                ...deterministic,
+                regra:
+                  "Use exatamente o tamanho principal calculado. Não troque por outro tamanho na resposta.",
+              }
+            : null,
+        });
       }
 
       case "informacoes_da_loja": {

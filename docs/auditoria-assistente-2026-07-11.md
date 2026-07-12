@@ -93,6 +93,8 @@ A receita direta soma apenas os itens correspondentes, líquida do desconto prop
 - recomendações de tamanho passam a ser diretas, sustentadas pela modelagem, tabela oficial e disponibilidade;
 - entre dois tamanhos compatíveis, o agente indica o menor para caimento mais certinho e o maior para mais folgado;
 - o cliente não precisa tirar medidas de outra peça;
+- na PDP, a escolha do tamanho é determinística: até 70 kg usa a faixa P/M; 71–85 kg, M/G; 86–100 kg, G/GG; acima de 100 kg, GG/XGG; altura pode elevar a faixa mínima para preservar comprimento;
+- o modelo apenas explica e vende a recomendação calculada; ele não pode escolher outro tamanho para o mesmo perfil;
 - “cm de tórax” é corrigido para largura da peça de axila a axila;
 - confirmação de sacola sem ação real é bloqueada;
 - argumentos de venda continuam persuasivos, mas alegações factuais de estoque, escassez ou popularidade sem dado são reescritas;
