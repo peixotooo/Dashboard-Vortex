@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase-admin";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { workspaceId } = await getWorkspaceContext(request);
@@ -22,7 +22,7 @@ export async function GET(
     if (error || !dispatch)
       return NextResponse.json(
         { error: "Dispatch not found" },
-        { status: 404 }
+        { status: 404 },
       );
 
     const { data: messages } = await admin
@@ -47,7 +47,7 @@ export async function GET(
 //   - scheduled/queued → vira scheduled, scheduled_at obrigatorio no futuro
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { workspaceId } = await getWorkspaceContext(request);
@@ -58,7 +58,7 @@ export async function PATCH(
 
     const { data: dispatch } = await admin
       .from("wapi_group_dispatches")
-      .select("id, status")
+      .select("id, status, message_type, payload")
       .eq("id", id)
       .eq("workspace_id", workspaceId)
       .single();
@@ -66,7 +66,7 @@ export async function PATCH(
     if (!dispatch)
       return NextResponse.json(
         { error: "Dispatch nao encontrado" },
-        { status: 404 }
+        { status: 404 },
       );
 
     const editableStatuses = ["draft", "scheduled", "queued"];
@@ -75,7 +75,7 @@ export async function PATCH(
         {
           error: `Disparo com status "${dispatch.status}" nao pode ser editado.`,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -84,6 +84,30 @@ export async function PATCH(
     if (typeof body.content === "string") {
       // string vazia limpa o conteudo (so faz sentido se tiver media)
       updates.content = body.content;
+      if (
+        dispatch.payload &&
+        typeof dispatch.payload === "object" &&
+        !Array.isArray(dispatch.payload) &&
+        Object.keys(dispatch.payload).length > 0
+      ) {
+        const payload = { ...dispatch.payload } as Record<string, unknown>;
+        const messageTypes = [
+          "text",
+          "button_actions",
+          "buttons",
+          "otp",
+          "carousel",
+          "poll",
+        ];
+        const captionTypes = ["image", "video", "document", "gif"];
+        if (messageTypes.includes(dispatch.message_type)) {
+          payload.message = body.content;
+          updates.payload = payload;
+        } else if (captionTypes.includes(dispatch.message_type)) {
+          payload.caption = body.content;
+          updates.payload = payload;
+        }
+      }
     }
     if (typeof body.media_url === "string") {
       updates.media_url = body.media_url || null;
@@ -106,13 +130,13 @@ export async function PATCH(
           (g): g is { jid: string; name?: string } =>
             typeof g === "object" &&
             g !== null &&
-            typeof (g as { jid?: unknown }).jid === "string"
+            typeof (g as { jid?: unknown }).jid === "string",
         )
         .map((g) => ({ jid: g.jid, name: g.name || null }));
       if (sanitized.length === 0) {
         return NextResponse.json(
           { error: "Selecione pelo menos um grupo." },
-          { status: 400 }
+          { status: 400 },
         );
       }
       updates.target_groups = sanitized;
@@ -125,7 +149,7 @@ export async function PATCH(
         if (dispatch.status !== "draft") {
           return NextResponse.json(
             { error: "So rascunhos podem ficar sem data prevista." },
-            { status: 400 }
+            { status: 400 },
           );
         }
         updates.scheduled_at = null;
@@ -134,13 +158,13 @@ export async function PATCH(
         if (Number.isNaN(when.getTime())) {
           return NextResponse.json(
             { error: "scheduled_at invalido" },
-            { status: 400 }
+            { status: 400 },
           );
         }
         if (dispatch.status !== "draft" && when.getTime() <= Date.now()) {
           return NextResponse.json(
             { error: "scheduled_at deve ser no futuro." },
-            { status: 400 }
+            { status: 400 },
           );
         }
         updates.scheduled_at = when.toISOString();
@@ -151,13 +175,16 @@ export async function PATCH(
       } else {
         return NextResponse.json(
           { error: "scheduled_at invalido" },
-          { status: 400 }
+          { status: 400 },
         );
       }
     }
 
     if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "Nada pra atualizar." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Nada pra atualizar." },
+        { status: 400 },
+      );
     }
 
     const { data: updated, error: upErr } = await admin
@@ -182,7 +209,7 @@ export async function PATCH(
 // como cancelled (soft delete pra preservar historico).
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { workspaceId } = await getWorkspaceContext(request);
@@ -202,7 +229,7 @@ export async function DELETE(
     if (!dispatch)
       return NextResponse.json(
         { error: "Dispatch nao encontrado" },
-        { status: 404 }
+        { status: 404 },
       );
 
     if (hard) {
@@ -212,13 +239,13 @@ export async function DELETE(
           {
             error: `Disparo com status "${dispatch.status}" nao pode ser excluido — so cancelar.`,
           },
-          { status: 400 }
+          { status: 400 },
         );
       }
       if ((dispatch.sent_count || 0) > 0) {
         return NextResponse.json(
           { error: "Disparo ja enviou mensagens — nao pode ser excluido." },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -237,7 +264,7 @@ export async function DELETE(
     if (dispatch.status !== "scheduled" && dispatch.status !== "draft") {
       return NextResponse.json(
         { error: "So agendamentos/rascunhos podem ser cancelados" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
