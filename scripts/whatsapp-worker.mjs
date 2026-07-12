@@ -237,6 +237,19 @@ const maintenanceJobs = [
     nextRunAt: 0,
     running: false,
   },
+  // Opt-in: sync de estoque Eccosys → Medusa (loja nova). O worker de producao
+  // so passa a chamar quando WA_WORKER_MEDUSA_STOCK_SYNC_ENABLED=1 for setado.
+  ...(env("WA_WORKER_MEDUSA_STOCK_SYNC_ENABLED") === "1"
+    ? [
+        {
+          name: "medusa-stock-sync",
+          path: "/api/cron/medusa-stock-sync",
+          intervalMs: numberEnv("WA_WORKER_MEDUSA_STOCK_SYNC_INTERVAL_MS", 60 * 60 * 1000),
+          nextRunAt: 0,
+          running: false,
+        },
+      ]
+    : []),
 ];
 
 process.on("SIGINT", () => {
