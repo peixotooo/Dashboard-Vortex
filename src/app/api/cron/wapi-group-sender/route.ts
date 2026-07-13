@@ -4,8 +4,6 @@ import {
   getWapiConfig,
   sendWapiMessage,
   checkInstanceHealth,
-  getWapiQueueSize,
-  restartInstance,
 } from "@/lib/wapi-api";
 import {
   isWapiMessageType,
@@ -112,47 +110,11 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // A sessao W-API pode continuar enviando textos, mas engolir enquetes
-      // sem erro ate ser reiniciada. Atualizamos a sessao imediatamente antes
-      // de cada dispatch de enquete. A fila interna precisa estar vazia para o
-      // restart nunca liberar mensagens antigas por acidente.
-      let health: Awaited<ReturnType<typeof checkInstanceHealth>>;
-      if (dispatch.message_type === "poll") {
-        try {
-          const pendingMessages = await getWapiQueueSize(config);
-          if (pendingMessages > 0) {
-            console.warn(
-              `[WAPI Group Sender] Poll ${dispatch.id} aguardando: ${pendingMessages} mensagem(ns) ainda na fila interna da W-API.`,
-            );
-            continue;
-          }
-
-          const restart = await restartInstance(config);
-          if (restart.error) {
-            console.warn(
-              `[WAPI Group Sender] Nao foi possivel reiniciar a sessao antes da enquete ${dispatch.id}: ${restart.message || "erro desconhecido"}`,
-            );
-            continue;
-          }
-
-          health = { healthy: false, reason: "Sessao ainda reiniciando." };
-          for (let attempt = 0; attempt < 6; attempt++) {
-            await sleep(2_500);
-            health = await checkInstanceHealth(config);
-            if (health.healthy) break;
-          }
-        } catch (error) {
-          console.warn(
-            `[WAPI Group Sender] Falha ao preparar sessao para enquete ${dispatch.id}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          continue;
-        }
-      } else {
-        // Pre-flight: only flip to "sending" once we know the session is
-        // genuinely usable. If the W-API instance is half-broken, dispatching
-        // would silently queue messages on their side and burst on reconnect.
-        health = await checkInstanceHealth(config);
-      }
+      // Pre-flight: only flip to "sending" once we know the session is
+      // genuinely usable. Never restart the instance automatically: the
+      // restart endpoint can invalidate the WhatsApp pairing and require a
+      // fresh QR Code scan.
+      const health = await checkInstanceHealth(config);
 
       // We leave the dispatch in its current status (queued/scheduled) so the
       // next worker tick retries automatically once the session recovers.

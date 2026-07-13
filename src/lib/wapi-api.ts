@@ -616,45 +616,6 @@ export async function restartInstance(
 }
 
 /**
- * Quantidade de mensagens ainda pendentes na fila interna da W-API.
- * A rota responde 404 quando a fila esta vazia, por isso esse caso equivale a
- * zero em vez de erro. Usamos a consulta antes de reiniciar uma sessao para
- * nunca liberar acidentalmente mensagens antigas que ainda estejam pendentes.
- */
-export async function getWapiQueueSize(config: WapiConfig): Promise<number> {
-  const params = new URLSearchParams({
-    instanceId: config.instanceId,
-    perPage: "1",
-    page: "1",
-  });
-  const url = `https://api.w-api.app/v1/quere/quere?${params.toString()}`;
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${config.token}` },
-    cache: "no-store",
-  });
-  const text = await response.text().catch(() => "");
-  const safeText = text.replaceAll(config.token, "[redacted]");
-
-  if (response.status === 404 && /n[aã]o h[aá] mensagens na fila/i.test(text)) {
-    return 0;
-  }
-  if (!response.ok) {
-    throw new Error(`W-API ${response.status}: ${safeText.slice(0, 300)}`);
-  }
-
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new Error("W-API retornou uma resposta invalida ao consultar a fila.");
-  }
-  if (!isRecord(body)) return 0;
-  const total = toFiniteNumber(body.totalMessages);
-  if (total != null) return Math.max(0, Math.floor(total));
-  return Array.isArray(body.messages) ? body.messages.length : 0;
-}
-
-/**
  * Pre-flight health check before dispatching messages.
  *
  * The W-API session can be in a half-broken state where
