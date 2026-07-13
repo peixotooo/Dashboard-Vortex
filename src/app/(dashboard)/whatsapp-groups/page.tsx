@@ -2189,6 +2189,8 @@ export default function WhatsAppGroupsPage() {
                       ? "border-muted-foreground/30"
                       : sendResult.status === "scheduled"
                         ? "border-blue-500/30"
+                        : sendResult.status === "queued"
+                          ? "border-amber-500/30"
                         : sendResult.failed === 0
                           ? "border-emerald-500/30"
                           : "border-amber-500/30"
@@ -2200,6 +2202,8 @@ export default function WhatsAppGroupsPage() {
                         <FileEdit className="h-5 w-5 text-muted-foreground" />
                       ) : sendResult.status === "scheduled" ? (
                         <Clock className="h-5 w-5 text-blue-500" />
+                      ) : sendResult.status === "queued" ? (
+                        <Clock className="h-5 w-5 text-amber-500" />
                       ) : sendResult.failed === 0 ? (
                         <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                       ) : (
@@ -2209,6 +2213,8 @@ export default function WhatsAppGroupsPage() {
                         ? "Rascunho salvo"
                         : sendResult.status === "scheduled"
                           ? "Envio Agendado"
+                          : sendResult.status === "queued"
+                            ? "Mensagem na fila"
                           : "Resultado do Envio"}
                     </CardTitle>
                   </CardHeader>
@@ -2253,6 +2259,18 @@ export default function WhatsAppGroupsPage() {
                         <p className="text-xs text-muted-foreground mt-1">
                           Sera enviada para {sendResult.total} grupo(s). Veja o
                           status na aba Historico.
+                        </p>
+                      </div>
+                    ) : sendResult.status === "queued" ? (
+                      <div className="text-sm">
+                        <p>
+                          Mensagem enfileirada para {sendResult.total} grupo(s).
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          O worker ainda vai processar o envio. A confirmacao
+                          real aparece na aba <strong>Historico</strong>; este
+                          aviso nao significa que a mensagem ja chegou ao
+                          WhatsApp.
                         </p>
                       </div>
                     ) : (
