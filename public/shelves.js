@@ -1988,6 +1988,7 @@
         ".vnda-cart-drawer .cart-drawer-installments," +
         ".vnda-cart-drawer [class*='cart-drawer-installments']," +
         "body.vtx-cart-installment-hider-page .summary-total .installments," +
+        "body.vtx-cart-installment-hider-page #wrapper .swipable-element .tw-items-end > .tw-text-xs," +
         "body.vtx-cart-installment-hider-page .cta-section [data-vtx-hide-cart-installments='1']," +
         "body.vtx-cart-installment-hider-page [data-vtx-hide-cart-installments='1']{" +
           "display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;" +
