@@ -299,6 +299,16 @@ Hoje são DOIS trilhos: pixel nativo VNDA (browser fbq + CAPI da VNDA → pixel 
 - Hardening de servidor, Postgres/Redis privados, TLS, patches e escala são responsabilidade do Cloud — todo o checklist de droplet sai do escopo (fica no Apêndice B para o exit futuro).
 - O que continua NOSSO: Cloudflare na frente dos domínios custom (WAF managed rules, rate-limit em checkout/auth, DNS), `JWT_SECRET`/`COOKIE_SECRET` fortes (v2.16+ exige explícitos), CORS restrito.
 - Secrets: env vars no painel/CLI do Cloud, marcadas como sensitive; NUNCA no repo. Tokens de terceiros (MP, Frenet, Eccosys) idem.
+
+**Checklist de hardening de segredos (go-live):**
+1. **2FA obrigatório** na conta Medusa Cloud e no GitHub (push na branch rastreada = deploy ⇒ o GitHub é perímetro).
+2. **Branch protection** na branch de produção (PR + review) — dependência npm/PR malicioso lendo `process.env` é o vetor realista.
+3. **Menor privilégio por chave**: admin API key dedicada (não conta super-admin), token MP escopado, Eccosys idem. Vazou uma → estrago contido.
+4. **Prefixo `NEXT_PUBLIC_` = público no bundle do browser.** Só para o que é público por natureza (MP public key, shelf key `pk_`). `MERCADOPAGO_ACCESS_TOKEN`/`ECCOSYS_API_TOKEN`/`JWT_SECRET`/admin keys JAMAIS com esse prefixo.
+5. **Rotação como procedimento** (não como susto): trocar chave = `mcloud variables set` + redeploy; manter lista de onde cada chave vive. O token Eccosys já foi revogado uma vez nesta migração — normalizar isso.
+6. **Chaves por ambiente**: produção ≠ staging ≠ preview ≠ local. TEST- no staging; APP_USR- só em produção, colado pelo dono no painel.
+7. **Segredos temporários morrem**: `BOOTSTRAP_SECRET`/`BOOTSTRAP_ADMIN_*` removidos após a carga inicial.
+8. O maior valor = access token do MP (fraude): server-side only, rotacionável, restrição por IP se o MP suportar.
 - **Acesso ao Cloud é o novo perímetro:** a conta Medusa Cloud (e o GitHub do repo, que agora FAZ deploy em produção via push na main) viram alvos críticos — 2FA obrigatório nos dois, branch protection na `main` (PR + review), mínimo de membros na org.
 
 **Admin Medusa:**
