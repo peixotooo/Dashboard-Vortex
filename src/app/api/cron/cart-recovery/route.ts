@@ -6,6 +6,15 @@ import {
 } from "@/lib/cart-recovery/dispatch";
 import { enrichCart } from "@/lib/cart-recovery/enrich";
 import { ensureRecoveryCoupon } from "@/lib/cart-recovery/coupons";
+import {
+  deleteCartRecoveryMessageReservation,
+  finalizeCartRecoveryMessage,
+  reserveCartRecoveryMessage,
+} from "@/lib/cart-recovery/message-log";
+import {
+  loadPilotLegacyBlockKeys,
+  processPilotActionQueue,
+} from "@/lib/cart-recovery/pilot-service";
 import type { CartRecoveryStep } from "@/lib/cart-recovery/types";
 
 export const maxDuration = 300;
@@ -104,6 +113,13 @@ export async function GET(request: NextRequest) {
 
     let totalDispatched = 0;
     let totalExpired = 0;
+    const pilotQueueSummary = {
+      due: 0,
+      sent: 0,
+      retried: 0,
+      failed: 0,
+      canceled: 0,
+    };
 
     for (const rule of rules) {
       const workspaceId = rule.workspace_id as string;
@@ -112,6 +128,24 @@ export async function GET(request: NextRequest) {
         .sort((a, b) => a.step_order - b.step_order);
 
       if (steps.length === 0) continue;
+
+      try {
+        const processedPilot = await processPilotActionQueue({
+          admin,
+          workspaceId,
+          limit: 20,
+        });
+        for (const key of Object.keys(pilotQueueSummary) as Array<
+          keyof typeof pilotQueueSummary
+        >) {
+          pilotQueueSummary[key] += processedPilot[key];
+        }
+      } catch (pilotError) {
+        console.error(
+          "[Cart Recovery Pilot] Queue processing failed:",
+          pilotError instanceof Error ? pilotError.message : pilotError,
+        );
+      }
 
       // 2. Carts abertos.
       const { data: carts } = await admin
@@ -148,6 +182,23 @@ export async function GET(request: NextRequest) {
       ) as CartRow[];
 
       if (activeCarts.length === 0) continue;
+
+      let pilotLegacyBlockKeys: Set<string>;
+      try {
+        pilotLegacyBlockKeys = await loadPilotLegacyBlockKeys({
+          admin,
+          workspaceId,
+          cartIds: activeCarts.map((cart) => cart.id),
+        });
+      } catch (pilotError) {
+        // Sem confirmar as travas da fila, adiamos este workspace para não
+        // correr o risco de enviar o contato inteligente e o tradicional.
+        console.error(
+          "[Cart Recovery Pilot] Could not load deduplication locks:",
+          pilotError instanceof Error ? pilotError.message : pilotError,
+        );
+        continue;
+      }
 
       // 4. Pré-carrega cart_recovery_messages do workspace pra evitar
       //    N queries no loop. Indexa por `${cart_id}:${step_id}:${channel}`.
@@ -233,6 +284,11 @@ export async function GET(request: NextRequest) {
         };
 
         for (const step of steps) {
+          // No piloto, a fila inteligente substitui o primeiro contato por
+          // um único canal/horário. Enquanto ela estiver programada,
+          // processando ou enviada, a régua tradicional não compete com ela.
+          if (pilotLegacyBlockKeys.has(`${cart.id}:${step.id}`)) continue;
+
           const fireAt = abandonedAt + step.delay_minutes * 60 * 1000;
           if (fireAt > now.getTime()) continue;
 
@@ -265,7 +321,7 @@ export async function GET(request: NextRequest) {
             step.whatsapp_enabled &&
             !sent.has(`${cart.id}:${step.id}:whatsapp`)
           ) {
-            const reservation = await reserveMessageLog(admin, {
+            const reservation = await reserveCartRecoveryMessage(admin, {
               workspaceId,
               cartId: cart.id,
               stepId: step.id,
@@ -286,11 +342,15 @@ export async function GET(request: NextRequest) {
             // template_pending = Meta ainda revisando — NÃO logamos pra
             // poder retentar quando aprovar. Qualquer outro erro vira row.
             if (result.error === "template_pending") {
-              await deleteMessageLogReservation(admin, reservation.id);
+              await deleteCartRecoveryMessageReservation(
+                admin,
+                workspaceId,
+                reservation.id,
+              );
               continue;
             }
 
-            await finalizeMessageLog(admin, reservation.id, {
+            await finalizeCartRecoveryMessage(admin, workspaceId, reservation.id, {
               ok: result.ok,
               externalId: result.externalId,
               error: result.error,
@@ -302,11 +362,15 @@ export async function GET(request: NextRequest) {
             const key = `${cart.id}:${step.id}:whatsapp`;
             const existing = messageByKey.get(key);
             if (existing?.status === "skipped" && existing.error === "no_phone") {
-              await deleteMessageLogReservation(admin, existing.id);
+              await deleteCartRecoveryMessageReservation(
+                admin,
+                workspaceId,
+                existing.id,
+              );
               sent.delete(key);
               messageByKey.delete(key);
 
-              const reservation = await reserveMessageLog(admin, {
+              const reservation = await reserveCartRecoveryMessage(admin, {
                 workspaceId,
                 cartId: cart.id,
                 stepId: step.id,
@@ -325,11 +389,15 @@ export async function GET(request: NextRequest) {
               });
 
               if (result.error === "template_pending") {
-                await deleteMessageLogReservation(admin, reservation.id);
+                await deleteCartRecoveryMessageReservation(
+                  admin,
+                  workspaceId,
+                  reservation.id,
+                );
                 continue;
               }
 
-              await finalizeMessageLog(admin, reservation.id, {
+              await finalizeCartRecoveryMessage(admin, workspaceId, reservation.id, {
                 ok: result.ok,
                 externalId: result.externalId,
                 error: result.error,
@@ -345,7 +413,7 @@ export async function GET(request: NextRequest) {
             step.email_enabled &&
             !sent.has(`${cart.id}:${step.id}:email`)
           ) {
-            const reservation = await reserveMessageLog(admin, {
+            const reservation = await reserveCartRecoveryMessage(admin, {
               workspaceId,
               cartId: cart.id,
               stepId: step.id,
@@ -362,7 +430,7 @@ export async function GET(request: NextRequest) {
               cart: { ...cartForVars, items: cartForVars.items as never },
               step,
             });
-            await finalizeMessageLog(admin, reservation.id, {
+            await finalizeCartRecoveryMessage(admin, workspaceId, reservation.id, {
               ok: result.ok,
               externalId: result.externalId,
               error: result.error,
@@ -378,6 +446,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       dispatched: totalDispatched,
       expired: totalExpired,
+      pilot_queue: pilotQueueSummary,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -452,85 +521,4 @@ function isRetryableEmailError(message: ExistingMessageRow) {
     ? 24 * 60 * 60 * 1000
     : 15 * 60 * 1000;
   return Number.isFinite(sentAt) && Date.now() - sentAt >= retryDelayMs;
-}
-
-async function reserveMessageLog(
-  admin: ReturnType<typeof createAdminClient>,
-  params: {
-    workspaceId: string;
-    cartId: string;
-    stepId: string;
-    channel: "whatsapp" | "email";
-  }
-) {
-  // Reserva antes do dispatch: o índice UNIQUE vira a trava contra dois
-  // crons criando campanhas/mensagens para o mesmo cart+step+canal.
-  const { data, error } = await admin
-    .from("cart_recovery_messages")
-    .insert({
-      workspace_id: params.workspaceId,
-      cart_id: params.cartId,
-      step_id: params.stepId,
-      channel: params.channel,
-      status: "sending",
-    })
-    .select("id")
-    .single();
-
-  if (error?.code === "23505") {
-    return { reserved: false, id: "" };
-  }
-  if (error || !data?.id) {
-    console.error(
-      `[Cart Recovery] Failed to reserve message for cart ${params.cartId}:`,
-      error?.message || "missing reservation id"
-    );
-    return { reserved: false, id: "" };
-  }
-
-  return { reserved: true, id: data.id as string };
-}
-
-async function deleteMessageLogReservation(
-  admin: ReturnType<typeof createAdminClient>,
-  id: string
-) {
-  await admin.from("cart_recovery_messages").delete().eq("id", id);
-}
-
-function finalMessageStatus(params: { ok: boolean; error?: string }) {
-  if (params.ok) return "sent";
-  return params.error === "no_phone" ||
-    params.error === "no_smtp_config" ||
-    params.error === "missing_email_content"
-    ? "skipped"
-    : "failed";
-}
-
-async function finalizeMessageLog(
-  admin: ReturnType<typeof createAdminClient>,
-  id: string,
-  params: {
-    ok: boolean;
-    externalId?: string;
-    error?: string;
-    renderedPayload?: Record<string, unknown>;
-  }
-) {
-  const { error } = await admin
-    .from("cart_recovery_messages")
-    .update({
-      status: finalMessageStatus(params),
-      external_id: params.externalId || null,
-      error: params.error || null,
-      rendered_payload: params.renderedPayload || null,
-    })
-    .eq("id", id);
-
-  if (error) {
-    console.error(
-      `[Cart Recovery] Failed to finalize message log ${id}:`,
-      error.message
-    );
-  }
 }
