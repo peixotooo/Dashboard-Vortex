@@ -12,6 +12,19 @@ import {
   buildFreeShippingMessage,
   freeShippingThresholdForRegion,
 } from "../src/lib/cart-recovery/location.ts";
+import {
+  cartRecoveryExperimentKey,
+  cartRecoveryPilotCohort,
+  compareRecoveryGroups,
+  evaluatePilotEligibility,
+  pilotQueueBlocksLegacy,
+} from "../src/lib/cart-recovery/pilot.ts";
+
+test("cada versão da régua recebe uma chave de experimento isolada", () => {
+  assert.equal(cartRecoveryExperimentKey(1), "cart-intelligence-pilot-v1");
+  assert.equal(cartRecoveryExperimentKey(7), "cart-intelligence-pilot-v7");
+  assert.notEqual(cartRecoveryExperimentKey(1), cartRecoveryExperimentKey(2));
+});
 
 const emptyCheckout: CheckoutJourneySignal = {
   sessionId: null,
@@ -230,4 +243,104 @@ test("política de frete usa o limite real de cada região", () => {
 test("humaniza palavras acentuadas sem criar maiúsculas no meio", () => {
   assert.equal(humanizeToken("não selecionado"), "Não Selecionado");
   assert.equal(humanizeToken("credit_card"), "Credit Card");
+});
+
+test("piloto distribui grupos de forma estável e próxima de 10/10/80", () => {
+  const groups = { control: 0, pilot: 0, baseline: 0 };
+  for (let index = 0; index < 10_000; index++) {
+    groups[
+      cartRecoveryPilotCohort({
+        cartId: `cart-${index}`,
+        holdoutPercentage: 10,
+        rolloutPercentage: 10,
+      })
+    ]++;
+  }
+  assert.ok(groups.control > 900 && groups.control < 1100);
+  assert.ok(groups.pilot > 900 && groups.pilot < 1100);
+  assert.ok(groups.baseline > 7800 && groups.baseline < 8200);
+  assert.equal(
+    cartRecoveryPilotCohort({
+      cartId: "cart-fixo",
+      holdoutPercentage: 10,
+      rolloutPercentage: 10,
+    }),
+    cartRecoveryPilotCohort({
+      cartId: "cart-fixo",
+      holdoutPercentage: 10,
+      rolloutPercentage: 10,
+    }),
+  );
+});
+
+test("piloto exige checkout vinculado, confiança e carrinho posterior à ativação", () => {
+  const decision = evaluateCartIntelligence(
+    input({
+      checkout: {
+        ...emptyCheckout,
+        linked: true,
+        sessionId: "checkout-pilot",
+        lastStep: "identification",
+        lastFieldKey: "email",
+        fieldsErrored: { email: 1 },
+      },
+      mode: "pilot",
+    }),
+  );
+  const eligible = evaluatePilotEligibility({
+    mode: "pilot",
+    ruleEnabled: true,
+    rolloutPercentage: 10,
+    holdoutPercentage: 10,
+    pilotStartedAt: "2026-07-17T12:00:00.000Z",
+    cartId: "cart-pilot-eligible",
+    cartStatus: "open",
+    cartStartedAt: "2026-07-17T12:01:00.000Z",
+    hasPhone: true,
+    step: { whatsapp_enabled: true, email_enabled: true },
+    decision,
+  });
+  assert.equal(eligible.eligible, true);
+  assert.equal(eligible.channel, "whatsapp");
+
+  const beforeStart = evaluatePilotEligibility({
+    mode: "pilot",
+    ruleEnabled: true,
+    rolloutPercentage: 10,
+    holdoutPercentage: 10,
+    pilotStartedAt: "2026-07-17T12:00:00.000Z",
+    cartId: "cart-before-pilot",
+    cartStatus: "open",
+    cartStartedAt: "2026-07-17T11:59:00.000Z",
+    hasPhone: true,
+    step: { whatsapp_enabled: true, email_enabled: true },
+    decision,
+  });
+  assert.equal(beforeStart.eligible, false);
+  assert.equal(beforeStart.reason, "before_pilot_start");
+});
+
+test("fila inteligente bloqueia duplicidade e libera fallback quando falha", () => {
+  assert.equal(pilotQueueBlocksLegacy("scheduled"), true);
+  assert.equal(pilotQueueBlocksLegacy("processing"), true);
+  assert.equal(pilotQueueBlocksLegacy("sent"), true);
+  assert.equal(pilotQueueBlocksLegacy("failed"), false);
+  assert.equal(pilotQueueBlocksLegacy("canceled"), false);
+});
+
+test("monitor só declara vencedor com amostra mínima e significância", () => {
+  const collecting = compareRecoveryGroups({
+    pilot: { sample: 30, recovered: 15, recoveredValue: 3000 },
+    control: { sample: 30, recovered: 9, recoveredValue: 1800 },
+  });
+  assert.equal(collecting.verdict, "collecting");
+  assert.equal(collecting.sampleReady, false);
+
+  const winner = compareRecoveryGroups({
+    pilot: { sample: 300, recovered: 150, recoveredValue: 30_000 },
+    control: { sample: 300, recovered: 105, recoveredValue: 21_000 },
+  });
+  assert.equal(winner.sampleReady, true);
+  assert.equal(winner.verdict, "winner");
+  assert.ok(winner.pValue < 0.05);
 });

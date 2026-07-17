@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { useWorkspace } from "@/lib/workspace-context";
 import { CartRecoveryJourneyWorkflow } from "@/components/cart-recovery/journey-workflow";
+import { CartRecoveryPilotMonitor } from "@/components/cart-recovery/pilot-monitor";
 import {
   ShoppingCart,
   Plus,
@@ -652,7 +653,10 @@ export default function CartRecoveryPage() {
 
         <TabsContent value="journey" className="space-y-4">
           {workspaceId ? (
-            <CartRecoveryJourneyWorkflow workspaceId={workspaceId} />
+            <>
+              <CartRecoveryPilotMonitor workspaceId={workspaceId} />
+              <CartRecoveryJourneyWorkflow workspaceId={workspaceId} />
+            </>
           ) : (
             <Card>
               <CardContent className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">

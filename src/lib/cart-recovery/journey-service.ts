@@ -10,6 +10,11 @@ import {
   FREE_SHIPPING_THRESHOLDS_BRL,
   freeShippingThresholdForRegion,
 } from "@/lib/cart-recovery/location";
+import { enqueuePilotActions } from "@/lib/cart-recovery/pilot-service";
+import {
+  cartRecoveryExperimentKey,
+  stableExperimentBucket,
+} from "@/lib/cart-recovery/pilot";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 type IntelligenceMode = "shadow" | "pilot" | "active";
@@ -90,6 +95,7 @@ type RuleRow = {
   free_shipping_threshold?: number;
   free_shipping_thresholds?: Record<string, number>;
   current_version?: number;
+  updated_at?: string;
 };
 
 type PersistedIntelligenceRow = {
@@ -196,6 +202,7 @@ export async function buildCartRecoveryJourneyPayload(input: {
       mode,
       strategy: strategyPayload(rule, []),
       summary: emptySummary(),
+      pilot: { eligible: 0, control: 0, pilot: 0, queued: 0 },
       journeys: [],
     };
   }
@@ -299,12 +306,21 @@ export async function buildCartRecoveryJourneyPayload(input: {
     };
   });
 
+  let pilot = { eligible: 0, control: 0, pilot: 0, queued: 0 };
   if (input.persist) {
     await persistJourneyState({
       admin,
       workspaceId,
       journeys,
       holdoutPercentage: Number(rule?.holdout_percentage || 10),
+      experimentKey: cartRecoveryExperimentKey(Number(rule?.current_version || 1)),
+    });
+    pilot = await enqueuePilotActions({
+      admin,
+      workspaceId,
+      rule,
+      steps: activeSteps,
+      journeys,
     });
   }
 
@@ -314,6 +330,7 @@ export async function buildCartRecoveryJourneyPayload(input: {
     source: "live_fallback",
     strategy: strategyPayload(rule, activeSteps),
     summary: summarizeJourneys(journeys),
+    pilot,
     journeys,
   };
 }
@@ -322,7 +339,7 @@ async function loadRule(admin: AdminClient, workspaceId: string): Promise<RuleRo
   const versioned = await admin
     .from("cart_recovery_rules")
     .select(
-      "id,enabled,expire_after_hours,intelligence_mode,rollout_percentage,holdout_percentage,free_shipping_threshold,free_shipping_thresholds,current_version"
+      "id,enabled,expire_after_hours,intelligence_mode,rollout_percentage,holdout_percentage,free_shipping_threshold,free_shipping_thresholds,current_version,updated_at"
     )
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -556,6 +573,7 @@ async function persistJourneyState(input: {
   workspaceId: string;
   journeys: JourneyResult[];
   holdoutPercentage: number;
+  experimentKey: string;
 }) {
   const { admin, workspaceId, journeys } = input;
   const now = new Date().toISOString();
@@ -588,13 +606,15 @@ async function persistJourneyState(input: {
     if (error) throw error;
   }
 
-  const experimentKey = "cart-intelligence-rules-v1";
   const holdout = Math.max(0, Math.min(50, input.holdoutPercentage));
   const assignments = journeys.map((journey) => ({
     cart_id: journey.cart.id,
     workspace_id: workspaceId,
-    experiment_key: experimentKey,
-    cohort: stableBucket(journey.cart.id) < holdout ? "control" : "treatment",
+    experiment_key: input.experimentKey,
+    cohort:
+      stableExperimentBucket(journey.cart.id) < holdout
+        ? "control"
+        : "treatment",
   }));
   if (assignments.length > 0) {
     const { error } = await admin
@@ -859,15 +879,6 @@ function emptySummary() {
     sent_messages: 0,
     reason_counts: {},
   };
-}
-
-function stableBucket(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index++) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash >>> 0) % 100;
 }
 
 function normalizeMode(value: unknown): IntelligenceMode {

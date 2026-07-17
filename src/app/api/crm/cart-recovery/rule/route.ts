@@ -122,6 +122,22 @@ export async function PUT(request: NextRequest) {
     }));
 
     const admin = createAdminClient();
+    const { data: currentRule, error: currentRuleError } = await admin
+      .from("cart_recovery_rules")
+      .select("intelligence_mode")
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (currentRuleError) throw currentRuleError;
+    if (currentRule?.intelligence_mode === "pilot") {
+      return NextResponse.json(
+        {
+          error:
+            "Pause o piloto inteligente antes de alterar a régua. Isso preserva uma comparação confiável entre piloto e controle.",
+        },
+        { status: 409 }
+      );
+    }
+
     const { data, error } = await admin.rpc(
       "save_cart_recovery_rule_version",
       {

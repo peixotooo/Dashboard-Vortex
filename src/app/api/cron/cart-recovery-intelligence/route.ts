@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     workspace_id: string;
     carts?: number;
     mode?: string;
+    pilot?: { eligible: number; control: number; pilot: number; queued: number };
     error?: string;
   }> = [];
 
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
         workspace_id: row.workspace_id,
         carts: payload.summary.carts,
         mode: payload.mode,
+        pilot: payload.pilot,
       });
     } catch (cause) {
       results.push({
