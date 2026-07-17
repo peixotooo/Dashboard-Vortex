@@ -11,7 +11,9 @@ const ACCOUNTS = [
   { id: "act_1234583478774369", label: "B7984", tokenEnv: "META_SRC_TOKEN" },
 ];
 
-const WARN_HOURS = Number(process.env.META_BALANCE_WARN_HOURS || 4);
+// Warn em 2,5h: acima do que um top-up de R$500 dura (~3,8h na BK), então uma
+// recarga pequena já limpa o limiar e não re-alerta em seguida.
+const WARN_HOURS = Number(process.env.META_BALANCE_WARN_HOURS || 2.5);
 const CRIT_HOURS = Number(process.env.META_BALANCE_CRIT_HOURS || 1);
 const PHONE = process.env.META_BALANCE_ALERT_PHONE || "5562985955001";
 // Template UTILITY oficial (Cloud API). Enviado do número dedicado da WABA — o
