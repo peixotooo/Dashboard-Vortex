@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { getAdAccountFunding, runWithToken } from "@/lib/meta-api";
-import { getWapiConfig, sendText } from "@/lib/wapi-api";
+import { getWaConfig, sendTemplateMessage } from "@/lib/whatsapp-api";
 
 export const maxDuration = 120;
 
@@ -14,10 +14,16 @@ const ACCOUNTS = [
 const WARN_HOURS = Number(process.env.META_BALANCE_WARN_HOURS || 4);
 const CRIT_HOURS = Number(process.env.META_BALANCE_CRIT_HOURS || 1);
 const PHONE = process.env.META_BALANCE_ALERT_PHONE || "5562985955001";
+// Template UTILITY oficial (Cloud API). Enviado do número dedicado da WABA — o
+// time que usa o número do W-API NÃO vê estas mensagens.
+const TEMPLATE = process.env.META_BALANCE_ALERT_TEMPLATE || "meta_saldo_baixo";
+const TEMPLATE_LANG = process.env.META_BALANCE_ALERT_TEMPLATE_LANG || "pt_BR";
 const RECHARGE_MARGIN_BRL = 50; // saldo subiu mais que isso entre checagens = recarga
 
 const brl = (n: number) => "R$" + Math.round(n).toLocaleString("pt-BR");
 const rank = (l: string) => (l === "critical" ? 2 : l === "warn" ? 1 : 0);
+const runwayText = (h: number) =>
+  h < 1 ? `~${Math.max(1, Math.round(h * 60))} min` : `~${h.toFixed(1)}h`;
 
 // Valor sugerido pra durar ~8h, arredondado pra R$500, teto R$1.000 (limite de recarga).
 function suggestTopup(dailyBurnBrl: number): number {
@@ -35,14 +41,16 @@ export async function GET(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Workspace com W-API conectado (de onde o alerta é enviado).
-  const { data: wc } = await admin
-    .from("wapi_config")
+  // Workspace com WhatsApp Cloud API (wa_config) configurado.
+  const { data: waRow } = await admin
+    .from("wa_config")
     .select("workspace_id")
-    .eq("connected", true)
+    .not("phone_number_id", "is", null)
     .limit(1)
     .maybeSingle();
-  const workspaceId = process.env.META_BALANCE_ALERT_WORKSPACE_ID || wc?.workspace_id;
+  const workspaceId =
+    process.env.META_BALANCE_ALERT_WORKSPACE_ID || waRow?.workspace_id;
+  const waConfig = workspaceId ? await getWaConfig(workspaceId) : null;
 
   const results: Record<string, unknown>[] = [];
 
@@ -78,19 +86,17 @@ export async function GET(request: NextRequest) {
       const shouldAlert = rank(level) > rank(lastLevel);
 
       let sent = false;
-      if (shouldAlert && workspaceId) {
-        const cfg = await getWapiConfig(workspaceId);
-        if (cfg) {
-          const runwayTxt =
-            f.runwayHours < 1
-              ? `~${Math.max(1, Math.round(f.runwayHours * 60))}min`
-              : `~${f.runwayHours.toFixed(1)}h`;
-          const msg =
-            level === "critical"
-              ? `🔴 ${acc.label} vai PARAR em ${runwayTxt}\nSaldo ${brl(f.availableBrl)} · queima ${brl(f.dailyBurnBrl)}/dia\nRecarrega AGORA (${brl(suggestTopup(f.dailyBurnBrl))}).`
-              : `⚠️ ${acc.label}: saldo baixo\n${brl(f.availableBrl)} · queima ${brl(f.dailyBurnBrl)}/dia · ${runwayTxt}\nRecarrega ~${brl(suggestTopup(f.dailyBurnBrl))} pra durar até a noite.`;
-          await sendText(cfg, PHONE, msg);
-          sent = true;
+      if (shouldAlert && waConfig) {
+        const r = await sendTemplateMessage(waConfig, PHONE, TEMPLATE, TEMPLATE_LANG, {
+          "1": acc.label,
+          "2": brl(f.availableBrl),
+          "3": runwayText(f.runwayHours),
+          "4": brl(f.dailyBurnBrl) + "/dia",
+          "5": brl(suggestTopup(f.dailyBurnBrl)),
+        });
+        sent = !r.error;
+        if (r.error) {
+          results.push({ account: acc.label, sendError: r.error });
         }
       }
 
