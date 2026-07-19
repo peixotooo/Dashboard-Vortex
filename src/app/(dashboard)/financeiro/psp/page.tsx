@@ -257,7 +257,9 @@ function ActionTable({
                       {action.made_to_order && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Sob demanda</Badge>}
                     </div>
                     <div className="mt-1 line-clamp-2 text-sm">{action.name}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">SKU {action.sku}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {action.kind === "map_base" ? "SKU da base ainda não definido" : `SKU ${action.sku}`}
+                    </div>
                   </div>
                 </div>
               </TableCell>
@@ -564,7 +566,8 @@ export default function PspPage() {
   const filteredActions = React.useMemo(() => {
     if (!data) return [];
     return data.actions.filter((action) => {
-      if (planFilter === "plan" && !action.selected) return false;
+      const isPlanBlocker = action.kind === "map_base" || action.kind === "verify_stock";
+      if (planFilter === "plan" && !action.selected && !isPlanBlocker) return false;
       if (planFilter === "outside" && (action.selected && action.selected_units >= action.recommended_units)) return false;
       if (!query) return true;
       return normalizeForSearch(`${action.name} ${action.sku} ${action.family} ${action.color} ${KIND_LABELS[action.kind]}`).includes(query);
