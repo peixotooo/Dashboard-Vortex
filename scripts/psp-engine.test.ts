@@ -129,6 +129,7 @@ test("blocks an on-demand preproduction plan until its blank base is mapped", ()
   assert.equal(baseAction.excluded_reason, "mapping");
   assert.equal(preproduction?.selected, false);
   assert.equal(preproduction?.excluded_reason, "mapping");
+  assert.ok(baseAction.rank < (preproduction?.rank ?? Number.POSITIVE_INFINITY));
 });
 
 test("keeps different blank-base SKUs separate even for the same family and color", () => {
