@@ -247,6 +247,19 @@ const maintenanceJobs = [
     nextRunAt: 0,
     running: false,
   },
+  // Opt-in: alerta de saldo pré-pago das contas de anúncio Meta (avisa no
+  // WhatsApp antes de esgotar). Só ativa com WA_WORKER_META_BALANCE_ALERT_ENABLED=1.
+  ...(env("WA_WORKER_META_BALANCE_ALERT_ENABLED") === "1"
+    ? [
+        {
+          name: "meta-balance-alert",
+          path: "/api/cron/meta-balance-alert",
+          intervalMs: numberEnv("WA_WORKER_META_BALANCE_INTERVAL_MS", 20 * 60 * 1000),
+          nextRunAt: 0,
+          running: false,
+        },
+      ]
+    : []),
 ];
 
 process.on("SIGINT", () => {
