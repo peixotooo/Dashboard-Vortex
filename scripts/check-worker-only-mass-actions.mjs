@@ -73,7 +73,9 @@ const rules = [
   {
     name: "Meta WhatsApp template send",
     pattern: /\bsendTemplateMessage\s*\(/,
-    allowed: [],
+    // This operational cron is bounded to one recipient and a short explicit
+    // account allowlist. It is not a customer campaign or a mass action.
+    allowed: [/^src\/app\/api\/cron\/meta-balance-alert\/route\.ts$/],
   },
   {
     name: "coupon lifecycle mass action",
