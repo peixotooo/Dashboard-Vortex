@@ -346,7 +346,7 @@ export const FEATURES: Feature[] = [
   {
     id: "financeiro",
     label: "Financeiro",
-    description: "Curva ABC, Lucratividade, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
+    description: "Curva ABC, Lucratividade, Producao, Simulador, Diagnostico, Escala, Config, Comercial e Pricing",
     routes: ["/financeiro", "/simulador", "/simulador-comercial", "/pricing"],
   },
   {
@@ -361,6 +361,13 @@ export const FEATURES: Feature[] = [
     label: "Lucratividade",
     description: "P&L por pedido (ordem desc por data)",
     routes: ["/financeiro/lucratividade"],
+    parent: "financeiro",
+  },
+  {
+    id: "financeiro.psp",
+    label: "Produção & Estoque",
+    description: "Planejamento de producao por giro, estoque, caixa e capacidade",
+    routes: ["/financeiro/psp"],
     parent: "financeiro",
   },
   {

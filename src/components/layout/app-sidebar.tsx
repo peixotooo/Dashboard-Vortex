@@ -54,6 +54,7 @@ import {
   Link2,
   Sparkles,
   Bot,
+  Factory,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -251,6 +252,11 @@ const navGroups: NavGroup[] = [
             title: "Lucratividade",
             href: "/financeiro/lucratividade",
             icon: ReceiptText,
+          },
+          {
+            title: "Produção & Estoque",
+            href: "/financeiro/psp",
+            icon: Factory,
           },
         ],
       },
