@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
 import { ml } from "@/lib/ml/client";
+import { persistPspInventorySnapshot } from "@/lib/psp/inventory";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
 export const maxDuration = 300;
@@ -122,6 +123,16 @@ export async function GET(request: NextRequest) {
             const pid = parseInt(es.idProduto);
             if (!isNaN(pid)) eccIdStockMap.set(pid, stock);
           }
+        }
+        try {
+          await persistPspInventorySnapshot(supabase, wsId, allStocks);
+        } catch (snapshotError) {
+          // A sincronizacao com ML nao pode parar caso a migration do PCP ainda
+          // nao tenha sido aplicada ou o snapshot esteja temporariamente fora.
+          const snapshotMessage =
+            snapshotError instanceof Error ? snapshotError.message : "erro desconhecido";
+          wsResult.error_details.push(`psp_snapshot_failed: ${snapshotMessage}`);
+          console.warn(`[sync-stock] PSP snapshot failed for ${wsId}: ${snapshotMessage}`);
         }
         wsResult.bulk_fetch = true;
         console.log(`[sync-stock] Bulk fetch OK: ${eccStockMap.size} SKUs para workspace ${wsId}`);
