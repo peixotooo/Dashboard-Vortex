@@ -187,18 +187,25 @@ export async function getAdAccountPixels(accountId: string): Promise<unknown> {
 export interface AdAccountFunding {
   accountId: string;
   name: string;
-  availableBrl: number; // saldo pré-pago disponível
-  dailyBurnBrl: number; // gasto médio/dia (últimos 7d)
-  runwayHours: number; // saldo ÷ (queima/24)
+  currency: "BRL";
+  accountStatus: number | null;
+  disableReason: number | null;
+  availableBrl: number;
+  dailyBurnBrl: number;
+  runwayHours: number;
 }
 
-function parseBrlDisplay(display: string | undefined): number | null {
+export function parseMetaAvailableBrl(display: string | undefined): number | null {
   if (!display) return null;
-  // ex.: "Saldo disponível (R$1.629,63 BRL)"
-  const m = display.match(/R\$\s*([\d.]*\d,\d{2})/);
+
+  // Meta currently exposes prepaid funds only in this localized display field.
+  // Accept regular and non-breaking spaces, for example:
+  // "Saldo disponivel (R$537,30 BRL)".
+  const normalized = display.replace(/[\u00a0\u202f]/g, " ");
+  const m = normalized.match(/R\$\s*([0-9][0-9.]*(?:,[0-9]{1,2})?)/i);
   if (!m) return null;
   const n = Number(m[1].replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /** Saldo pré-pago + queima 7d + runway (horas) de uma conta de anúncio. */
@@ -206,26 +213,58 @@ export async function getAdAccountFunding(
   accountId: string,
 ): Promise<AdAccountFunding> {
   const acct = (await graphRequest(`/${accountId}`, {
-    fields: "name,currency,spend_cap,amount_spent,funding_source_details",
+    fields:
+      "name,currency,account_status,disable_reason,is_prepay_account,funding_source_details",
   })) as {
     name?: string;
-    spend_cap?: string;
-    amount_spent?: string;
+    currency?: string;
+    account_status?: number;
+    disable_reason?: number;
+    is_prepay_account?: boolean;
     funding_source_details?: { display_string?: string };
   };
-  const fromDisplay = parseBrlDisplay(acct.funding_source_details?.display_string);
-  const fromCap =
-    acct.spend_cap && acct.amount_spent
-      ? (Number(acct.spend_cap) - Number(acct.amount_spent)) / 100
-      : null;
-  const availableBrl = fromDisplay ?? fromCap ?? 0;
+
+  if (acct.currency !== "BRL") {
+    throw new Error(
+      `Meta account ${accountId} uses unsupported currency ${acct.currency || "unknown"}`,
+    );
+  }
+  if (acct.is_prepay_account !== true) {
+    throw new Error(`Meta account ${accountId} is not a prepaid account`);
+  }
+
+  const availableBrl = parseMetaAvailableBrl(
+    acct.funding_source_details?.display_string,
+  );
+  if (availableBrl == null) {
+    throw new Error(
+      `Meta did not return a readable prepaid balance for account ${accountId}`,
+    );
+  }
 
   const ins = (await graphRequest(`/${accountId}/insights`, {
     date_preset: "last_7d",
-    fields: "spend",
-  })) as { data?: { spend?: string }[] };
-  const spend7 = Number(ins?.data?.[0]?.spend || 0);
-  const dailyBurnBrl = spend7 / 7;
+    fields: "spend,date_start,date_stop",
+  })) as {
+    data?: { spend?: string; date_start?: string; date_stop?: string }[];
+  };
+  const insight = ins.data?.[0];
+  const spend = Number(insight?.spend || 0);
+  if (!Number.isFinite(spend) || spend < 0) {
+    throw new Error(`Meta returned invalid spend for account ${accountId}`);
+  }
+
+  const start = insight?.date_start
+    ? Date.parse(`${insight.date_start}T00:00:00Z`)
+    : Number.NaN;
+  const stop = insight?.date_stop
+    ? Date.parse(`${insight.date_stop}T00:00:00Z`)
+    : Number.NaN;
+  const periodDays =
+    Number.isFinite(start) && Number.isFinite(stop) && stop >= start
+      ? Math.round((stop - start) / 86_400_000) + 1
+      : 7;
+  const dailyBurnBrl = spend / Math.max(1, periodDays);
   const runwayHours =
     dailyBurnBrl > 0
       ? availableBrl / (dailyBurnBrl / 24)
@@ -234,6 +273,9 @@ export async function getAdAccountFunding(
   return {
     accountId,
     name: acct.name || accountId,
+    currency: "BRL",
+    accountStatus: acct.account_status ?? null,
+    disableReason: acct.disable_reason ?? null,
     availableBrl,
     dailyBurnBrl,
     runwayHours,
