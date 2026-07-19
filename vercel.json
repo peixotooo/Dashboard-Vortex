@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/fin-receitas",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/meta-balance-alert",
+      "schedule": "*/20 * * * *"
     }
   ]
 }
