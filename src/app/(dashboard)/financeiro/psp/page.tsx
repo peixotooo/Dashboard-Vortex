@@ -442,7 +442,10 @@ export default function PspPage() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-      setNotice(`${formatNumber(body.count || 0)} SKUs atualizados no Eccosys.`);
+      const requests = Number(body.eccosysRequests) || 1;
+      setNotice(
+        `${formatNumber(body.count || 0)} SKUs atualizados em ${requests} leitura${requests === 1 ? "" : "s"} do Eccosys.`
+      );
       await load();
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : "Erro ao atualizar o Eccosys");

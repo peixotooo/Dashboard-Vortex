@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { eccosys } from "@/lib/eccosys/client";
+import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
 import type { EccosysEstoque } from "@/types/hub";
 import { evaluateSku, type EngineDecision, type EngineSnapshot } from "./engine";
 import { computeMargin } from "./composition";
@@ -80,7 +81,7 @@ export type OrchestratorOptions = {
   // Filtra SKUs específicos. Default: todos os ativos do workspace.
   skus?: string[];
   // Override de estoque (Map<sku, units>). Quando omitido, o orchestrator
-  // tenta carregar do Eccosys em massa via eccosys.listAll('/estoques'). Se
+  // tenta carregar do Eccosys em uma leitura via listStockBulk(). Se
   // o workspace não tem Eccosys configurado, assume 0 (engine vai retornar
   // 'hold' por falta de cobertura).
   stock?: StockMap;
@@ -336,20 +337,12 @@ async function loadStockFromEccosys(
 ): Promise<{ map: Map<string, number>; source: "eccosys" | "none" }> {
   const map = new Map<string, number>();
   try {
-    const all = await eccosys.listAll<EccosysEstoque>(
-      "/estoques",
-      workspaceId,
-      undefined,
-      100
-    );
+    const all = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
     for (const es of all) {
       if (!es.codigo) continue;
       // Eccosys pode retornar negativo quando estoque comprometido > físico.
       // Clamp em 0 — pricing trata isso como sem estoque.
-      const stock =
-        typeof es.estoqueDisponivel === "number" && !Number.isNaN(es.estoqueDisponivel)
-          ? Math.max(0, es.estoqueDisponivel)
-          : 0;
+      const stock = Math.max(0, normalizeEccosysStockQuantity(es.estoqueDisponivel));
       const base = baseSkuOf(String(es.codigo));
       map.set(base, (map.get(base) ?? 0) + stock);
     }

@@ -8,6 +8,7 @@
     "check:mass-actions": "node scripts/check-worker-only-mass-actions.mjs",
     "test:cart-recovery-intelligence": "node --experimental-strip-types --test scripts/cart-recovery-intelligence.test.ts",
     "test:meta-balance-alert": "node --experimental-strip-types --test scripts/meta-balance-alert.test.ts",
+    "test:eccosys-stock-bulk": "node --experimental-strip-types --test scripts/eccosys-stock-bulk.test.ts",
     "test:psp": "node --experimental-strip-types --test scripts/psp-engine.test.ts",
     "start": "next start",
     "lint": "next lint",

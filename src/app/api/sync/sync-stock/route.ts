@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
@@ -63,14 +64,9 @@ export async function POST(req: NextRequest) {
   const eccStockMap = new Map<string, number>();
   const eccIdStockMap = new Map<number, number>(); // ecc_id → stock (for multi-linked products)
   try {
-    const allStocks = await eccosys.listAll<EccosysEstoque>(
-      "/estoques",
-      workspaceId,
-      undefined,
-      100
-    );
+    const allStocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
     for (const es of allStocks) {
-      const stock = typeof es.estoqueDisponivel === "number" && !isNaN(es.estoqueDisponivel) ? es.estoqueDisponivel : 0;
+      const stock = normalizeEccosysStockQuantity(es.estoqueDisponivel);
       eccStockMap.set(es.codigo, stock);
       if (es.idProduto) {
         const pid = parseInt(es.idProduto);
@@ -94,16 +90,18 @@ export async function POST(req: NextRequest) {
       } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
         // Fallback: lookup by ecc_id (for products linked to same Eccosys item with ML SKU)
         newStock = eccIdStockMap.get(row.ecc_id)!;
-      } else {
+      } else if (!bulkFetch) {
         const estoque = await eccosys.get<EccosysEstoque>(
           `/estoques/${encodeURIComponent(row.sku)}`,
           workspaceId
         );
-        newStock = estoque.estoqueDisponivel;
+        newStock = normalizeEccosysStockQuantity(estoque.estoqueDisponivel);
+      } else {
+        throw new Error("SKU nao encontrado no snapshot em lote do Eccosys");
       }
 
       // Validate stock value
-      if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
+      newStock = normalizeEccosysStockQuantity(newStock);
 
       const desiredMlStock = newStock <= 0 ? 0 : newStock;
       const shouldPause = newStock <= 0 && !row.ml_variation_id;
