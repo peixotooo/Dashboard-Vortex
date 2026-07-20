@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
-import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
+import {
+  indexEccosysStocks,
+  normalizeEccosysStockQuantity,
+} from "@/lib/eccosys/stock";
 import { ml } from "@/lib/ml/client";
 import { persistPspInventorySnapshot } from "@/lib/psp/inventory";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
@@ -112,13 +115,12 @@ export async function GET(request: NextRequest) {
       const eccIdStockMap = new Map<number, number>(); // ecc_id → stock (for multi-linked products)
       try {
         const allStocks = await eccosys.listStockBulk<EccosysEstoque>(wsId);
-        for (const es of allStocks) {
-          const stock = normalizeEccosysStockQuantity(es.estoqueDisponivel);
-          eccStockMap.set(es.codigo, stock);
-          if (es.idProduto) {
-            const pid = parseInt(es.idProduto);
-            if (!isNaN(pid)) eccIdStockMap.set(pid, stock);
-          }
+        const indexedStocks = indexEccosysStocks(allStocks);
+        for (const [sku, stock] of indexedStocks.bySku) {
+          eccStockMap.set(sku, normalizeEccosysStockQuantity(stock.estoqueDisponivel));
+        }
+        for (const [productId, stock] of indexedStocks.byProductId) {
+          eccIdStockMap.set(productId, normalizeEccosysStockQuantity(stock.estoqueDisponivel));
         }
         try {
           await persistPspInventorySnapshot(supabase, wsId, allStocks);
@@ -144,11 +146,11 @@ export async function GET(request: NextRequest) {
         try {
           // --- Stock sync ---
           let newStock: number;
-          if (eccStockMap.has(row.sku)) {
-            newStock = eccStockMap.get(row.sku)!;
-          } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
-            // Fallback: lookup by ecc_id (for products linked to same Eccosys item with ML SKU)
+          if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
+            // Prefer the exact product link when Eccosys has duplicate SKU codes.
             newStock = eccIdStockMap.get(row.ecc_id)!;
+          } else if (eccStockMap.has(row.sku)) {
+            newStock = eccStockMap.get(row.sku)!;
           } else if (!wsResult.bulk_fetch) {
             // The individual fallback is reserved for a failed bulk request.
             const estoque = await eccosys.get<EccosysEstoque>(
