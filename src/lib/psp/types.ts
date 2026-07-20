@@ -207,6 +207,7 @@ export type PspPlan = {
     stock_match_pct: number;
     tracked_cost_pct: number;
     made_to_order_count: number;
+    made_to_order_registered_count: number;
     mapped_base_pct: number;
     warnings: string[];
   };

@@ -168,6 +168,17 @@ function actionTone(action: PspAction): string {
   return "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
 }
 
+function OnDemandBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="h-5 border-emerald-300 bg-emerald-50 px-1.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+    >
+      Sob demanda
+    </Badge>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -254,7 +265,7 @@ function ActionTable({
                       <Badge variant={action.abc_class === "A" ? "default" : action.abc_class === "B" ? "secondary" : "outline"} className="h-5 px-1.5 text-[10px]">
                         Curva {action.abc_class}
                       </Badge>
-                      {action.made_to_order && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Sob demanda</Badge>}
+                      {action.made_to_order && <OnDemandBadge />}
                     </div>
                     <div className="mt-1 line-clamp-2 text-sm">{action.name}</div>
                     <div className="mt-1 text-[11px] text-muted-foreground">
@@ -372,7 +383,7 @@ function ProductMonitorTable({ rows }: { rows: PspProductMonitorRow[] }) {
                 <div className="text-[11px] text-muted-foreground">{row.sku} · {FAMILY_LABELS[row.family]} · {row.color}</div>
               </TableCell>
               <TableCell><Badge variant={row.abc_class === "A" ? "default" : row.abc_class === "B" ? "secondary" : "outline"}>{row.abc_class}</Badge></TableCell>
-              <TableCell>{row.made_to_order ? "Sob demanda" : "Estoque físico"}</TableCell>
+              <TableCell>{row.made_to_order ? <OnDemandBadge /> : "Estoque físico"}</TableCell>
               <TableCell className="tabular-nums">{formatNumber(row.sold_7d)} / {formatNumber(row.sold_30d)}</TableCell>
               <TableCell>
                 <span className={row.growth_pct != null && row.growth_pct > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
@@ -488,7 +499,7 @@ export default function PspPage() {
       lead_time_days: action.kind === "preproduce" || action.kind === "produce" ? String(data?.settings.production_lead_days ?? "") : "",
       base_sku: action.base_sku ?? "",
       made_to_order: action.made_to_order,
-      made_to_order_override: "auto",
+      made_to_order_override: action.made_to_order ? "yes" : "auto",
     });
   };
 
@@ -718,7 +729,11 @@ export default function PspPage() {
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <div className="border border-border px-4 py-3"><div className="text-xs text-muted-foreground">Fonte do estoque</div><div className="mt-1 font-semibold">{data.data_quality.inventory_source === "eccosys" ? "Eccosys" : data.data_quality.inventory_source === "hub_fallback" ? "Hub deduplicado" : "Indisponível"}</div></div>
               <div className="border border-border px-4 py-3"><div className="text-xs text-muted-foreground">Idade do estoque</div><div className="mt-1 font-semibold">{data.data_quality.inventory_age_hours == null ? "—" : `${formatNumber(data.data_quality.inventory_age_hours, 1)} horas`}</div></div>
-              <div className="border border-border px-4 py-3"><div className="text-xs text-muted-foreground">Produtos sob demanda</div><div className="mt-1 font-semibold">{formatNumber(data.data_quality.made_to_order_count)}</div></div>
+              <div className="border border-border px-4 py-3">
+                <div className="text-xs text-muted-foreground">Produtos sob demanda</div>
+                <div className="mt-1 font-semibold">{formatNumber(data.data_quality.made_to_order_count)} com venda</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">{formatNumber(data.data_quality.made_to_order_registered_count)} cadastrados</div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
@@ -793,8 +808,8 @@ export default function PspPage() {
                   <Select value={productDraft.made_to_order_override} onValueChange={(value) => setProductDraft({ ...productDraft, made_to_order_override: value as ProductDraft["made_to_order_override"] })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Usar cadastro do Hub</SelectItem>
-                      <SelectItem value="yes">Sob demanda</SelectItem>
+                      <SelectItem value="auto">Usar classificação automática</SelectItem>
+                      <SelectItem value="yes" disabled={productDraft.family !== "camiseta" && productDraft.family !== "regata"}>Sob demanda</SelectItem>
                       <SelectItem value="no">Estoque físico</SelectItem>
                     </SelectContent>
                   </Select>
