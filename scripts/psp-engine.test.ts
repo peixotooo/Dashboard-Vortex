@@ -216,6 +216,14 @@ test("does not combine on-demand products whose names do not identify a color", 
   );
   assert.equal(unmappedBases.length, 2);
   assert.ok(unmappedBases.every((row) => row.allocations?.length === 1));
+  assert.deepEqual(
+    unmappedBases.map((row) => row.name).sort(),
+    [
+      "Base a definir · CAMISETA OVERSIZED CAOS",
+      "Base a definir · CAMISETA OVERSIZED METAL",
+    ]
+  );
+  assert.ok(unmappedBases.every((row) => row.reasons.includes("1 produto sob demanda depende desta base")));
   assert.ok(plan.data_quality.warnings.some((warning) => warning.includes("sem cor explícita")));
 });
 
