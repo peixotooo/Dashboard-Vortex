@@ -4,7 +4,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { requireAdmin } from "@/lib/pricing/supabase";
 import { fetchRecentCrmSalesWithItems } from "@/lib/pricing/crm-sales";
-import { buildPspPlan } from "@/lib/psp/engine";
+import { buildPspPlan, normalizePspColor } from "@/lib/psp/engine";
 import { parsePspSettings, PSP_DEFAULT_SETTINGS, PSP_FAMILIES } from "@/lib/psp/defaults";
 import { isMissingPspSchema } from "@/lib/psp/inventory";
 import type {
@@ -220,6 +220,7 @@ export async function PUT(request: NextRequest) {
       if (family && !PSP_FAMILIES.includes(family as (typeof PSP_FAMILIES)[number])) {
         return NextResponse.json({ error: "Família inválida" }, { status: 400 });
       }
+      const color = nullableText(body.color);
       const unitsPerRoll = nullableNumber(body.units_per_roll);
       const leadTimeDays = nullableNumber(body.lead_time_days);
       const madeToOrderOverride =
@@ -239,7 +240,7 @@ export async function PUT(request: NextRequest) {
             workspace_id: auth.workspaceId,
             sku,
             family,
-            color: nullableText(body.color)?.toLowerCase() ?? null,
+            color: color ? normalizePspColor(color) : null,
             units_per_roll:
               unitsPerRoll == null ? null : Math.max(1, Math.round(unitsPerRoll)),
             lead_time_days:
@@ -269,13 +270,14 @@ export async function PUT(request: NextRequest) {
       if (family && !PSP_FAMILIES.includes(family as (typeof PSP_FAMILIES)[number])) {
         return NextResponse.json({ error: "Família inválida" }, { status: 400 });
       }
+      const color = nullableText(body.color);
       const unitsPerRoll = nullableNumber(body.units_per_roll);
       const now = new Date().toISOString();
       const rows = skus.map((sku) => ({
         workspace_id: auth.workspaceId,
         sku,
         family,
-        color: nullableText(body.color)?.toLowerCase() ?? null,
+        color: color ? normalizePspColor(color) : null,
         units_per_roll:
           unitsPerRoll == null ? null : Math.max(1, Math.round(unitsPerRoll)),
         base_sku: nullableText(body.base_sku),
