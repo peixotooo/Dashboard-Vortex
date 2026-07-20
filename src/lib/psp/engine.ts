@@ -996,8 +996,11 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
     const recommended = rolls * unitsPerRoll;
     const baseCost = mappedSku ? costMap.get(mappedSku) ?? null : null;
     const priority = Math.min(100, Math.max(...children.map((child) => child.priority_score)) + 4);
+    const dependentProducts = children.length === 1
+      ? "1 produto sob demanda depende desta base"
+      : `${children.length} produtos sob demanda dependem desta base`;
     const reasons = [
-      `${children.length} produtos sob demanda dependem desta base`,
+      dependentProducts,
       `${requiredUnits} un. para cobrir a pré-produção recomendada`,
     ];
     if (!mappedSku) reasons.unshift("Vincule o SKU da base lisa para descontar o estoque real");
@@ -1009,7 +1012,10 @@ export function buildPspPlan(input: PspEngineInput): PspPlan {
       rank: 0,
       kind: mappedSku ? "prepare_base" : "map_base",
       sku: mappedSku ?? "",
-      name: `Base ${titleCase(family)} ${titleCase(color)}`,
+      name:
+        color === "sem cor" && children.length === 1
+          ? `Base a definir · ${children[0].name}`
+          : `Base ${titleCase(family)} ${titleCase(color)}`,
       family,
       color,
       abc_class: bestAbc(children.map((child) => child.abc_class)),

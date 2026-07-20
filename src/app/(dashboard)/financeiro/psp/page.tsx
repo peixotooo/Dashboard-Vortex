@@ -310,7 +310,9 @@ function ActionTable({
                 </div>
                 {gradeText(action) && <div className="mt-1 max-w-[270px] text-xs leading-5 text-muted-foreground">{gradeText(action)}</div>}
                 {action.allocations && action.allocations.length > 0 && (
-                  <div className="mt-1 text-[11px] text-muted-foreground">{action.allocations.length} estampas alocadas</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {action.allocations.length} {action.allocations.length === 1 ? "estampa alocada" : "estampas alocadas"}
+                  </div>
                 )}
               </TableCell>
               <TableCell className="pt-3">
