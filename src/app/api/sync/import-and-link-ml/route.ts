@@ -3,6 +3,7 @@ import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { ml } from "@/lib/ml/client";
 import { eccosys } from "@/lib/eccosys/client";
+import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
 import type { MLData, EccosysProduto, EccosysEstoque, HubProduct } from "@/types/hub";
 
 export const maxDuration = 300;
@@ -202,7 +203,9 @@ async function fetchEccosysFamily(
 
   if (!parent) return null;
 
-  const parentEstoque = parent._Estoque?.estoqueDisponivel ?? stockMap?.get(parent.codigo) ?? 0;
+  const parentEstoque = normalizeEccosysStockQuantity(
+    stockMap?.get(parent.codigo) ?? parent._Estoque?.estoqueDisponivel
+  );
   const childSkus = parent._Skus || [];
   const children: EccChild[] = [];
 
@@ -223,9 +226,9 @@ async function fetchEccosysFamily(
       if (!child?.codigo) continue;
 
       // Use bulk stock map first, then _Estoque, then skip individual fetch
-      const estoque = stockMap?.get(child.codigo)
-        ?? child._Estoque?.estoqueDisponivel
-        ?? 0;
+      const estoque = normalizeEccosysStockQuantity(
+        stockMap?.get(child.codigo) ?? child._Estoque?.estoqueDisponivel
+      );
 
       const atributos: Record<string, string> = {};
       if (Array.isArray(child._Atributos)) {
@@ -530,14 +533,9 @@ export async function POST(req: NextRequest) {
     );
 
     // Pre-fetch ALL stock in bulk (avoids per-child stock fetch in fetchEccosysFamily)
-    const allStocks = await eccosys.listAll<EccosysEstoque>(
-      "/estoques",
-      workspaceId,
-      undefined,
-      100
-    );
+    const allStocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
     for (const es of allStocks) {
-      eccStockMap.set(es.codigo, es.estoqueDisponivel);
+      eccStockMap.set(es.codigo, normalizeEccosysStockQuantity(es.estoqueDisponivel));
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";

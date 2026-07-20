@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
 import { ml } from "@/lib/ml/client";
 import { persistPspInventorySnapshot } from "@/lib/psp/inventory";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
@@ -110,14 +111,9 @@ export async function GET(request: NextRequest) {
       const eccStockMap = new Map<string, number>();
       const eccIdStockMap = new Map<number, number>(); // ecc_id → stock (for multi-linked products)
       try {
-        const allStocks = await eccosys.listAll<EccosysEstoque>(
-          "/estoques",
-          wsId,
-          undefined,
-          100
-        );
+        const allStocks = await eccosys.listStockBulk<EccosysEstoque>(wsId);
         for (const es of allStocks) {
-          const stock = typeof es.estoqueDisponivel === "number" && !isNaN(es.estoqueDisponivel) ? es.estoqueDisponivel : 0;
+          const stock = normalizeEccosysStockQuantity(es.estoqueDisponivel);
           eccStockMap.set(es.codigo, stock);
           if (es.idProduto) {
             const pid = parseInt(es.idProduto);
@@ -153,16 +149,18 @@ export async function GET(request: NextRequest) {
           } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
             // Fallback: lookup by ecc_id (for products linked to same Eccosys item with ML SKU)
             newStock = eccIdStockMap.get(row.ecc_id)!;
-          } else {
-            // Fallback: individual request if bulk didn't include this SKU
+          } else if (!wsResult.bulk_fetch) {
+            // The individual fallback is reserved for a failed bulk request.
             const estoque = await eccosys.get<EccosysEstoque>(
               `/estoques/${encodeURIComponent(row.sku)}`,
               wsId
             );
-            newStock = estoque.estoqueDisponivel;
+            newStock = normalizeEccosysStockQuantity(estoque.estoqueDisponivel);
+          } else {
+            throw new Error("SKU nao encontrado no snapshot em lote do Eccosys");
           }
           // Validate stock value
-          if (typeof newStock !== "number" || isNaN(newStock)) newStock = 0;
+          newStock = normalizeEccosysStockQuantity(newStock);
 
           // qty 0 for out-of-stock (both variations and standalone items)
           const desiredMlStock = newStock <= 0 ? 0 : newStock;

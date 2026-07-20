@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext, handleAuthError } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { eccosys } from "@/lib/eccosys/client";
+import { normalizeEccosysStockQuantity } from "@/lib/eccosys/stock";
 import { ml } from "@/lib/ml/client";
 import type { HubProduct, EccosysEstoque } from "@/types/hub";
 
@@ -49,14 +50,9 @@ export async function POST(req: NextRequest) {
   const eccStockMap = new Map<string, number>();
   const eccIdStockMap = new Map<number, number>();
   try {
-    const allStocks = await eccosys.listAll<EccosysEstoque>(
-      "/estoques",
-      workspaceId,
-      undefined,
-      100
-    );
+    const allStocks = await eccosys.listStockBulk<EccosysEstoque>(workspaceId);
     for (const es of allStocks) {
-      const stock = typeof es.estoqueDisponivel === "number" && !isNaN(es.estoqueDisponivel) ? es.estoqueDisponivel : 0;
+      const stock = normalizeEccosysStockQuantity(es.estoqueDisponivel);
       eccStockMap.set(es.codigo, stock);
       if (es.idProduto) {
         const pid = parseInt(es.idProduto);
@@ -95,20 +91,9 @@ export async function POST(req: NextRequest) {
         newStock = eccStockMap.get(row.sku)!;
       } else if (row.ecc_id && eccIdStockMap.has(row.ecc_id)) {
         newStock = eccIdStockMap.get(row.ecc_id)!;
-      } else {
-        // Individual fallback
-        try {
-          const est = await eccosys.get<EccosysEstoque>(
-            `/estoques/${encodeURIComponent(row.sku)}`,
-            workspaceId
-          );
-          newStock = est.estoqueDisponivel;
-        } catch {
-          newStock = undefined;
-        }
       }
 
-      if (newStock === undefined || isNaN(newStock)) {
+      if (newStock === undefined) {
         results.push({
           sku: row.sku,
           variation: row.ml_variation_id ? String(row.ml_variation_id) : null,
@@ -117,10 +102,12 @@ export async function POST(req: NextRequest) {
           old_ml: row.ml_estoque,
           new_ml: row.ml_estoque ?? 1,
           changed: false,
-          error: "Estoque nao encontrado no Eccosys",
+          error: "Estoque nao encontrado no snapshot em lote do Eccosys",
         });
         continue;
       }
+
+      newStock = normalizeEccosysStockQuantity(newStock);
 
       const desiredMlStock = newStock <= 0 ? 0 : newStock;
       const shouldPause = newStock <= 0 && !row.ml_variation_id;
